@@ -1,0 +1,258 @@
+{
+  "app": {
+    "name": "نظام وردة للتصنيع المتكامل",
+    "subtitle": "نظام إدارة الموارد المؤسسية المتطور",
+    "version": "2.0.0"
+  },
+  "navigation": {
+    "dashboard": "لوحة المعلومات",
+    "manufacturing": "التصنيع",
+    "inventory": "المخزون",
+    "purchasing": "المشتريات",
+    "sales": "المبيعات",
+    "reports": "التقارير",
+    "settings": "الإعدادات"
+  },
+  "common": {
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "edit": "تعديل",
+    "delete": "حذف",
+    "add": "إضافة",
+    "search": "بحث",
+    "filter": "تصفية",
+    "export": "تصدير",
+    "import": "استيراد",
+    "refresh": "تحديث",
+    "loading": "جارٍ التحميل...",
+    "error": "خطأ",
+    "success": "نجح",
+    "warning": "تحذير",
+    "info": "معلومات",
+    "confirm": "تأكيد",
+    "yes": "نعم",
+    "no": "لا",
+    "close": "إغلاق",
+    "back": "رجوع",
+    "next": "التالي",
+    "previous": "السابق",
+    "submit": "إرسال",
+    "reset": "إعادة تعيين",
+    "clear": "مسح",
+    "select": "اختيار",
+    "selectAll": "اختيار الكل",
+    "deselectAll": "إلغاء اختيار الكل",
+    "actions": "الإجراءات",
+    "status": "الحالة",
+    "active": "نشط",
+    "inactive": "غير نشط",
+    "enabled": "مفعل",
+    "disabled": "معطل",
+    "date": "التاريخ",
+    "time": "الوقت",
+    "name": "الاسم",
+    "code": "الكود",
+    "description": "الوصف",
+    "quantity": "الكمية",
+    "price": "السعر",
+    "amount": "المبلغ",
+    "total": "الإجمالي",
+    "currency": "ريال"
+  },
+  "manufacturing": {
+    "title": "إدارة التصنيع",
+    "overview": "نظرة عامة",
+    "workCenters": "مراكز العمل",
+    "processCosting": "تكاليف المراحل",
+    "boms": "قوائم المواد",
+    "manufacturingOrders": "أوامر التصنيع",
+    "production": "متابعة الإنتاج",
+    "stages": {
+      "title": "مراحل التصنيع",
+      "stageNumber": "رقم المرحلة",
+      "workCenter": "مركز العمل",
+      "inputQuantity": "الكمية المدخلة",
+      "goodQuantity": "الكمية الجيدة",
+      "scrapQuantity": "كمية التالف",
+      "directMaterials": "المواد المباشرة",
+      "directLabor": "العمالة المباشرة",
+      "manufacturingOverhead": "الأوفرهيد التصنيعي",
+      "transferredIn": "المحول من المرحلة السابقة",
+      "totalCost": "إجمالي التكلفة",
+      "unitCost": "تكلفة الوحدة"
+    },
+    "workCenter": {
+      "name": "اسم مركز العمل",
+      "code": "كود مركز العمل",
+      "sequence": "التسلسل",
+      "costBase": "أساس التكلفة",
+      "defaultRate": "المعدل الافتراضي",
+      "laborHours": "ساعات عمالة",
+      "machineHours": "ساعات آلة"
+    },
+    "manufacturingOrder": {
+      "number": "رقم الأمر",
+      "product": "المنتج",
+      "quantityToProduce": "الكمية المطلوبة",
+      "quantityProduced": "الكمية المنتجة",
+      "plannedStart": "تاريخ البدء المخطط",
+      "actualStart": "تاريخ البدء الفعلي",
+      "plannedEnd": "تاريخ الانتهاء المخطط",
+      "actualEnd": "تاريخ الانتهاء الفعلي",
+      "status": {
+        "draft": "مسودة",
+        "confirmed": "مؤكد",
+        "inProgress": "قيد التنفيذ",
+        "completed": "مكتمل",
+        "cancelled": "ملغى"
+      }
+    }
+  },
+  "inventory": {
+    "title": "إدارة المخزون",
+    "items": "الأصناف",
+    "stockMoves": "حركات المخزون",
+    "locations": "المواقع",
+    "adjustments": "التسويات",
+    "item": {
+      "code": "كود الصنف",
+      "name": "اسم الصنف",
+      "category": "الفئة",
+      "uom": "وحدة القياس",
+      "currentStock": "المخزون الحالي",
+      "averageCost": "متوسط التكلفة",
+      "totalValue": "القيمة الإجمالية",
+      "isStockable": "قابل للتخزين",
+      "isFinished": "منتج تام",
+      "isRaw": "مادة خام"
+    }
+  },
+  "purchasing": {
+    "title": "إدارة المشتريات",
+    "suppliers": "الموردون",
+    "purchaseOrders": "أوامر الشراء",
+    "receipts": "استلام البضائع",
+    "supplier": {
+      "name": "اسم المورد",
+      "contactPerson": "شخص الاتصال",
+      "phone": "الهاتف",
+      "email": "البريد الإلكتروني",
+      "city": "المدينة",
+      "creditLimit": "الحد الائتماني"
+    },
+    "purchaseOrder": {
+      "number": "رقم أمر الشراء",
+      "supplier": "المورد",
+      "orderDate": "تاريخ الطلب",
+      "deliveryDate": "تاريخ التسليم",
+      "totalAmount": "المبلغ الإجمالي",
+      "status": {
+        "draft": "مسودة",
+        "confirmed": "مؤكد",
+        "received": "مستلم",
+        "cancelled": "ملغى"
+      }
+    }
+  },
+  "sales": {
+    "title": "إدارة المبيعات",
+    "customers": "العملاء",
+    "invoices": "الفواتير",
+    "delivery": "التسليم",
+    "customer": {
+      "name": "اسم العميل",
+      "contactPerson": "شخص الاتصال",
+      "phone": "الهاتف",
+      "email": "البريد الإلكتروني",
+      "creditLimit": "الحد الائتماني",
+      "currentBalance": "الرصيد الحالي"
+    },
+    "invoice": {
+      "number": "رقم الفاتورة",
+      "customer": "العميل",
+      "invoiceDate": "تاريخ الفاتورة",
+      "dueDate": "تاريخ الاستحقاق",
+      "totalAmount": "المبلغ الإجمالي",
+      "totalCost": "إجمالي التكلفة",
+      "grossProfit": "إجمالي الربح",
+      "status": {
+        "draft": "مسودة",
+        "sent": "مرسلة",
+        "paid": "مدفوعة",
+        "overdue": "متأخرة",
+        "cancelled": "ملغاة"
+      }
+    }
+  },
+  "reports": {
+    "title": "التقارير والتحليلات",
+    "inventoryValuation": "تقييم المخزون",
+    "kardex": "كارتكس الأصناف",
+    "manufacturingCosts": "تكاليف التصنيع",
+    "processAnalysis": "تحليل المراحل",
+    "profitability": "تحليل الربحية",
+    "dashboard": "لوحة المعلومات"
+  },
+  "settings": {
+    "title": "الإعدادات",
+    "system": "إعدادات النظام",
+    "users": "المستخدمون",
+    "permissions": "الصلاحيات",
+    "company": "بيانات الشركة",
+    "integrations": "التكاملات",
+    "backup": "النسخ الاحتياطي"
+  },
+  "dashboard": {
+    "title": "لوحة المعلومات",
+    "overview": "نظرة عامة",
+    "kpis": "المؤشرات الرئيسية",
+    "recentActivities": "النشاطات الأخيرة",
+    "quickActions": "الإجراءات السريعة",
+    "metrics": {
+      "totalInventoryValue": "إجمالي قيمة المخزون",
+      "totalSales": "إجمالي المبيعات",
+      "totalProductionCost": "إجمالي تكلفة الإنتاج",
+      "grossProfitMargin": "هامش الربح الإجمالي",
+      "inventoryTurnover": "معدل دوران المخزون",
+      "activeManufacturingOrders": "أوامر التصنيع النشطة",
+      "pendingPurchaseOrders": "أوامر الشراء المعلقة",
+      "overdueInvoices": "الفواتير المتأخرة"
+    }
+  },
+  "auth": {
+    "login": "تسجيل الدخول",
+    "logout": "تسجيل الخروج",
+    "username": "اسم المستخدم",
+    "password": "كلمة المرور",
+    "rememberMe": "تذكرني",
+    "forgotPassword": "نسيت كلمة المرور؟",
+    "loginError": "خطأ في بيانات تسجيل الدخول",
+    "welcome": "مرحباً بك"
+  },
+  "validation": {
+    "required": "هذا الحقل مطلوب",
+    "email": "يرجى إدخال بريد إلكتروني صالح",
+    "minLength": "يجب أن يكون الحد الأدنى {{min}} أحرف",
+    "maxLength": "يجب أن يكون الحد الأقصى {{max}} أحرف",
+    "number": "يجب أن يكون رقماً",
+    "positive": "يجب أن يكون رقماً موجباً",
+    "integer": "يجب أن يكون رقماً صحيحاً"
+  },
+  "theme": {
+    "toggle": "تبديل المظهر",
+    "light": "فاتح",
+    "dark": "داكن",
+    "system": "تلقائي"
+  },
+  "messages": {
+    "saveSuccess": "تم الحفظ بنجاح",
+    "deleteSuccess": "تم الحذف بنجاح",
+    "updateSuccess": "تم التحديث بنجاح",
+    "operationFailed": "فشلت العملية",
+    "confirmDelete": "هل أنت متأكد من الحذف؟",
+    "noDataFound": "لا توجد بيانات",
+    "connectionError": "خطأ في الاتصال",
+    "unauthorized": "غير مخول للوصول",
+    "sessionExpired": "انتهت صلاحية الجلسة"
+  }
+}
