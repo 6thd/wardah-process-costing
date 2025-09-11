@@ -1,6 +1,11 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { loadConfig } from '@/lib/config'
+
+// Debug authentication - REMOVE IN PRODUCTION
+import './debug-auth'
+import './setup-supabase'
 
 import { MainLayout } from '@/components/layout/main-layout'
 import { AuthLayout } from '@/components/layout/auth-layout'
@@ -16,20 +21,21 @@ import { SettingsModule } from '@/features/settings'
 import { DashboardModule } from '@/features/dashboard'
 
 // Auth imports
-import { LoginPage } from '@/features/auth/login'
+import LoginPage from '@/features/auth/login'
 
 // Store imports
 import { useAuthStore } from '@/store/auth-store'
 import { useUIStore } from '@/store/ui-store'
 
-function App() {
+const App = () => {
   const { i18n } = useTranslation()
-  const { user, isLoading, checkAuth } = useAuthStore()
+  const { isLoading, isAuthenticated, checkAuth } = useAuthStore()
   const { initializeApp } = useUIStore()
 
   useEffect(() => {
     // Initialize the application
     const init = async () => {
+      await loadConfig() // Load app configuration first
       await checkAuth()
       initializeApp()
     }
@@ -48,7 +54,7 @@ function App() {
   }
 
   // If user is not authenticated, show auth layout
-  if (!user) {
+  if (!isAuthenticated) {
     return (
       <AuthLayout>
         <Routes>

@@ -17,7 +17,13 @@ interface UIState {
   
   // Navigation
   currentModule: string
+  currentSubPage: string
   breadcrumbs: Array<{ label: string; href?: string }>
+  
+  // Preferences
+  lastVisitedTab: string
+  autoSaveEnabled: boolean
+  compactMode: boolean
   
   // Notifications
   notifications: Array<{
@@ -35,6 +41,10 @@ interface UIState {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarOpen: (open: boolean) => void
   setCurrentModule: (module: string) => void
+  setCurrentSubPage: (subPage: string) => void
+  setLastVisitedTab: (tab: string) => void
+  setAutoSaveEnabled: (enabled: boolean) => void
+  setCompactMode: (compact: boolean) => void
   setBreadcrumbs: (breadcrumbs: Array<{ label: string; href?: string }>) => void
   addNotification: (notification: Omit<UIState['notifications'][0], 'id' | 'timestamp' | 'read'>) => void
   markNotificationRead: (id: string) => void
@@ -54,8 +64,12 @@ export const useUIStore = create<UIState>()(
       isInitialized: false,
       globalLoading: false,
       currentModule: 'dashboard',
+      currentSubPage: '',
       breadcrumbs: [],
       notifications: [],
+      lastVisitedTab: localStorage.getItem('ui.lastTab') || 'dashboard',
+      autoSaveEnabled: localStorage.getItem('ui.autoSave') !== 'false',
+      compactMode: localStorage.getItem('ui.compact') === 'true',
 
       // Actions
       setTheme: (theme: Theme) => {
@@ -89,6 +103,26 @@ export const useUIStore = create<UIState>()(
 
       setCurrentModule: (module: string) => {
         set({ currentModule: module })
+        localStorage.setItem('ui.lastTab', module)
+      },
+
+      setCurrentSubPage: (subPage: string) => {
+        set({ currentSubPage: subPage })
+      },
+
+      setLastVisitedTab: (tab: string) => {
+        set({ lastVisitedTab: tab })
+        localStorage.setItem('ui.lastTab', tab)
+      },
+
+      setAutoSaveEnabled: (enabled: boolean) => {
+        set({ autoSaveEnabled: enabled })
+        localStorage.setItem('ui.autoSave', enabled.toString())
+      },
+
+      setCompactMode: (compact: boolean) => {
+        set({ compactMode: compact })
+        localStorage.setItem('ui.compact', compact.toString())
       },
 
       setBreadcrumbs: (breadcrumbs: Array<{ label: string; href?: string }>) => {
@@ -150,6 +184,9 @@ export const useUIStore = create<UIState>()(
         theme: state.theme,
         language: state.language,
         sidebarCollapsed: state.sidebarCollapsed,
+        lastVisitedTab: state.lastVisitedTab,
+        autoSaveEnabled: state.autoSaveEnabled,
+        compactMode: state.compactMode,
       }),
     }
   )

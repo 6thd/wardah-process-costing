@@ -97,6 +97,11 @@ export function Header() {
           "flex items-center gap-2",
           isRTL ? "flex-row-reverse" : "flex-row"
         )}>
+          {/* Connection Status */}
+          <div id="connectionStatus" className="text-sm text-gray-600 dark:text-gray-400">
+            غير متصل
+          </div>
+          
           <ThemeToggle />
           <LanguageToggle />
           
@@ -165,23 +170,23 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-9 px-2">
                 <Avatar className="h-7 w-7">
-                  <AvatarImage src={user?.avatar} />
+                  <AvatarImage src={user?.full_name} />
                   <AvatarFallback className="text-xs">
-                    {user?.name.charAt(0)}
+                    {user?.full_name?.charAt(0) || user?.email?.charAt(0)}
                   </AvatarFallback>
                 </Avatar>
                 <span className={cn(
                   "hidden md:inline-block text-sm",
                   isRTL ? "mr-2" : "ml-2"
                 )}>
-                  {user?.name}
+                  {user?.full_name || user?.email}
                 </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align={isRTL ? "start" : "end"}>
               <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
                 <div className="flex flex-col">
-                  <span>{user?.name}</span>
+                  <span>{user?.full_name || user?.email}</span>
                   <span className="text-xs text-muted-foreground">{user?.email}</span>
                 </div>
               </DropdownMenuLabel>

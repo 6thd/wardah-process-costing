@@ -1,6 +1,7 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import StageCostingPanel from './stage-costing-panel.tsx'
 
 export function ManufacturingModule() {
   const { t } = useTranslation()
@@ -9,8 +10,27 @@ export function ManufacturingModule() {
     <Routes>
       <Route path="/" element={<ManufacturingOverview />} />
       <Route path="/overview" element={<ManufacturingOverview />} />
+      <Route path="/process-costing" element={<ProcessCostingPage />} />
       <Route path="*" element={<Navigate to="/manufacturing/overview" replace />} />
     </Routes>
+  )
+}
+
+function ProcessCostingPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تكاليف المراحل (Process Costing)</h1>
+        <p className="text-muted-foreground mt-2">
+          نظام متقدم لاحتساب تكاليف مراحل التصنيع
+        </p>
+      </div>
+
+      <StageCostingPanel />
+    </div>
   )
 }
 
@@ -43,7 +63,7 @@ function ManufacturingOverview() {
           </p>
         </div>
 
-        <div className="bg-card rounded-lg border p-6">
+        <Link to="/manufacturing/process-costing" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
           <h3 className={cn(
             "font-semibold mb-2",
             isRTL ? "text-right" : "text-left"
@@ -56,7 +76,7 @@ function ManufacturingOverview() {
           )}>
             نظام تكاليف المراحل المتقدم
           </p>
-        </div>
+        </Link>
 
         <div className="bg-card rounded-lg border p-6">
           <h3 className={cn(
