@@ -1,50 +1,97 @@
 import { createClient } from '@supabase/supabase-js'
 import { loadConfig, getTableName } from './config'
 
-// Re-export getTableName for use in other modules
+// Re-export config functions for backwards compatibility
 export { getTableName }
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+// Initialize configuration and client
+let supabaseClient: any = null
+let configData: any = null
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables')
+/**
+ * Initialize Supabase client with dynamic configuration
+ */
+const initializeClient = async () => {
+  if (supabaseClient) return supabaseClient
+
+  try {
+    // Load configuration
+    const response = await fetch('/config.json')
+    if (!response.ok) {
+      throw new Error(`Failed to load config.json: ${response.status}`)
+    }
+    configData = await response.json()
+
+    // Use config values or fallback to environment variables
+    const supabaseUrl = configData.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL
+    const supabaseAnonKey = configData.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      throw new Error('Missing Supabase environment variables')
+    }
+
+    supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false
+      }
+    })
+
+    console.log('✅ Supabase client initialized successfully')
+    return supabaseClient
+
+  } catch (error) {
+    console.error('❌ Failed to initialize Supabase client:', error)
+    throw error
+  }
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false
-  }
-})
+// Initialize client immediately
+const clientPromise = initializeClient()
+
+// Export client (will be initialized)
+export const supabase = await clientPromise
 
 // Tenant management functions
 export const getTenantId = async (): Promise<string | null> => {
-  const { data: { session } } = await supabase.auth.getSession()
-  return session?.user?.user_metadata?.tenant_id || null
+  const client = await clientPromise
+  const { data: { session } } = await client.auth.getSession()
+  return session?.user?.user_metadata?.tenant_id || 
+         (session?.access_token && JSON.parse(atob(session.access_token.split('.')[1])).tenant_id) ||
+         null
 }
 
 export const getCurrentUser = async () => {
-  const { data: { session } } = await supabase.auth.getSession()
+  const client = await clientPromise
+  const { data: { session } } = await client.auth.getSession()
   return session?.user || null
 }
 
 // Helper function for tenant-aware queries
 export const withTenant = async <T>(tableName: string) => {
+  const client = await clientPromise
   const tenantId = await getTenantId()
-  const table = getTableName(tableName)
+  
+  if (!configData) {
+    throw new Error('Configuration not loaded')
+  }
+  
+  const table = configData.TABLE_NAMES[tableName] || tableName
   
   if (tenantId) {
-    return supabase.from(table).select('*').eq('tenant_id', tenantId) as T
+    return client.from(table).select('*').eq('tenant_id', tenantId) as T
   }
-  return supabase.from(table).select('*') as T
+  return client.from(table).select('*') as T
 }
 
 // Connection status check
 export const checkConnection = async (): Promise<boolean> => {
   try {
-    const { error } = await supabase.from(getTableName('users')).select('count').limit(1)
+    const client = await clientPromise
+    if (!configData) return false
+    
+    const { error } = await client.from(configData.TABLE_NAMES.users || 'users').select('count').limit(1)
     return !error
   } catch {
     return false
@@ -251,6 +298,52 @@ export interface SalesOrderItem {
   unit_price: number
   total_price: number
   created_at: string
+}
+
+export interface Account {
+  id: string
+  code: string
+  name: string
+  name_ar?: string
+  account_type: string
+  is_leaf: boolean
+  is_active: boolean
+  tenant_id?: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Journal {
+  id: string
+  name: string
+  name_ar: string
+  code: string
+  created_at: string
+  updated_at: string
+}
+
+export interface JournalEntry {
+  id: string
+  journal_id: string
+  journals?: Journal
+  entry_number: string
+  entry_date: string
+  posting_date?: string
+  reference_type?: string
+  reference_id?: string
+  reference_number?: string
+  description?: string
+  description_ar?: string
+  status: 'draft' | 'posted' | 'reversed'
+  posted_at?: string
+  posted_by?: string
+  total_debit: number
+  total_credit: number
+  tenant_id?: string
+  created_at: string
+  updated_at: string
+  created_by?: string
+  updated_by?: string
 }
 
 // Database enums

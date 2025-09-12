@@ -1,26 +1,49 @@
 {
+  "SUPABASE_URL": "",
+  "SUPABASE_ANON_KEY": "",
   "TABLE_NAMES": {
-    "items": "items",
-    "boms": "boms", 
-    "manufacturing_orders": "manufacturing_orders",
+    "work_centers": "work_centers",
     "stage_costs": "stage_costs",
     "labor_time_logs": "labor_time_logs",
     "moh_applied": "moh_applied",
+    "inventory_ledger": "inventory_ledger",
+    "manufacturing_orders": "manufacturing_orders",
+    "boms": "boms",
+    "items": "items",
     "stock_moves": "stock_moves",
     "users": "users",
     "suppliers": "suppliers",
-    "customers": "customers"
+    "customers": "customers",
+    "categories": "categories",
+    "purchase_orders": "purchase_orders",
+    "purchase_order_items": "purchase_order_items",
+    "sales_orders": "sales_orders",
+    "sales_order_items": "sales_order_items",
+    "process_costs": "process_costs",
+    "audit_trail": "audit_trail"
   },
   "APP_SETTINGS": {
     "default_currency": "SAR",
     "default_language": "ar",
     "items_per_page": 25,
-    "auto_save_interval": 30000
+    "auto_save_interval": 30000,
+    "cost_precision": 6,
+    "amount_precision": 4,
+    "costing_method": "AVCO"
   },
   "FEATURES": {
     "realtime_updates": true,
     "advanced_costing": true,
     "multi_tenant": true,
-    "demo_mode": true
+    "demo_mode": true,
+    "process_costing": true,
+    "avco_inventory": true,
+    "audit_trail": true
+  },
+  "COSTING_CONFIG": {
+    "default_overhead_rate": 0.15,
+    "regrind_processing_rate": 0.05,
+    "waste_credit_rate": 0.02,
+    "labor_overhead_rate": 0.25
   }
 }

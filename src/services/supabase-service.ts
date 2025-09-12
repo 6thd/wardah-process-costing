@@ -1,26 +1,51 @@
 import { supabase } from '../lib/supabase'
+import { getTenantId } from '../lib/supabase'
+import { getTableName } from '../lib/config'
 import type { 
   Item, Category, Supplier, Customer, ManufacturingOrder, 
   ProcessCost, PurchaseOrder, SalesOrder,
   PurchaseOrderItem, SalesOrderItem 
 } from '../lib/supabase'
 
+// Get configuration dynamically
+const getConfig = async () => {
+  const response = await fetch('/config.json')
+  if (!response.ok) {
+    throw new Error('Failed to load configuration')
+  }
+  return await response.json()
+}
+
 // Categories Service
 export const categoriesService = {
   getAll: async () => {
-    const { data, error } = await supabase
-      .from('categories')
+    const config = await getConfig()
+    const tenantId = await getTenantId()
+    
+    let query = supabase
+      .from(config.TABLE_NAMES.categories)
       .select('*')
       .order('name')
+    
+    if (tenantId) {
+      query = query.eq('tenant_id', tenantId)
+    }
+    
+    const { data, error } = await query
     
     if (error) throw error
     return data
   },
 
   create: async (category: Omit<Category, 'id' | 'created_at' | 'updated_at'>) => {
+    const config = await getConfig()
+    const tenantId = await getTenantId()
+    
+    const categoryData = tenantId ? { ...category, tenant_id: tenantId } : category
+    
     const { data, error } = await supabase
-      .from('categories')
-      .insert(category)
+      .from(config.TABLE_NAMES.categories)
+      .insert(categoryData)
       .select()
       .single()
     
@@ -323,7 +348,7 @@ export const processCostService = {
       .select('total_cost')
       .eq('manufacturing_order_id', manufacturingOrderId)
 
-    const totalCost = costs?.reduce((sum, cost) => sum + cost.total_cost, 0) || 0
+    const totalCost = costs?.reduce((sum: number, cost: any) => sum + cost.total_cost, 0) || 0
 
     await supabase
       .from('manufacturing_orders')
@@ -408,7 +433,7 @@ export const purchaseOrdersService = {
 
     if (itemsError) throw itemsError
 
-    const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0)
+    const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
     
     const { data, error: updateError } = await supabase
       .from('purchase_orders')
@@ -471,7 +496,7 @@ export const salesOrdersService = {
 
     if (itemsError) throw itemsError
 
-    const totalAmount = orderItems.reduce((sum, item) => sum + item.total_price, 0)
+    const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
     
     const { data, error: updateError } = await supabase
       .from('sales_orders')

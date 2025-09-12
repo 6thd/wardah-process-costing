@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { supabase } from '@/lib/supabase'
+import { supabase, JournalEntry, Account } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { 
   BookOpen, 
@@ -61,10 +61,10 @@ function GLOverview() {
 
       if (error) throw error
 
-      const posted = entries?.filter(e => e.status === 'posted') || []
-      const unposted = entries?.filter(e => e.status === 'draft') || []
-      const totalDebit = posted.reduce((sum, e) => sum + (e.total_debit || 0), 0)
-      const totalCredit = posted.reduce((sum, e) => sum + (e.total_credit || 0), 0)
+      const posted = entries?.filter((e: Pick<JournalEntry, 'status'>) => e.status === 'posted') || []
+      const unposted = entries?.filter((e: Pick<JournalEntry, 'status'>) => e.status === 'draft') || []
+      const totalDebit = posted.reduce((sum: number, e: Pick<JournalEntry, 'total_debit'>) => sum + (e.total_debit || 0), 0)
+      const totalCredit = posted.reduce((sum: number, e: Pick<JournalEntry, 'total_credit'>) => sum + (e.total_credit || 0), 0)
 
       setSummary({
         totalEntries: entries?.length || 0,
@@ -198,7 +198,7 @@ function GLOverview() {
 function RecentEntries() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [entries, setEntries] = useState<any[]>([])
+  const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -297,7 +297,7 @@ function RecentEntries() {
 function ChartOfAccounts() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [accounts, setAccounts] = useState<any[]>([])
+  const [accounts, setAccounts] = useState<Account[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
 
@@ -394,7 +394,7 @@ function ChartOfAccounts() {
 function JournalEntries() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [entries, setEntries] = useState<any[]>([])
+  const [entries, setEntries] = useState<JournalEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
