@@ -13,9 +13,13 @@ export function PurchasingModule() {
   return (
     <Routes>
       <Route path="/" element={<PurchasingOverview />} />
+      <Route path="/overview" element={<PurchasingOverview />} />
       <Route path="/suppliers" element={<SuppliersManagement />} />
       <Route path="/orders" element={<PurchaseOrdersManagement />} />
-      <Route path="*" element={<Navigate to="/purchasing" replace />} />
+      <Route path="/receipts" element={<GoodsReceiptManagement />} />
+      <Route path="/invoices" element={<SupplierInvoicesManagement />} />
+      <Route path="/payments" element={<PaymentsManagement />} />
+      <Route path="*" element={<Navigate to="/purchasing/overview" replace />} />
     </Routes>
   )
 }
@@ -25,7 +29,7 @@ function PurchasingOverview() {
   const isRTL = i18n.language === 'ar'
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [orders, setOrders] = useState<any[]>([])
-  const [setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadData = async () => {
@@ -381,6 +385,81 @@ function PurchaseOrdersManagement() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Goods Receipt Management Component
+function GoodsReceiptManagement() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">استلام البضائع</h1>
+        <p className="text-muted-foreground mt-2">
+          إدارة عمليات استلام البضائع من الموردين
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - عمليات استلام وفحص البضائع
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Supplier Invoices Management Component
+function SupplierInvoicesManagement() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">فواتير الموردين</h1>
+        <p className="text-muted-foreground mt-2">
+          إدارة فواتير ومطالبات الموردين
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - فواتير ومطالبات الموردين
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Payments Management Component
+function PaymentsManagement() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">إدارة المدفوعات</h1>
+        <p className="text-muted-foreground mt-2">
+          متابعة وإدارة مدفوعات الموردين
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - متابعة وإدارة المدفوعات
+        </p>
       </div>
     </div>
   )

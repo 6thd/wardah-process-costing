@@ -13,9 +13,13 @@ export function InventoryModule() {
   return (
     <Routes>
       <Route path="/" element={<InventoryOverview />} />
+      <Route path="/overview" element={<InventoryOverview />} />
       <Route path="/items" element={<ItemsManagement />} />
       <Route path="/movements" element={<StockMovements />} />
-      <Route path="*" element={<Navigate to="/inventory/items" replace />} />
+      <Route path="/adjustments" element={<StockAdjustments />} />
+      <Route path="/valuation" element={<InventoryValuation />} />
+      <Route path="/locations" element={<StorageLocations />} />
+      <Route path="*" element={<Navigate to="/inventory/overview" replace />} />
     </Routes>
   )
 }
@@ -24,7 +28,7 @@ function InventoryOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [items, setItems] = useState<Item[]>([])
-  const [setLoading] = useState(true)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadItems = async () => {
@@ -335,6 +339,81 @@ function ItemsManagement() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// Stock Adjustments Component
+function StockAdjustments() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تسويات المخزون</h1>
+        <p className="text-muted-foreground mt-2">
+          تعديل وتصحيح أرصدة المخزون
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - تسويات وتعديلات أرصدة المخزون
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Inventory Valuation Component
+function InventoryValuation() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تقييم المخزون</h1>
+        <p className="text-muted-foreground mt-2">
+          تقارير قيمة وتقييم المخزون
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - تقارير تقييم وقيمة المخزون
+        </p>
+      </div>
+    </div>
+  )
+}
+
+// Storage Locations Component
+function StorageLocations() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">مواقع التخزين</h1>
+        <p className="text-muted-foreground mt-2">
+          إدارة مواقع ومستودعات التخزين
+        </p>
+      </div>
+      <div className="bg-card rounded-lg border p-6">
+        <p className={cn(
+          "text-muted-foreground",
+          isRTL ? "text-right" : "text-left"
+        )}>
+          قريباً - إدارة مواقع ومستودعات التخزين
+        </p>
       </div>
     </div>
   )

@@ -10,6 +10,7 @@
     "inventory": "المخزون",
     "purchasing": "المشتريات",
     "sales": "المبيعات",
+    "general-ledger": "دفتر الأستاذ العام",
     "reports": "التقارير",
     "settings": "الإعدادات"
   },
@@ -159,6 +160,7 @@
     "customers": "العملاء",
     "invoices": "الفواتير",
     "delivery": "التسليم",
+    "collections": "التحصيل",
     "customer": {
       "name": "اسم العميل",
       "contactPerson": "شخص الاتصال",

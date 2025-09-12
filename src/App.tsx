@@ -19,6 +19,7 @@ import { SalesModule } from '@/features/sales'
 import { ReportsModule } from '@/features/reports'
 import { SettingsModule } from '@/features/settings'
 import { DashboardModule } from '@/features/dashboard'
+import { GeneralLedgerModule } from '@/features/general-ledger'
 
 // Auth imports
 import LoginPage from '@/features/auth/login'
@@ -75,6 +76,7 @@ const App = () => {
         <Route path="/inventory/*" element={<InventoryModule />} />
         <Route path="/purchasing/*" element={<PurchasingModule />} />
         <Route path="/sales/*" element={<SalesModule />} />
+        <Route path="/general-ledger/*" element={<GeneralLedgerModule />} />
         <Route path="/reports/*" element={<ReportsModule />} />
         <Route path="/settings/*" element={<SettingsModule />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

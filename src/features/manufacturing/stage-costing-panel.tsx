@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
+import { Check, X, AlertCircle } from 'lucide-react'
 
 interface StageCostingFormData {
   manufacturingOrderId: string
@@ -37,6 +38,9 @@ export default function StageCostingPanel() {
     totalCost: number
     unitCost: number
     efficiency: number
+    glPosted: boolean
+    glEntryId?: string
+    glEntryNumber?: string
   } | null>(null)
   
   const [realtimeSubscription, setRealtimeSubscription] = useState<string | null>(null)
@@ -108,11 +112,49 @@ export default function StageCostingPanel() {
       
       if (insertError) throw insertError
 
-      setLastResult({ totalCost, unitCost, efficiency })
+      setLastResult({ totalCost, unitCost, efficiency, glPosted: false })
       toast.success(`تم احتساب المرحلة: إجمالي التكلفة = ${totalCost.toFixed(2)} ريال`)
     } catch (error: any) {
       console.error('Stage costing error:', error)
       toast.error('خطأ في احتساب تكلفة المرحلة')
+    } finally {
+      setIsCalculating(false)
+    }
+  }
+
+  // Post stage cost to General Ledger
+  const postStageToGL = async () => {
+    if (!formData.manufacturingOrderId || !lastResult) {
+      toast.error('يجب احتساب المرحلة أولاً')
+      return
+    }
+
+    try {
+      setIsCalculating(true)
+      
+      // Call the GL posting function
+      const { data: result, error } = await supabase.rpc('post_mo_stage_to_wip', {
+        p_mo_id: formData.manufacturingOrderId,
+        p_stage_no: formData.stageNumber
+      })
+
+      if (error) throw error
+
+      if (result?.success) {
+        setLastResult(prev => prev ? {
+          ...prev,
+          glPosted: true,
+          glEntryId: result.entry_id,
+          glEntryNumber: result.entry_number
+        } : null)
+        
+        toast.success(`تم ترحيل المرحلة للدفتر العام: ${result.entry_number}`)
+      } else {
+        throw new Error(result?.error || 'فشل في الترحيل')
+      }
+    } catch (error: any) {
+      console.error('GL posting error:', error)
+      toast.error(`خطأ في ترحيل المرحلة: ${error.message}`)
     } finally {
       setIsCalculating(false)
     }
@@ -216,30 +258,83 @@ export default function StageCostingPanel() {
           >
             {isCalculating ? 'جاري الاحتساب...' : 'احتساب المرحلة'}
           </Button>
+          
+          {lastResult && !lastResult.glPosted && (
+            <Button 
+              onClick={postStageToGL}
+              disabled={isCalculating}
+              className="bg-green-600 hover:bg-green-700"
+            >
+              <Check className="h-4 w-4 mr-2" />
+              ترحيل للدفتر العام
+            </Button>
+          )}
+          
+          {lastResult?.glPosted && (
+            <Button 
+              variant="outline"
+              disabled
+              className="border-green-600 text-green-600"
+            >
+              <Check className="h-4 w-4 mr-2" />
+              تم الترحيل
+            </Button>
+          )}
         </div>
 
         {/* Results Display */}
         {lastResult && (
-          <div className="grid md:grid-cols-3 gap-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-700 dark:text-green-400">
-                {lastResult.totalCost.toFixed(2)}
+          <div className="space-y-4">
+            <div className="grid md:grid-cols-3 gap-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-700 dark:text-green-400">
+                  {lastResult.totalCost.toFixed(2)}
+                </div>
+                <div className="text-sm text-green-600 dark:text-green-300">إجمالي التكلفة (ريال)</div>
               </div>
-              <div className="text-sm text-green-600 dark:text-green-300">إجمالي التكلفة (ريال)</div>
+              
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+                  {lastResult.unitCost.toFixed(2)}
+                </div>
+                <div className="text-sm text-blue-600 dark:text-blue-300">تكلفة الوحدة (ريال)</div>
+              </div>
+              
+              <div className="text-center">
+                <Badge variant={lastResult.efficiency >= 95 ? 'default' : 'destructive'}>
+                  {lastResult.efficiency.toFixed(1)}% كفاءة
+                </Badge>
+                <div className="text-sm text-gray-600 dark:text-gray-300">نسبة الجودة</div>
+              </div>
             </div>
             
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">
-                {lastResult.unitCost.toFixed(2)}
+            {/* GL Status */}
+            <div className={`p-4 rounded-lg border ${lastResult.glPosted ? 'bg-green-50 border-green-200' : 'bg-yellow-50 border-yellow-200'}`}>
+              <div className="flex items-center gap-2">
+                {lastResult.glPosted ? (
+                  <>
+                    <Check className="h-5 w-5 text-green-600" />
+                    <span className="font-medium text-green-800">تم ترحيل المرحلة للدفتر العام</span>
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="h-5 w-5 text-yellow-600" />
+                    <span className="font-medium text-yellow-800">في انتظار الترحيل للدفتر العام</span>
+                  </>
+                )}
               </div>
-              <div className="text-sm text-blue-600 dark:text-blue-300">تكلفة الوحدة (ريال)</div>
-            </div>
-            
-            <div className="text-center">
-              <Badge variant={lastResult.efficiency >= 95 ? 'default' : 'destructive'}>
-                {lastResult.efficiency.toFixed(1)}% كفاءة
-              </Badge>
-              <div className="text-sm text-gray-600 dark:text-gray-300">نسبة الجودة</div>
+              
+              {lastResult.glPosted && lastResult.glEntryNumber && (
+                <div className="mt-2 text-sm text-green-700">
+                  <strong>رقم القيد:</strong> {lastResult.glEntryNumber}
+                </div>
+              )}
+              
+              {!lastResult.glPosted && (
+                <div className="mt-2 text-sm text-yellow-700">
+                  انقر على "ترحيل للدفتر العام" لإنشاء القيد المحاسبي للمرحلة
+                </div>
+              )}
             </div>
           </div>
         )}

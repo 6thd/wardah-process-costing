@@ -10,6 +10,7 @@
     "inventory": "Inventory",
     "purchasing": "Purchasing",
     "sales": "Sales",
+    "general-ledger": "General Ledger",
     "reports": "Reports",
     "settings": "Settings"
   },
@@ -159,6 +160,7 @@
     "customers": "Customers",
     "invoices": "Invoices",
     "delivery": "Delivery",
+    "collections": "Collections",
     "customer": {
       "name": "Customer Name",
       "contactPerson": "Contact Person",

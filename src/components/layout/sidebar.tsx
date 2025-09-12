@@ -9,7 +9,8 @@ import {
   BarChart3, 
   Settings,
   ChevronRight,
-  ChevronLeft
+  ChevronLeft,
+  BookOpen
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -23,42 +24,108 @@ const navigationItems = [
     icon: LayoutDashboard,
     href: '/dashboard',
     badge: null,
+    subItems: [
+      { key: 'overview', href: '/dashboard/overview', label: 'نظرة عامة' },
+      { key: 'analytics', href: '/dashboard/analytics', label: 'التحليلات' },
+      { key: 'performance', href: '/dashboard/performance', label: 'الأداء' }
+    ]
   },
   {
     key: 'manufacturing',
     icon: Factory,
     href: '/manufacturing',
     badge: '2', // Active MOs
+    subItems: [
+      { key: 'overview', href: '/manufacturing/overview', label: 'نظرة عامة' },
+      { key: 'orders', href: '/manufacturing/orders', label: 'أوامر التصنيع' },
+      { key: 'process-costing', href: '/manufacturing/process-costing', label: 'تكاليف المراحل' },
+      { key: 'workcenters', href: '/manufacturing/workcenters', label: 'مراكز العمل' },
+      { key: 'bom', href: '/manufacturing/bom', label: 'قوائم المواد' },
+      { key: 'quality', href: '/manufacturing/quality', label: 'ضبط الجودة' }
+    ]
   },
   {
     key: 'inventory',
     icon: Package,
     href: '/inventory',
     badge: null,
+    subItems: [
+      { key: 'overview', href: '/inventory/overview', label: 'نظرة عامة' },
+      { key: 'items', href: '/inventory/items', label: 'الأصناف' },
+      { key: 'movements', href: '/inventory/movements', label: 'حركات المخزون' },
+      { key: 'adjustments', href: '/inventory/adjustments', label: 'التسويات' },
+      { key: 'valuation', href: '/inventory/valuation', label: 'تقييم المخزون' },
+      { key: 'locations', href: '/inventory/locations', label: 'مواقع التخزين' }
+    ]
   },
   {
     key: 'purchasing',
     icon: ShoppingCart,
     href: '/purchasing',
     badge: '3', // Pending POs
+    subItems: [
+      { key: 'overview', href: '/purchasing/overview', label: 'نظرة عامة' },
+      { key: 'suppliers', href: '/purchasing/suppliers', label: 'الموردين' },
+      { key: 'orders', href: '/purchasing/orders', label: 'أوامر الشراء' },
+      { key: 'receipts', href: '/purchasing/receipts', label: 'استلام البضائع' },
+      { key: 'invoices', href: '/purchasing/invoices', label: 'فواتير الموردين' },
+      { key: 'payments', href: '/purchasing/payments', label: 'المدفوعات' }
+    ]
   },
   {
     key: 'sales',
     icon: DollarSign,
     href: '/sales',
     badge: null,
+    subItems: [
+      { key: 'overview', href: '/sales/overview', label: 'نظرة عامة' },
+      { key: 'customers', href: '/sales/customers', label: 'العملاء' },
+      { key: 'orders', href: '/sales/orders', label: 'أوامر البيع' },
+      { key: 'invoices', href: '/sales/invoices', label: 'فواتير المبيعات' },
+      { key: 'delivery', href: '/sales/delivery', label: 'التسليم' },
+      { key: 'collections', href: '/sales/collections', label: 'التحصيلات' }
+    ]
+  },
+  {
+    key: 'general-ledger',
+    icon: BookOpen,
+    href: '/general-ledger',
+    badge: null,
+    subItems: [
+      { key: 'overview', href: '/general-ledger/overview', label: 'نظرة عامة' },
+      { key: 'accounts', href: '/general-ledger/accounts', label: 'شجرة الحسابات' },
+      { key: 'entries', href: '/general-ledger/entries', label: 'القيود اليومية' },
+      { key: 'trial-balance', href: '/general-ledger/trial-balance', label: 'ميزان المراجعة' },
+      { key: 'posting', href: '/general-ledger/posting', label: 'إدارة النشر' }
+    ]
   },
   {
     key: 'reports',
     icon: BarChart3,
     href: '/reports',
     badge: null,
+    subItems: [
+      { key: 'financial', href: '/reports/financial', label: 'التقارير المالية' },
+      { key: 'inventory', href: '/reports/inventory', label: 'تقارير المخزون' },
+      { key: 'manufacturing', href: '/reports/manufacturing', label: 'تقارير التصنيع' },
+      { key: 'sales', href: '/reports/sales', label: 'تقارير المبيعات' },
+      { key: 'purchasing', href: '/reports/purchasing', label: 'تقارير المشتريات' },
+      { key: 'analytics', href: '/reports/analytics', label: 'التحليلات المتقدمة' }
+    ]
   },
   {
     key: 'settings',
     icon: Settings,
     href: '/settings',
     badge: null,
+    subItems: [
+      { key: 'company', href: '/settings/company', label: 'بيانات الشركة' },
+      { key: 'users', href: '/settings/users', label: 'المستخدمين' },
+      { key: 'permissions', href: '/settings/permissions', label: 'الصلاحيات' },
+      { key: 'system', href: '/settings/system', label: 'إعدادات النظام' },
+      { key: 'integrations', href: '/settings/integrations', label: 'التكاملات' },
+      { key: 'backup', href: '/settings/backup', label: 'النسخ الاحتياطي' }
+    ]
   },
 ]
 

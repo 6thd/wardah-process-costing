@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router-dom'
 import { 
   Factory, 
   Package, 
@@ -343,38 +344,70 @@ export function DashboardOverview() {
           )}>
             {t('dashboard.quickActions')}
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <button className={cn(
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <Link to="/manufacturing/orders" className={cn(
               "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
               isRTL ? "text-right" : "text-left"
             )}>
               <Factory className="h-6 w-6 mx-auto mb-2 text-primary" />
               <span className="text-sm font-medium">أمر تصنيع جديد</span>
-            </button>
+            </Link>
             
-            <button className={cn(
+            <Link to="/purchasing/orders" className={cn(
               "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
               isRTL ? "text-right" : "text-left"
             )}>
               <ShoppingCart className="h-6 w-6 mx-auto mb-2 text-primary" />
               <span className="text-sm font-medium">أمر شراء جديد</span>
-            </button>
+            </Link>
             
-            <button className={cn(
+            <Link to="/sales/invoices" className={cn(
               "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
               isRTL ? "text-right" : "text-left"
             )}>
               <DollarSign className="h-6 w-6 mx-auto mb-2 text-primary" />
               <span className="text-sm font-medium">فاتورة مبيعات</span>
-            </button>
+            </Link>
             
-            <button className={cn(
+            <Link to="/inventory/adjustments" className={cn(
               "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
               isRTL ? "text-right" : "text-left"
             )}>
               <Package className="h-6 w-6 mx-auto mb-2 text-primary" />
               <span className="text-sm font-medium">تسوية مخزون</span>
-            </button>
+            </Link>
+
+            <Link to="/inventory/items" className={cn(
+              "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
+              isRTL ? "text-right" : "text-left"
+            )}>
+              <Package className="h-6 w-6 mx-auto mb-2 text-success" />
+              <span className="text-sm font-medium">إضافة صنف جديد</span>
+            </Link>
+
+            <Link to="/sales/customers" className={cn(
+              "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
+              isRTL ? "text-right" : "text-left"
+            )}>
+              <Users className="h-6 w-6 mx-auto mb-2 text-info" />
+              <span className="text-sm font-medium">عميل جديد</span>
+            </Link>
+
+            <Link to="/purchasing/suppliers" className={cn(
+              "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
+              isRTL ? "text-right" : "text-left"
+            )}>
+              <ShoppingCart className="h-6 w-6 mx-auto mb-2 text-warning" />
+              <span className="text-sm font-medium">مورد جديد</span>
+            </Link>
+
+            <Link to="/reports/analytics" className={cn(
+              "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
+              isRTL ? "text-right" : "text-left"
+            )}>
+              <BarChart3 className="h-6 w-6 mx-auto mb-2 text-secondary" />
+              <span className="text-sm font-medium">تقرير تحليلي</span>
+            </Link>
           </div>
         </div>
       </div>
