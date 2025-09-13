@@ -12,6 +12,8 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import './globals.css'
 import './i18n'
 
+console.log('🔧 Starting application bootstrap...')
+
 // Create a client
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,26 +27,37 @@ const queryClient = new QueryClient({
   },
 })
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <QueryClientProvider client={queryClient}>
-          <ThemeProvider defaultTheme="system" storageKey="wardah-erp-theme">
-            <App />
-            <Toaster 
-              position="top-center"
-              dir="rtl"
-              toastOptions={{
-                style: {
-                  fontFamily: 'Cairo, sans-serif',
-                },
-              }}
-            />
-          </ThemeProvider>
-          <ReactQueryDevtools initialIsOpen={false} />
-        </QueryClientProvider>
-      </BrowserRouter>
-    </ErrorBoundary>
-  </StrictMode>,
-)
+console.log('✅ Query client created')
+
+const rootElement = document.getElementById('root')
+console.log('🔍 Root element:', rootElement)
+
+if (rootElement) {
+  console.log('🔧 Creating React root...')
+  createRoot(rootElement).render(
+    <StrictMode>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <QueryClientProvider client={queryClient}>
+            <ThemeProvider defaultTheme="system" storageKey="wardah-erp-theme">
+              <App />
+              <Toaster 
+                position="top-center"
+                dir="rtl"
+                toastOptions={{
+                  style: {
+                    fontFamily: 'Cairo, sans-serif',
+                  },
+                }}
+              />
+            </ThemeProvider>
+            <ReactQueryDevtools initialIsOpen={false} />
+          </QueryClientProvider>
+        </BrowserRouter>
+      </ErrorBoundary>
+    </StrictMode>,
+  )
+  console.log('✅ React root created and app rendered')
+} else {
+  console.error('❌ Root element not found!')
+}

@@ -11,22 +11,28 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
+  console.log('🔄 MainLayout component rendering...')
+  
   const { i18n } = useTranslation()
   const { sidebarCollapsed, sidebarOpen } = useUIStore()
   const isRTL = i18n.language === 'ar'
 
   // Update document direction when language changes
   useEffect(() => {
-    document.documentElement.dir = isRTL ? 'rtl' : 'ltr'
-    document.documentElement.lang = i18n.language
-    
-    // Add RTL class to body for additional styling
-    if (isRTL) {
-      document.body.classList.add('rtl')
-      document.body.classList.remove('ltr')
-    } else {
-      document.body.classList.add('ltr')
-      document.body.classList.remove('rtl')
+    try {
+      document.documentElement.dir = isRTL ? 'rtl' : 'ltr'
+      document.documentElement.lang = i18n.language
+      
+      // Add RTL class to body for additional styling
+      if (isRTL) {
+        document.body.classList.add('rtl')
+        document.body.classList.remove('ltr')
+      } else {
+        document.body.classList.add('ltr')
+        document.body.classList.remove('rtl')
+      }
+    } catch (error) {
+      console.error('Error updating document direction:', error)
     }
   }, [isRTL, i18n.language])
 

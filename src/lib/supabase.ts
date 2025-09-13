@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { loadConfig, getTableName } from './config'
+import { loadConfig, getTableName } from './config.ts'
 
 // Re-export config functions for backwards compatibility
 export { getTableName }
@@ -15,22 +15,34 @@ const initializeClient = async () => {
   if (supabaseClient) return supabaseClient
 
   try {
+    console.log('🔧 Initializing Supabase client...')
     // Load configuration
     const response = await fetch('/config.json')
     if (!response.ok) {
       throw new Error(`Failed to load config.json: ${response.status}`)
     }
     configData = await response.json()
+    console.log('✅ Config loaded:', configData)
 
     // Use config values or fallback to environment variables
     const supabaseUrl = configData.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL
     const supabaseAnonKey = configData.SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY
 
-    if (!supabaseUrl || !supabaseAnonKey) {
+    // If we're in demo mode, use demo credentials
+    if (configData.FEATURES?.demo_mode) {
+      console.log('⚠️ DEMO MODE: Using placeholder Supabase configuration')
+      // We'll still create a client but it won't be used for actual authentication
+      // The auth store has a fallback for demo credentials
+    } else if (!supabaseUrl || !supabaseAnonKey) {
       throw new Error('Missing Supabase environment variables')
     }
 
-    supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    // Create client with valid or placeholder values
+    const url = supabaseUrl || 'https://placeholder.supabase.co'
+    const key = supabaseAnonKey || 'placeholder-key'
+    
+    console.log('🔧 Creating Supabase client with:', { url, key })
+    supabaseClient = createClient(url, key, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
@@ -43,15 +55,30 @@ const initializeClient = async () => {
 
   } catch (error) {
     console.error('❌ Failed to initialize Supabase client:', error)
-    throw error
+    // Create a fallback client to prevent app crash
+    supabaseClient = createClient(
+      'https://placeholder.supabase.co', 
+      'placeholder-key',
+      {
+        auth: {
+          autoRefreshToken: true,
+          persistSession: true,
+          detectSessionInUrl: false
+        }
+      }
+    )
+    console.log('⚠️ Created fallback Supabase client to prevent app crash')
+    return supabaseClient
   }
 }
 
 // Initialize client immediately
+console.log('🔧 Starting Supabase client initialization...')
 const clientPromise = initializeClient()
 
 // Export client (will be initialized)
 export const supabase = await clientPromise
+console.log('✅ Supabase client ready:', supabase)
 
 // Tenant management functions
 export const getTenantId = async (): Promise<string | null> => {
@@ -79,10 +106,35 @@ export const withTenant = async <T>(tableName: string) => {
   
   const table = configData.TABLE_NAMES[tableName] || tableName
   
-  if (tenantId) {
-    return client.from(table).select('*').eq('tenant_id', tenantId) as T
+  // Return an object with properly initialized query methods
+  return {
+    select: (columns: string = '*') => {
+      const query = client.from(table).select(columns)
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    insert: (data: any) => {
+      const insertData = tenantId ? { ...data, tenant_id: tenantId } : data
+      return client.from(table).insert(insertData)
+    },
+    update: (data: any) => {
+      const query = client.from(table).update(data)
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    delete: () => {
+      const query = client.from(table).delete()
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    upsert: (data: any) => {
+      const upsertData = tenantId ? { ...data, tenant_id: tenantId } : data
+      return client.from(table).upsert(upsertData)
+    },
+    // For cases where you need the raw client.from() with proper tenant filtering
+    from: () => client.from(table),
+    // Get tenant ID for manual query building
+    getTenantId: () => tenantId,
+    // Get table name for manual query building
+    getTableName: () => table
   }
-  return client.from(table).select('*') as T
 }
 
 // Connection status check

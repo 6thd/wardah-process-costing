@@ -21,10 +21,10 @@ import {
   AlertCircle 
 } from 'lucide-react'
 
-// Import our domain modules
-const ProcessCosting = await import('../../domain/processCosting.js')
-const Manufacturing = await import('../../domain/manufacturing.js')
-const Audit = await import('../../domain/audit.js')
+// Import our domain modules (using regular imports instead of await import)
+import * as ProcessCosting from '../../domain/processCosting.js'
+import * as Manufacturing from '../../domain/manufacturing.js'
+import * as Audit from '../../domain/audit.js'
 
 // Import and register actions
 import { registerStageCostingActions, unregisterStageCostingActions } from './stage-costing-actions.js'

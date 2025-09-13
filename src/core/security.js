@@ -1,6 +1,6 @@
 /**
- * Security and Multi-Tenant Utilities
- * JWT token management and tenant isolation
+ * Security utilities for Multi-tenant JWT validation and RLS
+ * Tenant ID extraction and validation from Supabase JWT tokens
  */
 
 import { getSupabase } from './supabaseClient.js'
@@ -174,6 +174,37 @@ export const withSecurity = (fn) => {
   }
 }
 
+/**
+ * Create secure RPC call wrapper
+ */
+export const createSecureRPC = (functionName) => {
+  return async (params = {}) => {
+    const client = getSupabase()
+    const tenantId = await getCurrentTenantId()
+    
+    if (!tenantId) {
+      throw new Error('Authentication required: No valid tenant context')
+    }
+    
+    // Add tenant_id to all RPC calls
+    const secureParams = {
+      p_tenant_id: tenantId,
+      ...params
+    }
+    
+    console.log(`🔐 Calling secure RPC: ${functionName}`, { tenant: tenantId })
+    
+    const { data, error } = await client.rpc(functionName, secureParams)
+    
+    if (error) {
+      console.error(`🔐 RPC call failed: ${functionName}`, error)
+      throw new Error(`RPC call failed: ${error.message}`)
+    }
+    
+    return data
+  }
+}
+
 export default {
   extractTenantFromJWT,
   getCurrentTenantId,
@@ -182,5 +213,6 @@ export default {
   applyTenantFilter,
   getCurrentUserWithTenant,
   validateJWTStructure,
-  withSecurity
+  withSecurity,
+  createSecureRPC
 }

@@ -16,8 +16,10 @@ import {
   Factory,
   ShoppingCart,
   Users,
-  Eye
+  Eye,
+  Calculator
 } from 'lucide-react'
+import { ProcessCostingReport } from './process-costing-report'
 
 export function ReportsModule() {
   return (
@@ -26,6 +28,7 @@ export function ReportsModule() {
       <Route path="/financial" element={<FinancialReports />} />
       <Route path="/inventory" element={<InventoryReports />} />
       <Route path="/manufacturing" element={<ManufacturingReports />} />
+      <Route path="/process-costing" element={<ProcessCostingReportPage />} />
       <Route path="/sales" element={<SalesReports />} />
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
@@ -265,6 +268,24 @@ function ManufacturingReports() {
           قريباً - تكاليف الإنتاج، كفاءة العمليات، تحليل المراحل
         </p>
       </div>
+    </div>
+  )
+}
+
+function ProcessCostingReportPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تقرير تكاليف المراحل</h1>
+        <p className="text-muted-foreground mt-2">
+          تحليل تكاليف المراحل مع حساب الوحدات المكافئة
+        </p>
+      </div>
+
+      <ProcessCostingReport />
     </div>
   )
 }

@@ -1,61 +1,78 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
-import { useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
-import { loadConfig } from '@/lib/config'
+// src/App.tsx
+import React, { useEffect } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 
-// Debug authentication - REMOVE IN PRODUCTION
-import './debug-auth'
-import './setup-supabase'
+import { loadConfig } from '@/lib/config';
+import { useAuthStore } from '@/store/auth-store';
+import { useUIStore } from '@/store/ui-store';
 
-import { MainLayout } from '@/components/layout/main-layout'
-import { AuthLayout } from '@/components/layout/auth-layout'
-import { LoadingScreen } from '@/components/loading-screen'
+import { MainLayout } from '@/components/layout/main-layout';
+import { AuthLayout } from '@/components/layout/auth-layout';
+import { LoadingScreen } from '@/components/loading-screen';
 
-// Feature imports
-import { ManufacturingModule } from '@/features/manufacturing'
-import { InventoryModule } from '@/features/inventory'
-import { PurchasingModule } from '@/features/purchasing'
-import { SalesModule } from '@/features/sales'
-import { ReportsModule } from '@/features/reports'
-import { SettingsModule } from '@/features/settings'
-import { DashboardModule } from '@/features/dashboard'
-import { GeneralLedgerModule } from '@/features/general-ledger'
+import LoginPage from '@/features/auth/login';
+import { DashboardModule } from '@/features/dashboard';
+import { ManufacturingModule } from '@/features/manufacturing';
+import { InventoryModule } from '@/features/inventory';
+import { PurchasingModule } from '@/features/purchasing';
+import { SalesModule } from '@/features/sales';
+import { ReportsModule } from '@/features/reports';
+import { SettingsModule } from '@/features/settings';
+import { GeneralLedgerModule } from '@/features/general-ledger';
 
-// Auth imports
-import LoginPage from '@/features/auth/login'
+const App: React.FC = () => {
+  const { i18n } = useTranslation();
+  const { isLoading, isAuthenticated, checkAuth } = useAuthStore();
+  const { initializeApp, isInitialized } = useUIStore();
 
-// Store imports
-import { useAuthStore } from '@/store/auth-store'
-import { useUIStore } from '@/store/ui-store'
+  console.log('🔄 App component rendered with state:', { isLoading, isAuthenticated, isInitialized });
 
-const App = () => {
-  const { i18n } = useTranslation()
-  const { isLoading, isAuthenticated, checkAuth } = useAuthStore()
-  const { initializeApp } = useUIStore()
-
+  // Initial app bootstrap
   useEffect(() => {
-    // Initialize the application
+    console.log('🔧 App useEffect triggered for initialization');
     const init = async () => {
-      await loadConfig() // Load app configuration first
-      await checkAuth()
-      initializeApp()
-    }
-    
-    init()
-  }, [checkAuth, initializeApp])
+      try {
+        console.log('🔧 Starting application initialization...');
+        console.log('Loading config...');
+        const config = await loadConfig();
+        console.log('✅ Configuration loaded:', config);
+        console.log('Checking auth...');
+        await checkAuth();
+        console.log('✅ Authentication checked');
+        console.log('Initializing app...');
+        initializeApp();
+        console.log('✅ App initialized');
+      } catch (error) {
+        console.error('❌ Application initialization failed:', error);
+        console.error('Error details:', {
+          message: error instanceof Error ? error.message : 'Unknown error',
+          stack: error instanceof Error ? error.stack : 'No stack trace'
+        });
+      }
+    };
+    init();
+  }, [checkAuth, initializeApp]);
 
+  // Handle language direction
   useEffect(() => {
-    // Set document direction based on language
-    document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr'
-    document.documentElement.lang = i18n.language
-  }, [i18n.language])
+    document.documentElement.dir = i18n.language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = i18n.language;
+    console.log('🌐 Language changed to:', i18n.language);
+  }, [i18n.language]);
+
+  // Log state changes for debugging
+  useEffect(() => {
+    console.log('🔄 App state updated:', { isLoading, isAuthenticated, isInitialized });
+  }, [isLoading, isAuthenticated, isInitialized]);
 
   if (isLoading) {
-    return <LoadingScreen />
+    console.log('⏳ App is loading...');
+    return <LoadingScreen />;
   }
 
-  // If user is not authenticated, show auth layout
   if (!isAuthenticated) {
+    console.log('🔒 User not authenticated, showing login');
     return (
       <AuthLayout>
         <Routes>
@@ -63,10 +80,10 @@ const App = () => {
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </AuthLayout>
-    )
+    );
   }
 
-  // Main application routes
+  console.log('🔓 User authenticated, showing main app');
   return (
     <MainLayout>
       <Routes>
@@ -76,13 +93,13 @@ const App = () => {
         <Route path="/inventory/*" element={<InventoryModule />} />
         <Route path="/purchasing/*" element={<PurchasingModule />} />
         <Route path="/sales/*" element={<SalesModule />} />
-        <Route path="/general-ledger/*" element={<GeneralLedgerModule />} />
         <Route path="/reports/*" element={<ReportsModule />} />
         <Route path="/settings/*" element={<SettingsModule />} />
+        <Route path="/general-ledger/*" element={<GeneralLedgerModule />} />
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </MainLayout>
-  )
-}
+  );
+};
 
-export default App
+export default App;

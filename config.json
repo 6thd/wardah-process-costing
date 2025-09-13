@@ -1,0 +1,35 @@
+{
+  "SUPABASE_URL": "https://your-project.supabase.co",
+  "SUPABASE_ANON_KEY": "your-anon-key-here",
+  "TABLE_NAMES": {
+    "items": "items",
+    "categories": "categories",
+    "boms": "boms", 
+    "manufacturing_orders": "manufacturing_orders",
+    "stage_costs": "stage_costs",
+    "labor_time_logs": "labor_time_logs",
+    "moh_applied": "moh_applied",
+    "stock_moves": "stock_moves",
+    "users": "users",
+    "suppliers": "suppliers",
+    "customers": "customers",
+    "purchase_orders": "purchase_orders",
+    "purchase_order_lines": "purchase_order_lines",
+    "sales_orders": "sales_orders",
+    "sales_order_lines": "sales_order_lines",
+    "work_centers": "work_centers",
+    "locations": "locations"
+  },
+  "APP_SETTINGS": {
+    "default_currency": "SAR",
+    "default_language": "ar",
+    "items_per_page": 25,
+    "auto_save_interval": 30000
+  },
+  "FEATURES": {
+    "realtime_updates": true,
+    "advanced_costing": true,
+    "multi_tenant": true,
+    "demo_mode": true
+  }
+}

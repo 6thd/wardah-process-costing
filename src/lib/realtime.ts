@@ -1,7 +1,30 @@
 import { supabase } from './supabase'
 import { getTableName } from './config'
 
-type RealtimeCallback = (payload: any) => void
+// Supabase realtime payload types
+interface PostgresChangesPayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  new: Record<string, any> | null
+  old: Record<string, any> | null
+  schema: string
+  table: string
+  commit_timestamp: string
+}
+
+interface RealtimeChangePayload {
+  table: string
+  originalTable: string
+  event: string
+  record: Record<string, any> | null
+  payload: PostgresChangesPayload
+}
+
+interface ManufacturingOrderChangePayload {
+  type: 'stage_cost' | 'labor_time' | 'moh_applied'
+  payload: PostgresChangesPayload
+}
+
+type RealtimeCallback = (payload: RealtimeChangePayload | ManufacturingOrderChangePayload) => void
 
 interface RealtimeSubscription {
   id: string
@@ -32,7 +55,7 @@ class RealtimeManager {
           schema: 'public',
           table: tableName
         },
-        (payload) => {
+        (payload: PostgresChangesPayload) => {
           console.log(`🔄 Realtime change detected in ${tableName}:`, payload)
           onChange({
             table: tableName,
@@ -46,7 +69,7 @@ class RealtimeManager {
     })
 
     // Subscribe to the channel
-    channel.subscribe((status) => {
+    channel.subscribe((status: string) => {
       console.log(`📡 Realtime status for ${subscriptionId}:`, status)
       this.isConnected = status === 'SUBSCRIBED'
     })
@@ -78,7 +101,7 @@ class RealtimeManager {
         table: getTableName('stage_costs'),
         filter: `manufacturing_order_id=eq.${moId}`
       },
-      (payload) => onChange({ type: 'stage_cost', payload })
+      (payload: PostgresChangesPayload) => onChange({ type: 'stage_cost', payload })
     )
 
     // Listen to labor time logs changes
@@ -90,7 +113,7 @@ class RealtimeManager {
         table: getTableName('labor_time_logs'),
         filter: `manufacturing_order_id=eq.${moId}`
       },
-      (payload) => onChange({ type: 'labor_time', payload })
+      (payload: PostgresChangesPayload) => onChange({ type: 'labor_time', payload })
     )
 
     // Listen to MOH applied changes
@@ -102,7 +125,7 @@ class RealtimeManager {
         table: getTableName('moh_applied'),
         filter: `manufacturing_order_id=eq.${moId}`
       },
-      (payload) => onChange({ type: 'moh_applied', payload })
+      (payload: PostgresChangesPayload) => onChange({ type: 'moh_applied', payload })
     )
 
     channel.subscribe()

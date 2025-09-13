@@ -15,9 +15,13 @@ import {
   CheckCircle, 
   Clock, 
   AlertTriangle,
-  Plus
+  Plus,
+  Calculator,
+  Bell
 } from 'lucide-react'
 import StageCostingPanel from './stage-costing-panel.tsx'
+import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
+import { VarianceAlerts } from './variance-alerts'
 
 export function ManufacturingModule() {
   return (
@@ -26,6 +30,8 @@ export function ManufacturingModule() {
       <Route path="/overview" element={<ManufacturingOverview />} />
       <Route path="/orders" element={<ManufacturingOrdersManagement />} />
       <Route path="/process-costing" element={<ProcessCostingPage />} />
+      <Route path="/equivalent-units" element={<EquivalentUnitsPage />} />
+      <Route path="/variance-alerts" element={<VarianceAlertsPage />} />
       <Route path="/workcenters" element={<WorkCentersManagement />} />
       <Route path="/bom" element={<BOMManagement />} />
       <Route path="/quality" element={<QualityControlManagement />} />
@@ -48,6 +54,42 @@ function ProcessCostingPage() {
       </div>
 
       <StageCostingPanel />
+    </div>
+  )
+}
+
+function EquivalentUnitsPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">الوحدات المكافئة</h1>
+        <p className="text-muted-foreground mt-2">
+          حساب الوحدات المكافئة وتحليل التكاليف
+        </p>
+      </div>
+
+      <EquivalentUnitsDashboard />
+    </div>
+  )
+}
+
+function VarianceAlertsPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تنبيهات الانحرافات</h1>
+        <p className="text-muted-foreground mt-2">
+          مراقبة الانحرافات في التكاليف واتخاذ الإجراءات التصحيحية
+        </p>
+      </div>
+
+      <VarianceAlerts />
     </div>
   )
 }

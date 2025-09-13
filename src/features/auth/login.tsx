@@ -106,13 +106,13 @@ function LoginPage() {
         </form>
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
-          <p className="mb-2">Demo credentials for testing:</p>
+          <p className="mb-2">⚠️ DEVELOPMENT DEMO CREDENTIALS:</p>
           <div className="bg-muted/50 p-3 rounded-md">
             <p><strong>Email:</strong> admin@wardah.sa</p>
             <p><strong>Password:</strong> admin123</p>
           </div>
           <div className="mt-3 text-xs space-y-1">
-            <p>⚡ Uses demo authentication (no Supabase registration needed)</p>
+            <p>🚨 <strong>WARNING:</strong> Remove demo credentials before production deployment</p>
             <p>🔧 For production: Register users in Supabase Auth Dashboard</p>
             <p>🛠️ Check browser console for detailed authentication logs</p>
           </div>

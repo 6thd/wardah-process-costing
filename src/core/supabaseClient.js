@@ -4,7 +4,16 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { loadConfig } from './config.js'
+
+// Use dynamic import to avoid circular dependencies
+let configModule = null
+
+const loadConfigModule = async () => {
+  if (!configModule) {
+    configModule = await import('./config.ts')
+  }
+  return configModule
+}
 
 let supabaseClient = null
 let configCache = null
@@ -16,7 +25,8 @@ export const initializeSupabase = async () => {
   if (supabaseClient) return supabaseClient
 
   try {
-    configCache = await loadConfig()
+    const config = await loadConfigModule()
+    configCache = await config.loadConfig()
     
     // Use config.json values if available, otherwise fallback to env vars
     const supabaseUrl = configCache.SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL
@@ -118,10 +128,35 @@ export const withTenant = async (tableName) => {
   
   const table = config.TABLE_NAMES[tableName] || tableName
   
-  if (tenantId) {
-    return client.from(table).select('*').eq('tenant_id', tenantId)
+  // Return an object with properly initialized query methods
+  return {
+    select: (columns = '*') => {
+      const query = client.from(table).select(columns)
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    insert: (data) => {
+      const insertData = tenantId ? { ...data, tenant_id: tenantId } : data
+      return client.from(table).insert(insertData)
+    },
+    update: (data) => {
+      const query = client.from(table).update(data)
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    delete: () => {
+      const query = client.from(table).delete()
+      return tenantId ? query.eq('tenant_id', tenantId) : query
+    },
+    upsert: (data) => {
+      const upsertData = tenantId ? { ...data, tenant_id: tenantId } : data
+      return client.from(table).upsert(upsertData)
+    },
+    // For cases where you need the raw client.from() with proper tenant filtering
+    from: () => client.from(table),
+    // Get tenant ID for manual query building
+    getTenantId: () => tenantId,
+    // Get table name for manual query building
+    getTableName: () => table
   }
-  return client.from(table).select('*')
 }
 
 export default { 

@@ -17,6 +17,7 @@ export default defineConfig({
       '@/services': path.resolve(__dirname, './src/services'),
       '@/features': path.resolve(__dirname, './src/features'),
       '@/assets': path.resolve(__dirname, './src/assets'),
+      '@/core': path.resolve(__dirname, './src/core'),
     },
   },
   server: {
@@ -39,5 +40,4 @@ export default defineConfig({
       },
     },
   },
-
 })

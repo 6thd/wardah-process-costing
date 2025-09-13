@@ -4,17 +4,32 @@
  * Handles stage cost calculations, labor tracking, and overhead allocation
  */
 
-import { getSupabase, getConfig } from '../core/supabaseClient.js'
-import { getCurrentTenantId } from '../core/security.js'
-import { 
-  validateRequired, 
-  validatePositiveNumber, 
-  validateStageNumber,
-  calculateStageCost,
-  calculateUnitCost,
-  handleError,
-  handleSuccess 
-} from '../core/utils.js'
+// Use dynamic imports to avoid circular dependencies
+let supabaseClientModule = null
+let utilsModule = null
+
+const loadModules = async () => {
+  if (!supabaseClientModule) {
+    supabaseClientModule = await import('../core/supabaseClient.js')
+  }
+  if (!utilsModule) {
+    utilsModule = await import('../core/utils.js')
+  }
+}
+
+const getSupabase = () => supabaseClientModule.getSupabase()
+const getCurrentTenantId = () => supabaseClientModule.getTenantId()
+
+const validateRequired = (value, fieldName) => utilsModule.validateRequired(value, fieldName)
+const validatePositiveNumber = (value, fieldName) => utilsModule.validatePositiveNumber(value, fieldName)
+const validateStageNumber = (stageNumber) => utilsModule.validateStageNumber(stageNumber)
+const calculateStageCost = (params) => utilsModule.calculateStageCost(params)
+const calculateUnitCost = (totalCost, goodQuantity) => utilsModule.calculateUnitCost(totalCost, goodQuantity)
+const handleError = (error, context) => utilsModule.handleError(error, context)
+const handleSuccess = (message, data) => utilsModule.handleSuccess(message, data)
+
+// Initialize modules when the file is loaded
+loadModules().catch(console.error)
 
 // ===================================================================
 // CORE PROCESS COSTING OPERATIONS

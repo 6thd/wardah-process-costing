@@ -20,11 +20,13 @@ export async function loadConfig(): Promise<AppConfig> {
   if (_config) return _config
   
   try {
+    console.log('🔧 Loading application configuration...')
     const response = await fetch('/config.json')
     if (!response.ok) {
       throw new Error(`Failed to load config: ${response.statusText}`)
     }
     _config = await response.json()
+    console.log('✅ Configuration loaded successfully:', _config)
     return _config!
   } catch (error) {
     console.error('Failed to load application configuration:', error)
@@ -52,6 +54,7 @@ export async function loadConfig(): Promise<AppConfig> {
         demo_mode: true
       }
     }
+    console.log('⚠️ Using fallback configuration:', _config)
     return _config
   }
 }
