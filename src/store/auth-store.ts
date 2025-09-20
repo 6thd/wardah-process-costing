@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { supabase, type User } from '../lib/supabase'
+import { getSupabase, type User } from '../lib/supabase'
 import type { AuthError, AuthChangeEvent, Session } from '@supabase/supabase-js'
+import { loadConfig } from '../lib/config'
 
 interface AuthState {
   user: User | null
@@ -29,6 +30,10 @@ export const useAuthStore = create<AuthState>()(
           
           console.log('🔑 Attempting login for:', email)
           
+          // Load config first
+          const config = await loadConfig()
+          console.log('🔧 Config loaded in login:', config)
+          
           // Always try demo credentials first in development
           // This hardcoded credential check should be removed before deploying to production
           if (email === 'admin@wardah.sa' && password === 'admin123') {
@@ -54,7 +59,10 @@ export const useAuthStore = create<AuthState>()(
           console.log('🔄 Attempting Supabase authentication...')
           
           // Actual Supabase authentication
-          const { data, error } = await supabase.auth.signInWithPassword({
+          const client = await getSupabase();
+          if (!client) throw new Error('Supabase client not initialized');
+          
+          const { data, error } = await client.auth.signInWithPassword({
             email,
             password,
           })
@@ -70,7 +78,10 @@ export const useAuthStore = create<AuthState>()(
             console.log('🔍 Fetching user profile from database...')
             
             // Get user profile from your users table
-            const { data: profile, error: profileError } = await supabase
+            const client = await getSupabase();
+            if (!client) throw new Error('Supabase client not initialized');
+            
+            const { data: profile, error: profileError } = await client
               .from('users')
               .select('*')
               .eq('id', data.user.id)
@@ -137,7 +148,10 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          const { error } = await supabase.auth.signOut()
+          const client = await getSupabase();
+          if (!client) throw new Error('Supabase client not initialized');
+          
+          const { error } = await client.auth.signOut()
           if (error) throw error
           
           set({ 
@@ -154,58 +168,106 @@ export const useAuthStore = create<AuthState>()(
           set({ isLoading: true })
           console.log('🔍 Checking authentication status...')
           
+          // Load config first
+          const config = await loadConfig()
+          console.log('🔧 Config loaded in checkAuth:', config)
+          
           // In demo mode, we can simulate an authenticated user
-          const configResponse = await fetch('/config.json')
-          if (configResponse.ok) {
-            const config = await configResponse.json()
-            console.log('🔧 Config loaded:', config)
-            if (config.FEATURES?.demo_mode) {
-              console.log('⚠️ DEMO MODE: Simulating authenticated user')
-              // In demo mode, we can create a mock user
-              const mockUser: User = {
-                id: 'demo-user-1',
-                email: 'admin@wardah.sa',
-                full_name: 'مدير النظام',
-                role: 'admin',
-                created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              }
-              
-              set({ 
-                user: mockUser, 
-                isAuthenticated: true,
-                isLoading: false
-              })
-              console.log('✅ Demo user authenticated')
-              return
+          if (config.FEATURES?.demo_mode) {
+            console.log('⚠️ DEMO MODE: Simulating authenticated user')
+            // In demo mode, we can create a mock user
+            const mockUser: User = {
+              id: 'demo-user-1',
+              email: 'admin@wardah.sa',
+              full_name: 'مدير النظام',
+              role: 'admin',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             }
+            
+            set({ 
+              user: mockUser, 
+              isAuthenticated: true,
+              isLoading: false
+            })
+            console.log('✅ Demo user authenticated')
+            return
           }
           
-          const { data: { session } } = await supabase.auth.getSession()
+          const client = await getSupabase();
+          if (!client) {
+            console.warn('Supabase client not initialized');
+            set({ isLoading: false });
+            return;
+          }
+          
+          const { data: { session } } = await client.auth.getSession()
           console.log('Session data:', session)
           
           if (session?.user) {
-            const { data: profile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
+            // Try to get user profile from custom users table
+            try {
+              const { data: profile, error } = await client
+                .from('users')
+                .select('*')
+                .eq('id', session.user.id)
+                .single()
 
-            if (!error && profile) {
-              console.log('✅ User profile loaded from session:', profile.email)
-              set({ 
-                user: profile, 
-                isAuthenticated: true 
-              })
-            } else {
-              console.log('⚠️ Profile fetch failed, creating fallback user profile...')
-              // Fallback: create basic user profile from session data
+              if (!error && profile) {
+                console.log('✅ User profile loaded from custom users table:', profile.email)
+                set({ 
+                  user: profile, 
+                  isAuthenticated: true 
+                })
+              } else {
+                console.log('⚠️ Profile not found in custom users table, creating one...')
+                // Create user profile in custom users table
+                const newUser: User = {
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                  role: session.user.user_metadata?.role || 'employee',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                }
+                
+                const { error: insertError } = await client
+                  .from('users')
+                  .insert([newUser])
+                  
+                if (insertError) {
+                  console.log('⚠️ Failed to create user profile in custom table:', insertError.message)
+                  // Fallback to auth user data
+                  const fallbackUser: User = {
+                    id: session.user.id,
+                    email: session.user.email || '',
+                    full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                    role: session.user.user_metadata?.role || 'employee',
+                    created_at: session.user.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  }
+                  
+                  set({ 
+                    user: fallbackUser, 
+                    isAuthenticated: true 
+                  })
+                } else {
+                  console.log('✅ User profile created successfully in custom table')
+                  set({ 
+                    user: newUser, 
+                    isAuthenticated: true 
+                  })
+                }
+              }
+            } catch (tableError) {
+              console.log('⚠️ Custom users table may not exist, using auth user data as fallback:', tableError)
+              // Fallback to auth user data if custom table doesn't exist
               const fallbackUser: User = {
                 id: session.user.id,
                 email: session.user.email || '',
-                full_name: session.user.email?.split('@')[0] || 'User',
-                role: 'employee',
-                created_at: new Date().toISOString(),
+                full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                role: session.user.user_metadata?.role || 'employee',
+                created_at: session.user.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }
               
@@ -213,7 +275,7 @@ export const useAuthStore = create<AuthState>()(
                 user: fallbackUser, 
                 isAuthenticated: true 
               })
-              console.log('✅ Fallback user profile created')
+              console.log('✅ Using auth user data as fallback')
             }
           } else {
             // No session, ensure we're not authenticated
@@ -257,11 +319,17 @@ export const useAuthStore = create<AuthState>()(
 )
 
 // Initialize auth check on app load
-supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
-  console.log('🔄 Auth state changed:', event, session?.user?.email || 'no user')
-  if (event === 'SIGNED_OUT') {
-    useAuthStore.getState().logout()
-  } else if (event === 'SIGNED_IN' && session) {
-    useAuthStore.getState().checkAuth()
+getSupabase().then(client => {
+  if (client) {
+    client.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      console.log('🔄 Auth state changed:', event, session?.user?.email || 'no user')
+      if (event === 'SIGNED_OUT') {
+        useAuthStore.getState().logout()
+      } else if (event === 'SIGNED_IN' && session) {
+        useAuthStore.getState().checkAuth()
+      }
+    })
   }
-})
+}).catch(error => {
+  console.error('Failed to initialize auth state change listener:', error)
+});

@@ -439,9 +439,9 @@ CREATE POLICY variance_analysis_tenant_isolation ON variance_analysis
 -- ===================================================================
 -- ADD MISSING ACCOUNTS FOR PERIOD CLOSING
 -- ===================================================================
-INSERT INTO accounts (tenant_id, code, name, name_ar, account_type, is_leaf) VALUES
-('00000000-0000-0000-0000-000000000001', '5900', 'Manufacturing Variances', 'انحرافات التصنيع', 'expense', true),
-('00000000-0000-0000-0000-000000000001', '5950', 'Inventory Adjustments', 'تسويات المخزون', 'expense', true)
+INSERT INTO accounts (tenant_id, code, name, name_ar, account_type, account_subtype, is_leaf) VALUES
+('00000000-0000-0000-0000-000000000001', '5900', 'Manufacturing Variances', 'انحرافات التصنيع', 'expense', 'VARIANCE', true),
+('00000000-0000-0000-0000-000000000001', '5950', 'Inventory Adjustments', 'تسويات المخزون', 'expense', 'ADJUSTMENT', true)
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 -- ===================================================================

@@ -6,8 +6,6 @@ export function LoadingScreen() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
-  console.log('🔄 Rendering LoadingScreen component')
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className={cn(

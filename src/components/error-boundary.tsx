@@ -18,17 +18,15 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public static getDerivedStateFromError(error: Error): State {
-    console.error('🚨 ErrorBoundary caught an error:', error)
     return { hasError: true, error }
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('🚨 Uncaught error in ErrorBoundary:', error, errorInfo)
+    console.error('Uncaught error:', error, errorInfo)
   }
 
   public render() {
     if (this.state.hasError) {
-      console.log('🔄 Rendering error fallback UI')
       return (
         <div className="min-h-screen flex items-center justify-center bg-background">
           <div className="text-center p-8 max-w-md">

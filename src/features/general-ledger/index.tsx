@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
-import { supabase, JournalEntry, Account } from '@/lib/supabase'
+import { getSupabase, JournalEntry, Account, GLAccount, getAllGLAccounts, getEffectiveTenantId } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { 
   BookOpen, 
@@ -55,7 +55,10 @@ function GLOverview() {
 
   const loadSummary = async () => {
     try {
-      const { data: entries, error } = await supabase
+      const client = await getSupabase();
+      if (!client) throw new Error('Supabase client not initialized');
+      
+      const { data: entries, error } = await client
         .from('journal_entries')
         .select('status, total_debit, total_credit')
 
@@ -207,7 +210,10 @@ function RecentEntries() {
 
   const loadRecentEntries = async () => {
     try {
-      const { data, error } = await supabase
+      const client = await getSupabase();
+      if (!client) throw new Error('Supabase client not initialized');
+      
+      const { data, error } = await client
         .from('journal_entries')
         .select(`
           *,
@@ -297,9 +303,12 @@ function RecentEntries() {
 function ChartOfAccounts() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [accounts, setAccounts] = useState<Account[]>([])
+  const [accounts, setAccounts] = useState<GLAccount[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [expandedAccounts, setExpandedAccounts] = useState<Set<string>>(new Set())
+  const [error, setError] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<any>(null) // Add debug info state
 
   useEffect(() => {
     loadAccounts()
@@ -307,19 +316,200 @@ function ChartOfAccounts() {
 
   const loadAccounts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('code')
+      setLoading(true)
+      setError(null)
+      setDebugInfo(null)
+      
+      console.log('=== ChartOfAccounts Debug Info ===')
+      console.log('Loading GL accounts...')
+      
+      // Use the specialized query function for gl_accounts
+      const result = await getAllGLAccounts() // Use the new function to get all accounts
+      
+      // Type guard to ensure we have a valid array of GLAccount objects
+      if (!Array.isArray(result)) {
+        throw new Error('Invalid response format from getAllGLAccounts')
+      }
+      
+      // Filter out any objects that don't match the GLAccount interface
+      const validAccounts = result.filter(account => 
+        account && 
+        typeof account === 'object' && 
+        'id' in account && 
+        'code' in account && 
+        'name' in account
+      ) as GLAccount[]
+      
+      // Get org ID for debugging
+      const client = await getSupabase();
+      if (!client) throw new Error('Supabase client not initialized');
+      
+      const { data: { session } } = await client.auth.getSession()
+      
+      // Try to get org ID using the enhanced function
+      const orgId = await getEffectiveTenantId();
+      
+      console.log('GL accounts query result:', result)
+      setDebugInfo({
+        timestamp: new Date().toISOString(),
+        result: validAccounts,
+        dataLength: validAccounts.length || 0,
+        orgId: orgId,
+        session: session ? {
+          userId: session.user?.id,
+          userEmail: session.user?.email,
+          userMetadata: session.user?.user_metadata,
+          appMetadata: session.user?.app_metadata
+        } : null
+      })
 
-      if (error) throw error
-      setAccounts(data || [])
-    } catch (error) {
-      console.error('Error loading accounts:', error)
-      toast.error('خطأ في تحميل شجرة الحسابات')
+      console.log('Setting accounts data:', validAccounts.length, 'records')
+      setAccounts(validAccounts)
+      
+      // If no accounts found, show a message
+      if (validAccounts.length === 0) {
+        console.log('No accounts found - showing empty state')
+        setError('لا توجد حسابات متاحة. قد يكون هذا بسبب عدم تسجيل الدخول أو عدم وجود بيانات.')
+      } else {
+        console.log('Successfully loaded', validAccounts.length, 'accounts')
+      }
+    } catch (err: any) {
+      console.error('Error loading accounts:', err)
+      setDebugInfo({
+        timestamp: new Date().toISOString(),
+        error: err.message,
+        stack: err.stack
+      })
+      // Check if it's a stack depth error
+      if (err.message && err.message.includes('stack depth limit exceeded')) {
+        setError('Database configuration issue: stack depth limit exceeded. This is a known issue with recursive queries.')
+      }
+      // Check if the error is related to table not found
+      else if (err.message && (err.message.includes('not found') || err.message.includes('relation') || err.message.includes('table'))) {
+        setError('جدول الحسابات غير موجود في قاعدة البيانات. قد تحتاج إلى إعداد قاعدة البيانات أولاً.')
+      } else {
+        setError('خطأ غير متوقع أثناء تحميل شجرة الحسابات')
+      }
     } finally {
       setLoading(false)
     }
+  }
+
+  // Build hierarchical tree structure using path if available, otherwise fallback to parent_code
+  const buildTree = (accounts: GLAccount[]): any[] => {
+    const accountMap = new Map<string, any>()
+    const roots: any[] = []
+
+    // Initialize all accounts
+    accounts.forEach(account => {
+      accountMap.set(account.code, {
+        ...account,
+        children: [],
+        level: 0
+      })
+    })
+
+    // Build parent-child relationships using path-based approach
+    accounts.forEach(account => {
+      const node = accountMap.get(account.code)
+      
+      // Find parent using path-based approach
+      // If path is '100000.110000.110100', parent path would be '100000.110000'
+      if (account.path && account.path.includes('.')) {
+        const pathParts = account.path.split('.')
+        const parentPath = pathParts.slice(0, -1).join('.')
+        
+        // Find parent account by path
+        const parentAccount = accounts.find(acc => acc.path === parentPath)
+        if (parentAccount) {
+          const parent = accountMap.get(parentAccount.code)
+          if (parent) {
+            parent.children.push(node)
+            node.level = parent.level + 1
+            return
+          }
+        }
+      }
+      
+      // Fallback: use parent_code relationship when path is missing
+      if ((!account.path || !account.path.includes('.')) && account.parent_code) {
+        const parent = accountMap.get(account.parent_code)
+        if (parent) {
+          parent.children.push(node)
+          node.level = parent.level + 1
+          return
+        }
+      }
+
+      // If no parent found or root account, add to roots
+      roots.push(node)
+    })
+
+    return roots
+  }
+
+  // Toggle expanded state for an account
+  const toggleExpand = (code: string) => {
+    setExpandedAccounts(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(code)) {
+        newSet.delete(code)
+      } else {
+        newSet.add(code)
+      }
+      return newSet
+    })
+  }
+
+  // Render account tree recursively
+  const renderAccountTree = (account: any, level = 0) => {
+    const isExpanded = expandedAccounts.has(account.code)
+    const hasChildren = account.children && account.children.length > 0
+    
+    // Calculate padding based on level
+    const paddingLeft = level > 0 ? `${Math.min(level * 16 + 16, 64)}px` : '16px'
+    
+    return (
+      <div key={account.id}>
+        <div 
+          style={{ paddingLeft }}
+          className="p-4 flex justify-between items-center hover:bg-accent transition-colors cursor-pointer"
+          onClick={() => hasChildren && toggleExpand(account.code)}
+        >
+          <div className="flex-1">
+            <div className="flex items-center gap-2">
+              {hasChildren && (
+                <button className="text-muted-foreground">
+                  {isExpanded ? '▼' : '►'}
+                </button>
+              )}
+              <h4 className="font-medium">{account.code}</h4>
+              {getAccountTypeBadge(account.category)}
+              {getBalanceTypeBadge(account.normal_balance)}
+              {account.allow_posting ? (
+                <Badge variant="outline">يمكن النشر</Badge>
+              ) : (
+                <Badge variant="secondary">حساب رئيسي</Badge>
+              )}
+            </div>
+            <p className="text-sm font-medium">{account.name_ar || account.name}</p>
+            <p className="text-xs text-muted-foreground">{account.name}</p>
+          </div>
+          <div className="text-right">
+            {account.is_active ? (
+              <Badge variant="default">نشط</Badge>
+            ) : (
+              <Badge variant="destructive">غير نشط</Badge>
+            )}
+          </div>
+        </div>
+        {hasChildren && isExpanded && (
+          <div className="border-r-2 border-muted ml-4">
+            {account.children.map((child: any) => renderAccountTree(child, level + 1))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   const filteredAccounts = accounts.filter(account => 
@@ -327,6 +517,36 @@ function ChartOfAccounts() {
     account.code.includes(searchTerm) ||
     (account.name_ar && account.name_ar.includes(searchTerm))
   )
+
+  // Build tree only with filtered accounts
+  const accountTree = buildTree(filteredAccounts)
+
+  // Helper function to get account type badge
+  const getAccountTypeBadge = (category: string) => {
+    switch (category) {
+      case 'ASSET':
+        return <Badge variant="default">الأصول</Badge>
+      case 'LIABILITY':
+        return <Badge variant="destructive">الخصوم</Badge>
+      case 'EQUITY':
+        return <Badge variant="secondary">حقوق الملكية</Badge>
+      case 'REVENUE':
+        return <Badge variant="success">الإيرادات</Badge>
+      case 'EXPENSE':
+        return <Badge variant="outline">المصروفات</Badge>
+      default:
+        return <Badge variant="outline">{category}</Badge>
+    }
+  }
+
+  // Helper function to get balance type badge
+  const getBalanceTypeBadge = (balance: string) => {
+    if (balance === 'DEBIT') {
+      return <Badge variant="default">مدين</Badge>
+    } else {
+      return <Badge variant="secondary">دائن</Badge>
+    }
+  }
 
   if (loading) {
     return (
@@ -339,6 +559,41 @@ function ChartOfAccounts() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
+          <div>
+            <h1 className="text-2xl font-bold">شجرة الحسابات</h1>
+            <p className="text-muted-foreground">دليل الحسابات المحاسبية</p>
+          </div>
+        </div>
+        
+        {/* Debug Info Display */}
+        {debugInfo && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            <h3 className="font-medium text-yellow-800 mb-2">Debug Information:</h3>
+            <pre className="text-xs bg-white p-2 rounded overflow-auto max-h-40">
+              {JSON.stringify(debugInfo, null, 2)}
+            </pre>
+          </div>
+        )}
+        
+        <div className="bg-card rounded-lg border p-6">
+          <div className="text-center">
+            <AlertTriangle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">لا يمكن عرض شجرة الحسابات</h3>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={loadAccounts} variant="outline">
+              <RotateCcw className="h-4 w-4 ml-2" />
+              إعادة المحاولة
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
@@ -346,7 +601,24 @@ function ChartOfAccounts() {
           <h1 className="text-2xl font-bold">شجرة الحسابات</h1>
           <p className="text-muted-foreground">دليل الحسابات المحاسبية</p>
         </div>
+        {/* Add refresh button for debugging */}
+        <Button onClick={loadAccounts} variant="outline" size="sm">
+          <RotateCcw className="h-4 w-4 ml-2" />
+          تحديث
+        </Button>
       </div>
+
+      {/* Debug Info Display */}
+      {debugInfo && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <h3 className="font-medium text-yellow-800 mb-2">Debug Information:</h3>
+          <div className="text-sm">
+            <p>Loaded at: {new Date(debugInfo.timestamp).toLocaleTimeString()}</p>
+            <p>Records found: {debugInfo.dataLength}</p>
+            {debugInfo.error && <p className="text-red-600">Error: {debugInfo.error}</p>}
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="max-w-md">
@@ -357,34 +629,25 @@ function ChartOfAccounts() {
         />
       </div>
 
-      {/* Accounts List */}
+      {/* Accounts Tree */}
       <div className="bg-card rounded-lg border">
         <div className="p-4 border-b">
           <h3 className="font-semibold">قائمة الحسابات ({filteredAccounts.length})</h3>
         </div>
         <div className="divide-y">
-          {filteredAccounts.map((account) => (
-            <div key={account.id} className="p-4 flex justify-between items-center">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-medium">{account.code}</h4>
-                  <Badge variant={account.is_leaf ? "default" : "outline"}>
-                    {account.is_leaf ? 'حساب فرعي' : 'حساب رئيسي'}
-                  </Badge>
-                  <Badge variant="secondary">{account.account_type}</Badge>
-                </div>
-                <p className="text-sm font-medium">{account.name_ar || account.name}</p>
-                <p className="text-xs text-muted-foreground">{account.name}</p>
-              </div>
-              <div className="text-right">
-                {account.is_active ? (
-                  <Badge variant="default">نشط</Badge>
-                ) : (
-                  <Badge variant="destructive">غير نشط</Badge>
-                )}
-              </div>
+          {accountTree.length > 0 ? (
+            accountTree.map(account => renderAccountTree(account))
+          ) : (
+            <div className="p-8 text-center text-muted-foreground">
+              <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>لا توجد حسابات لعرضها</p>
+              <p className="text-sm mt-2">قد تحتاج إلى تسجيل الدخول أو إضافة حسابات</p>
+              <Button onClick={loadAccounts} variant="outline" className="mt-4">
+                <RotateCcw className="h-4 w-4 ml-2" />
+                إعادة المحاولة
+              </Button>
             </div>
-          ))}
+          )}
         </div>
       </div>
     </div>
@@ -405,7 +668,10 @@ function JournalEntries() {
 
   const loadEntries = async () => {
     try {
-      const { data, error } = await supabase
+      const client = await getSupabase();
+      if (!client) throw new Error('Supabase client not initialized');
+      
+      const { data, error } = await client
         .from('journal_entries')
         .select(`
           *,

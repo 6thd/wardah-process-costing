@@ -1,6 +1,6 @@
 // src/App.tsx
 import React, { useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { loadConfig } from '@/lib/config';
@@ -20,13 +20,20 @@ import { SalesModule } from '@/features/sales';
 import { ReportsModule } from '@/features/reports';
 import { SettingsModule } from '@/features/settings';
 import { GeneralLedgerModule } from '@/features/general-ledger';
+import { TestGLAccounts } from '@/TestGLAccounts'; // Add this import
+import { Debug404 } from '@/debug-404'; // Add this import
+import { TestDatabaseConnection } from '@/TestDatabaseConnection'; // Add this import
+import { CheckDatabaseSetup } from '@/CheckDatabaseSetup'; // Add this import
+import { InitializeDatabase } from '@/InitializeDatabase'; // Add this import
 
 const App: React.FC = () => {
+  const location = useLocation();
   const { i18n } = useTranslation();
   const { isLoading, isAuthenticated, checkAuth } = useAuthStore();
   const { initializeApp, isInitialized } = useUIStore();
 
   console.log('🔄 App component rendered with state:', { isLoading, isAuthenticated, isInitialized });
+  console.log('📍 Current location:', location.pathname);
 
   // Initial app bootstrap
   useEffect(() => {
@@ -96,6 +103,11 @@ const App: React.FC = () => {
         <Route path="/reports/*" element={<ReportsModule />} />
         <Route path="/settings/*" element={<SettingsModule />} />
         <Route path="/general-ledger/*" element={<GeneralLedgerModule />} />
+        <Route path="/test-gl" element={<TestGLAccounts />} /> {/* Add this route */}
+        <Route path="/test-db" element={<TestDatabaseConnection />} /> {/* Add this route */}
+        <Route path="/check-setup" element={<CheckDatabaseSetup />} /> {/* Add this route */}
+        <Route path="/debug-404" element={<Debug404 />} /> {/* Add this route */}
+        <Route path="/initialize-db" element={<InitializeDatabase />} /> {/* Add this route */}
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </MainLayout>

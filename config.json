@@ -1,6 +1,6 @@
 {
-  "SUPABASE_URL": "https://your-project.supabase.co",
-  "SUPABASE_ANON_KEY": "your-anon-key-here",
+  "SUPABASE_URL": "https://rytzljjlthouptdqeuxh.supabase.co",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Mzc1NTYsImV4cCI6MjA3MzQxMzU1Nn0.5VAgxgoiWIkA05WYVnTDJ0wUOTkWxAo0a0VY6-J7DoY",
   "TABLE_NAMES": {
     "items": "items",
     "categories": "categories",
@@ -18,7 +18,9 @@
     "sales_orders": "sales_orders",
     "sales_order_lines": "sales_order_lines",
     "work_centers": "work_centers",
-    "locations": "locations"
+    "locations": "locations",
+    "gl_accounts": "gl_accounts",
+    "gl_mappings": "gl_mappings"
   },
   "APP_SETTINGS": {
     "default_currency": "SAR",
@@ -30,6 +32,6 @@
     "realtime_updates": true,
     "advanced_costing": true,
     "multi_tenant": true,
-    "demo_mode": true
+    "demo_mode": false
   }
 }

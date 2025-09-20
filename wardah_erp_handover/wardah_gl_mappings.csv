@@ -1,0 +1,73 @@
+﻿key_type,key_value,debit_account,credit_account,description
+EVENT,material_issue_mixing,134100,131100,صرف مواد LDPE لمرحلة الخلط
+EVENT,material_issue_extrusion,134200,131110,صرف مواد HDPE لمرحلة البثق
+EVENT,material_issue_printing,134300,131150,صرف ماستر باتش للطباعة
+EVENT,material_issue_cutting,134400,131200,صرف مواد مساعدة للقص
+EVENT,material_issue_packing,134500,131200,صرف مواد التعبئة
+EVENT,labor_charge_mixing,134100,210201,تحميل أجور مباشرة على مرحلة الخلط
+EVENT,labor_charge_extrusion,134200,210201,تحميل أجور مباشرة على مرحلة البثق
+EVENT,labor_charge_printing,134300,210201,تحميل أجور مباشرة على مرحلة الطباعة
+EVENT,labor_charge_cutting,134400,210201,تحميل أجور مباشرة على مرحلة القص
+EVENT,labor_charge_packing,134500,210201,تحميل أجور مباشرة على مرحلة التعبئة
+EVENT,overhead_applied_mixing,134100,514000,تطبيق أوفرهيد على مرحلة الخلط
+EVENT,overhead_applied_extrusion,134200,514000,تطبيق أوفرهيد على مرحلة البثق
+EVENT,overhead_applied_printing,134300,514000,تطبيق أوفرهيد على مرحلة الطباعة
+EVENT,overhead_applied_cutting,134400,514000,تطبيق أوفرهيد على مرحلة القص
+EVENT,overhead_applied_packing,134500,514000,تطبيق أوفرهيد على مرحلة التعبئة
+EVENT,overhead_actual_power,513100,210302,طاقة فعلية للإنتاج
+EVENT,overhead_actual_maintenance,513200,210100,صيانة معدات الإنتاج الفعلية
+EVENT,overhead_actual_depreciation,513300,211002,استهلاك معدات الإنتاج
+EVENT,overhead_actual_materials,513400,131300,مواد غير مباشرة
+EVENT,overhead_actual_labor,513500,210201,أجور غير مباشرة
+EVENT,transfer_mixing_to_extrusion,134200,134100,نقل من الخلط إلى البثق
+EVENT,transfer_extrusion_to_printing,134300,134200,نقل من البثق إلى الطباعة
+EVENT,transfer_printing_to_cutting,134400,134300,نقل من الطباعة إلى القص
+EVENT,transfer_cutting_to_packing,134500,134400,نقل من القص إلى التعبئة
+EVENT,production_complete_bags,135100,134500,إتمام إنتاج الأكياس المطبوعة
+EVENT,production_complete_rolls,135110,134200,إتمام إنتاج الرولات البلاستيكية
+EVENT,production_complete_pp,135120,134500,إتمام إنتاج منتجات PP
+EVENT,production_complete_ps,135130,134500,إتمام إنتاج منتجات PS
+EVENT,production_complete_pet,135140,134500,إتمام إنتاج منتجات PET
+EVENT,sale_delivery_bags,544000,135100,تكلفة مبيعات الأكياس المطبوعة
+EVENT,sale_delivery_rolls,545000,135110,تكلفة مبيعات الرولات البلاستيكية
+EVENT,sale_delivery_pp,541000,135120,تكلفة مبيعات منتجات PP
+EVENT,sale_delivery_ps,542000,135130,تكلفة مبيعات منتجات PS
+EVENT,sale_delivery_pet,543000,135140,تكلفة مبيعات منتجات PET
+EVENT,sale_delivery_scrap,546000,135200,تكلفة مبيعات السكراب
+EVENT,purchase_receipt_ldpe,131100,210100,استلام مشتريات LDPE
+EVENT,purchase_receipt_hdpe,131110,210100,استلام مشتريات HDPE
+EVENT,purchase_receipt_pp,131120,210100,استلام مشتريات PP
+EVENT,purchase_receipt_masterbatch,131150,210100,استلام ماستر باتش
+EVENT,purchase_receipt_packaging,131200,210100,استلام مواد التعبئة
+EVENT,purchase_receipt_spares,131300,210100,استلام قطع غيار
+EVENT,sales_revenue_local,110300,410100,إيرادات مبيعات محلية
+EVENT,sales_revenue_export,110300,410200,إيرادات مبيعات تصديرية
+EVENT,sales_revenue_services,110300,410300,إيرادات خدمات
+EVENT,scrap_sales_revenue,110300,420200,إيرادات بيع السكراب
+EVENT,discount_earned,210100,420100,خصومات مكتسبة من الموردين
+EVENT,cash_payment,110101,110300,استلام دفع نقدي من عميل
+EVENT,bank_payment,110201,110300,استلام دفع بنكي من عميل
+EVENT,vat_input_materials,110600,210100,ضريبة القيمة المضافة على المشتريات
+EVENT,vat_output_sales,110300,210401,ضريبة القيمة المضافة على المبيعات
+EVENT,vat_settlement,210401,210402,تسوية ضريبة القيمة المضافة
+EVENT,overhead_variance_spending,593100,514000,فرق إنفاق الأوفرهيد (Control - Applied)
+EVENT,overhead_variance_volume,593200,514000,فرق حجم/طاقة الأوفرهيد
+EVENT,material_price_variance,591100,131100,فرق سعر شراء المواد
+EVENT,material_usage_variance,591200,134200,فرق استهلاك المواد
+EVENT,labor_rate_variance,592100,210201,فرق معدل الأجور
+EVENT,labor_efficiency_variance,592200,134300,فرق كفاءة الأجور
+EVENT,normal_waste,595100,134400,تالف عادي من الإنتاج
+EVENT,abnormal_waste,595200,135100,تالف غير عادي
+EVENT,scrap_processing,135200,134400,تحويل سكراب إلى منتج قابل للبيع
+EVENT,regrind_processing_cost,595400,210100,تكلفة معالجة السكراب خارجياً
+EVENT,outsourcing_send,136000,134200,إرسال مواد للمعالجة الخارجية
+EVENT,outsourcing_receive,134300,136000,استلام مواد من المعالجة الخارجية
+EVENT,outsourcing_cost,134300,210100,تكلفة المعالجة الخارجية
+WORK_CENTER,MIXING,134100,517100,ربط مركز الخلط بـ WIP الخلط
+WORK_CENTER,EXTRUSION,134200,517200,ربط مركز البثق بـ WIP البثق
+WORK_CENTER,PRINTING,134300,517300,ربط مركز الطباعة بـ WIP الطباعة
+WORK_CENTER,CUTTING,134400,517400,ربط مركز القص بـ WIP القص
+WORK_CENTER,PACKING,134500,517500,ربط مركز التعبئة بـ WIP التعبئة
+PRODUCT_TYPE,raw_material,131100,210100,استلام مواد خام افتراضي
+PRODUCT_TYPE,finished_good,135100,134500,إتمام إنتاج منتج تام افتراضي
+PRODUCT_TYPE,regrind,135200,134400,إنتاج سكراب قابل للبيع

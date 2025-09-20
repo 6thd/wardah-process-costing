@@ -264,40 +264,40 @@ CREATE TRIGGER validate_journal_entry_trigger
 -- ===================================================================
 -- INITIAL CHART OF ACCOUNTS (BASIC STRUCTURE)
 -- ===================================================================
-INSERT INTO accounts (tenant_id, code, name, name_ar, account_type, is_leaf) VALUES
+INSERT INTO accounts (tenant_id, code, name, name_ar, account_type, account_subtype, is_leaf) VALUES
 -- Assets
-('00000000-0000-0000-0000-000000000001', '1000', 'ASSETS', 'الأصول', 'asset', false),
-('00000000-0000-0000-0000-000000000001', '1100', 'Current Assets', 'الأصول المتداولة', 'asset', false),
-('00000000-0000-0000-0000-000000000001', '1110', 'Cash and Bank', 'النقد والبنك', 'asset', true),
-('00000000-0000-0000-0000-000000000001', '1120', 'Accounts Receivable', 'العملاء', 'asset', true),
-('00000000-0000-0000-0000-000000000001', '1130', 'Inventory - Raw Materials', 'المخزون - مواد خام', 'asset', true),
-('00000000-0000-0000-0000-000000000001', '1131', 'Inventory - WIP', 'المخزون - تحت التشغيل', 'asset', true),
-('00000000-0000-0000-0000-000000000001', '1132', 'Inventory - Finished Goods', 'المخزون - منتجات تامة', 'asset', true),
+('00000000-0000-0000-0000-000000000001', '1000', 'ASSETS', 'الأصول', 'asset', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '1100', 'Current Assets', 'الأصول المتداولة', 'asset', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '1110', 'Cash and Bank', 'النقد والبنك', 'asset', 'CASH', true),
+('00000000-0000-0000-0000-000000000001', '1120', 'Accounts Receivable', 'العملاء', 'asset', 'RECEIVABLE', true),
+('00000000-0000-0000-0000-000000000001', '1130', 'Inventory - Raw Materials', 'المخزون - مواد خام', 'asset', 'RM', true),
+('00000000-0000-0000-0000-000000000001', '1131', 'Inventory - WIP', 'المخزون - تحت التشغيل', 'asset', 'WIP', true),
+('00000000-0000-0000-0000-000000000001', '1132', 'Inventory - Finished Goods', 'المخزون - منتجات تامة', 'asset', 'FG', true),
 
 -- Liabilities
-('00000000-0000-0000-0000-000000000001', '2000', 'LIABILITIES', 'الخصوم', 'liability', false),
-('00000000-0000-0000-0000-000000000001', '2100', 'Current Liabilities', 'الخصوم المتداولة', 'liability', false),
-('00000000-0000-0000-0000-000000000001', '2110', 'Accounts Payable', 'الموردين', 'liability', true),
-('00000000-0000-0000-0000-000000000001', '2120', 'Accrued Wages', 'الأجور المستحقة', 'liability', true),
-('00000000-0000-0000-0000-000000000001', '2130', 'GR/IR Clearing', 'تسوية الاستلام/الفوترة', 'liability', true),
+('00000000-0000-0000-0000-000000000001', '2000', 'LIABILITIES', 'الخصوم', 'liability', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '2100', 'Current Liabilities', 'الخصوم المتداولة', 'liability', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '2110', 'Accounts Payable', 'الموردين', 'liability', 'PAYABLE', true),
+('00000000-0000-0000-0000-000000000001', '2120', 'Accrued Wages', 'الأجور المستحقة', 'liability', 'ACCRUED', true),
+('00000000-0000-0000-0000-000000000001', '2130', 'GR/IR Clearing', 'تسوية الاستلام/الفوترة', 'liability', 'CLEARING', true),
 
 -- Equity
-('00000000-0000-0000-0000-000000000001', '3000', 'EQUITY', 'حقوق الملكية', 'equity', false),
-('00000000-0000-0000-0000-000000000001', '3100', 'Capital', 'رأس المال', 'equity', true),
-('00000000-0000-0000-0000-000000000001', '3200', 'Retained Earnings', 'الأرباح المحتجزة', 'equity', true),
+('00000000-0000-0000-0000-000000000001', '3000', 'EQUITY', 'حقوق الملكية', 'equity', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '3100', 'Capital', 'رأس المال', 'equity', 'CAPITAL', true),
+('00000000-0000-0000-0000-000000000001', '3200', 'Retained Earnings', 'الأرباح المحتجزة', 'equity', 'RETAINED_EARNINGS', true),
 
 -- Revenue
-('00000000-0000-0000-0000-000000000001', '4000', 'REVENUE', 'الإيرادات', 'revenue', false),
-('00000000-0000-0000-0000-000000000001', '4100', 'Sales Revenue', 'إيرادات المبيعات', 'revenue', true),
+('00000000-0000-0000-0000-000000000001', '4000', 'REVENUE', 'الإيرادات', 'revenue', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '4100', 'Sales Revenue', 'إيرادات المبيعات', 'revenue', 'SALES', true),
 
 -- Expenses
-('00000000-0000-0000-0000-000000000001', '5000', 'EXPENSES', 'المصروفات', 'expense', false),
-('00000000-0000-0000-0000-000000000001', '5100', 'Cost of Goods Sold', 'تكلفة البضاعة المباعة', 'expense', true),
-('00000000-0000-0000-0000-000000000001', '5200', 'Manufacturing Overhead', 'الأعباء الصناعية', 'expense', true),
-('00000000-0000-0000-0000-000000000001', '5210', 'Direct Labor', 'العمالة المباشرة', 'expense', true),
-('00000000-0000-0000-0000-000000000001', '5220', 'Manufacturing Overhead Applied', 'الأعباء الصناعية المحملة', 'expense', true),
-('00000000-0000-0000-0000-000000000001', '5300', 'Operating Expenses', 'المصروفات التشغيلية', 'expense', false),
-('00000000-0000-0000-0000-000000000001', '5310', 'Salaries and Wages', 'الرواتب والأجور', 'expense', true);
+('00000000-0000-0000-0000-000000000001', '5000', 'EXPENSES', 'المصروفات', 'expense', 'OTHER', false),
+('00000000-0000-0000-0000-000000000001', '5100', 'Cost of Goods Sold', 'تكلفة البضاعة المباعة', 'expense', 'COGS', true),
+('00000000-0000-0000-0000-000000000001', '5200', 'Manufacturing Overhead', 'الأعباء الصناعية', 'expense', 'OVERHEAD', true),
+('00000000-0000-0000-0000-000000000001', '5210', 'Direct Labor', 'العمالة المباشرة', 'expense', 'LABOR', true),
+('00000000-0000-0000-0000-000000000001', '5220', 'Manufacturing Overhead Applied', 'الأعباء الصناعية المحملة', 'expense', 'OVERHEAD_APPLIED', true),
+('00000000-0000-0000-0000-000000000001', '5300', 'Operating Expenses', 'المصروفات التشغيلية', 'expense', 'OPERATING', false),
+('00000000-0000-0000-0000-000000000001', '5310', 'Salaries and Wages', 'الرواتب والأجور', 'expense', 'SALARIES', true);
 
 -- Basic Journals
 INSERT INTO journals (tenant_id, code, name, name_ar, journal_type, sequence_prefix) VALUES

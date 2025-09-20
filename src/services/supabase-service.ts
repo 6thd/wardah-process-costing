@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase'
+import { getSupabase } from '../lib/supabase'
 import { getTenantId } from '../lib/supabase'
 import { getTableName } from '../lib/config'
 import type { 
@@ -16,11 +16,21 @@ const getConfig = async () => {
   return await response.json()
 }
 
+// Helper function to get supabase client
+const getClient = async () => {
+  const client = await getSupabase()
+  if (!client) {
+    throw new Error('Supabase client not initialized')
+  }
+  return client
+}
+
 // Categories Service
 export const categoriesService = {
   getAll: async () => {
     const config = await getConfig()
     const tenantId = await getTenantId()
+    const supabase = await getClient()
     
     let query = supabase
       .from(config.TABLE_NAMES.categories)
@@ -40,6 +50,7 @@ export const categoriesService = {
   create: async (category: Omit<Category, 'id' | 'created_at' | 'updated_at'>) => {
     const config = await getConfig()
     const tenantId = await getTenantId()
+    const supabase = await getClient()
     
     const categoryData = tenantId ? { ...category, tenant_id: tenantId } : category
     
@@ -57,6 +68,7 @@ export const categoriesService = {
 // Items Service (Enhanced)
 export const itemsService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
       .select(`
@@ -70,6 +82,7 @@ export const itemsService = {
   },
 
   getLowStock: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
       .select(`
@@ -83,6 +96,7 @@ export const itemsService = {
   },
 
   getById: async (id: string) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
       .select(`
@@ -97,6 +111,7 @@ export const itemsService = {
   },
 
   create: async (item: Omit<Item, 'id' | 'created_at' | 'updated_at'>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
       .insert(item)
@@ -111,6 +126,7 @@ export const itemsService = {
   },
 
   update: async (id: string, item: Partial<Item>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
       .update({ ...item, updated_at: new Date().toISOString() })
@@ -126,6 +142,7 @@ export const itemsService = {
   },
 
   updateStock: async (itemId: string, quantity: number, movementType: 'in' | 'out' | 'adjustment', userId: string, notes?: string) => {
+    const supabase = await getClient()
     const { data: item } = await supabase
       .from('items')
       .select('stock_quantity')
@@ -168,6 +185,7 @@ export const itemsService = {
   },
 
   delete: async (id: string) => {
+    const supabase = await getClient()
     const { error } = await supabase
       .from('items')
       .delete()
@@ -180,6 +198,7 @@ export const itemsService = {
 // Suppliers Service
 export const suppliersService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('suppliers')
       .select('*')
@@ -190,6 +209,7 @@ export const suppliersService = {
   },
 
   create: async (supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('suppliers')
       .insert(supplier)
@@ -201,6 +221,7 @@ export const suppliersService = {
   },
 
   update: async (id: string, supplier: Partial<Supplier>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('suppliers')
       .update({ ...supplier, updated_at: new Date().toISOString() })
@@ -216,6 +237,7 @@ export const suppliersService = {
 // Customers Service
 export const customersService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('customers')
       .select('*')
@@ -226,6 +248,7 @@ export const customersService = {
   },
 
   create: async (customer: Omit<Customer, 'id' | 'created_at' | 'updated_at'>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('customers')
       .insert(customer)
@@ -240,6 +263,7 @@ export const customersService = {
 // Manufacturing Orders Service (Enhanced)
 export const manufacturingService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .select(`
@@ -255,6 +279,8 @@ export const manufacturingService = {
   },
 
   getById: async (id: string) => {
+    const supabase = await getClient()
+    // First try to get the manufacturing order with user data
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .select(`
@@ -266,18 +292,35 @@ export const manufacturingService = {
       .eq('id', id)
       .single()
     
+    // If there's an error related to the user not being found, try without user data
+    if (error && error.message.includes('404')) {
+      console.warn('User not found for manufacturing order, fetching without user data:', id)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('manufacturing_orders')
+        .select(`
+          *,
+          item:items(*),
+          process_costs(*)
+        `)
+        .eq('id', id)
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (error) throw error
     return data
   },
 
   create: async (order: Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .insert(order)
       .select(`
         *,
-        item:items(*),
-        user:users(full_name)
+        item:items(*)
       `)
       .single()
     
@@ -286,6 +329,7 @@ export const manufacturingService = {
   },
 
   updateStatus: async (id: string, status: ManufacturingOrder['status']) => {
+    const supabase = await getClient()
     const updateData: any = { 
       status, 
       updated_at: new Date().toISOString()
@@ -295,6 +339,7 @@ export const manufacturingService = {
       updateData.end_date = new Date().toISOString()
     }
 
+    // First try to update with user data
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .update(updateData)
@@ -306,6 +351,23 @@ export const manufacturingService = {
       `)
       .single()
     
+    // If there's an error related to the user not being found, try without user data
+    if (error && error.message.includes('404')) {
+      console.warn('User not found for manufacturing order, updating without user data:', id)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('manufacturing_orders')
+        .update(updateData)
+        .eq('id', id)
+        .select(`
+          *,
+          item:items(*)
+        `)
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (error) throw error
     return data
   }
@@ -314,6 +376,7 @@ export const manufacturingService = {
 // Process Costs Service (Enhanced)
 export const processCostService = {
   getByOrderId: async (manufacturingOrderId: string) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('process_costs')
       .select('*')
@@ -325,6 +388,7 @@ export const processCostService = {
   },
 
   create: async (processCost: Omit<ProcessCost, 'id' | 'created_at'>) => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('process_costs')
       .insert({
@@ -343,6 +407,7 @@ export const processCostService = {
   },
 
   updateOrderTotalCost: async (manufacturingOrderId: string) => {
+    const supabase = await getClient()
     const { data: costs } = await supabase
       .from('process_costs')
       .select('total_cost')
@@ -363,6 +428,8 @@ export const processCostService = {
 // Stock Movements Service
 export const stockMovementsService = {
   getAll: async () => {
+    const supabase = await getClient()
+    // First try to get stock movements with user data
     const { data, error } = await supabase
       .from('stock_movements')
       .select(`
@@ -372,11 +439,28 @@ export const stockMovementsService = {
       `)
       .order('created_at', { ascending: false })
     
+    // If there's an error related to the user not being found, try without user data
+    if (error && error.message.includes('404')) {
+      console.warn('User not found for stock movements, fetching without user data')
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('stock_movements')
+        .select(`
+          *,
+          item:items(*)
+        `)
+        .order('created_at', { ascending: false })
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (error) throw error
     return data
   },
 
   getByItemId: async (itemId: string) => {
+    const supabase = await getClient()
+    // First try to get stock movements with user data
     const { data, error } = await supabase
       .from('stock_movements')
       .select(`
@@ -387,6 +471,22 @@ export const stockMovementsService = {
       .eq('item_id', itemId)
       .order('created_at', { ascending: false })
     
+    // If there's an error related to the user not being found, try without user data
+    if (error && error.message.includes('404')) {
+      console.warn('User not found for stock movements, fetching without user data for item:', itemId)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('stock_movements')
+        .select(`
+          *,
+          item:items(*)
+        `)
+        .eq('item_id', itemId)
+        .order('created_at', { ascending: false })
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (error) throw error
     return data
   }
@@ -395,6 +495,7 @@ export const stockMovementsService = {
 // Purchase Orders Service
 export const purchaseOrdersService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('purchase_orders')
       .select(`
@@ -413,6 +514,7 @@ export const purchaseOrdersService = {
   },
 
   create: async (order: Omit<PurchaseOrder, 'id' | 'created_at' | 'updated_at'>, items: Omit<PurchaseOrderItem, 'id' | 'purchase_order_id' | 'created_at'>[]) => {
+    const supabase = await getClient()
     const { data: orderData, error: orderError } = await supabase
       .from('purchase_orders')
       .insert(order)
@@ -435,6 +537,7 @@ export const purchaseOrdersService = {
 
     const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
     
+    // First try to update with user data
     const { data, error: updateError } = await supabase
       .from('purchase_orders')
       .update({ total_amount: totalAmount })
@@ -449,7 +552,28 @@ export const purchaseOrdersService = {
         )
       `)
       .single()
-
+    
+    // If there's an error related to the user not being found, try without user data
+    if (updateError && updateError.message.includes('404')) {
+      console.warn('User not found for purchase order, updating without user data:', orderData.id)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('purchase_orders')
+        .update({ total_amount: totalAmount })
+        .eq('id', orderData.id)
+        .select(`
+          *,
+          supplier:suppliers(*),
+          purchase_order_items(
+            *,
+            item:items(*)
+          )
+        `)
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (updateError) throw updateError
     return data
   }
@@ -458,6 +582,7 @@ export const purchaseOrdersService = {
 // Sales Orders Service
 export const salesOrdersService = {
   getAll: async () => {
+    const supabase = await getClient()
     const { data, error } = await supabase
       .from('sales_orders')
       .select(`
@@ -476,6 +601,7 @@ export const salesOrdersService = {
   },
 
   create: async (order: Omit<SalesOrder, 'id' | 'created_at' | 'updated_at'>, items: Omit<SalesOrderItem, 'id' | 'sales_order_id' | 'created_at'>[]) => {
+    const supabase = await getClient()
     const { data: orderData, error: orderError } = await supabase
       .from('sales_orders')
       .insert(order)
@@ -498,6 +624,7 @@ export const salesOrdersService = {
 
     const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
     
+    // First try to update with user data
     const { data, error: updateError } = await supabase
       .from('sales_orders')
       .update({ total_amount: totalAmount })
@@ -512,7 +639,28 @@ export const salesOrdersService = {
         )
       `)
       .single()
-
+    
+    // If there's an error related to the user not being found, try without user data
+    if (updateError && updateError.message.includes('404')) {
+      console.warn('User not found for sales order, updating without user data:', orderData.id)
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('sales_orders')
+        .update({ total_amount: totalAmount })
+        .eq('id', orderData.id)
+        .select(`
+          *,
+          customer:customers(*),
+          sales_order_items(
+            *,
+            item:items(*)
+          )
+        `)
+        .single()
+      
+      if (fallbackError) throw fallbackError
+      return fallbackData
+    }
+    
     if (updateError) throw updateError
     return data
   }
@@ -520,19 +668,25 @@ export const salesOrdersService = {
 
 // Real-time subscriptions
 export const subscribeToItems = (callback: (items: Item[]) => void) => {
-  return supabase
-    .channel('items_changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
-      itemsService.getAll().then(callback)
-    })
-    .subscribe()
+  return getSupabase().then(supabase => {
+    if (!supabase) throw new Error('Supabase client not initialized')
+    return supabase
+      .channel('items_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+        itemsService.getAll().then(callback)
+      })
+      .subscribe()
+  })
 }
 
 export const subscribeToManufacturingOrders = (callback: (orders: any[]) => void) => {
-  return supabase
-    .channel('manufacturing_orders_changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'manufacturing_orders' }, () => {
-      manufacturingService.getAll().then(callback)
-    })
-    .subscribe()
+  return getSupabase().then(supabase => {
+    if (!supabase) throw new Error('Supabase client not initialized')
+    return supabase
+      .channel('manufacturing_orders_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'manufacturing_orders' }, () => {
+        manufacturingService.getAll().then(callback)
+      })
+      .subscribe()
+  })
 }
