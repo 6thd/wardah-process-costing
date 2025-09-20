@@ -10,7 +10,8 @@ import {
   Settings,
   ChevronRight,
   ChevronLeft,
-  BookOpen
+  BookOpen,
+  Users // Add Users icon for HR
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -18,16 +19,16 @@ import { useUIStore } from '@/store/ui-store'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 
-const navigationItems = [
+const getNavigationItems = (t: (key: string) => string) => [
   {
     key: 'dashboard',
     icon: LayoutDashboard,
     href: '/dashboard',
     badge: null,
     subItems: [
-      { key: 'overview', href: '/dashboard/overview', label: 'نظرة عامة' },
-      { key: 'analytics', href: '/dashboard/analytics', label: 'التحليلات' },
-      { key: 'performance', href: '/dashboard/performance', label: 'الأداء' }
+      { key: 'overview', href: '/dashboard/overview', label: t('navigation.overview') },
+      { key: 'analytics', href: '/dashboard/analytics', label: t('navigation.analytics') },
+      { key: 'performance', href: '/dashboard/performance', label: t('navigation.performance') }
     ]
   },
   {
@@ -36,12 +37,12 @@ const navigationItems = [
     href: '/manufacturing',
     badge: '2', // Active MOs
     subItems: [
-      { key: 'overview', href: '/manufacturing/overview', label: 'نظرة عامة' },
-      { key: 'orders', href: '/manufacturing/orders', label: 'أوامر التصنيع' },
-      { key: 'process-costing', href: '/manufacturing/process-costing', label: 'تكاليف المراحل' },
-      { key: 'workcenters', href: '/manufacturing/workcenters', label: 'مراكز العمل' },
-      { key: 'bom', href: '/manufacturing/bom', label: 'قوائم المواد' },
-      { key: 'quality', href: '/manufacturing/quality', label: 'ضبط الجودة' }
+      { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
+      { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
+      { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
+      { key: 'workcenters', href: '/manufacturing/workcenters', label: t('navigation.workcenters') },
+      { key: 'bom', href: '/manufacturing/bom', label: t('navigation.bom') },
+      { key: 'quality', href: '/manufacturing/quality', label: t('navigation.quality') }
     ]
   },
   {
@@ -50,12 +51,12 @@ const navigationItems = [
     href: '/inventory',
     badge: null,
     subItems: [
-      { key: 'overview', href: '/inventory/overview', label: 'نظرة عامة' },
-      { key: 'items', href: '/inventory/items', label: 'الأصناف' },
-      { key: 'movements', href: '/inventory/movements', label: 'حركات المخزون' },
-      { key: 'adjustments', href: '/inventory/adjustments', label: 'التسويات' },
-      { key: 'valuation', href: '/inventory/valuation', label: 'تقييم المخزون' },
-      { key: 'locations', href: '/inventory/locations', label: 'مواقع التخزين' }
+      { key: 'overview', href: '/inventory/overview', label: t('navigation.overview') },
+      { key: 'items', href: '/inventory/items', label: t('navigation.items') },
+      { key: 'movements', href: '/inventory/movements', label: t('navigation.movements') },
+      { key: 'adjustments', href: '/inventory/adjustments', label: t('navigation.adjustments') },
+      { key: 'valuation', href: '/inventory/valuation', label: t('navigation.valuation') },
+      { key: 'locations', href: '/inventory/locations', label: t('navigation.locations') }
     ]
   },
   {
@@ -64,12 +65,12 @@ const navigationItems = [
     href: '/purchasing',
     badge: '3', // Pending POs
     subItems: [
-      { key: 'overview', href: '/purchasing/overview', label: 'نظرة عامة' },
-      { key: 'suppliers', href: '/purchasing/suppliers', label: 'الموردين' },
-      { key: 'orders', href: '/purchasing/orders', label: 'أوامر الشراء' },
-      { key: 'receipts', href: '/purchasing/receipts', label: 'استلام البضائع' },
-      { key: 'invoices', href: '/purchasing/invoices', label: 'فواتير الموردين' },
-      { key: 'payments', href: '/purchasing/payments', label: 'المدفوعات' }
+      { key: 'overview', href: '/purchasing/overview', label: t('navigation.overview') },
+      { key: 'suppliers', href: '/purchasing/suppliers', label: t('navigation.suppliers') },
+      { key: 'orders', href: '/purchasing/orders', label: t('navigation.orders') },
+      { key: 'receipts', href: '/purchasing/receipts', label: t('navigation.receipts') },
+      { key: 'invoices', href: '/purchasing/invoices', label: t('navigation.invoices') },
+      { key: 'payments', href: '/purchasing/payments', label: t('navigation.payments') }
     ]
   },
   {
@@ -78,12 +79,12 @@ const navigationItems = [
     href: '/sales',
     badge: null,
     subItems: [
-      { key: 'overview', href: '/sales/overview', label: 'نظرة عامة' },
-      { key: 'customers', href: '/sales/customers', label: 'العملاء' },
-      { key: 'orders', href: '/sales/orders', label: 'أوامر البيع' },
-      { key: 'invoices', href: '/sales/invoices', label: 'فواتير المبيعات' },
-      { key: 'delivery', href: '/sales/delivery', label: 'التسليم' },
-      { key: 'collections', href: '/sales/collections', label: 'التحصيلات' }
+      { key: 'overview', href: '/sales/overview', label: t('navigation.overview') },
+      { key: 'customers', href: '/sales/customers', label: t('navigation.customers') },
+      { key: 'orders', href: '/sales/orders', label: t('navigation.orders') },
+      { key: 'invoices', href: '/sales/invoices', label: t('navigation.invoices') },
+      { key: 'delivery', href: '/sales/delivery', label: t('navigation.delivery') },
+      { key: 'collections', href: '/sales/collections', label: t('navigation.collections') }
     ]
   },
   {
@@ -92,11 +93,27 @@ const navigationItems = [
     href: '/general-ledger',
     badge: null,
     subItems: [
-      { key: 'overview', href: '/general-ledger/overview', label: 'نظرة عامة' },
-      { key: 'accounts', href: '/general-ledger/accounts', label: 'شجرة الحسابات' },
-      { key: 'entries', href: '/general-ledger/entries', label: 'القيود اليومية' },
-      { key: 'trial-balance', href: '/general-ledger/trial-balance', label: 'ميزان المراجعة' },
-      { key: 'posting', href: '/general-ledger/posting', label: 'إدارة النشر' }
+      { key: 'overview', href: '/general-ledger/overview', label: t('navigation.overview') },
+      { key: 'accounts', href: '/general-ledger/accounts', label: t('navigation.accounts') },
+      { key: 'entries', href: '/general-ledger/entries', label: t('navigation.entries') },
+      { key: 'trial-balance', href: '/general-ledger/trial-balance', label: t('navigation.trial-balance') },
+      { key: 'posting', href: '/general-ledger/posting', label: t('navigation.posting') }
+    ]
+  },
+  {
+    key: 'hr', // Add HR module to navigation
+    icon: Users,
+    href: '/hr',
+    badge: null,
+    subItems: [
+      { key: 'overview', href: '/hr/overview', label: t('navigation.overview') },
+      { key: 'employees', href: '/hr/employees', label: t('navigation.employees') },
+      { key: 'departments', href: '/hr/departments', label: t('navigation.departments') },
+      { key: 'positions', href: '/hr/positions', label: t('navigation.positions') },
+      { key: 'payroll', href: '/hr/payroll', label: t('navigation.payroll') },
+      { key: 'attendance', href: '/hr/attendance', label: t('navigation.attendance') },
+      { key: 'leave-types', href: '/hr/leave-types', label: t('navigation.leave-types') },
+      { key: 'reports', href: '/hr/reports', label: t('navigation.reports') }
     ]
   },
   {
@@ -105,12 +122,12 @@ const navigationItems = [
     href: '/reports',
     badge: null,
     subItems: [
-      { key: 'financial', href: '/reports/financial', label: 'التقارير المالية' },
-      { key: 'inventory', href: '/reports/inventory', label: 'تقارير المخزون' },
-      { key: 'manufacturing', href: '/reports/manufacturing', label: 'تقارير التصنيع' },
-      { key: 'sales', href: '/reports/sales', label: 'تقارير المبيعات' },
-      { key: 'purchasing', href: '/reports/purchasing', label: 'تقارير المشتريات' },
-      { key: 'analytics', href: '/reports/analytics', label: 'التحليلات المتقدمة' }
+      { key: 'financial', href: '/reports/financial', label: t('navigation.financial') },
+      { key: 'inventory', href: '/reports/inventory', label: t('navigation.inventory') },
+      { key: 'manufacturing', href: '/reports/manufacturing', label: t('navigation.manufacturing') },
+      { key: 'sales', href: '/reports/sales', label: t('navigation.sales') },
+      { key: 'purchasing', href: '/reports/purchasing', label: t('navigation.purchasing') },
+      { key: 'analytics', href: '/reports/analytics', label: t('navigation.analytics') }
     ]
   },
   {
@@ -119,12 +136,12 @@ const navigationItems = [
     href: '/settings',
     badge: null,
     subItems: [
-      { key: 'company', href: '/settings/company', label: 'بيانات الشركة' },
-      { key: 'users', href: '/settings/users', label: 'المستخدمين' },
-      { key: 'permissions', href: '/settings/permissions', label: 'الصلاحيات' },
-      { key: 'system', href: '/settings/system', label: 'إعدادات النظام' },
-      { key: 'integrations', href: '/settings/integrations', label: 'التكاملات' },
-      { key: 'backup', href: '/settings/backup', label: 'النسخ الاحتياطي' }
+      { key: 'company', href: '/settings/company', label: t('navigation.company') },
+      { key: 'users', href: '/settings/users', label: t('navigation.users') },
+      { key: 'permissions', href: '/settings/permissions', label: t('navigation.permissions') },
+      { key: 'system', href: '/settings/system', label: t('navigation.system') },
+      { key: 'integrations', href: '/settings/integrations', label: t('navigation.integrations') },
+      { key: 'backup', href: '/settings/backup', label: t('navigation.backup') }
     ]
   },
 ]
@@ -169,52 +186,74 @@ export function Sidebar() {
               const isActive = location.pathname.startsWith(item.href)
               
               return (
-                <NavLink
-                  key={item.key}
-                  to={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                    "hover:bg-accent hover:text-accent-foreground",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
-                    sidebarCollapsed && "justify-center px-2",
-                    // RTL text alignment
-                    isRTL ? "text-right" : "text-left"
-                  )}
-                  onClick={handleItemClick}
-                >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  
-                  {!sidebarCollapsed && (
-                    <>
-                      <span className={cn(
-                        "flex-1",
-                        isRTL ? "text-right" : "text-left"
+                <div key={item.key}>
+                  <NavLink
+                    to={item.href}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                      "hover:bg-accent hover:text-accent-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
+                      sidebarCollapsed && "justify-center px-2",
+                      // RTL text alignment
+                      isRTL ? "text-right" : "text-left"
+                    )}
+                    onClick={handleItemClick}
+                  >
+                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    
+                    {!sidebarCollapsed && (
+                      <>
+                        <span className={cn(
+                          "flex-1",
+                          isRTL ? "text-right" : "text-left"
+                        )}>
+                          {t(`navigation.${item.key}`)}
+                        </span>
+                        
+                        {item.badge && (
+                          <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                            {item.badge}
+                          </Badge>
+                        )}
+                        
+                        {isActive && (
+                          <ChevronIcon className="h-4 w-4 flex-shrink-0" />
+                        )}
+                      </>
+                    )}
+                    
+                    {sidebarCollapsed && item.badge && (
+                      <Badge className={cn(
+                        "absolute h-5 w-5 rounded-full p-0 text-xs",
+                        isRTL ? "-left-1 -top-1" : "-right-1 -top-1"
                       )}>
-                        {t(`navigation.${item.key}`)}
-                      </span>
-                      
-                      {item.badge && (
-                        <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                          {item.badge}
-                        </Badge>
-                      )}
-                      
-                      {isActive && (
-                        <ChevronIcon className="h-4 w-4 flex-shrink-0" />
-                      )}
-                    </>
-                  )}
+                        {item.badge}
+                      </Badge>
+                    )}
+                  </NavLink>
                   
-                  {sidebarCollapsed && item.badge && (
-                    <Badge className={cn(
-                      "absolute h-5 w-5 rounded-full p-0 text-xs",
-                      isRTL ? "-left-1 -top-1" : "-right-1 -top-1"
-                    )}>
-                      {item.badge}
-                    </Badge>
+                  {!sidebarCollapsed && isActive && item.subItems && item.subItems.length > 0 && (
+                    <div className="ml-8 mt-1 space-y-1">
+                      {item.subItems.map((subItem) => (
+                        <NavLink
+                          key={subItem.key}
+                          to={subItem.href}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                            "hover:bg-accent hover:text-accent-foreground",
+                            location.pathname === subItem.href
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={handleItemClick}
+                        >
+                          <span>{subItem.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
                   )}
-                </NavLink>
+                </div>
               )
             })}
           </nav>
@@ -241,37 +280,59 @@ export function Sidebar() {
               const isActive = location.pathname.startsWith(item.href)
               
               return (
-                <NavLink
-                  key={item.key}
-                  to={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                    "hover:bg-accent hover:text-accent-foreground",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                    isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
-                    // RTL text alignment
-                    isRTL ? "text-right" : "text-left"
-                  )}
-                  onClick={handleItemClick}
-                >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  <span className={cn(
-                    "flex-1",
-                    isRTL ? "text-right" : "text-left"
-                  )}>
-                    {t(`navigation.${item.key}`)}
-                  </span>
+                <div key={item.key}>
+                  <NavLink
+                    to={item.href}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
+                      "hover:bg-accent hover:text-accent-foreground",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
+                      // RTL text alignment
+                      isRTL ? "text-right" : "text-left"
+                    )}
+                    onClick={handleItemClick}
+                  >
+                    <Icon className="h-5 w-5 flex-shrink-0" />
+                    <span className={cn(
+                      "flex-1",
+                      isRTL ? "text-right" : "text-left"
+                    )}>
+                      {t(`navigation.${item.key}`)}
+                    </span>
+                    
+                    {item.badge && (
+                      <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                        {item.badge}
+                      </Badge>
+                    )}
+                    
+                    {isActive && (
+                      <ChevronIcon className="h-4 w-4 flex-shrink-0" />
+                    )}
+                  </NavLink>
                   
-                  {item.badge && (
-                    <Badge variant="secondary" className="h-5 px-1.5 text-xs">
-                      {item.badge}
-                    </Badge>
+                  {isActive && item.subItems && item.subItems.length > 0 && (
+                    <div className="ml-8 mt-1 space-y-1">
+                      {item.subItems.map((subItem) => (
+                        <NavLink
+                          key={subItem.key}
+                          to={subItem.href}
+                          className={cn(
+                            "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
+                            "hover:bg-accent hover:text-accent-foreground",
+                            location.pathname === subItem.href
+                              ? "bg-primary/10 text-primary font-medium"
+                              : "text-muted-foreground"
+                          )}
+                          onClick={handleItemClick}
+                        >
+                          <span>{subItem.label}</span>
+                        </NavLink>
+                      ))}
+                    </div>
                   )}
-                  
-                  {isActive && (
-                    <ChevronIcon className="h-4 w-4 flex-shrink-0" />
-                  )}
-                </NavLink>
+                </div>
               )
             })}
           </nav>
