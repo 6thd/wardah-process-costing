@@ -63,6 +63,7 @@ export class PostingService {
    * Post an event journal entry
    */
   static async postEventJournal(request: PostingRequest): Promise<string> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('rpc_post_event_journal', {
       p_event: request.event,
       p_amount: request.amount,
@@ -82,6 +83,7 @@ export class PostingService {
    * Post work center overhead
    */
   static async postWorkCenterOH(request: WorkCenterOHRequest): Promise<string> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('rpc_post_work_center_oh', {
       p_work_center: request.workCenter,
       p_amount: request.amount,
@@ -101,6 +103,7 @@ export class PostingService {
    * Link an inventory move to a journal entry
    */
   static async linkInventoryMoveToJournal(request: LinkInventoryMoveRequest): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { error } = await supabase.rpc('rpc_link_inventory_move_to_journal', {
       p_move_id: request.moveId,
       p_header_id: request.headerId,
@@ -114,6 +117,7 @@ export class PostingService {
    * Get account balance
    */
   static async getAccountBalance(request: AccountBalanceRequest): Promise<number> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('rpc_get_account_balance', {
       p_account_code: request.accountCode,
       p_tenant: request.tenantId || null,
@@ -128,6 +132,7 @@ export class PostingService {
    * Get trial balance
    */
   static async getTrialBalance(request: TrialBalanceRequest): Promise<any[]> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('rpc_get_trial_balance', {
       p_tenant: request.tenantId || null,
       p_as_of_date: request.asOfDate || null

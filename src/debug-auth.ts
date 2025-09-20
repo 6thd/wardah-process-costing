@@ -7,6 +7,10 @@ export async function debugAuthentication() {
   // Test 1: Check Supabase connection
   try {
     console.log('📡 Testing Supabase connection...')
+    if (!supabase) {
+      console.log('❌ Supabase client not initialized')
+      return
+    }
     const { data, error } = await supabase.from('users').select('count').limit(1)
     if (error) {
       console.log('❌ Users table error:', error.message)
@@ -21,6 +25,10 @@ export async function debugAuthentication() {
   // Test 2: Check current session
   try {
     console.log('🔐 Checking current session...')
+    if (!supabase) {
+      console.log('❌ Supabase client not initialized')
+      return
+    }
     const { data: { session }, error } = await supabase.auth.getSession()
     if (error) {
       console.log('❌ Session error:', error.message)
@@ -34,6 +42,10 @@ export async function debugAuthentication() {
   // Test 3: Try demo login
   try {
     console.log('🧪 Testing demo login...')
+    if (!supabase) {
+      console.log('❌ Supabase client not initialized')
+      return
+    }
     const { data, error } = await supabase.auth.signInWithPassword({
       email: 'admin@wardah.sa',
       password: 'admin123'
@@ -48,6 +60,10 @@ export async function debugAuthentication() {
       console.log('👤 User:', data.user?.email)
       
       // Now test users table query
+      if (!supabase) {
+        console.log('❌ Supabase client not initialized')
+        return
+      }
       const { data: profile, error: profileError } = await supabase
         .from('users')
         .select('*')

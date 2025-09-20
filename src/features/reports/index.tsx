@@ -20,6 +20,7 @@ import {
   Calculator
 } from 'lucide-react'
 import { ProcessCostingReport } from './process-costing-report'
+import { ReportsDashboard } from './components/ReportsDashboard'
 
 export function ReportsModule() {
   return (
@@ -32,6 +33,7 @@ export function ReportsModule() {
       <Route path="/sales" element={<SalesReports />} />
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
+      <Route path="/advanced" element={<ReportsDashboard />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )
@@ -95,6 +97,15 @@ function ReportsOverview() {
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
       reports: ['الذكاء الاصطناعي', 'التنبؤات', 'الاتجاهات']
+    },
+    {
+      title: 'التقارير المتقدمة',
+      description: 'تقارير انحرافات وتقييم WIP',
+      icon: Calculator,
+      href: '/reports/advanced',
+      color: 'text-red-600',
+      bgColor: 'bg-red-50',
+      reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية']
     }
   ]
   
@@ -122,7 +133,7 @@ function ReportsOverview() {
           <div className="text-sm text-muted-foreground">تقارير مجدولة</div>
         </div>
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-orange-600">6</div>
+          <div className="text-2xl font-bold text-orange-600">7</div>
           <div className="text-sm text-muted-foreground">فئات التقارير</div>
         </div>
       </div>
@@ -168,7 +179,8 @@ function ReportsOverview() {
           {[
             { name: 'تقرير المبيعات الشهرية', type: 'مبيعات', date: 'منذ يومين', status: 'مكتمل' },
             { name: 'تقييم المخزون', type: 'مخزون', date: 'منذ 3 أيام', status: 'جاري' },
-            { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' }
+            { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
+            { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
           ].map((report, index) => (
             <div key={index} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
               <div className="flex-1">
@@ -179,7 +191,7 @@ function ReportsOverview() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={report.status === 'مكتمل' ? 'default' : 'secondary'}>
+                <Badge variant={report.status === 'مكتمل' ? 'default' : report.status === 'جاري' ? 'secondary' : 'destructive'}>
                   {report.status}
                 </Badge>
                 <Button variant="ghost" size="sm">

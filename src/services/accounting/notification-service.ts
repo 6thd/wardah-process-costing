@@ -102,6 +102,7 @@ export class NotificationService {
    * Create in-app notification
    */
   static async createInAppNotification(userId: string, notification: Omit<NotificationMessage, 'id'>): Promise<string> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase
       .from('notifications')
       .insert({
@@ -123,6 +124,7 @@ export class NotificationService {
    * Get user's unread notifications
    */
   static async getUnreadNotifications(userId: string): Promise<NotificationMessage[]> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
@@ -138,6 +140,7 @@ export class NotificationService {
    * Mark notification as read
    */
   static async markAsRead(notificationId: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { error } = await supabase
       .from('notifications')
       .update({ read: true })
@@ -150,6 +153,7 @@ export class NotificationService {
    * Mark all notifications as read
    */
   static async markAllAsRead(userId: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { error } = await supabase
       .from('notifications')
       .update({ read: true })
@@ -163,6 +167,7 @@ export class NotificationService {
    * Delete notification
    */
   static async deleteNotification(notificationId: string): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { error } = await supabase
       .from('notifications')
       .delete()
@@ -175,6 +180,7 @@ export class NotificationService {
    * Get notification preferences for a user
    */
   static async getNotificationPreferences(userId: string): Promise<NotificationPreferences> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase
       .from('notification_preferences')
       .select('*')
@@ -204,6 +210,7 @@ export class NotificationService {
     userId: string,
     preferences: Partial<NotificationPreferences>
   ): Promise<void> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { error } = await supabase
       .from('notification_preferences')
       .upsert({

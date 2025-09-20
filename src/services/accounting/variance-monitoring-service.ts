@@ -36,6 +36,7 @@ export class VarianceMonitoringService {
    * Perform variance analysis for a manufacturing order stage
    */
   static async performVarianceAnalysis(moId: string, stageNo: number): Promise<VarianceAnalysis> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('perform_variance_analysis', {
       p_mo_id: moId,
       p_stage_no: stageNo
@@ -49,6 +50,7 @@ export class VarianceMonitoringService {
    * Get variance alerts based on severity threshold
    */
   static async getVarianceAlerts(severityThreshold: 'LOW' | 'MEDIUM' | 'HIGH' = 'MEDIUM'): Promise<VarianceAnalysis[]> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('get_variance_alerts', {
       p_severity_threshold: severityThreshold
     })
@@ -61,6 +63,7 @@ export class VarianceMonitoringService {
    * Analyze overhead variances for work centers
    */
   static async analyzeOverheadVariances(): Promise<OverheadVariance[]> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('analyze_overhead_variances')
 
     if (error) throw new Error(error.message)
@@ -75,6 +78,7 @@ export class VarianceMonitoringService {
     endDate: string,
     moId?: string
   ): Promise<VarianceAnalysis[]> {
+    if (!supabase) throw new Error('Supabase client not initialized')
     const { data, error } = await supabase.rpc('generate_variance_report', {
       p_start_date: startDate,
       p_end_date: endDate,

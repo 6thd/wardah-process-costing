@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { Database } from '@/types/database'
 import { getTableName, loadConfig } from './config.ts'
 
 // Re-export config functions for backwards compatibility
@@ -45,12 +46,18 @@ const initializeClient = async (): Promise<SupabaseClient> => {
     const key = supabaseAnonKey || 'placeholder-key'
     
     console.log('🔧 Creating Supabase client with:', { url, key })
-    supabaseClient = createClient(url, key, {
+    supabaseClient = createClient<Database>(url, key, {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
-        detectSessionInUrl: false
-      }
+        detectSessionInUrl: false,
+        storageKey: 'wardah-erp-auth',
+      },
+      realtime: {
+        params: {
+          eventsPerSecond: 10,
+        },
+      },
     })
 
     isInitialized = true
@@ -101,6 +108,15 @@ const clientPromise = initializeClient().catch(error => {
 
 // Export client (will be initialized)
 export const supabase = await clientPromise
+
+// Helper functions
+export const getOrgContext = () => {
+  return '00000000-0000-0000-0000-000000000001'; // Default org ID
+};
+
+export const withOrgContext = (query: any) => {
+  return query.eq('org_id', getOrgContext());
+};
 console.log('✅ Supabase client ready:', supabase)
 
 // Helper function to get the client safely

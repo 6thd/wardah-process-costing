@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -28,6 +29,12 @@ import * as Audit from '../../domain/audit.js'
 
 // Import and register actions
 import { registerStageCostingActions, unregisterStageCostingActions } from './stage-costing-actions.js'
+
+// Import our new hooks
+import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
+import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useStageCosts, StageCost } from '@/hooks/useStageCosts'
+import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription'
 
 interface StageCostingFormData {
   manufacturingOrderId: string
@@ -59,6 +66,7 @@ interface StageCostResult {
 
 export default function StageCostingPanel() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   
   const [formData, setFormData] = useState<StageCostingFormData>({
     manufacturingOrderId: '',
@@ -78,18 +86,29 @@ export default function StageCostingPanel() {
   
   const [isCalculating, setIsCalculating] = useState(false)
   const [lastResult, setLastResult] = useState<StageCostResult | null>(null)
-  const [workCenters, setWorkCenters] = useState<any[]>([])
-  const [manufacturingOrders, setManufacturingOrders] = useState<any[]>([])
-  const [stageCosts, setStageCosts] = useState<any[]>([])
   const [selectedMO, setSelectedMO] = useState<any>(null)
 
-  // Load initial data
+  // Use our new React Query hooks
+  const { data: manufacturingOrders = [], isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders()
+  const { data: workCenters = [], isLoading: isWCLoading, isError: isWCError } = useWorkCenters()
+  const { data: stageCosts = [], isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId) as { data: StageCost[], isLoading: boolean, isError: boolean }
+
+  // Setup realtime subscriptions
+  useRealtimeSubscription('manufacturing_orders', 'manufacturing-orders')
+  useRealtimeSubscription('work_centers', 'work-centers')
+  useRealtimeSubscription('stage_costs', ['stage-costs', formData.manufacturingOrderId])
+
+  // Load MO details when MO changes
   useEffect(() => {
-    // Register actions when component mounts
+    if (formData.manufacturingOrderId) {
+      const mo = manufacturingOrders.find((order: any) => order.id === formData.manufacturingOrderId)
+      setSelectedMO(mo)
+    }
+  }, [formData.manufacturingOrderId, manufacturingOrders])
+
+  // Register actions when component mounts
+  useEffect(() => {
     registerStageCostingActions()
-    
-    loadWorkCenters()
-    loadManufacturingOrders()
     
     // Cleanup function
     return () => {
@@ -97,98 +116,43 @@ export default function StageCostingPanel() {
     }
   }, [])
 
-  // Load stage costs when MO changes
-  useEffect(() => {
-    if (formData.manufacturingOrderId) {
-      loadStageCosts()
-      loadMODetails()
-    }
-  }, [formData.manufacturingOrderId])
-  
   // Add event listeners for custom events
   useEffect(() => {
     const form = document.querySelector('form')
     if (!form) return
     
-    const handleStageCostsRefreshed = (event: any) => {
-      setStageCosts(event.detail.stageCosts)
-    }
-    
     const handleLaborTimeApplied = (event: any) => {
       toast.success('تم تسجيل وقت العمل بنجاح')
-      loadStageCosts() // Refresh the stage costs
+      queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
     }
     
     const handleOverheadApplied = (event: any) => {
       toast.success('تم تطبيق التكاليف غير المباشرة بنجاح')
-      loadStageCosts() // Refresh the stage costs
+      queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
     }
     
     const handleStageCostCalculated = (event: any) => {
       setLastResult(event.detail)
-      loadStageCosts() // Refresh the stage costs list
+      queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
     }
     
     // Add event listeners
-    form.addEventListener('stageCostsRefreshed', handleStageCostsRefreshed)
     form.addEventListener('laborTimeApplied', handleLaborTimeApplied)
     form.addEventListener('overheadApplied', handleOverheadApplied)
     form.addEventListener('stageCostCalculated', handleStageCostCalculated)
     
     // Cleanup
     return () => {
-      form.removeEventListener('stageCostsRefreshed', handleStageCostsRefreshed)
       form.removeEventListener('laborTimeApplied', handleLaborTimeApplied)
       form.removeEventListener('overheadApplied', handleOverheadApplied)
       form.removeEventListener('stageCostCalculated', handleStageCostCalculated)
     }
-  }, [])
+  }, [formData.manufacturingOrderId, queryClient])
 
-  const loadWorkCenters = async () => {
-    try {
-      const result = await Manufacturing.getAllWorkCenters()
-      if (result.success && 'data' in result && result.data) {
-        setWorkCenters(result.data)
-      }
-    } catch (error) {
-      console.error('Error loading work centers:', error)
-    }
-  }
-
-  const loadManufacturingOrders = async () => {
-    try {
-      const result = await Manufacturing.getAllManufacturingOrders() as any
-      if (result.success && result.data) {
-        const activeOrders = result.data.filter((order: any) => 
-          ['pending', 'in_progress'].includes(order.status)
-        )
-        setManufacturingOrders(activeOrders)
-      }
-    } catch (error) {
-      console.error('Error loading manufacturing orders:', error)
-    }
-  }
-
-  const loadMODetails = async () => {
-    try {
-      const result = await Manufacturing.getManufacturingOrderById(formData.manufacturingOrderId)
-      if (result.success && 'data' in result && result.data) {
-        setSelectedMO(result.data)
-      }
-    } catch (error) {
-      console.error('Error loading MO details:', error)
-    }
-  }
-
+  // Load stage costs is now handled by React Query hooks
   const loadStageCosts = async () => {
-    try {
-      const result = await ProcessCosting.getStageCosts(formData.manufacturingOrderId)
-      if (result.success && 'data' in result && result.data) {
-        setStageCosts(result.data)
-      }
-    } catch (error) {
-      console.error('Error loading stage costs:', error)
-    }
+    // Invalidate the query to trigger a refetch
+    queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
   }
 
   const handleInputChange = (field: keyof StageCostingFormData, value: string | number) => {
@@ -345,9 +309,10 @@ export default function StageCostingPanel() {
                 variant="outline" 
                 size="sm"
                 data-action="refresh-stage-costs"
-                disabled={isCalculating}
+                onClick={loadStageCosts}
+                disabled={isCalculating || isSCLoading}
               >
-                <RefreshCw className="h-4 w-4 mr-2" />
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSCLoading ? 'animate-spin' : ''}`} />
                 تحديث
               </Button>
               <Button 
@@ -362,6 +327,19 @@ export default function StageCostingPanel() {
             </div>
           </div>
         
+          {/* Loading and Error States */}
+          {(isMOLoading || isWCLoading || isSCLoading) && (
+            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+              <p>جاري تحميل البيانات...</p>
+            </div>
+          )}
+          
+          {(isMOError || isWCError || isSCError) && (
+            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+              <p className="text-red-700 dark:text-red-300">خطأ في تحميل البيانات. يرجى التحديث.</p>
+            </div>
+          )}
+        
           {/* Manufacturing Order Selection */}
           <div className="grid md:grid-cols-4 gap-4 mb-6">
             <div>
@@ -371,11 +349,12 @@ export default function StageCostingPanel() {
                 className="w-full px-3 py-2 border rounded-md"
                 value={formData.manufacturingOrderId}
                 onChange={(e) => handleInputChange('manufacturingOrderId', e.target.value)}
+                disabled={isMOLoading}
               >
                 <option value="">اختر أمر التصنيع</option>
-                {manufacturingOrders.map(order => (
+                {manufacturingOrders.map((order: any) => (
                   <option key={order.id} value={order.id}>
-                    {order.order_number} - {order.item?.name}
+                    {order.order_number} - {order.product_id ? `Product ${order.product_id}` : 'N/A'}
                   </option>
                 ))}
               </select>
@@ -399,9 +378,10 @@ export default function StageCostingPanel() {
                 className="w-full px-3 py-2 border rounded-md"
                 value={formData.workCenterId}
                 onChange={(e) => handleInputChange('workCenterId', e.target.value)}
+                disabled={isWCLoading}
               >
                 <option value="">اختر مركز العمل</option>
-                {workCenters.map(wc => (
+                {workCenters.map((wc: any) => (
                   <option key={wc.id} value={wc.id}>
                     {wc.code} - {wc.name}
                   </option>
@@ -567,6 +547,7 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="apply-labor-time"
+              onClick={applyLaborTime}
               disabled={isCalculating || !formData.laborHours || !formData.laborRate}
               className="bg-purple-600 hover:bg-purple-700"
             >
@@ -577,6 +558,7 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="apply-overhead"
+              onClick={applyOverhead}
               disabled={isCalculating || !formData.overheadRate}
               className="bg-orange-600 hover:bg-orange-700"
             >
@@ -587,6 +569,7 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="calculate-stage-cost"
+              onClick={calculateStageCost}
               disabled={isCalculating || !formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity}
               className="bg-blue-600 hover:bg-blue-700"
             >

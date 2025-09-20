@@ -28,7 +28,7 @@ type RealtimeCallback = (payload: RealtimeChangePayload | ManufacturingOrderChan
 
 interface RealtimeSubscription {
   id: string
-  channel: ReturnType<typeof supabase.channel>
+  channel: ReturnType<NonNullable<typeof supabase>['channel']>
   callback: RealtimeCallback
 }
 
@@ -43,6 +43,7 @@ class RealtimeManager {
     const subscriptionId = Math.random().toString(36).substr(2, 9)
     
     // Create a single channel for multiple tables
+    if (!supabase) throw new Error('Supabase client not initialized')
     const channel = supabase.channel(`realtime-${subscriptionId}`)
     
     // Add listeners for each table
@@ -90,6 +91,7 @@ class RealtimeManager {
   subscribeManufacturingOrder(moId: string, onChange: RealtimeCallback): string {
     const subscriptionId = Math.random().toString(36).substr(2, 9)
     
+    if (!supabase) throw new Error('Supabase client not initialized')
     const channel = supabase.channel(`mo-${moId}-${subscriptionId}`)
     
     // Listen to stage costs changes
