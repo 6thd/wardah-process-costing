@@ -29,7 +29,6 @@ function SalesOverview() {
   const isRTL = i18n.language === 'ar'
   const [customers, setCustomers] = useState<Customer[]>([])
   const [orders, setOrders] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadData = async () => {
@@ -44,7 +43,6 @@ function SalesOverview() {
         console.error('Error loading sales data:', error)
         toast.error('خطأ في تحميل بيانات المبيعات')
       } finally {
-        setLoading(false)
       }
     }
     loadData()

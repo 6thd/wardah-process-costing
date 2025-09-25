@@ -2,9 +2,9 @@
  * Equivalent Units Dashboard Tests
  */
 
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { useToast } from '@/components/ui/use-toast'
+import { describe, it, vi } from 'vitest'
+import { render } from '@testing-library/react'
+
 import { EquivalentUnitsDashboard } from '../equivalent-units-dashboard'
 
 // Mock the toast hook

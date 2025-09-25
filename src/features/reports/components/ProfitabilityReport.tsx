@@ -3,14 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 
-interface ProfitabilityReportProps {
-  manufacturingOrderId?: string;
-  dateRange?: { from?: Date; to?: Date };
-}
+interface ProfitabilityReportProps {}
 
 export const ProfitabilityReport: React.FC<ProfitabilityReportProps> = ({ 
-  manufacturingOrderId,
-  dateRange 
 }) => {
   return (
     <Card>

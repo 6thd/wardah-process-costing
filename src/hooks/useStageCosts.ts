@@ -2,7 +2,7 @@
 // React Query hooks for stage costs
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase, withOrgContext } from '@/lib/supabase'
+import { supabase } from '@/core/supabase'
 
 export interface WorkCenter {
   id: string
@@ -41,15 +41,13 @@ export const useStageCosts = (moId: string) => {
     queryKey: ['stage-costs', moId],
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
-      const { data, error } = await withOrgContext(
-        supabase.from('stage_costs')
+      const { data, error } = await supabase.from('stage_costs')
           .select(`
             *,
             work_center:work_centers(name, code)
           `)
           .eq('manufacturing_order_id', moId)
           .order('stage_number')
-      )
       
       if (error) throw error
       return data as StageCost[]
@@ -94,7 +92,7 @@ export const useUpdateStageCost = () => {
       if (error) throw error
       return data
     },
-    onSuccess: (_, variables) => {
+    onSuccess: (_, ) => {
       // We don't know the MO ID here, so we invalidate all stage-costs queries
       queryClient.invalidateQueries({ queryKey: ['stage-costs'] })
     },

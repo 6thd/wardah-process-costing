@@ -1,6 +1,6 @@
 // src/hooks/useOptimisticUpdates.ts
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { supabase } from '@/core/supabase';
 
 export const useOptimisticManufacturingOrderUpdate = () => {
   const queryClient = useQueryClient();
@@ -41,7 +41,7 @@ export const useOptimisticManufacturingOrderUpdate = () => {
     },
     
     // If the mutation fails, use the context returned above
-    onError: (err, variables, context) => {
+    onError: (_err, _variables, context) => {
       if (context?.previousOrders) {
         queryClient.setQueryData(['manufacturing-orders'], context.previousOrders);
       }

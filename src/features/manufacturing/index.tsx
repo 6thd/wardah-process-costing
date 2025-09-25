@@ -13,15 +13,12 @@ import {
   Users, 
   BarChart3, 
   CheckCircle, 
-  Clock, 
-  AlertTriangle,
-  Plus,
-  Calculator,
-  Bell
+  Plus
 } from 'lucide-react'
 import StageCostingPanel from './stage-costing-panel.tsx'
 import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
 import { VarianceAlerts } from './variance-alerts'
+import type { ManufacturingOrder } from '@/lib/supabase'
 
 export function ManufacturingModule() {
   return (
@@ -41,7 +38,7 @@ export function ManufacturingModule() {
 }
 
 function ProcessCostingPage() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -59,7 +56,7 @@ function ProcessCostingPage() {
 }
 
 function EquivalentUnitsPage() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -77,7 +74,7 @@ function EquivalentUnitsPage() {
 }
 
 function VarianceAlertsPage() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -97,7 +94,7 @@ function VarianceAlertsPage() {
 function ManufacturingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -115,7 +112,7 @@ function ManufacturingOverview() {
     loadOrders()
   }, [])
 
-  const activeOrders = orders.filter(order => order.status === 'in_progress' || order.status === 'confirmed')
+  const activeOrders = orders.filter(order => order.status === 'in-progress' || order.status === 'confirmed')
   const completedOrders = orders.filter(order => order.status === 'completed')
   const pendingOrders = orders.filter(order => order.status === 'draft')
 
@@ -248,10 +245,10 @@ function ManufacturingOverview() {
                 <div className="text-right flex items-center gap-2">
                   <Badge 
                     variant={order.status === 'completed' ? 'default' : 
-                            order.status === 'in_progress' ? 'secondary' : 'outline'}
+                            order.status === 'in-progress' ? 'secondary' : 'outline'}
                   >
                     {order.status === 'completed' ? 'مكتمل' : 
-                     order.status === 'in_progress' ? 'جاري' : 'في الانتظار'}
+                     order.status === 'in-progress' ? 'جاري' : 'في الانتظار'}
                   </Badge>
                   <span className="text-sm text-muted-foreground">{order.quantity} وحدة</span>
                 </div>
@@ -268,8 +265,7 @@ function ManufacturingOverview() {
 function ManufacturingOrdersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
   const [showAddForm, setShowAddForm] = useState(false)
 
   useEffect(() => {
@@ -284,7 +280,6 @@ function ManufacturingOrdersManagement() {
       console.error('Error loading orders:', error)
       toast.error('خطأ في تحميل أوامر التصنيع')
     } finally {
-      setLoading(false)
     }
   }
 
@@ -304,7 +299,7 @@ function ManufacturingOrdersManagement() {
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'in_progress').length}</div>
+          <div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'in-progress').length}</div>
           <div className="text-sm text-muted-foreground">جارية</div>
         </div>
         <div className="bg-card rounded-lg border p-4">
@@ -336,7 +331,7 @@ function ManufacturingOrdersManagement() {
 
 // Work Centers Management Component
 function WorkCentersManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -361,7 +356,7 @@ function WorkCentersManagement() {
 
 // BOM Management Component
 function BOMManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -386,7 +381,7 @@ function BOMManagement() {
 
 // Quality Control Management Component
 function QualityControlManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

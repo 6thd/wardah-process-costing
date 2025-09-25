@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
 import { Menu, Bell, User, Search, Settings, LogOut } from 'lucide-react'
-
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -15,7 +14,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { LanguageToggle } from '@/components/language-toggle'
-
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
 import { cn } from '@/lib/utils'
@@ -29,14 +27,15 @@ export function Header() {
   const unreadCount = notifications.filter(n => !n.read).length
 
   const handleSidebarToggle = () => {
-    // On mobile, toggle sidebar open/close
-    // On desktop, toggle collapsed state
     if (window.innerWidth < 1024) {
       setSidebarOpen(true)
     } else {
       setSidebarCollapsed(!sidebarCollapsed)
     }
   }
+
+  const userFullName = user?.full_name || user?.email?.split('@')[0] || 'User';
+  const userAvatarFallback = userFullName?.charAt(0);
 
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border z-50">
@@ -170,23 +169,23 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-9 px-2">
                 <Avatar className="h-7 w-7">
-                  <AvatarImage src={user?.full_name} />
+                  <AvatarImage src={userFullName || undefined} />
                   <AvatarFallback className="text-xs">
-                    {user?.full_name?.charAt(0) || user?.email?.charAt(0)}
+                    {userAvatarFallback}
                   </AvatarFallback>
                 </Avatar>
                 <span className={cn(
                   "hidden md:inline-block text-sm",
                   isRTL ? "mr-2" : "ml-2"
                 )}>
-                  {user?.full_name || user?.email}
+                  {userFullName}
                 </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align={isRTL ? "start" : "end"}>
               <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
                 <div className="flex flex-col">
-                  <span>{user?.full_name || user?.email}</span>
+                  <span>{userFullName}</span>
                   <span className="text-xs text-muted-foreground">{user?.email}</span>
                 </div>
               </DropdownMenuLabel>

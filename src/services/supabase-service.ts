@@ -1,6 +1,5 @@
 import { getSupabase } from '../lib/supabase'
 import { getTenantId } from '../lib/supabase'
-import { getTableName } from '../lib/config'
 import type { 
   Item, Category, Supplier, Customer, ManufacturingOrder, 
   ProcessCost, PurchaseOrder, SalesOrder,
@@ -389,19 +388,19 @@ export const processCostService = {
 
   create: async (processCost: Omit<ProcessCost, 'id' | 'created_at'>) => {
     const supabase = await getClient()
+    const total_cost = (processCost.material_cost || 0) + (processCost.labor_cost || 0) + (processCost.overhead_cost || 0);
     const { data, error } = await supabase
       .from('process_costs')
-      .insert({
-        ...processCost,
-        total_cost: processCost.material_cost + processCost.labor_cost + processCost.overhead_cost
-      })
+      .insert({ ...processCost, total_cost })
       .select()
-      .single()
+      .single();
     
     if (error) throw error
 
     // Update manufacturing order total cost
-    await processCostService.updateOrderTotalCost(processCost.manufacturing_order_id)
+    if (processCost.manufacturing_order_id) {
+      await processCostService.updateOrderTotalCost(processCost.manufacturing_order_id)
+    }
     
     return data
   },
@@ -526,7 +525,7 @@ export const purchaseOrdersService = {
     const orderItems = items.map(item => ({
       ...item,
       purchase_order_id: orderData.id,
-      total_price: item.quantity * item.unit_price
+      total_price: item.quantity * (item.unit_price || 0)
     }))
 
     const { error: itemsError } = await supabase
@@ -613,7 +612,7 @@ export const salesOrdersService = {
     const orderItems = items.map(item => ({
       ...item,
       sales_order_id: orderData.id,
-      total_price: item.quantity * item.unit_price
+      total_price: item.quantity * (item.unit_price || 0)
     }))
 
     const { error: itemsError } = await supabase

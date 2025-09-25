@@ -4,8 +4,6 @@
  */
 
 import { createSecureRPC, logSecurityEvent, checkRateLimit } from '../core/security.ts'
-import { getSupabase } from '../core/supabase'
-import { getConfig } from '../core/config'
 
 // Action result interface
 interface ActionResult {
@@ -233,20 +231,20 @@ class EventManager {
    * Show success message
    */
   private showSuccess(element: HTMLElement, message: string) {
-    this.showNotification('success', message, element)
+    this.showNotification('success', message)
   }
 
   /**
    * Show error message
    */
   private showError(element: HTMLElement, message: string) {
-    this.showNotification('error', message, element)
+    this.showNotification('error', message)
   }
 
   /**
    * Show notification (can be overridden to use a toast library)
    */
-  private showNotification(type: 'success' | 'error' | 'warning', message: string, element: HTMLElement) {
+  private showNotification(type: 'success' | 'error' | 'warning', message: string) {
     // Create a simple notification
     const notification = document.createElement('div')
     notification.className = `notification notification-${type}`

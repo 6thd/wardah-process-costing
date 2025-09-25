@@ -20,7 +20,7 @@ export const ConnectionStatus: React.FC = () => {
           return;
         }
         
-        const { data, error } = await supabase.from('organizations').select('id').limit(1);
+        const { error } = await supabase.from('organizations').select('id').limit(1);
         
         if (error) {
           setStatus('error');

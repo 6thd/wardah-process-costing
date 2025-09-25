@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { supabase, getSupabase, queryGLAccounts, getAccountHierarchy, getAccountChildren, getAllGLAccounts, debugGLAccounts } from '@/lib/supabase'
+import { getSupabase, getAllGLAccounts, debugGLAccounts } from '@/lib/supabase'
 
 export function TestGLAccounts() {
   const location = useLocation()
@@ -12,7 +12,6 @@ export function TestGLAccounts() {
   const [isStackDepthError, setIsStackDepthError] = useState(false)
   const [currentPage, setCurrentPage] = useState(1)
   const [hasNextPage, setHasNextPage] = useState(false)
-  const [cursor, setCursor] = useState<string | null>(null)
   const [initializationStatus, setInitializationStatus] = useState<any>(null)
   const accountsPerPage = 100
 
@@ -36,7 +35,7 @@ export function TestGLAccounts() {
     }
   }
 
-  const loadAccounts = async (page: number = 1) => {
+  const loadAccounts = async () => {
     try {
       setLoading(true)
       setError(null)
@@ -257,12 +256,12 @@ export function TestGLAccounts() {
   }
 
   const refresh = () => {
-    loadAccounts(currentPage)
+    loadAccounts()
   }
 
   const handlePageChange = (pageNumber: number) => {
     setCurrentPage(pageNumber)
-    loadAccounts(pageNumber)
+    loadAccounts()
   }
 
   if (loading && !initializationStatus) {

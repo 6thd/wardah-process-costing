@@ -4,7 +4,6 @@ import { Eye, EyeOff, LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useAuthStore } from '@/store/auth-store'
-import { cn } from '@/lib/utils'
 
 function LoginPage() {
   const { login, isLoading, error, clearError } = useAuthStore()

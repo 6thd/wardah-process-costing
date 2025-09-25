@@ -12,7 +12,7 @@ import { useUIStore } from "@/store/ui-store"
 
 export function ThemeToggle() {
   const { t } = useTranslation()
-  const { theme, setTheme } = useUIStore()
+  const { setTheme } = useUIStore()
 
   return (
     <DropdownMenu>

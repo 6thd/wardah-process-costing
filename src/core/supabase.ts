@@ -24,7 +24,6 @@ const initializeClient = async (): Promise<SupabaseClient> => {
     
     // Load configuration first
     await loadConfig()
-    const config = getConfig()
 
     // In demo mode, we don't need actual Supabase credentials
     const configData = {
@@ -88,12 +87,12 @@ export const getSupabase = async (): Promise<SupabaseClient> => {
  * Get Supabase client instance (sync) - use only after initialization
  */
 export const supabase = new Proxy({} as SupabaseClient, {
-  get(target, prop) {
+  get(prop) {
     if (!supabaseClient) {
       throw new Error('Supabase client not initialized. Call getSupabase() first or ensure initialization is complete.')
     }
     
-    const value = (supabaseClient as any)[prop]
+    const value = Reflect.get(supabaseClient, prop, supabaseClient)
     return typeof value === 'function' ? value.bind(supabaseClient) : value
   }
 })
@@ -149,7 +148,7 @@ export const getCurrentUser = async () => {
  * Helper function for tenant-aware queries
  * Returns an object with methods that properly initialize queries with tenant filtering
  */
-export const withTenant = async <T>(tableName: string) => {
+export const withTenant = async (tableName: string) => {
   try {
     const client = await getSupabase()
     const tenantId = await getTenantId()

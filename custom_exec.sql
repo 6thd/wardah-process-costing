@@ -1,0 +1,9 @@
+
+CREATE OR REPLACE FUNCTION execute_sql(sql_query TEXT)
+RETURNS TABLE(result TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY EXECUTE sql_query;
+END;
+$$;

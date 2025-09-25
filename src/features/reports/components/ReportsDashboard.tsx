@@ -69,9 +69,7 @@ export const ReportsDashboard: React.FC = () => {
         </TabsContent>
         
         <TabsContent value="profitability" className="space-y-4">
-          <ProfitabilityReport 
-            manufacturingOrderId={selectedMO}
-          />
+          <ProfitabilityReport />
         </TabsContent>
         
         <TabsContent value="inventory" className="space-y-4">

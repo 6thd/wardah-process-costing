@@ -6,7 +6,7 @@
 import { createSecureRPC, validateInput } from '../../core/security.ts'
 import { getSupabase, getTenantId } from '../../core/supabase.ts'
 import { getTableName } from '../../core/config.ts'
-import { recordMaterialConsumption, recordFinishedGoodsProduction } from '../inventory/avco'
+import { recordFinishedGoodsProduction } from '../inventory/avco'
 
 // Manufacturing stage definitions
 export const MANUFACTURING_STAGES = {
@@ -161,7 +161,7 @@ export class ProcessCostingCalculator {
         await this.transferToFinishedGoods(moId, completedQty, updateResult.unitCost)
       } else {
         // Prepare next stage with transferred-in costs
-        await this.prepareNextStage(moId, stageNo, updateResult.unitCost)
+        await this.prepareNextStage(stageNo, updateResult.unitCost)
       }
 
       return updateResult
@@ -430,7 +430,6 @@ export class ProcessCostingCalculator {
    * Prepare next stage with transferred-in costs
    */
   private async prepareNextStage(
-    moId: string,
     currentStageNo: StageNumber,
     unitCost: number
   ): Promise<void> {

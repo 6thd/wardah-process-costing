@@ -3,21 +3,20 @@
  * Detailed equivalent units and variance analysis report
  */
 
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  LineChart, Line, PieChart, Pie, Cell
+  PieChart, Pie, Cell
 } from 'recharts'
 import { 
-  Download, Printer, Calendar, FileText, TrendingUp, 
-  AlertTriangle, CheckCircle, XCircle, DollarSign
+  Download, Printer, 
+  AlertTriangle, CheckCircle, DollarSign
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 
@@ -422,9 +421,8 @@ export function ProcessCostingReport() {
             outerRadius={80}
             fill="#8884d8"
             dataKey="value"
-            label={(props: any) => `${props.name}: ${(props.percent * 100).toFixed(0)}%`}
           >
-            {chartData.map((entry, index) => (
+            {chartData.map((_entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>

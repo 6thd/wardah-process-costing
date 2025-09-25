@@ -138,7 +138,7 @@ export class AVCOCalculator {
       )
 
       // Update database using secure RPC
-      await this.updateInventoryDatabase(transaction, result)
+      await this.updateInventoryDatabase(transaction)
 
       return result
 
@@ -204,8 +204,7 @@ export class AVCOCalculator {
    * Update database with AVCO calculation results
    */
   private async updateInventoryDatabase(
-    transaction: InventoryTransaction,
-    result: AVCOResult
+    transaction: InventoryTransaction
   ): Promise<void> {
     const updateAVCO = createSecureRPC('update_item_avco')
     

@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { suppliersService, purchaseOrdersService } from '@/services/supabase-service'
 import { toast } from 'sonner'
-import type { Supplier } from '@/lib/supabase'
+import type { Supplier, PurchaseOrder } from '@/lib/supabase'
 
 export function PurchasingModule() {
   return (
@@ -28,8 +28,7 @@ function PurchasingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [orders, setOrders] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
+  const [orders, setOrders] = useState<PurchaseOrder[]>([])
 
   useEffect(() => {
     const loadData = async () => {
@@ -44,7 +43,6 @@ function PurchasingOverview() {
         console.error('Error loading purchasing data:', error)
         toast.error('خطأ في تحميل بيانات المشتريات')
       } finally {
-        setLoading(false)
       }
     }
     loadData()
@@ -122,7 +120,7 @@ function SuppliersManagement() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newSupplier, setNewSupplier] = useState({
+  const [newSupplier, setNewSupplier] = useState<Omit<Supplier, 'id'> & { name_ar: string }>({
     name: '',
     name_ar: '',
     code: '',
@@ -306,7 +304,7 @@ function SuppliersManagement() {
 
 function PurchaseOrdersManagement() {
   const { t } = useTranslation()
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<PurchaseOrder[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -392,7 +390,7 @@ function PurchaseOrdersManagement() {
 
 // Goods Receipt Management Component
 function GoodsReceiptManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -417,7 +415,7 @@ function GoodsReceiptManagement() {
 
 // Supplier Invoices Management Component
 function SupplierInvoicesManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -442,7 +440,7 @@ function SupplierInvoicesManagement() {
 
 // Payments Management Component
 function PaymentsManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

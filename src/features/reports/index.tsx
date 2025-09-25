@@ -1,21 +1,17 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { 
   BarChart3, 
-  PieChart, 
   TrendingUp, 
   FileText, 
   Download, 
-  Calendar,
   DollarSign,
   Package,
   Factory,
   ShoppingCart,
-  Users,
   Eye,
   Calculator
 } from 'lucide-react'
@@ -211,7 +207,7 @@ function ReportsOverview() {
 
 // Financial Reports Component
 function FinancialReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -236,7 +232,7 @@ function FinancialReports() {
 
 // Inventory Reports Component
 function InventoryReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -261,7 +257,7 @@ function InventoryReports() {
 
 // Manufacturing Reports Component
 function ManufacturingReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -285,7 +281,7 @@ function ManufacturingReports() {
 }
 
 function ProcessCostingReportPage() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -304,7 +300,7 @@ function ProcessCostingReportPage() {
 
 // Sales Reports Component
 function SalesReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -329,7 +325,7 @@ function SalesReports() {
 
 // Purchasing Reports Component
 function PurchasingReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -354,7 +350,7 @@ function PurchasingReports() {
 
 // Advanced Analytics Component
 function AdvancedAnalytics() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

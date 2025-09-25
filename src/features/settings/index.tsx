@@ -1,9 +1,6 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { 
   Settings as SettingsIcon, 
   Building, 
@@ -12,12 +9,6 @@ import {
   Cog, 
   Plug, 
   Database,
-  Bell,
-  Palette,
-  Globe,
-  Key,
-  FileText,
-  Monitor
 } from 'lucide-react'
 
 export function SettingsModule() {
@@ -185,7 +176,7 @@ function SettingsOverview() {
 
 // Company Settings Component
 function CompanySettings() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -210,7 +201,7 @@ function CompanySettings() {
 
 // User Management Component
 function UserManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -235,7 +226,7 @@ function UserManagement() {
 
 // Permissions Management Component
 function PermissionsManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -260,7 +251,7 @@ function PermissionsManagement() {
 
 // System Settings Component
 function SystemSettings() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -285,7 +276,7 @@ function SystemSettings() {
 
 // Integrations Settings Component
 function IntegrationsSettings() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -310,7 +301,7 @@ function IntegrationsSettings() {
 
 // Backup Settings Component
 function BackupSettings() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

@@ -17,7 +17,6 @@ import {
   TrendingUp, Filter, RefreshCw
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
-import { equivalentUnitsService } from '@/domain/manufacturing/equivalentUnits'
 
 // Types
 interface VarianceAlert {
@@ -194,7 +193,7 @@ export function VarianceAlerts() {
   })
   
   // Handlers
-  const handleAcknowledgeAlert = async (alertId: string) => {
+  const handleAcknowledgeAlert = async () => {
     try {
       // In a real implementation:
       // await equivalentUnitsService.updateAlertStatus(alertId, 'ACKNOWLEDGED')
@@ -214,7 +213,7 @@ export function VarianceAlerts() {
     }
   }
   
-  const handleResolveAlert = async (alertId: string) => {
+  const handleResolveAlert = async () => {
     try {
       // In a real implementation:
       // await equivalentUnitsService.updateAlertStatus(alertId, 'RESOLVED')
@@ -234,7 +233,7 @@ export function VarianceAlerts() {
     }
   }
   
-  const handleSnoozeAlert = async (alertId: string) => {
+  const handleSnoozeAlert = async () => {
     try {
       // In a real implementation:
       // await equivalentUnitsService.snoozeAlert(alertId, 24) // Snooze for 24 hours
@@ -533,7 +532,7 @@ export function VarianceAlerts() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleAcknowledgeAlert(alert.id)}
+                            onClick={() => handleAcknowledgeAlert()}
                           >
                             Acknowledge
                           </Button>
@@ -542,7 +541,7 @@ export function VarianceAlerts() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleResolveAlert(alert.id)}
+                            onClick={() => handleResolveAlert()}
                           >
                             Resolve
                           </Button>
@@ -550,7 +549,7 @@ export function VarianceAlerts() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleSnoozeAlert(alert.id)}
+                          onClick={() => handleSnoozeAlert()}
                         >
                           Snooze
                         </Button>

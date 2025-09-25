@@ -3,7 +3,7 @@
  * Process costing dashboard with equivalent units analysis
  */
 
-import React, { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,34 +20,13 @@ import {
 } from 'recharts'
 import { 
   AlertTriangle, TrendingUp, DollarSign, Package, Factory,
-  Calendar, Hash, Percent, Calculator
+  Calculator
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
 // Fixed import paths
 import { equivalentUnitsService } from '../../domain/manufacturing/equivalentUnits'
-import { ProcessCostingCalculator } from '../../domain/manufacturing/processCosting'
 
 // Types
-interface ManufacturingOrder {
-  id: string
-  orderNumber: string
-  itemId: string
-  itemName: string
-  quantity: number
-  status: string
-  currentStage: number
-}
-
-interface VarianceAlert {
-  moId: string
-  stageNo: number
-  varianceDate: string
-  materialVariancePercentage: number
-  laborVariancePercentage: number
-  overheadVariancePercentage: number
-  varianceSeverity: 'LOW' | 'MEDIUM' | 'HIGH'
-  totalVariance: number
-}
 
 interface EquivalentUnitsData {
   stage: string
@@ -79,7 +58,7 @@ export function EquivalentUnitsDashboard() {
   const [conversionCompletion, setConversionCompletion] = useState<number>(100)
   
   // Chart data state
-  const [equivalentUnitsData, setEquivalentUnitsData] = useState<EquivalentUnitsData[]>([
+  const [equivalentUnitsData, ] = useState<EquivalentUnitsData[]>([
     { stage: 'Stage 10', equivalentUnitsMaterial: 10000, equivalentUnitsConversion: 9500 },
     { stage: 'Stage 20', equivalentUnitsMaterial: 8000, equivalentUnitsConversion: 7800 },
     { stage: 'Stage 30', equivalentUnitsMaterial: 7500, equivalentUnitsConversion: 7200 },
@@ -87,7 +66,7 @@ export function EquivalentUnitsDashboard() {
     { stage: 'Stage 50', equivalentUnitsMaterial: 6500, equivalentUnitsConversion: 6300 },
   ])
   
-  const [costPerEquivalentUnitData, setCostPerEquivalentUnitData] = useState<CostPerEquivalentUnitData[]>([
+  const [costPerEquivalentUnitData, ] = useState<CostPerEquivalentUnitData[]>([
     { stage: 'Stage 10', materialCost: 5000, laborCost: 2000, overheadCost: 1500, costPerEquivalentUnitMaterial: 0.50, costPerEquivalentUnitConversion: 0.37 },
     { stage: 'Stage 20', materialCost: 0, laborCost: 2500, overheadCost: 1800, costPerEquivalentUnitMaterial: 0, costPerEquivalentUnitConversion: 0.55 },
     { stage: 'Stage 30', materialCost: 0, laborCost: 2200, overheadCost: 1600, costPerEquivalentUnitMaterial: 0, costPerEquivalentUnitConversion: 0.51 },
@@ -98,7 +77,7 @@ export function EquivalentUnitsDashboard() {
   const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
   
   // Queries
-  const { data: mos, isLoading: isLoadingMOs, isError: isMOsError } = useQuery({
+  const { data: mos, } = useQuery({
     queryKey: ['manufacturing-orders'],
     queryFn: async () => {
       // In a real implementation, this would fetch actual MOs from your backend
@@ -113,7 +92,7 @@ export function EquivalentUnitsDashboard() {
     }
   })
   
-  const { data: varianceAlerts, isLoading: isLoadingAlerts, isError: isAlertsError } = useQuery({
+  const { data: varianceAlerts, isLoading: isLoadingAlerts, } = useQuery({
     queryKey: ['variance-alerts'],
     queryFn: async () => {
       try {
@@ -132,7 +111,7 @@ export function EquivalentUnitsDashboard() {
   })
   
   // Fetch real equivalent units data
-  const { data: euData } = useQuery({
+  useQuery({
     queryKey: ['equivalent-units', selectedMO, selectedStage],
     queryFn: async () => {
       if (!selectedMO) return null
@@ -147,7 +126,7 @@ export function EquivalentUnitsDashboard() {
   })
   
   // Fetch real cost per equivalent unit data
-  const { data: cpeuData } = useQuery({
+  useQuery({
     queryKey: ['cost-per-equivalent-unit', selectedMO, selectedStage],
     queryFn: async () => {
       if (!selectedMO) return null
@@ -352,7 +331,7 @@ export function EquivalentUnitsDashboard() {
             dataKey="value"
             label={(props: any) => `${props.name}: ${(props.percent * 100).toFixed(0)}%`}
           >
-            {aggregatedData.map((entry, index) => (
+            {aggregatedData.map((_entry, index) => (
               <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
             ))}
           </Pie>

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,22 +8,16 @@ import {
   Calculator, 
   Clock, 
   DollarSign, 
-  Factory, 
-  Plus, 
-  Save, 
   RefreshCw, 
   BarChart3,
   Users,
   Settings,
   TrendingUp,
   Check, 
-  X, 
-  AlertCircle 
 } from 'lucide-react'
 
 // Import our domain modules (using regular imports instead of await import)
 import * as ProcessCosting from '../../domain/processCosting.js'
-import * as Manufacturing from '../../domain/manufacturing.js'
 import * as Audit from '../../domain/audit.js'
 
 // Import and register actions
@@ -65,7 +58,6 @@ interface StageCostResult {
 }
 
 export default function StageCostingPanel() {
-  const { t } = useTranslation()
   const queryClient = useQueryClient()
   
   const [formData, setFormData] = useState<StageCostingFormData>({
@@ -121,12 +113,12 @@ export default function StageCostingPanel() {
     const form = document.querySelector('form')
     if (!form) return
     
-    const handleLaborTimeApplied = (event: any) => {
+    const handleLaborTimeApplied = () => {
       toast.success('تم تسجيل وقت العمل بنجاح')
       queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
     }
     
-    const handleOverheadApplied = (event: any) => {
+    const handleOverheadApplied = () => {
       toast.success('تم تطبيق التكاليف غير المباشرة بنجاح')
       queryClient.invalidateQueries({ queryKey: ['stage-costs', formData.manufacturingOrderId] })
     }
