@@ -7,19 +7,19 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
 import { toast } from 'sonner'
-import type { Item } from '@/lib/supabase'
+import type { Item, Category } from '@/lib/supabase'
 
 export function InventoryModule() {
   return (
     <Routes>
-      <Route path="/" element={<InventoryOverview />} />
-      <Route path="/overview" element={<InventoryOverview />} />
-      <Route path="/items" element={<ItemsManagement />} />
-      <Route path="/movements" element={<StockMovements />} />
-      <Route path="/adjustments" element={<StockAdjustments />} />
-      <Route path="/valuation" element={<InventoryValuation />} />
-      <Route path="/locations" element={<StorageLocations />} />
-      <Route path="*" element={<Navigate to="/inventory/overview" replace />} />
+      <Route index element={<InventoryOverview />} />
+      <Route path="overview" element={<InventoryOverview />} />
+      <Route path="items" element={<ItemsManagement />} />
+      <Route path="movements" element={<StockMovements />} />
+      <Route path="adjustments" element={<StockAdjustments />} />
+      <Route path="valuation" element={<InventoryValuation />} />
+      <Route path="locations" element={<StorageLocations />} />
+      <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
 }

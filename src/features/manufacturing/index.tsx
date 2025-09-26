@@ -23,16 +23,16 @@ import type { ManufacturingOrder } from '@/lib/supabase'
 export function ManufacturingModule() {
   return (
     <Routes>
-      <Route path="/" element={<ManufacturingOverview />} />
-      <Route path="/overview" element={<ManufacturingOverview />} />
-      <Route path="/orders" element={<ManufacturingOrdersManagement />} />
-      <Route path="/process-costing" element={<ProcessCostingPage />} />
-      <Route path="/equivalent-units" element={<EquivalentUnitsPage />} />
-      <Route path="/variance-alerts" element={<VarianceAlertsPage />} />
-      <Route path="/workcenters" element={<WorkCentersManagement />} />
-      <Route path="/bom" element={<BOMManagement />} />
-      <Route path="/quality" element={<QualityControlManagement />} />
-      <Route path="*" element={<Navigate to="/manufacturing/overview" replace />} />
+      <Route index element={<ManufacturingOverview />} />
+      <Route path="overview" element={<ManufacturingOverview />} />
+      <Route path="orders" element={<ManufacturingOrdersManagement />} />
+      <Route path="process-costing" element={<ProcessCostingPage />} />
+      <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
+      <Route path="variance-alerts" element={<VarianceAlertsPage />} />
+      <Route path="workcenters" element={<WorkCentersManagement />} />
+      <Route path="bom" element={<BOMManagement />} />
+      <Route path="quality" element={<QualityControlManagement />} />
+      <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
 }
@@ -266,6 +266,7 @@ function ManufacturingOrdersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [orders, setOrders] = useState<ManufacturingOrder[]>([])
+  const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
 
   useEffect(() => {
@@ -280,7 +281,19 @@ function ManufacturingOrdersManagement() {
       console.error('Error loading orders:', error)
       toast.error('خطأ في تحميل أوامر التصنيع')
     } finally {
+      setLoading(false)
     }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
+        </div>
+      </div>
+    )
   }
 
   return (

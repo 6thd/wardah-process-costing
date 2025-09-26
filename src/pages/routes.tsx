@@ -1,9 +1,26 @@
 
 import { createBrowserRouter, Link, Outlet } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
-import { GeneralLedgerModule } from "@/features/general-ledger";
 
-// Minimal Not Found Page component to resolve the broken import.
+// Import all the modules
+import { GeneralLedgerModule } from "@/features/general-ledger";
+import { InventoryModule } from "@/features/inventory";
+import { ManufacturingModule } from "@/features/manufacturing";
+import { PurchasingModule } from "@/features/purchasing";
+import { SalesModule } from "@/features/sales";
+import { ReportsModule } from "@/features/reports";
+import { SettingsModule } from "@/features/settings";
+import { HRModule } from "@/features/hr"; // The new HR module
+
+// A simple placeholder for the main dashboard
+const DashboardModule = () => (
+  <div className="p-6">
+    <h1 className="text-3xl font-bold">Dashboard</h1>
+    <p className="mt-2 text-muted-foreground">Welcome to the main dashboard. This section is under development.</p>
+  </div>
+);
+
+// Minimal Not Found Page component
 const NotFoundPage = () => (
     <div style={{ padding: '2rem', textAlign: 'center', fontFamily: 'sans-serif' }}>
         <h1>404 - Page Not Found</h1>
@@ -30,13 +47,45 @@ export const appRouter = createBrowserRouter([
     errorElement: <NotFoundPage />,
     children: [
       {
+        index: true, // Default route
+        element: <DashboardModule />,
+      },
+      {
+        path: "dashboard/*",
+        element: <DashboardModule />,
+      },
+      {
         path: "general-ledger/*",
         element: <GeneralLedgerModule />,
       },
       {
-        index: true,
-        element: <GeneralLedgerModule /> // Default route loads the GL module
-      }
+        path: "inventory/*",
+        element: <InventoryModule />,
+      },
+      {
+        path: "manufacturing/*",
+        element: <ManufacturingModule />,
+      },
+      {
+        path: "purchasing/*",
+        element: <PurchasingModule />,
+      },
+      {
+        path: "sales/*",
+        element: <SalesModule />,
+      },
+      {
+        path: "hr/*",
+        element: <HRModule />,
+      },
+      {
+        path: "reports/*",
+        element: <ReportsModule />,
+      },
+      {
+        path: "settings/*",
+        element: <SettingsModule />,
+      },
     ],
   },
   {
