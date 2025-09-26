@@ -1,8 +1,9 @@
 
-import { createBrowserRouter, Link, Outlet } from "react-router-dom";
+import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
 
 // Import all the modules
+import { DashboardModule } from "@/features/dashboard";
 import { GeneralLedgerModule } from "@/features/general-ledger";
 import { InventoryModule } from "@/features/inventory";
 import { ManufacturingModule } from "@/features/manufacturing";
@@ -11,14 +12,6 @@ import { SalesModule } from "@/features/sales";
 import { ReportsModule } from "@/features/reports";
 import { SettingsModule } from "@/features/settings";
 import { HRModule } from "@/features/hr"; // The new HR module
-
-// A simple placeholder for the main dashboard
-const DashboardModule = () => (
-  <div className="p-6">
-    <h1 className="text-3xl font-bold">Dashboard</h1>
-    <p className="mt-2 text-muted-foreground">Welcome to the main dashboard. This section is under development.</p>
-  </div>
-);
 
 // Minimal Not Found Page component
 const NotFoundPage = () => (
@@ -48,7 +41,7 @@ export const appRouter = createBrowserRouter([
     children: [
       {
         index: true, // Default route
-        element: <DashboardModule />,
+        element: <Navigate to="/dashboard" replace />,
       },
       {
         path: "dashboard/*",
@@ -92,8 +85,4 @@ export const appRouter = createBrowserRouter([
     path: "*",
     element: <NotFoundPage /> // Catch-all for any other route
   }
-], {
-  future: {
-    v7_startTransition: true,
-  },
-});
+]);

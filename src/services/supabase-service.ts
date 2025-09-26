@@ -594,8 +594,28 @@ export const salesOrdersService = {
         )
       `)
       .order('created_at', { ascending: false })
+
+    if (error) {
+        console.warn('Error fetching sales orders with user data, retrying without it.', error.message)
+        const { data: fallbackData, error: fallbackError } = await supabase
+            .from('sales_orders')
+            .select(`
+                *,
+                customer:customers(*),
+                sales_order_items(
+                    *,
+                    item:items(*)
+                )
+            `)
+            .order('created_at', { ascending: false })
+
+        if (fallbackError) {
+            console.error('Fallback fetch for sales orders also failed:', fallbackError.message)
+            throw fallbackError
+        }
+        return fallbackData
+    }
     
-    if (error) throw error
     return data
   },
 

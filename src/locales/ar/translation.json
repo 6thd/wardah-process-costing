@@ -13,7 +13,44 @@
     "general-ledger": "دفتر الأستاذ العام",
     "hr": "الموارد البشرية",
     "reports": "التقارير",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "overview": "نظرة عامة",
+    "analytics": "التحليلات",
+    "performance": "الأداء",
+    "orders": "الأوامر",
+    "process-costing": "تكاليف المراحل",
+    "workcenters": "مراكز العمل",
+    "bom": "قوائم المواد",
+    "quality": "الجودة",
+    "items": "الأصناف",
+    "movements": "الحركات",
+    "adjustments": "التسويات",
+    "valuation": "التقييم",
+    "locations": "المواقع",
+    "suppliers": "الموردون",
+    "receipts": "إيصالات الاستلام",
+    "invoices": "الفواتير",
+    "payments": "المدفوعات",
+    "customers": "العملاء",
+    "delivery": "التسليم",
+    "collections": "التحصيلات",
+    "accounts": "الحسابات",
+    "entries": "القيود اليومية",
+    "trial-balance": "ميزان المراجعة",
+    "posting": "الترحيل",
+    "employees": "الموظفون",
+    "departments": "الأقسام",
+    "positions": "المناصب",
+    "payroll": "كشوف المرتبات",
+    "attendance": "الحضور",
+    "leave-types": "أنواع الإجازات",
+    "financial": "التقارير المالية",
+    "company": "إعدادات الشركة",
+    "users": "المستخدمون",
+    "permissions": "الصلاحيات",
+    "system": "إعدادات النظام",
+    "integrations": "التكاملات",
+    "backup": "النسخ الاحتياطي"
   },
   "common": {
     "save": "حفظ",
@@ -295,7 +332,16 @@
       "management": "إدارة طلبات الإجازات والموافقات",
       "annual": "سنوية",
       "sick": "مرضية",
-      "emergency": "طارئة"
+      "emergency": "طارئة",
+      "type": {
+        "title": "أنواع الإجازات",
+        "management": "إدارة أنواع الإجازات",
+        "list": "قائمة أنواع الإجازات",
+        "add": "إضافة نوع إجازة",
+        "edit": "تعديل نوع إجازة",
+        "isPaid": "مدفوعة",
+        "maxDays": "أقصى أيام في السنة"
+      }
     },
     "reports": "تقارير الموارد البشرية",
     "report": {
@@ -328,22 +374,6 @@
       "add": "إضافة منصب",
       "edit": "تعديل منصب",
       "department": "القسم"
-    },
-    "leave": {
-      "title": "الإجازات",
-      "management": "إدارة طلبات الإجازات والموافقات",
-      "annual": "سنوية",
-      "sick": "مرضية",
-      "emergency": "طارئة",
-      "type": {
-        "title": "أنواع الإجازات",
-        "management": "إدارة أنواع الإجازات",
-        "list": "قائمة أنواع الإجازات",
-        "add": "إضافة نوع إجازة",
-        "edit": "تعديل نوع إجازة",
-        "isPaid": "مدفوعة",
-        "maxDays": "أقصى أيام في السنة"
-      }
     },
     "employee": {
       "firstName": "الاسم الأول",

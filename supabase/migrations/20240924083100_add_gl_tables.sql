@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS journals (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES orgs(id) ON DELETE CASCADE NOT NULL,
+  org_id UUID NOT NULL,
   code VARCHAR(20) UNIQUE NOT NULL,
   name VARCHAR(100) NOT NULL,
   name_ar VARCHAR(100),
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS journals (
 
 CREATE TABLE IF NOT EXISTS journal_entries (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES orgs(id) ON DELETE CASCADE NOT NULL,
+  org_id UUID NOT NULL,
   journal_id UUID REFERENCES journals(id) ON DELETE RESTRICT NOT NULL,
   entry_number VARCHAR(50) UNIQUE NOT NULL,
   entry_date DATE NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS journal_entries (
 
 CREATE TABLE IF NOT EXISTS journal_entry_details (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  org_id UUID REFERENCES orgs(id) ON DELETE CASCADE NOT NULL,
+  org_id UUID NOT NULL,
   journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE CASCADE NOT NULL,
   account_code VARCHAR(50) NOT NULL,
   debit NUMERIC(18, 6) NOT NULL DEFAULT 0,

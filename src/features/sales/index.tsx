@@ -39,9 +39,9 @@ function SalesOverview() {
         ])
         setCustomers(customersData || [])
         setOrders(ordersData || [])
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading sales data:', error)
-        toast.error('خطأ في تحميل بيانات المبيعات')
+        toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
       } finally {
       }
     }
@@ -138,9 +138,9 @@ function CustomersManagement() {
     try {
       const data = await customersService.getAll()
       setCustomers(data || [])
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading customers:', error)
-      toast.error('خطأ في تحميل العملاء')
+      toast.error(`خطأ في تحميل العملاء: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -165,9 +165,9 @@ function CustomersManagement() {
         address: ''
       })
       loadCustomers()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error adding customer:', error)
-      toast.error('خطأ في إضافة العميل')
+      toast.error(`خطأ في إضافة العميل: ${error.message}`)
     }
   }
 
@@ -312,9 +312,9 @@ function SalesOrdersManagement() {
       try {
         const data = await salesOrdersService.getAll()
         setOrders(data || [])
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading sales orders:', error)
-        toast.error('خطأ في تحميل فواتير المبيعات')
+        toast.error(`خطأ في تحميل فواتير المبيعات: ${error.message}`)
       } finally {
         setLoading(false)
       }
@@ -425,9 +425,9 @@ function DeliveryManagement() {
           }
         ]
         setDeliveries(mockDeliveries)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading deliveries:', error)
-        toast.error('خطأ في تحميل بيانات التسليم')
+        toast.error(`خطأ في تحميل بيانات التسليم: ${error.message}`)
       } finally {
         setLoading(false)
       }
@@ -593,9 +593,9 @@ function CollectionsManagement() {
           }
         ]
         setCollections(mockCollections)
-      } catch (error) {
+      } catch (error: any) {
         console.error('Error loading collections:', error)
-        toast.error('خطأ في تحميل بيانات التحصيل')
+        toast.error(`خطأ في تحميل بيانات التحصيل: ${error.message}`)
       } finally {
         setLoading(false)
       }
