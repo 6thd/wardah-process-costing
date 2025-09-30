@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -8,23 +7,13 @@ import {
   Calculator, 
   Clock, 
   DollarSign, 
-  Factory, 
-  Plus, 
-  Save, 
   RefreshCw, 
   BarChart3,
   Users,
   Settings,
   TrendingUp,
-  Check, 
-  X, 
-  AlertCircle 
+  Check
 } from 'lucide-react'
-
-// Import our domain modules
-const ProcessCosting = await import('../../domain/processCosting.js')
-const Manufacturing = await import('../../domain/manufacturing.js')
-const Audit = await import('../../domain/audit.js')
 
 // Import and register actions
 import { registerStageCostingActions, unregisterStageCostingActions } from './stage-costing-actions.js'
@@ -58,7 +47,6 @@ interface StageCostResult {
 }
 
 export default function StageCostingPanel() {
-  const { t } = useTranslation()
   
   const [formData, setFormData] = useState<StageCostingFormData>({
     manufacturingOrderId: '',
@@ -76,7 +64,6 @@ export default function StageCostingPanel() {
     notes: ''
   })
   
-  const [isCalculating, setIsCalculating] = useState(false)
   const [lastResult, setLastResult] = useState<StageCostResult | null>(null)
   const [workCenters, setWorkCenters] = useState<any[]>([])
   const [manufacturingOrders, setManufacturingOrders] = useState<any[]>([])
@@ -114,12 +101,12 @@ export default function StageCostingPanel() {
       setStageCosts(event.detail.stageCosts)
     }
     
-    const handleLaborTimeApplied = (event: any) => {
+    const handleLaborTimeApplied = () => {
       toast.success('تم تسجيل وقت العمل بنجاح')
       loadStageCosts() // Refresh the stage costs
     }
     
-    const handleOverheadApplied = (event: any) => {
+    const handleOverheadApplied = () => {
       toast.success('تم تطبيق التكاليف غير المباشرة بنجاح')
       loadStageCosts() // Refresh the stage costs
     }
@@ -146,6 +133,7 @@ export default function StageCostingPanel() {
 
   const loadWorkCenters = async () => {
     try {
+      const Manufacturing = await import('../../domain/manufacturing.js')
       const result = await Manufacturing.getAllWorkCenters()
       if (result.success && 'data' in result && result.data) {
         setWorkCenters(result.data)
@@ -157,6 +145,7 @@ export default function StageCostingPanel() {
 
   const loadManufacturingOrders = async () => {
     try {
+      const Manufacturing = await import('../../domain/manufacturing.js')
       const result = await Manufacturing.getAllManufacturingOrders() as any
       if (result.success && result.data) {
         const activeOrders = result.data.filter((order: any) => 
@@ -171,6 +160,7 @@ export default function StageCostingPanel() {
 
   const loadMODetails = async () => {
     try {
+      const Manufacturing = await import('../../domain/manufacturing.js')
       const result = await Manufacturing.getManufacturingOrderById(formData.manufacturingOrderId)
       if (result.success && 'data' in result && result.data) {
         setSelectedMO(result.data)
@@ -182,6 +172,7 @@ export default function StageCostingPanel() {
 
   const loadStageCosts = async () => {
     try {
+      const ProcessCosting = await import('../../domain/processCosting.js')
       const result = await ProcessCosting.getStageCosts(formData.manufacturingOrderId)
       if (result.success && 'data' in result && result.data) {
         setStageCosts(result.data)
@@ -199,135 +190,11 @@ export default function StageCostingPanel() {
   }
 
   // Apply labor time first
-  const applyLaborTime = async () => {
-    if (!formData.laborHours || !formData.laborRate) {
-      toast.error('يجب إدخال ساعات العمل ومعدل الأجر')
-      return
-    }
+  // This functionality is handled by the action handler in stage-costing-actions.js
+  // The button with data-action="apply-labor-time" triggers the action
 
-    try {
-      setIsCalculating(true)
-      
-      const result = await (ProcessCosting.applyLaborTime as any)({
-        moId: formData.manufacturingOrderId,
-        stageNo: formData.stageNumber,
-        workCenterId: formData.workCenterId,
-        hours: formData.laborHours,
-        hourlyRate: formData.laborRate,
-        employeeName: formData.employeeName || null,
-        operationCode: formData.operationCode || null,
-        notes: formData.notes || null
-      })
-
-      if (result.success && result.data) {
-        toast.success(`تم تسجيل وقت العمل: ${result.data.totalLaborCost?.toFixed(2)} ريال`)
-        await loadStageCosts() // Refresh stage costs
-      }
-    } catch (error: any) {
-      console.error('Error applying labor time:', error)
-      toast.error('خطأ في تسجيل وقت العمل')
-    } finally {
-      setIsCalculating(false)
-    }
-  }
-
-  // Apply overhead
-  const applyOverhead = async () => {
-    if (!formData.overheadRate) {
-      toast.error('يجب إدخال معدل التكاليف غير المباشرة')
-      return
-    }
-
-    try {
-      setIsCalculating(true)
-      
-      const baseAmount = formData.laborHours * formData.laborRate // Use labor cost as base
-      
-      const result = await (ProcessCosting.applyOverhead as any)({
-        moId: formData.manufacturingOrderId,
-        stageNo: formData.stageNumber,
-        workCenterId: formData.workCenterId,
-        allocationBase: 'labor_cost',
-        baseQty: baseAmount,
-        overheadRate: formData.overheadRate,
-        overheadType: 'variable',
-        notes: `Applied at ${(formData.overheadRate * 100)}% of labor cost`
-      })
-
-      if (result.success && result.data) {
-        toast.success(`تم تطبيق التكاليف غير المباشرة: ${result.data.overheadAmount?.toFixed(2)} ريال`)
-        await loadStageCosts() // Refresh stage costs
-      }
-    } catch (error: any) {
-      console.error('Error applying overhead:', error)
-      toast.error('خطأ في تطبيق التكاليف غير المباشرة')
-    } finally {
-      setIsCalculating(false)
-    }
-  }
-
-  // Calculate final stage cost using process costing methodology
-  const calculateStageCost = async () => {
-    if (!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity) {
-      toast.error('يجب إدخال جميع البيانات المطلوبة')
-      return
-    }
-
-    try {
-      setIsCalculating(true)
-      
-      // Calculate stage cost using our process costing formula
-      const result = await (ProcessCosting.upsertStageCost as any)({
-        moId: formData.manufacturingOrderId,
-        stageNo: formData.stageNumber,
-        workCenterId: formData.workCenterId,
-        goodQty: formData.goodQuantity,
-        directMaterialCost: formData.directMaterialCost,
-        mode: 'actual',
-        scrapQty: formData.scrapQuantity,
-        reworkQty: formData.reworkQuantity,
-        notes: formData.notes || null
-      })
-
-      if (result.success && result.data) {
-        const efficiency = formData.goodQuantity / (formData.goodQuantity + formData.scrapQuantity + formData.reworkQuantity) * 100
-        
-        setLastResult({
-          stageId: result.data.stageId || '',
-          totalCost: result.data.totalCost || 0,
-          unitCost: result.data.unitCost || 0,
-          transferredIn: result.data.transferredIn || 0,
-          laborCost: result.data.laborCost || 0,
-          overheadCost: result.data.overheadCost || 0,
-          efficiency: efficiency || 100,
-          calculatedAt: new Date().toISOString()
-        })
-        
-        toast.success(`تم احتساب المرحلة ${formData.stageNumber}: ${result.data.totalCost?.toFixed(2)} ريال`)
-        
-        // Log the operation
-        await Audit.logProcessCostingOperation({
-          operation: 'stage_cost_calculation',
-          moId: formData.manufacturingOrderId,
-          stageNo: formData.stageNumber as any,
-          details: {
-            goodQuantity: formData.goodQuantity,
-            totalCost: result.data.totalCost || 0,
-            unitCost: result.data.unitCost || 0
-          },
-          newValues: result.data
-        })
-        
-        // Refresh stage costs
-        await loadStageCosts()
-      }
-    } catch (error: any) {
-      console.error('Stage costing error:', error)
-      toast.error(`خطأ في احتساب تكلفة المرحلة: ${error.message}`)
-    } finally {
-      setIsCalculating(false)
-    }
-  }
+  // Apply overhead functionality is handled by the action handler in stage-costing-actions.js
+  // The button with data-action="apply-overhead" triggers the action
 
   return (
     <div className="space-y-6" data-panel="stage-costing">
@@ -345,7 +212,6 @@ export default function StageCostingPanel() {
                 variant="outline" 
                 size="sm"
                 data-action="refresh-stage-costs"
-                disabled={isCalculating}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 تحديث
@@ -567,7 +433,7 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="apply-labor-time"
-              disabled={isCalculating || !formData.laborHours || !formData.laborRate}
+              disabled={!formData.laborHours || !formData.laborRate}
               className="bg-purple-600 hover:bg-purple-700"
             >
               <Clock className="h-4 w-4 mr-2" />
@@ -577,7 +443,7 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="apply-overhead"
-              disabled={isCalculating || !formData.overheadRate}
+              disabled={!formData.overheadRate}
               className="bg-orange-600 hover:bg-orange-700"
             >
               <Settings className="h-4 w-4 mr-2" />
@@ -587,11 +453,11 @@ export default function StageCostingPanel() {
             <Button 
               type="button"
               data-action="calculate-stage-cost"
-              disabled={isCalculating || !formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity}
+              disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity}
               className="bg-blue-600 hover:bg-blue-700"
             >
               <Calculator className="h-4 w-4 mr-2" />
-              {isCalculating ? 'جاري الاحتساب...' : 'احتساب تكلفة المرحلة'}
+              {'احتساب تكلفة المرحلة'}
             </Button>
           </div>
         </form>
