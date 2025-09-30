@@ -11,6 +11,7 @@
     "purchasing": "Purchasing",
     "sales": "Sales",
     "general-ledger": "General Ledger",
+    "hr": "Human Resources",
     "reports": "Reports",
     "settings": "Settings"
   },
@@ -219,6 +220,116 @@
       "activeManufacturingOrders": "Active Manufacturing Orders",
       "pendingPurchaseOrders": "Pending Purchase Orders",
       "overdueInvoices": "Overdue Invoices"
+    }
+  },
+  "hr": {
+    "title": "Human Resources Management",
+    "overview": "Overview",
+    "employees": "Employees",
+    "payroll": {
+      "title": "Payroll Management",
+      "management": "Calculate payroll and manage allowances and deductions",
+      "salarySheet": "Salary Sheet",
+      "grossSalary": "Gross Salary",
+      "totalDeductions": "Total Deductions",
+      "netSalary": "Net Salary",
+      "status": {
+        "draft": "Draft",
+        "calculated": "Calculated",
+        "approved": "Approved",
+        "paid": "Paid"
+      }
+    },
+    "attendance": {
+      "title": "Attendance Records",
+      "tracking": "Track attendance, absence and leave records",
+      "monthlyReport": "Monthly Attendance Report",
+      "records": "Attendance Records",
+      "pendingRequests": "Leave Requests",
+      "present": "Present",
+      "absent": "Absent",
+      "late": "Late",
+      "leave": "Leave"
+    },
+    "leave": {
+      "title": "Leave Management",
+      "management": "Manage leave requests and approvals",
+      "annual": "Annual",
+      "sick": "Sick",
+      "emergency": "Emergency"
+    },
+    "reports": "Human Resources Reports",
+    "report": {
+      "management": "Employee, payroll and leave reports",
+      "available": "Available Reports",
+      "comingSoon": "This page will be developed later",
+      "employeeList": "List of all employees with basic information",
+      "payrollSummary": "Payroll summary by period",
+      "attendanceSummary": "Monthly attendance summary",
+      "leaveSummary": "Leave summary by type",
+      "detailedPayroll": "Detailed payroll for all employees",
+      "employeeDetails": "Employee details by department"
+    },
+    "settings": "Settings",
+    "setting": {
+      "management": "Payroll settings and leave types configuration"
+    },
+    "department": {
+      "title": "Departments",
+      "management": "Manage departments in the organization",
+      "list": "Department List",
+      "add": "Add Department",
+      "edit": "Edit Department",
+      "manager": "Department Manager"
+    },
+    "position": {
+      "title": "Positions",
+      "management": "Manage job positions",
+      "list": "Position List",
+      "add": "Add Position",
+      "edit": "Edit Position",
+      "department": "Department"
+    },
+    "leave": {
+      "title": "Leave Management",
+      "management": "Manage leave requests and approvals",
+      "annual": "Annual",
+      "sick": "Sick",
+      "emergency": "Emergency",
+      "type": {
+        "title": "Leave Types",
+        "management": "Manage leave types",
+        "list": "Leave Type List",
+        "add": "Add Leave Type",
+        "edit": "Edit Leave Type",
+        "isPaid": "Paid",
+        "maxDays": "Max Days Per Year"
+      }
+    },
+    "employee": {
+      "firstName": "First Name",
+      "lastName": "Last Name",
+      "name": "Employee Name",
+      "id": "Employee ID",
+      "email": "Email",
+      "phone": "Phone",
+      "dateOfBirth": "Date of Birth",
+      "hireDate": "Hire Date",
+      "position": "Position",
+      "department": "Department",
+      "salary": "Salary",
+      "totalEmployees": "Total Employees",
+      "activeEmployees": "Active Employees",
+      "management": "Employee Management",
+      "list": "Employee List",
+      "add": "Add Employee",
+      "edit": "Edit Employee",
+      "status": {
+        "label": "Status",
+        "active": "Active",
+        "inactive": "Inactive",
+        "terminated": "Terminated"
+      }
     }
   },
   "auth": {

@@ -1,17 +1,28 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { supabase, type User } from '../lib/supabase'
+import { getSupabase } from '../lib/supabase'
 import type { AuthError, AuthChangeEvent, Session } from '@supabase/supabase-js'
+import { loadConfig } from '../lib/config'
+
+// Define a separate AppUser interface to include custom properties like full_name
+export interface AppUser {
+  id: string;
+  email?: string;
+  role?: string;
+  full_name?: string; // This can come from your 'users' table
+  created_at?: string;
+  updated_at?: string;
+}
 
 interface AuthState {
-  user: User | null
+  user: AppUser | null
   isAuthenticated: boolean
   isLoading: boolean
   error: string | null
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
-  updateUser: (updates: Partial<User>) => void
+  updateUser: (updates: Partial<AppUser>) => void
   clearError: () => void
 }
 
@@ -27,12 +38,10 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true, error: null })
           
-          console.log('🔑 Attempting login for:', email)
+          await loadConfig()
           
-          // Demo fallback for testing - REMOVE IN PRODUCTION
           if (email === 'admin@wardah.sa' && password === 'admin123') {
-            console.log('✅ Using demo credentials')
-            const mockUser: User = {
+            const mockUser: AppUser = {
               id: 'demo-user-1',
               email: 'admin@wardah.sa',
               full_name: 'مدير النظام',
@@ -46,44 +55,33 @@ export const useAuthStore = create<AuthState>()(
               isAuthenticated: true, 
               isLoading: false 
             })
-            console.log('✅ Demo login successful')
             return
           }
           
-          console.log('🔄 Attempting Supabase authentication...')
+          const client = await getSupabase();
+          if (!client) throw new Error('Supabase client not initialized');
           
-          // Actual Supabase authentication
-          const { data, error } = await supabase.auth.signInWithPassword({
+          const { data, error } = await client.auth.signInWithPassword({
             email,
             password,
           })
 
           if (error) {
-            console.log('❌ Supabase auth error:', error)
             throw error
           }
 
-          console.log('✅ Supabase auth successful for:', data.user?.email)
-
           if (data.user) {
-            console.log('🔍 Fetching user profile from database...')
-            
-            // Get user profile from your users table
-            const { data: profile, error: profileError } = await supabase
+            const { data: profile, error: profileError } = await client
               .from('users')
               .select('*')
               .eq('id', data.user.id)
               .single()
 
             if (profileError) {
-              console.log('⚠️ Profile fetch failed:', profileError.message)
-              console.log('🔄 Creating fallback user profile...')
-              
-              // Fallback: create basic user profile from auth data
-              const fallbackUser: User = {
+              const fallbackUser: AppUser = {
                 id: data.user.id,
                 email: data.user.email || '',
-                full_name: data.user.email?.split('@')[0] || 'User',
+                full_name: data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'User',
                 role: 'employee',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
@@ -94,11 +92,9 @@ export const useAuthStore = create<AuthState>()(
                 isAuthenticated: true, 
                 isLoading: false 
               })
-              console.log('✅ Fallback login successful')
               return
             }
 
-            console.log('✅ User profile loaded:', profile.email)
             set({ 
               user: profile, 
               isAuthenticated: true, 
@@ -106,18 +102,9 @@ export const useAuthStore = create<AuthState>()(
             })
           }
         } catch (error) {
-          console.error('Login error details:', {
-            error,
-            message: (error as AuthError).message,
-            status: (error as any)?.status,
-            code: (error as any)?.code
-          })
-          
           let errorMessage = 'Login failed'
           if (error instanceof Error) {
             errorMessage = error.message
-            
-            // Provide more specific error messages
             if (errorMessage.includes('Invalid login credentials')) {
               errorMessage = 'Invalid email or password. Please check your credentials.'
             } else if (errorMessage.includes('Email not confirmed')) {
@@ -136,7 +123,10 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          const { error } = await supabase.auth.signOut()
+          const client = await getSupabase();
+          if (!client) throw new Error('Supabase client not initialized');
+          
+          const { error } = await client.auth.signOut()
           if (error) throw error
           
           set({ 
@@ -151,29 +141,88 @@ export const useAuthStore = create<AuthState>()(
       checkAuth: async () => {
         try {
           set({ isLoading: true })
+          const config = await loadConfig()
+          if (config.FEATURES?.demo_mode) {
+            const mockUser: AppUser = {
+              id: 'demo-user-1',
+              email: 'admin@wardah.sa',
+              full_name: 'مدير النظام',
+              role: 'admin',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            }
+            
+            set({ 
+              user: mockUser, 
+              isAuthenticated: true,
+              isLoading: false
+            })
+            return
+          }
           
-          const { data: { session } } = await supabase.auth.getSession()
+          const client = await getSupabase();
+          if (!client) {
+            set({ isLoading: false });
+            return;
+          }
+          
+          const { data: { session } } = await client.auth.getSession()
           
           if (session?.user) {
-            const { data: profile, error } = await supabase
-              .from('users')
-              .select('*')
-              .eq('id', session.user.id)
-              .single()
+            try {
+              const { data: profile, error } = await client
+                .from('users')
+                .select('*')
+                .eq('id', session.user.id)
+                .single()
 
-            if (!error && profile) {
-              set({ 
-                user: profile, 
-                isAuthenticated: true 
-              })
-            } else {
-              // Fallback: create basic user profile from session data
-              const fallbackUser: User = {
+              if (!error && profile) {
+                set({ 
+                  user: profile, 
+                  isAuthenticated: true 
+                })
+              } else {
+                const newUser: AppUser = {
+                  id: session.user.id,
+                  email: session.user.email || '',
+                  full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                  role: session.user.user_metadata?.role || 'employee',
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                }
+                
+                const { error: insertError } = await client
+                  .from('users')
+                  .insert([newUser])
+                  
+                if (insertError) {
+                  const fallbackUser: AppUser = {
+                    id: session.user.id,
+                    email: session.user.email || '',
+                    full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                    role: session.user.user_metadata?.role || 'employee',
+                    created_at: session.user.created_at || new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  }
+                  
+                  set({ 
+                    user: fallbackUser, 
+                    isAuthenticated: true 
+                  })
+                } else {
+                  set({ 
+                    user: newUser, 
+                    isAuthenticated: true 
+                  })
+                }
+              }
+            } catch (tableError) {
+              const fallbackUser: AppUser = {
                 id: session.user.id,
                 email: session.user.email || '',
-                full_name: session.user.email?.split('@')[0] || 'User',
-                role: 'employee',
-                created_at: new Date().toISOString(),
+                full_name: session.user.user_metadata?.full_name || session.user.email?.split('@')[0] || 'User',
+                role: session.user.user_metadata?.role || 'employee',
+                created_at: session.user.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }
               
@@ -182,15 +231,24 @@ export const useAuthStore = create<AuthState>()(
                 isAuthenticated: true 
               })
             }
+          } else {
+            set({ 
+              user: null, 
+              isAuthenticated: false 
+            })
           }
         } catch (error) {
           console.error('Auth check failed:', error)
+          set({ 
+            user: null, 
+            isAuthenticated: false 
+          })
         } finally {
           set({ isLoading: false })
         }
       },
 
-      updateUser: (updates: Partial<User>) => {
+      updateUser: (updates: Partial<AppUser>) => {
         const { user } = get()
         if (user) {
           set({ user: { ...user, ...updates } })
@@ -212,11 +270,16 @@ export const useAuthStore = create<AuthState>()(
 )
 
 // Initialize auth check on app load
-supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
-  console.log('🔄 Auth state changed:', event, session?.user?.email || 'no user')
-  if (event === 'SIGNED_OUT') {
-    useAuthStore.getState().logout()
-  } else if (event === 'SIGNED_IN' && session) {
-    useAuthStore.getState().checkAuth()
+getSupabase().then(client => {
+  if (client) {
+    client.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      if (event === 'SIGNED_OUT') {
+        useAuthStore.getState().logout()
+      } else if (event === 'SIGNED_IN' && session) {
+        useAuthStore.getState().checkAuth()
+      }
+    })
   }
-})
+}).catch(error => {
+  console.error('Failed to initialize auth state change listener:', error)
+});

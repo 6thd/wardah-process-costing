@@ -13,29 +13,32 @@ import {
   Users, 
   BarChart3, 
   CheckCircle, 
-  Clock, 
-  AlertTriangle,
   Plus
 } from 'lucide-react'
 import StageCostingPanel from './stage-costing-panel.tsx'
+import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
+import { VarianceAlerts } from './variance-alerts'
+import type { ManufacturingOrder } from '@/lib/supabase'
 
 export function ManufacturingModule() {
   return (
     <Routes>
-      <Route path="/" element={<ManufacturingOverview />} />
-      <Route path="/overview" element={<ManufacturingOverview />} />
-      <Route path="/orders" element={<ManufacturingOrdersManagement />} />
-      <Route path="/process-costing" element={<ProcessCostingPage />} />
-      <Route path="/workcenters" element={<WorkCentersManagement />} />
-      <Route path="/bom" element={<BOMManagement />} />
-      <Route path="/quality" element={<QualityControlManagement />} />
-      <Route path="*" element={<Navigate to="/manufacturing/overview" replace />} />
+      <Route index element={<ManufacturingOverview />} />
+      <Route path="overview" element={<ManufacturingOverview />} />
+      <Route path="orders" element={<ManufacturingOrdersManagement />} />
+      <Route path="process-costing" element={<ProcessCostingPage />} />
+      <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
+      <Route path="variance-alerts" element={<VarianceAlertsPage />} />
+      <Route path="workcenters" element={<WorkCentersManagement />} />
+      <Route path="bom" element={<BOMManagement />} />
+      <Route path="quality" element={<QualityControlManagement />} />
+      <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
 }
 
 function ProcessCostingPage() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -52,10 +55,46 @@ function ProcessCostingPage() {
   )
 }
 
+function EquivalentUnitsPage() {
+  const { i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">الوحدات المكافئة</h1>
+        <p className="text-muted-foreground mt-2">
+          حساب الوحدات المكافئة وتحليل التكاليف
+        </p>
+      </div>
+
+      <EquivalentUnitsDashboard />
+    </div>
+  )
+}
+
+function VarianceAlertsPage() {
+  const { i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تنبيهات الانحرافات</h1>
+        <p className="text-muted-foreground mt-2">
+          مراقبة الانحرافات في التكاليف واتخاذ الإجراءات التصحيحية
+        </p>
+      </div>
+
+      <VarianceAlerts />
+    </div>
+  )
+}
+
 function ManufacturingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -73,7 +112,7 @@ function ManufacturingOverview() {
     loadOrders()
   }, [])
 
-  const activeOrders = orders.filter(order => order.status === 'in_progress' || order.status === 'confirmed')
+  const activeOrders = orders.filter(order => order.status === 'in-progress' || order.status === 'confirmed')
   const completedOrders = orders.filter(order => order.status === 'completed')
   const pendingOrders = orders.filter(order => order.status === 'draft')
 
@@ -206,10 +245,10 @@ function ManufacturingOverview() {
                 <div className="text-right flex items-center gap-2">
                   <Badge 
                     variant={order.status === 'completed' ? 'default' : 
-                            order.status === 'in_progress' ? 'secondary' : 'outline'}
+                            order.status === 'in-progress' ? 'secondary' : 'outline'}
                   >
                     {order.status === 'completed' ? 'مكتمل' : 
-                     order.status === 'in_progress' ? 'جاري' : 'في الانتظار'}
+                     order.status === 'in-progress' ? 'جاري' : 'في الانتظار'}
                   </Badge>
                   <span className="text-sm text-muted-foreground">{order.quantity} وحدة</span>
                 </div>
@@ -226,7 +265,7 @@ function ManufacturingOverview() {
 function ManufacturingOrdersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<any[]>([])
+  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
 
@@ -246,6 +285,17 @@ function ManufacturingOrdersManagement() {
     }
   }
 
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
@@ -262,7 +312,7 @@ function ManufacturingOrdersManagement() {
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'in_progress').length}</div>
+          <div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'in-progress').length}</div>
           <div className="text-sm text-muted-foreground">جارية</div>
         </div>
         <div className="bg-card rounded-lg border p-4">
@@ -294,7 +344,7 @@ function ManufacturingOrdersManagement() {
 
 // Work Centers Management Component
 function WorkCentersManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -319,7 +369,7 @@ function WorkCentersManagement() {
 
 // BOM Management Component
 function BOMManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -344,7 +394,7 @@ function BOMManagement() {
 
 // Quality Control Management Component
 function QualityControlManagement() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

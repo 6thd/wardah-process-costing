@@ -1,0 +1,506 @@
+[
+  {
+    "key_type": "EVENT",
+    "key_value": "material_issue_mixing",
+    "debit_account": "134100",
+    "credit_account": "131100",
+    "description": "صرف مواد LDPE لمرحلة الخلط"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_issue_extrusion",
+    "debit_account": "134200",
+    "credit_account": "131110",
+    "description": "صرف مواد HDPE لمرحلة البثق"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_issue_printing",
+    "debit_account": "134300",
+    "credit_account": "131150",
+    "description": "صرف ماستر باتش للطباعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_issue_cutting",
+    "debit_account": "134400",
+    "credit_account": "131200",
+    "description": "صرف مواد مساعدة للقص"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_issue_packing",
+    "debit_account": "134500",
+    "credit_account": "131200",
+    "description": "صرف مواد التعبئة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_charge_mixing",
+    "debit_account": "134100",
+    "credit_account": "210201",
+    "description": "تحميل أجور مباشرة على مرحلة الخلط"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_charge_extrusion",
+    "debit_account": "134200",
+    "credit_account": "210201",
+    "description": "تحميل أجور مباشرة على مرحلة البثق"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_charge_printing",
+    "debit_account": "134300",
+    "credit_account": "210201",
+    "description": "تحميل أجور مباشرة على مرحلة الطباعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_charge_cutting",
+    "debit_account": "134400",
+    "credit_account": "210201",
+    "description": "تحميل أجور مباشرة على مرحلة القص"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_charge_packing",
+    "debit_account": "134500",
+    "credit_account": "210201",
+    "description": "تحميل أجور مباشرة على مرحلة التعبئة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_applied_mixing",
+    "debit_account": "134100",
+    "credit_account": "514000",
+    "description": "تطبيق أوفرهيد على مرحلة الخلط"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_applied_extrusion",
+    "debit_account": "134200",
+    "credit_account": "514000",
+    "description": "تطبيق أوفرهيد على مرحلة البثق"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_applied_printing",
+    "debit_account": "134300",
+    "credit_account": "514000",
+    "description": "تطبيق أوفرهيد على مرحلة الطباعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_applied_cutting",
+    "debit_account": "134400",
+    "credit_account": "514000",
+    "description": "تطبيق أوفرهيد على مرحلة القص"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_applied_packing",
+    "debit_account": "134500",
+    "credit_account": "514000",
+    "description": "تطبيق أوفرهيد على مرحلة التعبئة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_actual_power",
+    "debit_account": "513100",
+    "credit_account": "210302",
+    "description": "طاقة فعلية للإنتاج"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_actual_maintenance",
+    "debit_account": "513200",
+    "credit_account": "210100",
+    "description": "صيانة معدات الإنتاج الفعلية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_actual_depreciation",
+    "debit_account": "513300",
+    "credit_account": "211002",
+    "description": "استهلاك معدات الإنتاج"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_actual_materials",
+    "debit_account": "513400",
+    "credit_account": "131300",
+    "description": "مواد غير مباشرة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_actual_labor",
+    "debit_account": "513500",
+    "credit_account": "210201",
+    "description": "أجور غير مباشرة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "transfer_mixing_to_extrusion",
+    "debit_account": "134200",
+    "credit_account": "134100",
+    "description": "نقل من الخلط إلى البثق"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "transfer_extrusion_to_printing",
+    "debit_account": "134300",
+    "credit_account": "134200",
+    "description": "نقل من البثق إلى الطباعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "transfer_printing_to_cutting",
+    "debit_account": "134400",
+    "credit_account": "134300",
+    "description": "نقل من الطباعة إلى القص"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "transfer_cutting_to_packing",
+    "debit_account": "134500",
+    "credit_account": "134400",
+    "description": "نقل من القص إلى التعبئة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "production_complete_bags",
+    "debit_account": "135100",
+    "credit_account": "134500",
+    "description": "إتمام إنتاج الأكياس المطبوعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "production_complete_rolls",
+    "debit_account": "135110",
+    "credit_account": "134200",
+    "description": "إتمام إنتاج الرولات البلاستيكية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "production_complete_pp",
+    "debit_account": "135120",
+    "credit_account": "134500",
+    "description": "إتمام إنتاج منتجات PP"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "production_complete_ps",
+    "debit_account": "135130",
+    "credit_account": "134500",
+    "description": "إتمام إنتاج منتجات PS"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "production_complete_pet",
+    "debit_account": "135140",
+    "credit_account": "134500",
+    "description": "إتمام إنتاج منتجات PET"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_bags",
+    "debit_account": "544000",
+    "credit_account": "135100",
+    "description": "تكلفة مبيعات الأكياس المطبوعة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_rolls",
+    "debit_account": "545000",
+    "credit_account": "135110",
+    "description": "تكلفة مبيعات الرولات البلاستيكية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_pp",
+    "debit_account": "541000",
+    "credit_account": "135120",
+    "description": "تكلفة مبيعات منتجات PP"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_ps",
+    "debit_account": "542000",
+    "credit_account": "135130",
+    "description": "تكلفة مبيعات منتجات PS"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_pet",
+    "debit_account": "543000",
+    "credit_account": "135140",
+    "description": "تكلفة مبيعات منتجات PET"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sale_delivery_scrap",
+    "debit_account": "546000",
+    "credit_account": "135200",
+    "description": "تكلفة مبيعات السكراب"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_ldpe",
+    "debit_account": "131100",
+    "credit_account": "210100",
+    "description": "استلام مشتريات LDPE"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_hdpe",
+    "debit_account": "131110",
+    "credit_account": "210100",
+    "description": "استلام مشتريات HDPE"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_pp",
+    "debit_account": "131120",
+    "credit_account": "210100",
+    "description": "استلام مشتريات PP"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_masterbatch",
+    "debit_account": "131150",
+    "credit_account": "210100",
+    "description": "استلام ماستر باتش"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_packaging",
+    "debit_account": "131200",
+    "credit_account": "210100",
+    "description": "استلام مواد التعبئة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "purchase_receipt_spares",
+    "debit_account": "131300",
+    "credit_account": "210100",
+    "description": "استلام قطع غيار"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sales_revenue_local",
+    "debit_account": "110300",
+    "credit_account": "410100",
+    "description": "إيرادات مبيعات محلية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sales_revenue_export",
+    "debit_account": "110300",
+    "credit_account": "410200",
+    "description": "إيرادات مبيعات تصديرية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "sales_revenue_services",
+    "debit_account": "110300",
+    "credit_account": "410300",
+    "description": "إيرادات خدمات"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "scrap_sales_revenue",
+    "debit_account": "110300",
+    "credit_account": "420200",
+    "description": "إيرادات بيع السكراب"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "discount_earned",
+    "debit_account": "210100",
+    "credit_account": "420100",
+    "description": "خصومات مكتسبة من الموردين"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "cash_payment",
+    "debit_account": "110101",
+    "credit_account": "110300",
+    "description": "استلام دفع نقدي من عميل"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "bank_payment",
+    "debit_account": "110201",
+    "credit_account": "110300",
+    "description": "استلام دفع بنكي من عميل"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "vat_input_materials",
+    "debit_account": "110600",
+    "credit_account": "210100",
+    "description": "ضريبة القيمة المضافة على المشتريات"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "vat_output_sales",
+    "debit_account": "110300",
+    "credit_account": "210401",
+    "description": "ضريبة القيمة المضافة على المبيعات"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "vat_settlement",
+    "debit_account": "210401",
+    "credit_account": "210402",
+    "description": "تسوية ضريبة القيمة المضافة"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_variance_spending",
+    "debit_account": "593100",
+    "credit_account": "514000",
+    "description": "فرق إنفاق الأوفرهيد (Control - Applied)"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "overhead_variance_volume",
+    "debit_account": "593200",
+    "credit_account": "514000",
+    "description": "فرق حجم/طاقة الأوفرهيد"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_price_variance",
+    "debit_account": "591100",
+    "credit_account": "131100",
+    "description": "فرق سعر شراء المواد"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "material_usage_variance",
+    "debit_account": "591200",
+    "credit_account": "134200",
+    "description": "فرق استهلاك المواد"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_rate_variance",
+    "debit_account": "592100",
+    "credit_account": "210201",
+    "description": "فرق معدل الأجور"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "labor_efficiency_variance",
+    "debit_account": "592200",
+    "credit_account": "134300",
+    "description": "فرق كفاءة الأجور"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "normal_waste",
+    "debit_account": "595100",
+    "credit_account": "134400",
+    "description": "تالف عادي من الإنتاج"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "abnormal_waste",
+    "debit_account": "595200",
+    "credit_account": "135100",
+    "description": "تالف غير عادي"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "scrap_processing",
+    "debit_account": "135200",
+    "credit_account": "134400",
+    "description": "تحويل سكراب إلى منتج قابل للبيع"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "regrind_processing_cost",
+    "debit_account": "595400",
+    "credit_account": "210100",
+    "description": "تكلفة معالجة السكراب خارجياً"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "outsourcing_send",
+    "debit_account": "136000",
+    "credit_account": "134200",
+    "description": "إرسال مواد للمعالجة الخارجية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "outsourcing_receive",
+    "debit_account": "134300",
+    "credit_account": "136000",
+    "description": "استلام مواد من المعالجة الخارجية"
+  },
+  {
+    "key_type": "EVENT",
+    "key_value": "outsourcing_cost",
+    "debit_account": "134300",
+    "credit_account": "210100",
+    "description": "تكلفة المعالجة الخارجية"
+  },
+  {
+    "key_type": "WORK_CENTER",
+    "key_value": "MIXING",
+    "debit_account": "134100",
+    "credit_account": "517100",
+    "description": "ربط مركز الخلط بـ WIP الخلط"
+  },
+  {
+    "key_type": "WORK_CENTER",
+    "key_value": "EXTRUSION",
+    "debit_account": "134200",
+    "credit_account": "517200",
+    "description": "ربط مركز البثق بـ WIP البثق"
+  },
+  {
+    "key_type": "WORK_CENTER",
+    "key_value": "PRINTING",
+    "debit_account": "134300",
+    "credit_account": "517300",
+    "description": "ربط مركز الطباعة بـ WIP الطباعة"
+  },
+  {
+    "key_type": "WORK_CENTER",
+    "key_value": "CUTTING",
+    "debit_account": "134400",
+    "credit_account": "517400",
+    "description": "ربط مركز القص بـ WIP القص"
+  },
+  {
+    "key_type": "WORK_CENTER",
+    "key_value": "PACKING",
+    "debit_account": "134500",
+    "credit_account": "517500",
+    "description": "ربط مركز التعبئة بـ WIP التعبئة"
+  },
+  {
+    "key_type": "PRODUCT_TYPE",
+    "key_value": "raw_material",
+    "debit_account": "131100",
+    "credit_account": "210100",
+    "description": "استلام مواد خام افتراضي"
+  },
+  {
+    "key_type": "PRODUCT_TYPE",
+    "key_value": "finished_good",
+    "debit_account": "135100",
+    "credit_account": "134500",
+    "description": "إتمام إنتاج منتج تام افتراضي"
+  },
+  {
+    "key_type": "PRODUCT_TYPE",
+    "key_value": "regrind",
+    "debit_account": "135200",
+    "credit_account": "134400",
+    "description": "إنتاج سكراب قابل للبيع"
+  }
+]

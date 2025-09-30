@@ -9,10 +9,23 @@ node_modules
 
 # Environment variables
 .env
+.env.*
+!.env.example
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Security sensitive files
+config-production.json
+secrets/
+keys/
+*.key
+*.pem
+*.p12
+*.pfx
+debug-*.js
+debug-*.ts
 
 # IDE
 .vscode/
@@ -46,3 +59,26 @@ lerna-debug.log*
 # Temporary folders
 tmp/
 temp/
+
+# GitHub Actions
+.github/secrets/
+
+# Editor backup files
+*~
+*.bak
+*.swp
+*.swo
+*#
+
+# Database dumps
+*.sql.bak
+*.dump
+
+# Log files
+*.log
+logs/
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock

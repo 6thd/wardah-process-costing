@@ -1,10 +1,16 @@
 // Supabase Setup Utility
 // Run this in your browser console to set up demo user
 
-import { supabase } from './lib/supabase'
+import { supabase } from '@/lib/supabase'
 
 export async function setupDemoUser() {
   console.log('🚀 Setting up demo user in Supabase...')
+  
+  // Check if supabase client is available
+  if (!supabase) {
+    console.error('❌ Supabase client not initialized')
+    throw new Error('Supabase client not initialized')
+  }
   
   try {
     // Step 1: Sign up the demo user

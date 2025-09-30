@@ -1,0 +1,191 @@
+﻿code,name,category,subtype,parent_code,normal_balance,allow_posting,is_active,currency,notes
+100000,الأصول,ASSET,OTHER,,DEBIT,FALSE,TRUE,SAR,رأس الأصول الرئيسي
+110000,الأصول المتداولة,ASSET,OTHER,100000,DEBIT,FALSE,TRUE,SAR,الأصول المتداولة
+110100,النقد ومايعادله,ASSET,CASH,110000,DEBIT,FALSE,TRUE,SAR,النقدية وما في حكمها
+110101,النقدية في الخزينة - الرياض,ASSET,CASH,110100,DEBIT,TRUE,TRUE,SAR,النقدية في الخزينة الرئيسية
+110102,النقدية في الخزينة - جدة,ASSET,CASH,110100,DEBIT,TRUE,TRUE,SAR,النقدية في خزينة فرع جدة
+110103,النقدية في الخزينة - الدمام,ASSET,CASH,110100,DEBIT,TRUE,TRUE,SAR,النقدية في خزينة فرع الدمام
+110104,شيكات تحت التحصيل,ASSET,CASH,110100,DEBIT,TRUE,TRUE,SAR,شيكات مستلمة وتحت التحصيل
+110105,العهد النقدية,ASSET,CASH,110100,DEBIT,TRUE,TRUE,SAR,عهد نقدية للموظفين
+110200,النقدية في البنوك,ASSET,BANK,110000,DEBIT,FALSE,TRUE,SAR,النقدية في البنوك
+110201,بنك الراجحي - الحساب الجاري,ASSET,BANK,110200,DEBIT,TRUE,TRUE,SAR,حساب البنك الجاري - بنك الراجحي
+110202,بنك الإنماء - الحساب الجاري,ASSET,BANK,110200,DEBIT,TRUE,TRUE,SAR,حساب بنك الإنماء
+110203,بنك الأهلي - الحساب الجاري,ASSET,BANK,110200,DEBIT,TRUE,TRUE,SAR,حساب بنك الأهلي
+110300,المدينون,ASSET,AR,110000,DEBIT,TRUE,TRUE,SAR,حسابات العملاء المدينة
+110400,مصروفات مقدمة,ASSET,PREPAID,110000,DEBIT,FALSE,TRUE,SAR,مصروفات مدفوعة مقدماً
+110401,تأمين طبي مقدم,ASSET,PREPAID,110400,DEBIT,TRUE,TRUE,SAR,تأمين طبي مدفوع مقدماً
+110402,إيجار مقدم,ASSET,PREPAID,110400,DEBIT,TRUE,TRUE,SAR,إيجارات مدفوعة مقدماً
+110403,دفعات مقدمة للموردين,ASSET,PREPAID,110400,DEBIT,TRUE,TRUE,SAR,دفعات مقدمة للموردين
+110500,سلف الموظفين,ASSET,RECEIVABLE,110000,DEBIT,TRUE,TRUE,SAR,سلف الموظفين والعهد
+110600,ضريبة القيمة المضافة - مدخلات,ASSET,VAT_INPUT,110000,DEBIT,TRUE,TRUE,SAR,ضريبة القيمة المضافة على المشتريات
+120000,أصول غير متداولة,ASSET,FIXED,100000,DEBIT,FALSE,TRUE,SAR,الأصول غير المتداولة
+120100,عقارات وآلات ومعدات,ASSET,PPE,120000,DEBIT,FALSE,TRUE,SAR,الممتلكات والآلات والمعدات
+120101,الأراضي,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,الأراضي المملوكة
+120102,المباني والمنشآت,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,المباني والمنشآت الصناعية
+120103,معدات وآلات الإنتاج,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,معدات وآلات الإنتاج
+120104,أجهزة مكتبية وحاسب آلي,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,أجهزة مكتبية وحاسب آلي
+120105,الأثاث والمفروشات,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,أثاث ومفروشات المكاتب
+120106,السيارات والمركبات,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,سيارات ومركبات الشركة
+120107,عدد وأدوات,ASSET,PPE,120100,DEBIT,TRUE,TRUE,SAR,عدد وأدوات الصيانة
+120200,الأصول غير الملموسة,ASSET,INTANGIBLE,120000,DEBIT,TRUE,TRUE,SAR,براءات الاختراع والعلامات التجارية
+120300,مشاريع تحت التنفيذ,ASSET,CIP,120000,DEBIT,TRUE,TRUE,SAR,مشاريع تحت التنفيذ
+130000,المخزون,ASSET,INVENTORY,110000,DEBIT,FALSE,TRUE,SAR,رأس حساب المخزون
+131000,مواد خام,ASSET,RM,130000,DEBIT,FALSE,TRUE,SAR,المواد الخام
+131100,مواد خام - LDPE,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مادة LDPE للإنتاج
+131110,مواد خام - HDPE,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مادة HDPE للإنتاج
+131120,مواد خام - PP,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مادة PP (البولي بروبيلين)
+131130,مواد خام - PS,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مادة PS (البولي ستايرين)
+131140,مواد خام - PET,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مادة PET للإنتاج
+131150,مواد خام - ماستر باتش,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,ماستر باتش للألوان والإضافات
+131200,مواد مساعدة وتعبئة,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,مواد مساعدة ومواد التعبئة
+131300,مواد احتياطية وقطع غيار,ASSET,RM,131000,DEBIT,TRUE,TRUE,SAR,قطع غيار والمواد الاحتياطية
+134000,إنتاج تحت التشغيل (WIP),ASSET,WIP,130000,DEBIT,FALSE,TRUE,SAR,إنتاج تحت التشغيل - جميع المراحل
+134100,WIP - الخلط والتحضير,ASSET,WIP,134000,DEBIT,TRUE,TRUE,SAR,مرحلة الخلط والتحضير
+134200,WIP - البثق والتشكيل,ASSET,WIP,134000,DEBIT,TRUE,TRUE,SAR,مرحلة البثق والتشكيل
+134300,WIP - الطباعة والتزيين,ASSET,WIP,134000,DEBIT,TRUE,TRUE,SAR,مرحلة الطباعة والتزيين
+134400,WIP - القص والتقطيع,ASSET,WIP,134000,DEBIT,TRUE,TRUE,SAR,مرحلة القص والتقطيع
+134500,WIP - التعبئة والتغليف,ASSET,WIP,134000,DEBIT,TRUE,TRUE,SAR,مرحلة التعبئة والتغليف النهائية
+135000,مخزون تام الصنع,ASSET,FG,130000,DEBIT,FALSE,TRUE,SAR,المنتجات تامة الصنع
+135100,FG - أكياس مطبوعة,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,أكياس بلاستيك مطبوعة تامة الصنع
+135110,FG - رولات بلاستيك,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,رولات بلاستيك تامة الصنع
+135120,FG - منتجات PP,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,منتجات PP تامة الصنع
+135130,FG - منتجات PS,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,منتجات PS تامة الصنع
+135140,FG - منتجات PET,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,منتجات PET تامة الصنع
+135200,FG - سكراب للبيع,ASSET,FG,135000,DEBIT,TRUE,TRUE,SAR,سكراب ومخلفات قابلة للبيع
+136000,مواد قيد المعالجة الخارجية,ASSET,WIP,130000,DEBIT,TRUE,TRUE,SAR,مواد مرسلة للمعالجة خارجياً
+137000,تسويات المخزون,ASSET,INVENTORY_ADJ,130000,DEBIT,TRUE,TRUE,SAR,حساب وسيط لتسويات وتحويلات المخزون
+200000,الالتزامات,LIABILITY,OTHER,,CREDIT,FALSE,TRUE,SAR,رأس الالتزامات
+210000,الالتزامات المتداولة,LIABILITY,CURRENT,200000,CREDIT,FALSE,TRUE,SAR,الالتزامات المتداولة
+210100,الدائنون,LIABILITY,AP,210000,CREDIT,TRUE,TRUE,SAR,حسابات الدائنين والموردين
+210200,مستحقات الموظفين,LIABILITY,PAYROLL,210000,CREDIT,FALSE,TRUE,SAR,مستحقات الموظفين
+210201,رواتب وأجور مستحقة,LIABILITY,PAYROLL,210200,CREDIT,TRUE,TRUE,SAR,رواتب وأجور مستحقة للموظفين
+210202,عمولات مناديب مستحقة,LIABILITY,PAYROLL,210200,CREDIT,TRUE,TRUE,SAR,عمولات المناديب المستحقة
+210203,مستحقات تأمينات اجتماعية,LIABILITY,PAYROLL,210200,CREDIT,TRUE,TRUE,SAR,مبالغ مستحقة للتأمينات الاجتماعية
+210300,مصروفات مستحقة,LIABILITY,ACCRUED,210000,CREDIT,FALSE,TRUE,SAR,مصروفات مستحقة أخرى
+210301,إيجارات مستحقة,LIABILITY,ACCRUED,210300,CREDIT,TRUE,TRUE,SAR,إيجارات مستحقة الدفع
+210302,مرافق مستحقة,LIABILITY,ACCRUED,210300,CREDIT,TRUE,TRUE,SAR,كهرباء ومياه وخدمات مستحقة
+210303,فوائد مستحقة,LIABILITY,ACCRUED,210300,CREDIT,TRUE,TRUE,SAR,فوائد القروض المستحقة
+210400,الضرائب والزكاة المستحقة,LIABILITY,TAX,210000,CREDIT,FALSE,TRUE,SAR,ضرائب وزكاة مستحقة
+210401,ضريبة القيمة المضافة - مخرجات,LIABILITY,VAT_OUTPUT,210400,CREDIT,TRUE,TRUE,SAR,ضريبة القيمة المضافة على المبيعات
+210402,ضريبة القيمة المضافة مستحقة الدفع,LIABILITY,VAT_PAYABLE,210400,CREDIT,TRUE,TRUE,SAR,صافي ضريبة القيمة المضافة المستحقة
+210403,الزكاة المستحقة,LIABILITY,TAX,210400,CREDIT,TRUE,TRUE,SAR,زكاة مستحقة الدفع
+210404,ضرائب أخرى مستحقة,LIABILITY,TAX,210400,CREDIT,TRUE,TRUE,SAR,ضرائب أخرى مستحقة
+210500,إيرادات مقدمة,LIABILITY,DEFERRED,210000,CREDIT,TRUE,TRUE,SAR,مبالغ محصلة مقدماً من العملاء
+210600,قروض قصيرة الأجل,LIABILITY,LOAN,210000,CREDIT,TRUE,TRUE,SAR,قروض مستحقة خلال عام
+211000,مجمع الاستهلاك,LIABILITY,ACCUMULATED_DEP,210000,CREDIT,FALSE,TRUE,SAR,مجمع استهلاك الأصول
+211001,مجمع استهلاك المباني,LIABILITY,ACCUMULATED_DEP,211000,CREDIT,TRUE,TRUE,SAR,مجمع استهلاك المباني والمنشآت
+211002,مجمع استهلاك المعدات,LIABILITY,ACCUMULATED_DEP,211000,CREDIT,TRUE,TRUE,SAR,مجمع استهلاك المعدات والآلات
+211003,مجمع استهلاك أجهزة مكتبية,LIABILITY,ACCUMULATED_DEP,211000,CREDIT,TRUE,TRUE,SAR,مجمع استهلاك الأجهزة المكتبية
+211004,مجمع استهلاك الأثاث,LIABILITY,ACCUMULATED_DEP,211000,CREDIT,TRUE,TRUE,SAR,مجمع استهلاك الأثاث والمفروشات
+211005,مجمع استهلاك السيارات,LIABILITY,ACCUMULATED_DEP,211000,CREDIT,TRUE,TRUE,SAR,مجمع استهلاك السيارات والمركبات
+220000,التزامات غير متداولة,LIABILITY,LONG_TERM,200000,CREDIT,FALSE,TRUE,SAR,الالتزامات غير المتداولة
+220100,قروض طويلة الأجل,LIABILITY,LONG_TERM,220000,CREDIT,TRUE,TRUE,SAR,قروض طويلة الأجل
+220200,مخصص مكافأة نهاية الخدمة,LIABILITY,PROVISION,220000,CREDIT,TRUE,TRUE,SAR,مخصص مكافأة نهاية الخدمة
+220300,مخصص اضمحلال المخزون,LIABILITY,PROVISION,220000,CREDIT,TRUE,TRUE,SAR,مخصص انخفاض قيمة المخزون
+300000,حقوق الملكية,EQUITY,EQUITY,,CREDIT,FALSE,TRUE,SAR,رأس حقوق الملكية
+310000,رأس المال,EQUITY,CAPITAL,300000,CREDIT,FALSE,TRUE,SAR,رأس المال المصدر
+310100,رأس المال المسجل,EQUITY,CAPITAL,310000,CREDIT,TRUE,TRUE,SAR,رأس المال المسجل
+310200,رأس المال الإضافي,EQUITY,CAPITAL,310000,CREDIT,TRUE,TRUE,SAR,رأس مال إضافي مدفوع
+330000,الاحتياطيات,EQUITY,RETAINED,300000,CREDIT,FALSE,TRUE,SAR,الاحتياطيات
+330100,الاحتياطي النظامي,EQUITY,RETAINED,330000,CREDIT,TRUE,TRUE,SAR,10% من صافي الربح حتى 30% من رأس المال
+330200,احتياطي ترجمة عملات,EQUITY,RETAINED,330000,CREDIT,TRUE,TRUE,SAR,احتياطي فروقات العملات الأجنبية
+340000,الأرباح المبقاة,EQUITY,RETAINED,300000,CREDIT,FALSE,TRUE,SAR,الأرباح والخسائر المبقاة
+340100,أرباح/خسائر العام الحالي,EQUITY,CURRENT_EARNINGS,340000,CREDIT,TRUE,TRUE,SAR,صافي الربح أو الخسارة للعام الحالي
+340200,أرباح مبقاة من سنوات سابقة,EQUITY,RETAINED,340000,CREDIT,TRUE,TRUE,SAR,أرباح مبقاة من السنوات السابقة
+350000,حسابات جارية للشركاء,EQUITY,PARTNER,300000,CREDIT,FALSE,TRUE,SAR,حسابات جارية للشركاء
+350100,جاري الشريك الأول,EQUITY,PARTNER,350000,CREDIT,TRUE,TRUE,SAR,حساب جاري الشريك الأول
+350200,جاري الشريك الثاني,EQUITY,PARTNER,350000,CREDIT,TRUE,TRUE,SAR,حساب جاري الشريك الثاني
+400000,الإيرادات,REVENUE,REVENUE,,CREDIT,FALSE,TRUE,SAR,رأس الإيرادات
+410000,إيرادات المبيعات,REVENUE,SALES,400000,CREDIT,FALSE,TRUE,SAR,إيرادات المبيعات الأساسية
+410100,مبيعات محلية,REVENUE,SALES,410000,CREDIT,TRUE,TRUE,SAR,مبيعات داخل المملكة
+410200,مبيعات تصديرية,REVENUE,SALES,410000,CREDIT,TRUE,TRUE,SAR,مبيعات خارج المملكة
+410300,إيرادات خدمات,REVENUE,SALES,410000,CREDIT,TRUE,TRUE,SAR,إيرادات تقديم خدمات
+420000,إيرادات أخرى,REVENUE,OTHER_INCOME,400000,CREDIT,FALSE,TRUE,SAR,إيرادات أخرى غير تشغيلية
+420100,خصومات مكتسبة,REVENUE,OTHER_INCOME,420000,CREDIT,TRUE,TRUE,SAR,خصومات محصلة من الموردين
+420200,إيرادات بيع سكراب,REVENUE,OTHER_INCOME,420000,CREDIT,TRUE,TRUE,SAR,إيرادات بيع السكراب والمخلفات
+420300,فروقات جرد موجبة,REVENUE,OTHER_INCOME,420000,CREDIT,TRUE,TRUE,SAR,فروقات إيجابية من الجرد
+420400,تعويضات محصلة,REVENUE,OTHER_INCOME,420000,CREDIT,TRUE,TRUE,SAR,تعويضات عن أضرار أو خسائر
+420500,إيرادات فوائد وأرباح,REVENUE,OTHER_INCOME,420000,CREDIT,TRUE,TRUE,SAR,فوائد الودائع وأرباح الاستثمارات
+500000,التكاليف والمصروفات,EXPENSE,EXPENSE,,DEBIT,FALSE,TRUE,SAR,رأس التكاليف والمصروفات
+510000,التكاليف الصناعية,EXPENSE,MANUFACTURING,500000,DEBIT,FALSE,TRUE,SAR,التكاليف الصناعية الإجمالية
+511000,مواد مباشرة (تحليلي),EXPENSE,MATERIAL_TRACKING,510000,DEBIT,TRUE,TRUE,SAR,حساب تحليلي لتتبع المواد المباشرة - التكلفة الفعلية تذهب إلى WIP
+512000,أجور مباشرة (تحليلي),EXPENSE,LABOR_TRACKING,510000,DEBIT,TRUE,TRUE,SAR,حساب تحليلي لتتبع الأجور المباشرة - التكلفة الفعلية تذهب إلى WIP
+513000,أوفرهيد الإنتاج الفعلي,EXPENSE,OH_CONTROL,510000,DEBIT,FALSE,TRUE,SAR,الأوفرهيد الفعلي للإنتاج (Control Account)
+513100,طاقة وتشغيل خطوط الإنتاج,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,كهرباء ووقود خطوط الإنتاج الفعلية
+513200,صيانة معدات الإنتاج,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,صيانة وإصلاح معدات الإنتاج
+513300,استهلاك معدات الإنتاج,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,استهلاك المعدات والآلات الإنتاجية
+513400,مواد غير مباشرة,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,مواد مساعدة وقطع غيار
+513500,أجور غير مباشرة,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,أجور المشرفين والفنيين
+513600,تأمين معدات الإنتاج,EXPENSE,OH_ACTUAL,513000,DEBIT,TRUE,TRUE,SAR,تأمين معدات وآلات الإنتاج
+514000,أوفرهيد إنتاج مُطبّق,EXPENSE,OH_APPLIED,510000,CREDIT,TRUE,TRUE,SAR,الأوفرهيد المُطبّق على الإنتاج - يقابل الأوفرهيد المُحمّل على WIP
+517000,مراكز تكلفة الإنتاج,EXPENSE,COST_CENTER,510000,DEBIT,FALSE,TRUE,SAR,تجميع التكاليف حسب مراكز العمل
+517100,مركز تكلفة - الخلط والتحضير,EXPENSE,COST_CENTER,517000,DEBIT,TRUE,TRUE,SAR,تكاليف مرحلة الخلط والتحضير
+517200,مركز تكلفة - البثق والتشكيل,EXPENSE,COST_CENTER,517000,DEBIT,TRUE,TRUE,SAR,تكاليف مرحلة البثق والتشكيل
+517300,مركز تكلفة - الطباعة والتزيين,EXPENSE,COST_CENTER,517000,DEBIT,TRUE,TRUE,SAR,تكاليف مرحلة الطباعة والتزيين
+517400,مركز تكلفة - القص والتقطيع,EXPENSE,COST_CENTER,517000,DEBIT,TRUE,TRUE,SAR,تكاليف مرحلة القص والتقطيع
+517500,مركز تكلفة - التعبئة والتغليف,EXPENSE,COST_CENTER,517000,DEBIT,TRUE,TRUE,SAR,تكاليف مرحلة التعبئة والتغليف
+540000,تكلفة البضاعة المباعة,EXPENSE,COGS,500000,DEBIT,FALSE,TRUE,SAR,تكلفة البضاعة المباعة الإجمالية
+541000,COGS - منتجات PP,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات منتجات PP
+542000,COGS - منتجات PS,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات منتجات PS
+543000,COGS - منتجات PET,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات منتجات PET
+544000,COGS - أكياس مطبوعة,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات الأكياس المطبوعة
+545000,COGS - رولات بلاستيك,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات الرولات البلاستيكية
+546000,COGS - سكراب ومخلفات,EXPENSE,COGS,540000,DEBIT,TRUE,TRUE,SAR,تكلفة مبيعات السكراب والمخلفات
+590000,فروقات وتالف التصنيع,EXPENSE,VARIANCE,500000,DEBIT,FALSE,TRUE,SAR,فروقات وانحرافات التصنيع
+591000,فروقات المواد,EXPENSE,MATERIAL_VAR,590000,DEBIT,FALSE,TRUE,SAR,فروقات أسعار واستهلاك المواد
+591100,فرق سعر شراء مواد (PPV),EXPENSE,MATERIAL_VAR,591000,DEBIT,TRUE,TRUE,SAR,فرق السعر الفعلي عن المعياري للمواد
+591200,فرق استهلاك مواد (Usage),EXPENSE,MATERIAL_VAR,591000,DEBIT,TRUE,TRUE,SAR,فرق الكمية المستهلكة عن المعيارية
+591300,فرق كفاءة استخدام مواد,EXPENSE,MATERIAL_VAR,591000,DEBIT,TRUE,TRUE,SAR,فرق الكفاءة في استخدام المواد
+592000,فروقات الأجور,EXPENSE,LABOR_VAR,590000,DEBIT,FALSE,TRUE,SAR,فروقات معدلات وكفاءة الأجور
+592100,فرق معدل أجور (Rate),EXPENSE,LABOR_VAR,592000,DEBIT,TRUE,TRUE,SAR,فرق معدل الأجر الفعلي عن المعياري
+592200,فرق كفاءة أجور (Efficiency),EXPENSE,LABOR_VAR,592000,DEBIT,TRUE,TRUE,SAR,فرق الساعات الفعلية عن المعيارية
+592300,فرق إنتاجية العمالة,EXPENSE,LABOR_VAR,592000,DEBIT,TRUE,TRUE,SAR,فرق الإنتاجية الفعلية عن المخططة
+593000,فروقات الأوفرهيد,EXPENSE,OH_VAR,590000,DEBIT,FALSE,TRUE,SAR,فروقات التحميل الصناعي
+593100,فرق تحميل صناعي - إنفاق,EXPENSE,OH_VAR,593000,DEBIT,TRUE,TRUE,SAR,فرق الإنفاق الفعلي للأوفرهيد عن المعياري
+593200,فرق تحميل صناعي - حجم/طاقة,EXPENSE,OH_VAR,593000,DEBIT,TRUE,TRUE,SAR,فرق الحجم المنتج عن الطاقة المخططة
+593300,فرق كفاءة أوفرهيد متغير,EXPENSE,OH_VAR,593000,DEBIT,TRUE,TRUE,SAR,فرق كفاءة الأوفرهيد المتغير
+595000,التالف والمخلفات,EXPENSE,WASTE,590000,DEBIT,FALSE,TRUE,SAR,تالف ومخلفات الإنتاج
+595100,تالف عادي (إنتاج),EXPENSE,WASTE,595000,DEBIT,TRUE,TRUE,SAR,يُحمل على تكلفة الإنتاج العادي
+595200,تالف غير عادي,EXPENSE,WASTE,595000,DEBIT,TRUE,TRUE,SAR,يرحل مباشرة لقائمة الدخل
+595300,مخلفات عملية القص,EXPENSE,WASTE,595000,DEBIT,TRUE,TRUE,SAR,مخلفات قابلة للاستخدام أو البيع
+595400,تكلفة معالجة السكراب,EXPENSE,WASTE,595000,DEBIT,TRUE,TRUE,SAR,تكلفة تحويل السكراب إلى منتج قابل للاستخدام
+596000,تكاليف المعالجة الخارجية,EXPENSE,OUTSOURCING,590000,DEBIT,TRUE,TRUE,SAR,تكاليف المعالجة عند جهات خارجية - تُحمل على WIP مباشرة
+600000,المصاريف التشغيلية,EXPENSE,OPEX,500000,DEBIT,FALSE,TRUE,SAR,المصاريف التشغيلية والإدارية
+620000,الرواتب والأجور الإدارية,EXPENSE,ADMIN_PAYROLL,600000,DEBIT,FALSE,TRUE,SAR,رواتب وأجور الموظفين الإداريين
+620100,رواتب موظفي الإدارة,EXPENSE,ADMIN_PAYROLL,620000,DEBIT,TRUE,TRUE,SAR,رواتب الموظفين الإداريين
+620200,بدلات الموظفين,EXPENSE,ADMIN_PAYROLL,620000,DEBIT,TRUE,TRUE,SAR,بدل سكن ومواصلات وإجازة
+620300,حوافز ومكافآت إدارية,EXPENSE,ADMIN_PAYROLL,620000,DEBIT,TRUE,TRUE,SAR,حوافز ومكافآت الموظفين الإداريين
+630000,تأمين طبي وخدمات موظفين,EXPENSE,EMPLOYEE_BENEFITS,600000,DEBIT,TRUE,TRUE,SAR,تأمين طبي وخدمات الموظفين
+630100,التأمينات الاجتماعية,EXPENSE,EMPLOYEE_BENEFITS,600000,DEBIT,TRUE,TRUE,SAR,نسبة التأمينات الاجتماعية
+640000,مصاريف تسويقية ومبيعات,EXPENSE,MARKETING,600000,DEBIT,FALSE,TRUE,SAR,مصاريف التسويق والمبيعات
+640100,إعلان ودعاية,EXPENSE,MARKETING,640000,DEBIT,TRUE,TRUE,SAR,إعلانات وحملات تسويقية
+640200,عمولات مناديب المبيعات,EXPENSE,MARKETING,640000,DEBIT,TRUE,TRUE,SAR,عمولات مناديب المبيعات
+640300,مصاريف شحن وتسليم,EXPENSE,MARKETING,640000,DEBIT,TRUE,TRUE,SAR,مصاريف الشحن والتسليم للعملاء
+650000,إيجارات ومرافق,EXPENSE,FACILITIES,600000,DEBIT,FALSE,TRUE,SAR,إيجارات ومصاريف المرافق
+650100,إيجار المكاتب الإدارية,EXPENSE,FACILITIES,650000,DEBIT,TRUE,TRUE,SAR,إيجار المكاتب الإدارية
+650200,كهرباء ومياه إدارية,EXPENSE,FACILITIES,650000,DEBIT,TRUE,TRUE,SAR,فواتير الكهرباء والمياه للمكاتب
+650300,هاتف وإنترنت,EXPENSE,FACILITIES,650000,DEBIT,TRUE,TRUE,SAR,فواتير الهاتف والإنترنت
+660000,سفر ونقل ومواصلات,EXPENSE,TRAVEL,600000,DEBIT,FALSE,TRUE,SAR,مصاريف السفر والنقل
+660100,تذاكر سفر الموظفين,EXPENSE,TRAVEL,660000,DEBIT,TRUE,TRUE,SAR,تذاكر سفر الموظفين
+660200,مصاريف إقامة وسفر,EXPENSE,TRAVEL,660000,DEBIT,TRUE,TRUE,SAR,إقامة ومصاريف سفر
+660300,وقود ومصاريف سيارات,EXPENSE,TRAVEL,660000,DEBIT,TRUE,TRUE,SAR,وقود وصيانة وتأمين السيارات
+670000,رسوم حكومية وقانونية,EXPENSE,LEGAL_FEES,600000,DEBIT,FALSE,TRUE,SAR,رسوم حكومية وقانونية
+670100,رسوم تجديد أوراق رسمية,EXPENSE,LEGAL_FEES,670000,DEBIT,TRUE,TRUE,SAR,تجديد السجل والإقامات
+670200,رسوم بنكية وخدمات مالية,EXPENSE,BANKING_FEES,670000,DEBIT,TRUE,TRUE,SAR,رسوم التحويلات والخدمات البنكية
+670300,استشارات قانونية ومهنية,EXPENSE,LEGAL_FEES,670000,DEBIT,TRUE,TRUE,SAR,استشارات قانونية ومحاسبية
+680000,مصاريف مكتبية ومتنوعة,EXPENSE,OFFICE,600000,DEBIT,FALSE,TRUE,SAR,مصاريف مكتبية ومتنوعة
+680100,قرطاسية ومطبوعات,EXPENSE,OFFICE,680000,DEBIT,TRUE,TRUE,SAR,قرطاسية ومطبوعات مكتبية
+680200,ضيافة ونظافة,EXPENSE,OFFICE,680000,DEBIT,TRUE,TRUE,SAR,ضيافة ونظافة المكاتب
+680300,صيانة أجهزة مكتبية,EXPENSE,OFFICE,680000,DEBIT,TRUE,TRUE,SAR,صيانة الأجهزة المكتبية
+680400,مصاريف أخرى متنوعة,EXPENSE,MISCELLANEOUS,680000,DEBIT,TRUE,TRUE,SAR,مصاريف أخرى متنوعة
+690000,مصاريف الإهلاك,EXPENSE,DEPRECIATION,600000,DEBIT,FALSE,TRUE,SAR,إهلاك الأصول الإدارية
+690100,إهلاك المباني الإدارية,EXPENSE,DEPRECIATION,690000,DEBIT,TRUE,TRUE,SAR,إهلاك المباني الإدارية
+690200,إهلاك أجهزة مكتبية إدارية,EXPENSE,DEPRECIATION,690000,DEBIT,TRUE,TRUE,SAR,إهلاك الأجهزة المكتبية
+690300,إهلاك أثاث ومفروشات,EXPENSE,DEPRECIATION,690000,DEBIT,TRUE,TRUE,SAR,إهلاك الأثاث والمفروشات
+690400,إهلاك سيارات إدارية,EXPENSE,DEPRECIATION,690000,DEBIT,TRUE,TRUE,SAR,إهلاك السيارات الإدارية
+694000,خصم مسموح به,EXPENSE,DISCOUNT,600000,DEBIT,TRUE,TRUE,SAR,خصومات ممنوحة للعملاء
+700000,مصاريف غير التشغيلية,EXPENSE,NON_OPERATING,500000,DEBIT,FALSE,TRUE,SAR,مصاريف غير تشغيلية
+730100,الزكاة,EXPENSE,TAX,700000,DEBIT,TRUE,TRUE,SAR,زكاة مدفوعة
+730200,الضرائب,EXPENSE,TAX,700000,DEBIT,TRUE,TRUE,SAR,ضرائب مدفوعة
+730300,مصروف فوائد,EXPENSE,INTEREST,700000,DEBIT,TRUE,TRUE,SAR,فوائد القروض والديون
+730400,خسائر ترجمة عملات أجنبية,EXPENSE,FX_LOSS,700000,DEBIT,TRUE,TRUE,SAR,خسائر فروقات العملات

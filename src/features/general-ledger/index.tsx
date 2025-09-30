@@ -1,562 +1,397 @@
-import { Routes, Route, Navigate, Link } from 'react-router-dom'
-import { useTranslation } from 'react-i18next'
-import { useState, useEffect } from 'react'
-import { cn } from '@/lib/utils'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { supabase, JournalEntry, Account } from '@/lib/supabase'
-import { toast } from 'sonner'
-import { 
-  BookOpen, 
-  FileText, 
-  TrendingUp, 
-  Calculator, 
-  CheckCircle, 
-  Clock, 
-  AlertTriangle,
-  Search,
-  Filter,
-  Eye,
-  RotateCcw,
-  Plus
-} from 'lucide-react'
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
+import { getSupabase, GLAccount, getAllGLAccounts, getEffectiveTenantId } from '@/lib/supabase';
+import { toast } from 'sonner';
+import * as XLSX from 'xlsx';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  ChevronRight,
+  ChevronDown,
+  FileDown
+} from 'lucide-react';
 
+// Main Module Router
 export function GeneralLedgerModule() {
   return (
     <Routes>
-      <Route path="/" element={<GLOverview />} />
-      <Route path="/overview" element={<GLOverview />} />
       <Route path="/accounts" element={<ChartOfAccounts />} />
-      <Route path="/entries" element={<JournalEntries />} />
-      <Route path="/entries/:id" element={<JournalEntryDetails />} />
-      <Route path="/trial-balance" element={<TrialBalance />} />
-      <Route path="/posting" element={<PostingManagement />} />
-      <Route path="*" element={<Navigate to="/general-ledger/overview" replace />} />
+      {/* Other routes can be added here */}
+      <Route path="*" element={<Navigate to="/general-ledger/accounts" replace />} />
     </Routes>
-  )
+  );
 }
 
-function GLOverview() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-  const [summary, setSummary] = useState({
-    totalEntries: 0,
-    postedEntries: 0,
-    unpostedEntries: 0,
-    totalDebit: 0,
-    totalCredit: 0
-  })
-  const [loading, setLoading] = useState(true)
+// Account Form Modal Component
+function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: { isOpen: boolean, onClose: () => void, onSave: (data: Partial<GLAccount>) => void, account?: GLAccount | null, parentAccount?: GLAccount | null }) {
+    const { i18n } = useTranslation();
+    const isRTL = i18n.language === 'ar';
+    const [formData, setFormData] = useState<Partial<GLAccount>>({});
 
-  useEffect(() => {
-    loadSummary()
-  }, [])
+    useEffect(() => {
+        if (isOpen) {
+            if (account) {
+                setFormData(account);
+            } else {
+                setFormData({
+                    code: '',
+                    name: '',
+                    name_ar: '',
+                    category: parentAccount?.category || 'ASSET',
+                    normal_balance: parentAccount?.normal_balance || 'Debit',
+                    allow_posting: true,
+                    is_active: true,
+                    parent_code: parentAccount?.code || undefined,
+                });
+            }
+        }
+    }, [isOpen, account, parentAccount]);
+    
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value, type } = e.target;
+        const checked = (e.target as HTMLInputElement).checked;
+        setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    };
 
-  const loadSummary = async () => {
-    try {
-      const { data: entries, error } = await supabase
-        .from('journal_entries')
-        .select('status, total_debit, total_credit')
+    const handleSelectChange = (name: string, value: string | boolean) => {
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
 
-      if (error) throw error
+    const handleSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        onSave(formData);
+    };
 
-      const posted = entries?.filter((e: Pick<JournalEntry, 'status'>) => e.status === 'posted') || []
-      const unposted = entries?.filter((e: Pick<JournalEntry, 'status'>) => e.status === 'draft') || []
-      const totalDebit = posted.reduce((sum: number, e: Pick<JournalEntry, 'total_debit'>) => sum + (e.total_debit || 0), 0)
-      const totalCredit = posted.reduce((sum: number, e: Pick<JournalEntry, 'total_credit'>) => sum + (e.total_credit || 0), 0)
+    if (!isOpen) return null;
 
-      setSummary({
-        totalEntries: entries?.length || 0,
-        postedEntries: posted.length,
-        unpostedEntries: unposted.length,
-        totalDebit,
-        totalCredit
-      })
-    } catch (error) {
-      console.error('Error loading GL summary:', error)
-      toast.error('خطأ في تحميل ملخص دفتر الأستاذ')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">دفتر الأستاذ العام</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة القيود المحاسبية ودفتر الأستاذ العام
-        </p>
-      </div>
-
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{summary.totalEntries}</div>
-          <div className="text-sm text-muted-foreground">إجمالي القيود</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{summary.postedEntries}</div>
-          <div className="text-sm text-muted-foreground">قيود منشورة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{summary.unpostedEntries}</div>
-          <div className="text-sm text-muted-foreground">قيود مسودة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{summary.totalDebit.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">إجمالي المدين</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-indigo-600">{summary.totalCredit.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الدائن</div>
-        </div>
-      </div>
-
-      {/* GL Functions Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Link to="/general-ledger/accounts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <BookOpen className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              شجرة الحسابات
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة وتحرير شجرة الحسابات المحاسبية
-          </p>
-        </Link>
-
-        <Link to="/general-ledger/entries" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <FileText className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              القيود اليومية
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            عرض وإدارة جميع القيود المحاسبية
-          </p>
-        </Link>
-
-        <Link to="/general-ledger/trial-balance" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <Calculator className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              ميزان المراجعة
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            ميزان المراجعة وأرصدة الحسابات
-          </p>
-        </Link>
-
-        <Link to="/general-ledger/posting" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <CheckCircle className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              إدارة النشر
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            نشر وعكس القيود المحاسبية
-          </p>
-        </Link>
-
-        <div className="bg-card rounded-lg border p-6">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <TrendingUp className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              التقارير المالية
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            قائمة الدخل والميزانية العمومية
-          </p>
-        </div>
-
-        <div className="bg-card rounded-lg border p-6">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <AlertTriangle className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
-              إقفال الفترة
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إقفال الفترات المحاسبية وإعداد الميزانية
-          </p>
-        </div>
-      </div>
-
-      {/* Recent Entries */}
-      <RecentEntries />
-    </div>
-  )
-}
-
-function RecentEntries() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-  const [entries, setEntries] = useState<JournalEntry[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    loadRecentEntries()
-  }, [])
-
-  const loadRecentEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .select(`
-          *,
-          journals(name, name_ar)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(10)
-
-      if (error) throw error
-      setEntries(data || [])
-    } catch (error) {
-      console.error('Error loading recent entries:', error)
-      toast.error('خطأ في تحميل القيود الأخيرة')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return <Badge variant="outline">مسودة</Badge>
-      case 'posted':
-        return <Badge variant="default">منشور</Badge>
-      case 'reversed':
-        return <Badge variant="destructive">معكوس</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
-    }
-  }
-
-  if (loading) {
     return (
-      <div className="bg-card rounded-lg border p-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-muted rounded w-1/4"></div>
-          <div className="space-y-2">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="h-12 bg-muted rounded"></div>
-            ))}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="bg-card rounded-lg border">
-      <div className="p-4 border-b flex justify-between items-center">
-        <h3 className="font-semibold">القيود الأخيرة</h3>
-        <Link to="/general-ledger/entries">
-          <Button variant="outline" size="sm">عرض الكل</Button>
-        </Link>
-      </div>
-      <div className="divide-y">
-        {entries.map((entry) => (
-          <Link
-            key={entry.id}
-            to={`/general-ledger/entries/${entry.id}`}
-            className="block p-4 hover:bg-accent transition-colors"
-          >
-            <div className="flex justify-between items-start">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h4 className="font-medium">{entry.entry_number}</h4>
-                  {getStatusBadge(entry.status)}
-                </div>
-                <p className="text-sm text-muted-foreground">{entry.description}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {entry.journals?.name_ar || entry.journals?.name} • {new Date(entry.entry_date).toLocaleDateString('ar-SA')}
-                </p>
-              </div>
-              <div className="text-right">
-                <div className="font-medium">{entry.total_debit?.toFixed(2)} ريال</div>
-                <div className="text-xs text-muted-foreground">
-                  {new Date(entry.created_at).toLocaleDateString('ar-SA')}
-                </div>
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
+        <Dialog open={isOpen} onOpenChange={onClose}>
+            <DialogContent className="sm:max-w-[425px]" dir={isRTL ? "rtl" : "ltr"}>
+                <DialogHeader>
+                    <DialogTitle>{account ? 'تعديل حساب' : 'إضافة حساب جديد'}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmit} className="space-y-4 py-4">
+                    <Input name="code" value={formData.code || ''} onChange={handleInputChange} placeholder="رمز الحساب" required />
+                    <Input name="name" value={formData.name || ''} onChange={handleInputChange} placeholder="اسم الحساب (انجليزي)" required />
+                    <Input name="name_ar" value={formData.name_ar || ''} onChange={handleInputChange} placeholder="اسم الحساب (عربي)" />
+                    <Select name="category" value={formData.category} onValueChange={(value) => handleSelectChange('category', value)}>
+                        <SelectTrigger><SelectValue placeholder="نوع الحساب" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="ASSET">الأصول</SelectItem>
+                            <SelectItem value="LIABILITY">الخصوم</SelectItem>
+                            <SelectItem value="EQUITY">حقوق الملكية</SelectItem>
+                            <SelectItem value="REVENUE">الإيرادات</SelectItem>
+                            <SelectItem value="EXPENSE">المصروفات</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <Select name="normal_balance" value={formData.normal_balance} onValueChange={(value) => handleSelectChange('normal_balance', value)}>
+                        <SelectTrigger><SelectValue placeholder="الرصيد الطبيعي" /></SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="Debit">مدين</SelectItem>
+                            <SelectItem value="Credit">دائن</SelectItem>
+                        </SelectContent>
+                    </Select>
+                    <div className="flex items-center space-x-2">
+                        <Checkbox id="allow_posting" name="allow_posting" checked={!!formData.allow_posting} onCheckedChange={(checked) => handleSelectChange('allow_posting', !!checked)} />
+                        <label htmlFor="allow_posting">يقبل الترحيل</label>
+                    </div>
+                     <div className="flex items-center space-x-2">
+                        <Checkbox id="is_active" name="is_active" checked={!!formData.is_active} onCheckedChange={(checked) => handleSelectChange('is_active', !!checked)} />
+                        <label htmlFor="is_active">نشط</label>
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild><Button type="button" variant="outline">إلغاء</Button></DialogClose>
+                        <Button type="submit">حفظ</Button>
+                    </DialogFooter>
+                </form>
+            </DialogContent>
+        </Dialog>
+    );
 }
+
+// New AccountTreeItem Component for Collapsible Tree
+const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount }: { account: any, level: number, isRTL: boolean, expandedNodes: Set<string>, onToggleNode: (code: string) => void, onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void, onDeleteAccount: (account: any) => void }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const isExpanded = expandedNodes.has(account.code);
+    const hasChildren = account.children && account.children.length > 0;
+
+    return (
+        <div key={account.code}>
+            <div
+                className="flex justify-between items-center hover:bg-accent transition-colors group text-sm"
+                style={{ paddingRight: isRTL ? `${level * 24 + 8}px` : '8px', paddingLeft: isRTL ? '8px' : `${level * 24 + 8}px` }}
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+            >
+                <div className="flex items-center gap-1 flex-1 cursor-pointer" onClick={() => hasChildren && onToggleNode(account.code)}>
+                    {hasChildren ? (
+                        isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
+                    ) : (
+                        <span className="w-4"></span> // Placeholder for alignment
+                    )}
+                    <p className="font-medium">{account.code} - {account.name_ar || account.name}</p>
+                </div>
+                <div className="flex items-center gap-2 p-2">
+                    {isHovered && (
+                        <div className="flex items-center gap-1">
+                           {!account.allow_posting && (
+                                <Button variant="ghost" size="icon" title="إضافة حساب فرعي" onClick={() => onOpenModal('add', undefined, account)}><Plus className="h-4 w-4" /></Button>
+                            )}
+                            <Button variant="ghost" size="icon" title="تعديل الحساب" onClick={() => onOpenModal('edit', account)}><Pencil className="h-4 w-4" /></Button>
+                            <Button variant="ghost" size="icon" title="حذف الحساب" onClick={() => onDeleteAccount(account)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
+                        </div>
+                    )}
+                </div>
+            </div>
+            {isExpanded && hasChildren && (
+                <div>
+                    {account.children.map((child: any) => (
+                        <AccountTreeItem
+                            key={child.code}
+                            account={child}
+                            level={level + 1}
+                            isRTL={isRTL}
+                            expandedNodes={expandedNodes}
+                            onToggleNode={onToggleNode}
+                            onOpenModal={onOpenModal}
+                            onDeleteAccount={onDeleteAccount}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
 
 function ChartOfAccounts() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-  const [accounts, setAccounts] = useState<Account[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
+    const { i18n } = useTranslation();
+    const isRTL = i18n.language === 'ar';
+    const [accounts, setAccounts] = useState<GLAccount[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    loadAccounts()
-  }, [])
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [modalType, setModalType] = useState<'add' | 'edit'>('add');
+    const [selectedAccount, setSelectedAccount] = useState<GLAccount | null>(null);
+    const [parentAccount, setParentAccount] = useState<GLAccount | null>(null);
 
-  const loadAccounts = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('accounts')
-        .select('*')
-        .order('code')
+    const loadAccounts = useCallback(async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const result = await getAllGLAccounts();
+            if (Array.isArray(result)) {
+                setAccounts(result);
+                if (result.length === 0) {
+                    setError('لا توجد حسابات. قم بإضافة حساب جديد للبدء.');
+                }
+            } else {
+                throw new Error('البيانات المستلمة غير صالحة.');
+            }
+        } catch (err: any) {
+            console.error('Error loading accounts:', err);
+            setError(err.message || 'خطأ في تحميل شجرة الحسابات.');
+            setAccounts([]); // Clear accounts on error
+        } finally {
+            setLoading(false);
+        }
+    }, []);
 
-      if (error) throw error
-      setAccounts(data || [])
-    } catch (error) {
-      console.error('Error loading accounts:', error)
-      toast.error('خطأ في تحميل شجرة الحسابات')
-    } finally {
-      setLoading(false)
-    }
-  }
+    useEffect(() => {
+        loadAccounts();
+    }, [loadAccounts]);
 
-  const filteredAccounts = accounts.filter(account => 
-    account.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    account.code.includes(searchTerm) ||
-    (account.name_ar && account.name_ar.includes(searchTerm))
-  )
+    const handleToggleNode = (code: string) => {
+        setExpandedNodes(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(code)) {
+                newSet.delete(code);
+            } else {
+                newSet.add(code);
+            }
+            return newSet;
+        });
+    };
 
-  if (loading) {
+    const handleOpenModal = (type: 'add' | 'edit', account?: GLAccount, parent?: GLAccount) => {
+        setModalType(type);
+        setSelectedAccount(account || null);
+        setParentAccount(parent || null);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setSelectedAccount(null);
+        setParentAccount(null);
+    };
+
+    const handleSaveAccount = async (formData: Partial<GLAccount>) => {
+        try {
+            const supabase = await getSupabase();
+            const org_id = await getEffectiveTenantId();
+            if (!org_id) throw new Error("Organization ID not found");
+
+            const dataToSave = { ...formData, org_id };
+            const { error } = modalType === 'edit' && selectedAccount
+                ? await supabase.from('gl_accounts').update(dataToSave).eq('id', selectedAccount.id)
+                : await supabase.from('gl_accounts').insert(dataToSave);
+
+            if (error) throw error;
+            toast.success(modalType === 'edit' ? 'تم تحديث الحساب' : 'تمت إضافة الحساب');
+            handleCloseModal();
+            await loadAccounts();
+        } catch (err: any) {
+            toast.error(`فشل حفظ الحساب: ${err.message}`);
+        }
+    };
+    
+    const handleDeleteAccount = async (account: GLAccount) => {
+        if (account.children && account.children.length > 0) {
+            toast.error('لا يمكن حذف هذا الحساب لأنه يحتوي على حسابات فرعية.');
+            return;
+        }
+        if (window.confirm(`هل أنت متأكد من حذف الحساب "${account.name_ar || account.name}"؟`)) {
+            try {
+                const supabase = await getSupabase();
+                const { error } = await supabase.from('gl_accounts').delete().eq('id', account.id);
+                if (error) throw error;
+                toast.success('تم حذف الحساب بنجاح');
+                await loadAccounts();
+            } catch (err: any) {
+                toast.error(`فشل حذف الحساب: ${err.message}`);
+            }
+        }
+    };
+    
+    const buildTree = (list: GLAccount[]): any[] => {
+        if (!list || list.length === 0) return [];
+        const map = new Map<string, any>();
+        const roots: any[] = [];
+        list.forEach(acc => map.set(acc.code, { ...acc, children: [] }));
+        list.forEach(acc => {
+            if (acc.parent_code && map.has(acc.parent_code)) {
+                const parent = map.get(acc.parent_code);
+                const child = map.get(acc.code);
+                if (parent && child && parent.code !== child.code) {
+                    parent.children.push(child);
+                }
+            } else {
+                roots.push(map.get(acc.code));
+            }
+        });
+        const sortChildren = (nodes: any[]) => {
+            nodes.sort((a, b) => a.code.localeCompare(b.code));
+            nodes.forEach(node => {
+                if (node.children.length > 0) sortChildren(node.children);
+            });
+        };
+        sortChildren(roots);
+        return roots;
+    };
+
+    const flattenForExport = (nodes: any[], level = 0) => {
+        let result: any[] = [];
+        for (const node of nodes) {
+            result.push({ level, ...node });
+            if (node.children) {
+                result = result.concat(flattenForExport(node.children, level + 1));
+            }
+        }
+        return result;
+    };
+
+    const handleExportToExcel = () => {
+        const tree = buildTree(accounts);
+        const flatData = flattenForExport(tree);
+        const worksheetData = flatData.map(item => ({
+            'المستوى': ' '.repeat(item.level * 2) + item.code,
+            'الاسم العربي': item.name_ar,
+            'الاسم الانجليزي': item.name,
+            'النوع': item.category,
+        }));
+        const worksheet = XLSX.utils.json_to_sheet(worksheetData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Chart of Accounts");
+        XLSX.writeFile(workbook, "ChartOfAccounts.xlsx");
+    };
+
+    const handleExportToPdf = () => {
+        const doc = new jsPDF();
+        // Add a font that supports Arabic
+        // doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
+        // doc.setFont('Amiri');
+        const tree = buildTree(accounts);
+        const flatData = flattenForExport(tree);
+        const tableData = flatData.map(item => [
+            ' '.repeat(item.level * 2) + item.code,
+            item.name_ar || item.name, // Fallback to name if name_ar is not available
+            item.category,
+        ]);
+
+        (doc as any).autoTable({
+            head: [['رمز الحساب', 'اسم الحساب', 'النوع']],
+            body: tableData,
+            styles: { font: 'Arial', halign: 'right' },
+            headStyles: { halign: 'right' },
+        });
+
+        doc.save('ChartOfAccounts.pdf');
+    };
+    
+    const accountTree = buildTree(accounts);
+    
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div>
-          <h1 className="text-2xl font-bold">شجرة الحسابات</h1>
-          <p className="text-muted-foreground">دليل الحسابات المحاسبية</p>
-        </div>
-      </div>
-
-      {/* Search */}
-      <div className="max-w-md">
-        <Input
-          placeholder="البحث في الحسابات..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
-
-      {/* Accounts List */}
-      <div className="bg-card rounded-lg border">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold">قائمة الحسابات ({filteredAccounts.length})</h3>
-        </div>
-        <div className="divide-y">
-          {filteredAccounts.map((account) => (
-            <div key={account.id} className="p-4 flex justify-between items-center">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-medium">{account.code}</h4>
-                  <Badge variant={account.is_leaf ? "default" : "outline"}>
-                    {account.is_leaf ? 'حساب فرعي' : 'حساب رئيسي'}
-                  </Badge>
-                  <Badge variant="secondary">{account.account_type}</Badge>
+        <div className="space-y-4 p-4 md:p-6" dir={isRTL ? "rtl" : "ltr"}>
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold">شجرة الحسابات</h1>
+                 <div className="flex gap-2">
+                    <Button onClick={handleExportToExcel} variant="outline"><FileDown className="me-2 h-4 w-4"/>تصدير Excel</Button>
+                    <Button onClick={handleExportToPdf} variant="outline"><FileDown className="me-2 h-4 w-4"/>تصدير PDF</Button>
+                    <Button onClick={() => handleOpenModal('add')}><Plus className="me-2 h-4 w-4"/>إضافة حساب</Button>
                 </div>
-                <p className="text-sm font-medium">{account.name_ar || account.name}</p>
-                <p className="text-xs text-muted-foreground">{account.name}</p>
-              </div>
-              <div className="text-right">
-                {account.is_active ? (
-                  <Badge variant="default">نشط</Badge>
-                ) : (
-                  <Badge variant="destructive">غير نشط</Badge>
-                )}
-              </div>
             </div>
-          ))}
+
+            <div className="bg-card rounded-lg border">
+                 {loading ? (
+                     <div className="p-8 text-center">جاري التحميل...</div>
+                 ) : error ? (
+                     <div className="p-8 text-center text-red-500">{error}</div>
+                 ) : accountTree.length > 0 ? (
+                    accountTree.map(account => (
+                        <AccountTreeItem 
+                            key={account.code}
+                            account={account} 
+                            level={0} 
+                            isRTL={isRTL}
+                            expandedNodes={expandedNodes}
+                            onToggleNode={handleToggleNode}
+                            onOpenModal={handleOpenModal}
+                            onDeleteAccount={handleDeleteAccount}
+                        />
+                    ))
+                 ) : (
+                     <div className="p-8 text-center text-muted-foreground">لا توجد حسابات لعرضها.</div>
+                 )}
+            </div>
+
+            <AccountFormModal 
+                isOpen={isModalOpen}
+                onClose={handleCloseModal}
+                onSave={handleSaveAccount}
+                account={selectedAccount}
+                parentAccount={parentAccount}
+            />
         </div>
-      </div>
-    </div>
-  )
-}
-
-function JournalEntries() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-  const [entries, setEntries] = useState<JournalEntry[]>([])
-  const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
-
-  useEffect(() => {
-    loadEntries()
-  }, [])
-
-  const loadEntries = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .select(`
-          *,
-          journals(name, name_ar, code)
-        `)
-        .order('created_at', { ascending: false })
-
-      if (error) throw error
-      setEntries(data || [])
-    } catch (error) {
-      console.error('Error loading journal entries:', error)
-      toast.error('خطأ في تحميل القيود اليومية')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const filteredEntries = entries.filter(entry => {
-    const matchesSearch = entry.entry_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (entry.description && entry.description.toLowerCase().includes(searchTerm.toLowerCase()))
-    const matchesStatus = statusFilter === 'all' || entry.status === statusFilter
-    return matchesSearch && matchesStatus
-  })
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return <Badge variant="outline">مسودة</Badge>
-      case 'posted':
-        return <Badge variant="default">منشور</Badge>
-      case 'reversed':
-        return <Badge variant="destructive">معكوس</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
-    }
-  }
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div>
-          <h1 className="text-2xl font-bold">القيود اليومية</h1>
-          <p className="text-muted-foreground">عرض وإدارة جميع القيود المحاسبية</p>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="flex gap-4">
-        <div className="flex-1 max-w-md">
-          <Input
-            placeholder="البحث في القيود..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border rounded-md"
-        >
-          <option value="all">جميع الحالات</option>
-          <option value="draft">مسودة</option>
-          <option value="posted">منشور</option>
-          <option value="reversed">معكوس</option>
-        </select>
-      </div>
-
-      {/* Entries List */}
-      <div className="bg-card rounded-lg border">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold">قائمة القيود ({filteredEntries.length})</h3>
-        </div>
-        <div className="divide-y">
-          {filteredEntries.map((entry) => (
-            <Link
-              key={entry.id}
-              to={`/general-ledger/entries/${entry.id}`}
-              className="block p-4 hover:bg-accent transition-colors"
-            >
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="flex items-center gap-2 mb-1">
-                    <h4 className="font-medium">{entry.entry_number}</h4>
-                    {getStatusBadge(entry.status)}
-                  </div>
-                  <p className="text-sm text-muted-foreground">{entry.description}</p>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                    <span>{entry.journals?.name_ar || entry.journals?.name}</span>
-                    <span>تاريخ القيد: {new Date(entry.entry_date).toLocaleDateString('ar-SA')}</span>
-                    {entry.posted_at && (
-                      <span>تاريخ النشر: {new Date(entry.posted_at).toLocaleDateString('ar-SA')}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="font-medium">{entry.total_debit?.toFixed(2)} ريال</div>
-                  <div className="text-xs text-muted-foreground">
-                    {new Date(entry.created_at).toLocaleDateString('ar-SA')}
-                  </div>
-                  {entry.reference_number && (
-                    <div className="text-xs text-blue-600">
-                      مرجع: {entry.reference_number}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </Link>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function JournalEntryDetails() {
-  // This component will be implemented to show detailed view of a journal entry
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">تفاصيل القيد المحاسبي</h1>
-      <p className="text-muted-foreground">سيتم تطوير هذه الصفحة لاحقاً</p>
-    </div>
-  )
-}
-
-function TrialBalance() {
-  // This component will show trial balance report
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">ميزان المراجعة</h1>
-      <p className="text-muted-foreground">سيتم تطوير هذا التقرير لاحقاً</p>
-    </div>
-  )
-}
-
-function PostingManagement() {
-  // This component will handle posting and reversing entries
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">إدارة النشر</h1>
-      <p className="text-muted-foreground">سيتم تطوير هذه الوظيفة لاحقاً</p>
-    </div>
-  )
+    );
 }

@@ -3,15 +3,28 @@
  * Business logic for manufacturing operations, BOMs, and work centers
  */
 
-import { getSupabase, getConfig } from '../core/supabaseClient.js'
-import { getCurrentTenantId } from '../core/security.js'
-import { 
-  validateRequired, 
-  validatePositiveNumber,
-  handleError,
-  handleSuccess,
-  generateId
-} from '../core/utils.js'
+// Use dynamic imports to avoid circular dependencies
+let supabaseClientModule = null
+let utilsModule = null
+
+const loadModules = async () => {
+  if (!supabaseClientModule) {
+    supabaseClientModule = await import('../core/supabaseClient.js')
+  }
+  if (!utilsModule) {
+    utilsModule = await import('../core/utils.js')
+  }
+}
+
+const getSupabase = () => supabaseClientModule.getSupabase()
+const getConfig = () => supabaseClientModule.getConfig()
+const getCurrentTenantId = () => supabaseClientModule.getTenantId()
+
+const validateRequired = (value, fieldName) => utilsModule.validateRequired(value, fieldName)
+const validatePositiveNumber = (value, fieldName) => utilsModule.validatePositiveNumber(value, fieldName)
+const handleError = (error, context) => utilsModule.handleError(error, context)
+const handleSuccess = (message, data) => utilsModule.handleSuccess(message, data)
+const generateId = (prefix) => utilsModule.generateId(prefix)
 
 // ===================================================================
 // WORK CENTERS MANAGEMENT

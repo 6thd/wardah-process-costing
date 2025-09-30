@@ -1,0 +1,41 @@
+{
+  "SUPABASE_URL": "https://rytzljjlthouptdqeuxh.supabase.co",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Mzc1NTYsImV4cCI6MjA3MzQxMzU1Nn0.5VAgxgoiWIkA05WYVnTDJ0wUOTkWxAo0a0VY6-J7DoY",
+  "SUPABASE_SERVICE_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzgzNzU1NiwiZXhwIjoyMDczNDEzNTU2fQ.jcHrsuij3JafysuxrSO-J6q-7llnj-wDocUVjCjRXao",
+  "TABLE_NAMES": {
+    "organizations": "organizations",
+    "gl_accounts": "gl_accounts", 
+    "gl_mappings": "gl_mappings",
+    "products": "products",
+    "uoms": "uoms",
+    "warehouses": "warehouses",
+    "locations": "locations",
+    "bom_headers": "bom_headers",
+    "bom_lines": "bom_lines",
+    "manufacturing_orders": "manufacturing_orders",
+    "work_centers": "work_centers",
+    "labor_entries": "labor_entries",
+    "overhead_rates": "overhead_rates",
+    "overhead_allocations": "overhead_allocations",
+    "stock_moves": "stock_moves",
+    "stock_quants": "stock_quants",
+    "purchase_orders": "purchase_orders",
+    "purchase_lines": "purchase_lines",
+    "sales_orders": "sales_orders",
+    "sales_lines": "sales_lines",
+    "invoices": "invoices"
+  },
+  "APP_SETTINGS": {
+    "defaultCurrency": "SAR",
+    "defaultLanguage": "ar",
+    "itemsPerPage": 25,
+    "autoSaveInterval": 30000,
+    "orgId": "00000000-0000-0000-0000-000000000001"
+  },
+  "FEATURES": {
+    "realtimeUpdates": true,
+    "advancedCosting": true,
+    "multiTenant": true,
+    "demoMode": false
+  }
+}

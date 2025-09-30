@@ -1,23 +1,22 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { 
   BarChart3, 
-  PieChart, 
   TrendingUp, 
   FileText, 
   Download, 
-  Calendar,
   DollarSign,
   Package,
   Factory,
   ShoppingCart,
-  Users,
-  Eye
+  Eye,
+  Calculator
 } from 'lucide-react'
+import { ProcessCostingReport } from './process-costing-report'
+import { ReportsDashboard } from './components/ReportsDashboard'
 
 export function ReportsModule() {
   return (
@@ -26,9 +25,11 @@ export function ReportsModule() {
       <Route path="/financial" element={<FinancialReports />} />
       <Route path="/inventory" element={<InventoryReports />} />
       <Route path="/manufacturing" element={<ManufacturingReports />} />
+      <Route path="/process-costing" element={<ProcessCostingReportPage />} />
       <Route path="/sales" element={<SalesReports />} />
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
+      <Route path="/advanced" element={<ReportsDashboard />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )
@@ -92,6 +93,15 @@ function ReportsOverview() {
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
       reports: ['الذكاء الاصطناعي', 'التنبؤات', 'الاتجاهات']
+    },
+    {
+      title: 'التقارير المتقدمة',
+      description: 'تقارير انحرافات وتقييم WIP',
+      icon: Calculator,
+      href: '/reports/advanced',
+      color: 'text-red-600',
+      bgColor: 'bg-red-50',
+      reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية']
     }
   ]
   
@@ -119,7 +129,7 @@ function ReportsOverview() {
           <div className="text-sm text-muted-foreground">تقارير مجدولة</div>
         </div>
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-orange-600">6</div>
+          <div className="text-2xl font-bold text-orange-600">7</div>
           <div className="text-sm text-muted-foreground">فئات التقارير</div>
         </div>
       </div>
@@ -165,7 +175,8 @@ function ReportsOverview() {
           {[
             { name: 'تقرير المبيعات الشهرية', type: 'مبيعات', date: 'منذ يومين', status: 'مكتمل' },
             { name: 'تقييم المخزون', type: 'مخزون', date: 'منذ 3 أيام', status: 'جاري' },
-            { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' }
+            { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
+            { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
           ].map((report, index) => (
             <div key={index} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
               <div className="flex-1">
@@ -176,7 +187,7 @@ function ReportsOverview() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={report.status === 'مكتمل' ? 'default' : 'secondary'}>
+                <Badge variant={report.status === 'مكتمل' ? 'default' : report.status === 'جاري' ? 'secondary' : 'destructive'}>
                   {report.status}
                 </Badge>
                 <Button variant="ghost" size="sm">
@@ -196,7 +207,7 @@ function ReportsOverview() {
 
 // Financial Reports Component
 function FinancialReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -221,7 +232,7 @@ function FinancialReports() {
 
 // Inventory Reports Component
 function InventoryReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -246,7 +257,7 @@ function InventoryReports() {
 
 // Manufacturing Reports Component
 function ManufacturingReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -269,9 +280,27 @@ function ManufacturingReports() {
   )
 }
 
+function ProcessCostingReportPage() {
+  const { i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold">تقرير تكاليف المراحل</h1>
+        <p className="text-muted-foreground mt-2">
+          تحليل تكاليف المراحل مع حساب الوحدات المكافئة
+        </p>
+      </div>
+
+      <ProcessCostingReport />
+    </div>
+  )
+}
+
 // Sales Reports Component
 function SalesReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -296,7 +325,7 @@ function SalesReports() {
 
 // Purchasing Reports Component
 function PurchasingReports() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -321,7 +350,7 @@ function PurchasingReports() {
 
 // Advanced Analytics Component
 function AdvancedAnalytics() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

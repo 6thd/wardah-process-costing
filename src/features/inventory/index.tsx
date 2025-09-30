@@ -12,14 +12,14 @@ import type { Item, Category } from '@/lib/supabase'
 export function InventoryModule() {
   return (
     <Routes>
-      <Route path="/" element={<InventoryOverview />} />
-      <Route path="/overview" element={<InventoryOverview />} />
-      <Route path="/items" element={<ItemsManagement />} />
-      <Route path="/movements" element={<StockMovements />} />
-      <Route path="/adjustments" element={<StockAdjustments />} />
-      <Route path="/valuation" element={<InventoryValuation />} />
-      <Route path="/locations" element={<StorageLocations />} />
-      <Route path="*" element={<Navigate to="/inventory/overview" replace />} />
+      <Route index element={<InventoryOverview />} />
+      <Route path="overview" element={<InventoryOverview />} />
+      <Route path="items" element={<ItemsManagement />} />
+      <Route path="movements" element={<StockMovements />} />
+      <Route path="adjustments" element={<StockAdjustments />} />
+      <Route path="valuation" element={<InventoryValuation />} />
+      <Route path="locations" element={<StorageLocations />} />
+      <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
 }
@@ -28,7 +28,6 @@ function InventoryOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [items, setItems] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const loadItems = async () => {
@@ -39,7 +38,6 @@ function InventoryOverview() {
         console.error('Error loading items:', error)
         toast.error('خطأ في تحميل الأصناف')
       } finally {
-        setLoading(false)
       }
     }
     loadItems()
@@ -135,11 +133,10 @@ function ItemsManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [items, setItems] = useState<Item[]>([])
-  const [categories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
   const [showAddForm, setShowAddForm] = useState(false)
-  const [newItem, setNewItem] = useState({
+  const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number }>({
     name: '',
     name_ar: '',
     code: '',
@@ -149,7 +146,8 @@ function ItemsManagement() {
     selling_price: 0,
     stock_quantity: 0,
     minimum_stock: 0,
-    description: ''
+    description: '',
+    price: 0,
   })
 
   useEffect(() => {
@@ -158,7 +156,10 @@ function ItemsManagement() {
 
   const loadData = async () => {
     try {
-      const itemsData = await itemsService.getAll()
+      const [itemsData] = await Promise.all([
+        itemsService.getAll(),
+        categoriesService.getAll(),
+      ]);
       setItems(itemsData || [])
     } catch (error) {
       console.error('Error loading data:', error)
@@ -170,12 +171,13 @@ function ItemsManagement() {
 
   const filteredItems = items.filter(item => 
     item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.code.toLowerCase().includes(searchTerm.toLowerCase())
+    (item.code && item.code.toLowerCase().includes(searchTerm.toLowerCase()))
   )
 
   const handleAddItem = async () => {
     try {
-      await itemsService.create(newItem)
+      const itemToAdd: Omit<Item, 'id' | 'category'> = { ...newItem, price: newItem.selling_price };
+      await itemsService.create(itemToAdd)
       toast.success('تم إضافة الصنف بنجاح')
       setShowAddForm(false)
       setNewItem({
@@ -188,7 +190,8 @@ function ItemsManagement() {
         selling_price: 0,
         stock_quantity: 0,
         minimum_stock: 0,
-        description: ''
+        description: '',
+        price: 0,
       })
       loadData()
     } catch (error) {
@@ -346,7 +349,7 @@ function ItemsManagement() {
 
 // Stock Adjustments Component
 function StockAdjustments() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -371,7 +374,7 @@ function StockAdjustments() {
 
 // Inventory Valuation Component
 function InventoryValuation() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -396,7 +399,7 @@ function InventoryValuation() {
 
 // Storage Locations Component
 function StorageLocations() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (

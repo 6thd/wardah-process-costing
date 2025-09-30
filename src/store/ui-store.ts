@@ -73,24 +73,32 @@ export const useUIStore = create<UIState>()(
 
       // Actions
       setTheme: (theme: Theme) => {
-        set({ theme })
-        
-        // Apply theme to document
-        const root = document.documentElement
-        if (theme === 'system') {
-          root.classList.remove('light', 'dark')
-        } else {
-          root.classList.remove('light', 'dark')
-          root.classList.add(theme)
+        try {
+          set({ theme })
+          
+          // Apply theme to document
+          const root = document.documentElement
+          if (theme === 'system') {
+            root.classList.remove('light', 'dark')
+          } else {
+            root.classList.remove('light', 'dark')
+            root.classList.add(theme)
+          }
+        } catch (error) {
+          console.error('Error setting theme:', error)
         }
       },
 
       setLanguage: (language: Language) => {
-        set({ language })
-        
-        // Update document attributes
-        document.documentElement.lang = language
-        document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+        try {
+          set({ language })
+          
+          // Update document attributes
+          document.documentElement.lang = language
+          document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+        } catch (error) {
+          console.error('Error setting language:', error)
+        }
       },
 
       setSidebarCollapsed: (collapsed: boolean) => {
@@ -160,22 +168,28 @@ export const useUIStore = create<UIState>()(
       },
 
       initializeApp: () => {
-        const { theme, language } = get()
-        
-        // Apply theme
-        const root = document.documentElement
-        if (theme === 'system') {
-          root.classList.remove('light', 'dark')
-        } else {
-          root.classList.remove('light', 'dark')
-          root.classList.add(theme)
+        try {
+          console.log('🔧 Initializing UI store...')
+          const { theme, language } = get()
+          
+          // Apply theme
+          const root = document.documentElement
+          if (theme === 'system') {
+            root.classList.remove('light', 'dark')
+          } else {
+            root.classList.remove('light', 'dark')
+            root.classList.add(theme)
+          }
+          
+          // Apply language
+          document.documentElement.lang = language
+          document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+          
+          set({ isInitialized: true })
+          console.log('✅ UI store initialized')
+        } catch (error) {
+          console.error('❌ UI store initialization failed:', error)
         }
-        
-        // Apply language
-        document.documentElement.lang = language
-        document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
-        
-        set({ isInitialized: true })
       },
     }),
     {

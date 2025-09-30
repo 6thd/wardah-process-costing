@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WARDAH ERP - Chart of Accounts</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .controls {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .search-box {
+            padding: 10px;
+            width: 300px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        
+        .tree-container {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 20px;
+            max-height: 70vh;
+            overflow-y: auto;
+            background-color: #fafafa;
+        }
+        
+        .tree-item {
+            margin: 5px 0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .tree-item:hover {
+            background-color: #e3f2fd;
+        }
+        
+        .tree-item.selected {
+            background-color: #bbdefb;
+            font-weight: bold;
+        }
+        
+        .tree-item.children-visible > .item-content::before {
+            content: "▼ ";
+            color: #757575;
+        }
+        
+        .tree-item.children-hidden > .item-content::before {
+            content: "▶ ";
+            color: #757575;
+        }
+        
+        .item-content {
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .item-code {
+            font-weight: bold;
+            color: #1976d2;
+        }
+        
+        .item-name {
+            flex-grow: 1;
+            margin: 0 10px;
+        }
+        
+        .item-category {
+            font-size: 0.9em;
+            color: #757575;
+            background-color: #e0e0e0;
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+        
+        .item-posting {
+            font-size: 0.8em;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        
+        .posting-allowed {
+            background-color: #c8e6c9;
+            color: #388e3c;
+        }
+        
+        .posting-not-allowed {
+            background-color: #ffcdd2;
+            color: #d32f2f;
+        }
+        
+        .children {
+            margin-left: 30px;
+            display: block;
+        }
+        
+        .children.hidden {
+            display: none;
+        }
+        
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+        }
+        
+        .stat-item {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #1976d2;
+        }
+        
+        .stat-label {
+            font-size: 14px;
+            color: #757575;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WARDAH ERP - Chart of Accounts</h1>
+        
+        <div class="controls">
+            <input type="text" class="search-box" id="searchBox" placeholder="Search accounts by code or name...">
+        </div>
+        
+        <div class="tree-container" id="treeContainer">
+            <!-- Tree will be populated here -->
+        </div>
+        
+        <div class="stats" id="statsContainer">
+            <!-- Statistics will be populated here -->
+        </div>
+    </div>
+
+    <script>
+        // Sample data - in a real implementation, this would come from the database
+        const sampleAccounts = [
+            {
+                code: "100000",
+                name: "الأصول",
+                category: "ASSET",
+                subtype: "OTHER",
+                parent_code: null,
+                normal_balance: "DEBIT",
+                allow_posting: false,
+                is_active: true,
+                children: [
+                    {
+                        code: "110000",
+                        name: "الأصول المتداولة",
+                        category: "ASSET",
+                        subtype: "OTHER",
+                        parent_code: "100000",
+                        normal_balance: "DEBIT",
+                        allow_posting: false,
+                        is_active: true,
+                        children: [
+                            {
+                                code: "110100",
+                                name: "النقد ومايعادله",
+                                category: "ASSET",
+                                subtype: "CASH",
+                                parent_code: "110000",
+                                normal_balance: "DEBIT",
+                                allow_posting: false,
+                                is_active: true,
+                                children: [
+                                    {
+                                        code: "110101",
+                                        name: "النقدية في الخزينة - الرياض",
+                                        category: "ASSET",
+                                        subtype: "CASH",
+                                        parent_code: "110100",
+                                        normal_balance: "DEBIT",
+                                        allow_posting: true,
+                                        is_active: true,
+                                        children: []
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                code: "200000",
+                name: "الالتزامات",
+                category: "LIABILITY",
+                subtype: "OTHER",
+                parent_code: null,
+                normal_balance: "CREDIT",
+                allow_posting: false,
+                is_active: true,
+                children: []
+            },
+            {
+                code: "300000",
+                name: "حقوق الملكية",
+                category: "EQUITY",
+                subtype: "EQUITY",
+                parent_code: null,
+                normal_balance: "CREDIT",
+                allow_posting: false,
+                is_active: true,
+                children: []
+            }
+        ];
+
+        // Function to create tree item element
+        function createTreeItem(account, level = 0) {
+            const item = document.createElement('div');
+            item.className = 'tree-item';
+            item.dataset.code = account.code;
+            
+            const hasChildren = account.children && account.children.length > 0;
+            item.classList.add(hasChildren ? 'children-visible' : 'children-hidden');
+            
+            const content = document.createElement('div');
+            content.className = 'item-content';
+            
+            const codeSpan = document.createElement('span');
+            codeSpan.className = 'item-code';
+            codeSpan.textContent = account.code;
+            
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'item-name';
+            nameSpan.textContent = account.name;
+            
+            const categorySpan = document.createElement('span');
+            categorySpan.className = 'item-category';
+            categorySpan.textContent = account.category;
+            
+            const postingSpan = document.createElement('span');
+            postingSpan.className = `item-posting ${account.allow_posting ? 'posting-allowed' : 'posting-not-allowed'}`;
+            postingSpan.textContent = account.allow_posting ? 'P' : 'NP';
+            
+            content.appendChild(codeSpan);
+            content.appendChild(nameSpan);
+            content.appendChild(categorySpan);
+            content.appendChild(postingSpan);
+            
+            item.appendChild(content);
+            
+            // Add click event to toggle children
+            item.addEventListener('click', function(e) {
+                if (e.target.closest('.item-content')) {
+                    // Toggle selection
+                    document.querySelectorAll('.tree-item').forEach(i => i.classList.remove('selected'));
+                    this.classList.add('selected');
+                    
+                    // Toggle children visibility
+                    if (hasChildren) {
+                        const childrenContainer = this.querySelector('.children');
+                        if (childrenContainer) {
+                            childrenContainer.classList.toggle('hidden');
+                            this.classList.toggle('children-visible');
+                            this.classList.toggle('children-hidden');
+                        }
+                    }
+                }
+            });
+            
+            // Add children if they exist
+            if (hasChildren) {
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'children';
+                
+                account.children.forEach(child => {
+                    const childItem = createTreeItem(child, level + 1);
+                    childrenContainer.appendChild(childItem);
+                });
+                
+                item.appendChild(childrenContainer);
+            }
+            
+            return item;
+        }
+
+        // Function to render the tree
+        function renderTree(accounts) {
+            const container = document.getElementById('treeContainer');
+            container.innerHTML = '';
+            
+            accounts.forEach(account => {
+                const item = createTreeItem(account);
+                container.appendChild(item);
+            });
+        }
+
+        // Function to generate statistics
+        function generateStatistics(accounts) {
+            const stats = {
+                total: 0,
+                byCategory: {},
+                postingAllowed: 0,
+                notPosting: 0,
+                active: 0,
+                inactive: 0
+            };
+            
+            function traverse(account) {
+                stats.total++;
+                
+                // Count by category
+                stats.byCategory[account.category] = (stats.byCategory[account.category] || 0) + 1;
+                
+                // Count posting permissions
+                if (account.allow_posting) {
+                    stats.postingAllowed++;
+                } else {
+                    stats.notPosting++;
+                }
+                
+                // Count active status
+                if (account.is_active) {
+                    stats.active++;
+                } else {
+                    stats.inactive++;
+                }
+                
+                // Traverse children
+                if (account.children) {
+                    account.children.forEach(traverse);
+                }
+            }
+            
+            accounts.forEach(traverse);
+            
+            return stats;
+        }
+
+        // Function to render statistics
+        function renderStatistics(stats) {
+            const container = document.getElementById('statsContainer');
+            container.innerHTML = `
+                <div class="stat-item">
+                    <div class="stat-value">${stats.total}</div>
+                    <div class="stat-label">Total Accounts</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${stats.active}</div>
+                    <div class="stat-label">Active</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${stats.postingAllowed}</div>
+                    <div class="stat-label">Posting Allowed</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value">${Object.keys(stats.byCategory).length}</div>
+                    <div class="stat-label">Categories</div>
+                </div>
+            `;
+        }
+
+        // Function to filter accounts based on search term
+        function filterAccounts(accounts, term) {
+            if (!term) return accounts;
+            
+            const filtered = [];
+            
+            function search(account) {
+                const matches = account.code.includes(term) || 
+                               account.name.includes(term) ||
+                               (account.name_ar && account.name_ar.includes(term));
+                
+                const filteredChildren = [];
+                if (account.children) {
+                    account.children.forEach(child => {
+                        const childResult = search(child);
+                        if (childResult) {
+                            filteredChildren.push(childResult);
+                        }
+                    });
+                }
+                
+                if (matches || filteredChildren.length > 0) {
+                    return {
+                        ...account,
+                        children: filteredChildren
+                    };
+                }
+                
+                return null;
+            }
+            
+            accounts.forEach(account => {
+                const result = search(account);
+                if (result) {
+                    filtered.push(result);
+                }
+            });
+            
+            return filtered;
+        }
+
+        // Initialize the page
+        function init() {
+            // Render initial tree
+            renderTree(sampleAccounts);
+            
+            // Render statistics
+            const stats = generateStatistics(sampleAccounts);
+            renderStatistics(stats);
+            
+            // Add search functionality
+            const searchBox = document.getElementById('searchBox');
+            searchBox.addEventListener('input', function() {
+                const term = this.value.trim();
+                const filteredAccounts = filterAccounts(sampleAccounts, term);
+                renderTree(filteredAccounts);
+            });
+        }
+
+        // Run initialization when page loads
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

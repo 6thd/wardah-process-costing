@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simple Test</title>
+  </head>
+  <body>
+    <div id="root">Loading...</div>
+    <script type="module">
+      import { createRoot } from 'react-dom/client';
+      
+      const root = createRoot(document.getElementById('root'));
+      root.render(
+        React.createElement('div', { 
+          style: { 
+            display: 'flex', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            height: '100vh',
+            fontSize: '24px',
+            textAlign: 'center'
+          } 
+        }, 'Hello, Wardah ERP!')
+      );
+    </script>
+  </body>
+</html>

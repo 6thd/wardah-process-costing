@@ -1,16 +1,15 @@
 {
-  "SUPABASE_URL": "",
-  "SUPABASE_ANON_KEY": "",
+  "SUPABASE_URL": "https://rytzljjlthouptdqeuxh.supabase.co",
+  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Mzc1NTYsImV4cCI6MjA3MzQxMzU1Nn0.5VAgxgoiWIkA05WYVnTDJ0wUOTkWxAo0a0VY6-J7DoY",
   "TABLE_NAMES": {
-    "work_centers": "work_centers",
+    "items": "items",
+    "boms": "boms",
+    "manufacturing_orders": "manufacturing_orders",
     "stage_costs": "stage_costs",
     "labor_time_logs": "labor_time_logs",
     "moh_applied": "moh_applied",
-    "inventory_ledger": "inventory_ledger",
-    "manufacturing_orders": "manufacturing_orders",
-    "boms": "boms",
-    "items": "items",
     "stock_moves": "stock_moves",
+    "work_centers": "work_centers",
     "users": "users",
     "suppliers": "suppliers",
     "customers": "customers",
@@ -20,7 +19,11 @@
     "sales_orders": "sales_orders",
     "sales_order_items": "sales_order_items",
     "process_costs": "process_costs",
-    "audit_trail": "audit_trail"
+    "audit_trail": "audit_trail",
+    "gl_accounts": "gl_accounts",
+    "journals": "journals",
+    "journal_entries": "journal_entries",
+    "journal_entry_lines": "journal_entry_lines"
   },
   "APP_SETTINGS": {
     "default_currency": "SAR",
