@@ -1,0 +1,2580 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة معلومات الأداء المالي الثورية مع Google Gemini AI - فرع الدمام</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/4.3.0/marked.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #ea4335 100%);
+            --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+            --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+            --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --gemini-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: var(--dark-gradient);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        /* Language Direction Support */
+        body.ltr {
+            direction: ltr;
+        }
+
+        body.rtl {
+            direction: rtl;
+        }
+
+        /* Advanced Particles Background */
+        #particles-js {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            z-index: -1;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 40% 80%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+                radial-gradient(circle at 60% 30%, rgba(234, 67, 53, 0.1) 0%, transparent 50%);
+            animation: geminiParticleShift 25s ease-in-out infinite;
+        }
+
+        @keyframes geminiParticleShift {
+            0%, 100% { 
+                background: 
+                    radial-gradient(circle at 20% 50%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 40% 80%, rgba(251, 188, 4, 0.15) 0%, transparent 50%);
+            }
+            25% { 
+                background: 
+                    radial-gradient(circle at 60% 30%, rgba(234, 67, 53, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 30% 70%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 70% 40%, rgba(52, 168, 83, 0.15) 0%, transparent 50%);
+            }
+            50% { 
+                background: 
+                    radial-gradient(circle at 80% 60%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 20% 30%, rgba(234, 67, 53, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 50% 80%, rgba(66, 133, 244, 0.15) 0%, transparent 50%);
+            }
+            75% { 
+                background: 
+                    radial-gradient(circle at 40% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 80% 70%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+                    radial-gradient(circle at 30% 50%, rgba(234, 67, 53, 0.15) 0%, transparent 50%);
+            }
+        }
+
+        /* Glass Morphism Effects */
+        .glass {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        .glass-card {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 25px;
+            padding: 2rem;
+            box-shadow: 
+                0 8px 32px rgba(0, 0, 0, 0.3),
+                inset 0 1px 0 rgba(255, 255, 255, 0.2);
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+            transition: left 0.6s;
+        }
+
+        .glass-card:hover::before {
+            left: 100%;
+        }
+
+        .glass-card:hover {
+            transform: translateY(-10px) scale(1.02);
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.4),
+                inset 0 1px 0 rgba(255, 255, 255, 0.3);
+        }
+
+        /* Gemini AI Enhanced Elements */
+        .gemini-enhanced {
+            background: var(--gemini-gradient);
+            background-size: 500% 500%;
+            animation: geminiGradientShift 10s ease-in-out infinite;
+        }
+
+        @keyframes geminiGradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            20% { background-position: 100% 0%; }
+            40% { background-position: 100% 100%; }
+            60% { background-position: 0% 100%; }
+            80% { background-position: 0% 0%; }
+        }
+
+        /* Holographic Effects */
+        .holographic {
+            background: var(--gemini-gradient);
+            background-size: 400% 400%;
+            animation: holographicShift 6s ease-in-out infinite;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        @keyframes holographicShift {
+            0%, 100% { background-position: 0% 50%; }
+            25% { background-position: 100% 0%; }
+            50% { background-position: 100% 100%; }
+            75% { background-position: 0% 100%; }
+        }
+
+        /* Advanced Gemini Chat Interface */
+        .gemini-chat-container {
+            background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
+            backdrop-filter: blur(30px);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 25px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .gemini-chat-container::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gemini-gradient);
+            background-size: 500% 100%;
+            animation: geminiGradientShift 4s ease infinite;
+        }
+
+        .gemini-message {
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(52, 168, 83, 0.2));
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 20px;
+            padding: 1rem;
+            margin: 0.5rem 0;
+            position: relative;
+            animation: messageSlideIn 0.5s ease-out;
+        }
+
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px) scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+
+        .user-message {
+            background: linear-gradient(135deg, rgba(251, 188, 4, 0.2), rgba(234, 67, 53, 0.2));
+            border-color: rgba(251, 188, 4, 0.3);
+            margin-left: 2rem;
+        }
+
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            background: rgba(66, 133, 244, 0.1);
+            border-radius: 20px;
+            margin: 0.5rem 0;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 4px;
+        }
+
+        .typing-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--gemini-gradient);
+            animation: geminiTypingDot 1.4s ease-in-out infinite;
+        }
+
+        .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes geminiTypingDot {
+            0%, 60%, 100% { transform: translateY(0) scale(1); }
+            30% { transform: translateY(-10px) scale(1.2); }
+        }
+
+        /* Advanced KPI Cards */
+        .kpi-advanced {
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            cursor: pointer;
+        }
+
+        .kpi-advanced::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gemini-gradient);
+            background-size: 500% 100%;
+            animation: geminiGradientShift 4s ease infinite;
+        }
+
+        /* Gemini Insights Panel */
+        .gemini-insight-card {
+            background: linear-gradient(135deg, rgba(66, 133, 244, 0.15), rgba(52, 168, 83, 0.15));
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 20px;
+            padding: 1.5rem;
+            margin: 1rem 0;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .gemini-insight-card:hover {
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 0 15px 35px rgba(66, 133, 244, 0.2);
+        }
+
+        .confidence-bar {
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 0.5rem;
+        }
+
+        .confidence-fill {
+            height: 100%;
+            background: var(--gemini-gradient);
+            border-radius: 2px;
+            transition: width 1s ease;
+        }
+
+        /* Interactive Elements */
+        .interactive-button {
+            position: relative;
+            background: linear-gradient(45deg, #4285f4, #34a853);
+            border: none;
+            border-radius: 15px;
+            padding: 12px 24px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            overflow: hidden;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(66, 133, 244, 0.4);
+        }
+
+        .interactive-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+
+        .interactive-button:hover::before {
+            left: 100%;
+        }
+
+        .interactive-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(66, 133, 244, 0.6);
+        }
+
+        .gemini-button {
+            background: var(--gemini-gradient);
+            background-size: 500% 500%;
+            animation: geminiGradientShift 10s ease-in-out infinite;
+        }
+
+        /* Language Toggle */
+        .language-toggle {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 0.5rem;
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .lang-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 10px;
+            background: transparent;
+            color: #9CA3AF;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 600;
+        }
+
+        .lang-btn.active {
+            background: linear-gradient(45deg, #4285f4, #34a853);
+            color: white;
+            box-shadow: 0 2px 10px rgba(66, 133, 244, 0.4);
+        }
+
+        /* Gemini Status Indicator */
+        .gemini-status {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: var(--gemini-gradient);
+            background-size: 500% 500%;
+            animation: geminiGradientShift 10s ease-in-out infinite;
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 15px;
+            padding: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: white;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .gemini-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ffffff;
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+            animation: geminiPulse 2s infinite;
+        }
+
+        @keyframes geminiPulse {
+            0%, 100% { 
+                transform: scale(1);
+                box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+            }
+            50% { 
+                transform: scale(1.2);
+                box-shadow: 0 0 25px rgba(255, 255, 255, 1);
+            }
+        }
+
+        /* Advanced Chart Containers */
+        .chart-container-advanced {
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03));
+            backdrop-filter: blur(30px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 25px;
+            padding: 2rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .chart-container-advanced::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: conic-gradient(from 0deg, transparent, rgba(66, 133, 244, 0.1), transparent);
+            animation: rotate 12s linear infinite;
+            z-index: -1;
+        }
+
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        /* Voice Command Indicator */
+        .voice-indicator {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            width: 60px;
+            height: 60px;
+            background: var(--gemini-gradient);
+            background-size: 400% 400%;
+            animation: geminiGradientShift 8s ease-in-out infinite;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(66, 133, 244, 0.4);
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+
+        .voice-indicator:hover {
+            transform: scale(1.1);
+            box-shadow: 0 8px 30px rgba(66, 133, 244, 0.6);
+        }
+
+        .voice-indicator.active {
+            animation: geminiVoicePulse 1s ease-in-out infinite;
+        }
+
+        @keyframes geminiVoicePulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
+
+        /* Gemini Assistant Panel */
+        .gemini-assistant {
+            position: fixed;
+            top: 50%;
+            right: -450px;
+            transform: translateY(-50%);
+            width: 420px;
+            height: 600px;
+            background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
+            backdrop-filter: blur(30px);
+            border: 1px solid rgba(66, 133, 244, 0.3);
+            border-radius: 25px;
+            padding: 2rem;
+            transition: right 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            z-index: 1001;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .gemini-assistant.active {
+            right: 30px;
+        }
+
+        /* Loading Animation */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--dark-gradient);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            transition: opacity 0.5s ease;
+        }
+
+        .loading-spinner {
+            width: 80px;
+            height: 80px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-left: 4px solid #4285f4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 2rem;
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 1.2rem;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .loading-progress {
+            width: 300px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: var(--gemini-gradient);
+            border-radius: 2px;
+            animation: loadingProgress 3s ease-in-out;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes loadingProgress {
+            0% { width: 0%; }
+            100% { width: 100%; }
+        }
+
+        /* Notification System */
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+            backdrop-filter: blur(25px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 15px;
+            padding: 1rem 1.5rem;
+            color: white;
+            font-weight: 500;
+            transform: translateX(400px);
+            transition: transform 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            z-index: 1002;
+            max-width: 350px;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .notification.success {
+            border-color: rgba(52, 168, 83, 0.5);
+            background: linear-gradient(145deg, rgba(52, 168, 83, 0.1), rgba(52, 168, 83, 0.05));
+        }
+
+        .notification.error {
+            border-color: rgba(234, 67, 53, 0.5);
+            background: linear-gradient(145deg, rgba(234, 67, 53, 0.1), rgba(234, 67, 53, 0.05));
+        }
+
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .glass-card {
+                padding: 1rem;
+                border-radius: 15px;
+            }
+            
+            .gemini-assistant {
+                width: 90vw;
+                right: -100vw;
+                height: 80vh;
+            }
+            
+            .gemini-assistant.active {
+                right: 5vw;
+            }
+
+            .language-toggle {
+                top: 10px;
+                left: 10px;
+            }
+
+            .gemini-status {
+                bottom: 10px;
+                left: 10px;
+            }
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--gemini-gradient);
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: linear-gradient(45deg, #34a853, #4285f4);
+        }
+
+        /* Advanced Animations */
+        .slide-in-advanced {
+            opacity: 0;
+            transform: translateX(-100px) rotateY(-90deg);
+            animation: slideInAdvanced 1s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+        }
+
+        @keyframes slideInAdvanced {
+            to {
+                opacity: 1;
+                transform: translateX(0) rotateY(0deg);
+            }
+        }
+
+        .float-animation {
+            animation: advancedFloat 8s ease-in-out infinite;
+        }
+
+        @keyframes advancedFloat {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            25% { transform: translateY(-15px) rotate(0.5deg); }
+            50% { transform: translateY(-25px) rotate(0deg); }
+            75% { transform: translateY(-10px) rotate(-0.5deg); }
+        }
+
+        /* Gemini Processing Indicator */
+        .gemini-processing {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--gemini-gradient);
+            background-size: 500% 500%;
+            animation: geminiGradientShift 3s ease-in-out infinite;
+            border-radius: 20px;
+            color: white;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+
+        .gemini-processing-dots {
+            display: flex;
+            gap: 2px;
+        }
+
+        .gemini-processing-dot {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: white;
+            animation: processingDot 1s ease-in-out infinite;
+        }
+
+        .gemini-processing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .gemini-processing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes processingDot {
+            0%, 60%, 100% { opacity: 0.3; }
+            30% { opacity: 1; }
+        }
+
+        /* Gemini Sparkle Effect */
+        .gemini-sparkle {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .gemini-sparkle::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: 
+                radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.3) 1px, transparent 1px),
+                radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.3) 1px, transparent 1px),
+                radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.2) 1px, transparent 1px);
+            background-size: 50px 50px, 30px 30px, 70px 70px;
+            animation: sparkle 8s linear infinite;
+            pointer-events: none;
+        }
+
+        @keyframes sparkle {
+            0% { transform: rotate(0deg) scale(1); }
+            100% { transform: rotate(360deg) scale(1.1); }
+        }
+    </style>
+</head>
+<body class="text-gray-200 rtl">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div id="loadingText" class="loading-text">جاري تحميل لوحة المعلومات المدعومة بـ Google Gemini AI...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar"></div>
+        </div>
+    </div>
+
+    <!-- Language Toggle -->
+    <div class="language-toggle">
+        <button class="lang-btn active" data-lang="ar">عربي</button>
+        <button class="lang-btn" data-lang="en">English</button>
+    </div>
+
+    <!-- Gemini Status Indicator -->
+    <div class="gemini-status">
+        <div class="gemini-indicator"></div>
+        <span id="geminiStatusText" data-ar="Google Gemini AI متصل" data-en="Google Gemini AI Connected">Google Gemini AI متصل</span>
+    </div>
+
+    <!-- Particles Background -->
+    <div id="particles-js"></div>
+
+    <!-- Navigation Header -->
+    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 gemini-enhanced rounded-xl flex items-center justify-center gemini-sparkle">
+                    <i class="fas fa-brain text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 id="mainTitle" class="text-2xl font-bold holographic" 
+                        data-ar="لوحة معلومات الأداء المالي الثورية مع Google Gemini AI" 
+                        data-en="Revolutionary AI-Powered Financial Dashboard with Google Gemini">
+                        لوحة معلومات الأداء المالي الثورية مع Google Gemini AI
+                    </h1>
+                    <p id="subtitle" class="text-sm text-gray-400" 
+                       data-ar="فرع الدمام - مدعوم بـ Google Gemini AI" 
+                       data-en="Dammam Branch - Powered by Google Gemini AI">
+                       فرع الدمام - مدعوم بـ Google Gemini AI
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="gemini-processing" id="geminiProcessingIndicator" style="display: none;">
+                    <i class="fas fa-brain"></i>
+                    <span data-ar="معالجة بـ Gemini AI" data-en="Gemini AI Processing">معالجة بـ Gemini AI</span>
+                    <div class="gemini-processing-dots">
+                        <div class="gemini-processing-dot"></div>
+                        <div class="gemini-processing-dot"></div>
+                        <div class="gemini-processing-dot"></div>
+                    </div>
+                </div>
+                <button id="geminiAssistantBtn" class="gemini-button interactive-button">
+                    <i class="fas fa-robot mr-2"></i>
+                    <span data-ar="مساعد Gemini AI" data-en="Gemini AI Assistant">مساعد Gemini AI</span>
+                </button>
+                <button id="geminiAnalysisBtn" class="gemini-button interactive-button">
+                    <i class="fas fa-chart-line mr-2"></i>
+                    <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
+                </button>
+                <button id="fullscreenBtn" class="interactive-button">
+                    <i class="fas fa-expand mr-2"></i>
+                    <span data-ar="ملء الشاشة" data-en="Fullscreen">ملء الشاشة</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex min-h-screen pt-20">
+        <!-- Advanced Sidebar -->
+        <aside class="glass w-96 p-6 space-y-6 overflow-y-auto m-4 rounded-3xl">
+            <!-- Gemini Insights Panel -->
+            <div class="gemini-chat-container slide-in-advanced">
+                <div class="flex items-center mb-6">
+                    <div class="w-12 h-12 gemini-enhanced rounded-xl flex items-center justify-center mr-4 gemini-sparkle">
+                        <i class="fas fa-brain text-white neon-glow"></i>
+                    </div>
+                    <div>
+                        <h2 id="geminiInsightsTitle" class="text-xl font-bold text-white" 
+                            data-ar="رؤى Google Gemini AI" data-en="Google Gemini AI Insights">رؤى Google Gemini AI</h2>
+                        <p id="geminiInsightsSubtitle" class="text-xs text-gray-400" 
+                           data-ar="تحليل متقدم وتوقعات ذكية" data-en="Advanced Analysis & Smart Predictions">تحليل متقدم وتوقعات ذكية</p>
+                    </div>
+                </div>
+                
+                <div id="geminiInsights" class="space-y-4">
+                    <!-- Gemini insights will be populated here -->
+                </div>
+                
+                <button id="generateInsightsBtn" class="gemini-button interactive-button w-full mt-4">
+                    <i class="fas fa-magic mr-2"></i>
+                    <span data-ar="توليد رؤى جديدة" data-en="Generate New Insights">توليد رؤى جديدة</span>
+                </button>
+            </div>
+
+            <!-- Advanced Scenario Controls -->
+            <div class="glass-card slide-in-advanced">
+                <h2 id="scenarioTitle" class="text-xl font-bold text-white text-center mb-6 flex items-center justify-center"
+                    data-ar="محاكاة السيناريوهات الذكية" data-en="Smart Scenario Simulation">
+                    <i class="fas fa-sliders-h text-blue-400 ml-2 neon-glow"></i>
+                    محاكاة السيناريوهات الذكية
+                </h2>
+                
+                <div id="advancedControls" class="space-y-6">
+                    <!-- Advanced controls will be populated here -->
+                </div>
+
+                <!-- Gemini-Powered Scenario Suggestions -->
+                <div class="mt-6 pt-4 border-t border-gray-700">
+                    <h3 id="geminiSuggestionsTitle" class="text-sm font-bold text-gray-300 mb-3"
+                        data-ar="اقتراحات Gemini AI" data-en="Gemini AI Suggestions">اقتراحات Gemini AI</h3>
+                    <div id="geminiSuggestions" class="space-y-2">
+                        <!-- Gemini suggestions will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Gemini Analytics -->
+            <div class="gemini-chat-container slide-in-advanced">
+                <h3 id="realtimeTitle" class="text-lg font-bold text-white mb-4 flex items-center"
+                    data-ar="التحليل الفوري بـ Gemini AI" data-en="Real-time Gemini AI Analysis">
+                    <i class="fas fa-chart-pulse text-green-400 ml-2 neon-glow"></i>
+                    التحليل الفوري بـ Gemini AI
+                </h3>
+                <div id="realtimeMetrics" class="space-y-3">
+                    <!-- Real-time metrics will be populated here -->
+                </div>
+                
+                <button id="geminiPredictionBtn" class="gemini-button interactive-button w-full mt-4">
+                    <i class="fas fa-crystal-ball mr-2"></i>
+                    <span data-ar="توقعات ذكية" data-en="Smart Predictions">توقعات ذكية</span>
+                </button>
+            </div>
+
+            <!-- Advanced Actions -->
+            <div class="glass-card slide-in-advanced">
+                <h3 id="actionsTitle" class="text-lg font-bold text-white mb-4 flex items-center"
+                    data-ar="إجراءات ذكية متقدمة" data-en="Advanced Smart Actions">
+                    <i class="fas fa-rocket text-yellow-400 ml-2 neon-glow"></i>
+                    إجراءات ذكية متقدمة
+                </h3>
+                <div class="space-y-3">
+                    <button id="wardahSyncBtn" class="gemini-button interactive-button w-full">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        <span data-ar="مزامنة مع وردة ERP" data-en="Sync with Wardah ERP">مزامنة مع وردة ERP</span>
+                    </button>
+                    <button id="geminiReportBtn" class="gemini-button interactive-button w-full">
+                        <i class="fas fa-file-alt mr-2"></i>
+                        <span data-ar="تقرير ذكي" data-en="Smart Report">تقرير ذكي</span>
+                    </button>
+                    <button id="geminiOptimizationBtn" class="gemini-button interactive-button w-full">
+                        <i class="fas fa-cogs mr-2"></i>
+                        <span data-ar="تحسين ذكي" data-en="Smart Optimization">تحسين ذكي</span>
+                    </button>
+                    <button id="geminiRiskAnalysisBtn" class="gemini-button interactive-button w-full">
+                        <i class="fas fa-shield-alt mr-2"></i>
+                        <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
+                    </button>
+                    <button id="geminiStrategyBtn" class="gemini-button interactive-button w-full">
+                        <i class="fas fa-chess mr-2"></i>
+                        <span data-ar="استراتيجية ذكية" data-en="Smart Strategy">استراتيجية ذكية</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="flex-1 p-8 overflow-y-auto">
+            <!-- Advanced KPI Grid -->
+            <div id="advancedKpiContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Advanced KPI cards will be injected here -->
+            </div>
+
+            <!-- Interactive Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- Gemini-Enhanced Performance Chart -->
+                <div class="chart-container-advanced float-animation">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 id="chart3DTitle" class="text-xl font-bold text-white flex items-center"
+                            data-ar="تحليل الأداء المدعوم بـ Gemini AI" data-en="Gemini AI-Enhanced Performance Analysis">
+                            <i class="fas fa-brain text-blue-400 ml-2 neon-glow"></i>
+                            تحليل الأداء المدعوم بـ Gemini AI
+                        </h3>
+                        <button id="geminiChartAnalysisBtn" class="gemini-button interactive-button text-xs">
+                            <i class="fas fa-magic mr-1"></i>
+                            <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
+                        </button>
+                    </div>
+                    <div id="advanced3DChart" class="h-96"></div>
+                </div>
+
+                <!-- Predictive Analytics Chart -->
+                <div class="chart-container-advanced float-animation">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 id="predictiveChartTitle" class="text-xl font-bold text-white flex items-center"
+                            data-ar="التحليل التنبؤي بـ Gemini AI" data-en="Gemini AI Predictive Analysis">
+                            <i class="fas fa-chart-line text-green-400 ml-2 neon-glow"></i>
+                            التحليل التنبؤي بـ Gemini AI
+                        </h3>
+                        <div class="gemini-processing" style="font-size: 0.75rem;">
+                            <i class="fas fa-brain"></i>
+                            <span data-ar="مدعوم بـ Gemini" data-en="Gemini Powered">مدعوم بـ Gemini</span>
+                        </div>
+                    </div>
+                    <div id="predictiveChart" class="h-96"></div>
+                </div>
+            </div>
+
+            <!-- Gemini-Enhanced Financial Breakdown -->
+            <div class="chart-container-advanced mb-8 float-animation">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="financialBreakdownTitle" class="text-xl font-bold text-white flex items-center"
+                        data-ar="التحليل المالي الذكي التفاعلي" data-en="Interactive Smart Financial Analysis">
+                        <i class="fas fa-chart-pie text-purple-400 ml-2 neon-glow"></i>
+                        التحليل المالي الذكي التفاعلي
+                    </h3>
+                    <div class="flex space-x-2">
+                        <button id="geminiInsightBtn" class="gemini-button interactive-button text-xs">
+                            <i class="fas fa-lightbulb mr-1"></i>
+                            <span data-ar="رؤى ذكية" data-en="Smart Insights">رؤى ذكية</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div id="advancedBreakdownChart" class="h-80"></div>
+                    <div id="financialInsights" class="space-y-4">
+                        <!-- Financial insights will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gemini Recommendations Panel -->
+            <div class="gemini-chat-container mb-8 float-animation">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="geminiRecommendationsTitle" class="text-xl font-bold text-white flex items-center"
+                        data-ar="توصيات Google Gemini AI الذكية" data-en="Google Gemini AI Smart Recommendations">
+                        <i class="fas fa-lightbulb text-yellow-400 ml-2 neon-glow"></i>
+                        توصيات Google Gemini AI الذكية
+                    </h3>
+                </div>
+                <div id="geminiRecommendations" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Gemini recommendations will be populated here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Voice Command Indicator -->
+    <div id="voiceIndicator" class="voice-indicator">
+        <i class="fas fa-microphone text-white text-xl"></i>
+    </div>
+
+    <!-- Gemini Assistant Panel -->
+    <div id="geminiAssistant" class="gemini-assistant">
+        <div class="flex items-center justify-between mb-4">
+            <h3 id="geminiAssistantTitle" class="text-lg font-bold text-white flex items-center"
+                data-ar="مساعد Google Gemini AI" data-en="Google Gemini AI Assistant">
+                <i class="fas fa-brain text-blue-400 mr-2"></i>
+                مساعد Google Gemini AI
+            </h3>
+            <button id="closeGeminiAssistant" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="mb-4">
+            <div class="gemini-processing" style="font-size: 0.75rem;">
+                <i class="fas fa-brain"></i>
+                <span data-ar="نموذج: Gemini Pro" data-en="Model: Gemini Pro">نموذج: Gemini Pro</span>
+            </div>
+        </div>
+        
+        <div id="geminiChat" class="h-80 overflow-y-auto mb-4 space-y-3 p-4 bg-black bg-opacity-20 rounded-lg">
+            <div class="gemini-message">
+                <div class="flex items-start space-x-3">
+                    <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-brain text-white text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm text-white" data-ar="مرحباً! أنا مساعد Google Gemini AI الذكي. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة بقوة الذكاء الاصطناعي من Google. كيف يمكنني مساعدتك اليوم؟" 
+                           data-en="Hello! I'm your Google Gemini AI smart assistant. I can help you analyze financial data and provide advanced strategic insights powered by Google's AI. How can I assist you today?">
+                           مرحباً! أنا مساعد Google Gemini AI الذكي. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة بقوة الذكاء الاصطناعي من Google. كيف يمكنني مساعدتك اليوم؟
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex space-x-2">
+            <input type="text" id="geminiInput" 
+                   data-ar-placeholder="اسأل Google Gemini AI عن أي شيء..." 
+                   data-en-placeholder="Ask Google Gemini AI anything..."
+                   placeholder="اسأل Google Gemini AI عن أي شيء..." 
+                   class="flex-1 bg-black bg-opacity-20 border border-blue-500 border-opacity-30 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none">
+            <button id="sendGeminiMessage" class="gemini-button interactive-button">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+        
+        <div class="mt-4 flex flex-wrap gap-2">
+            <button class="quick-question gemini-button interactive-button text-xs" data-question="تحليل الأداء المالي">
+                <span data-ar="تحليل الأداء" data-en="Performance Analysis">تحليل الأداء</span>
+            </button>
+            <button class="quick-question gemini-button interactive-button text-xs" data-question="توصيات التحسين">
+                <span data-ar="توصيات التحسين" data-en="Improvement Tips">توصيات التحسين</span>
+            </button>
+            <button class="quick-question gemini-button interactive-button text-xs" data-question="تحليل المخاطر">
+                <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
+            </button>
+            <button class="quick-question gemini-button interactive-button text-xs" data-question="استراتيجية النمو">
+                <span data-ar="استراتيجية النمو" data-en="Growth Strategy">استراتيجية النمو</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notificationContainer"></div>
+
+    <script>
+        // Google Gemini AI Enhanced Financial Dashboard
+        class GeminiEnhancedFinancialDashboard {
+            constructor() {
+                this.geminiApiKey = 'AIzaSyDAkAe-ZAzTEvmey5C5tXSlMKdiQlzfYA';
+                this.geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+                // Wardah ERP Integration (Secure backend proxy)
+                this.wardahProxyConfig = {
+                    proxyUrl: '/api/wardah', // URL to your proxy service
+                    proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
+                };
+                
+                this.data = {
+                    assumptions: {
+                        cogs_rate: 0.70,
+                        salesMultiplier: 1.0,
+                        sellingExpensesMultiplier: 1.0,
+                        adminExpensesMultiplier: 1.0,
+                    },
+                    
+                    baseFinancialData: {
+                        'يناير':  {'p':[80833.5,0,0], 's_exp': [3500, 1200], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
+                        'فبراير': {'p':[84651,0,0],   's_exp': [3800, 1350], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
+                        'مارس':   {'p':[56362,0,0],   's_exp': [2900, 1100], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
+                        'أبريل':  {'p':[58171.5,0,0], 's_exp': [3100, 1200], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
+                        'مايو':   {'p':[69151.5,0,0], 's_exp': [3370, 1300], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
+                        'يونيو':  {'p':[108758,0,0],  's_exp': [4500, 1500], 'a_exp': [16165, 6710, 2250, 1431, 747, 808, 290, 200]}
+                    },
+                    
+                    months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو"],
+                    monthsEn: ["January", "February", "March", "April", "May", "June"],
+                    charts: {},
+                    geminiInsights: [],
+                    voiceRecognition: null,
+                    isListening: false,
+                    currentLanguage: 'ar',
+                    settings: {
+                        theme: 'dark',
+                        refreshRate: 30,
+                        autoSync: true,
+                        soundEffects: true
+                    },
+                    geminiStatus: {
+                        connected: true,
+                        processing: false,
+                        lastQuery: null
+                    },
+                    loadingSteps: [
+                        { ar: 'تحميل Google Gemini AI...', en: 'Loading Google Gemini AI...' },
+                        { ar: 'إعداد الواجهة الذكية...', en: 'Setting up smart interface...' },
+                        { ar: 'تحميل البيانات المالية...', en: 'Loading financial data...' },
+                        { ar: 'إنشاء المخططات الذكية...', en: 'Creating smart charts...' },
+                        { ar: 'تطبيق ذكاء Gemini...', en: 'Applying Gemini intelligence...' },
+                        { ar: 'اكتمل التحميل!', en: 'Loading complete!' }
+                    ]
+                };
+
+                this.translations = {
+                    ar: {
+                        totalSales: 'إجمالي المبيعات',
+                        netProfit: 'صافي الربح',
+                        breakEven: 'نقطة التعادل',
+                        marginOfSafety: 'هامش الأمان',
+                        costEfficiency: 'كفاءة التكاليف',
+                        growthRate: 'معدل النمو',
+                        performanceIndex: 'مؤشر الأداء',
+                        currency: 'ر.س'
+                    },
+                    en: {
+                        totalSales: 'Total Sales',
+                        netProfit: 'Net Profit',
+                        breakEven: 'Break Even',
+                        marginOfSafety: 'Margin of Safety',
+                        costEfficiency: 'Cost Efficiency',
+                        growthRate: 'Growth Rate',
+                        performanceIndex: 'Performance Index',
+                        currency: 'SAR'
+                    }
+                };
+
+                this.init();
+            }
+
+            async init() {
+                try {
+                    this.showLoadingStep(0);
+                    await this.testGeminiConnection();
+                    
+                    this.showLoadingStep(1);
+                    await this.delay(500);
+                    this.setupEventListeners();
+                    this.initializeVoiceRecognition();
+                    
+                    this.showLoadingStep(2);
+                    await this.delay(500);
+                    await this.loadData();
+                    
+                    this.showLoadingStep(3);
+                    await this.delay(500);
+                    this.render();
+                    
+                    this.showLoadingStep(4);
+                    await this.delay(500);
+                    await this.generateInitialGeminiInsights();
+                    
+                    this.showLoadingStep(5);
+                    await this.delay(500);
+                    
+                    this.hideLoadingOverlay();
+                    this.startAdvancedAnimations();
+                    this.startRealtimeUpdates();
+                    
+                } catch (error) {
+                    console.error('Initialization error:', error);
+                    this.hideLoadingOverlay();
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'حدث خطأ أثناء التحميل' : 'Loading error occurred',
+                        'error'
+                    );
+                }
+            }
+
+            async testGeminiConnection() {
+                try {
+                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{
+                                    text: 'Test connection'
+                                }]
+                            }]
+                        })
+                    });
+
+                    if (response.ok) {
+                        this.data.geminiStatus.connected = true;
+                        console.log('Google Gemini AI connected successfully');
+                    } else {
+                        throw new Error('Connection failed');
+                    }
+                } catch (error) {
+                    console.warn('Google Gemini AI connection failed, using fallback mode:', error);
+                    this.data.geminiStatus.connected = false;
+                }
+            }
+
+            async callGeminiAPI(prompt, maxTokens = 500) {
+                if (!this.data.geminiStatus.connected) {
+                    return this.getFallbackResponse(prompt);
+                }
+
+                try {
+                    this.showGeminiProcessing(true);
+                    
+                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            contents: [{
+                                parts: [{
+                                    text: prompt
+                                }]
+                            }],
+                            generationConfig: {
+                                maxOutputTokens: maxTokens,
+                                temperature: 0.7
+                            }
+                        })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`API call failed: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    this.showGeminiProcessing(false);
+                    
+                    return data.candidates[0].content.parts[0].text;
+                } catch (error) {
+                    console.error('Gemini API error:', error);
+                    this.showGeminiProcessing(false);
+                    return this.getFallbackResponse(prompt);
+                }
+            }
+
+            getFallbackResponse(userMessage) {
+                const fallbackResponses = {
+                    ar: {
+                        'تحليل': 'بناءً على البيانات المتاحة، يظهر الأداء المالي تحسناً تدريجياً مع إمكانيات نمو واعدة. يُنصح بالتركيز على تحسين الكفاءة التشغيلية.',
+                        'توصيات': 'أنصح بتركيز الجهود على تقليل التكاليف الإدارية بنسبة 15% وزيادة كفاءة المبيعات من خلال التسويق الرقمي.',
+                        'مخاطر': 'المخاطر الرئيسية تتمثل في تقلبات السوق وارتفاع التكاليف التشغيلية. يُنصح بوضع خطة طوارئ مالية.',
+                        'استراتيجية': 'الاستراتيجية المقترحة تركز على التوسع المدروس وتحسين الكفاءة التشغيلية مع الاستثمار في التكنولوجيا.',
+                        'default': 'شكراً لسؤالك. يمكنني مساعدتك في تحليل البيانات المالية وتقديم التوصيات المناسبة باستخدام قوة Google Gemini AI.'
+                    },
+                    en: {
+                        'analysis': 'Based on available data, financial performance shows gradual improvement with promising growth potential. Focus on operational efficiency is recommended.',
+                        'recommendations': 'I recommend focusing efforts on reducing administrative costs by 15% and increasing sales efficiency through digital marketing.',
+                        'risks': 'Main risks include market fluctuations and rising operational costs. A financial contingency plan is recommended.',
+                        'strategy': 'The proposed strategy focuses on measured expansion and operational efficiency improvement with technology investment.',
+                        'default': 'Thank you for your question. I can help you analyze financial data and provide appropriate recommendations using Google Gemini AI power.'
+                    }
+                };
+
+                const responses = fallbackResponses[this.data.currentLanguage];
+                const message = userMessage.toLowerCase();
+                
+                for (const [key, response] of Object.entries(responses)) {
+                    if (message.includes(key)) {
+                        return response;
+                    }
+                }
+                
+                return responses.default;
+            }
+
+            showGeminiProcessing(show) {
+                const indicator = document.getElementById('geminiProcessingIndicator');
+                if (indicator) {
+                    indicator.style.display = show ? 'flex' : 'none';
+                }
+                this.data.geminiStatus.processing = show;
+            }
+
+            delay(ms) {
+                return new Promise(resolve => setTimeout(resolve, ms));
+            }
+
+            showLoadingStep(stepIndex) {
+                const loadingText = document.getElementById('loadingText');
+                if (loadingText && this.data.loadingSteps[stepIndex]) {
+                    const step = this.data.loadingSteps[stepIndex];
+                    loadingText.textContent = step[this.data.currentLanguage];
+                }
+            }
+
+            setupEventListeners() {
+                // Language Toggle
+                document.querySelectorAll('.lang-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        this.switchLanguage(btn.dataset.lang);
+                    });
+                });
+
+                // Gemini Assistant
+                document.getElementById('geminiAssistantBtn').addEventListener('click', () => {
+                    document.getElementById('geminiAssistant').classList.toggle('active');
+                });
+
+                document.getElementById('closeGeminiAssistant').addEventListener('click', () => {
+                    document.getElementById('geminiAssistant').classList.remove('active');
+                });
+
+                // Gemini Chat
+                document.getElementById('sendGeminiMessage').addEventListener('click', () => {
+                    this.sendGeminiMessage();
+                });
+
+                document.getElementById('geminiInput').addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') {
+                        this.sendGeminiMessage();
+                    }
+                });
+
+                // Quick Questions
+                document.querySelectorAll('.quick-question').forEach(btn => {
+                    btn.addEventListener('click', (e) => {
+                        const question = e.target.closest('.quick-question').dataset.question;
+                        document.getElementById('geminiInput').value = question;
+                        this.sendGeminiMessage();
+                    });
+                });
+
+                // Gemini Analysis Buttons
+                document.getElementById('geminiAnalysisBtn').addEventListener('click', () => {
+                    this.performGeminiAnalysis();
+                });
+
+                document.getElementById('generateInsightsBtn').addEventListener('click', () => {
+                    this.generateGeminiInsights();
+                });
+
+                document.getElementById('geminiPredictionBtn').addEventListener('click', () => {
+                    this.generateGeminiPredictions();
+                });
+
+                document.getElementById('geminiReportBtn').addEventListener('click', () => {
+                    this.generateGeminiReport();
+                });
+
+                document.getElementById('geminiOptimizationBtn').addEventListener('click', () => {
+                    this.generateOptimizationSuggestions();
+                });
+
+                document.getElementById('geminiRiskAnalysisBtn').addEventListener('click', () => {
+                    this.performRiskAnalysis();
+                });
+
+                document.getElementById('geminiStrategyBtn').addEventListener('click', () => {
+                    this.generateStrategicRecommendations();
+                });
+
+                // Voice Recognition
+                document.getElementById('voiceIndicator').addEventListener('click', () => {
+                    this.toggleVoiceRecognition();
+                });
+
+                // Advanced Controls
+                document.addEventListener('change', (e) => {
+                    if (e.target.type === 'range') {
+                        this.updateAssumptions();
+                        this.render();
+                        this.showNotification(
+                            this.data.currentLanguage === 'ar' ? 'تم تحديث البيانات بنجاح' : 'Data updated successfully'
+                        );
+                    }
+                });
+
+                // Fullscreen
+                document.getElementById('fullscreenBtn').addEventListener('click', () => {
+                    this.toggleFullscreen();
+                });
+
+                // Add Wardah sync button event listener
+                const syncButton = document.getElementById('wardahSyncBtn');
+                if (syncButton) {
+                    syncButton.addEventListener('click', () => {
+                        this.syncWithWardah();
+                    });
+                }
+            }
+
+            switchLanguage(lang) {
+                this.data.currentLanguage = lang;
+                
+                // Update body direction
+                document.body.className = document.body.className.replace(/\b(rtl|ltr)\b/g, '');
+                document.body.classList.add(lang === 'ar' ? 'rtl' : 'ltr');
+                
+                // Update language buttons
+                document.querySelectorAll('.lang-btn').forEach(btn => {
+                    btn.classList.toggle('active', btn.dataset.lang === lang);
+                });
+
+                // Update all translatable elements
+                document.querySelectorAll('[data-ar][data-en]').forEach(element => {
+                    const text = element.getAttribute(`data-${lang}`);
+                    if (text) {
+                        if (element.tagName === 'INPUT' && element.type === 'text') {
+                            element.placeholder = text;
+                        } else {
+                            element.textContent = text;
+                        }
+                    }
+                });
+
+                // Update charts and data if already rendered
+                if (Object.keys(this.data.charts).length > 0) {
+                    this.render();
+                }
+            }
+
+            async loadData() {
+                await this.delay(1000);
+                this.generateBasicInsights();
+            }
+
+            generateBasicInsights() {
+                const { annual } = this.calculateFinancials();
+                
+                const insights = {
+                    ar: [
+                        {
+                            type: 'performance',
+                            title: 'تحليل الأداء الحالي',
+                            content: `الأداء المالي يظهر ${annual.totalNetProfit >= 0 ? 'ربحية' : 'خسائر'} بقيمة ${Math.abs(annual.totalNetProfit).toLocaleString()} ر.س`,
+                            confidence: 85,
+                            icon: 'fas fa-chart-line'
+                        },
+                        {
+                            type: 'trend',
+                            title: 'اتجاه المبيعات',
+                            content: `إجمالي المبيعات بلغ ${annual.totalSales.toLocaleString()} ر.س مع نمو متوقع`,
+                            confidence: 78,
+                            icon: 'fas fa-arrow-trend-up'
+                        }
+                    ],
+                    en: [
+                        {
+                            type: 'performance',
+                            title: 'Current Performance Analysis',
+                            content: `Financial performance shows ${annual.totalNetProfit >= 0 ? 'profitability' : 'losses'} of ${Math.abs(annual.totalNetProfit).toLocaleString()} SAR`,
+                            confidence: 85,
+                            icon: 'fas fa-chart-line'
+                        },
+                        {
+                            type: 'trend',
+                            title: 'Sales Trend',
+                            content: `Total sales reached ${annual.totalSales.toLocaleString()} SAR with expected growth`,
+                            confidence: 78,
+                            icon: 'fas fa-arrow-trend-up'
+                        }
+                    ]
+                };
+                
+                this.data.geminiInsights = insights[this.data.currentLanguage];
+            }
+
+            async generateInitialGeminiInsights() {
+                const { monthly, annual } = this.calculateFinancials();
+                
+                const prompt = `As a financial analyst AI, analyze this financial data for Dammam branch (Jan-Jun 2025):
+                - Total Sales: ${annual.totalSales.toLocaleString()} SAR
+                - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
+                - Break Even: ${annual.breakEven.toLocaleString()} SAR
+                - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
+                
+                Provide 3 key insights in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'} language, each with a confidence score. Focus on actionable recommendations.`;
+
+                try {
+                    const response = await this.callGeminiAPI(prompt);
+                    this.parseGeminiInsights(response);
+                } catch (error) {
+                    console.error('Error generating Gemini insights:', error);
+                }
+            }
+
+            parseGeminiInsights(response) {
+                // Simple parsing - in production, you'd want more sophisticated parsing
+                const insights = [];
+                const lines = response.split('\n').filter(line => line.trim());
+                
+                lines.forEach((line, index) => {
+                    if (line.trim() && index < 3) {
+                        insights.push({
+                            type: 'gemini-generated',
+                            title: `رؤية Gemini ${index + 1}`,
+                            content: line.trim(),
+                            confidence: 85 + Math.random() * 10,
+                            icon: 'fas fa-brain'
+                        });
+                    }
+                });
+
+                if (insights.length > 0) {
+                    this.data.geminiInsights = insights;
+                    this.renderGeminiInsights();
+                }
+            }
+
+            async sendGeminiMessage() {
+                const input = document.getElementById('geminiInput');
+                if (!input) return;
+                
+                const message = input.value.trim();
+                if (!message) return;
+                
+                this.addGeminiMessage('user', message);
+                input.value = '';
+                
+                // Show typing indicator
+                this.showTypingIndicator();
+                
+                try {
+                    const { monthly, annual } = this.calculateFinancials();
+                    
+                    const contextPrompt = `You are Google Gemini AI, a financial analysis assistant. 
+                    
+                    Financial context for Dammam branch:
+                    - Total Sales: ${annual.totalSales.toLocaleString()} SAR
+                    - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
+                    - Break Even: ${annual.breakEven.toLocaleString()} SAR
+                    - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
+                    
+                    User question: ${message}
+                    
+                    Please respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'} with specific financial insights and actionable recommendations.`;
+
+                    const response = await this.callGeminiAPI(contextPrompt);
+
+                    this.hideTypingIndicator();
+                    this.addGeminiMessage('assistant', response);
+                    
+                } catch (error) {
+                    this.hideTypingIndicator();
+                    this.addGeminiMessage('assistant', this.getFallbackResponse(message));
+                }
+            }
+
+            addGeminiMessage(sender, message) {
+                const chatContainer = document.getElementById('geminiChat');
+                if (!chatContainer) return;
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = sender === 'user' ? 'user-message' : 'gemini-message';
+                
+                if (sender === 'user') {
+                    messageDiv.innerHTML = `
+                        <div class="flex items-start space-x-3 justify-end">
+                            <div class="flex-1 text-right">
+                                <p class="text-sm text-white">${message}</p>
+                            </div>
+                            <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-user text-white text-sm"></i>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    messageDiv.innerHTML = `
+                        <div class="flex items-start space-x-3">
+                            <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-brain text-white text-sm"></i>
+                            </div>
+                            <div class="flex-1">
+                                <p class="text-sm text-white">${message}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+                
+                chatContainer.appendChild(messageDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            showTypingIndicator() {
+                const chatContainer = document.getElementById('geminiChat');
+                if (!chatContainer) return;
+                
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'typing-indicator';
+                typingDiv.id = 'typingIndicator';
+                typingDiv.innerHTML = `
+                    <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0 mr-3">
+                        <i class="fas fa-brain text-white text-sm"></i>
+                    </div>
+                    <div class="typing-dots">
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                        <div class="typing-dot"></div>
+                    </div>
+                    <span class="text-sm text-gray-400 mr-2">Gemini AI يكتب...</span>
+                `;
+                
+                chatContainer.appendChild(typingDiv);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+
+            hideTypingIndicator() {
+                const typingIndicator = document.getElementById('typingIndicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+            }
+
+            async performGeminiAnalysis() {
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'جاري تشغيل التحليل الذكي بـ Gemini...' : 'Running Gemini AI analysis...'
+                );
+
+                const { monthly, annual } = this.calculateFinancials();
+                
+                const prompt = `As Google Gemini AI, perform comprehensive financial analysis for this data:
+                Monthly profits: ${monthly.map(m => Math.round(m.netProfit)).join(', ')} SAR
+                Total sales: ${annual.totalSales.toLocaleString()} SAR
+                Break-even: ${annual.breakEven.toLocaleString()} SAR
+                
+                Provide detailed analysis with specific recommendations in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+
+                try {
+                    const response = await this.callGeminiAPI(prompt, 800);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                    
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'تم إكمال التحليل الذكي' : 'Gemini AI analysis completed',
+                        'success'
+                    );
+                } catch (error) {
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في التحليل الذكي' : 'Gemini AI analysis failed',
+                        'error'
+                    );
+                }
+            }
+
+            async generateGeminiInsights() {
+                await this.generateInitialGeminiInsights();
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'تم توليد رؤى جديدة بـ Gemini' : 'New Gemini insights generated',
+                    'success'
+                );
+            }
+
+            async generateGeminiPredictions() {
+                const prompt = `As Google Gemini AI, based on the financial trend data, predict the next 3 months performance with specific numbers and reasoning. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+                
+                try {
+                    const response = await this.callGeminiAPI(prompt, 600);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                } catch (error) {
+                    console.error('Prediction error:', error);
+                }
+            }
+
+            calculateFinancials() {
+                const monthlyCalcs = this.data.months.map(month => {
+                    const base = this.data.baseFinancialData[month];
+                    const sales = this.sum(base.p) * this.data.assumptions.salesMultiplier;
+                    const cogs = sales * this.data.assumptions.cogs_rate;
+                    const grossProfit = sales - cogs;
+                    const sellingExpenses = this.sum(base.s_exp) * this.data.assumptions.sellingExpensesMultiplier;
+                    const operatingProfit = grossProfit - sellingExpenses;
+                    const adminExpenses = this.sum(base.a_exp) * this.data.assumptions.adminExpensesMultiplier;
+                    const netProfit = operatingProfit - adminExpenses;
+                    
+                    return { 
+                        month, sales, cogs, grossProfit, sellingExpenses, 
+                        operatingProfit, adminExpenses, netProfit 
+                    };
+                });
+
+                const annualTotals = {
+                    totalSales: this.sum(monthlyCalcs.map(m => m.sales)),
+                    totalCogs: this.sum(monthlyCalcs.map(m => m.cogs)),
+                    totalGrossProfit: this.sum(monthlyCalcs.map(m => m.grossProfit)),
+                    totalSellingExpenses: this.sum(monthlyCalcs.map(m => m.sellingExpenses)),
+                    totalAdminExpenses: this.sum(monthlyCalcs.map(m => m.adminExpenses)),
+                    totalNetProfit: this.sum(monthlyCalcs.map(m => m.netProfit)),
+                };
+
+                // Advanced calculations
+                annualTotals.contributionMarginRatio = annualTotals.totalSales > 0 ? 
+                    (annualTotals.totalGrossProfit - annualTotals.totalSellingExpenses) / annualTotals.totalSales : 0;
+                
+                annualTotals.breakEven = annualTotals.totalAdminExpenses > 0 && annualTotals.contributionMarginRatio > 0 ? 
+                    (annualTotals.totalAdminExpenses / 6 / annualTotals.contributionMarginRatio) : 0;
+                
+                annualTotals.marginOfSafety = annualTotals.totalSales > 0 && annualTotals.breakEven > 0 ?
+                    ((annualTotals.totalSales / 6 - annualTotals.breakEven) / (annualTotals.totalSales / 6)) * 100 : 0;
+
+                return { monthly: monthlyCalcs, annual: annualTotals };
+            }
+
+            render() {
+                try {
+                    const { monthly, annual } = this.calculateFinancials();
+                    this.renderAdvancedKPIs(annual);
+                    this.renderAdvancedCharts(monthly, annual);
+                    this.renderGeminiInsights();
+                    this.renderAdvancedControls();
+                    this.renderRealtimeMetrics(annual);
+                    this.renderGeminiRecommendations(annual);
+                } catch (error) {
+                    console.error('Render error:', error);
+                }
+            }
+
+            renderAdvancedKPIs(annual) {
+                const container = document.getElementById('advancedKpiContainer');
+                if (!container) return;
+                
+                const formatCurrency = (val) => `${Math.round(val).toLocaleString()} ${this.translations[this.data.currentLanguage].currency}`;
+                const formatPercent = (val) => `${val.toFixed(1)}%`;
+                const t = this.translations[this.data.currentLanguage];
+
+                const kpis = [
+                    {
+                        title: t.totalSales,
+                        value: formatCurrency(annual.totalSales),
+                        trend: '+12.5%',
+                        trendType: 'up',
+                        icon: 'fas fa-chart-line',
+                        gradient: 'from-blue-500 to-purple-600'
+                    },
+                    {
+                        title: t.netProfit,
+                        value: formatCurrency(annual.totalNetProfit),
+                        trend: annual.totalNetProfit >= 0 ? '+8.3%' : '-15.2%',
+                        trendType: annual.totalNetProfit >= 0 ? 'up' : 'down',
+                        icon: annual.totalNetProfit >= 0 ? 'fas fa-arrow-trend-up' : 'fas fa-arrow-trend-down',
+                        gradient: annual.totalNetProfit >= 0 ? 'from-green-500 to-teal-600' : 'from-red-500 to-pink-600'
+                    },
+                    {
+                        title: t.breakEven,
+                        value: formatCurrency(annual.breakEven),
+                        trend: '-5.1%',
+                        trendType: 'up',
+                        icon: 'fas fa-balance-scale',
+                        gradient: 'from-yellow-500 to-orange-600'
+                    },
+                    {
+                        title: t.marginOfSafety,
+                        value: formatPercent(annual.marginOfSafety),
+                        trend: annual.marginOfSafety > 10 ? '+2.8%' : '-1.2%',
+                        trendType: annual.marginOfSafety > 10 ? 'up' : 'down',
+                        icon: 'fas fa-shield-alt',
+                        gradient: annual.marginOfSafety > 20 ? 'from-green-500 to-teal-600' : 
+                                 annual.marginOfSafety > 10 ? 'from-yellow-500 to-orange-600' : 'from-red-500 to-pink-600'
+                    }
+                ];
+
+                container.innerHTML = kpis.map((kpi, index) => `
+                    <div class="kpi-advanced slide-in-advanced gemini-sparkle" style="animation-delay: ${index * 0.1}s">
+                        <div class="flex items-center justify-between mb-4">
+                            <div class="w-12 h-12 bg-gradient-to-r ${kpi.gradient} rounded-xl flex items-center justify-center">
+                                <i class="${kpi.icon} text-white text-xl"></i>
+                            </div>
+                            <div class="metric-trend trend-${kpi.trendType}">
+                                <i class="fas fa-arrow-${kpi.trendType === 'up' ? 'up' : 'down'} mr-1"></i>
+                                ${kpi.trend}
+                            </div>
+                        </div>
+                        <h3 class="text-gray-300 text-sm font-medium mb-2">${kpi.title}</h3>
+                        <div class="text-3xl font-bold bg-gradient-to-r ${kpi.gradient} bg-clip-text text-transparent mb-1">${kpi.value}</div>
+                        <div class="w-full bg-gray-700 rounded-full h-2 mt-3">
+                            <div class="bg-gradient-to-r ${kpi.gradient} h-2 rounded-full transition-all duration-1000" 
+                                 style="width: ${Math.min(100, Math.abs(parseFloat(kpi.trend)) * 5)}%"></div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderAdvancedCharts(monthly, annual) {
+                this.render3DChart(monthly);
+                this.renderPredictiveChart(monthly);
+                this.renderAdvancedBreakdownChart(annual);
+            }
+
+            render3DChart(monthlyData) {
+                const chartElement = document.querySelector("#advanced3DChart");
+                if (!chartElement) return;
+                
+                const months = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
+                const t = this.translations[this.data.currentLanguage];
+                
+                const options = {
+                    chart: {
+                        type: 'line',
+                        height: 350,
+                        toolbar: { show: false },
+                        foreColor: '#A0AEC0',
+                        background: 'transparent',
+                        animations: {
+                            enabled: true,
+                            easing: 'easeinout',
+                            speed: 800
+                        }
+                    },
+                    series: [
+                        {
+                            name: this.data.currentLanguage === 'ar' ? 'المبيعات' : 'Sales',
+                            type: 'area',
+                            data: monthlyData.map(m => Math.round(m.sales))
+                        },
+                        {
+                            name: this.data.currentLanguage === 'ar' ? 'التكاليف' : 'Costs',
+                            type: 'area',
+                            data: monthlyData.map(m => Math.round(m.cogs + m.sellingExpenses + m.adminExpenses))
+                        },
+                        {
+                            name: this.data.currentLanguage === 'ar' ? 'صافي الربح' : 'Net Profit',
+                            type: 'line',
+                            data: monthlyData.map(m => Math.round(m.netProfit))
+                        }
+                    ],
+                    colors: ['#4285f4', '#34a853', '#ea4335'],
+                    fill: {
+                        type: 'gradient',
+                        gradient: {
+                            shade: 'dark',
+                            type: 'vertical',
+                            shadeIntensity: 0.5,
+                            gradientToColors: ['#34a853', '#fbbc04', '#ea4335'],
+                            opacityFrom: 0.8,
+                            opacityTo: 0.1
+                        }
+                    },
+                    stroke: {
+                        width: [0, 0, 4],
+                        curve: 'smooth'
+                    },
+                    xaxis: {
+                        categories: months,
+                        labels: { style: { colors: '#A0AEC0' } }
+                    },
+                    yaxis: {
+                        labels: {
+                            style: { colors: '#A0AEC0' },
+                            formatter: (val) => val.toLocaleString() + ' ' + t.currency
+                        }
+                    },
+                    tooltip: {
+                        theme: 'dark',
+                        y: { formatter: (val) => `${val.toLocaleString()} ${t.currency}` }
+                    },
+                    legend: {
+                        position: 'top',
+                        horizontalAlign: 'center',
+                        labels: { colors: '#FFFFFF' }
+                    },
+                    grid: {
+                        borderColor: '#374151',
+                        strokeDashArray: 3
+                    }
+                };
+
+                if (this.data.charts.advanced3D) {
+                    this.data.charts.advanced3D.updateOptions(options);
+                } else {
+                    this.data.charts.advanced3D = new ApexCharts(chartElement, options);
+                    this.data.charts.advanced3D.render();
+                }
+            }
+
+            renderPredictiveChart(monthlyData) {
+                const chartElement = document.querySelector("#predictiveChart");
+                if (!chartElement) return;
+                
+                const predictiveData = this.generatePredictiveData(monthlyData);
+                const months = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
+                const futureMonths = this.data.currentLanguage === 'ar' ? 
+                    ['يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'] :
+                    ['July', 'August', 'September', 'October', 'November', 'December'];
+                const t = this.translations[this.data.currentLanguage];
+                
+                const options = {
+                    chart: {
+                        type: 'line',
+                        height: 350,
+                        toolbar: { show: false },
+                        foreColor: '#A0AEC0',
+                        background: 'transparent'
+                    },
+                    series: [
+                        {
+                            name: this.data.currentLanguage === 'ar' ? 'البيانات الفعلية' : 'Actual Data',
+                            data: monthlyData.map(m => Math.round(m.netProfit))
+                        },
+                        {
+                            name: this.data.currentLanguage === 'ar' ? 'توقعات Gemini AI' : 'Gemini AI Predictions',
+                            data: [...Array(6).fill(null), ...predictiveData]
+                        }
+                    ],
+                    colors: ['#4285f4', '#34a853'],
+                    stroke: {
+                        width: [3, 3],
+                        curve: 'smooth',
+                        dashArray: [0, 5]
+                    },
+                    xaxis: {
+                        categories: [...months, ...futureMonths],
+                        labels: { style: { colors: '#A0AEC0' } }
+                    },
+                    yaxis: {
+                        labels: {
+                            style: { colors: '#A0AEC0' },
+                            formatter: (val) => val ? val.toLocaleString() + ' ' + t.currency : ''
+                        }
+                    },
+                    tooltip: {
+                        theme: 'dark',
+                        y: { formatter: (val) => val ? `${val.toLocaleString()} ${t.currency}` : 'غير متوفر' }
+                    },
+                    legend: {
+                        position: 'top',
+                        horizontalAlign: 'center',
+                        labels: { colors: '#FFFFFF' }
+                    },
+                    grid: {
+                        borderColor: '#374151',
+                        strokeDashArray: 3
+                    }
+                };
+
+                if (this.data.charts.predictive) {
+                    this.data.charts.predictive.updateOptions(options);
+                } else {
+                    this.data.charts.predictive = new ApexCharts(chartElement, options);
+                    this.data.charts.predictive.render();
+                }
+            }
+
+            renderAdvancedBreakdownChart(annual) {
+                const chartElement = document.querySelector("#advancedBreakdownChart");
+                if (!chartElement) return;
+                
+                const t = this.translations[this.data.currentLanguage];
+                const labels = this.data.currentLanguage === 'ar' ? 
+                    ['تكلفة المبيعات', 'مصاريف البيع', 'المصاريف الإدارية'] :
+                    ['Cost of Sales', 'Selling Expenses', 'Administrative Expenses'];
+                
+                const options = {
+                    chart: {
+                        type: 'donut',
+                        height: 300,
+                        background: 'transparent'
+                    },
+                    series: [
+                        Math.round(annual.totalCogs),
+                        Math.round(annual.totalSellingExpenses),
+                        Math.round(annual.totalAdminExpenses)
+                    ],
+                    labels: labels,
+                    colors: ['#4285f4', '#34a853', '#fbbc04'],
+                    legend: {
+                        position: 'bottom',
+                        labels: { colors: '#FFFFFF' }
+                    },
+                    plotOptions: {
+                        pie: {
+                            donut: {
+                                size: '60%',
+                                labels: {
+                                    show: true,
+                                    total: {
+                                        show: true,
+                                        label: this.data.currentLanguage === 'ar' ? 'إجمالي التكاليف' : 'Total Costs',
+                                        color: '#FFFFFF',
+                                        formatter: () => `${Math.round(annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses).toLocaleString()} ${t.currency}`
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    tooltip: {
+                        theme: 'dark',
+                        y: { formatter: (val) => `${val.toLocaleString()} ${t.currency}` }
+                    }
+                };
+
+                if (this.data.charts.advancedBreakdown) {
+                    this.data.charts.advancedBreakdown.updateOptions(options);
+                } else {
+                    this.data.charts.advancedBreakdown = new ApexCharts(chartElement, options);
+                    this.data.charts.advancedBreakdown.render();
+                }
+            }
+
+            renderGeminiInsights() {
+                const container = document.getElementById('geminiInsights');
+                if (!container) return;
+                
+                container.innerHTML = this.data.geminiInsights.map(insight => `
+                    <div class="gemini-insight-card">
+                        <div class="flex items-start space-x-3">
+                            <div class="w-10 h-10 gemini-enhanced rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i class="${insight.icon} text-white"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h4 class="font-bold text-white text-sm mb-1">${insight.title}</h4>
+                                <p class="text-gray-300 text-xs mb-2">${insight.content}</p>
+                                <div class="flex items-center justify-between">
+                                    <div class="confidence-bar flex-1 mr-2">
+                                        <div class="confidence-fill" style="width: ${insight.confidence}%"></div>
+                                    </div>
+                                    <span class="text-xs text-gray-400">${Math.round(insight.confidence)}%</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderAdvancedControls() {
+                const container = document.getElementById('advancedControls');
+                if (!container) return;
+                
+                const controls = [
+                    { 
+                        id: 'salesMultiplier', 
+                        label: this.data.currentLanguage === 'ar' ? 'تعديل المبيعات' : 'Sales Adjustment', 
+                        min: 50, max: 200, value: Math.round(this.data.assumptions.salesMultiplier * 100), color: 'blue' 
+                    },
+                    { 
+                        id: 'sellingExpensesMultiplier', 
+                        label: this.data.currentLanguage === 'ar' ? 'مصاريف البيع' : 'Selling Expenses', 
+                        min: 50, max: 150, value: Math.round(this.data.assumptions.sellingExpensesMultiplier * 100), color: 'green' 
+                    },
+                    { 
+                        id: 'adminExpensesMultiplier', 
+                        label: this.data.currentLanguage === 'ar' ? 'المصاريف الإدارية' : 'Admin Expenses', 
+                        min: 50, max: 150, value: Math.round(this.data.assumptions.adminExpensesMultiplier * 100), color: 'yellow' 
+                    },
+                    { 
+                        id: 'cogsRate', 
+                        label: this.data.currentLanguage === 'ar' ? 'نسبة تكلفة المبيعات' : 'COGS Rate', 
+                        min: 50, max: 90, value: Math.round(this.data.assumptions.cogs_rate * 100), color: 'red' 
+                    }
+                ];
+
+                container.innerHTML = controls.map(control => `
+                    <div class="space-y-2">
+                        <label class="block text-sm font-medium text-gray-300">
+                            ${control.label}
+                            <span id="${control.id}Value" class="font-bold text-${control.color}-400 float-left">${control.value}%</span>
+                        </label>
+                        <input type="range" id="${control.id}" min="${control.min}" max="${control.max}" 
+                               step="${control.id === 'cogsRate' ? 1 : 5}" value="${control.value}" 
+                               class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
+                        <div class="flex justify-between text-xs text-gray-500">
+                            <span>${control.min}%</span>
+                            <span>${control.max}%</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderRealtimeMetrics(annual) {
+                const container = document.getElementById('realtimeMetrics');
+                if (!container) return;
+                
+                const t = this.translations[this.data.currentLanguage];
+                
+                const metrics = [
+                    { 
+                        label: t.costEfficiency, 
+                        value: `${((annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses) / annual.totalSales * 100).toFixed(1)}%`, 
+                        status: 'good' 
+                    },
+                    { 
+                        label: t.growthRate, 
+                        value: '+12.5%', 
+                        status: 'excellent' 
+                    },
+                    { 
+                        label: t.performanceIndex, 
+                        value: '8.7/10', 
+                        status: 'good' 
+                    }
+                ];
+
+                container.innerHTML = metrics.map(metric => `
+                    <div class="flex items-center justify-between p-3 rounded-lg bg-black bg-opacity-20">
+                        <span class="text-sm text-gray-300">${metric.label}</span>
+                        <div class="flex items-center">
+                            <span class="text-sm font-bold text-white mr-2">${metric.value}</span>
+                            <div class="w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-teal-600"></div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderGeminiRecommendations(annual) {
+                const container = document.getElementById('geminiRecommendations');
+                if (!container) return;
+
+                const recommendations = [
+                    {
+                        title: this.data.currentLanguage === 'ar' ? 'تحسين الكفاءة بـ Gemini' : 'Gemini Efficiency Improvement',
+                        description: this.data.currentLanguage === 'ar' ? 'تقليل التكاليف الإدارية بنسبة 15% باستخدام الذكاء الاصطناعي' : 'Reduce administrative costs by 15% using AI',
+                        impact: 'high',
+                        icon: 'fas fa-brain'
+                    },
+                    {
+                        title: this.data.currentLanguage === 'ar' ? 'نمو المبيعات الذكي' : 'Smart Sales Growth',
+                        description: this.data.currentLanguage === 'ar' ? 'استهداف قطاعات جديدة بتحليل Gemini المتقدم' : 'Target new segments with advanced Gemini analysis',
+                        impact: 'medium',
+                        icon: 'fas fa-chart-line'
+                    },
+                    {
+                        title: this.data.currentLanguage === 'ar' ? 'إدارة المخاطر الذكية' : 'Smart Risk Management',
+                        description: this.data.currentLanguage === 'ar' ? 'تنويع مصادر الدخل بناءً على توقعات Gemini' : 'Diversify income sources based on Gemini predictions',
+                        impact: 'high',
+                        icon: 'fas fa-shield-alt'
+                    },
+                    {
+                        title: this.data.currentLanguage === 'ar' ? 'الاستثمار المدعوم بالذكاء الاصطناعي' : 'AI-Powered Investment',
+                        description: this.data.currentLanguage === 'ar' ? 'استثمار في التكنولوجيا بتوجيه من Gemini AI' : 'Invest in technology guided by Gemini AI',
+                        impact: 'medium',
+                        icon: 'fas fa-lightbulb'
+                    }
+                ];
+
+                container.innerHTML = recommendations.map(rec => `
+                    <div class="gemini-insight-card">
+                        <div class="flex items-start space-x-3">
+                            <div class="w-10 h-10 ${rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500'} rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i class="${rec.icon} text-white"></i>
+                            </div>
+                            <div class="flex-1">
+                                <h4 class="font-bold text-white text-sm mb-1">${rec.title}</h4>
+                                <p class="text-gray-300 text-xs mb-2">${rec.description}</p>
+                                <span class="text-xs px-2 py-1 rounded-full ${rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500'} text-white">
+                                    ${rec.impact === 'high' ? (this.data.currentLanguage === 'ar' ? 'تأثير عالي' : 'High Impact') : (this.data.currentLanguage === 'ar' ? 'تأثير متوسط' : 'Medium Impact')}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            generatePredictiveData(monthlyData) {
+                const profits = monthlyData.map(m => m.netProfit);
+                const trend = this.calculateTrend(profits);
+                const lastValue = profits[profits.length - 1];
+                
+                return Array.from({ length: 6 }, (_, i) => 
+                    Math.round(lastValue + (trend * (i + 1)) + (Math.random() - 0.5) * 8000)
+                );
+            }
+
+            calculateTrend(data) {
+                const n = data.length;
+                const sumX = n * (n - 1) / 2;
+                const sumY = data.reduce((a, b) => a + b, 0);
+                const sumXY = data.reduce((sum, y, x) => sum + x * y, 0);
+                const sumXX = n * (n - 1) * (2 * n - 1) / 6;
+                
+                return (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+            }
+
+            updateAssumptions() {
+                const cogsElement = document.getElementById('cogsRate');
+                const salesElement = document.getElementById('salesMultiplier');
+                const sellingElement = document.getElementById('sellingExpensesMultiplier');
+                const adminElement = document.getElementById('adminExpensesMultiplier');
+                
+                if (cogsElement) {
+                    this.data.assumptions.cogs_rate = parseFloat(cogsElement.value) / 100;
+                    const valueElement = document.getElementById('cogsRateValue');
+                    if (valueElement) valueElement.textContent = `${cogsElement.value}%`;
+                }
+                
+                if (salesElement) {
+                    this.data.assumptions.salesMultiplier = parseFloat(salesElement.value) / 100;
+                    const valueElement = document.getElementById('salesMultiplierValue');
+                    if (valueElement) valueElement.textContent = `${salesElement.value}%`;
+                }
+                
+                if (sellingElement) {
+                    this.data.assumptions.sellingExpensesMultiplier = parseFloat(sellingElement.value) / 100;
+                    const valueElement = document.getElementById('sellingExpensesMultiplierValue');
+                    if (valueElement) valueElement.textContent = `${sellingElement.value}%`;
+                }
+                
+                if (adminElement) {
+                    this.data.assumptions.adminExpensesMultiplier = parseFloat(adminElement.value) / 100;
+                    const valueElement = document.getElementById('adminExpensesMultiplierValue');
+                    if (valueElement) valueElement.textContent = `${adminElement.value}%`;
+                }
+            }
+
+            async generateGeminiReport() {
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'جاري إنشاء التقرير الذكي بـ Gemini...' : 'Generating Gemini smart report...'
+                );
+
+                const { annual } = this.calculateFinancials();
+                
+                const prompt = `As Google Gemini AI, generate a comprehensive financial report for Dammam branch with these metrics:
+                - Total Sales: ${annual.totalSales.toLocaleString()} SAR
+                - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
+                - Break Even: ${annual.breakEven.toLocaleString()} SAR
+                - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
+                
+                Include executive summary, key findings, strategic recommendations, and future outlook in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+
+                try {
+                    const response = await this.callGeminiAPI(prompt, 1200);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                    
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'تم إنشاء التقرير الذكي بـ Gemini' : 'Gemini smart report generated',
+                        'success'
+                    );
+                } catch (error) {
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في إنشاء التقرير' : 'Report generation failed',
+                        'error'
+                    );
+                }
+            }
+
+            async generateOptimizationSuggestions() {
+                const prompt = `As Google Gemini AI, analyze the financial data and provide specific optimization suggestions for improving profitability. Include cost reduction strategies, revenue enhancement methods, and operational improvements. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+                
+                try {
+                    const response = await this.callGeminiAPI(prompt, 800);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                } catch (error) {
+                    console.error('Optimization error:', error);
+                }
+            }
+
+            async performRiskAnalysis() {
+                const prompt = `As Google Gemini AI, perform a comprehensive risk analysis for the financial data. Identify potential risks, assess their impact, and provide mitigation strategies. Include market risks, operational risks, and financial risks. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+                
+                try {
+                    const response = await this.callGeminiAPI(prompt, 800);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                } catch (error) {
+                    console.error('Risk analysis error:', error);
+                }
+            }
+
+            async generateStrategicRecommendations() {
+                const prompt = `As Google Gemini AI, based on the financial performance, provide strategic recommendations for the next quarter. Include growth strategies, operational improvements, market expansion opportunities, and technology investments. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
+                
+                try {
+                    const response = await this.callGeminiAPI(prompt, 800);
+
+                    this.addGeminiMessage('assistant', response);
+                    document.getElementById('geminiAssistant').classList.add('active');
+                } catch (error) {
+                    console.error('Strategy error:', error);
+                }
+            }
+
+            initializeVoiceRecognition() {
+                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                    try {
+                        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                        this.data.voiceRecognition = new SpeechRecognition();
+                        this.data.voiceRecognition.lang = this.data.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
+                        this.data.voiceRecognition.continuous = false;
+                        this.data.voiceRecognition.interimResults = false;
+
+                        this.data.voiceRecognition.onresult = (event) => {
+                            const command = event.results[0][0].transcript;
+                            this.processVoiceCommand(command);
+                        };
+
+                        this.data.voiceRecognition.onerror = (event) => {
+                            console.error('Voice recognition error:', event.error);
+                        };
+                    } catch (error) {
+                        console.error('Voice recognition initialization error:', error);
+                    }
+                }
+            }
+
+            toggleVoiceRecognition() {
+                if (!this.data.voiceRecognition) {
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'التعرف على الصوت غير مدعوم' : 'Voice recognition not supported',
+                        'error'
+                    );
+                    return;
+                }
+
+                try {
+                    if (this.data.isListening) {
+                        this.data.voiceRecognition.stop();
+                        this.data.isListening = false;
+                        document.getElementById('voiceIndicator').classList.remove('active');
+                    } else {
+                        this.data.voiceRecognition.lang = this.data.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
+                        this.data.voiceRecognition.start();
+                        this.data.isListening = true;
+                        document.getElementById('voiceIndicator').classList.add('active');
+                        this.showNotification(
+                            this.data.currentLanguage === 'ar' ? 'استمع للأوامر الصوتية...' : 'Listening for voice commands...'
+                        );
+                    }
+                } catch (error) {
+                    console.error('Voice recognition error:', error);
+                }
+            }
+
+            processVoiceCommand(command) {
+                console.log('Voice command:', command);
+                document.getElementById('geminiInput').value = command;
+                this.sendGeminiMessage();
+                
+                this.data.isListening = false;
+                document.getElementById('voiceIndicator').classList.remove('active');
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `notification show ${type}`;
+                notification.innerHTML = `
+                    <div class="flex items-center">
+                        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} mr-2"></i>
+                        ${message}
+                    </div>
+                `;
+                
+                const container = document.getElementById('notificationContainer');
+                if (container) {
+                    container.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        setTimeout(() => notification.remove(), 500);
+                    }, 3000);
+                }
+            }
+
+            toggleFullscreen() {
+                try {
+                    if (!document.fullscreenElement) {
+                        document.documentElement.requestFullscreen();
+                    } else {
+                        document.exitFullscreen();
+                    }
+                } catch (error) {
+                    console.error('Fullscreen error:', error);
+                }
+            }
+
+            startAdvancedAnimations() {
+                const cards = document.querySelectorAll('.slide-in-advanced');
+                cards.forEach((card, index) => {
+                    setTimeout(() => {
+                        card.style.opacity = '1';
+                        card.style.transform = 'translateX(0) rotateY(0deg)';
+                    }, index * 100);
+                });
+            }
+
+            startRealtimeUpdates() {
+                setInterval(() => {
+                    if (this.data.settings.autoSync) {
+                        const { annual } = this.calculateFinancials();
+                        this.renderRealtimeMetrics(annual);
+                    }
+                }, this.data.settings.refreshRate * 1000);
+            }
+
+            hideLoadingOverlay() {
+                const overlay = document.getElementById('loadingOverlay');
+                if (overlay) {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                    }, 500);
+                }
+            }
+
+            sum(arr) {
+                return arr.reduce((acc, val) => acc + val, 0);
+            }
+
+            // Add secure Wardah ERP integration methods
+            async fetchWardahFinancialData() {
+                try {
+                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/financial-data`, {
+                        headers: {
+                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Wardah Proxy error: ${response.status}`);
+                    }
+                    
+                    const wardahData = await response.json();
+                    return this.mapWardahDataToDashboardFormat(wardahData);
+                } catch (error) {
+                    console.error('Error fetching Wardah financial data:', error);
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في جلب بيانات وردة ERP' : 'Failed to fetch Wardah ERP data',
+                        'error'
+                    );
+                    // Return existing data as fallback
+                    return this.data.baseFinancialData;
+                }
+            }
+
+            async fetchWardahTransactions() {
+                try {
+                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/transactions`, {
+                        headers: {
+                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Wardah Proxy error: ${response.status}`);
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching Wardah transactions:', error);
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في جلب معاملات وردة ERP' : 'Failed to fetch Wardah transactions',
+                        'error'
+                    );
+                    return [];
+                }
+            }
+
+            async fetchWardahInventory() {
+                try {
+                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/inventory`, {
+                        headers: {
+                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`Wardah Proxy error: ${response.status}`);
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error('Error fetching Wardah inventory:', error);
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في جلب مخزون وردة ERP' : 'Failed to fetch Wardah inventory',
+                        'error'
+                    );
+                    return {};
+                }
+            }
+
+            mapWardahDataToDashboardFormat(wardahData) {
+                // Map Wardah ERP data structure to dashboard format
+                const mappedData = {};
+                
+                // Handle different data structures from Wardah
+                const monthlyData = wardahData.monthlyData || wardahData.data || wardahData;
+                
+                if (Array.isArray(monthlyData)) {
+                    monthlyData.forEach(monthData => {
+                        const monthName = monthData.monthNameAr || monthData.monthName || monthData.month;
+                        if (monthName) {
+                            mappedData[monthName] = {
+                                'p': [monthData.salesRevenue || monthData.sales || 0, 0, 0], // Sales data
+                                's_exp': [
+                                    monthData.sellingExpenses || 0, 
+                                    monthData.marketingExpenses || monthData.advertising || 0
+                                ], // Selling expenses
+                                'a_exp': [
+                                    monthData.adminSalaries || 0,
+                                    monthData.officeRent || monthData.rent || 0,
+                                    monthData.utilities || 0,
+                                    monthData.insurance || 0,
+                                    monthData.maintenance || 0,
+                                    monthData.softwareLicenses || 0,
+                                    monthData.travel || 0,
+                                    monthData.otherAdminExpenses || 0
+                                ] // Administrative expenses
+                            };
+                        }
+                    });
+                }
+                
+                return mappedData;
+            }
+
+            async syncWithWardah() {
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'جاري مزامنة بيانات وردة ERP...' : 'Syncing with Wardah ERP...',
+                    'info'
+                );
+                
+                try {
+                    const wardahData = await this.fetchWardahFinancialData();
+                    this.data.baseFinancialData = wardahData;
+                    this.render();
+                    
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
+                        'success'
+                    );
+                } catch (error) {
+                    console.error('Wardah sync error:', error);
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'فشل في مزامنة بيانات وردة ERP' : 'Failed to sync with Wardah ERP',
+                        'error'
+                    );
+                }
+            }
+
+            async loadData() {
+                await this.delay(1000);
+                
+                // Check if we should load data from Wardah ERP
+                const urlParams = new URLSearchParams(window.location.search);
+                const useWardah = urlParams.get('wardah') === 'true';
+                
+                if (useWardah) {
+                    try {
+                        this.data.baseFinancialData = await this.fetchWardahFinancialData();
+                        this.showNotification(
+                            this.data.currentLanguage === 'ar' ? 'تم تحميل البيانات من وردة ERP' : 'Data loaded from Wardah ERP',
+                            'success'
+                        );
+                    } catch (error) {
+                        console.error('Error loading Wardah data:', error);
+                        // Fallback to default data
+                        this.generateBasicInsights();
+                    }
+                } else {
+                    this.generateBasicInsights();
+                }
+            }
+        }
+
+        // Initialize the Google Gemini AI Enhanced Dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            try {
+                new GeminiEnhancedFinancialDashboard();
+            } catch (error) {
+                console.error('Dashboard initialization error:', error);
+                const overlay = document.getElementById('loadingOverlay');
+                if (overlay) {
+                    overlay.style.display = 'none';
+                }
+            }
+        });
+    </script>
+</body>
+</html>

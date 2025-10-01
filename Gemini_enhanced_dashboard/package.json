@@ -1,0 +1,28 @@
+{
+  "name": "wardah-erp-proxy",
+  "version": "1.0.0",
+  "description": "Secure proxy service for Wardah ERP integration",
+  "main": "wardah-proxy.js",
+  "scripts": {
+    "start": "node wardah-proxy.js",
+    "dev": "nodemon wardah-proxy.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "axios": "^1.4.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": [
+    "wardah",
+    "erp",
+    "proxy",
+    "financial",
+    "dashboard"
+  ],
+  "author": "Financial Dashboard Team",
+  "license": "MIT"
+}

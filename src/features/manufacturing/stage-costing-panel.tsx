@@ -16,10 +16,6 @@ import {
   Check, 
 } from 'lucide-react'
 
-// Import our domain modules (using regular imports instead of await import)
-import * as ProcessCosting from '../../domain/processCosting.js'
-import * as Audit from '../../domain/audit.js'
-
 // Import and register actions
 import { registerStageCostingActions, unregisterStageCostingActions } from './stage-costing-actions.js'
 
