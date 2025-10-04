@@ -11,7 +11,6 @@ interface MainLayoutProps {
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
-  console.log('🔄 MainLayout component rendering...')
   
   const { i18n } = useTranslation()
   const { sidebarCollapsed, sidebarOpen } = useUIStore()

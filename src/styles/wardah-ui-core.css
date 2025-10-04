@@ -1,0 +1,230 @@
+/* Wardah UI Core Styles */
+/* This file contains all the shared glassmorphism, gradient, and animation styles */
+
+/* Google Gradients */
+.wardah-gradient-google {
+  background: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #ea4335 100%);
+}
+
+.wardah-gradient-google-extended {
+  background: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
+}
+
+.wardah-gradient-dark-background {
+  background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+}
+
+.wardah-gradient-card-background {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+}
+
+.wardah-gradient-chat-container {
+  background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
+}
+
+/* Glassmorphism Effects */
+.wardah-glass-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px;
+  position: relative;
+  overflow: hidden;
+}
+
+.wardah-glass-card-hover {
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.wardah-glass-card-hover:hover {
+  transform: translateY(-10px) scale(1.02);
+  box-shadow: 
+    0 20px 60px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* Glass Card Shimmer Effect */
+.wardah-glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.6s;
+}
+
+.wardah-glass-card-hover:hover::before {
+  left: 100%;
+}
+
+/* Text Gradient Effects */
+.wardah-text-gradient-google {
+  background: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #ea4335 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animations */
+@keyframes geminiGradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  20% { background-position: 100% 0%; }
+  40% { background-position: 100% 100%; }
+  60% { background-position: 0% 100%; }
+  80% { background-position: 0% 0%; }
+}
+
+.wardah-animation-gradient-shift {
+  animation: geminiGradientShift 4s ease infinite;
+  background-size: 500% 100%;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+.wardah-animation-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.wardah-animation-spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* RTL aware animations */
+@keyframes slideInRightRTL {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInLeftRTL {
+  from {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.wardah-slide-in-right {
+  animation: slideInRight 0.3s ease-out;
+}
+
+.wardah-slide-in-left {
+  animation: slideInLeft 0.3s ease-out;
+}
+
+/* Apply RTL-specific animations */
+[dir="rtl"] .wardah-slide-in-right {
+  animation: slideInRightRTL 0.3s ease-out;
+}
+
+[dir="rtl"] .wardah-slide-in-left {
+  animation: slideInLeftRTL 0.3s ease-out;
+}
+
+/* Common Component Styles */
+.wardah-kpi-card {
+  composes: wardah-glass-card;
+  composes: wardah-glass-card-hover;
+  padding: 25px;
+  text-align: center;
+}
+
+.wardah-chart-card {
+  composes: wardah-glass-card;
+  padding: 25px;
+}
+
+.wardah-chat-container {
+  composes: wardah-glass-card;
+  background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
+  backdrop-filter: blur(30px);
+  border: 1px solid rgba(66, 133, 244, 0.3);
+}
+
+.wardah-chat-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
+  background-size: 500% 100%;
+  animation: geminiGradientShift 4s ease infinite;
+}
+
+/* Utility Classes */
+.wardah-flex-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wardah-full-width {
+  width: 100%;
+}
+
+.wardah-full-height {
+  height: 100%;
+}
+
+.wardah-min-height-chart {
+  min-height: 350px;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .wardah-glass-card {
+    border-radius: 15px;
+    padding: 15px;
+  }
+  
+  .wardah-kpi-card {
+    padding: 15px;
+  }
+  
+  .wardah-chart-card {
+    padding: 15px;
+  }
+}

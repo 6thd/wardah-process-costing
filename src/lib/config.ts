@@ -26,6 +26,10 @@ export interface AppConfig {
     waste_credit_rate: number;
     labor_overhead_rate: number;
   };
+  GEMINI_DASHBOARD?: {
+    proxy_url: string;
+    proxy_auth_key: string;
+  };
 }
 
 let _config: AppConfig | null = null;

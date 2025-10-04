@@ -64,6 +64,12 @@ export interface CostingConfig {
   labor_overhead_rate: number
 }
 
+// Add the GeminiDashboardConfig interface
+export interface GeminiDashboardConfig {
+  proxy_url: string
+  proxy_auth_key: string
+}
+
 export interface AppConfig {
   SUPABASE_URL?: string
   SUPABASE_ANON_KEY?: string
@@ -71,4 +77,6 @@ export interface AppConfig {
   APP_SETTINGS: AppSettings
   FEATURES: Features
   COSTING_CONFIG?: CostingConfig
+  // Add GEMINI_DASHBOARD property
+  GEMINI_DASHBOARD?: GeminiDashboardConfig
 }

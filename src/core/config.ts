@@ -19,6 +19,10 @@ export interface AppConfig {
     multi_tenant: boolean
     demo_mode: boolean
   }
+  GEMINI_DASHBOARD?: {
+    proxy_url: string
+    proxy_auth_key: string
+  }
 }
 
 // Default configuration (fallback values)
@@ -65,6 +69,10 @@ const DEFAULT_CONFIG: AppConfig = {
     advanced_costing: true,
     multi_tenant: true,
     demo_mode: true
+  },
+  GEMINI_DASHBOARD: {
+    proxy_url: 'http://localhost:3001/api/wardah',
+    proxy_auth_key: ''
   }
 }
 

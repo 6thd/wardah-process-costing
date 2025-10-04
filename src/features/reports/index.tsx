@@ -13,10 +13,12 @@ import {
   Factory,
   ShoppingCart,
   Eye,
-  Calculator
+  Calculator,
+  Brain
 } from 'lucide-react'
 import { ProcessCostingReport } from './process-costing-report'
 import { ReportsDashboard } from './components/ReportsDashboard'
+import GeminiDashboard from './components/GeminiDashboard'
 
 export function ReportsModule() {
   return (
@@ -30,6 +32,7 @@ export function ReportsModule() {
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
       <Route path="/advanced" element={<ReportsDashboard />} />
+      <Route path="/gemini" element={<GeminiDashboard />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )
@@ -102,6 +105,15 @@ function ReportsOverview() {
       color: 'text-red-600',
       bgColor: 'bg-red-50',
       reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية']
+    },
+    {
+      title: 'لوحة معلومات Gemini',
+      description: 'تحليل مالي مدعوم بالذكاء الاصطناعي',
+      icon: Brain,
+      href: '/reports/gemini',
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      reports: ['تحليل الأداء', 'التوقعات الذكية', 'التوصيات']
     }
   ]
   

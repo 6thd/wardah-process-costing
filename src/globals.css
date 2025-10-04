@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Import Wardah UI Core Styles */
+@import '@/styles/wardah-ui-core.css';
+
 @layer base {
   :root {
     --background: 0 0% 100%;

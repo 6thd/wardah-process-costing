@@ -4,9 +4,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { VarianceAnalysisReport } from './VarianceAnalysisReport';
 import { WIPReport } from './WIPReport';
 import { ProfitabilityReport } from './ProfitabilityReport';
+import GeminiDashboard from './GeminiDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useWardahTheme } from '@/components/wardah-theme-provider';
 
 export const ReportsDashboard: React.FC = () => {
+  const { theme } = useWardahTheme();
   const [selectedMO, setSelectedMO] = useState<string>('');
 
   // Sample manufacturing orders for demo
@@ -19,9 +22,9 @@ export const ReportsDashboard: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Report Filters */}
-      <Card>
+      <Card className="wardah-glass-card">
         <CardHeader>
-          <CardTitle className="text-right">فلاتر التقارير</CardTitle>
+          <CardTitle className="text-right wardah-text-gradient-google">فلاتر التقارير</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col md:flex-row gap-4 items-end">
@@ -50,13 +53,18 @@ export const ReportsDashboard: React.FC = () => {
       </Card>
 
       {/* Report Tabs */}
-      <Tabs defaultValue="variances" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 lg:grid-cols-4">
+      <Tabs defaultValue="gemini" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-4 lg:grid-cols-5 wardah-glass-card">
+          <TabsTrigger value="gemini">لوحة التحكم المالية</TabsTrigger>
           <TabsTrigger value="variances">تحليل الانحرافات</TabsTrigger>
           <TabsTrigger value="wip">تقرير WIP</TabsTrigger>
           <TabsTrigger value="profitability">تحليل الربحية</TabsTrigger>
           <TabsTrigger value="inventory">تقييم المخزون</TabsTrigger>
         </TabsList>
+        
+        <TabsContent value="gemini" className="space-y-4">
+          <GeminiDashboard />
+        </TabsContent>
         
         <TabsContent value="variances" className="space-y-4">
           <VarianceAnalysisReport 
@@ -73,9 +81,9 @@ export const ReportsDashboard: React.FC = () => {
         </TabsContent>
         
         <TabsContent value="inventory" className="space-y-4">
-          <Card>
+          <Card className="wardah-glass-card">
             <CardHeader>
-              <CardTitle className="text-right">تقرير تقييم المخزون</CardTitle>
+              <CardTitle className="text-right wardah-text-gradient-google">تقرير تقييم المخزون</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-center py-8 text-muted-foreground">

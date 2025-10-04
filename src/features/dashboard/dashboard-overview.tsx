@@ -15,6 +15,7 @@ import {
 
 import { Badge } from '@/components/ui/badge'
 import { formatCurrency, formatNumber, cn } from '@/lib/utils'
+import { getGlassClasses, getGradientTextClasses } from '@/lib/wardah-ui-utils'
 
 // Sample KPI data - in a real app, this would come from an API
 const kpiData = {
@@ -75,7 +76,7 @@ export function DashboardOverview() {
     <div className="space-y-8">
       {/* Header */}
       <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('dashboard.title')}</h1>
+        <h1 className={cn("text-3xl font-bold", getGradientTextClasses())}>{t('dashboard.title')}</h1>
         <p className="text-muted-foreground mt-2">
           نظرة شاملة على أداء نظام وردة للتصنيع
         </p>
@@ -84,9 +85,9 @@ export function DashboardOverview() {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Inventory Value */}
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-6",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -100,7 +101,7 @@ export function DashboardOverview() {
             <Package className="h-8 w-8 text-primary" />
           </div>
           <div className={cn(
-            "mt-4 flex items-center text-sm",
+            "px-6 pb-6 flex items-center text-sm",
             isRTL ? "flex-row-reverse" : "flex-row"
           )}>
             <TrendingUp className={cn(
@@ -116,9 +117,9 @@ export function DashboardOverview() {
         </div>
 
         {/* Sales This Month */}
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-6",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -132,7 +133,7 @@ export function DashboardOverview() {
             <DollarSign className="h-8 w-8 text-success" />
           </div>
           <div className={cn(
-            "mt-4 flex items-center text-sm",
+            "px-6 pb-6 flex items-center text-sm",
             isRTL ? "flex-row-reverse" : "flex-row"
           )}>
             <TrendingUp className={cn(
@@ -148,9 +149,9 @@ export function DashboardOverview() {
         </div>
 
         {/* Production Cost */}
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-6",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -164,7 +165,7 @@ export function DashboardOverview() {
             <Factory className="h-8 w-8 text-warning" />
           </div>
           <div className={cn(
-            "mt-4 flex items-center text-sm",
+            "px-6 pb-6 flex items-center text-sm",
             isRTL ? "text-right" : "text-left"
           )}>
             <span className="text-muted-foreground">
@@ -174,9 +175,9 @@ export function DashboardOverview() {
         </div>
 
         {/* Gross Profit Margin */}
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-6",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -190,7 +191,7 @@ export function DashboardOverview() {
             <BarChart3 className="h-8 w-8 text-info" />
           </div>
           <div className={cn(
-            "mt-4 flex items-center text-sm",
+            "px-6 pb-6 flex items-center text-sm",
             isRTL ? "flex-row-reverse" : "flex-row"
           )}>
             <TrendingUp className={cn(
@@ -208,9 +209,9 @@ export function DashboardOverview() {
 
       {/* Secondary KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -221,9 +222,9 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -234,9 +235,9 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -247,9 +248,9 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -260,9 +261,9 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -273,9 +274,9 @@ export function DashboardOverview() {
           </div>
         </div>
 
-        <div className="bg-card rounded-lg border p-4">
+        <div className={getGlassClasses()}>
           <div className={cn(
-            "flex items-center justify-between",
+            "flex items-center justify-between p-4",
             isRTL && "flex-row-reverse"
           )}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -289,14 +290,14 @@ export function DashboardOverview() {
 
       {/* Recent Activities */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <h3 className={cn(
-            "text-lg font-semibold mb-4",
+            "text-lg font-semibold mb-4 p-6 pb-0",
             isRTL ? "text-right" : "text-left"
           )}>
             {t('dashboard.recentActivities')}
           </h3>
-          <div className="space-y-4">
+          <div className="space-y-4 p-6 pt-0">
             {recentActivities.map((activity) => {
               const Icon = activity.icon
               return (
@@ -337,14 +338,14 @@ export function DashboardOverview() {
         </div>
 
         {/* Quick Actions */}
-        <div className="bg-card rounded-lg border p-6">
+        <div className={getGlassClasses()}>
           <h3 className={cn(
-            "text-lg font-semibold mb-4",
+            "text-lg font-semibold mb-4 p-6 pb-0",
             isRTL ? "text-right" : "text-left"
           )}>
             {t('dashboard.quickActions')}
           </h3>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-6 pt-0">
             <Link to="/manufacturing/orders" className={cn(
               "p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center",
               isRTL ? "text-right" : "text-left"

@@ -410,6 +410,67 @@ BEGIN
   END IF;
 END $$;
 
+-- Categories
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'categories') THEN
+    DROP POLICY IF EXISTS tenant_select_categories ON public.categories;
+    CREATE POLICY tenant_select_categories ON public.categories
+      FOR SELECT USING (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'tenant_id') THEN
+            tenant_id = get_current_tenant_id()
+          ELSE
+            true
+        END
+      );
+    
+    DROP POLICY IF EXISTS tenant_insert_categories ON public.categories;
+    CREATE POLICY tenant_insert_categories ON public.categories
+      FOR INSERT WITH CHECK (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'tenant_id') THEN
+            tenant_id = get_current_tenant_id() AND
+            get_current_user_role() IN ('admin', 'manager')
+          ELSE
+            true
+        END
+      );
+    
+    DROP POLICY IF EXISTS tenant_update_categories ON public.categories;
+    CREATE POLICY tenant_update_categories ON public.categories
+      FOR UPDATE USING (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'tenant_id') THEN
+            tenant_id = get_current_tenant_id() AND
+            get_current_user_role() IN ('admin', 'manager')
+          ELSE
+            true
+        END
+      ) WITH CHECK (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'tenant_id') THEN
+            tenant_id = get_current_tenant_id() AND
+            get_current_user_role() IN ('admin', 'manager')
+          ELSE
+            true
+        END
+      );
+    
+    DROP POLICY IF EXISTS tenant_delete_categories ON public.categories;
+    CREATE POLICY tenant_delete_categories ON public.categories
+      FOR DELETE USING (
+        CASE 
+          WHEN EXISTS(SELECT 1 FROM information_schema.columns WHERE table_name = 'categories' AND column_name = 'tenant_id') THEN
+            tenant_id = get_current_tenant_id() AND
+            get_current_user_role() = 'admin'
+          ELSE
+            true
+        END
+      );
+  END IF;
+END $$;
+
 -- ===================================================================
 -- BYPASS POLICIES FOR SERVICE ROLE (Admin Operations)
 -- ===================================================================

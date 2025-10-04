@@ -4,7 +4,7 @@
  */
 
 import { createSecureRPC } from '@/core/security.ts'
-import { getSupabase, getTenantId } from '@/core/supabase'
+import { supabase, getTenantId } from '@/lib/supabase'
 import { getTableName } from '@/lib/config'
 import { PostingService } from '@/services/accounting/posting-service'
 import { NotificationService } from '@/services/accounting/notification-service'
@@ -389,7 +389,7 @@ export class EquivalentUnitsService {
    */
   async createProductionBatch(batch: Omit<ProductionBatch, 'id' | 'tenantId'>): Promise<ProductionBatch> {
     try {
-      const client = await getSupabase()
+      const client = supabase
       
       const { data, error } = await client
         .from(getTableName('production_batches'))
@@ -426,7 +426,7 @@ export class EquivalentUnitsService {
    */
   async getProductionBatches(status?: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'): Promise<ProductionBatch[]> {
     try {
-      const client = await getSupabase()
+      const client = supabase
       
       let query = client
         .from(getTableName('production_batches'))
@@ -441,7 +441,7 @@ export class EquivalentUnitsService {
 
       if (error) throw error
 
-      return data.map(item => ({
+      return data.map((item: any) => ({
         id: item.id,
         batchNumber: item.batch_number,
         productId: item.product_id,
@@ -465,7 +465,7 @@ export class EquivalentUnitsService {
    */
   async updateBatchStatus(batchId: string, status: 'PLANNED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'): Promise<void> {
     try {
-      const client = await getSupabase()
+      const client = supabase
       
       const { error } = await client
         .from(getTableName('production_batches'))

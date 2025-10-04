@@ -1,0 +1,42 @@
+{
+  "proxyService": {
+    "port": 3001,
+    "allowedOrigins": [
+      "http://localhost:3000",
+      "http://localhost:5173"
+    ],
+    "endpoints": {
+      "financial": "/api/financial",
+      "accounting": "/api/accounting",
+      "reports": "/api/reports"
+    },
+    "security": {
+      "rateLimit": {
+        "windowMs": 900000,
+        "max": 100
+      },
+      "cors": {
+        "credentials": true,
+        "methods": ["GET", "POST"]
+      }
+    },
+    "cache": {
+      "enabled": true,
+      "ttl": 300
+    }
+  },
+  "wardah": {
+    "apiEndpoint": "process.env.WARDAH_API_ENDPOINT",
+    "timeoutMs": 30000,
+    "retryAttempts": 3
+  },
+  "gemini": {
+    "dashboardPath": "/Gemini_enhanced_dashboard",
+    "updateInterval": 300000,
+    "features": {
+      "realTimeUpdates": true,
+      "dataExport": true,
+      "customFilters": true
+    }
+  }
+}

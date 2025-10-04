@@ -13,7 +13,8 @@
     "general-ledger": "General Ledger",
     "hr": "Human Resources",
     "reports": "Reports",
-    "settings": "Settings"
+    "settings": "Settings",
+    "gemini-dashboard": "Gemini Dashboard"
   },
   "common": {
     "save": "Save",
@@ -59,7 +60,8 @@
     "price": "Price",
     "amount": "Amount",
     "total": "Total",
-    "currency": "SAR"
+    "currency": "SAR",
+    "openInNewTab": "Open in new tab"
   },
   "manufacturing": {
     "title": "Manufacturing Management",
@@ -251,7 +253,7 @@
       "late": "Late",
       "leave": "Leave"
     },
-    "leave": {
+    "leaveTypes": {
       "title": "Leave Management",
       "management": "Manage leave requests and approvals",
       "annual": "Annual",
@@ -367,5 +369,15 @@
     "connectionError": "Connection error",
     "unauthorized": "Unauthorized access",
     "sessionExpired": "Session expired"
+  },
+  "geminiDashboard": {
+    "title": "Revolutionary AI-Powered Financial Dashboard with Google Gemini",
+    "loadingMessage": "Loading Google Gemini AI-powered dashboard...",
+    "loadingOptimizedMessage": "Loading optimized dashboard version...",
+    "loadingStatus": "Loading Status",
+    "loadingHtml": "Loading dashboard content",
+    "loadingTip": "Loading may take a few seconds",
+    "optimizedLoadingTip": "Optimized version loads faster",
+    "timeoutError": "Dashboard loading timeout. Please try again."
   }
 }

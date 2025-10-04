@@ -376,7 +376,7 @@ export const getInventoryLedger = async (itemId, limit = 100) => {
 }
 
 /**
- * Get current inventory valuation (AVCO)
+ * Get inventory valuation (AVCO)
  */
 export const getInventoryValuation = async () => {
   try {
@@ -386,15 +386,7 @@ export const getInventoryValuation = async () => {
     
     const { data, error } = await supabase
       .from(config.TABLE_NAMES.items)
-      .select(`
-        id,
-        code,
-        name,
-        stock_quantity,
-        cost_price,
-        selling_price,
-        category:categories(name)
-      `)
+      .select('*')
       .eq('tenant_id', tenantId)
       .gt('stock_quantity', 0)
       .order('name')
@@ -451,10 +443,7 @@ export const getLowStockItems = async () => {
     
     const { data, error } = await supabase
       .from(config.TABLE_NAMES.items)
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select('*')
       .eq('tenant_id', tenantId)
       .or('stock_quantity.lte.minimum_stock,stock_quantity.eq.0')
       .order('stock_quantity')
@@ -565,7 +554,7 @@ export const getCOGSReport = async (fromDate, toDate) => {
       .from(config.TABLE_NAMES.inventory_ledger)
       .select(`
         *,
-        item:items(name, code, category:categories(name))
+        item:items(name, code, category_name:category)
       `)
       .eq('tenant_id', tenantId)
       .gte('moved_at', fromDate)
@@ -579,7 +568,7 @@ export const getCOGSReport = async (fromDate, toDate) => {
     const cogsByItem = data.reduce((acc, movement) => {
       const itemId = movement.item_id
       const itemName = movement.item?.name || 'Unknown'
-      const categoryName = movement.item?.category?.name || 'Uncategorized'
+      const categoryName = movement.item?.category_name || 'Uncategorized'
       
       if (!acc[itemId]) {
         acc[itemId] = {

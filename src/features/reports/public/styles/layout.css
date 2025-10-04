@@ -1,0 +1,451 @@
+/* === متغيرات النمط === */
+:root {
+  --accent-color: #4CAF50;
+  --error-color: #f44336;
+  --warning-color: #ff9800;
+  --glass-bg: rgba(255, 255, 255, 0.1);
+  --glass-border: rgba(255, 255, 255, 0.2);
+  --glass-hover: rgba(255, 255, 255, 0.2);
+}
+
+/* === التصميم العام === */
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Cairo', sans-serif;
+  background: #1a1a1a;
+  color: white;
+  direction: rtl;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* === القائمة الجانبية === */
+.sidebar {
+  width: 250px;
+  background: rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  height: 100vh;
+  position: fixed;
+  right: 0;
+  top: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 20px 0;
+  z-index: 1000;
+}
+
+.sidebar-logo {
+  padding: 20px;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  margin-bottom: 20px;
+}
+
+.sidebar-logo img {
+  width: 120px;
+  height: auto;
+}
+
+.menu-item {
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  color: #fff;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  position: relative;
+}
+
+.menu-item i {
+  margin-left: 10px;
+  width: 20px;
+  text-align: center;
+}
+
+.menu-item .badge {
+  background: var(--accent-color);
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.8em;
+  margin-right: auto;
+}
+
+.menu-item:hover, .menu-item.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.menu-item.active::before {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 4px;
+  background: var(--accent-color);
+}
+
+/* === الشريط العلوي === */
+.top-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 250px;
+  height: 60px;
+  background: rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  z-index: 900;
+}
+
+.page-title {
+  font-size: 1.2em;
+  font-weight: 600;
+}
+
+.top-bar-actions {
+  margin-right: auto;
+  display: flex;
+  gap: 10px;
+}
+
+.action-button {
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: white;
+  padding: 8px 15px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background-color 0.3s;
+}
+
+.action-button:hover {
+  background: var(--glass-hover);
+}
+
+/* === المؤشرات === */
+.indicators {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+}
+
+.indicator {
+  background: var(--glass-bg);
+  padding: 8px 15px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+}
+
+.indicator i {
+  color: var(--accent-color);
+}
+
+/* === البطاقات === */
+.kpi-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.glass-card {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  /* Fallback for Firefox */
+  background-color: rgba(255, 255, 255, 0.15);
+  background-color: rgba(255, 255, 255, 0.1); /* Fallback for Firefox */
+  border: 1px solid var(--glass-border);
+  border-radius: 15px;
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-card {
+  text-align: center;
+}
+
+.kpi-card i {
+  color: var(--accent-color);
+  margin-bottom: 10px;
+}
+
+.kpi-value {
+  font-size: 1.5em;
+  font-weight: bold;
+  margin: 10px 0;
+}
+
+.trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 15px;
+  font-size: 0.9em;
+}
+
+.trend.positive {
+  background: rgba(76, 175, 80, 0.2);
+  color: var(--accent-color);
+}
+
+.trend.negative {
+  background: rgba(244, 67, 54, 0.2);
+  color: var(--error-color);
+}
+
+/* === الرسوم البيانية === */
+.charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.chart-container {
+  padding: 20px;
+}
+
+.chart-container h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: white;
+}
+
+/* === القسم السفلي === */
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.updates-section, .insights-section {
+  padding: 20px;
+}
+
+.updates-section h3, .insights-section h3 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: white;
+}
+
+.update-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.update-item.alert {
+  border-right: 3px solid var(--error-color);
+}
+
+.update-item.success {
+  border-right: 3px solid var(--accent-color);
+}
+
+.update-time {
+  font-size: 0.8em;
+  color: #aaa;
+}
+
+.insight-card {
+  margin-bottom: 15px;
+  padding: 15px;
+  border-radius: 10px;
+}
+
+.insight-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.insight-header h4 {
+  margin: 0;
+  color: white;
+}
+
+.impact-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  text-transform: uppercase;
+}
+
+.impact-badge.high {
+  background: rgba(244, 67, 54, 0.2);
+  color: var(--error-color);
+}
+
+.impact-badge.medium {
+  background: rgba(255, 152, 0, 0.2);
+  color: var(--warning-color);
+}
+
+.impact-badge.low {
+  background: rgba(76, 175, 80, 0.2);
+  color: var(--accent-color);
+}
+
+.insight-category {
+  margin-top: 10px;
+  font-size: 0.8em;
+  color: #aaa;
+}
+
+/* === رسائل الخطأ === */
+.error-message {
+  position: fixed;
+  top: 80px;
+  right: 270px;
+  background: rgba(244, 67, 54, 0.9);
+  color: white;
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+}
+
+/* === التحريك === */
+.float-animation {
+  animation: float 3s infinite ease-in-out;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+/* === تصميم متجاوب === */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+  
+  .sidebar.active {
+    transform: translateX(0);
+  }
+  
+  .top-bar {
+    right: 0;
+  }
+  
+  .main-content {
+    margin-right: 0;
+  }
+  
+  .bottom-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .error-message {
+    right: 20px;
+  }
+}
+
+@media (max-width: 480px) {
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .kpi-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* === الخلفية المتحركة === */
+#particles-js {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+}
+
+/* === تحديث تخطيط الصفحة === */
+.main-content {
+  margin-right: 250px;
+  padding-top: 60px;
+  min-height: 100vh;
+}
+
+.dashboard-container {
+  padding: 20px;
+}
+
+/* === تنسيق المؤشرات === */
+.indicators {
+  position: absolute;
+  top: 20px;
+  left: 20px;
+  display: flex;
+  gap: 10px;
+}
+
+.indicator {
+  background: rgba(0, 0, 0, 0.3);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  /* Fallback for Firefox */
+  background-color: rgba(0, 0, 0, 0.85);
+  padding: 5px 10px;
+  border-radius: 15px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.9em;
+}
+
+.indicator i {
+  color: var(--accent-color);
+}
+
+/* === تحسينات التجاوب === */
+@media (max-width: 768px) {
+  .sidebar {
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+  }
+
+  .sidebar.active {
+    transform: translateX(0);
+  }
+
+  .main-content {
+    margin-right: 0;
+  }
+
+  .top-bar {
+    right: 0;
+  }
+
+  .menu-toggle {
+    display: block;
+  }
+}

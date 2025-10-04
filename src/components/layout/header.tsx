@@ -17,6 +17,7 @@ import { LanguageToggle } from '@/components/language-toggle'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
 import { cn } from '@/lib/utils'
+import { getGlassClasses } from '@/lib/wardah-ui-utils'
 
 export function Header() {
   const { t, i18n } = useTranslation()
@@ -119,7 +120,7 @@ export function Header() {
                 )}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={isRTL ? "start" : "end"} className="w-80">
+            <DropdownMenuContent align={isRTL ? "start" : "end"} className={cn("w-80", getGlassClasses())}>
               <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
                 {t('dashboard.recentActivities')}
               </DropdownMenuLabel>
@@ -182,7 +183,7 @@ export function Header() {
                 </span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={isRTL ? "start" : "end"}>
+            <DropdownMenuContent align={isRTL ? "start" : "end"} className={getGlassClasses()}>
               <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
                 <div className="flex flex-col">
                   <span>{userFullName}</span>

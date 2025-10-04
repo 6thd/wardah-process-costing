@@ -1,0 +1,33 @@
+/* نسخ محتوى الملف السابق styles.css */
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@200;300;400;500;600;700;800;900&display=swap');
+@import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css');
+
+:root {
+  --primary-color: #2c3e50;
+  --secondary-color: #3498db;
+  --accent-color: #e74c3c;
+  --background-gradient: linear-gradient(135deg, #1a2a3a 0%, #2c3e50 100%);
+  --glass-effect: rgba(255, 255, 255, 0.1);
+  --card-gradient: linear-gradient(45deg, rgba(52, 152, 219, 0.1), rgba(231, 76, 60, 0.1));
+}
+
+body {
+  font-family: 'Cairo', sans-serif;
+  background: var(--background-gradient);
+  margin: 0;
+  padding: 0;
+  color: #fff;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+#root {
+  display: flex;
+  min-height: 100vh;
+}
+
+.dashboard-container {
+  flex: 1;
+  padding: 20px;
+  position: relative;
+}

@@ -50,7 +50,8 @@
     "permissions": "الصلاحيات",
     "system": "إعدادات النظام",
     "integrations": "التكاملات",
-    "backup": "النسخ الاحتياطي"
+    "backup": "النسخ الاحتياطي",
+    "gemini-dashboard": "لوحة معلومات Gemini"
   },
   "common": {
     "save": "حفظ",
@@ -99,7 +100,8 @@
     "currency": "ريال",
     "month": "الشهر",
     "year": "السنة",
-    "notes": "ملاحظات"
+    "notes": "ملاحظات",
+    "openInNewTab": "فتح في علامة تبويب جديدة"
   },
   "manufacturing": {
     "title": "إدارة التصنيع",
@@ -400,5 +402,15 @@
         "terminated": "مفصول"
       }
     }
+  },
+  "geminiDashboard": {
+    "title": "لوحة معلومات الأداء المالي الثورية مع Google Gemini AI",
+    "loadingMessage": "جاري تحميل لوحة المعلومات المدعومة بـ Google Gemini AI...",
+    "loadingOptimizedMessage": "جاري تحميل النسخة المحسّنة من لوحة المعلومات...",
+    "loadingStatus": "حالة التحميل",
+    "loadingHtml": "جاري تحميل محتوى اللوحة",
+    "loadingTip": "قد يستغرق التحميل بضع ثوانٍ",
+    "optimizedLoadingTip": "النسخة المحسّنة تحمّل أسرع",
+    "timeoutError": "انتهت مهلة تحميل لوحة المعلومات. يرجى المحاولة مرة أخرى."
   }
 }

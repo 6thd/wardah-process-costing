@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة معلومات الأداء المالي المحسّنة - فرع الدمام</title>
+    
+    <!-- Preload critical resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Load fonts asynchronously -->
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;900&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" media="print" onload="this.media='all'">
+    
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #ea4335 100%);
+            --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            --glass-bg: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Cairo', sans-serif;
+            background: var(--dark-gradient);
+            min-height: 100vh;
+            overflow-x: hidden;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        body.ltr {
+            direction: ltr;
+        }
+
+        body.rtl {
+            direction: rtl;
+        }
+
+        /* Simplified loading overlay */
+        #loadingOverlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--dark-gradient);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            transition: opacity 0.5s ease;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
+            border-top: 5px solid #4285f4;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            color: white;
+            font-size: 18px;
+            text-align: center;
+        }
+
+        .progress-bar {
+            width: 300px;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            margin-top: 20px;
+            overflow: hidden;
+        }
+
+        .progress {
+            height: 100%;
+            background: var(--primary-gradient);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        /* Main dashboard styles */
+        .dashboard-container {
+            display: none;
+            padding: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+
+        .kpi-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            color: white;
+        }
+
+        .kpi-value {
+            font-size: 2rem;
+            font-weight: bold;
+            margin: 10px 0;
+            background: var(--primary-gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+            color: white;
+            min-height: 300px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 20px;
+            border-radius: 10px;
+            color: white;
+            background: rgba(66, 133, 244, 0.9);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            transform: translateX(120%);
+            transition: transform 0.3s ease;
+            z-index: 1001;
+        }
+
+        .notification.show {
+            transform: translateX(0);
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(66, 133, 244, 0.2);
+            color: white;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        button:hover {
+            background: rgba(66, 133, 244, 0.4);
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                gap: 15px;
+                text-align: center;
+            }
+            
+            .controls {
+                flex-wrap: wrap;
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body class="rtl">
+    <!-- Optimized Loading Overlay -->
+    <div id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">جاري تحميل لوحة المعلومات...</div>
+        <div class="progress-bar">
+            <div class="progress" id="progressBar"></div>
+        </div>
+        <div class="loading-text" id="loadingStatus" style="font-size: 14px; margin-top: 15px;">بدء التحميل...</div>
+    </div>
+
+    <!-- Main Dashboard Content -->
+    <div class="dashboard-container" id="dashboardContainer">
+        <div class="header">
+            <h1>لوحة معلومات الأداء المالي - فرع الدمام</h1>
+            <div class="controls">
+                <button id="refreshBtn">
+                    <i class="fas fa-sync-alt"></i> تحديث
+                </button>
+                <button id="syncBtn">
+                    <i class="fas fa-sync"></i> مزامنة مع ERP
+                </button>
+                <button id="exportBtn">
+                    <i class="fas fa-download"></i> تصدير
+                </button>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <h3>إجمالي المبيعات</h3>
+            <div class="kpi-value" id="totalSales">0 SAR</div>
+            <p>هذا الشهر</p>
+        </div>
+
+        <div class="kpi-card">
+            <h3>صافي الربح</h3>
+            <div class="kpi-value" id="netProfit">0 SAR</div>
+            <p>هذا الشهر</p>
+        </div>
+
+        <div class="chart-container">
+            <div id="salesChart">
+                <p>جاري تحميل المخطط البياني...</p>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div id="profitChart">
+                <p>جاري تحميل تحليل الأرباح...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notificationContainer"></div>
+
+    <script>
+        // Register service worker for caching
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/gemini-dashboard/service-worker.js')
+                    .then(registration => {
+                        console.log('Service Worker registered with scope:', registration.scope);
+                    })
+                    .catch(error => {
+                        console.log('Service Worker registration failed:', error);
+                    });
+            });
+        }
+
+        // Optimized initialization with progressive loading
+        class OptimizedDashboard {
+            constructor() {
+                this.data = {
+                    totalSales: 0,
+                    netProfit: 0,
+                    months: ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو'],
+                    currentProgress: 0
+                };
+                
+                this.init();
+            }
+
+            async init() {
+                try {
+                    // Show loading progress
+                    this.updateProgress(10, 'جاري تهيئة النظام...');
+                    
+                    // Load critical resources first
+                    await this.loadCriticalResources();
+                    this.updateProgress(40, 'جاري تحميل البيانات...');
+                    
+                    // Load data
+                    await this.loadData();
+                    this.updateProgress(70, 'جاري معالجة البيانات...');
+                    
+                    // Render dashboard
+                    await this.render();
+                    this.updateProgress(100, 'اكتمل التحميل!');
+                    
+                    // Hide loading overlay after a short delay
+                    setTimeout(() => {
+                        this.hideLoadingOverlay();
+                    }, 500);
+                    
+                } catch (error) {
+                    console.error('Dashboard initialization error:', error);
+                    this.showError('فشل في تحميل لوحة المعلومات');
+                }
+            }
+
+            updateProgress(percentage, status) {
+                this.data.currentProgress = percentage;
+                const progressBar = document.getElementById('progressBar');
+                const loadingStatus = document.getElementById('loadingStatus');
+                
+                if (progressBar) {
+                    progressBar.style.width = `${percentage}%`;
+                }
+                
+                if (loadingStatus) {
+                    loadingStatus.textContent = status;
+                }
+            }
+
+            async loadCriticalResources() {
+                // Load only essential resources with timeouts
+                return new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => {
+                        reject(new Error('Timeout loading critical resources'));
+                    }, 5000); // 5 second timeout
+                    
+                    // Load ApexCharts if needed (but only when actually used)
+                    // This is a simplified approach - in a real app, you'd load charts on demand
+                    
+                    clearTimeout(timeout);
+                    resolve();
+                });
+            }
+
+            async loadData() {
+                // Simulate data loading with timeout
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        // Simulate data
+                        this.data.totalSales = 1250000;
+                        this.data.netProfit = 325000;
+                        resolve();
+                    }, 800);
+                });
+            }
+
+            async render() {
+                // Show dashboard container
+                const dashboardContainer = document.getElementById('dashboardContainer');
+                if (dashboardContainer) {
+                    dashboardContainer.style.display = 'block';
+                }
+                
+                // Update KPI values
+                document.getElementById('totalSales').textContent = 
+                    `${this.data.totalSales.toLocaleString()} SAR`;
+                document.getElementById('netProfit').textContent = 
+                    `${this.data.netProfit.toLocaleString()} SAR`;
+                
+                // Set up event listeners
+                this.setupEventListeners();
+            }
+
+            setupEventListeners() {
+                document.getElementById('refreshBtn')?.addEventListener('click', () => {
+                    this.refresh();
+                });
+                
+                document.getElementById('syncBtn')?.addEventListener('click', () => {
+                    this.syncWithERP();
+                });
+                
+                document.getElementById('exportBtn')?.addEventListener('click', () => {
+                    this.exportData();
+                });
+            }
+
+            refresh() {
+                this.showNotification('جاري تحديث البيانات...', 'info');
+                setTimeout(() => {
+                    this.showNotification('تم تحديث البيانات بنجاح', 'success');
+                }, 1500);
+            }
+
+            async syncWithERP() {
+                this.showNotification('جاري مزامنة البيانات مع ERP...', 'info');
+                
+                // Simulate API call with timeout
+                try {
+                    await new Promise((resolve, reject) => {
+                        const timeout = setTimeout(() => {
+                            reject(new Error('Timeout syncing with ERP'));
+                        }, 8000); // 8 second timeout
+                        
+                        // Simulate successful sync
+                        setTimeout(() => {
+                            clearTimeout(timeout);
+                            resolve();
+                        }, 2000);
+                    });
+                    
+                    this.showNotification('تمت المزامنة بنجاح', 'success');
+                } catch (error) {
+                    this.showNotification('فشل في المزامنة: ' + error.message, 'error');
+                }
+            }
+
+            exportData() {
+                this.showNotification('جاري تصدير البيانات...', 'info');
+                setTimeout(() => {
+                    this.showNotification('تم تصدير البيانات بنجاح', 'success');
+                }, 1000);
+            }
+
+            hideLoadingOverlay() {
+                const overlay = document.getElementById('loadingOverlay');
+                if (overlay) {
+                    overlay.style.opacity = '0';
+                    setTimeout(() => {
+                        overlay.style.display = 'none';
+                    }, 500);
+                }
+            }
+
+            showNotification(message, type = 'info') {
+                const notification = document.createElement('div');
+                notification.className = `notification show ${type}`;
+                notification.innerHTML = `
+                    <div class="flex items-center">
+                        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} mr-2"></i>
+                        ${message}
+                    </div>
+                `;
+                
+                const container = document.getElementById('notificationContainer');
+                if (container) {
+                    container.appendChild(notification);
+                    
+                    setTimeout(() => {
+                        notification.classList.remove('show');
+                        setTimeout(() => notification.remove(), 500);
+                    }, 3000);
+                }
+            }
+
+            showError(message) {
+                this.hideLoadingOverlay();
+                this.showNotification(message, 'error');
+            }
+        }
+
+        // Initialize the dashboard when DOM is loaded
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                new OptimizedDashboard();
+            });
+        } else {
+            new OptimizedDashboard();
+        }
+    </script>
+</body>
+</html>

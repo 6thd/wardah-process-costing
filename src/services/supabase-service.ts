@@ -70,10 +70,7 @@ export const itemsService = {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select('*')
       .order('created_at', { ascending: false })
     
     if (error) throw error
@@ -84,10 +81,7 @@ export const itemsService = {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select('*')
       .filter('stock_quantity', 'lte', 'minimum_stock')
     
     if (error) throw error
@@ -98,10 +92,7 @@ export const itemsService = {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('items')
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select('*')
       .eq('id', id)
       .single()
     
@@ -114,10 +105,7 @@ export const itemsService = {
     const { data, error } = await supabase
       .from('items')
       .insert(item)
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select()
       .single()
     
     if (error) throw error
@@ -130,10 +118,7 @@ export const itemsService = {
       .from('items')
       .update({ ...item, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select(`
-        *,
-        category:categories(*)
-      `)
+      .select()
       .single()
     
     if (error) throw error

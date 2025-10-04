@@ -1,0 +1,529 @@
+.gemini-dashboard-container {
+  min-height: 600px;
+  width: 100%;
+  background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+  border-radius: var(--radius);
+  overflow: hidden;
+  direction: rtl;
+  font-family: 'Cairo', sans-serif;
+  position: relative;
+}
+
+/* تنسيقات إضافية للتكامل مع النظام الحالي */
+.gemini-dashboard-container iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* تخصيص أنماط Gemini لتتناسق مع التصميم الحالي */
+.gemini-dashboard-container .gemini-chart {
+  background-color: var(--card);
+  border-radius: var(--radius);
+  padding: var(--card-padding);
+  margin-bottom: 1rem;
+}
+
+.gemini-dashboard-container .gemini-controls {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Copy key Gemini styles to ensure proper rendering */
+.gemini-dashboard-container {
+  --primary-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 50%, #ea4335 100%);
+  --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --success-gradient: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --warning-gradient: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --danger-gradient: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+  --glass-bg: rgba(255, 255, 255, 0.05);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --gemini-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
+}
+
+.gemini-dashboard-container * {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Advanced Particles Background */
+.gemini-dashboard-container #particles-js {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  background: 
+      radial-gradient(circle at 20% 50%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+      radial-gradient(circle at 80% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+      radial-gradient(circle at 40% 80%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+      radial-gradient(circle at 60% 30%, rgba(234, 67, 53, 0.1) 0%, transparent 50%);
+  animation: geminiParticleShift 25s ease-in-out infinite;
+}
+
+@keyframes geminiParticleShift {
+  0%, 100% { 
+      background: 
+          radial-gradient(circle at 20% 50%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 80% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 40% 80%, rgba(251, 188, 4, 0.15) 0%, transparent 50%);
+  }
+  25% { 
+      background: 
+          radial-gradient(circle at 60% 30%, rgba(234, 67, 53, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 30% 70%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 70% 40%, rgba(52, 168, 83, 0.15) 0%, transparent 50%);
+  }
+  50% { 
+      background: 
+          radial-gradient(circle at 80% 60%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 20% 30%, rgba(234, 67, 53, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 50% 80%, rgba(66, 133, 244, 0.15) 0%, transparent 50%);
+  }
+  75% { 
+      background: 
+          radial-gradient(circle at 40% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 80% 70%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
+          radial-gradient(circle at 30% 50%, rgba(234, 67, 53, 0.15) 0%, transparent 50%);
+  }
+}
+
+/* Glass Morphism Effects */
+.gemini-dashboard-container .glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.gemini-dashboard-container .glass-card {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px;
+  padding: 2rem;
+  box-shadow: 
+      0 8px 32px rgba(0, 0, 0, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.gemini-dashboard-container .glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+  transition: left 0.6s;
+}
+
+.gemini-dashboard-container .glass-card:hover::before {
+  left: 100%;
+}
+
+.gemini-dashboard-container .glass-card:hover {
+  transform: translateY(-10px) scale(1.02);
+  box-shadow: 
+      0 20px 60px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* Gemini AI Enhanced Elements */
+.gemini-dashboard-container .gemini-enhanced {
+  background: var(--gemini-gradient);
+  background-size: 500% 500%;
+  animation: geminiGradientShift 10s ease-in-out infinite;
+}
+
+@keyframes geminiGradientShift {
+  0%, 100% { background-position: 0% 50%; }
+  20% { background-position: 100% 0%; }
+  40% { background-position: 100% 100%; }
+  60% { background-position: 0% 100%; }
+  80% { background-position: 0% 0%; }
+}
+
+/* Holographic Effects */
+.gemini-dashboard-container .holographic {
+  background: var(--gemini-gradient);
+  background-size: 400% 400%;
+  animation: holographicShift 6s ease-in-out infinite;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+@keyframes holographicShift {
+  0%, 100% { background-position: 0% 50%; }
+  25% { background-position: 100% 0%; }
+  50% { background-position: 100% 100%; }
+  75% { background-position: 0% 100%; }
+}
+
+/* Advanced Gemini Chat Interface */
+.gemini-dashboard-container .gemini-chat-container {
+  background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
+  backdrop-filter: blur(30px);
+  border: 1px solid rgba(66, 133, 244, 0.3);
+  border-radius: 25px;
+  position: relative;
+  overflow: hidden;
+}
+
+.gemini-dashboard-container .gemini-chat-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gemini-gradient);
+  background-size: 500% 100%;
+  animation: geminiGradientShift 4s ease infinite;
+}
+
+.gemini-dashboard-container .gemini-message {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(52, 168, 83, 0.2));
+  backdrop-filter: blur(15px);
+  border: 1px solid rgba(66, 133, 244, 0.3);
+  border-radius: 20px;
+  padding: 1rem;
+  margin: 0.5rem 0;
+  position: relative;
+  animation: messageSlideIn 0.5s ease-out;
+}
+
+@keyframes messageSlideIn {
+  from {
+      opacity: 0;
+      transform: translateY(20px) scale(0.95);
+  }
+  to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+  }
+}
+
+.gemini-dashboard-container .user-message {
+  background: linear-gradient(135deg, rgba(251, 188, 4, 0.2), rgba(234, 67, 53, 0.2));
+  border-color: rgba(251, 188, 4, 0.3);
+  margin-left: 2rem;
+}
+
+.gemini-dashboard-container .typing-indicator {
+  display: flex;
+  align-items: center;
+  padding: 1rem;
+  background: rgba(66, 133, 244, 0.1);
+  border-radius: 20px;
+  margin: 0.5rem 0;
+}
+
+.gemini-dashboard-container .typing-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.gemini-dashboard-container .typing-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--gemini-gradient);
+  animation: geminiTypingDot 1.4s ease-in-out infinite;
+}
+
+.gemini-dashboard-container .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.gemini-dashboard-container .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes geminiTypingDot {
+  0%, 60%, 100% { transform: translateY(0) scale(1); }
+  30% { transform: translateY(-10px) scale(1.2); }
+}
+
+/* Interactive Elements */
+.gemini-dashboard-container .interactive-button {
+  position: relative;
+  background: linear-gradient(45deg, #4285f4, #34a853);
+  border: none;
+  border-radius: 15px;
+  padding: 12px 24px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(66, 133, 244, 0.4);
+}
+
+.gemini-dashboard-container .interactive-button::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.gemini-dashboard-container .interactive-button:hover::before {
+  left: 100%;
+}
+
+.gemini-dashboard-container .interactive-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(66, 133, 244, 0.6);
+}
+
+.gemini-dashboard-container .gemini-button {
+  background: var(--gemini-gradient);
+  background-size: 500% 500%;
+  animation: geminiGradientShift 10s ease-in-out infinite;
+}
+
+/* Advanced KPI Cards */
+.gemini-dashboard-container .kpi-advanced {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 20px;
+  padding: 1.5rem;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  cursor: pointer;
+}
+
+.gemini-dashboard-container .kpi-advanced::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--gemini-gradient);
+  background-size: 500% 100%;
+  animation: geminiGradientShift 4s ease infinite;
+}
+
+/* Confidence bar for insights */
+.gemini-dashboard-container .confidence-bar {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.gemini-dashboard-container .confidence-fill {
+  height: 100%;
+  background: var(--gemini-gradient);
+  border-radius: 2px;
+  transition: width 1s ease;
+}
+
+/* Language Toggle */
+.gemini-dashboard-container .language-toggle {
+  position: fixed;
+  top: 20px;
+  left: 20px;
+  z-index: 1000;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(25px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 15px;
+  padding: 0.5rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.gemini-dashboard-container .lang-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: #9CA3AF;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 600;
+}
+
+.gemini-dashboard-container .lang-btn.active {
+  background: linear-gradient(45deg, #4285f4, #34a853);
+  color: white;
+  box-shadow: 0 2px 10px rgba(66, 133, 244, 0.4);
+}
+
+/* Ensure proper text direction and alignment */
+.gemini-dashboard-container [dir="rtl"] {
+  direction: rtl;
+  text-align: right;
+}
+
+.gemini-dashboard-container [dir="ltr"] {
+  direction: ltr;
+  text-align: left;
+}
+
+/* Fix for charts container */
+.gemini-dashboard-container .chart-container-advanced {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 25px;
+  padding: 1.5rem;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  margin-bottom: 1rem;
+}
+
+/* Animation classes */
+.gemini-dashboard-container .float-animation {
+  animation: float 6s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+/* Neon glow effect */
+.gemini-dashboard-container .neon-glow {
+  text-shadow: 0 0 5px #4285f4, 0 0 10px #4285f4, 0 0 15px #4285f4, 0 0 20px #4285f4;
+  animation: neonGlow 2s ease-in-out infinite alternate;
+}
+
+@keyframes neonGlow {
+  from { text-shadow: 0 0 5px #4285f4, 0 0 10px #4285f4, 0 0 15px #4285f4, 0 0 20px #4285f4; }
+  to { text-shadow: 0 0 10px #4285f4, 0 0 20px #4285f4, 0 0 30px #4285f4, 0 0 40px #4285f4; }
+}
+
+/* Gemini sparkle effect */
+.gemini-dashboard-container .gemini-sparkle {
+  position: relative;
+  overflow: hidden;
+}
+
+.gemini-dashboard-container .gemini-sparkle::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%);
+  transform: rotate(30deg);
+  animation: sparkle 3s infinite;
+}
+
+@keyframes sparkle {
+  0% { transform: rotate(30deg) translate(-20%, -20%); }
+  50% { transform: rotate(30deg) translate(20%, 20%); }
+  100% { transform: rotate(30deg) translate(-20%, -20%); }
+}
+
+/* Loading overlay */
+.gemini-dashboard-container #loadingOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+}
+
+.gemini-dashboard-container .loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid rgba(66, 133, 244, 0.3);
+  border-top: 5px solid #4285f4;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Notification container */
+.gemini-dashboard-container #notificationContainer {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  width: 300px;
+}
+
+.gemini-dashboard-container .notification {
+  background: linear-gradient(135deg, rgba(66, 133, 244, 0.9), rgba(52, 168, 83, 0.9));
+  color: white;
+  padding: 1rem;
+  border-radius: 10px;
+  margin-bottom: 1rem;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  animation: slideIn 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.gemini-dashboard-container .notification.error {
+  background: linear-gradient(135deg, rgba(234, 67, 53, 0.9), rgba(251, 188, 4, 0.9));
+}
+
+.gemini-dashboard-container .notification.success {
+  background: linear-gradient(135deg, rgba(52, 168, 83, 0.9), rgba(66, 133, 244, 0.9));
+}
+
+.gemini-dashboard-container .notification.warning {
+  background: linear-gradient(135deg, rgba(251, 188, 4, 0.9), rgba(234, 67, 53, 0.9));
+}
+
+/* Custom loading spinner */
+.gemini-dashboard-container .custom-spinner {
+  display: inline-block;
+  width: 2rem;
+  height: 2rem;
+  border: 3px solid rgba(66, 133, 244, 0.3);
+  border-radius: 50%;
+  border-top-color: #4285f4;
+  animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Loading overlay for dashboard */
+.gemini-dashboard-container .loading-overlay {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+  border-radius: var(--radius);
+}

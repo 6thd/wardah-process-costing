@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getGlassClasses } from '@/lib/wardah-ui-utils';
 
 interface WIPReportProps {
   dateRange?: { from?: Date; to?: Date };
@@ -53,13 +54,13 @@ export const WIPReport: React.FC<WIPReportProps> = ({ dateRange }) => {
   });
 
   if (isLoading) {
-    return <div className="p-4">جارٍ تحميل تقرير WIP...</div>;
+    return <div className="p-4 wardah-animation-float">جارٍ تحميل تقرير WIP...</div>;
   }
 
   if (error) {
     return (
       <div className="p-4">
-        <Alert variant="destructive">
+        <Alert variant="destructive" className={getGlassClasses()}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             حدث خطأ أثناء تحميل تقرير WIP: {error.message}
@@ -70,7 +71,7 @@ export const WIPReport: React.FC<WIPReportProps> = ({ dateRange }) => {
   }
 
   return (
-    <Card>
+    <Card className={getGlassClasses()}>
       <CardHeader>
         <CardTitle className="text-right">تقرير WIP حسب المراحل</CardTitle>
       </CardHeader>

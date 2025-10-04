@@ -1,4 +1,3 @@
-
 import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
 
@@ -7,11 +6,13 @@ import { DashboardModule } from "@/features/dashboard";
 import { GeneralLedgerModule } from "@/features/general-ledger";
 import { InventoryModule } from "@/features/inventory";
 import { ManufacturingModule } from "@/features/manufacturing";
+import { ReportsModule } from "@/features/reports"
+import { GeminiDashboardModule } from "@/features/gemini-dashboard";
+import { SettingsModule } from "@/features/settings";
+import { HRModule } from "@/features/hr";
 import { PurchasingModule } from "@/features/purchasing";
 import { SalesModule } from "@/features/sales";
-import { ReportsModule } from "@/features/reports";
-import { SettingsModule } from "@/features/settings";
-import { HRModule } from "@/features/hr"; // The new HR module
+import { DesignSystemDemo } from "@/components/design-system-demo"
 
 // Minimal Not Found Page component
 const NotFoundPage = () => (
@@ -76,8 +77,16 @@ export const appRouter = createBrowserRouter([
         element: <ReportsModule />,
       },
       {
+        path: "gemini-dashboard/*", // Added Gemini Dashboard route
+        element: <GeminiDashboardModule />,
+      },
+      {
         path: "settings/*",
         element: <SettingsModule />,
+      },
+      {
+        path: "design-system",
+        element: <DesignSystemDemo />,
       },
     ],
   },
@@ -85,4 +94,8 @@ export const appRouter = createBrowserRouter([
     path: "*",
     element: <NotFoundPage /> // Catch-all for any other route
   }
-]);
+], {
+  future: {
+    v7_startTransition: true
+  } as any
+});

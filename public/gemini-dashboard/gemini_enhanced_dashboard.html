@@ -41,8 +41,6 @@
             overflow-x: hidden;
             position: relative;
             transition: all 0.3s ease;
-            margin: 0;
-            padding: 0;
         }
 
         /* Language Direction Support */
@@ -1066,8 +1064,8 @@
                 this.geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
                 // Wardah ERP Integration (Secure backend proxy)
                 this.wardahProxyConfig = {
-                    proxyUrl: '/api/wardah', // Relative URL to proxy service
-                    proxyAuthKey: 'YOUR_PROXY_AUTH_KEY' // This should be set via environment variables
+                    proxyUrl: '/api/wardah', // URL to your proxy service
+                    proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
                 };
                 
                 this.data = {

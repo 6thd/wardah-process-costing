@@ -16,3 +16,10 @@ CREATE TABLE IF NOT EXISTS public.items (
 
 ALTER TABLE public.items
 ADD CONSTRAINT items_pkey PRIMARY KEY (id);
+
+-- Add foreign key constraint to categories table
+ALTER TABLE public.items
+ADD CONSTRAINT items_category_id_fkey 
+FOREIGN KEY (category_id) 
+REFERENCES public.categories(id) 
+ON DELETE SET NULL;

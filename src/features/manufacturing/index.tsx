@@ -119,7 +119,7 @@ function ManufacturingOverview() {
   return (
     <div className="space-y-6">
       <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.title')}</h1>
+        <h1 className="text-3xl font-bold wardah-text-gradient-google">{t('manufacturing.title')}</h1>
         <p className="text-muted-foreground mt-2">
           إدارة عمليات التصنيع وتكاليف المراحل
         </p>
@@ -127,19 +127,19 @@ function ManufacturingOverview() {
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
+        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
           <div className="text-2xl font-bold text-blue-600">{activeOrders.length}</div>
           <div className="text-sm text-muted-foreground">أوامر نشطة</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
+        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
           <div className="text-2xl font-bold text-green-600">{completedOrders.length}</div>
           <div className="text-sm text-muted-foreground">أوامر مكتملة</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
+        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
           <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
           <div className="text-sm text-muted-foreground">في الانتظار</div>
         </div>
-        <div className="bg-card rounded-lg border p-4">
+        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
           <div className="text-2xl font-bold text-purple-600">85.6%</div>
           <div className="text-sm text-muted-foreground">كفاءة الإنتاج</div>
         </div>
@@ -147,10 +147,10 @@ function ManufacturingOverview() {
 
       {/* Manufacturing Functions Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Link to="/manufacturing/orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+        <Link to="/manufacturing/orders" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <Factory className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               أوامر التصنيع
             </h3>
           </div>
@@ -163,10 +163,10 @@ function ManufacturingOverview() {
           </div>
         </Link>
 
-        <Link to="/manufacturing/process-costing" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+        <Link to="/manufacturing/process-costing" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <BarChart3 className="h-6 w-6 text-success" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               تكاليف المراحل
             </h3>
           </div>
@@ -176,10 +176,10 @@ function ManufacturingOverview() {
           <Badge variant="default" className="mt-3">متقدم</Badge>
         </Link>
 
-        <Link to="/manufacturing/workcenters" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+        <Link to="/manufacturing/workcenters" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <Settings className="h-6 w-6 text-info" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               مراكز العمل
             </h3>
           </div>
@@ -188,10 +188,10 @@ function ManufacturingOverview() {
           </p>
         </Link>
 
-        <Link to="/manufacturing/bom" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+        <Link to="/manufacturing/bom" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <Package className="h-6 w-6 text-warning" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               قوائم المواد (BOM)
             </h3>
           </div>
@@ -200,10 +200,10 @@ function ManufacturingOverview() {
           </p>
         </Link>
 
-        <Link to="/manufacturing/quality" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+        <Link to="/manufacturing/quality" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <CheckCircle className="h-6 w-6 text-success" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               ضبط الجودة
             </h3>
           </div>
@@ -212,10 +212,10 @@ function ManufacturingOverview() {
           </p>
         </Link>
 
-        <div className="bg-card rounded-lg border p-6">
+        <div className="wardah-glass-card wardah-glass-card-hover p-6">
           <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
             <Users className="h-6 w-6 text-secondary" />
-            <h3 className={cn("font-semibold", isRTL ? "text-right" : "text-left")}>
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
               إدارة العمالة
             </h3>
           </div>
@@ -228,9 +228,9 @@ function ManufacturingOverview() {
 
       {/* Recent Manufacturing Orders */}
       {!loading && (
-        <div className="bg-card rounded-lg border">
+        <div className="wardah-glass-card">
           <div className="p-4 border-b flex justify-between items-center">
-            <h3 className="font-semibold">أحدث أوامر التصنيع</h3>
+            <h3 className="font-semibold wardah-text-gradient-google">أحدث أوامر التصنيع</h3>
             <Link to="/manufacturing/orders">
               <Button variant="outline" size="sm">عرض الكل</Button>
             </Link>

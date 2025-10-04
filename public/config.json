@@ -48,5 +48,9 @@
     "regrind_processing_rate": 0.05,
     "waste_credit_rate": 0.02,
     "labor_overhead_rate": 0.25
+  },
+  "GEMINI_DASHBOARD": {
+    "proxy_url": "http://localhost:3001/api/wardah",
+    "proxy_auth_key": ""
   }
 }

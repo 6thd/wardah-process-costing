@@ -300,13 +300,13 @@ export function VarianceAlerts() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">Variance Alerts</h1>
+          <h1 className="text-3xl font-bold wardah-text-gradient-google">Variance Alerts</h1>
           <p className="text-muted-foreground">
             Monitor cost variances and take corrective actions
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => refetch()} disabled={isLoading}>
+          <Button onClick={() => refetch()} disabled={isLoading} className="wardah-glass-card">
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
@@ -315,7 +315,7 @@ export function VarianceAlerts() {
       
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -327,7 +327,7 @@ export function VarianceAlerts() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -341,7 +341,7 @@ export function VarianceAlerts() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -355,7 +355,7 @@ export function VarianceAlerts() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
@@ -373,9 +373,9 @@ export function VarianceAlerts() {
       </div>
       
       {/* Filters */}
-      <Card>
+      <Card className="wardah-glass-card">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
+          <CardTitle className="flex items-center gap-2 wardah-text-gradient-google">
             <Filter className="h-5 w-5" />
             Filter Alerts
           </CardTitle>
@@ -389,6 +389,7 @@ export function VarianceAlerts() {
                   variant={severityFilter === 'ALL' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSeverityFilter('ALL')}
+                  className="wardah-glass-card"
                 >
                   All
                 </Button>
@@ -396,6 +397,7 @@ export function VarianceAlerts() {
                   variant={severityFilter === 'HIGH' ? 'destructive' : 'outline'}
                   size="sm"
                   onClick={() => setSeverityFilter('HIGH')}
+                  className="wardah-glass-card"
                 >
                   High
                 </Button>
@@ -403,6 +405,7 @@ export function VarianceAlerts() {
                   variant={severityFilter === 'MEDIUM' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setSeverityFilter('MEDIUM')}
+                  className="wardah-glass-card"
                 >
                   Medium
                 </Button>
@@ -410,6 +413,7 @@ export function VarianceAlerts() {
                   variant={severityFilter === 'LOW' ? 'secondary' : 'outline'}
                   size="sm"
                   onClick={() => setSeverityFilter('LOW')}
+                  className="wardah-glass-card"
                 >
                   Low
                 </Button>
@@ -423,6 +427,7 @@ export function VarianceAlerts() {
                   variant={statusFilter === 'ALL' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setStatusFilter('ALL')}
+                  className="wardah-glass-card"
                 >
                   All
                 </Button>
@@ -430,6 +435,7 @@ export function VarianceAlerts() {
                   variant={statusFilter === 'OPEN' ? 'destructive' : 'outline'}
                   size="sm"
                   onClick={() => setStatusFilter('OPEN')}
+                  className="wardah-glass-card"
                 >
                   Open
                 </Button>
@@ -437,6 +443,7 @@ export function VarianceAlerts() {
                   variant={statusFilter === 'ACKNOWLEDGED' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setStatusFilter('ACKNOWLEDGED')}
+                  className="wardah-glass-card"
                 >
                   Acknowledged
                 </Button>
@@ -444,6 +451,7 @@ export function VarianceAlerts() {
                   variant={statusFilter === 'RESOLVED' ? 'secondary' : 'outline'}
                   size="sm"
                   onClick={() => setStatusFilter('RESOLVED')}
+                  className="wardah-glass-card"
                 >
                   Resolved
                 </Button>
@@ -456,7 +464,7 @@ export function VarianceAlerts() {
                 <input
                   type="text"
                   placeholder="Search by MO, item, or stage..."
-                  className="w-full px-3 py-2 border rounded-md"
+                  className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
@@ -467,9 +475,9 @@ export function VarianceAlerts() {
       </Card>
       
       {/* Alerts Table */}
-      <Card>
+      <Card className="wardah-glass-card">
         <CardHeader>
-          <CardTitle>Variance Alerts</CardTitle>
+          <CardTitle className="wardah-text-gradient-google">Variance Alerts</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -533,6 +541,7 @@ export function VarianceAlerts() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleAcknowledgeAlert()}
+                            className="wardah-glass-card"
                           >
                             Acknowledge
                           </Button>
@@ -542,6 +551,7 @@ export function VarianceAlerts() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleResolveAlert()}
+                            className="wardah-glass-card"
                           >
                             Resolve
                           </Button>
@@ -550,6 +560,7 @@ export function VarianceAlerts() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleSnoozeAlert()}
+                          className="wardah-glass-card"
                         >
                           Snooze
                         </Button>
@@ -564,7 +575,7 @@ export function VarianceAlerts() {
       </Card>
       
       {/* Informational Alert */}
-      <Alert>
+      <Alert className="wardah-glass-card">
         <AlertTitle>Variance Monitoring</AlertTitle>
         <AlertDescription>
           This system monitors cost variances in real-time and generates alerts when variances exceed 

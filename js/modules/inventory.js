@@ -58,10 +58,7 @@ export async function registerInventory() {
       const { data, error } = await supabase
         .from(T.items)
         .insert([itemData])
-        .select(`
-          *,
-          category:categories(*)
-        `)
+        .select('*')
         .single();
       
       if (error) throw error;
@@ -112,10 +109,7 @@ export async function registerInventory() {
         .from(T.items)
         .update(updateData)
         .eq('id', item_id)
-        .select(`
-          *,
-          category:categories(*)
-        `)
+        .select('*')
         .single();
       
       if (error) throw error;
@@ -299,10 +293,7 @@ export async function registerInventory() {
     try {
       let query = supabase
         .from(T.items)
-        .select(`
-          *,
-          category:categories(*)
-        `)
+        .select('*')
         .eq('is_active', true)
         .order('name');
       

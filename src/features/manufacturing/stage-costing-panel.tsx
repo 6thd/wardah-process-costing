@@ -159,12 +159,12 @@ export default function StageCostingPanel() {
   return (
     <div className="space-y-6" data-panel="stage-costing">
       {/* Header */}
-      <div className="bg-white dark:bg-slate-900 rounded-lg border p-6">
+      <div className="wardah-glass-card p-6">
         <form onSubmit={(e) => e.preventDefault()}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Calculator className="h-6 w-6 text-primary" />
-              <h2 className="text-xl font-bold">احتساب تكلفة المراحل (Process Costing)</h2>
+              <h2 className="text-xl font-bold wardah-text-gradient-google">احتساب تكلفة المراحل (Process Costing)</h2>
             </div>
             <div className="flex gap-2">
               <Button 
@@ -192,7 +192,7 @@ export default function StageCostingPanel() {
         
           {/* Loading and Error States */}
           {(isMOLoading || isWCLoading || isSCLoading) && (
-            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+            <div className="mb-4 p-4 wardah-glass-card">
               <p>جاري تحميل البيانات...</p>
             </div>
           )}
@@ -209,7 +209,7 @@ export default function StageCostingPanel() {
               <label className="block text-sm font-medium mb-2">أمر التصنيع</label>
               <select 
                 name="manufacturingOrderId"
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.manufacturingOrderId}
                 onChange={(e) => handleInputChange('manufacturingOrderId', e.target.value)}
                 disabled={isMOLoading}
@@ -231,6 +231,7 @@ export default function StageCostingPanel() {
                 min="1"
                 value={formData.stageNumber}
                 onChange={(e) => handleInputChange('stageNumber', parseInt(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -238,7 +239,7 @@ export default function StageCostingPanel() {
               <label className="block text-sm font-medium mb-2">مركز العمل</label>
               <select 
                 name="workCenterId"
-                className="w-full px-3 py-2 border rounded-md"
+                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.workCenterId}
                 onChange={(e) => handleInputChange('workCenterId', e.target.value)}
                 disabled={isWCLoading}
@@ -267,8 +268,8 @@ export default function StageCostingPanel() {
           </div>
         
           {/* Quantities Section */}
-          <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <div className="wardah-glass-card p-4 mb-6">
+            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
               <BarChart3 className="h-5 w-5" />
               الكميات المنتجة
             </h3>
@@ -281,6 +282,7 @@ export default function StageCostingPanel() {
                   min="0"
                   value={formData.goodQuantity}
                   onChange={(e) => handleInputChange('goodQuantity', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -292,6 +294,7 @@ export default function StageCostingPanel() {
                   min="0"
                   value={formData.scrapQuantity}
                   onChange={(e) => handleInputChange('scrapQuantity', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -303,14 +306,15 @@ export default function StageCostingPanel() {
                   min="0"
                   value={formData.reworkQuantity}
                   onChange={(e) => handleInputChange('reworkQuantity', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
             </div>
           </div>
         
           {/* Cost Components */}
-          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <div className="wardah-glass-card p-4 mb-6">
+            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
               <DollarSign className="h-5 w-5" />
               مكونات التكلفة
             </h3>
@@ -324,6 +328,7 @@ export default function StageCostingPanel() {
                   step="0.01"
                   value={formData.directMaterialCost}
                   onChange={(e) => handleInputChange('directMaterialCost', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -336,6 +341,7 @@ export default function StageCostingPanel() {
                   step="0.01"
                   value={formData.laborHours}
                   onChange={(e) => handleInputChange('laborHours', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -348,6 +354,7 @@ export default function StageCostingPanel() {
                   step="0.01"
                   value={formData.laborRate}
                   onChange={(e) => handleInputChange('laborRate', e.target.value)}
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -361,14 +368,15 @@ export default function StageCostingPanel() {
                   step="0.01"
                   value={formData.overheadRate * 100}
                   onChange={(e) => handleInputChange('overheadRate', parseFloat(e.target.value) / 100)}
+                  className="wardah-glass-card"
                 />
               </div>
             </div>
           </div>
         
           {/* Labor Details */}
-          <div className="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
+          <div className="wardah-glass-card p-4 mb-6">
+            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
               <Users className="h-5 w-5" />
               تفاصيل العمالة والتشغيل
             </h3>
@@ -380,6 +388,7 @@ export default function StageCostingPanel() {
                   value={formData.employeeName || ''}
                   onChange={(e) => handleInputChange('employeeName', e.target.value)}
                   placeholder="اسم الموظف أو المشغل"
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -390,6 +399,7 @@ export default function StageCostingPanel() {
                   value={formData.operationCode || ''}
                   onChange={(e) => handleInputChange('operationCode', e.target.value)}
                   placeholder="OP001, WELD, CUT, etc."
+                  className="wardah-glass-card"
                 />
               </div>
               
@@ -400,6 +410,7 @@ export default function StageCostingPanel() {
                   value={formData.notes || ''}
                   onChange={(e) => handleInputChange('notes', e.target.value)}
                   placeholder="أي ملاحظات إضافية"
+                  className="wardah-glass-card"
                 />
               </div>
             </div>
@@ -411,7 +422,7 @@ export default function StageCostingPanel() {
               type="button"
               data-action="apply-labor-time"
               disabled={!formData.laborHours || !formData.laborRate}
-              className="bg-purple-600 hover:bg-purple-700"
+              className="bg-purple-600 hover:bg-purple-700 wardah-glass-card"
             >
               <Clock className="h-4 w-4 mr-2" />
               تسجيل وقت العمل
@@ -421,7 +432,7 @@ export default function StageCostingPanel() {
               type="button"
               data-action="apply-overhead"
               disabled={!formData.overheadRate}
-              className="bg-orange-600 hover:bg-orange-700"
+              className="bg-orange-600 hover:bg-orange-700 wardah-glass-card"
             >
               <Settings className="h-4 w-4 mr-2" />
               تطبيق التكاليف غير المباشرة
@@ -431,7 +442,7 @@ export default function StageCostingPanel() {
               type="button"
               data-action="calculate-stage-cost"
               disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity}
-              className="bg-blue-600 hover:bg-blue-700"
+              className="bg-blue-600 hover:bg-blue-700 wardah-glass-card"
             >
               <Calculator className="h-4 w-4 mr-2" />
               {'احتساب تكلفة المرحلة'}
@@ -442,7 +453,7 @@ export default function StageCostingPanel() {
         {/* Results Display */}
         {lastResult && (
           <div className="space-y-4" data-result={JSON.stringify(lastResult)}>
-            <div className="grid md:grid-cols-4 gap-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+            <div className="grid md:grid-cols-4 gap-4 p-4 wardah-glass-card">
               <div className="text-center">
                 <div className="text-2xl font-bold text-green-700 dark:text-green-400">
                   {lastResult.totalCost.toFixed(2)}
@@ -473,7 +484,7 @@ export default function StageCostingPanel() {
             </div>
             
             {/* Cost Breakdown */}
-            <div className="grid md:grid-cols-3 gap-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+            <div className="grid md:grid-cols-3 gap-4 p-4 wardah-glass-card">
               <div className="text-center">
                 <div className="text-lg font-bold text-orange-700 dark:text-orange-400">
                   {lastResult.laborCost.toFixed(2)}
@@ -501,7 +512,7 @@ export default function StageCostingPanel() {
               <Button 
                 type="button"
                 data-action="post-stage-to-gl"
-                className="bg-green-600 hover:bg-green-700"
+                className="bg-green-600 hover:bg-green-700 wardah-glass-card"
               >
                 <Check className="h-4 w-4 mr-2" />
                 ترحيل للدفتر العام
@@ -517,8 +528,8 @@ export default function StageCostingPanel() {
       
       {/* Stage Costs History */}
       {stageCosts.length > 0 && (
-        <div className="bg-white dark:bg-slate-900 rounded-lg border p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="wardah-glass-card p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
             <TrendingUp className="h-5 w-5" />
             تاريخ مراحل التكلفة
           </h3>

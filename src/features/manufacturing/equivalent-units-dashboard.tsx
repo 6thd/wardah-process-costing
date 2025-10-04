@@ -345,13 +345,13 @@ export function EquivalentUnitsDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Process Costing Dashboard</h1>
+        <h1 className="text-3xl font-bold wardah-text-gradient-google">Process Costing Dashboard</h1>
         <div className="flex space-x-2">
-          <Button onClick={handleCalculateEquivalentUnits}>
+          <Button onClick={handleCalculateEquivalentUnits} className="wardah-glass-card">
             <Calculator className="mr-2 h-4 w-4" />
             Calculate EU
           </Button>
-          <Button onClick={handlePerformVarianceAnalysis} variant="secondary">
+          <Button onClick={handlePerformVarianceAnalysis} variant="secondary" className="wardah-glass-card">
             <TrendingUp className="mr-2 h-4 w-4" />
             Analyze Variances
           </Button>
@@ -360,7 +360,7 @@ export function EquivalentUnitsDashboard() {
       
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active MOs</CardTitle>
             <Factory className="h-4 w-4 text-muted-foreground" />
@@ -375,7 +375,7 @@ export function EquivalentUnitsDashboard() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">High Variance Alerts</CardTitle>
             <AlertTriangle className="h-4 w-4 text-muted-foreground" />
@@ -390,7 +390,7 @@ export function EquivalentUnitsDashboard() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Avg. Material Cost/EU</CardTitle>
             <DollarSign className="h-4 w-4 text-muted-foreground" />
@@ -407,7 +407,7 @@ export function EquivalentUnitsDashboard() {
           </CardContent>
         </Card>
         
-        <Card>
+        <Card className="wardah-glass-card wardah-animation-float">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Units Completed</CardTitle>
             <Package className="h-4 w-4 text-muted-foreground" />
@@ -426,7 +426,7 @@ export function EquivalentUnitsDashboard() {
       </div>
       
       {/* Configuration Panel */}
-      <Card>
+      <Card className="wardah-glass-card">
         <CardHeader>
           <CardTitle>Equivalent Units Calculation</CardTitle>
         </CardHeader>
@@ -435,7 +435,7 @@ export function EquivalentUnitsDashboard() {
             <div className="space-y-2">
               <Label htmlFor="mo-select">Manufacturing Order</Label>
               <Select value={selectedMO} onValueChange={setSelectedMO}>
-                <SelectTrigger id="mo-select">
+                <SelectTrigger id="mo-select" className="wardah-glass-card">
                   <SelectValue placeholder="Select MO" />
                 </SelectTrigger>
                 <SelectContent>
@@ -454,7 +454,7 @@ export function EquivalentUnitsDashboard() {
                 value={selectedStage.toString()} 
                 onValueChange={(value: string) => setSelectedStage(parseInt(value))}
               >
-                <SelectTrigger id="stage-select">
+                <SelectTrigger id="stage-select" className="wardah-glass-card">
                   <SelectValue placeholder="Select Stage" />
                 </SelectTrigger>
                 <SelectContent>
@@ -474,6 +474,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={beginningWip}
                 onChange={(e) => setBeginningWip(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -484,6 +485,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={unitsStarted}
                 onChange={(e) => setUnitsStarted(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -494,6 +496,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={unitsCompleted}
                 onChange={(e) => setUnitsCompleted(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -504,6 +507,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={endingWip}
                 onChange={(e) => setEndingWip(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -514,6 +518,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={materialCompletion}
                 onChange={(e) => setMaterialCompletion(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
             
@@ -524,6 +529,7 @@ export function EquivalentUnitsDashboard() {
                 type="number"
                 value={conversionCompletion}
                 onChange={(e) => setConversionCompletion(Number(e.target.value))}
+                className="wardah-glass-card"
               />
             </div>
           </div>
@@ -540,7 +546,7 @@ export function EquivalentUnitsDashboard() {
         </TabsList>
         
         <TabsContent value="alerts">
-          <Card>
+          <Card className="wardah-glass-card">
             <CardHeader>
               <CardTitle>Variance Analysis Alerts</CardTitle>
             </CardHeader>
@@ -551,7 +557,7 @@ export function EquivalentUnitsDashboard() {
         </TabsContent>
         
         <TabsContent value="eu-chart">
-          <Card>
+          <Card className="wardah-glass-card">
             <CardHeader>
               <CardTitle>Equivalent Units by Stage</CardTitle>
             </CardHeader>
@@ -562,7 +568,7 @@ export function EquivalentUnitsDashboard() {
         </TabsContent>
         
         <TabsContent value="cpeu-chart">
-          <Card>
+          <Card className="wardah-glass-card">
             <CardHeader>
               <CardTitle>Cost per Equivalent Unit by Stage</CardTitle>
             </CardHeader>
@@ -573,7 +579,7 @@ export function EquivalentUnitsDashboard() {
         </TabsContent>
         
         <TabsContent value="cost-breakdown">
-          <Card>
+          <Card className="wardah-glass-card">
             <CardHeader>
               <CardTitle>Cost Breakdown</CardTitle>
             </CardHeader>
@@ -585,7 +591,7 @@ export function EquivalentUnitsDashboard() {
       </Tabs>
       
       {/* Informational Alert */}
-      <Alert>
+      <Alert className="wardah-glass-card">
         <AlertTitle>Process Costing Methodology</AlertTitle>
         <AlertDescription>
           This dashboard implements the process costing methodology with equivalent units calculation. 

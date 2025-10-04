@@ -5,6 +5,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { useWardahTheme } from '@/components/wardah-theme-provider';
+import { getGlassClasses } from '@/lib/wardah-ui-utils';
 
 interface VarianceReportProps {
   manufacturingOrderId: string;
@@ -41,6 +43,8 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
   startDate,
   endDate
 }) => {
+  const { theme } = useWardahTheme();
+  
   const { data: materialVariances, isLoading: loadingMaterial, error: materialError } = useQuery({
     queryKey: ['material-variances', manufacturingOrderId, startDate, endDate],
     queryFn: async () => {
@@ -76,7 +80,7 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
   if (!manufacturingOrderId) {
     return (
       <div className="p-4">
-        <Alert>
+        <Alert className={getGlassClasses()}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             يرجى اختيار أمر التصنيع لعرض تحليل الانحرافات
@@ -87,13 +91,13 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
   }
 
   if (loadingMaterial || loadingLabor) {
-    return <div className="p-4">جارٍ تحميل تحليل الانحرافات...</div>;
+    return <div className="p-4 wardah-animation-float">جارٍ تحميل تحليل الانحرافات...</div>;
   }
 
   if (materialError || laborError) {
     return (
       <div className="p-4">
-        <Alert variant="destructive">
+        <Alert variant="destructive" className={getGlassClasses()}>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
             حدث خطأ أثناء تحميل تحليل الانحرافات: {materialError?.message || laborError?.message}
@@ -106,9 +110,9 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
   return (
     <div className="space-y-6">
       {/* Material Variances */}
-      <Card>
+      <Card className={getGlassClasses()}>
         <CardHeader>
-          <CardTitle className="text-right">تحليل انحرافات المواد</CardTitle>
+          <CardTitle className="text-right wardah-text-gradient-google">تحليل انحرافات المواد</CardTitle>
         </CardHeader>
         <CardContent>
           {materialVariances && materialVariances.length > 0 ? (
@@ -157,9 +161,9 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
       </Card>
 
       {/* Labor Variances */}
-      <Card>
+      <Card className={getGlassClasses()}>
         <CardHeader>
-          <CardTitle className="text-right">تحليل انحرافات العمالة</CardTitle>
+          <CardTitle className="text-right wardah-text-gradient-google">تحليل انحرافات العمالة</CardTitle>
         </CardHeader>
         <CardContent>
           {laborVariances && laborVariances.length > 0 ? (

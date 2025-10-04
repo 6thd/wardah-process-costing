@@ -318,20 +318,38 @@ export const debugGLAccounts = async () => {
     console.log('Debug GL Accounts:', data, error);
 };
 
-export const getEffectiveTenantId = async (): Promise<string | null> => {
-    const { data, error } = await supabase.rpc('get_effective_tenant_id');
-    if (error) {
-        console.error('Error fetching effective tenant ID:', error);
+export const getTenantId = async (): Promise<string | null> => {
+    try {
+        const { data, error } = await supabase.rpc('get_current_tenant_id');
+        if (error) {
+            console.error('Error fetching tenant ID:', error);
+            // If it's a "not found" error, provide a more specific message
+            if (error.code === 'PGRST202') {
+                console.error('Function get_current_tenant_id not found in database. Please ensure it is deployed.');
+            }
+            return null;
+        }
+        return data;
+    } catch (error) {
+        console.error('Unexpected error fetching tenant ID:', error);
         return null;
     }
-    return data;
 };
 
-export const getTenantId = async (): Promise<string | null> => {
-    const { data, error } = await supabase.rpc('get_tenant_id');
-    if (error) {
-        console.error('Error fetching tenant ID:', error);
+export const getEffectiveTenantId = async (): Promise<string | null> => {
+    try {
+        const { data, error } = await supabase.rpc('get_current_tenant_id');
+        if (error) {
+            console.error('Error fetching effective tenant ID:', error);
+            // If it's a "not found" error, provide a more specific message
+            if (error.code === 'PGRST202') {
+                console.error('Function get_current_tenant_id not found in database. Please ensure it is deployed.');
+            }
+            return null;
+        }
+        return data;
+    } catch (error) {
+        console.error('Unexpected error fetching effective tenant ID:', error);
         return null;
     }
-    return data;
 };
