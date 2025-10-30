@@ -107,9 +107,19 @@ export function BOMBuilder() {
 
   // Save BOM
   const handleSave = async () => {
-    if (!bomNumber || !itemId || bomLines.length === 0) {
-      alert('الرجاء ملء جميع الحقول المطلوبة وإضافة مكون واحد على الأقل')
+    // التحقق من الحقول الأساسية فقط (بدون مكونات)
+    if (!bomNumber || !itemId) {
+      alert('الرجاء ملء رقم القائمة ورمز الصنف')
       return
+    }
+
+    // التحقق من المكونات إذا كانت موجودة
+    if (bomLines.length > 0) {
+      const invalidLines = bomLines.filter(line => !line.item_id || !line.quantity || line.quantity <= 0)
+      if (invalidLines.length > 0) {
+        alert('الرجاء ملء جميع حقول المكونات (الصنف والكمية)')
+        return
+      }
     }
 
     const header = {
@@ -200,14 +210,26 @@ export function BOMBuilder() {
               <Label>رمز الصنف *</Label>
               <div className="flex gap-2">
                 <Input
-                  value={itemCode}
-                  onChange={(e) => setItemCode(e.target.value)}
-                  placeholder="ITEM-001"
+                  value={itemId}
+                  onChange={(e) => {
+                    setItemId(e.target.value)
+                    // يمكن استخدام نفس القيمة كـ code مؤقتاً
+                    if (!itemCode) setItemCode(e.target.value)
+                  }}
+                  placeholder="أدخل معرف الصنف أو اختر بالبحث"
                 />
-                <Button size="icon" variant="outline">
+                <Button 
+                  size="icon" 
+                  variant="outline"
+                  type="button"
+                  title="البحث عن صنف - قريباً"
+                >
                   <Search className="w-4 h-4" />
                 </Button>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                💡 مؤقتاً: أدخل معرف الصنف (UUID) من جدول products
+              </p>
             </div>
             
             <div>

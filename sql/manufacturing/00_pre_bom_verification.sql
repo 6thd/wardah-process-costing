@@ -59,17 +59,25 @@ ORDER BY ordinal_position;
 
 -- 4. عرض البيانات الحالية
 -- =============================================
-SELECT 
-    '📊 عدد الأصناف (Items):' AS info,
-    COUNT(*) AS count
-FROM items
-WHERE is_active = true;
-
-SELECT 
-    '📊 عدد المؤسسات (Organizations):' AS info,
-    COUNT(*) AS count
-FROM organizations
-WHERE is_active = true;
+-- البحث في جدول items أو products (أيهما موجود)
+DO $$
+BEGIN
+    -- محاولة عرض عدد items
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'items') THEN
+        RAISE NOTICE '📊 عدد الأصناف (Items): %', (SELECT COUNT(*) FROM items WHERE is_active = true);
+    ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products') THEN
+        RAISE NOTICE '📊 عدد الأصناف (Products): %', (SELECT COUNT(*) FROM products WHERE is_active = true);
+    ELSE
+        RAISE NOTICE '⚠️ لم يتم العثور على جدول items أو products';
+    END IF;
+    
+    -- محاولة عرض عدد organizations
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organizations') THEN
+        RAISE NOTICE '📊 عدد المؤسسات (Organizations): %', (SELECT COUNT(*) FROM organizations WHERE is_active = true);
+    ELSE
+        RAISE NOTICE '⚠️ لم يتم العثور على جدول organizations';
+    END IF;
+END $$;
 
 -- =============================================
 -- الخطوة التالية:

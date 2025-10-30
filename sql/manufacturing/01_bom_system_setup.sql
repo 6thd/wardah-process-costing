@@ -214,53 +214,117 @@ RETURNS TABLE (
     scrap_factor NUMERIC,
     line_type VARCHAR
 ) AS $$
+DECLARE
+    items_table_exists BOOLEAN;
+    products_table_exists BOOLEAN;
 BEGIN
-    RETURN QUERY
-    WITH RECURSIVE bom_tree AS (
-        -- المستوى الأول (الصنف النهائي)
-        SELECT 
-            0 AS level,
-            bh.item_id,
-            bh.id AS bom_id,
-            p_quantity AS qty_required,
-            bl.is_critical,
-            bl.scrap_factor,
-            bl.line_type
-        FROM bom_headers bh
-        LEFT JOIN bom_lines bl ON bl.bom_id = bh.id
-        WHERE bh.id = p_bom_id
-        AND (p_org_id IS NULL OR bh.org_id = p_org_id)
-        
-        UNION ALL
-        
-        -- المستويات التالية (المكونات)
-        SELECT 
-            bt.level + 1,
-            bl.item_id,
-            bh.id AS bom_id,
-            bt.qty_required * bl.quantity * (1 + COALESCE(bl.scrap_factor, 0)/100),
-            bl.is_critical,
-            bl.scrap_factor,
-            bl.line_type
+    -- تحديد الجدول المستخدم (items أو products)
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'items'
+    ) INTO items_table_exists;
+    
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'products'
+    ) INTO products_table_exists;
+
+    -- استخدام items إذا كان موجوداً
+    IF items_table_exists THEN
+        RETURN QUERY
+        WITH RECURSIVE bom_tree AS (
+            SELECT 
+                0 AS level,
+                bh.item_id,
+                bh.id AS bom_id,
+                p_quantity AS qty_required,
+                bl.is_critical,
+                bl.scrap_factor,
+                bl.line_type
+            FROM bom_headers bh
+            LEFT JOIN bom_lines bl ON bl.bom_id = bh.id
+            WHERE bh.id = p_bom_id
+            AND (p_org_id IS NULL OR bh.org_id = p_org_id)
+            
+            UNION ALL
+            
+            SELECT 
+                bt.level + 1,
+                bl.item_id,
+                bh.id AS bom_id,
+                bt.qty_required * bl.quantity * (1 + COALESCE(bl.scrap_factor, 0)/100),
+                bl.is_critical,
+                bl.scrap_factor,
+                bl.line_type
+            FROM bom_tree bt
+            JOIN bom_lines bl ON bl.bom_id = bt.bom_id
+            JOIN bom_headers bh ON bh.item_id = bl.item_id
+            WHERE bt.level < 20
+            AND bl.line_type != 'REFERENCE'
+        )
+        SELECT DISTINCT ON (bt.item_id)
+            bt.level AS level_number,
+            bt.item_id,
+            COALESCE(i.code, i.item_code)::VARCHAR AS item_code,
+            COALESCE(i.name, i.item_name)::VARCHAR AS item_name,
+            bt.qty_required AS quantity_required,
+            COALESCE(i.unit, i.unit_of_measure)::VARCHAR AS unit_of_measure,
+            COALESCE(bt.is_critical, false) AS is_critical,
+            COALESCE(bt.scrap_factor, 0) AS scrap_factor,
+            COALESCE(bt.line_type, 'COMPONENT')::VARCHAR AS line_type
         FROM bom_tree bt
-        JOIN bom_lines bl ON bl.bom_id = bt.bom_id
-        JOIN bom_headers bh ON bh.item_id = bl.item_id
-        WHERE bt.level < 20  -- منع التكرار اللانهائي
-        AND bl.line_type != 'REFERENCE'
-    )
-    SELECT DISTINCT ON (bt.item_id)
-        bt.level AS level_number,
-        bt.item_id,
-        COALESCE(i.code, i.item_code) AS item_code,
-        COALESCE(i.name, i.item_name) AS item_name,
-        bt.qty_required AS quantity_required,
-        COALESCE(i.unit, i.unit_of_measure) AS unit_of_measure,
-        COALESCE(bt.is_critical, false) AS is_critical,
-        COALESCE(bt.scrap_factor, 0) AS scrap_factor,
-        COALESCE(bt.line_type, 'COMPONENT') AS line_type
-    FROM bom_tree bt
-    LEFT JOIN items i ON i.id = bt.item_id
-    ORDER BY bt.item_id, bt.level;
+        LEFT JOIN items i ON i.id = bt.item_id
+        ORDER BY bt.item_id, bt.level;
+    
+    -- استخدام products إذا كان موجوداً
+    ELSIF products_table_exists THEN
+        RETURN QUERY
+        WITH RECURSIVE bom_tree AS (
+            SELECT 
+                0 AS level,
+                bh.item_id,
+                bh.id AS bom_id,
+                p_quantity AS qty_required,
+                bl.is_critical,
+                bl.scrap_factor,
+                bl.line_type
+            FROM bom_headers bh
+            LEFT JOIN bom_lines bl ON bl.bom_id = bh.id
+            WHERE bh.id = p_bom_id
+            AND (p_org_id IS NULL OR bh.org_id = p_org_id)
+            
+            UNION ALL
+            
+            SELECT 
+                bt.level + 1,
+                bl.item_id,
+                bh.id AS bom_id,
+                bt.qty_required * bl.quantity * (1 + COALESCE(bl.scrap_factor, 0)/100),
+                bl.is_critical,
+                bl.scrap_factor,
+                bl.line_type
+            FROM bom_tree bt
+            JOIN bom_lines bl ON bl.bom_id = bt.bom_id
+            JOIN bom_headers bh ON bh.item_id = bl.item_id
+            WHERE bt.level < 20
+            AND bl.line_type != 'REFERENCE'
+        )
+        SELECT DISTINCT ON (bt.item_id)
+            bt.level AS level_number,
+            bt.item_id,
+            COALESCE(p.code, p.product_code)::VARCHAR AS item_code,
+            COALESCE(p.name, p.product_name)::VARCHAR AS item_name,
+            bt.qty_required AS quantity_required,
+            COALESCE(p.unit, p.uom)::VARCHAR AS unit_of_measure,
+            COALESCE(bt.is_critical, false) AS is_critical,
+            COALESCE(bt.scrap_factor, 0) AS scrap_factor,
+            COALESCE(bt.line_type, 'COMPONENT')::VARCHAR AS line_type
+        FROM bom_tree bt
+        LEFT JOIN products p ON p.id = bt.item_id
+        ORDER BY bt.item_id, bt.level;
+    ELSE
+        RAISE EXCEPTION 'لا يوجد جدول items أو products';
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -275,14 +339,33 @@ CREATE OR REPLACE FUNCTION calculate_bom_cost(
 RETURNS NUMERIC AS $$
 DECLARE
     v_total_cost NUMERIC := 0;
+    items_table_exists BOOLEAN;
 BEGIN
-    SELECT COALESCE(SUM(
-        eb.quantity_required * 
-        COALESCE(i.unit_cost, i.standard_cost, i.cost_price, 0)
-    ), 0)
-    INTO v_total_cost
-    FROM explode_bom(p_bom_id, p_quantity) eb
-    LEFT JOIN items i ON i.id = eb.item_id;
+    -- تحديد الجدول المستخدم
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'items'
+    ) INTO items_table_exists;
+
+    IF items_table_exists THEN
+        -- استخدام items
+        SELECT COALESCE(SUM(
+            eb.quantity_required * 
+            COALESCE(i.unit_cost, i.standard_cost, i.cost_price, 0)
+        ), 0)
+        INTO v_total_cost
+        FROM explode_bom(p_bom_id, p_quantity) eb
+        LEFT JOIN items i ON i.id = eb.item_id;
+    ELSE
+        -- استخدام products
+        SELECT COALESCE(SUM(
+            eb.quantity_required * 
+            COALESCE(p.unit_cost, p.standard_cost, p.cost_price, 0)
+        ), 0)
+        INTO v_total_cost
+        FROM explode_bom(p_bom_id, p_quantity) eb
+        LEFT JOIN products p ON p.id = eb.item_id;
+    END IF;
     
     RETURN v_total_cost;
 END;
@@ -304,21 +387,48 @@ RETURNS TABLE (
     bom_status VARCHAR,
     is_active BOOLEAN
 ) AS $$
+DECLARE
+    items_table_exists BOOLEAN;
 BEGIN
-    RETURN QUERY
-    SELECT 
-        wu.parent_bom_id,
-        COALESCE(i.code, i.item_code)::VARCHAR AS parent_item_code,
-        COALESCE(i.name, i.item_name)::VARCHAR AS parent_item_name,
-        wu.quantity_per,
-        bh.status AS bom_status,
-        bh.is_active
-    FROM bom_where_used wu
-    JOIN bom_headers bh ON bh.id = wu.parent_bom_id
-    JOIN items i ON i.id = wu.parent_item_id
-    WHERE wu.component_id = p_item_id
-    AND (p_org_id IS NULL OR wu.org_id = p_org_id)
-    ORDER BY COALESCE(i.code, i.item_code);
+    -- تحديد الجدول المستخدم
+    SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables 
+        WHERE table_name = 'items'
+    ) INTO items_table_exists;
+
+    IF items_table_exists THEN
+        -- استخدام items
+        RETURN QUERY
+        SELECT 
+            wu.parent_bom_id,
+            COALESCE(i.code, i.item_code)::VARCHAR AS parent_item_code,
+            COALESCE(i.name, i.item_name)::VARCHAR AS parent_item_name,
+            wu.quantity_per,
+            bh.status AS bom_status,
+            bh.is_active
+        FROM bom_where_used wu
+        JOIN bom_headers bh ON bh.id = wu.parent_bom_id
+        JOIN items i ON i.id = wu.parent_item_id
+        WHERE wu.component_id = p_item_id
+        AND (p_org_id IS NULL OR wu.org_id = p_org_id)
+        ORDER BY COALESCE(i.code, i.item_code);
+    ELSE
+        -- استخدام products
+        RETURN QUERY
+        SELECT 
+            wu.parent_bom_id,
+            COALESCE(p.code, p.product_code)::VARCHAR AS parent_item_code,
+            COALESCE(p.name, p.product_name)::VARCHAR AS parent_item_name,
+            wu.quantity_per,
+            bh.status AS bom_status,
+            bh.is_active
+        FROM bom_where_used wu
+        JOIN bom_headers bh ON bh.id = wu.parent_bom_id
+        JOIN products p ON p.id = wu.parent_item_id
+        WHERE wu.component_id = p_item_id
+        AND (p_org_id IS NULL OR wu.org_id = p_org_id)
+        ORDER BY COALESCE(p.code, p.product_code);
+    END IF;
 END;
 $$ LANGUAGE plpgsql;
 

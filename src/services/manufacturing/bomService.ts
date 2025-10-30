@@ -84,25 +84,57 @@ export const bomService = {
    * الحصول على جميع قوائم المواد
    */
   async getAllBOMs(orgId: string): Promise<BOMHeader[]> {
+    // جلب البيانات بدون join أولاً
     const { data, error } = await supabase
       .from('bom_headers')
-      .select(`
-        *,
-        item:items!bom_headers_item_id_fkey(
-          item_code,
-          item_name
-        )
-      `)
+      .select('*')
       .eq('org_id', orgId)
       .order('bom_number', { ascending: false })
 
     if (error) throw error
+    if (!data) return []
     
-    return data.map(bom => ({
-      ...bom,
-      item_code: bom.item?.item_code,
-      item_name: bom.item?.item_name
-    }))
+    // محاولة جلب بيانات الأصناف من products أو items
+    const itemIds = data.map(bom => bom.item_id).filter(Boolean)
+    if (itemIds.length > 0) {
+      // محاولة products أولاً
+      const { data: productsData } = await supabase
+        .from('products')
+        .select('id, code, name, product_code, product_name')
+        .in('id', itemIds)
+      
+      if (productsData && productsData.length > 0) {
+        const productsMap = new Map(productsData.map(p => [p.id, p]))
+        return data.map(bom => {
+          const product = productsMap.get(bom.item_id)
+          return {
+            ...bom,
+            item_code: product?.code || product?.product_code,
+            item_name: product?.name || product?.product_name
+          }
+        })
+      }
+      
+      // محاولة items إذا لم توجد products
+      const { data: itemsData } = await supabase
+        .from('items')
+        .select('id, code, name, item_code, item_name')
+        .in('id', itemIds)
+      
+      if (itemsData && itemsData.length > 0) {
+        const itemsMap = new Map(itemsData.map(i => [i.id, i]))
+        return data.map(bom => {
+          const item = itemsMap.get(bom.item_id)
+          return {
+            ...bom,
+            item_code: item?.code || item?.item_code,
+            item_name: item?.name || item?.item_name
+          }
+        })
+      }
+    }
+    
+    return data
   },
 
   /**
@@ -112,48 +144,99 @@ export const bomService = {
     header: BOMHeader
     lines: BOMLine[]
   }> {
-    // جلب الرأس
+    // جلب الرأس بدون join
     const { data: header, error: headerError } = await supabase
       .from('bom_headers')
-      .select(`
-        *,
-        item:items!bom_headers_item_id_fkey(
-          item_code,
-          item_name
-        )
-      `)
+      .select('*')
       .eq('id', bomId)
       .single()
 
     if (headerError) throw headerError
+    if (!header) throw new Error('BOM not found')
 
-    // جلب الخطوط
+    // جلب بيانات الصنف
+    if (header.item_id) {
+      const { data: product } = await supabase
+        .from('products')
+        .select('id, code, name, product_code, product_name')
+        .eq('id', header.item_id)
+        .single()
+      
+      if (product) {
+        header.item_code = product.code || product.product_code
+        header.item_name = product.name || product.product_name
+      } else {
+        const { data: item } = await supabase
+          .from('items')
+          .select('id, code, name, item_code, item_name')
+          .eq('id', header.item_id)
+          .single()
+        
+        if (item) {
+          header.item_code = item.code || item.item_code
+          header.item_name = item.name || item.item_name
+        }
+      }
+    }
+
+    // جلب الخطوط بدون join
     const { data: lines, error: linesError } = await supabase
       .from('bom_lines')
-      .select(`
-        *,
-        item:items!bom_lines_item_id_fkey(
-          item_code,
-          item_name,
-          unit_of_measure
-        )
-      `)
+      .select('*')
       .eq('bom_id', bomId)
       .order('line_number', { ascending: true })
 
     if (linesError) throw linesError
 
+    // جلب بيانات الأصناف للخطوط
+    if (lines && lines.length > 0) {
+      const lineItemIds = lines.map(line => line.item_id).filter(Boolean)
+      if (lineItemIds.length > 0) {
+        // محاولة products
+        const { data: productsData } = await supabase
+          .from('products')
+          .select('id, code, name, product_code, product_name, unit, uom')
+          .in('id', lineItemIds)
+        
+        if (productsData && productsData.length > 0) {
+          const productsMap = new Map(productsData.map(p => [p.id, p]))
+          lines.forEach(line => {
+            const product = productsMap.get(line.item_id)
+            if (product) {
+              line.item_code = product.code || product.product_code
+              line.item_name = product.name || product.product_name
+              if (!line.unit_of_measure) {
+                line.unit_of_measure = product.unit || product.uom || 'PC'
+              }
+            }
+          })
+        } else {
+          // محاولة items
+          const { data: itemsData } = await supabase
+            .from('items')
+            .select('id, code, name, item_code, item_name, unit, unit_of_measure')
+            .in('id', lineItemIds)
+          
+          if (itemsData && itemsData.length > 0) {
+            const itemsMap = new Map(itemsData.map(i => [i.id, i]))
+            lines.forEach(line => {
+              const item = itemsMap.get(line.item_id)
+              if (item) {
+                line.item_code = item.code || item.item_code
+                line.item_name = item.name || item.item_name
+                if (!line.unit_of_measure) {
+                  line.unit_of_measure = item.unit || item.unit_of_measure || 'PC'
+                }
+              }
+            })
+          }
+        }
+      }
+    }
+
     return {
-      header: {
-        ...header,
-        item_code: header.item?.item_code,
-        item_name: header.item?.item_name
-      },
-      lines: lines.map(line => ({
-        ...line,
-        item_code: line.item?.item_code,
-        item_name: line.item?.item_name
-      }))
+      header,
+      lines: lines || []
     }
   },
 
