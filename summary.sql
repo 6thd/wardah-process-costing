@@ -1,0 +1,36 @@
+-- ملخص شامل واحد
+SELECT 
+    'الحسابات المستوردة' as النوع,
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001') as العدد
+UNION ALL
+SELECT 
+    'خرائط الأحداث',
+    (SELECT COUNT(*) FROM gl_mappings WHERE org_id = '00000000-0000-0000-0000-000000000001')
+UNION ALL
+SELECT 
+    '- منها رئيسية',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND parent_code IS NULL)
+UNION ALL
+SELECT 
+    '- منها فرعية',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND parent_code IS NOT NULL)
+UNION ALL
+SELECT 
+    'ASSET',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND category = 'ASSET')
+UNION ALL
+SELECT 
+    'LIABILITY',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND category = 'LIABILITY')
+UNION ALL
+SELECT 
+    'EQUITY',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND category = 'EQUITY')
+UNION ALL
+SELECT 
+    'REVENUE',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND category = 'REVENUE')
+UNION ALL
+SELECT 
+    'EXPENSE',
+    (SELECT COUNT(*) FROM gl_accounts WHERE org_id = '00000000-0000-0000-0000-000000000001' AND category = 'EXPENSE');

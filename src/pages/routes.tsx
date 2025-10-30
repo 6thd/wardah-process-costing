@@ -1,5 +1,7 @@
 import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
+import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حماية المسارات
+import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
 
 // Import all the modules
 import { DashboardModule } from "@/features/dashboard";
@@ -35,64 +37,98 @@ const AppLayout = () => {
 };
 
 export const appRouter = createBrowserRouter([
+  // ===================================
+  // مسار تسجيل الدخول (غير محمي)
+  // ===================================
+  {
+    path: "/login",
+    element: <LoginPage />
+  },
+  
+  // ===================================
+  // المسارات المحمية (تحتاج تسجيل دخول)
+  // ===================================
   {
     path: "/",
-    element: <AppLayout />,
+    element: <ProtectedRoute />, // 🔒 حماية جميع المسارات
     errorElement: <NotFoundPage />,
     children: [
       {
-        index: true, // Default route
-        element: <Navigate to="/dashboard" replace />,
-      },
-      {
-        path: "dashboard/*",
-        element: <DashboardModule />,
-      },
-      {
-        path: "general-ledger/*",
-        element: <GeneralLedgerModule />,
-      },
-      {
-        path: "inventory/*",
-        element: <InventoryModule />,
-      },
-      {
-        path: "manufacturing/*",
-        element: <ManufacturingModule />,
-      },
-      {
-        path: "purchasing/*",
-        element: <PurchasingModule />,
-      },
-      {
-        path: "sales/*",
-        element: <SalesModule />,
-      },
-      {
-        path: "hr/*",
-        element: <HRModule />,
-      },
-      {
-        path: "reports/*",
-        element: <ReportsModule />,
-      },
-      {
-        path: "gemini-dashboard/*", // Added Gemini Dashboard route
-        element: <GeminiDashboardModule />,
-      },
-      {
-        path: "settings/*",
-        element: <SettingsModule />,
-      },
-      {
-        path: "design-system",
-        element: <DesignSystemDemo />,
-      },
+        element: <AppLayout />,
+        children: [
+          {
+            index: true, // Default route
+            element: <Navigate to="/dashboard" replace />,
+          },
+          {
+            path: "dashboard/*",
+            element: <DashboardModule />,
+          },
+          {
+            path: "general-ledger/*",
+            element: <GeneralLedgerModule />,
+          },
+          {
+            path: "accounting/journal-entries",
+            lazy: async () => {
+              const { default: JournalEntries } = await import("@/features/accounting/journal-entries");
+              return { Component: JournalEntries };
+            },
+          },
+          {
+            path: "accounting/trial-balance",
+            lazy: async () => {
+              const { default: TrialBalance } = await import("@/features/accounting/trial-balance");
+              return { Component: TrialBalance };
+            },
+          },
+          {
+            path: "inventory/*",
+            element: <InventoryModule />,
+          },
+          {
+            path: "manufacturing/*",
+            element: <ManufacturingModule />,
+          },
+          {
+            path: "purchasing/*",
+            element: <PurchasingModule />,
+          },
+          {
+            path: "sales/*",
+            element: <SalesModule />,
+          },
+          {
+            path: "hr/*",
+            element: <HRModule />,
+          },
+          {
+            path: "reports/*",
+            element: <ReportsModule />,
+          },
+          {
+            path: "gemini-dashboard/*",
+            element: <GeminiDashboardModule />,
+          },
+          {
+            path: "settings/*",
+            element: <SettingsModule />,
+          },
+          {
+            path: "design-system",
+            element: <DesignSystemDemo />,
+          },
+        ],
+      }
     ],
   },
+  
+  // ===================================
+  // Catch-all للصفحات غير الموجودة
+  // ===================================
   {
     path: "*",
-    element: <NotFoundPage /> // Catch-all for any other route
+    element: <NotFoundPage />
   }
 ], {
   future: {

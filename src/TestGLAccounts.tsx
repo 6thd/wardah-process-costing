@@ -26,7 +26,7 @@ export function TestGLAccounts() {
   const loadSession = async () => {
     try {
       console.log('Loading session...')
-      const client = await getSupabase()
+      const client = getSupabase()
       const { data: { session } } = await client.auth.getSession()
       setSession(session)
       console.log('Session loaded:', session)
@@ -52,7 +52,7 @@ export function TestGLAccounts() {
       console.log('getAllGLAccounts result:', result)
       
       // Get tenant ID for debugging
-      const client = await getSupabase()
+      const client = getSupabase()
       const { data: { session } } = await client.auth.getSession()
       
       // Try multiple approaches to get tenant/org ID
@@ -110,7 +110,7 @@ export function TestGLAccounts() {
   const initializeDatabase = async () => {
     try {
       setLoading(true)
-      const client = await getSupabase()
+      const client = getSupabase()
       const results: any[] = []
       
       // Step 1: Ensure organizations table exists and has default org

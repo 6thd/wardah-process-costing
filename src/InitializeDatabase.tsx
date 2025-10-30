@@ -11,7 +11,7 @@ export function InitializeDatabase() {
       setLoading(true)
       setError(null)
       
-      const client = await getSupabase()
+      const client = getSupabase()
       const results: any[] = []
       
       // Step 1: Ensure organizations table exists and has default org

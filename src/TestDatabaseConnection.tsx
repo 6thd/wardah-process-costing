@@ -15,7 +15,7 @@ export function TestDatabaseConnection() {
       setLoading(true)
       setError(null)
       
-      const client = await getSupabase()
+      const client = getSupabase()
       
       // Test 1: Check if we can connect to the database
       const connectionTest = await client.from('gl_accounts').select('count').limit(1)

@@ -10,7 +10,7 @@ import { getSupabase } from './supabase'
  */
 export const extractTenantFromJWT = async (): Promise<string | null> => {
   try {
-    const client = await getSupabase()
+    const client = getSupabase()
     const { data: { session } } = await client.auth.getSession()
     
     if (!session?.access_token) {
@@ -95,7 +95,7 @@ export const isValidUUID = (uuid: string): boolean => {
  */
 export const getCurrentUserWithTenant = async () => {
   try {
-    const client = await getSupabase()
+    const client = getSupabase()
     const { data: { session } } = await client.auth.getSession()
     
     if (!session?.user) {
@@ -162,7 +162,7 @@ export const withTenantSecurity = <T extends any[]>(
  */
 export const createSecureRPC = (functionName: string) => {
   return withTenantSecurity(async (tenantId: string, params: Record<string, any> = {}) => {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     // Add tenant_id to all RPC calls
     const secureParams = {
@@ -187,7 +187,7 @@ export const createSecureRPC = (functionName: string) => {
  * Get tenant-aware query builder
  */
 export const getTenantQuery = async (tableName: string) => {
-  const client = await getSupabase()
+  const client = getSupabase()
   const tenantId = await extractTenantFromJWT()
   
   if (!tenantId) {

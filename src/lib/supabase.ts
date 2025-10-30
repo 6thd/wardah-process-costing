@@ -1,9 +1,12 @@
 
-import { createClient, type User } from '@supabase/supabase-js';
+import { createClient, type User, type SupabaseClient } from '@supabase/supabase-js';
 import { loadConfig } from './config';
 
 // Re-export the User type for other modules
 export type { User };
+
+// Singleton instance
+let supabaseInstance: SupabaseClient | null = null;
 
 // --- BEGIN NEW TYPE DEFINITIONS ---
 
@@ -108,6 +111,7 @@ export interface GLAccount {
     code: string;
     name: string;
     name_ar?: string;
+    name_en?: string;
     category?: string;
     normal_balance?: 'Debit' | 'Credit';
     allow_posting?: boolean;
@@ -157,9 +161,16 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 /**
- * Returns the Supabase client instance.
+ * Returns the Supabase client instance (synchronous).
  */
-export const getSupabase = async () => {
+export const getSupabase = () => {
+    return supabase;
+};
+
+/**
+ * Legacy async version for backward compatibility
+ */
+export const getSupabaseAsync = async () => {
     return supabase;
 };
 
@@ -320,36 +331,35 @@ export const debugGLAccounts = async () => {
 
 export const getTenantId = async (): Promise<string | null> => {
     try {
-        const { data, error } = await supabase.rpc('get_current_tenant_id');
+        // ✅ Use org_id instead of tenant_id (this project uses organizations)
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return null;
+        
+        // Get user's organization
+        const { data, error } = await supabase
+            .from('user_organizations')
+            .select('org_id')
+            .eq('user_id', user.id)
+            .eq('is_active', true)
+            .single();
+            
         if (error) {
-            console.error('Error fetching tenant ID:', error);
-            // If it's a "not found" error, provide a more specific message
-            if (error.code === 'PGRST202') {
-                console.error('Function get_current_tenant_id not found in database. Please ensure it is deployed.');
-            }
+            console.error('Error fetching org ID:', error);
             return null;
         }
-        return data;
+        return data?.org_id || null;
     } catch (error) {
-        console.error('Unexpected error fetching tenant ID:', error);
+        console.error('Unexpected error fetching org ID:', error);
         return null;
     }
 };
 
 export const getEffectiveTenantId = async (): Promise<string | null> => {
     try {
-        const { data, error } = await supabase.rpc('get_current_tenant_id');
-        if (error) {
-            console.error('Error fetching effective tenant ID:', error);
-            // If it's a "not found" error, provide a more specific message
-            if (error.code === 'PGRST202') {
-                console.error('Function get_current_tenant_id not found in database. Please ensure it is deployed.');
-            }
-            return null;
-        }
-        return data;
+        // ✅ Reuse getTenantId - they're the same in this project
+        return await getTenantId();
     } catch (error) {
-        console.error('Unexpected error fetching effective tenant ID:', error);
+        console.error('Unexpected error fetching effective org ID:', error);
         return null;
     }
 };

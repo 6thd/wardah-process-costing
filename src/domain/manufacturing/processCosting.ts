@@ -345,7 +345,7 @@ export class ProcessCostingCalculator {
    * Get stage data from database
    */
   private async getStageData(moId: string, stageNo: StageNumber): Promise<any> {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { data, error } = await client
       .from(getTableName('stage_costs'))
@@ -367,7 +367,7 @@ export class ProcessCostingCalculator {
    * Update stage status
    */
   private async updateStageStatus(moId: string, stageNo: StageNumber, status: StageStatus): Promise<void> {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { error } = await client
       .from(getTableName('stage_costs'))
@@ -401,7 +401,7 @@ export class ProcessCostingCalculator {
     unitCost: number
   ): Promise<void> {
     // Get MO details to find the item
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { data: moData, error } = await client
       .from(getTableName('manufacturing_orders'))

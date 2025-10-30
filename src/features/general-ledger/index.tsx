@@ -138,7 +138,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                     ) : (
                         <span className="w-4"></span> // Placeholder for alignment
                     )}
-                    <p className="font-medium">{account.code} - {account.name_ar || account.name}</p>
+                    <p className="font-medium">{account.code} - {isRTL ? (account.name_ar || account.name) : (account.name_en || account.name)}</p>
                 </div>
                 <div className="flex items-center gap-2 p-2">
                     {isHovered && (
@@ -238,7 +238,7 @@ function ChartOfAccounts() {
 
     const handleSaveAccount = async (formData: Partial<GLAccount>) => {
         try {
-            const supabase = await getSupabase();
+            const supabase = getSupabase();
             const org_id = await getEffectiveTenantId();
             if (!org_id) throw new Error("Organization ID not found");
 
@@ -261,9 +261,10 @@ function ChartOfAccounts() {
             toast.error('لا يمكن حذف هذا الحساب لأنه يحتوي على حسابات فرعية.');
             return;
         }
-        if (window.confirm(`هل أنت متأكد من حذف الحساب "${account.name_ar || account.name}"؟`)) {
+        const accountName = isRTL ? (account.name_ar || account.name) : (account.name_en || account.name);
+        if (window.confirm(`هل أنت متأكد من حذف الحساب "${accountName}"؟`)) {
             try {
-                const supabase = await getSupabase();
+                const supabase = getSupabase();
                 const { error } = await supabase.from('gl_accounts').delete().eq('id', account.id);
                 if (error) throw error;
                 toast.success('تم حذف الحساب بنجاح');
@@ -316,8 +317,8 @@ function ChartOfAccounts() {
         const flatData = flattenForExport(tree);
         const worksheetData = flatData.map(item => ({
             'المستوى': ' '.repeat(item.level * 2) + item.code,
-            'الاسم العربي': item.name_ar,
-            'الاسم الانجليزي': item.name,
+            'الاسم العربي': item.name_ar || item.name,
+            'الاسم الانجليزي': item.name_en || item.name,
             'النوع': item.category,
         }));
         const worksheet = XLSX.utils.json_to_sheet(worksheetData);
@@ -333,17 +334,18 @@ function ChartOfAccounts() {
         // doc.setFont('Amiri');
         const tree = buildTree(accounts);
         const flatData = flattenForExport(tree);
+        const accountNameField = isRTL ? 'name_ar' : 'name_en';
         const tableData = flatData.map(item => [
             ' '.repeat(item.level * 2) + item.code,
-            item.name_ar || item.name, // Fallback to name if name_ar is not available
+            item[accountNameField] || item.name, // Fallback to name if translation is not available
             item.category,
         ]);
 
         (doc as any).autoTable({
-            head: [['رمز الحساب', 'اسم الحساب', 'النوع']],
+            head: [[isRTL ? 'رمز الحساب' : 'Account Code', isRTL ? 'اسم الحساب' : 'Account Name', isRTL ? 'النوع' : 'Category']],
             body: tableData,
-            styles: { font: 'Arial', halign: 'right' },
-            headStyles: { halign: 'right' },
+            styles: { font: 'Arial', halign: isRTL ? 'right' : 'left' },
+            headStyles: { halign: isRTL ? 'right' : 'left' },
         });
 
         doc.save('ChartOfAccounts.pdf');

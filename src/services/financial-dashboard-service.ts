@@ -37,7 +37,7 @@ class FinancialDashboardService {
   // Fetch financial KPIs from Supabase
   async fetchFinancialKPIs(): Promise<FinancialKPIs> {
     try {
-      const supabase = await getSupabase()
+      const supabase = getSupabase()
       const tenantId = await getTenantId()
       
       if (!supabase) {
@@ -120,7 +120,7 @@ class FinancialDashboardService {
   // Fetch chart data for the last 6 months
   async fetchChartData(): Promise<ChartData> {
     try {
-      const supabase = await getSupabase()
+      const supabase = getSupabase()
       const tenantId = await getTenantId()
       
       if (!supabase) {
@@ -162,7 +162,7 @@ class FinancialDashboardService {
   // Fetch recent transactions
   async fetchRecentTransactions(): Promise<any[]> {
     try {
-      const supabase = await getSupabase()
+      const supabase = getSupabase()
       const tenantId = await getTenantId()
       
       if (!supabase) {
@@ -199,7 +199,7 @@ class FinancialDashboardService {
   // Fetch top selling products
   async fetchTopProducts(): Promise<any[]> {
     try {
-      const supabase = await getSupabase()
+      const supabase = getSupabase()
       const tenantId = await getTenantId()
       
       if (!supabase) {

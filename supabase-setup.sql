@@ -11,7 +11,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
 -- =======================================
 
 -- Organizations (Multi-tenant support)
-CREATE TABLE organizations (
+CREATE TABLE IF NOT EXISTS organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
     code VARCHAR(50) UNIQUE NOT NULL,
@@ -22,7 +22,7 @@ CREATE TABLE organizations (
 );
 
 -- Users and Organization Access
-CREATE TABLE user_organizations (
+CREATE TABLE IF NOT EXISTS user_organizations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID NOT NULL, -- References auth.users
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -33,7 +33,7 @@ CREATE TABLE user_organizations (
 );
 
 -- Chart of Accounts (Enhanced)
-CREATE TABLE gl_accounts (
+CREATE TABLE IF NOT EXISTS gl_accounts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     code VARCHAR(20) NOT NULL,

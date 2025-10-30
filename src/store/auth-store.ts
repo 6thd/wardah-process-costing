@@ -58,7 +58,7 @@ export const useAuthStore = create<AuthState>()(
             return
           }
           
-          const client = await getSupabase();
+          const client = getSupabase();
           if (!client) throw new Error('Supabase client not initialized');
           
           const { data, error } = await client.auth.signInWithPassword({
@@ -123,7 +123,7 @@ export const useAuthStore = create<AuthState>()(
 
       logout: async () => {
         try {
-          const client = await getSupabase();
+          const client = getSupabase();
           if (!client) throw new Error('Supabase client not initialized');
           
           const { error } = await client.auth.signOut()
@@ -160,7 +160,7 @@ export const useAuthStore = create<AuthState>()(
             return
           }
           
-          const client = await getSupabase();
+          const client = getSupabase();
           if (!client) {
             set({ isLoading: false });
             return;
@@ -270,7 +270,8 @@ export const useAuthStore = create<AuthState>()(
 )
 
 // Initialize auth check on app load
-getSupabase().then(client => {
+try {
+  const client = getSupabase()
   if (client) {
     client.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
       if (event === 'SIGNED_OUT') {
@@ -280,6 +281,6 @@ getSupabase().then(client => {
       }
     })
   }
-}).catch(error => {
+} catch (error) {
   console.error('Failed to initialize auth state change listener:', error)
-});
+}

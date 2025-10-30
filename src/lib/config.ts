@@ -39,7 +39,7 @@ export async function loadConfig(): Promise<AppConfig> {
   
   try {
     console.log('🔧 Loading application configuration...');
-    const response = await fetch('/config.json');
+    const response = await fetch('/config.json?t=' + Date.now()); // ✅ Bypass cache
     if (!response.ok) {
       throw new Error(`Failed to load config: ${response.statusText}`);
     }

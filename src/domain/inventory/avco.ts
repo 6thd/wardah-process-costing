@@ -172,7 +172,7 @@ export class AVCOCalculator {
    * Get current inventory state for an item
    */
   private async getCurrentInventoryState(itemId: string): Promise<ItemInventoryState> {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { data, error } = await client
       .from(getTableName('items'))
@@ -262,7 +262,7 @@ export class AVCOCalculator {
    * Calculate current inventory valuation for all items
    */
   async calculateInventoryValuation(): Promise<{ totalValue: number; itemCount: number }> {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { data, error } = await client
       .from(getTableName('items'))
@@ -290,7 +290,7 @@ export class AVCOCalculator {
    * Check for negative inventory (should not happen with proper controls)
    */
   async checkNegativeInventory(): Promise<any[]> {
-    const client = await getSupabase()
+    const client = getSupabase()
     
     const { data, error } = await client
       .from(getTableName('items'))

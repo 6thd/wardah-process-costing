@@ -17,7 +17,7 @@ const getConfig = async () => {
 
 // Helper function to get supabase client
 const getClient = async () => {
-  const client = await getSupabase()
+  const client = getSupabase()
   if (!client) {
     throw new Error('Supabase client not initialized')
   }
@@ -672,25 +672,23 @@ export const salesOrdersService = {
 
 // Real-time subscriptions
 export const subscribeToItems = (callback: (items: Item[]) => void) => {
-  return getSupabase().then(supabase => {
-    if (!supabase) throw new Error('Supabase client not initialized')
-    return supabase
-      .channel('items_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
-        itemsService.getAll().then(callback)
-      })
-      .subscribe()
-  })
+  const supabase = getSupabase()
+  if (!supabase) throw new Error('Supabase client not initialized')
+  return supabase
+    .channel('items_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+      itemsService.getAll().then(callback)
+    })
+    .subscribe()
 }
 
 export const subscribeToManufacturingOrders = (callback: (orders: any[]) => void) => {
-  return getSupabase().then(supabase => {
-    if (!supabase) throw new Error('Supabase client not initialized')
-    return supabase
-      .channel('manufacturing_orders_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'manufacturing_orders' }, () => {
-        manufacturingService.getAll().then(callback)
-      })
-      .subscribe()
-  })
+  const supabase = getSupabase()
+  if (!supabase) throw new Error('Supabase client not initialized')
+  return supabase
+    .channel('manufacturing_orders_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'manufacturing_orders' }, () => {
+      manufacturingService.getAll().then(callback)
+    })
+    .subscribe()
 }

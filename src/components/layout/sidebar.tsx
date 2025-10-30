@@ -104,8 +104,8 @@ export function Sidebar() {
       subItems: [
         { key: 'overview', href: '/general-ledger/overview', label: t('navigation.overview') },
         { key: 'accounts', href: '/general-ledger/accounts', label: t('navigation.accounts') },
-        { key: 'entries', href: '/general-ledger/entries', label: t('navigation.entries') },
-        { key: 'trial-balance', href: '/general-ledger/trial-balance', label: t('navigation.trial-balance') },
+        { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
+        { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
         { key: 'posting', href: '/general-ledger/posting', label: t('navigation.posting') }
       ]
     },

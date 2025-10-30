@@ -15,7 +15,7 @@ export function CheckDatabaseSetup() {
       setLoading(true)
       setError(null)
       
-      const client = await getSupabase()
+      const client = getSupabase()
       
       // Check 1: Organizations table
       const orgCheck = await client.from('organizations').select('*').limit(5)
