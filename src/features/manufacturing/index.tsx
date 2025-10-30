@@ -370,31 +370,6 @@ function WorkCentersManagement() {
   )
 }
 
-// BOM Management Component
-function BOMManagement() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">قوائم المواد (BOM)</h1>
-        <p className="text-muted-foreground mt-2">
-          قوائم المواد المطلوبة للتصنيع
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - قوائم المواد والكميات المطلوبة
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // Quality Control Management Component
 function QualityControlManagement() {
   const { i18n } = useTranslation()

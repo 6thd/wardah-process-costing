@@ -3,6 +3,35 @@
 -- تحديث نظام قوائم المواد (Bill of Materials)
 -- =============================================
 
+-- 0. إنشاء الجداول الأساسية إذا لم تكن موجودة
+-- =============================================
+
+-- جدول bom_headers الأساسي
+CREATE TABLE IF NOT EXISTS bom_headers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id UUID NOT NULL,
+    bom_number VARCHAR(100) NOT NULL,
+    item_id UUID NOT NULL,
+    quantity DECIMAL(18,6) DEFAULT 1.0,
+    uom VARCHAR(50),
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(org_id, bom_number)
+);
+
+-- جدول bom_lines الأساسي
+CREATE TABLE IF NOT EXISTS bom_lines (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    org_id UUID NOT NULL,
+    bom_id UUID NOT NULL REFERENCES bom_headers(id) ON DELETE CASCADE,
+    sequence INTEGER DEFAULT 1,
+    item_id UUID NOT NULL,
+    quantity DECIMAL(18,6) NOT NULL,
+    uom VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- 1. تحديث جدول bom_headers
 -- =============================================
 ALTER TABLE bom_headers 
@@ -222,10 +251,10 @@ BEGIN
     SELECT DISTINCT ON (bt.item_id)
         bt.level AS level_number,
         bt.item_id,
-        i.item_code,
-        i.item_name,
+        COALESCE(i.code, i.item_code) AS item_code,
+        COALESCE(i.name, i.item_name) AS item_name,
         bt.qty_required AS quantity_required,
-        i.unit_of_measure,
+        COALESCE(i.unit, i.unit_of_measure) AS unit_of_measure,
         COALESCE(bt.is_critical, false) AS is_critical,
         COALESCE(bt.scrap_factor, 0) AS scrap_factor,
         COALESCE(bt.line_type, 'COMPONENT') AS line_type
@@ -249,7 +278,7 @@ DECLARE
 BEGIN
     SELECT COALESCE(SUM(
         eb.quantity_required * 
-        COALESCE(i.unit_cost, 0)
+        COALESCE(i.unit_cost, i.standard_cost, i.cost_price, 0)
     ), 0)
     INTO v_total_cost
     FROM explode_bom(p_bom_id, p_quantity) eb
@@ -279,8 +308,8 @@ BEGIN
     RETURN QUERY
     SELECT 
         wu.parent_bom_id,
-        i.item_code,
-        i.item_name,
+        COALESCE(i.code, i.item_code)::VARCHAR AS parent_item_code,
+        COALESCE(i.name, i.item_name)::VARCHAR AS parent_item_name,
         wu.quantity_per,
         bh.status AS bom_status,
         bh.is_active
@@ -289,7 +318,7 @@ BEGIN
     JOIN items i ON i.id = wu.parent_item_id
     WHERE wu.component_id = p_item_id
     AND (p_org_id IS NULL OR wu.org_id = p_org_id)
-    ORDER BY i.item_code;
+    ORDER BY COALESCE(i.code, i.item_code);
 END;
 $$ LANGUAGE plpgsql;
 
@@ -297,15 +326,40 @@ COMMENT ON FUNCTION get_where_used IS 'عرض استخدام المكون في �
 
 -- 11. إضافة Row Level Security (RLS)
 -- =============================================
+ALTER TABLE bom_headers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bom_lines ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bom_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bom_explosion_cache ENABLE ROW LEVEL SECURITY;
 ALTER TABLE bom_where_used ENABLE ROW LEVEL SECURITY;
 
--- سياسة للقراءة
+-- Drop existing policies if they exist (لتجنب الأخطاء عند إعادة التشغيل)
+DROP POLICY IF EXISTS bom_headers_select_policy ON bom_headers;
+DROP POLICY IF EXISTS bom_lines_select_policy ON bom_lines;
+DROP POLICY IF EXISTS bom_versions_select_policy ON bom_versions;
+DROP POLICY IF EXISTS bom_explosion_select_policy ON bom_explosion_cache;
+DROP POLICY IF EXISTS bom_where_used_select_policy ON bom_where_used;
+
+-- سياسات للقراءة - استخدام org_id (تأكد من اسم العمود الصحيح)
+CREATE POLICY bom_headers_select_policy ON bom_headers
+    FOR SELECT USING (
+        org_id IN (
+            SELECT org_id FROM user_organizations 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY bom_lines_select_policy ON bom_lines
+    FOR SELECT USING (
+        org_id IN (
+            SELECT org_id FROM user_organizations 
+            WHERE user_id = auth.uid()
+        )
+    );
+
 CREATE POLICY bom_versions_select_policy ON bom_versions
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -313,7 +367,7 @@ CREATE POLICY bom_versions_select_policy ON bom_versions
 CREATE POLICY bom_explosion_select_policy ON bom_explosion_cache
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -321,7 +375,24 @@ CREATE POLICY bom_explosion_select_policy ON bom_explosion_cache
 CREATE POLICY bom_where_used_select_policy ON bom_where_used
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+-- سياسات للكتابة (INSERT, UPDATE, DELETE)
+CREATE POLICY bom_headers_write_policy ON bom_headers
+    FOR ALL USING (
+        org_id IN (
+            SELECT org_id FROM user_organizations 
+            WHERE user_id = auth.uid()
+        )
+    );
+
+CREATE POLICY bom_lines_write_policy ON bom_lines
+    FOR ALL USING (
+        org_id IN (
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -341,6 +412,15 @@ CREATE INDEX IF NOT EXISTS idx_bom_versions_bom ON bom_versions(bom_id);
 
 -- عرض النتائج
 SELECT 'BOM System Setup Complete!' AS status;
-SELECT 'Tables Updated: bom_headers, bom_lines' AS info;
+SELECT 'Tables Created/Updated: bom_headers, bom_lines' AS info;
 SELECT 'Tables Created: bom_versions, bom_explosion_cache, bom_where_used' AS info;
 SELECT 'Functions Created: explode_bom, calculate_bom_cost, get_where_used' AS info;
+SELECT 'Triggers Created: trg_bom_version_tracking, trg_bom_where_used_update' AS info;
+
+-- =============================================
+-- تعليمات التنفيذ:
+-- 1. انسخ محتوى هذا الملف بالكامل
+-- 2. افتح Supabase Dashboard → SQL Editor
+-- 3. الصق الكود وشغّل "Run"
+-- 4. تأكد من ظهور رسالة "BOM System Setup Complete!"
+-- =============================================

@@ -128,7 +128,7 @@ export function BOMBuilder() {
     const lines = bomLines.map(({ tempId, item_code, item_name, ...line }) => ({
       ...line,
       org_id: orgId
-    }))
+    })) as any // Type assertion to fix type mismatch
 
     try {
       if (bomId) {
