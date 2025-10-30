@@ -18,6 +18,7 @@ import {
 import StageCostingPanel from './stage-costing-panel.tsx'
 import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
 import { VarianceAlerts } from './variance-alerts'
+import { BOMManagement, BOMBuilder } from './bom'
 import type { ManufacturingOrder } from '@/lib/supabase'
 
 export function ManufacturingModule() {
@@ -31,6 +32,8 @@ export function ManufacturingModule() {
       <Route path="variance-alerts" element={<VarianceAlertsPage />} />
       <Route path="workcenters" element={<WorkCentersManagement />} />
       <Route path="bom" element={<BOMManagement />} />
+      <Route path="bom/new" element={<BOMBuilder />} />
+      <Route path="bom/:bomId/edit" element={<BOMBuilder />} />
       <Route path="quality" element={<QualityControlManagement />} />
       <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
