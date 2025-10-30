@@ -1,0 +1,97 @@
+name: Keep Supabase Database Active
+
+on:
+  # تشغيل تلقائي كل 5 أيام
+  schedule:
+    - cron: '0 12 */5 * *'  # كل 5 أيام الساعة 12 ظهراً بتوقيت UTC
+  
+  # يمكن تشغيله يدوياً من GitHub
+  workflow_dispatch:
+
+jobs:
+  ping-database:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Ping Supabase - Check Journals
+        run: |
+          echo "🔄 Sending query to Supabase to keep database active..."
+          
+          # استعلام حقيقي: جلب عدد الدفاتر
+          response=$(curl -s -w "\n%{http_code}" \
+            -X GET "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/journals?select=count" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json")
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+          
+          echo "📊 HTTP Status: $http_code"
+          echo "📝 Response: $body"
+          
+          if [ "$http_code" = "200" ]; then
+            echo "✅ Database is active and responding!"
+          else
+            echo "⚠️ Warning: Unexpected response code: $http_code"
+            exit 1
+          fi
+
+      - name: Ping Supabase - Check Accounts
+        run: |
+          echo "🔄 Checking GL Accounts table..."
+          
+          # استعلام ثاني: جلب عدد الحسابات
+          response=$(curl -s -w "\n%{http_code}" \
+            -X GET "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/gl_accounts?select=count&limit=1" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json")
+          
+          http_code=$(echo "$response" | tail -n1)
+          body=$(echo "$response" | head -n-1)
+          
+          echo "📊 HTTP Status: $http_code"
+          echo "📝 Response: $body"
+          
+          if [ "$http_code" = "200" ]; then
+            echo "✅ GL Accounts table is accessible!"
+          else
+            echo "⚠️ Warning: Could not access GL Accounts"
+          fi
+
+      - name: Ping Supabase - Test Function
+        run: |
+          echo "🔄 Testing trial balance function..."
+          
+          # استعلام ثالث: تشغيل دالة ميزان المراجعة
+          response=$(curl -s -w "\n%{http_code}" \
+            -X POST "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/rpc/rpc_get_trial_balance" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "p_tenant": "00000000-0000-0000-0000-000000000001",
+              "p_as_of_date": "2025-12-31"
+            }')
+          
+          http_code=$(echo "$response" | tail -n1)
+          
+          echo "📊 HTTP Status: $http_code"
+          
+          if [ "$http_code" = "200" ]; then
+            echo "✅ Trial balance function executed successfully!"
+          else
+            echo "⚠️ Warning: Function execution returned: $http_code"
+          fi
+
+      - name: Summary
+        run: |
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🎉 Keep-Alive Job Completed Successfully!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "📅 Timestamp: $(date)"
+          echo "✅ Database connection verified"
+          echo "✅ Multiple queries executed"
+          echo "✅ Supabase project should remain active"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
