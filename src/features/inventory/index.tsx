@@ -15,6 +15,7 @@ export function InventoryModule() {
       <Route index element={<InventoryOverview />} />
       <Route path="overview" element={<InventoryOverview />} />
       <Route path="items" element={<ItemsManagement />} />
+      <Route path="categories" element={<CategoriesManagement />} />
       <Route path="movements" element={<StockMovements />} />
       <Route path="adjustments" element={<StockAdjustments />} />
       <Route path="valuation" element={<InventoryValuation />} />
@@ -78,13 +79,22 @@ function InventoryOverview() {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
           <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
             {t('inventory.items')}
           </h3>
           <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
             إدارة الأصناف والمواد
+          </p>
+        </Link>
+
+        <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+            فئات المنتجات
+          </h3>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            تصنيف المخزون
           </p>
         </Link>
 
@@ -133,9 +143,15 @@ function ItemsManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [items, setItems] = useState<Item[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string>('all')
+  const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out'>('all')
+  const [sortBy, setSortBy] = useState<'name' | 'code' | 'stock' | 'price'>('name')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [showAddForm, setShowAddForm] = useState(false)
+  const [editingItem, setEditingItem] = useState<Item | null>(null)
   const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number }>({
     name: '',
     name_ar: '',
@@ -156,11 +172,12 @@ function ItemsManagement() {
 
   const loadData = async () => {
     try {
-      const [itemsData] = await Promise.all([
+      const [itemsData, categoriesData] = await Promise.all([
         itemsService.getAll(),
         categoriesService.getAll(),
       ]);
       setItems(itemsData || [])
+      setCategories(categoriesData || [])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('خطأ في تحميل البيانات')
@@ -169,14 +186,65 @@ function ItemsManagement() {
     }
   }
 
-  const filteredItems = items.filter(item => 
-    item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.code && item.code.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  // Advanced filtering
+  const filteredItems = items
+    .filter(item => {
+      // Search filter
+      const matchesSearch = 
+        item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (item.code && item.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
+      
+      // Category filter
+      const matchesCategory = selectedCategory === 'all' || item.category_id === selectedCategory
+      
+      // Stock filter
+      let matchesStock = true
+      if (stockFilter === 'low') {
+        matchesStock = item.stock_quantity <= item.minimum_stock && item.stock_quantity > 0
+      } else if (stockFilter === 'out') {
+        matchesStock = item.stock_quantity === 0
+      }
+      
+      return matchesSearch && matchesCategory && matchesStock
+    })
+    .sort((a, b) => {
+      let comparison = 0
+      
+      switch (sortBy) {
+        case 'name':
+          comparison = a.name.localeCompare(b.name)
+          break
+        case 'code':
+          comparison = (a.code || '').localeCompare(b.code || '')
+          break
+        case 'stock':
+          comparison = a.stock_quantity - b.stock_quantity
+          break
+        case 'price':
+          comparison = a.cost_price - b.cost_price
+          break
+      }
+      
+      return sortOrder === 'asc' ? comparison : -comparison
+    })
+
+  // Statistics
+  const stats = {
+    total: items.length,
+    lowStock: items.filter(item => item.stock_quantity <= item.minimum_stock && item.stock_quantity > 0).length,
+    outOfStock: items.filter(item => item.stock_quantity === 0).length,
+    totalValue: items.reduce((sum, item) => sum + (item.stock_quantity * item.cost_price), 0)
+  }
 
   const handleAddItem = async () => {
     try {
-      const itemToAdd: Omit<Item, 'id' | 'category'> = { ...newItem, price: newItem.selling_price };
+      // Clean up the data before sending
+      const itemToAdd: any = {
+        ...newItem,
+        price: newItem.selling_price,
+        category_id: newItem.category_id || null, // Convert empty string to null
+      };
       await itemsService.create(itemToAdd)
       toast.success('تم إضافة الصنف بنجاح')
       setShowAddForm(false)
@@ -213,23 +281,142 @@ function ItemsManagement() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <div>
           <h1 className="text-2xl font-bold">{t('inventory.items')}</h1>
-          <p className="text-muted-foreground">إدارة أصناف المخزون</p>
+          <p className="text-muted-foreground">إدارة أصناف المخزون ({items.length} صنف)</p>
         </div>
         <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : t('common.add')}
+          {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="max-w-md">
-        <Input
-          placeholder="البحث في الأصناف..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+      {/* Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="bg-card border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">إجمالي الأصناف</p>
+              <h3 className="text-2xl font-bold mt-1">{stats.total}</h3>
+            </div>
+            <div className="h-12 w-12 bg-blue-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">📦</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">مخزون منخفض</p>
+              <h3 className="text-2xl font-bold mt-1 text-orange-600">{stats.lowStock}</h3>
+            </div>
+            <div className="h-12 w-12 bg-orange-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">⚠️</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">نفذ من المخزون</p>
+              <h3 className="text-2xl font-bold mt-1 text-red-600">{stats.outOfStock}</h3>
+            </div>
+            <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">❌</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card border rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted-foreground">قيمة المخزون</p>
+              <h3 className="text-2xl font-bold mt-1 text-green-600">
+                {stats.totalValue.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س
+              </h3>
+            </div>
+            <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
+              <span className="text-2xl">💰</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Filters Section */}
+      <div className="bg-card border rounded-lg p-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Search */}
+          <div>
+            <label className="block text-sm font-medium mb-2">🔍 البحث</label>
+            <Input
+              placeholder="ابحث بالاسم أو الكود..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+
+          {/* Category Filter */}
+          <div>
+            <label className="block text-sm font-medium mb-2">📁 الفئة</label>
+            <select
+              value={selectedCategory}
+              onChange={(e) => setSelectedCategory(e.target.value)}
+              className="w-full h-10 px-3 rounded-md border border-input bg-background"
+            >
+              <option value="all">جميع الفئات ({items.length})</option>
+              {categories.map(cat => {
+                const count = items.filter(item => item.category_id === cat.id).length
+                return (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name_ar || cat.name} ({count})
+                  </option>
+                )
+              })}
+            </select>
+          </div>
+
+          {/* Stock Filter */}
+          <div>
+            <label className="block text-sm font-medium mb-2">📊 حالة المخزون</label>
+            <select
+              value={stockFilter}
+              onChange={(e) => setStockFilter(e.target.value as any)}
+              className="w-full h-10 px-3 rounded-md border border-input bg-background"
+            >
+              <option value="all">الكل ({items.length})</option>
+              <option value="low">مخزون منخفض ({stats.lowStock})</option>
+              <option value="out">نفذ من المخزون ({stats.outOfStock})</option>
+            </select>
+          </div>
+
+          {/* Sort */}
+          <div>
+            <label className="block text-sm font-medium mb-2">⬇️ الترتيب</label>
+            <div className="flex gap-2">
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="flex-1 h-10 px-3 rounded-md border border-input bg-background"
+              >
+                <option value="name">الاسم</option>
+                <option value="code">الكود</option>
+                <option value="stock">الكمية</option>
+                <option value="price">السعر</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                className="px-3"
+              >
+                {sortOrder === 'asc' ? '↑' : '↓'}
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add Item Form */}
@@ -260,6 +447,21 @@ function ItemsManagement() {
                 onChange={(e) => setNewItem({...newItem, code: e.target.value})}
                 placeholder="كود الصنف"
               />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">الفئة</label>
+              <select
+                value={newItem.category_id}
+                onChange={(e) => setNewItem({...newItem, category_id: e.target.value})}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background"
+              >
+                <option value="">-- اختر الفئة --</option>
+                {categories.map(cat => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.name_ar || cat.name}
+                  </option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">وحدة القياس</label>
@@ -317,31 +519,155 @@ function ItemsManagement() {
 
       {/* Items List */}
       <div className="bg-card rounded-lg border">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold">قائمة الأصناف ({filteredItems.length})</h3>
+        <div className="p-4 border-b flex justify-between items-center">
+          <h3 className="font-semibold">قائمة الأصناف ({filteredItems.length} من {items.length})</h3>
+          <div className="flex gap-2">
+            {filteredItems.length > 0 && (
+              <>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => {
+                    const csv = [
+                      ['الكود', 'الاسم', 'الفئة', 'الكمية', 'الوحدة', 'التكلفة', 'سعر البيع'],
+                      ...filteredItems.map(item => [
+                        item.code,
+                        item.name,
+                        categories.find(c => c.id === item.category_id)?.name || '',
+                        item.stock_quantity,
+                        item.unit,
+                        item.cost_price,
+                        item.price
+                      ])
+                    ].map(row => row.join(',')).join('\n')
+                    
+                    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
+                    const link = document.createElement('a')
+                    link.href = URL.createObjectURL(blob)
+                    link.download = `items_${new Date().toISOString().split('T')[0]}.csv`
+                    link.click()
+                    toast.success('تم تصدير البيانات')
+                  }}
+                >
+                  📥 تصدير Excel
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => window.print()}
+                >
+                  🖨️ طباعة
+                </Button>
+              </>
+            )}
+          </div>
         </div>
-        <div className="divide-y">
-          {filteredItems.map((item) => (
-            <div key={item.id} className="p-4 flex justify-between items-center">
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <h4 className="font-medium">{item.name}</h4>
-                    <p className="text-sm text-muted-foreground">{item.code}</p>
-                  </div>
-                  <div className="flex gap-1">
-                    {item.category && <Badge variant="secondary">{item.category.name}</Badge>}
-                    {item.stock_quantity <= item.minimum_stock && <Badge variant="destructive">مخزون قليل</Badge>}
-                  </div>
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="font-medium">{item.stock_quantity} {item.unit}</div>
-                <div className="text-sm text-muted-foreground">{item.cost_price.toFixed(2)} ريال</div>
-              </div>
-            </div>
-          ))}
-        </div>
+        
+        {filteredItems.length === 0 ? (
+          <div className="p-12 text-center">
+            <div className="text-6xl mb-4">📭</div>
+            <h3 className="text-lg font-semibold mb-2">لا توجد أصناف</h3>
+            <p className="text-muted-foreground">
+              {searchTerm || selectedCategory !== 'all' || stockFilter !== 'all'
+                ? 'جرب تغيير الفلاتر للحصول على نتائج'
+                : 'لم يتم إضافة أي أصناف بعد'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-right p-3 font-semibold">الكود</th>
+                  <th className="text-right p-3 font-semibold">اسم الصنف</th>
+                  <th className="text-right p-3 font-semibold">الفئة</th>
+                  <th className="text-center p-3 font-semibold">الكمية</th>
+                  <th className="text-center p-3 font-semibold">الوحدة</th>
+                  <th className="text-right p-3 font-semibold">التكلفة</th>
+                  <th className="text-right p-3 font-semibold">سعر البيع</th>
+                  <th className="text-center p-3 font-semibold">الحالة</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {filteredItems.map((item) => {
+                  const isLowStock = item.stock_quantity <= item.minimum_stock && item.stock_quantity > 0
+                  const isOutOfStock = item.stock_quantity === 0
+                  const category = categories.find(c => c.id === item.category_id)
+                  
+                  return (
+                    <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="p-3">
+                        <span className="font-mono text-sm bg-muted px-2 py-1 rounded">
+                          {item.code}
+                        </span>
+                      </td>
+                      <td className="p-3">
+                        <div>
+                          <div className="font-medium">{item.name}</div>
+                          {item.description && (
+                            <div className="text-xs text-muted-foreground mt-1">
+                              {item.description}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        {category && (
+                          <Badge variant="outline" className="text-xs">
+                            {category.name_ar || category.name}
+                          </Badge>
+                        )}
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className={cn(
+                          "font-semibold text-lg",
+                          isOutOfStock ? "text-red-600" : isLowStock ? "text-orange-600" : "text-green-600"
+                        )}>
+                          {item.stock_quantity}
+                        </span>
+                      </td>
+                      <td className="p-3 text-center">
+                        <span className="text-sm text-muted-foreground">{item.unit}</span>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm">
+                          {item.cost_price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm font-medium">
+                          {item.price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                        </div>
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="flex flex-col gap-1 items-center">
+                          {isOutOfStock ? (
+                            <Badge variant="destructive" className="text-xs">
+                              ❌ نفذ
+                            </Badge>
+                          ) : isLowStock ? (
+                            <Badge variant="outline" className="text-xs border-orange-500 text-orange-600">
+                              ⚠️ منخفض
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-xs border-green-500 text-green-600">
+                              ✅ متوفر
+                            </Badge>
+                          )}
+                          {item.stock_quantity <= item.minimum_stock && (
+                            <span className="text-xs text-muted-foreground">
+                              الحد: {item.minimum_stock}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -499,6 +825,154 @@ function StockMovements() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Categories Management Component
+function CategoriesManagement() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+  const [categories, setCategories] = useState<Category[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [newCategory, setNewCategory] = useState({
+    name: '',
+    name_ar: ''
+  })
+
+  useEffect(() => {
+    loadCategories()
+  }, [])
+
+  const loadCategories = async () => {
+    try {
+      const data = await categoriesService.getAll()
+      setCategories(data || [])
+    } catch (error) {
+      console.error('Error loading categories:', error)
+      toast.error('خطأ في تحميل الفئات')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddCategory = async () => {
+    try {
+      if (!newCategory.name) {
+        toast.error('الرجاء إدخال اسم الفئة')
+        return
+      }
+
+      await categoriesService.create({
+        name: newCategory.name,
+        name_ar: newCategory.name_ar || newCategory.name
+      } as any)
+      
+      toast.success('تم إضافة الفئة بنجاح')
+      setShowAddForm(false)
+      setNewCategory({ name: '', name_ar: '' })
+      loadCategories()
+    } catch (error) {
+      console.error('Error adding category:', error)
+      toast.error('خطأ في إضافة الفئة')
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
+        <div>
+          <h1 className="text-2xl font-bold">فئات المنتجات</h1>
+          <p className="text-muted-foreground">إدارة تصنيفات المخزون</p>
+        </div>
+        <Button onClick={() => setShowAddForm(!showAddForm)}>
+          {showAddForm ? t('common.cancel') : '+ إضافة فئة'}
+        </Button>
+      </div>
+
+      {/* Add Category Form */}
+      {showAddForm && (
+        <div className="bg-card rounded-lg border p-6">
+          <h3 className="font-semibold mb-4">إضافة فئة جديدة</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">اسم الفئة (English)</label>
+              <Input
+                value={newCategory.name}
+                onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
+                placeholder="Raw Materials, Finished Goods..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">الاسم بالعربية</label>
+              <Input
+                value={newCategory.name_ar}
+                onChange={(e) => setNewCategory({...newCategory, name_ar: e.target.value})}
+                placeholder="مواد خام، منتجات تامة..."
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-4">
+            <Button onClick={handleAddCategory} disabled={!newCategory.name}>
+              إضافة
+            </Button>
+            <Button variant="outline" onClick={() => setShowAddForm(false)}>
+              إلغاء
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Categories List */}
+      <div className="bg-card rounded-lg border">
+        <div className="p-4 border-b">
+          <h3 className="font-semibold">قائمة الفئات ({categories.length})</h3>
+        </div>
+        <div className="divide-y">
+          {categories.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p>لا توجد فئات. ابدأ بإضافة فئة جديدة!</p>
+            </div>
+          ) : (
+            categories.map((category) => (
+              <div key={category.id} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
+                <div>
+                  <h4 className="font-medium">{category.name_ar || category.name}</h4>
+                  <p className="text-sm text-muted-foreground">{category.name}</p>
+                </div>
+                <Badge variant="secondary">فئة</Badge>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Suggested Categories */}
+      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+        <h3 className="font-semibold text-blue-800 dark:text-blue-200 mb-2">💡 فئات مقترحة:</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
+          <div>• مواد خام (Raw Materials)</div>
+          <div>• منتجات تامة (Finished Goods)</div>
+          <div>• نصف مصنعة (Semi-Finished)</div>
+          <div>• مشتريات خارجية (External Purchases)</div>
+          <div>• مواد تعبئة (Packaging)</div>
+          <div>• قطع غيار (Spare Parts)</div>
+          <div>• مستلزمات (Supplies)</div>
+          <div>• أدوات (Tools)</div>
         </div>
       </div>
     </div>

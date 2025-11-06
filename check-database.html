@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>فحص البيانات</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            color: #00d9ff;
+            text-align: center;
+        }
+        .section {
+            background: #16213e;
+            border: 1px solid #0f3460;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .section h2 {
+            color: #00d9ff;
+            margin-top: 0;
+        }
+        .success {
+            color: #4CAF50;
+        }
+        .error {
+            color: #f44336;
+        }
+        .data {
+            background: #0f3460;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            direction: ltr;
+            text-align: left;
+        }
+        button {
+            background: #00d9ff;
+            color: #1a1a2e;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #00b8d4;
+        }
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #00d9ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 فحص البيانات في قاعدة البيانات</h1>
+    
+    <div style="text-align: center; margin: 20px 0;">
+        <button onclick="checkAllData()">▶️ فحص البيانات الآن</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        const supabaseUrl = 'https://oobdeuhczdjmlfjkvdel.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYmRldWhjemRqbWxmamt2ZGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzEzNTE1NjcsImV4cCI6MjA0NjkyNzU2N30.RwrRxCPzqQJkjDz_Sk5gww_Kw1r2uAaKzw-I58MR3Ww';
+        
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        async function checkAllData() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<div class="loading">⏳ جاري الفحص...</div>';
+            
+            let html = '';
+
+            // 1. Check gl_entries
+            html += '<div class="section">';
+            html += '<h2>1️⃣ القيود المحاسبية (gl_entries)</h2>';
+            try {
+                const { data, error } = await supabase
+                    .from('gl_entries')
+                    .select('*')
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                html += `<p class="success">✅ تم العثور على ${data?.length || 0} قيد</p>`;
+                
+                if (data && data.length > 0) {
+                    html += '<div class="data">';
+                    data.forEach(entry => {
+                        html += `
+                            <div style="margin: 10px 0; padding: 10px; background: #1a1a2e; border-radius: 5px;">
+                                <strong>${entry.entry_number}</strong><br>
+                                التاريخ: ${entry.entry_date}<br>
+                                الحالة: ${entry.status}<br>
+                                المدين: ${entry.total_debit} | الدائن: ${entry.total_credit}<br>
+                                org_id: ${entry.org_id}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p class="error">⚠️ لا توجد قيود مسجلة</p>';
+                }
+            } catch (error) {
+                html += `<p class="error">❌ خطأ: ${error.message}</p>`;
+            }
+            html += '</div>';
+
+            // 2. Check gl_entry_lines
+            html += '<div class="section">';
+            html += '<h2>2️⃣ تفاصيل القيود (gl_entry_lines)</h2>';
+            try {
+                const { data, error } = await supabase
+                    .from('gl_entry_lines')
+                    .select('*')
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                html += `<p class="success">✅ تم العثور على ${data?.length || 0} سطر</p>`;
+                
+                if (data && data.length > 0) {
+                    html += '<div class="data">';
+                    data.slice(0, 5).forEach(line => {
+                        html += `
+                            <div style="margin: 5px 0;">
+                                ${line.account_code} - ${line.account_name}: 
+                                مدين ${line.debit_amount} | دائن ${line.credit_amount}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p class="error">⚠️ لا توجد تفاصيل قيود</p>';
+                }
+            } catch (error) {
+                html += `<p class="error">❌ خطأ: ${error.message}</p>`;
+            }
+            html += '</div>';
+
+            // 3. Check purchase_orders
+            html += '<div class="section">';
+            html += '<h2>3️⃣ أوامر الشراء (purchase_orders)</h2>';
+            try {
+                const { data, error } = await supabase
+                    .from('purchase_orders')
+                    .select('*')
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                html += `<p class="success">✅ تم العثور على ${data?.length || 0} أمر شراء</p>`;
+                
+                if (data && data.length > 0) {
+                    html += '<div class="data">';
+                    data.forEach(po => {
+                        html += `
+                            <div style="margin: 10px 0; padding: 10px; background: #1a1a2e; border-radius: 5px;">
+                                <strong>${po.order_number}</strong><br>
+                                التاريخ: ${po.order_date}<br>
+                                الحالة: ${po.status}<br>
+                                الإجمالي: ${po.total_amount} ريال<br>
+                                org_id: ${po.org_id}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p class="error">⚠️ لا توجد أوامر شراء</p>';
+                }
+            } catch (error) {
+                html += `<p class="error">❌ خطأ: ${error.message}</p>`;
+            }
+            html += '</div>';
+
+            // 4. Check sales_invoices
+            html += '<div class="section">';
+            html += '<h2>4️⃣ فواتير المبيعات (sales_invoices)</h2>';
+            try {
+                const { data, error } = await supabase
+                    .from('sales_invoices')
+                    .select('*')
+                    .limit(10);
+                
+                if (error) throw error;
+                
+                html += `<p class="success">✅ تم العثور على ${data?.length || 0} فاتورة</p>`;
+                
+                if (data && data.length > 0) {
+                    html += '<div class="data">';
+                    data.forEach(invoice => {
+                        html += `
+                            <div style="margin: 10px 0; padding: 10px; background: #1a1a2e; border-radius: 5px;">
+                                <strong>${invoice.invoice_number}</strong><br>
+                                التاريخ: ${invoice.invoice_date}<br>
+                                الحالة: ${invoice.status}<br>
+                                الإجمالي: ${invoice.total_amount} ريال<br>
+                                org_id: ${invoice.org_id}
+                            </div>
+                        `;
+                    });
+                    html += '</div>';
+                } else {
+                    html += '<p class="error">⚠️ لا توجد فواتير مبيعات</p>';
+                }
+            } catch (error) {
+                html += `<p class="error">❌ خطأ: ${error.message}</p>`;
+            }
+            html += '</div>';
+
+            // 5. Check products
+            html += '<div class="section">';
+            html += '<h2>5️⃣ المنتج pp500</h2>';
+            try {
+                const { data, error } = await supabase
+                    .from('products')
+                    .select('*')
+                    .eq('product_code', 'pp500')
+                    .single();
+                
+                if (error && error.code !== 'PGRST116') throw error;
+                
+                if (data) {
+                    html += '<p class="success">✅ تم العثور على المنتج</p>';
+                    html += '<div class="data">';
+                    html += `
+                        <div>
+                            <strong>${data.product_name}</strong><br>
+                            الكمية: ${data.stock_quantity}<br>
+                            السعر: ${data.cost_price} ريال<br>
+                            org_id: ${data.org_id}
+                        </div>
+                    `;
+                    html += '</div>';
+                } else {
+                    html += '<p class="error">⚠️ لم يتم العثور على المنتج pp500</p>';
+                }
+            } catch (error) {
+                html += `<p class="error">❌ خطأ: ${error.message}</p>`;
+            }
+            html += '</div>';
+
+            // Summary
+            html += '<div class="section">';
+            html += '<h2>📊 الملخص</h2>';
+            html += '<p>إذا كانت جميع الجداول تحتوي على <span class="error">0 سجلات</span>، فهذا يعني:</p>';
+            html += '<ol style="text-align: right;">';
+            html += '<li>البيانات من اختبار run-real-test.cjs لم يتم حفظها بنجاح</li>';
+            html += '<li>أو تم حذف البيانات</li>';
+            html += '<li>أو تم استخدام org_id مختلف</li>';
+            html += '</ol>';
+            html += '<p><strong>الحل:</strong> إعادة تشغيل اختبار run-real-test.cjs لإنشاء البيانات مرة أخرى</p>';
+            html += '</div>';
+
+            resultsDiv.innerHTML = html;
+        }
+
+        // Auto-run on page load
+        window.addEventListener('load', () => {
+            setTimeout(checkAllData, 500);
+        });
+    </script>
+</body>
+</html>

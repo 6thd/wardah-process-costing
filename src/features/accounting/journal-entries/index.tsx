@@ -150,14 +150,11 @@ const JournalEntries = () => {
   const fetchEntries = async () => {
     setLoading(true);
     try {
+      // Try new gl_entries table first
       let query = supabase
-        .from('journal_entries')
+        .from('gl_entries')
         .select(`
-          *,
-          journals (
-            name,
-            name_ar
-          )
+          *
         `)
         .order('entry_date', { ascending: false })
         .order('entry_number', { ascending: false });
@@ -172,15 +169,44 @@ const JournalEntries = () => {
 
       const { data, error } = await query;
 
-      if (error) throw error;
-      
-      const entriesWithJournalNames = (data || []).map(entry => ({
-        ...entry,
-        journal_name: entry.journals?.name,
-        journal_name_ar: entry.journals?.name_ar
-      }));
+      if (error) {
+        console.warn('gl_entries not found, trying journal_entries:', error);
+        // Fallback to old table
+        let oldQuery = supabase
+          .from('journal_entries')
+          .select(`
+            *,
+            journals (
+              name,
+              name_ar
+            )
+          `)
+          .order('entry_date', { ascending: false })
+          .order('entry_number', { ascending: false });
 
-      setEntries(entriesWithJournalNames);
+        if (statusFilter !== 'all') {
+          oldQuery = oldQuery.eq('status', statusFilter);
+        }
+
+        if (dateFilter) {
+          oldQuery = oldQuery.gte('entry_date', dateFilter);
+        }
+
+        const { data: oldData, error: oldError } = await oldQuery;
+        
+        if (oldError) throw oldError;
+        
+        const entriesWithJournalNames = (oldData || []).map(entry => ({
+          ...entry,
+          journal_name: entry.journals?.name,
+          journal_name_ar: entry.journals?.name_ar
+        }));
+
+        setEntries(entriesWithJournalNames);
+      } else {
+        console.log('✅ Loaded from gl_entries:', data);
+        setEntries(data || []);
+      }
     } catch (error) {
       console.error('Error fetching entries:', error);
     } finally {
@@ -190,6 +216,19 @@ const JournalEntries = () => {
 
   const fetchEntryLines = async (entryId: string) => {
     try {
+      // Try new gl_entry_lines table first
+      const { data: newData, error: newError } = await supabase
+        .from('gl_entry_lines')
+        .select('*')
+        .eq('entry_id', entryId)
+        .order('line_number');
+
+      if (!newError && newData) {
+        console.log('✅ Loaded lines from gl_entry_lines:', newData);
+        return newData;
+      }
+
+      // Fallback to old journal_lines table
       const { data, error } = await supabase
         .from('journal_lines')
         .select(`

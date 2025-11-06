@@ -27,6 +27,7 @@ export interface Item {
 export interface Category {
   id: string;
   name: string;
+  name_ar?: string;
   description?: string;
 }
 

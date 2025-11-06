@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>اختبار اتصال قاعدة البيانات</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 { color: #00d9ff; text-align: center; }
+        .test { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .success { color: #4CAF50; font-weight: bold; }
+        .error { color: #f44336; font-weight: bold; }
+        .warning { color: #ff9800; font-weight: bold; }
+        .data { background: #0f3460; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: 'Courier New', monospace; overflow-x: auto; }
+        button { background: #00d9ff; color: #1a1a2e; border: none; padding: 15px 30px; border-radius: 5px; cursor: pointer; font-size: 18px; font-weight: bold; margin: 10px; }
+        button:hover { background: #00b8d4; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 10px; text-align: right; border-bottom: 1px solid #0f3460; }
+        th { background: #0f3460; color: #00d9ff; }
+        .info { background: #2196F3; color: white; padding: 10px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>🔌 اختبار اتصال قاعدة البيانات</h1>
+    
+    <div class="info">
+        <strong>الهدف:</strong> التأكد من صحة اتصال Supabase وعرض البيانات الموجودة
+    </div>
+    
+    <div style="text-align: center;">
+        <button onclick="testConnection()">🧪 اختبار الاتصال</button>
+    </div>
+    
+    <div id="results"></div>
+
+    <script type="module">
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm'
+        
+        let supabase;
+        
+        // تحميل التكوين وتهيئة Supabase
+        async function initSupabase() {
+            try {
+                const response = await fetch('/config.json');
+                const config = await response.json();
+                
+                console.log('📡 Config loaded:', {
+                    url: config.SUPABASE_URL,
+                    keyLength: config.SUPABASE_ANON_KEY?.length
+                });
+                
+                supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
+                
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="success">✅ تم تحميل التكوين بنجاح</h3>
+                        <div class="data">
+                            <strong>URL:</strong> ${config.SUPABASE_URL}<br>
+                            <strong>Key Length:</strong> ${config.SUPABASE_ANON_KEY?.length} حرف
+                        </div>
+                    </div>
+                `;
+                
+                return true;
+            } catch (error) {
+                console.error('❌ Failed to load config:', error);
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="error">❌ فشل تحميل التكوين</h3>
+                        <div class="data">${error.message}</div>
+                    </div>
+                `;
+                return false;
+            }
+        }
+        
+        // اختبار الاتصال
+        window.testConnection = async function() {
+            document.getElementById('results').innerHTML = '<div class="test"><h3>⏳ جاري الاختبار...</h3></div>';
+            
+            // تهيئة Supabase أولاً
+            const initialized = await initSupabase();
+            if (!initialized) return;
+            
+            // اختبار 1: قراءة جدول gl_entries
+            await testTable('gl_entries', '📋 جدول القيود المحاسبية');
+            
+            // اختبار 2: قراءة جدول gl_entry_lines
+            await testTable('gl_entry_lines', '📊 جدول تفاصيل القيود');
+            
+            // اختبار 3: قراءة جدول purchase_orders
+            await testTable('purchase_orders', '🛒 جدول أوامر الشراء');
+            
+            // اختبار 4: قراءة جدول sales_invoices
+            await testTable('sales_invoices', '💰 جدول فواتير المبيعات');
+            
+            // اختبار 5: حساب ميزان المراجعة
+            await testTrialBalance();
+        };
+        
+        // اختبار جدول معين
+        async function testTable(tableName, displayName) {
+            try {
+                const { data, error, count } = await supabase
+                    .from(tableName)
+                    .select('*', { count: 'exact' })
+                    .limit(5);
+                
+                if (error) throw error;
+                
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="success">✅ ${displayName}</h3>
+                        <div class="data">
+                            <strong>عدد السجلات:</strong> ${count} سجل<br>
+                            <strong>عينة من البيانات:</strong>
+                            <pre>${JSON.stringify(data, null, 2)}</pre>
+                        </div>
+                    </div>
+                `;
+                
+                console.log(`✅ ${tableName}:`, { count, sample: data });
+                
+            } catch (error) {
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="error">❌ ${displayName}</h3>
+                        <div class="data">
+                            <strong>الخطأ:</strong> ${error.message}<br>
+                            <strong>التفاصيل:</strong> ${error.details || 'غير متوفر'}<br>
+                            <strong>الإشارة:</strong> ${error.hint || 'غير متوفر'}
+                        </div>
+                    </div>
+                `;
+                
+                console.error(`❌ ${tableName}:`, error);
+            }
+        }
+        
+        // اختبار حساب ميزان المراجعة
+        async function testTrialBalance() {
+            try {
+                console.log('🧮 بدء حساب ميزان المراجعة...');
+                
+                // 1. جلب القيود المعتمدة (case-insensitive)
+                const { data: entries, error: entriesError } = await supabase
+                    .from('gl_entries')
+                    .select('id, entry_number, entry_date, status')
+                    .ilike('status', 'posted')
+                    .gte('entry_date', '2025-01-01')
+                    .lte('entry_date', '2025-12-31');
+                
+                if (entriesError) throw entriesError;
+                
+                console.log(`✅ وجدت ${entries.length} قيد معتمد`);
+                
+                if (entries.length === 0) {
+                    document.getElementById('results').innerHTML += `
+                        <div class="test">
+                            <h3 class="warning">⚠️ ميزان المراجعة</h3>
+                            <div class="data">لا توجد قيود محاسبية معتمدة في الفترة المحددة</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // 2. جلب التفاصيل
+                const entryIds = entries.map(e => e.id);
+                const { data: lines, error: linesError } = await supabase
+                    .from('gl_entry_lines')
+                    .select('*')
+                    .in('entry_id', entryIds);
+                
+                if (linesError) throw linesError;
+                
+                console.log(`✅ وجدت ${lines.length} سطر تفصيلي`);
+                
+                // 3. تجميع حسب الحساب
+                const accountTotals = new Map();
+                
+                lines.forEach(line => {
+                    if (!accountTotals.has(line.account_code)) {
+                        accountTotals.set(line.account_code, {
+                            account_code: line.account_code,
+                            account_name: line.account_name,
+                            debit: 0,
+                            credit: 0
+                        });
+                    }
+                    
+                    const account = accountTotals.get(line.account_code);
+                    account.debit += parseFloat(line.debit_amount || 0);
+                    account.credit += parseFloat(line.credit_amount || 0);
+                });
+                
+                const trialBalance = Array.from(accountTotals.values())
+                    .sort((a, b) => a.account_code.localeCompare(b.account_code));
+                
+                const totalDebit = trialBalance.reduce((sum, acc) => sum + acc.debit, 0);
+                const totalCredit = trialBalance.reduce((sum, acc) => sum + acc.credit, 0);
+                const balanced = Math.abs(totalDebit - totalCredit) < 0.01;
+                
+                // عرض النتيجة
+                let tableHtml = `
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>رمز الحساب</th>
+                                <th>اسم الحساب</th>
+                                <th>مدين</th>
+                                <th>دائن</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                trialBalance.forEach(acc => {
+                    tableHtml += `
+                        <tr>
+                            <td>${acc.account_code}</td>
+                            <td>${acc.account_name}</td>
+                            <td>${acc.debit.toFixed(2)}</td>
+                            <td>${acc.credit.toFixed(2)}</td>
+                        </tr>
+                    `;
+                });
+                
+                tableHtml += `
+                        </tbody>
+                        <tfoot>
+                            <tr style="background: #0f3460; font-weight: bold;">
+                                <td colspan="2">الإجمالي</td>
+                                <td>${totalDebit.toFixed(2)}</td>
+                                <td>${totalCredit.toFixed(2)}</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                `;
+                
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="${balanced ? 'success' : 'error'}">
+                            ${balanced ? '✅' : '❌'} ميزان المراجعة
+                        </h3>
+                        <div class="data">
+                            <strong>عدد الحسابات:</strong> ${trialBalance.length}<br>
+                            <strong>إجمالي المدين:</strong> ${totalDebit.toFixed(2)} ر.س<br>
+                            <strong>إجمالي الدائن:</strong> ${totalCredit.toFixed(2)} ر.س<br>
+                            <strong>الفرق:</strong> ${(totalDebit - totalCredit).toFixed(2)} ر.س<br>
+                            <strong>الحالة:</strong> ${balanced ? '✅ متوازن' : '❌ غير متوازن'}
+                        </div>
+                        ${tableHtml}
+                    </div>
+                `;
+                
+            } catch (error) {
+                document.getElementById('results').innerHTML += `
+                    <div class="test">
+                        <h3 class="error">❌ فشل حساب ميزان المراجعة</h3>
+                        <div class="data">
+                            <strong>الخطأ:</strong> ${error.message}<br>
+                            <strong>التفاصيل:</strong> ${error.details || 'غير متوفر'}<br>
+                            <strong>الإشارة:</strong> ${error.hint || 'غير متوفر'}
+                        </div>
+                    </div>
+                `;
+                
+                console.error('❌ Trial balance error:', error);
+            }
+        }
+        
+        // تشغيل الاختبار تلقائياً عند تحميل الصفحة
+        window.addEventListener('load', () => {
+            console.log('🚀 الصفحة جاهزة - يمكنك الضغط على زر الاختبار');
+        });
+    </script>
+</body>
+</html>

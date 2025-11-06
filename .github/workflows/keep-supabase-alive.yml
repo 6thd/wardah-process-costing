@@ -11,6 +11,9 @@ on:
 jobs:
   ping-database:
     runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: "https://uutfztmqvajmsxnrqeiv.supabase.co"
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
     
     steps:
       - name: Checkout code
@@ -22,9 +25,9 @@ jobs:
           
           # استعلام حقيقي: جلب عدد الدفاتر
           response=$(curl -s -w "\n%{http_code}" \
-            -X GET "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/journals?select=count" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -X GET "$SUPABASE_URL/rest/v1/journals?select=count" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             -H "Content-Type: application/json")
           
           http_code=$(echo "$response" | tail -n1)
@@ -46,9 +49,9 @@ jobs:
           
           # استعلام ثاني: جلب عدد الحسابات
           response=$(curl -s -w "\n%{http_code}" \
-            -X GET "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/gl_accounts?select=count&limit=1" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -X GET "$SUPABASE_URL/rest/v1/gl_accounts?select=count&limit=1" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             -H "Content-Type: application/json")
           
           http_code=$(echo "$response" | tail -n1)
@@ -69,9 +72,9 @@ jobs:
           
           # استعلام ثالث: تشغيل دالة ميزان المراجعة
           response=$(curl -s -w "\n%{http_code}" \
-            -X POST "https://uutfztmqvajmsxnrqeiv.supabase.co/rest/v1/rpc/rpc_get_trial_balance" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -X POST "$SUPABASE_URL/rest/v1/rpc/rpc_get_trial_balance" \
+            -H "apikey: $SUPABASE_ANON_KEY" \
+            -H "Authorization: Bearer $SUPABASE_ANON_KEY" \
             -H "Content-Type: application/json" \
             -d '{
               "p_tenant": "00000000-0000-0000-0000-000000000001",

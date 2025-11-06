@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { supabase } from '@/lib/supabase';
+import { trialBalanceService } from '@/services/supabase-service';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -42,9 +43,43 @@ const TrialBalance = () => {
   const fetchTrialBalance = async () => {
     setLoading(true);
     try {
-      console.log('🔍 Fetching trial balance for date:', asOfDate);
+      console.log('🔍 Fetching trial balance from:', fromDate, 'to:', asOfDate);
       
-      // استدعاء دالة ميزان المراجعة
+      // Try new trialBalanceService first
+      try {
+        console.log('📊 Calling trialBalanceService.get()...');
+        const data = await trialBalanceService.get(fromDate, asOfDate);
+        console.log('✅ Loaded from trialBalanceService:', data?.length, 'accounts');
+        console.log('📝 Sample:', data?.[0]);
+        
+        if (!data || data.length === 0) {
+          console.warn('⚠️ No data returned from trialBalanceService');
+          throw new Error('No data');
+        }
+        
+        // Convert to expected format
+        const formattedData = data.map((account: any) => ({
+          account_code: account.account_code,
+          account_name: account.account_name,
+          account_name_ar: account.account_name,
+          account_type: 'ASSET', // Default, could be enhanced
+          opening_debit: 0,
+          opening_credit: 0,
+          period_debit: account.debit,
+          period_credit: account.credit,
+          closing_debit: account.debit - account.credit > 0 ? account.debit - account.credit : 0,
+          closing_credit: account.credit - account.debit > 0 ? account.credit - account.debit : 0
+        }));
+        
+        console.log('✅ Formatted data ready:', formattedData.length, 'accounts');
+        setBalances(formattedData);
+        return;
+      } catch (newError: any) {
+        console.warn('⚠️ New service error:', newError?.message || newError);
+        console.warn('Trying RPC fallback...');
+      }
+      
+      // Fallback to RPC
       const { data, error } = await supabase
         .rpc('rpc_get_trial_balance', {
           p_tenant: '00000000-0000-0000-0000-000000000001',
@@ -53,8 +88,6 @@ const TrialBalance = () => {
 
       if (error) {
         console.error('❌ RPC Error, falling back to manual:', error);
-        
-        // إذا فشلت الدالة، نجلب البيانات يدوياً
         await fetchTrialBalanceManual();
       } else {
         console.log('✅ RPC Data received:', data?.length, 'rows');
@@ -83,21 +116,46 @@ const TrialBalance = () => {
       if (accountsError) throw accountsError;
       console.log('✅ Accounts fetched:', accounts?.length);
 
-      // جلب جميع بنود القيود المرحلة
-      const { data: lines, error: linesError } = await supabase
-        .from('journal_lines')
-        .select(`
-          *,
-          journal_entries!inner (
-            status,
-            entry_date,
-            posting_date
-          )
-        `)
-        .eq('journal_entries.status', 'posted');
+      // جلب جميع بنود القيود المرحلة - Try new table first
+      let lines: any[] = [];
+      
+      try {
+        const { data: newLines, error: newError } = await supabase
+          .from('gl_entry_lines')
+          .select(`
+            *,
+            entry:gl_entries!inner (
+              status,
+              entry_date
+            )
+          `)
+          .eq('entry.status', 'POSTED');
+        
+        if (!newError && newLines) {
+          console.log('✅ Posted lines from gl_entry_lines:', newLines?.length);
+          lines = newLines;
+        } else {
+          throw newError;
+        }
+      } catch (newError) {
+        console.warn('Trying old journal_lines table:', newError);
+        const { data: oldLines, error: linesError } = await supabase
+          .from('journal_lines')
+          .select(`
+            *,
+            journal_entries!inner (
+              status,
+              entry_date,
+              posting_date
+            )
+          `)
+          .eq('journal_entries.status', 'posted');
 
-      if (linesError) throw linesError;
-      console.log('✅ Posted lines fetched:', lines?.length);
+        if (linesError) throw linesError;
+        console.log('✅ Posted lines fetched from journal_lines:', oldLines?.length);
+        lines = oldLines || [];
+      }
+      
       console.log('📝 Sample line:', lines?.[0]);
 
       // حساب الأرصدة لكل حساب

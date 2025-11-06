@@ -64,12 +64,12 @@ export const categoriesService = {
   }
 }
 
-// Items Service (Enhanced)
+// Items Service (Enhanced) - Using 'products' table
 export const itemsService = {
   getAll: async () => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('items')
+      .from('products')
       .select('*')
       .order('created_at', { ascending: false })
     
@@ -80,7 +80,7 @@ export const itemsService = {
   getLowStock: async () => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('items')
+      .from('products')
       .select('*')
       .filter('stock_quantity', 'lte', 'minimum_stock')
     
@@ -91,7 +91,7 @@ export const itemsService = {
   getById: async (id: string) => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('items')
+      .from('products')
       .select('*')
       .eq('id', id)
       .single()
@@ -103,7 +103,7 @@ export const itemsService = {
   create: async (item: Omit<Item, 'id' | 'created_at' | 'updated_at'>) => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('items')
+      .from('products')
       .insert(item)
       .select()
       .single()
@@ -115,7 +115,7 @@ export const itemsService = {
   update: async (id: string, item: Partial<Item>) => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('items')
+      .from('products')
       .update({ ...item, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
@@ -128,7 +128,7 @@ export const itemsService = {
   updateStock: async (itemId: string, quantity: number, movementType: 'in' | 'out' | 'adjustment', userId: string, notes?: string) => {
     const supabase = await getClient()
     const { data: item } = await supabase
-      .from('items')
+      .from('products')
       .select('stock_quantity')
       .eq('id', itemId)
       .single()
@@ -145,7 +145,7 @@ export const itemsService = {
     }
 
     const { error: updateError } = await supabase
-      .from('items')
+      .from('products')
       .update({ 
         stock_quantity: newQuantity,
         updated_at: new Date().toISOString()
@@ -171,7 +171,7 @@ export const itemsService = {
   delete: async (id: string) => {
     const supabase = await getClient()
     const { error } = await supabase
-      .from('items')
+      .from('products')
       .delete()
       .eq('id', id)
     
@@ -179,12 +179,12 @@ export const itemsService = {
   }
 }
 
-// Suppliers Service
+// Suppliers Service (using vendors table)
 export const suppliersService = {
   getAll: async () => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('vendors')
       .select('*')
       .order('name')
     
@@ -195,7 +195,7 @@ export const suppliersService = {
   create: async (supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>) => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('vendors')
       .insert(supplier)
       .select()
       .single()
@@ -207,7 +207,7 @@ export const suppliersService = {
   update: async (id: string, supplier: Partial<Supplier>) => {
     const supabase = await getClient()
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('vendors')
       .update({ ...supplier, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
@@ -252,7 +252,7 @@ export const manufacturingService = {
       .from('manufacturing_orders')
       .select(`
         *,
-        item:items(*),
+        item:products(*),
         user:users(full_name),
         process_costs(*)
       `)
@@ -269,7 +269,7 @@ export const manufacturingService = {
       .from('manufacturing_orders')
       .select(`
         *,
-        item:items(*),
+        item:products(*),
         user:users(full_name),
         process_costs(*)
       `)
@@ -283,7 +283,7 @@ export const manufacturingService = {
         .from('manufacturing_orders')
         .select(`
           *,
-          item:items(*),
+          item:products(*),
           process_costs(*)
         `)
         .eq('id', id)
@@ -304,7 +304,7 @@ export const manufacturingService = {
       .insert(order)
       .select(`
         *,
-        item:items(*)
+        item:products(*)
       `)
       .single()
     
@@ -330,7 +330,7 @@ export const manufacturingService = {
       .eq('id', id)
       .select(`
         *,
-        item:items(*),
+        item:products(*),
         user:users(full_name)
       `)
       .single()
@@ -344,7 +344,7 @@ export const manufacturingService = {
         .eq('id', id)
         .select(`
           *,
-          item:items(*)
+          item:products(*)
         `)
         .single()
       
@@ -418,7 +418,7 @@ export const stockMovementsService = {
       .from('stock_movements')
       .select(`
         *,
-        item:items(*),
+        item:products(*),
         user:users(full_name)
       `)
       .order('created_at', { ascending: false })
@@ -430,7 +430,7 @@ export const stockMovementsService = {
         .from('stock_movements')
         .select(`
           *,
-          item:items(*)
+          item:products(*)
         `)
         .order('created_at', { ascending: false })
       
@@ -449,7 +449,7 @@ export const stockMovementsService = {
       .from('stock_movements')
       .select(`
         *,
-        item:items(*),
+        item:products(*),
         user:users(full_name)
       `)
       .eq('item_id', itemId)
@@ -462,7 +462,7 @@ export const stockMovementsService = {
         .from('stock_movements')
         .select(`
           *,
-          item:items(*)
+          item:products(*)
         `)
         .eq('item_id', itemId)
         .order('created_at', { ascending: false })
@@ -484,11 +484,10 @@ export const purchaseOrdersService = {
       .from('purchase_orders')
       .select(`
         *,
-        supplier:suppliers(*),
-        user:users(full_name),
-        purchase_order_items(
+        vendor:vendors(*),
+        purchase_order_lines(
           *,
-          item:items(*)
+          product:products(*)
         )
       `)
       .order('created_at', { ascending: false })
@@ -514,49 +513,29 @@ export const purchaseOrdersService = {
     }))
 
     const { error: itemsError } = await supabase
-      .from('purchase_order_items')
+      .from('purchase_order_lines')
       .insert(orderItems)
 
     if (itemsError) throw itemsError
 
     const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
     
-    // First try to update with user data
+    // Update total amount
     const { data, error: updateError } = await supabase
       .from('purchase_orders')
       .update({ total_amount: totalAmount })
       .eq('id', orderData.id)
       .select(`
         *,
-        supplier:suppliers(*),
-        user:users(full_name),
-        purchase_order_items(
+        vendor:vendors(*),
+        purchase_order_lines(
           *,
-          item:items(*)
+          product:products(*)
         )
       `)
       .single()
     
-    // If there's an error related to the user not being found, try without user data
-    if (updateError && updateError.message.includes('404')) {
-      console.warn('User not found for purchase order, updating without user data:', orderData.id)
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('purchase_orders')
-        .update({ total_amount: totalAmount })
-        .eq('id', orderData.id)
-        .select(`
-          *,
-          supplier:suppliers(*),
-          purchase_order_items(
-            *,
-            item:items(*)
-          )
-        `)
-        .single()
-      
-      if (fallbackError) throw fallbackError
-      return fallbackData
-    }
+    if (updateError) throw updateError
     
     if (updateError) throw updateError
     return data
@@ -575,7 +554,7 @@ export const salesOrdersService = {
         user:users(full_name),
         sales_order_items(
           *,
-          item:items(*)
+          item:products(*)
         )
       `)
       .order('created_at', { ascending: false })
@@ -589,7 +568,7 @@ export const salesOrdersService = {
                 customer:customers(*),
                 sales_order_items(
                     *,
-                    item:items(*)
+                    item:products(*)
                 )
             `)
             .order('created_at', { ascending: false })
@@ -639,7 +618,7 @@ export const salesOrdersService = {
         user:users(full_name),
         sales_order_items(
           *,
-          item:items(*)
+          item:products(*)
         )
       `)
       .single()
@@ -656,7 +635,7 @@ export const salesOrdersService = {
           customer:customers(*),
           sales_order_items(
             *,
-            item:items(*)
+            item:products(*)
           )
         `)
         .single()
@@ -670,13 +649,277 @@ export const salesOrdersService = {
   }
 }
 
+// ============================================
+// NEW PROCUREMENT & SALES SERVICES
+// ============================================
+
+// Vendors Service (new procurement system)
+export const vendorsService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('vendors')
+      .select('*')
+      .order('code')
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Purchase Orders Service (new system)
+export const newPurchaseOrdersService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('purchase_orders')
+      .select(`
+        *,
+        vendor:vendors(*),
+        purchase_order_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .order('order_date', { ascending: false })
+    
+    if (error) throw error
+    return data
+  },
+
+  getById: async (id: string) => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('purchase_orders')
+      .select(`
+        *,
+        vendor:vendors(*),
+        purchase_order_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Goods Receipts Service
+export const goodsReceiptsService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('goods_receipts')
+      .select(`
+        *,
+        purchase_order:purchase_orders(
+          order_number,
+          vendor:vendors(name)
+        ),
+        goods_receipt_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .order('receipt_date', { ascending: false })
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Sales Invoices Service (new system)
+export const newSalesInvoicesService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select(`
+        *,
+        customer:customers(*),
+        sales_invoice_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .order('invoice_date', { ascending: false })
+    
+    if (error) throw error
+    return data
+  },
+
+  getById: async (id: string) => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('sales_invoices')
+      .select(`
+        *,
+        customer:customers(*),
+        sales_invoice_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Delivery Notes Service
+export const deliveryNotesService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('delivery_notes')
+      .select(`
+        *,
+        sales_invoice:sales_invoices(
+          invoice_number,
+          customer:customers(name)
+        ),
+        delivery_note_lines(
+          *,
+          product:products(*)
+        )
+      `)
+      .order('delivery_date', { ascending: false })
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Journal Entries Service
+export const journalEntriesService = {
+  getAll: async () => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('gl_entries')
+      .select(`
+        *,
+        gl_entry_lines(*)
+      `)
+      .order('entry_date', { ascending: false })
+    
+    if (error) throw error
+    return data
+  },
+
+  getById: async (id: string) => {
+    const supabase = await getClient()
+    const { data, error } = await supabase
+      .from('gl_entries')
+      .select(`
+        *,
+        gl_entry_lines(*)
+      `)
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    return data
+  }
+}
+
+// Trial Balance Service
+export const trialBalanceService = {
+  get: async (startDate?: string, endDate?: string) => {
+    const supabase = await getClient()
+    
+    // First, get all POSTED entries (case-insensitive)
+    let entriesQuery = supabase
+      .from('gl_entries')
+      .select('id, entry_date, status')
+      .ilike('status', 'posted')
+    
+    if (startDate) {
+      entriesQuery = entriesQuery.gte('entry_date', startDate)
+    }
+    if (endDate) {
+      entriesQuery = entriesQuery.lte('entry_date', endDate)
+    }
+    
+    const { data: entries, error: entriesError } = await entriesQuery
+    
+    if (entriesError) {
+      console.error('❌ Error fetching entries:', entriesError)
+      throw entriesError
+    }
+    
+    if (!entries || entries.length === 0) {
+      console.warn('⚠️ No posted entries found')
+      return []
+    }
+    
+    console.log(`✅ Found ${entries.length} posted entries`)
+    
+    // Get all entry IDs
+    const entryIds = entries.map(e => e.id)
+    
+    // Get all lines for these entries
+    const { data: lines, error: linesError } = await supabase
+      .from('gl_entry_lines')
+      .select('*')
+      .in('entry_id', entryIds)
+    
+    if (linesError) {
+      console.error('❌ Error fetching lines:', linesError)
+      throw linesError
+    }
+    
+    if (!lines || lines.length === 0) {
+      console.warn('⚠️ No lines found for posted entries')
+      return []
+    }
+    
+    console.log(`✅ Found ${lines.length} lines`)
+    
+    // Group by account and calculate totals
+    const accountTotals = new Map<string, { debit: number, credit: number, name: string }>()
+    
+    lines.forEach((line: any) => {
+      if (!accountTotals.has(line.account_code)) {
+        accountTotals.set(line.account_code, {
+          debit: 0,
+          credit: 0,
+          name: line.account_name
+        })
+      }
+      
+      const account = accountTotals.get(line.account_code)!
+      account.debit += line.debit_amount || 0
+      account.credit += line.credit_amount || 0
+    })
+    
+    // Convert to array and sort by account code
+    const trialBalance = Array.from(accountTotals.entries())
+      .map(([code, totals]) => ({
+        account_code: code,
+        account_name: totals.name,
+        debit: totals.debit,
+        credit: totals.credit
+      }))
+      .sort((a, b) => a.account_code.localeCompare(b.account_code))
+    
+    console.log(`✅ Trial balance calculated: ${trialBalance.length} accounts`)
+    
+    return trialBalance
+  }
+}
+
 // Real-time subscriptions
 export const subscribeToItems = (callback: (items: Item[]) => void) => {
   const supabase = getSupabase()
   if (!supabase) throw new Error('Supabase client not initialized')
   return supabase
-    .channel('items_changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'items' }, () => {
+    .channel('products_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'products' }, () => {
       itemsService.getAll().then(callback)
     })
     .subscribe()

@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+    <meta charset="UTF-8">
+    <title>اختبار ميزان المراجعة</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 { color: #00d9ff; text-align: center; }
+        .test { background: #16213e; border: 1px solid #0f3460; border-radius: 8px; padding: 20px; margin: 20px 0; }
+        .success { color: #4CAF50; }
+        .error { color: #f44336; }
+        .data { background: #0f3460; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: 'Courier New', monospace; }
+        button { background: #00d9ff; color: #1a1a2e; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-size: 16px; font-weight: bold; margin: 10px; }
+        button:hover { background: #00b8d4; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { padding: 10px; text-align: right; border-bottom: 1px solid #0f3460; }
+        th { background: #0f3460; color: #00d9ff; }
+    </style>
+</head>
+<body>
+    <h1>🧪 اختبار ميزان المراجعة</h1>
+    
+    <div style="text-align: center;">
+        <button onclick="testStep1()">1️⃣ اختبار gl_entries</button>
+        <button onclick="testStep2()">2️⃣ اختبار gl_entry_lines</button>
+        <button onclick="testStep3()">3️⃣ اختبار trialBalanceService</button>
+        <button onclick="testAll()">🚀 اختبار شامل</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        const supabaseUrl = 'https://oobdeuhczdjmlfjkvdel.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYmRldWhjemRqbWxmamt2ZGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzEzNTE1NjcsImV4cCI6MjA0NjkyNzU2N30.RwrRxCPzqQJkjDz_Sk5gww_Kw1r2uAaKzw-I58MR3Ww';
+        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        function log(html) {
+            document.getElementById('results').innerHTML += html;
+        }
+
+        function clearLog() {
+            document.getElementById('results').innerHTML = '';
+        }
+
+        async function testStep1() {
+            clearLog();
+            log('<div class="test"><h2>1️⃣ اختبار gl_entries</h2>');
+            
+            try {
+                const { data, error } = await supabase
+                    .from('gl_entries')
+                    .select('*')
+                    .eq('status', 'POSTED');
+                
+                if (error) throw error;
+                
+                log(`<p class="success">✅ تم العثور على ${data?.length || 0} قيد مرحّل</p>`);
+                
+                if (data && data.length > 0) {
+                    log('<div class="data">');
+                    data.forEach(entry => {
+                        log(`<div>${entry.entry_number} - ${entry.entry_date} - المدين: ${entry.total_debit} | الدائن: ${entry.total_credit}</div>`);
+                    });
+                    log('</div>');
+                } else {
+                    log('<p class="error">⚠️ لا توجد قيود مرحّلة!</p>');
+                }
+            } catch (error) {
+                log(`<p class="error">❌ خطأ: ${error.message}</p>`);
+            }
+            
+            log('</div>');
+        }
+
+        async function testStep2() {
+            clearLog();
+            log('<div class="test"><h2>2️⃣ اختبار gl_entry_lines</h2>');
+            
+            try {
+                // First get posted entry IDs
+                const { data: entries, error: entriesError } = await supabase
+                    .from('gl_entries')
+                    .select('id')
+                    .eq('status', 'POSTED');
+                
+                if (entriesError) throw entriesError;
+                
+                if (!entries || entries.length === 0) {
+                    log('<p class="error">⚠️ لا توجد قيود مرحّلة!</p>');
+                    log('</div>');
+                    return;
+                }
+                
+                const entryIds = entries.map(e => e.id);
+                log(`<p>🔍 البحث عن سطور لـ ${entryIds.length} قيد...</p>`);
+                
+                const { data, error } = await supabase
+                    .from('gl_entry_lines')
+                    .select('*')
+                    .in('entry_id', entryIds);
+                
+                if (error) throw error;
+                
+                log(`<p class="success">✅ تم العثور على ${data?.length || 0} سطر</p>`);
+                
+                if (data && data.length > 0) {
+                    // Group by account
+                    const accounts = {};
+                    data.forEach(line => {
+                        if (!accounts[line.account_code]) {
+                            accounts[line.account_code] = {
+                                name: line.account_name,
+                                debit: 0,
+                                credit: 0
+                            };
+                        }
+                        accounts[line.account_code].debit += line.debit_amount || 0;
+                        accounts[line.account_code].credit += line.credit_amount || 0;
+                    });
+                    
+                    log('<table>');
+                    log('<tr><th>الحساب</th><th>المدين</th><th>الدائن</th></tr>');
+                    Object.keys(accounts).sort().forEach(code => {
+                        const acc = accounts[code];
+                        log(`<tr><td>${code} - ${acc.name}</td><td>${acc.debit.toFixed(2)}</td><td>${acc.credit.toFixed(2)}</td></tr>`);
+                    });
+                    log('</table>');
+                    
+                    const totalDebit = Object.values(accounts).reduce((sum, acc) => sum + acc.debit, 0);
+                    const totalCredit = Object.values(accounts).reduce((sum, acc) => sum + acc.credit, 0);
+                    log(`<p><strong>المجموع:</strong> المدين ${totalDebit.toFixed(2)} | الدائن ${totalCredit.toFixed(2)}</p>`);
+                    
+                    if (Math.abs(totalDebit - totalCredit) < 0.01) {
+                        log('<p class="success">✅ متوازن!</p>');
+                    } else {
+                        log('<p class="error">❌ غير متوازن!</p>');
+                    }
+                } else {
+                    log('<p class="error">⚠️ لا توجد سطور!</p>');
+                }
+            } catch (error) {
+                log(`<p class="error">❌ خطأ: ${error.message}</p>`);
+            }
+            
+            log('</div>');
+        }
+
+        async function testStep3() {
+            clearLog();
+            log('<div class="test"><h2>3️⃣ اختبار trialBalanceService (محاكاة)</h2>');
+            
+            try {
+                const fromDate = '2025-01-01';
+                const toDate = '2025-12-31';
+                
+                log(`<p>🔍 الفترة: من ${fromDate} إلى ${toDate}</p>`);
+                
+                // Get posted entries
+                let entriesQuery = supabase
+                    .from('gl_entries')
+                    .select('id, entry_date, status')
+                    .eq('status', 'POSTED')
+                    .gte('entry_date', fromDate)
+                    .lte('entry_date', toDate);
+                
+                const { data: entries, error: entriesError } = await entriesQuery;
+                
+                if (entriesError) throw entriesError;
+                
+                log(`<p class="success">✅ تم العثور على ${entries?.length || 0} قيد مرحّل</p>`);
+                
+                if (!entries || entries.length === 0) {
+                    log('<p class="error">⚠️ لا توجد قيود في هذه الفترة!</p>');
+                    log('</div>');
+                    return;
+                }
+                
+                const entryIds = entries.map(e => e.id);
+                
+                // Get lines
+                const { data: lines, error: linesError } = await supabase
+                    .from('gl_entry_lines')
+                    .select('*')
+                    .in('entry_id', entryIds);
+                
+                if (linesError) throw linesError;
+                
+                log(`<p class="success">✅ تم العثور على ${lines?.length || 0} سطر</p>`);
+                
+                if (!lines || lines.length === 0) {
+                    log('<p class="error">⚠️ لا توجد سطور!</p>');
+                    log('</div>');
+                    return;
+                }
+                
+                // Group by account
+                const accountTotals = new Map();
+                
+                lines.forEach(line => {
+                    if (!accountTotals.has(line.account_code)) {
+                        accountTotals.set(line.account_code, {
+                            debit: 0,
+                            credit: 0,
+                            name: line.account_name
+                        });
+                    }
+                    
+                    const account = accountTotals.get(line.account_code);
+                    account.debit += line.debit_amount || 0;
+                    account.credit += line.credit_amount || 0;
+                });
+                
+                const trialBalance = Array.from(accountTotals.entries())
+                    .map(([code, totals]) => ({
+                        account_code: code,
+                        account_name: totals.name,
+                        debit: totals.debit,
+                        credit: totals.credit
+                    }))
+                    .sort((a, b) => a.account_code.localeCompare(b.account_code));
+                
+                log(`<p class="success">✅ ميزان المراجعة جاهز: ${trialBalance.length} حساب</p>`);
+                
+                log('<table>');
+                log('<tr><th>الحساب</th><th>المدين</th><th>الدائن</th></tr>');
+                trialBalance.forEach(acc => {
+                    log(`<tr><td>${acc.account_code} - ${acc.account_name}</td><td>${acc.debit.toFixed(2)}</td><td>${acc.credit.toFixed(2)}</td></tr>`);
+                });
+                log('</table>');
+                
+                const totalDebit = trialBalance.reduce((sum, acc) => sum + acc.debit, 0);
+                const totalCredit = trialBalance.reduce((sum, acc) => sum + acc.credit, 0);
+                log(`<p><strong>المجموع:</strong> المدين ${totalDebit.toFixed(2)} | الدائن ${totalCredit.toFixed(2)}</p>`);
+                
+                if (Math.abs(totalDebit - totalCredit) < 0.01) {
+                    log('<p class="success">✅✅✅ متوازن تماماً!</p>');
+                } else {
+                    log(`<p class="error">❌ غير متوازن! الفرق: ${(totalDebit - totalCredit).toFixed(2)}</p>`);
+                }
+                
+            } catch (error) {
+                log(`<p class="error">❌ خطأ: ${error.message}</p>`);
+                console.error('Full error:', error);
+            }
+            
+            log('</div>');
+        }
+
+        async function testAll() {
+            await testStep1();
+            await new Promise(r => setTimeout(r, 500));
+            await testStep2();
+            await new Promise(r => setTimeout(r, 500));
+            await testStep3();
+        }
+
+        // Auto-run on load
+        window.addEventListener('load', () => {
+            setTimeout(testAll, 500);
+        });
+    </script>
+</body>
+</html>

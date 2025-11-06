@@ -5,9 +5,16 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { customersService, salesOrdersService } from '@/services/supabase-service'
+import { 
+  customersService, 
+  salesOrdersService,
+  newSalesInvoicesService,
+  deliveryNotesService
+} from '@/services/supabase-service'
 import { toast } from 'sonner'
 import type { Customer } from '@/lib/supabase'
+import { SalesInvoiceForm } from '@/components/forms/SalesInvoiceForm'
+import { DeliveryNoteForm } from '@/components/forms/DeliveryNoteForm'
 
 export function SalesModule() {
   return (
@@ -306,37 +313,48 @@ function SalesOrdersManagement() {
   const { t } = useTranslation()
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+
+  const loadOrders = async () => {
+    setLoading(true)
+    try {
+      // Try new system first
+      try {
+        const newData = await newSalesInvoicesService.getAll()
+        console.log('✅ Loaded from NEW sales system:', newData)
+        setOrders(newData || [])
+      } catch (newError) {
+        console.warn('New system unavailable, fallback to old:', newError)
+        const oldData = await salesOrdersService.getAll()
+        setOrders(oldData || [])
+      }
+    } catch (error: any) {
+      console.error('Error loading sales orders:', error)
+      toast.error(`خطأ في تحميل فواتير المبيعات: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        const data = await salesOrdersService.getAll()
-        setOrders(data || [])
-      } catch (error: any) {
-        console.error('Error loading sales orders:', error)
-        toast.error(`خطأ في تحميل فواتير المبيعات: ${error.message}`)
-      } finally {
-        setLoading(false)
-      }
-    }
     loadOrders()
   }, [])
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return <Badge variant="outline">مسودة</Badge>
-      case 'sent':
-        return <Badge variant="default">مرسلة</Badge>
-      case 'paid':
-        return <Badge variant="secondary">مدفوعة</Badge>
-      case 'overdue':
-        return <Badge variant="destructive">متأخرة</Badge>
-      case 'cancelled':
-        return <Badge variant="destructive">ملغاة</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      'DRAFT': { label: 'مسودة', variant: 'outline' },
+      'CONFIRMED': { label: 'مؤكدة', variant: 'default' },
+      'DELIVERED': { label: 'مسلمة', variant: 'secondary' },
+      'PAID': { label: 'مدفوعة', variant: 'secondary' },
+      'CANCELLED': { label: 'ملغاة', variant: 'destructive' },
+      'draft': { label: 'مسودة', variant: 'outline' },
+      'sent': { label: 'مرسلة', variant: 'default' },
+      'paid': { label: 'مدفوعة', variant: 'secondary' },
+      'overdue': { label: 'متأخرة', variant: 'destructive' },
+      'cancelled': { label: 'ملغاة', variant: 'destructive' }
     }
+    const config = statusMap[status] || { label: status, variant: 'outline' as const }
+    return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
   if (loading) {
@@ -352,38 +370,81 @@ function SalesOrdersManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t('sales.invoices')}</h1>
-        <p className="text-muted-foreground">فواتير المبيعات</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">{t('sales.invoices')}</h1>
+          <p className="text-muted-foreground">فواتير المبيعات</p>
+        </div>
+        <Button onClick={() => setShowAddForm(true)}>
+          + إضافة فاتورة مبيعات
+        </Button>
       </div>
 
+      <SalesInvoiceForm
+        open={showAddForm}
+        onOpenChange={setShowAddForm}
+        onSuccess={() => {
+          loadOrders()
+        }}
+      />
+
       <div className="bg-card rounded-lg border">
-        <div className="p-4 border-b">
+        <div className="p-4 border-b flex justify-between items-center">
           <h3 className="font-semibold">قائمة فواتير المبيعات ({orders.length})</h3>
+          {orders.length === 0 && <Badge variant="outline">لا توجد بيانات</Badge>}
         </div>
         <div className="divide-y">
-          {orders.map((order) => (
-            <div key={order.id} className="p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-medium">{order.invoice_number}</h4>
-                  <p className="text-sm text-muted-foreground">{order.customer?.name}</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    تاريخ الفاتورة: {new Date(order.invoice_date).toLocaleDateString('ar-SA')}
-                  </p>
-                </div>
-                <div className="text-right">
-                  {getStatusBadge(order.status)}
-                  <div className="font-medium mt-1">{order.total_amount.toFixed(2)} ريال</div>
-                  {order.due_date && (
-                    <div className="text-sm text-muted-foreground">
-                      تاريخ الاستحقاق: {new Date(order.due_date).toLocaleDateString('ar-SA')}
+          {orders.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p>لا توجد فواتير مبيعات مسجلة</p>
+              <p className="text-sm mt-2">البيانات موجودة في قاعدة البيانات</p>
+            </div>
+          ) : (
+            orders.map((order) => (
+              <div key={order.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{order.invoice_number}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {order.customer?.name || 'عميل غير محدد'}
+                    </p>
+                    <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(order.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      {order.due_date && (
+                        <span>⏰ الاستحقاق: {new Date(order.due_date).toLocaleDateString('ar-SA')}</span>
+                      )}
                     </div>
-                  )}
+                    {order.sales_invoice_lines && order.sales_invoice_lines.length > 0 && (
+                      <div className="mt-3 text-sm">
+                        <p className="font-medium text-muted-foreground mb-1">المنتجات ({order.sales_invoice_lines.length}):</p>
+                        <div className="flex flex-wrap gap-2">
+                          {order.sales_invoice_lines.slice(0, 3).map((line: any) => (
+                            <Badge key={line.id} variant="outline" className="text-xs">
+                              {line.product?.product_name || line.product?.name} ({line.quantity} {line.unit})
+                            </Badge>
+                          ))}
+                          {order.sales_invoice_lines.length > 3 && (
+                            <Badge variant="outline" className="text-xs">+{order.sales_invoice_lines.length - 3} المزيد</Badge>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right ml-4">
+                    {getStatusBadge(order.status)}
+                    <div className="font-bold text-lg mt-2 text-primary">
+                      {(order.total_amount || 0).toFixed(2)} ريال
+                    </div>
+                    {order.vat_amount > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        شامل ضريبة: {order.vat_amount.toFixed(2)} ريال
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -396,6 +457,7 @@ function DeliveryManagement() {
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false)
 
   useEffect(() => {
     // Simulate loading delivery data
@@ -471,6 +533,24 @@ function DeliveryManagement() {
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <div>
           <h1 className="text-2xl font-bold">{t('sales.delivery')}</h1>
+          <p className="text-muted-foreground">مذكرات التسليم</p>
+        </div>
+        <Button onClick={() => setShowDeliveryForm(true)}>
+          + إضافة مذكرة تسليم
+        </Button>
+      </div>
+      
+      <DeliveryNoteForm 
+        open={showDeliveryForm}
+        onOpenChange={setShowDeliveryForm}
+        onSuccess={async () => {
+          toast.success('تم إنشاء مذكرة التسليم بنجاح')
+          // Reload deliveries if needed
+        }}
+      />
+      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
+        <div>
+          <h1 className="text-2xl font-bold hidden">{t('sales.delivery')}</h1>
           <p className="text-muted-foreground">إدارة التسليم والتوزيع</p>
         </div>
         <Button>

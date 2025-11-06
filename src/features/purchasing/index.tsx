@@ -5,9 +5,19 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { suppliersService, purchaseOrdersService } from '@/services/supabase-service'
+import { 
+  suppliersService, 
+  purchaseOrdersService,
+  newPurchaseOrdersService,
+  vendorsService,
+  goodsReceiptsService
+} from '@/services/supabase-service'
+import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import type { Supplier, PurchaseOrder } from '@/lib/supabase'
+import { PurchaseOrderForm } from '@/components/forms/PurchaseOrderForm'
+import { GoodsReceiptForm } from '@/components/forms/GoodsReceiptForm'
+import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'
 
 export function PurchasingModule() {
   return (
@@ -304,37 +314,50 @@ function SuppliersManagement() {
 
 function PurchaseOrdersManagement() {
   const { t } = useTranslation()
-  const [orders, setOrders] = useState<PurchaseOrder[]>([])
+  const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [showGRForm, setShowGRForm] = useState(false)
+
+  const loadOrders = async () => {
+    setLoading(true)
+    try {
+      // Try new system first
+      try {
+        const newData = await newPurchaseOrdersService.getAll()
+        console.log('✅ Loaded from NEW system:', newData)
+        setOrders(newData || [])
+      } catch (newError) {
+        console.warn('New system unavailable, fallback to old:', newError)
+        const oldData = await purchaseOrdersService.getAll()
+        setOrders(oldData || [])
+      }
+    } catch (error) {
+      console.error('Error loading purchase orders:', error)
+      toast.error('خطأ في تحميل أوامر الشراء')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        const data = await purchaseOrdersService.getAll()
-        setOrders(data || [])
-      } catch (error) {
-        console.error('Error loading purchase orders:', error)
-        toast.error('خطأ في تحميل أوامر الشراء')
-      } finally {
-        setLoading(false)
-      }
-    }
     loadOrders()
   }, [])
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return <Badge variant="outline">مسودة</Badge>
-      case 'confirmed':
-        return <Badge variant="default">مؤكد</Badge>
-      case 'received':
-        return <Badge variant="secondary">مستلم</Badge>
-      case 'cancelled':
-        return <Badge variant="destructive">ملغى</Badge>
-      default:
-        return <Badge variant="outline">{status}</Badge>
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      'DRAFT': { label: 'مسودة', variant: 'outline' },
+      'CONFIRMED': { label: 'مؤكد', variant: 'default' },
+      'APPROVED': { label: 'معتمد', variant: 'default' },
+      'RECEIVED': { label: 'مستلم', variant: 'secondary' },
+      'CANCELLED': { label: 'ملغى', variant: 'destructive' },
+      'draft': { label: 'مسودة', variant: 'outline' },
+      'confirmed': { label: 'مؤكد', variant: 'default' },
+      'received': { label: 'مستلم', variant: 'secondary' },
+      'cancelled': { label: 'ملغى', variant: 'destructive' }
     }
+    const config = statusMap[status] || { label: status, variant: 'outline' as const }
+    return <Badge variant={config.variant}>{config.label}</Badge>
   }
 
   if (loading) {
@@ -350,38 +373,81 @@ function PurchaseOrdersManagement() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">{t('purchasing.purchaseOrders')}</h1>
-        <p className="text-muted-foreground">أوامر الشراء</p>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">{t('purchasing.purchaseOrders')}</h1>
+          <p className="text-muted-foreground">أوامر الشراء</p>
+        </div>
+        <Button onClick={() => setShowAddForm(true)}>
+          + إضافة أمر شراء
+        </Button>
       </div>
 
+      <PurchaseOrderForm
+        open={showAddForm}
+        onOpenChange={setShowAddForm}
+        onSuccess={() => {
+          loadOrders()
+        }}
+      />
+
       <div className="bg-card rounded-lg border">
-        <div className="p-4 border-b">
+        <div className="p-4 border-b flex justify-between items-center">
           <h3 className="font-semibold">قائمة أوامر الشراء ({orders.length})</h3>
+          {orders.length === 0 && <Badge variant="outline">لا توجد بيانات</Badge>}
         </div>
         <div className="divide-y">
-          {orders.map((order) => (
-            <div key={order.id} className="p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-medium">{order.order_number}</h4>
-                  <p className="text-sm text-muted-foreground">{order.supplier?.name}</p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    تاريخ الطلب: {new Date(order.order_date).toLocaleDateString('ar-SA')}
-                  </p>
-                </div>
-                <div className="text-right">
-                  {getStatusBadge(order.status)}
-                  <div className="font-medium mt-1">{order.total_amount.toFixed(2)} ريال</div>
-                  {order.delivery_date && (
-                    <div className="text-sm text-muted-foreground">
-                      تاريخ التسليم: {new Date(order.delivery_date).toLocaleDateString('ar-SA')}
+          {orders.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p>لا توجد أوامر شراء مسجلة</p>
+              <p className="text-sm mt-2">البيانات موجودة في قاعدة البيانات</p>
+            </div>
+          ) : (
+            orders.map((order) => (
+              <div key={order.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{order.order_number}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {order.vendor?.name || order.supplier?.name || 'مورد غير محدد'}
+                    </p>
+                    <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(order.order_date).toLocaleDateString('ar-SA')}</span>
+                      {(order.expected_delivery || order.delivery_date) && (
+                        <span>🚚 التسليم: {new Date(order.expected_delivery || order.delivery_date).toLocaleDateString('ar-SA')}</span>
+                      )}
                     </div>
-                  )}
+                    {order.purchase_order_lines && order.purchase_order_lines.length > 0 && (
+                      <div className="mt-3 text-sm">
+                        <p className="font-medium text-muted-foreground mb-1">المنتجات ({order.purchase_order_lines.length}):</p>
+                        <div className="flex flex-wrap gap-2">
+                          {order.purchase_order_lines.slice(0, 3).map((line: any) => (
+                            <Badge key={line.id} variant="outline" className="text-xs">
+                              {line.product?.product_name || line.product?.name} ({line.quantity} {line.unit})
+                            </Badge>
+                          ))}
+                          {order.purchase_order_lines.length > 3 && (
+                            <Badge variant="outline" className="text-xs">+{order.purchase_order_lines.length - 3} المزيد</Badge>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right ml-4">
+                    {getStatusBadge(order.status)}
+                    <div className="font-bold text-lg mt-2 text-primary">
+                      {(order.total_amount || 0).toFixed(2)} ريال
+                    </div>
+                    {order.vat_amount > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        شامل ضريبة: {order.vat_amount.toFixed(2)} ريال
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -392,15 +458,30 @@ function PurchaseOrdersManagement() {
 function GoodsReceiptManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const [showGRForm, setShowGRForm] = useState(false)
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">استلام البضائع</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة عمليات استلام البضائع من الموردين
-        </p>
+      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
+        <div className={cn(isRTL ? "text-right" : "text-left")}>
+          <h1 className="text-3xl font-bold">استلام البضائع</h1>
+          <p className="text-muted-foreground mt-2">
+            إدارة عمليات استلام البضائع من الموردين
+          </p>
+        </div>
+        <Button onClick={() => setShowGRForm(true)}>
+          + إضافة استلام
+        </Button>
       </div>
+      
+      <GoodsReceiptForm 
+        open={showGRForm}
+        onOpenChange={setShowGRForm}
+        onSuccess={async () => {
+          toast.success('تم إنشاء إشعار الاستلام بنجاح')
+          // Reload goods receipts if needed
+        }}
+      />
       <div className="bg-card rounded-lg border p-6">
         <p className={cn(
           "text-muted-foreground",
@@ -417,22 +498,123 @@ function GoodsReceiptManagement() {
 function SupplierInvoicesManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false)
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadInvoices()
+  }, [])
+
+  const loadInvoices = async () => {
+    setLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('supplier_invoices')
+        .select(`
+          *,
+          vendor:vendors(code, name),
+          purchase_order:purchase_orders(order_number)
+        `)
+        .order('invoice_date', { ascending: false })
+
+      if (error) throw error
+      setInvoices(data || [])
+    } catch (error) {
+      console.error('Error loading supplier invoices:', error)
+      toast.error('خطأ في تحميل فواتير المشتريات')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      'pending': { label: 'قيد الانتظار', variant: 'outline' },
+      'paid': { label: 'مدفوعة', variant: 'secondary' },
+      'partial': { label: 'دفعة جزئية', variant: 'default' },
+      'overdue': { label: 'متأخرة', variant: 'destructive' }
+    }
+    const config = statusMap[status] || { label: status, variant: 'outline' }
+    return <Badge variant={config.variant}>{config.label}</Badge>
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">فواتير الموردين</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة فواتير ومطالبات الموردين
-        </p>
+      <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
+        <div className={cn(isRTL ? "text-right" : "text-left")}>
+          <h1 className="text-3xl font-bold">فواتير المشتريات</h1>
+          <p className="text-muted-foreground mt-2">
+            إدارة فواتير الموردين وقيود اليومية
+          </p>
+        </div>
+        <Button onClick={() => setShowInvoiceForm(true)}>
+          + إضافة فاتورة مشتريات
+        </Button>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - فواتير ومطالبات الموردين
-        </p>
+
+      <SupplierInvoiceForm
+        open={showInvoiceForm}
+        onOpenChange={setShowInvoiceForm}
+        onSuccess={loadInvoices}
+      />
+
+      {/* Invoices List */}
+      <div className="bg-card rounded-lg border">
+        <div className="p-4 border-b">
+          <h3 className="font-semibold">فواتير المشتريات ({invoices.length})</h3>
+        </div>
+        <div className="divide-y">
+          {invoices.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              لا توجد فواتير مشتريات. اضغط على "+ إضافة فاتورة مشتريات" لإضافة فاتورة جديدة.
+            </div>
+          ) : (
+            invoices.map((invoice) => (
+              <div key={invoice.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{invoice.invoice_number}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {invoice.vendor?.name || 'مورد غير محدد'}
+                    </p>
+                    <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      {invoice.due_date && (
+                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('ar-SA')}</span>
+                      )}
+                      {invoice.purchase_order && (
+                        <span>📦 أمر الشراء: {invoice.purchase_order.order_number}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right ml-4">
+                    {getStatusBadge(invoice.status)}
+                    <div className="font-bold text-lg mt-2 text-primary">
+                      {invoice.total_amount.toFixed(2)} ريال
+                    </div>
+                    {invoice.tax_amount > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        شامل ضريبة: {invoice.tax_amount.toFixed(2)} ريال
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
