@@ -22,6 +22,7 @@ export interface Item {
   minimum_stock: number;
   unit: string;
   category?: Category;
+  valuation_method?: string; // 'Weighted Average' | 'FIFO' | 'LIFO' | 'Moving Average'
 }
 
 export interface Category {

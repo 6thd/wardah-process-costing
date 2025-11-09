@@ -1,10 +1,12 @@
 /**
  * خدمة المشتريات - Purchasing Service
- * تدير دورة المشتريات الكاملة مع تكامل AVCO والقيود المحاسبية
+ * تدير دورة المشتريات الكاملة مع تكامل Stock Ledger System والقيود المحاسبية
  */
 
 import { supabase } from '../lib/supabase';
 import { recordInventoryMovement } from '../domain/inventory';
+import { createStockLedgerEntry, getBin } from './stock-ledger-service';
+import { ValuationFactory, StockBatch } from './valuation';
 
 // ===== TYPES =====
 
@@ -38,6 +40,7 @@ export interface GoodsReceipt {
   purchase_order_id: string;
   vendor_id: string;
   receipt_date: string;
+  warehouse_id: string;  // ⭐ Required: Warehouse for stock movement
   warehouse_location?: string;
   receiver_name?: string;
   notes?: string;
@@ -45,6 +48,7 @@ export interface GoodsReceipt {
 
 export interface GoodsReceiptLine {
   product_id: string;
+  purchase_order_line_id?: string;  // ⭐ Link to PO line
   ordered_quantity: number;
   received_quantity: number;
   unit_cost: number;
@@ -200,21 +204,37 @@ export async function updatePurchaseOrderStatus(orderId: string, status: string)
 // ===== GOODS RECEIPT FUNCTIONS =====
 
 /**
- * استلام بضائع (مع تحديث AVCO للمخزون)
- * هذه الوظيفة حاسمة لأنها تحدث المتوسط المرجح للتكلفة
+ * استلام بضائع (مع Stock Ledger Entry System)
+ * هذه الوظيفة تنشئ:
+ * 1. Goods Receipt document
+ * 2. Stock Ledger Entries (SLE) for each line
+ * 3. Updates Bins automatically
+ * 4. Updates PO status
  */
 export async function receiveGoods(
   receipt: GoodsReceipt,
   lines: GoodsReceiptLine[]
 ) {
   try {
+    console.log('📦 Creating Goods Receipt with Stock Ledger Entries...');
+    
+    // ⚠️ Validate warehouse is provided
+    if (!receipt.warehouse_id) {
+      throw new Error('يجب تحديد المخزن (Warehouse) لإتمام الاستلام');
+    }
+
+    // TODO: Get org_id from auth context/session
+    const org_id = '00000000-0000-0000-0000-000000000001';
+
     // 1. إنشاء سند الاستلام
     const { data: grData, error: grError } = await supabase
       .from('goods_receipts')
       .insert({
+        org_id,  // ⭐ Required for RLS
         purchase_order_id: receipt.purchase_order_id,
         vendor_id: receipt.vendor_id,
         receipt_date: receipt.receipt_date,
+        warehouse_id: receipt.warehouse_id,  // ⭐ Required
         warehouse_location: receipt.warehouse_location,
         receiver_name: receipt.receiver_name,
         notes: receipt.notes,
@@ -224,14 +244,17 @@ export async function receiveGoods(
 
     if (grError) throw grError;
 
-    // 2. إنشاء سطور الاستلام وتحديث المخزون بـ AVCO
+    console.log('✅ Goods Receipt created:', grData.id);
+
+    // 2. إنشاء سطور الاستلام وStock Ledger Entries
     for (const line of lines) {
       // إدراج سطر الاستلام
       const { error: lineError } = await supabase
         .from('goods_receipt_lines')
         .insert({
+          org_id,  // ⭐ Required for RLS
           goods_receipt_id: grData.id,
-          purchase_order_line_id: line.product_id, // يجب تمرير purchase_order_line_id الفعلي
+          purchase_order_line_id: line.purchase_order_line_id,
           product_id: line.product_id,
           ordered_quantity: line.ordered_quantity,
           received_quantity: line.received_quantity,
@@ -242,29 +265,137 @@ export async function receiveGoods(
 
       if (lineError) throw lineError;
 
-      // تحديث المخزون باستخدام AVCO (فقط للكميات المقبولة)
+      // ⭐ إنشاء Stock Ledger Entry (فقط للكميات المقبولة)
       if (line.quality_status === 'accepted' && line.received_quantity > 0) {
-        const inventoryResult = await recordInventoryMovement({
-          itemId: line.product_id,
-          moveType: 'PURCHASE_IN',
-          qtyIn: line.received_quantity,
-          qtyOut: 0,
-          unitCost: line.unit_cost,
-          referenceType: 'GOODS_RECEIPT',
-          referenceId: grData.id,
-          notes: `استلام بضائع - ${grData.receipt_number || grData.id}`,
-        });
+        
+        // Get product to check valuation method
+        const { data: product, error: productError } = await supabase
+          .from('products')
+          .select('valuation_method')
+          .eq('id', line.product_id)
+          .single();
 
-        if (!inventoryResult.success) {
-          throw new Error(`فشل تحديث المخزون للمنتج ${line.product_id}: ${inventoryResult.error}`);
+        if (productError) {
+          console.warn(`⚠️ Could not fetch product valuation method, using Weighted Average:`, productError);
         }
 
-        console.log(`✅ تم تحديث AVCO للمنتج ${line.product_id}:`, inventoryResult.data);
+        const valuationMethod = product?.valuation_method || 'Weighted Average';
+        console.log(`🔧 Using valuation method: ${valuationMethod} for product ${line.product_id}`);
+
+        // Get current bin with stock queue
+        const binResult = await getBin(line.product_id, receipt.warehouse_id);
+        const currentBin = binResult.data || {
+          actual_qty: 0,
+          valuation_rate: 0,
+          stock_value: 0,
+          stock_queue: []
+        };
+
+        // Use valuation strategy
+        const strategy = ValuationFactory.getStrategy(valuationMethod);
+        
+        const prevQty = currentBin.actual_qty || 0;
+        const prevRate = currentBin.valuation_rate || 0;
+        const prevValue = currentBin.stock_value || 0;
+        const prevQueue: StockBatch[] = currentBin.stock_queue as StockBatch[] || [];
+        
+        const incomingQty = line.received_quantity;
+        const incomingRate = line.unit_cost;
+
+        // Calculate new valuation using strategy
+        const valuation = strategy.calculateIncomingRate(
+          prevQty,
+          prevRate,
+          prevValue,
+          prevQueue,
+          incomingQty,
+          incomingRate
+        );
+
+        // Create Stock Ledger Entry with updated queue
+        const sleResult = await createStockLedgerEntry({
+          org_id,  // ⭐ Required for RLS
+          voucher_type: 'Goods Receipt',
+          voucher_id: grData.id,
+          voucher_number: grData.receipt_number || grData.id,
+          product_id: line.product_id,
+          warehouse_id: receipt.warehouse_id,
+          posting_date: receipt.receipt_date,
+          actual_qty: incomingQty,  // +ve for incoming
+          qty_after_transaction: valuation.newQty,
+          incoming_rate: incomingRate,
+          valuation_rate: valuation.newRate,
+          stock_value: valuation.newValue,
+          stock_value_difference: incomingQty * incomingRate,
+          stock_queue: valuation.newQueue,  // ⭐ Store queue for FIFO/LIFO
+          docstatus: 1  // Submitted
+        });
+
+        if (!sleResult.success) {
+          throw new Error(`فشل إنشاء Stock Ledger Entry للمنتج ${line.product_id}: ${sleResult.error}`);
+        }
+
+        console.log(`✅ Stock Ledger Entry created for product ${line.product_id}`);
+
+        // Update or Create Bin with stock queue
+        const { error: binError } = await supabase
+          .from('bins')
+          .upsert({
+            org_id,  // ⭐ Required for RLS
+            product_id: line.product_id,
+            warehouse_id: receipt.warehouse_id,
+            actual_qty: valuation.newQty,
+            valuation_rate: valuation.newRate,
+            stock_value: valuation.newValue,
+            stock_queue: valuation.newQueue,  // ⭐ Store queue for FIFO/LIFO
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'product_id,warehouse_id'
+          });
+
+        if (binError) throw binError;
+
+        console.log(`✅ Bin updated for product ${line.product_id}`);
+
+        // ⚠️ Backward compatibility: Update old inventory system
+        try {
+          await recordInventoryMovement({
+            itemId: line.product_id,
+            moveType: 'PURCHASE_IN',
+            qtyIn: line.received_quantity,
+            qtyOut: 0,
+            unitCost: line.unit_cost,
+            referenceType: 'GOODS_RECEIPT',
+            referenceId: grData.id,
+            notes: `استلام بضائع - ${grData.receipt_number || grData.id}`,
+          });
+        } catch (oldSystemError) {
+          console.warn('⚠️ Old inventory system update failed (non-critical):', oldSystemError);
+        }
       }
     }
 
-    // 3. تحديث حالة أمر الشراء
-    // فحص إذا تم استلام كل الكميات
+    // 3. تحديث كميات الاستلام في PO Lines
+    for (const line of lines) {
+      if (line.purchase_order_line_id) {
+        // Get current received quantity
+        const { data: poLine } = await supabase
+          .from('purchase_order_lines')
+          .select('received_quantity')
+          .eq('id', line.purchase_order_line_id)
+          .single();
+
+        const currentReceived = poLine?.received_quantity || 0;
+        const newReceived = currentReceived + line.received_quantity;
+
+        await supabase
+          .from('purchase_order_lines')
+          .update({ received_quantity: newReceived })
+          .eq('id', line.purchase_order_line_id);
+      }
+    }
+
+    // 4. تحديث حالة أمر الشراء
     const { data: poLines } = await supabase
       .from('purchase_order_lines')
       .select('quantity, received_quantity')
@@ -287,9 +418,11 @@ export async function receiveGoods(
     const newStatus = allReceived ? 'fully_received' : (anyReceived ? 'partially_received' : 'approved');
     await updatePurchaseOrderStatus(receipt.purchase_order_id, newStatus);
 
+    console.log('🎉 Goods Receipt completed successfully with Stock Ledger Entries!');
+
     return { success: true, data: grData };
   } catch (error) {
-    console.error('Error receiving goods:', error);
+    console.error('💥 Error receiving goods:', error);
     return { success: false, error };
   }
 }

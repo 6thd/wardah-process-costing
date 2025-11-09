@@ -25,6 +25,7 @@ import { customersService } from '@/services/supabase-service'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { loadSellableProducts } from '@/lib/product-utils'
 
 interface SalesInvoiceLine {
   id?: string
@@ -83,13 +84,8 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
 
   const loadProducts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name')
-      
-      if (error) throw error
-      setProducts(data || [])
+      const filteredProducts = await loadSellableProducts()
+      setProducts(filteredProducts)
     } catch (error) {
       console.error('Error loading products:', error)
       toast.error('خطأ في تحميل المنتجات')

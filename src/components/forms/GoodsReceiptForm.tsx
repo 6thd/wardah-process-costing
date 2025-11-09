@@ -25,6 +25,9 @@ import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { WarehouseSelector } from '@/components/ui/warehouse-selector'
+import { StockBalanceInline } from '@/components/ui/stock-balance-badge'
+import { receiveGoods } from '@/services/purchasing-service'
 
 interface GoodsReceiptLine {
   po_line_id: string
@@ -48,6 +51,7 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
   const [loadingPOs, setLoadingPOs] = useState(false)
   const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
   const [selectedPO, setSelectedPO] = useState('')
+  const [warehouseId, setWarehouseId] = useState('')  // ⭐ New: Warehouse selection
   const [receiptDate, setReceiptDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<GoodsReceiptLine[]>([])
@@ -140,6 +144,12 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
       toast.error('الرجاء اختيار أمر الشراء')
       return
     }
+
+    // ⭐ Validate warehouse selection
+    if (!warehouseId) {
+      toast.error('الرجاء اختيار المخزن')
+      return
+    }
     
     const selectedLines = lines.filter(l => l.is_selected && getRemainingQuantity(l) > 0)
     
@@ -151,120 +161,59 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
     setLoading(true)
     
     try {
-      const orgId = '00000000-0000-0000-0000-000000000001' // TODO: Get from auth context
-      
-      // Generate GR number
-      const grNumber = `GR-${Date.now()}`
-      
-      // Create goods receipt
-      const { data: gr, error: grError } = await supabase
-        .from('goods_receipts')
-        .insert({
-          org_id: orgId,
-          gr_number: grNumber,
-          purchase_order_id: selectedPO,
-          receipt_date: format(receiptDate, 'yyyy-MM-dd'),
-          status: 'draft',
-          notes: notes || null
-        })
-        .select()
-        .single()
-      
-      if (grError) throw grError
-      
-      // Create receipt lines
-      const grLines = selectedLines.map(line => ({
-        org_id: orgId,
-        goods_receipt_id: gr.id,
-        po_line_id: line.po_line_id,
+      console.log('📦 Creating Goods Receipt with Stock Ledger System...')
+
+      // Get PO details for vendor_id
+      const po = purchaseOrders.find(p => p.id === selectedPO)
+      if (!po) {
+        throw new Error('Purchase Order not found')
+      }
+
+      // Prepare receipt data
+      const receipt = {
+        purchase_order_id: selectedPO,
+        vendor_id: po.vendor_id,
+        receipt_date: format(receiptDate, 'yyyy-MM-dd'),
+        warehouse_id: warehouseId,  // ⭐ Required for Stock Ledger
+        notes: notes || undefined
+      }
+
+      // Prepare lines data
+      const receiptLines = selectedLines.map(line => ({
         product_id: line.product_id,
-        quantity_received: getRemainingQuantity(line),
-        unit_cost: line.unit_cost
+        purchase_order_line_id: line.po_line_id,  // ⭐ Link to PO line
+        ordered_quantity: line.ordered_quantity,
+        received_quantity: getRemainingQuantity(line),
+        unit_cost: line.unit_cost,
+        quality_status: 'accepted' as const  // Default to accepted
       }))
-      
-      const { error: linesError } = await supabase
-        .from('goods_receipt_lines')
-        .insert(grLines)
-      
-      if (linesError) throw linesError
-      
-      // Update received quantities in PO lines
-      for (const line of selectedLines) {
-        const newReceivedQty = line.received_quantity + getRemainingQuantity(line)
-        
-        const { error: updateError } = await supabase
-          .from('purchase_order_lines')
-          .update({ 
-            received_quantity: newReceivedQty
-          })
-          .eq('id', line.po_line_id)
-        
-        if (updateError) throw updateError
+
+      // ⭐ Use the new receiveGoods function with Stock Ledger System
+      const result = await receiveGoods(receipt, receiptLines)
+
+      if (!result.success) {
+        throw result.error || new Error('Failed to create goods receipt')
       }
+
+      console.log('✅ Goods Receipt created successfully:', result.data)
+
+      toast.success('تم إنشاء سند الاستلام بنجاح')
       
-      // Check if all lines are fully received
-      const { data: allLines } = await supabase
-        .from('purchase_order_lines')
-        .select('quantity, received_quantity')
-        .eq('purchase_order_id', selectedPO)
+      // Reset form
+      setSelectedPO('')
+      setWarehouseId('')
+      setNotes('')
+      setLines([])
       
-      const fullyReceived = allLines?.every(l => 
-        (l.received_quantity || 0) >= l.quantity
-      )
-      
-      // Update PO status
-      const newStatus = fullyReceived ? 'fully_received' : 'partially_received'
-      await supabase
-        .from('purchase_orders')
-        .update({ status: newStatus })
-        .eq('id', selectedPO)
-      
-      // Update inventory using AVCO
-      for (const line of selectedLines) {
-        const qtyReceived = getRemainingQuantity(line)
-        
-        // Get current product data
-        const { data: product } = await supabase
-          .from('products')
-          .select('stock_quantity, cost_price')
-          .eq('id', line.product_id)
-          .single()
-        
-        if (product) {
-          const oldQty = product.stock_quantity || 0
-          const oldCost = product.cost_price || 0
-          const newQty = oldQty + qtyReceived
-          const totalValue = (oldQty * oldCost) + (qtyReceived * line.unit_cost)
-          const newAvgCost = newQty > 0 ? totalValue / newQty : line.unit_cost
-          
-          await supabase
-            .from('products')
-            .update({
-              stock_quantity: newQty,
-              cost_price: newAvgCost
-            })
-            .eq('id', line.product_id)
-        }
-      }
-      
-      toast.success(`تم إنشاء إشعار الاستلام ${grNumber} بنجاح`)
+      if (onSuccess) onSuccess()
       onOpenChange(false)
-      resetForm()
-      onSuccess?.()
       
     } catch (error: any) {
-      console.error('Error creating goods receipt:', error)
-      toast.error(`خطأ في إنشاء إشعار الاستلام: ${error.message}`)
+      console.error('❌ Error creating goods receipt:', error)
+      toast.error(`خطأ في إنشاء سند الاستلام: ${error.message}`)
     } finally {
       setLoading(false)
     }
-  }
-
-  const resetForm = () => {
-    setSelectedPO('')
-    setReceiptDate(new Date())
-    setNotes('')
-    setLines([])
   }
 
   const selectedPODetails = purchaseOrders.find(po => po.id === selectedPO)
@@ -322,6 +271,23 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
               {!loadingPOs && purchaseOrders.length > 0 && (
                 <p className="text-xs text-muted-foreground">
                   تم العثور على {purchaseOrders.length} {purchaseOrders.length === 1 ? 'أمر شراء' : 'أوامر شراء'}
+                </p>
+              )}
+            </div>
+
+            {/* ⭐ Warehouse Selector - Required for Stock Ledger System */}
+            <div className="space-y-2">
+              <WarehouseSelector 
+                value={warehouseId} 
+                onChange={setWarehouseId}
+                required
+                disabled={!selectedPO}
+                label="المخزن *"
+                showLabel={true}
+              />
+              {selectedPO && !warehouseId && (
+                <p className="text-xs text-red-600">
+                  يجب اختيار المخزن لإنشاء سند الاستلام
                 </p>
               )}
             </div>
@@ -437,6 +403,15 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                               <div>
                                 <p className="font-medium">{line.product_name}</p>
                                 <p className="text-sm text-muted-foreground">{line.product_code}</p>
+                                {/* ⭐ Show current stock balance if warehouse is selected */}
+                                {warehouseId && (
+                                  <div className="mt-1">
+                                    <StockBalanceInline 
+                                      productId={line.product_id} 
+                                      warehouseId={warehouseId}
+                                    />
+                                  </div>
+                                )}
                               </div>
                             </td>
                             <td className="p-2 text-right font-medium">

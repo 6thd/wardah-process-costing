@@ -13,6 +13,7 @@ import { Loader2, Package, Truck, Calendar, DollarSign, CalendarIcon } from 'luc
 import { Badge } from '@/components/ui/badge'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { loadPurchasableProducts } from '@/lib/product-utils'
 
 interface SupplierInvoiceFormProps {
   open: boolean
@@ -247,13 +248,8 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
   const loadProducts = async () => {
     setLoadingProducts(true)
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name')
-
-      if (error) throw error
-      setAvailableProducts(data || [])
+      const filteredProducts = await loadPurchasableProducts()
+      setAvailableProducts(filteredProducts)
     } catch (error) {
       console.error('Error loading products:', error)
       toast.error('خطأ في تحميل المنتجات')

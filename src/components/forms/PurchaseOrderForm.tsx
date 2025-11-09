@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,12 +19,38 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { Plus, Trash2, X, CalendarIcon } from 'lucide-react'
+import { 
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from '@/components/ui/command'
+import { Plus, Trash2, X, CalendarIcon, Check, ChevronsUpDown } from 'lucide-react'
 import { toast } from 'sonner'
 import { vendorsService } from '@/services/supabase-service'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
+import { loadRawMaterials } from '@/lib/product-utils'
+
+// Custom hook for debouncing search terms
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState<T>(value)
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedValue(value)
+    }, delay)
+
+    return () => {
+      clearTimeout(handler)
+    }
+  }, [value, delay])
+
+  return debouncedValue
+}
 
 interface PurchaseOrderLine {
   id?: string
@@ -53,6 +79,12 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
   const [orderDate, setOrderDate] = useState<Date>(new Date())
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<Date | undefined>(undefined)
   const [notes, setNotes] = useState('')
+  const [searchTerms, setSearchTerms] = useState<{ [key: number]: string }>({})
+  const debouncedSearchTerms = useDebouncedValue(searchTerms, 300)
+  const [openDropdowns, setOpenDropdowns] = useState<{ [key: number]: boolean }>({})
+  const inputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({})
+  const rowRefs = useRef<{ [key: number]: HTMLTableRowElement | null }>({})
+  const tableContainerRef = useRef<HTMLDivElement | null>(null)
   const [lines, setLines] = useState<PurchaseOrderLine[]>([
     {
       product_id: '',
@@ -71,6 +103,18 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
     }
   }, [open])
 
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.product-search-dropdown')) {
+        setOpenDropdowns({})
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
   const loadVendors = async () => {
     try {
       const data = await vendorsService.getAll()
@@ -83,13 +127,10 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
 
   const loadProducts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('name')
-      
-      if (error) throw error
-      setProducts(data || [])
+      // Load only Raw Materials for purchase orders
+      const rawMaterials = await loadRawMaterials()
+      console.log('✅ Loaded', rawMaterials.length, 'raw materials for purchase')
+      setProducts(rawMaterials)
     } catch (error) {
       console.error('Error loading products:', error)
       toast.error('خطأ في تحميل المنتجات')
@@ -368,7 +409,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
               </Button>
             </div>
 
-            <div className="border rounded-lg overflow-hidden">
+            <div className="border rounded-lg" ref={tableContainerRef}>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-muted">
@@ -383,24 +424,120 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line, index) => (
-                      <tr key={index} className="border-t">
-                        <td className="p-2">
-                          <Select
-                            value={line.product_id}
-                            onValueChange={(value) => updateLine(index, 'product_id', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue placeholder="اختر المنتج" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {products.map((product) => (
-                                <SelectItem key={product.id} value={product.id}>
-                                  {product.code} - {product.name}
-                                </SelectItem>
+                    {lines.map((line, index) => {
+                      const selectedProduct = products.find(p => p.id === line.product_id)
+                      const searchTerm = searchTerms[index] || ''
+                      const debouncedSearchTerm = debouncedSearchTerms[index] || ''
+                      const filteredProducts = products.filter(p => 
+                        p.code.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
+                        p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
+                      )
+                      
+                      return (
+                      <tr key={index} className="border-t" ref={(el) => rowRefs.current[index] = el}>
+                        <td className="p-2 relative">
+                          <div className="relative product-search-dropdown min-w-[300px]">
+                            <Input
+                              ref={(el) => inputRefs.current[index] = el}
+                              placeholder="🔍 ابحث بالكود أو الاسم..."
+                              value={searchTerm}
+                              onChange={(e) => {
+                                const newValue = e.target.value
+                                setSearchTerms({...searchTerms, [index]: newValue})
+                                console.log('🔍 Search:', newValue, 'Filtered:', filteredProducts.length)
+                                // Open only this dropdown, close others
+                                if (newValue.length > 0) {
+                                  setOpenDropdowns({ [index]: true })
+                                  console.log('📂 Dropdown opened for index:', index)
+                                } else {
+                                  setOpenDropdowns({})
+                                }
+                              }}
+                              onFocus={() => {
+                                // Open only this dropdown if there's text
+                                if (searchTerm.length > 0) {
+                                  setOpenDropdowns({ [index]: true })
+                                }
+                              }}
+                              onBlur={(e) => {
+                                // Check if focus moved to an element inside the dropdown
+                                const currentTarget = e.currentTarget
+                                // Delay to allow click events to fire on dropdown items
+                                setTimeout(() => {
+                                  // Only close if focus didn't move to a dropdown item
+                                  if (!currentTarget.contains(document.activeElement)) {
+                                    setOpenDropdowns(prev => {
+                                      const newState = { ...prev }
+                                      delete newState[index]
+                                      return newState
+                                    })
+                                  }
+                                }, 150)
+                              }}
+                              className="h-10 text-sm pr-10"
+                            />
+                            {selectedProduct && (
+                              <div className="absolute left-2 top-2 text-xs text-green-600 font-semibold">
+                                ✓ {selectedProduct.code}
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Dropdown Results - Positioned directly below the input */}
+                          {openDropdowns[index] && filteredProducts.length > 0 && (
+                            <div 
+                              style={{
+                                position: 'fixed',
+                                top: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().bottom : 0,
+                                left: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().left : 0,
+                                width: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().width : 300,
+                              }}
+                              className="z-[9999] bg-white dark:bg-slate-900 border-2 border-blue-500 rounded-md shadow-2xl max-h-60 overflow-auto"
+                            >
+                              <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-600 font-semibold border-b">
+                                {filteredProducts.length} نتيجة
+                              </div>
+                              {filteredProducts.slice(0, 20).map((product) => (
+                                <div
+                                  key={product.id}
+                                  className="px-3 py-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
+                                  onClick={() => {
+                                    console.log('✅ Product clicked:', product.name)
+                                    updateLine(index, 'product_id', product.id)
+                                    updateLine(index, 'product_code', product.code)
+                                    updateLine(index, 'product_name', product.name)
+                                    updateLine(index, 'unit_price', product.cost_price || 0)
+                                    setSearchTerms({...searchTerms, [index]: product.code + ' - ' + product.name})
+                                    setOpenDropdowns({})
+                                  }}
+                                >
+                                  <div className="flex flex-col">
+                                    <span className="font-semibold text-sm text-blue-600">{product.code}</span>
+                                    <span className="font-medium text-sm">{product.name}</span>
+                                    <span className="text-xs text-green-600 font-semibold mt-1">
+                                      💰 {product.cost_price?.toFixed(2) || 0} ر.س
+                                    </span>
+                                  </div>
+                                </div>
                               ))}
-                            </SelectContent>
-                          </Select>
+                            </div>
+                          )}
+                          
+                          {/* No results message */}
+                          {openDropdowns[index] && debouncedSearchTerm.length > 0 && filteredProducts.length === 0 && (
+                            <div 
+                              style={{
+                                position: 'fixed',
+                                top: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().bottom : 0,
+                                left: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().left : 0,
+                                width: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().width : 300,
+                              }}
+                              className="z-[9999] bg-white dark:bg-slate-900 border-2 border-red-500 rounded-md shadow-2xl p-4 text-center"
+                            >
+                              <div className="text-red-600 font-semibold">❌ لا توجد نتائج</div>
+                              <div className="text-sm text-muted-foreground mt-1">للبحث: "{debouncedSearchTerm}"</div>
+                            </div>
+                          )}
                         </td>
                         <td className="p-2">
                           <Input
@@ -455,7 +592,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
                           )}
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               </div>

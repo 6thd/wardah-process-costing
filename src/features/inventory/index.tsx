@@ -152,7 +152,7 @@ function ItemsManagement() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
-  const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number }>({
+  const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number; valuation_method?: string }>({
     name: '',
     name_ar: '',
     code: '',
@@ -164,6 +164,7 @@ function ItemsManagement() {
     minimum_stock: 0,
     description: '',
     price: 0,
+    valuation_method: 'Weighted Average', // Default valuation method
   })
 
   useEffect(() => {
@@ -260,6 +261,7 @@ function ItemsManagement() {
         minimum_stock: 0,
         description: '',
         price: 0,
+        valuation_method: 'Weighted Average',
       })
       loadData()
     } catch (error) {
@@ -505,6 +507,19 @@ function ItemsManagement() {
                 onChange={(e) => setNewItem({...newItem, minimum_stock: parseInt(e.target.value) || 0})}
               />
             </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">طريقة التقييم</label>
+              <select
+                value={newItem.valuation_method || 'Weighted Average'}
+                onChange={(e) => setNewItem({...newItem, valuation_method: e.target.value})}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background"
+              >
+                <option value="Weighted Average">المتوسط المرجح (Weighted Average)</option>
+                <option value="FIFO">الوارد أولاً صادر أولاً (FIFO)</option>
+                <option value="LIFO">الوارد أخيراً صادر أولاً (LIFO)</option>
+                <option value="Moving Average">المتوسط المتحرك (Moving Average)</option>
+              </select>
+            </div>
           </div>
           <div className="flex gap-2 mt-4">
             <Button onClick={handleAddItem} disabled={!newItem.name || !newItem.code}>
@@ -581,6 +596,7 @@ function ItemsManagement() {
                   <th className="text-right p-3 font-semibold">الكود</th>
                   <th className="text-right p-3 font-semibold">اسم الصنف</th>
                   <th className="text-right p-3 font-semibold">الفئة</th>
+                  <th className="text-right p-3 font-semibold">طريقة التقييم</th>
                   <th className="text-center p-3 font-semibold">الكمية</th>
                   <th className="text-center p-3 font-semibold">الوحدة</th>
                   <th className="text-right p-3 font-semibold">التكلفة</th>
@@ -593,6 +609,15 @@ function ItemsManagement() {
                   const isLowStock = item.stock_quantity <= item.minimum_stock && item.stock_quantity > 0
                   const isOutOfStock = item.stock_quantity === 0
                   const category = categories.find(c => c.id === item.category_id)
+                  
+                  // Get Arabic name for valuation method
+                  const valuationMethodMap: Record<string, string> = {
+                    'Weighted Average': 'المتوسط المرجح',
+                    'FIFO': 'الوارد أولاً صادر أولاً',
+                    'LIFO': 'الوارد أخيراً صادر أولاً',
+                    'Moving Average': 'المتوسط المتحرك'
+                  }
+                  const valuationMethodAr = valuationMethodMap[(item as any).valuation_method] || 'غير محدد'
                   
                   return (
                     <tr key={item.id} className="hover:bg-muted/30 transition-colors">
@@ -617,6 +642,14 @@ function ItemsManagement() {
                             {category.name_ar || category.name}
                           </Badge>
                         )}
+                      </td>
+                      <td className="p-3">
+                        <Badge 
+                          variant="secondary" 
+                          className="text-xs whitespace-nowrap"
+                        >
+                          {valuationMethodAr}
+                        </Badge>
                       </td>
                       <td className="p-3 text-center">
                         <span className={cn(

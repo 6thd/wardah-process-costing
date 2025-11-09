@@ -1,0 +1,43 @@
+/* Custom calendar styles for RTL Arabic */
+.rdp {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-background-color: hsl(var(--accent));
+}
+
+.rdp-root {
+  direction: rtl;
+}
+
+.rdp-month_caption {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 0.5rem;
+}
+
+/* Force weekdays header to show */
+.rdp-weekdays {
+  display: table-header-group !important;
+  visibility: visible !important;
+}
+
+.rdp-weekday {
+  display: table-cell !important;
+  visibility: visible !important;
+  text-align: center;
+  font-weight: bold;
+  font-size: 0.875rem;
+  color: hsl(var(--muted-foreground));
+  padding: 0.5rem;
+  height: 2.25rem;
+  width: 2.25rem;
+}
+
+.rdp-week {
+  display: table-row;
+}
+
+.rdp-day {
+  text-align: center;
+  height: 2.25rem;
+  width: 2.25rem;
+}

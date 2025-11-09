@@ -60,6 +60,7 @@ async function testPurchasingCycle() {
     {
       purchase_order_id: poResult.data.id,
       vendor_id: 'test-vendor-id',
+      warehouse_id: 'test-warehouse-id',
       receipt_date: '2025-11-06',
       warehouse_location: 'المستودع الرئيسي',
       receiver_name: 'أحمد محمد',
@@ -288,11 +289,13 @@ console.log(`
 1. ✅ تأكد من تنفيذ create-procurement-sales-tables.sql في Supabase
 2. ✅ أنشئ بيانات اختبارية:
    - مورد (vendor)
-   - عميل (customer)  
+   - عميل (customer)
    - منتج (product) بكمية مبدئية ومتوسط تكلفة
+   - مستودع (warehouse)
 3. ✅ استبدل المعرفات التجريبية بمعرفات حقيقية:
    - test-vendor-id
    - test-customer-id
+   - test-warehouse-id
    - product-001
 4. ✅ تأكد من وجود جدول gl_entries
 5. ✅ تأكد من وجود الحسابات في gl_accounts:
