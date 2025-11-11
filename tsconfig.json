@@ -24,5 +24,16 @@
     "types": []
   },
   "include": ["src"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    "src/features/inventory/components",
+    "src/features/testing",
+    "src/services/warehouse-service.ts",
+    "src/services/stock-adjustment-service.ts",
+    "src/domain/inventory-valuation-integration.js",
+    "src/utils"
+  ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
