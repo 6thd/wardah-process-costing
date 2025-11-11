@@ -1,0 +1,2 @@
+This component has been disabled because it depends on inventory-valuation-integration which is not implemented.
+Original file: BatchDetails.tsx
