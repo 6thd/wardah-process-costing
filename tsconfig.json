@@ -27,12 +27,13 @@
     "node_modules",
     "dist",
     "build",
-    "src/features/inventory/components",
-    "src/features/testing",
+    "src/features/inventory/components/**/*",
+    "src/features/testing/**/*",
     "src/services/warehouse-service.ts",
     "src/services/stock-adjustment-service.ts",
-    "src/domain/inventory-valuation-integration.js",
-    "src/utils"
+    "src/services/valuation/**/*",
+    "src/domain/**/*",
+    "src/utils/**/*"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
