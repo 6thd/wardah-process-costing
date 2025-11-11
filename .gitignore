@@ -27,6 +27,14 @@ keys/
 debug-*.js
 debug-*.ts
 
+# Scripts with sensitive data
+check_db_simple.cjs
+setup-supplier-invoices.cjs
+check-*.cjs
+add-*.cjs
+apply-*.cjs
+claude_desktop_config*.json
+
 # IDE
 .vscode/
 .idea/
