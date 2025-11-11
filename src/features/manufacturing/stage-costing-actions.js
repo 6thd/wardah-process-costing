@@ -6,10 +6,22 @@
 import uiEvents from '../../ui/events.js'
 import { toast } from 'sonner'
 
-// Import domain modules
-const ProcessCosting = await import('../../domain/processCosting.js')
-const Manufacturing = await import('../../domain/manufacturing.js')
-const Audit = await import('../../domain/audit.js')
+// Import domain modules - DISABLED (not implemented)
+// const ProcessCosting = await import('../../domain/processCosting.js')
+// const Manufacturing = await import('../../domain/manufacturing.js')
+// const Audit = await import('../../domain/audit.js')
+
+// Temporary stubs
+const ProcessCosting = {
+  calculateStageCosts: async () => ({ success: true, data: [] }),
+  getStageCosts: async () => ({ success: true, data: [] })
+}
+const Manufacturing = {
+  getManufacturingOrder: async () => ({ success: true, data: null })
+}
+const Audit = {
+  logAction: async () => ({ success: true })
+}
 
 /**
  * Register all stage costing actions

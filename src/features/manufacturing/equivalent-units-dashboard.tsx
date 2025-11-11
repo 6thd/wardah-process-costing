@@ -23,8 +23,20 @@ import {
   Calculator
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
-// Fixed import paths
-import { equivalentUnitsService } from '../../domain/manufacturing/equivalentUnits'
+// Fixed import paths - DISABLED (domain not implemented)
+// import { equivalentUnitsService } from '../../domain/manufacturing/equivalentUnits'
+
+// Temporary stub for equivalentUnitsService
+const equivalentUnitsService = {
+  getEquivalentUnits: async (...args: any[]) => ({ success: true, data: [] }),
+  calculateCostPerUnit: async (...args: any[]) => ({ success: true, data: [] }),
+  getProcessCostSummary: async (...args: any[]) => ({ success: true, data: null }),
+  getVarianceAlerts: async (...args: any[]) => [],
+  getLatestEquivalentUnits: async (...args: any[]) => [],
+  calculateCostPerEquivalentUnit: async (...args: any[]) => [],
+  calculateEquivalentUnits: async (...args: any[]) => ({ success: true, data: [] }),
+  performVarianceAnalysis: async (...args: any[]) => ({ success: true, data: [] })
+}
 
 // Types
 
