@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -19,38 +20,30 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { 
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command'
-import { Plus, Trash2, X, CalendarIcon, Check, ChevronsUpDown } from 'lucide-react'
+import { Plus, Trash2, CalendarIcon, X, Search, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { vendorsService } from '@/services/supabase-service'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
-import { loadRawMaterials } from '@/lib/product-utils'
+import { loadRawMaterials, loadPurchasableProducts } from '@/lib/product-utils'
+import { useKeyboardNav } from '@/utils/keyboardNav'
+import { parseClipboardTable } from '@/utils/parseClipboard'
 
-// Custom hook for debouncing search terms
-function useDebouncedValue<T>(value: T, delay: number): T {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value)
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value)
-    }, delay)
-
-    return () => {
-      clearTimeout(handler)
-    }
-  }, [value, delay])
-
-  return debouncedValue
+interface Product {
+  id: string
+  code: string
+  name?: string | null
+  name_ar?: string | null
+  name_en?: string | null
+  cost_price?: number | null
 }
+
+const getProductDisplayName = (product: Product) =>
+  (product.name_ar && product.name_ar.trim()) ||
+  (product.name && product.name.trim()) ||
+  (product.name_en && product.name_en.trim()) ||
+  product.code
 
 interface PurchaseOrderLine {
   id?: string
@@ -71,234 +64,654 @@ interface PurchaseOrderFormProps {
   onSuccess?: () => void
 }
 
-export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrderFormProps) {
-  const [loading, setLoading] = useState(false)
-  const [vendors, setVendors] = useState<any[]>([])
-  const [products, setProducts] = useState<any[]>([])
-  const [selectedVendor, setSelectedVendor] = useState('')
-  const [orderDate, setOrderDate] = useState<Date>(new Date())
-  const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<Date | undefined>(undefined)
-  const [notes, setNotes] = useState('')
-  const [searchTerms, setSearchTerms] = useState<{ [key: number]: string }>({})
-  const debouncedSearchTerms = useDebouncedValue(searchTerms, 300)
-  const [openDropdowns, setOpenDropdowns] = useState<{ [key: number]: boolean }>({})
-  const inputRefs = useRef<{ [key: number]: HTMLInputElement | null }>({})
-  const rowRefs = useRef<{ [key: number]: HTMLTableRowElement | null }>({})
-  const tableContainerRef = useRef<HTMLDivElement | null>(null)
-  const [lines, setLines] = useState<PurchaseOrderLine[]>([
-    {
-      product_id: '',
-      quantity: 1,
-      unit_price: 0,
-      discount_percentage: 0,
-      tax_percentage: 15,
-      line_total: 0
-    }
-  ])
+const recalcLineTotals = (line: PurchaseOrderLine): PurchaseOrderLine => {
+  const quantity = Number.isFinite(line.quantity) ? line.quantity : 0
+  const price = Number.isFinite(line.unit_price) ? line.unit_price : 0
+  const discountPct = Number.isFinite(line.discount_percentage) ? line.discount_percentage : 0
+  const taxPct = Number.isFinite(line.tax_percentage) ? line.tax_percentage : 0
 
-  useEffect(() => {
-    if (open) {
-      loadVendors()
-      loadProducts()
-    }
-  }, [open])
+  const subtotal = quantity * price
+  const discount = subtotal * (discountPct / 100)
+  const afterDiscount = subtotal - discount
+  const tax = afterDiscount * (taxPct / 100)
 
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (!target.closest('.product-search-dropdown')) {
-        setOpenDropdowns({})
+  return {
+    ...line,
+    line_total: afterDiscount + tax,
+  }
+}
+
+const createEmptyLine = (): PurchaseOrderLine =>
+  recalcLineTotals({
+    product_id: '',
+    product_code: '',
+    product_name: '',
+    quantity: 1,
+    unit_price: 0,
+    discount_percentage: 0,
+    tax_percentage: 15,
+    line_total: 0,
+  })
+
+const calculateTotals = (lines: PurchaseOrderLine[]) => {
+  const subtotal = lines.reduce((sum, line) => {
+    const base = line.quantity * line.unit_price
+    const discount = base * (line.discount_percentage / 100)
+    return sum + (base - discount)
+  }, 0)
+
+  const discountAmount = lines.reduce((sum, line) => {
+    const base = line.quantity * line.unit_price
+    return sum + base * (line.discount_percentage / 100)
+  }, 0)
+
+  const taxAmount = lines.reduce((sum, line) => {
+    const base = line.quantity * line.unit_price
+    const discount = base * (line.discount_percentage / 100)
+    const net = base - discount
+    return sum + net * (line.tax_percentage / 100)
+  }, 0)
+
+  return {
+    subtotal,
+    discountAmount,
+    taxAmount,
+    total: subtotal + taxAmount,
+  }
+}
+
+  interface InlineProductSearchProps {
+    products: Product[]
+    term: string
+    selectedProduct?: Product
+    onTermChange: (term: string) => void
+    onSelect: (product: Product) => void
+    onClear: () => void
+  }
+
+  function InlineProductSearch({
+    products,
+    term,
+    selectedProduct,
+    onTermChange,
+    onSelect,
+    onClear,
+  }: InlineProductSearchProps) {
+    const [open, setOpen] = useState(false)
+    const [highlighted, setHighlighted] = useState(0)
+    const [searchTerm, setSearchTerm] = useState(term)
+    const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 })
+    const containerRef = useRef<HTMLDivElement | null>(null)
+    const inputRef = useRef<HTMLInputElement | null>(null)
+
+    // Sync searchTerm with term prop when product is selected
+    useEffect(() => {
+      if (selectedProduct) {
+        setSearchTerm(term)
       }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
+    }, [term, selectedProduct])
 
-  const loadVendors = async () => {
-    try {
-      const data = await vendorsService.getAll()
-      setVendors(data || [])
-    } catch (error) {
-      console.error('Error loading vendors:', error)
-      toast.error('خطأ في تحميل الموردين')
-    }
-  }
-
-  const loadProducts = async () => {
-    try {
-      // Load only Raw Materials for purchase orders
-      const rawMaterials = await loadRawMaterials()
-      console.log('✅ Loaded', rawMaterials.length, 'raw materials for purchase')
-      setProducts(rawMaterials)
-    } catch (error) {
-      console.error('Error loading products:', error)
-      toast.error('خطأ في تحميل المنتجات')
-    }
-  }
-
-  const addLine = () => {
-    setLines([...lines, {
-      product_id: '',
-      quantity: 1,
-      unit_price: 0,
-      discount_percentage: 0,
-      tax_percentage: 15,
-      line_total: 0
-    }])
-  }
-
-  const removeLine = (index: number) => {
-    if (lines.length > 1) {
-      setLines(lines.filter((_, i) => i !== index))
-    }
-  }
-
-  const updateLine = (index: number, field: keyof PurchaseOrderLine, value: any) => {
-    const newLines = [...lines]
-    newLines[index] = { ...newLines[index], [field]: value }
-    
-    // Auto-fill product details
-    if (field === 'product_id' && value) {
-      const product = products.find(p => p.id === value)
-      if (product) {
-        newLines[index].product_code = product.code
-        newLines[index].product_name = product.name
-        newLines[index].unit_price = product.cost_price || 0
+    useEffect(() => {
+      const handleClickOutside = (event: MouseEvent) => {
+        if (!containerRef.current) return
+        if (containerRef.current.contains(event.target as Node)) return
+        setOpen(false)
       }
-    }
-    
-    // Calculate line total
-    const line = newLines[index]
-    const subtotal = line.quantity * line.unit_price
-    const discount = subtotal * (line.discount_percentage / 100)
-    const afterDiscount = subtotal - discount
-    const tax = afterDiscount * (line.tax_percentage / 100)
-    newLines[index].line_total = afterDiscount + tax
-    
-    setLines(newLines)
-  }
 
-  const calculateTotals = () => {
-    const subtotal = lines.reduce((sum, line) => {
-      const lineSubtotal = line.quantity * line.unit_price
-      const discount = lineSubtotal * (line.discount_percentage / 100)
-      return sum + (lineSubtotal - discount)
-    }, 0)
-    
-    const discountAmount = lines.reduce((sum, line) => {
-      const lineSubtotal = line.quantity * line.unit_price
-      return sum + (lineSubtotal * (line.discount_percentage / 100))
-    }, 0)
-    
-    const taxAmount = lines.reduce((sum, line) => {
-      const lineSubtotal = line.quantity * line.unit_price
-      const discount = lineSubtotal * (line.discount_percentage / 100)
-      const afterDiscount = lineSubtotal - discount
-      return sum + (afterDiscount * (line.tax_percentage / 100))
-    }, 0)
-    
-    const total = subtotal + taxAmount
-    
-    return { subtotal, discountAmount, taxAmount, total }
-  }
+      if (open && products.length > 0) {
+        console.log('🔓 Dropdown opened with', products.length, 'products available')
+      }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!selectedVendor) {
-      toast.error('الرجاء اختيار المورد')
-      return
-    }
-    
-    if (lines.length === 0 || !lines[0].product_id) {
-      toast.error('الرجاء إضافة منتج واحد على الأقل')
-      return
-    }
-    
-    setLoading(true)
-    
-    try {
-      const { subtotal, discountAmount, taxAmount, total } = calculateTotals()
-      const orgId = '00000000-0000-0000-0000-000000000001' // TODO: Get from auth context
-      
-      // Generate order number
-      const orderNumber = `PO-${Date.now()}`
-      
-      // Create purchase order
-      const { data: order, error: orderError } = await supabase
-        .from('purchase_orders')
-        .insert({
-          org_id: orgId,
-          order_number: orderNumber,
-          vendor_id: selectedVendor,
-          order_date: format(orderDate, 'yyyy-MM-dd'),
-          expected_delivery_date: expectedDeliveryDate ? format(expectedDeliveryDate, 'yyyy-MM-dd') : null,
-          status: 'draft',
-          subtotal: subtotal,
-          discount_amount: discountAmount,
-          tax_amount: taxAmount,
-          total_amount: total,
-          notes: notes || null
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }, [open, products.length])
+
+    const filtered = useMemo(() => {
+      const trimmed = searchTerm.trim()
+      if (!trimmed) {
+        console.log('🔍 No search term, showing first 20 products of', products.length)
+        return products.slice(0, 20)
+      }
+
+      const tokens = trimmed
+        .toLowerCase()
+        .replace(/[-–—]+/g, ' ')
+        .split(/\s+/)
+        .filter((token) => token && token !== '-')
+
+      if (tokens.length === 0) {
+        return products.slice(0, 20)
+      }
+
+      console.log('🔍 Search tokens:', tokens, 'from', products.length, 'products')
+
+      const results = products
+        .filter((product) => {
+          const normalizedFields = [
+            product.code,
+            product.name,
+            product.name_ar,
+            product.name_en,
+          ]
+            .map((value) => (typeof value === 'string' ? value : ''))
+            .map((value) => value.trim().toLowerCase())
+            .filter((value) => value.length > 0)
+
+          if (normalizedFields.length === 0) {
+            return false
+          }
+
+          const matches = tokens.every((token) =>
+            normalizedFields.some((field) => field.includes(token)),
+          )
+
+          return matches
         })
-        .select()
-        .single()
-      
-      if (orderError) throw orderError
-      
-      // Create order lines
-      const orderLines = lines.map((line, index) => ({
-        org_id: orgId,
-        purchase_order_id: order.id,
-        line_number: index + 1,
-        product_id: line.product_id,
-        description: line.description || null,
-        quantity: line.quantity,
-        unit_price: line.unit_price,
-        discount_percentage: line.discount_percentage,
-        tax_percentage: line.tax_percentage
-        // line_total is a generated column - don't include it
-      }))
-      
-      const { error: linesError } = await supabase
-        .from('purchase_order_lines')
-        .insert(orderLines)
-      
-      if (linesError) throw linesError
-      
-      toast.success(`تم إنشاء أمر الشراء ${orderNumber} بنجاح`)
-      onOpenChange(false)
-      resetForm()
-      onSuccess?.()
-      
-    } catch (error: any) {
-      console.error('Error creating purchase order:', error)
-      toast.error(`خطأ في إنشاء أمر الشراء: ${error.message}`)
-    } finally {
-      setLoading(false)
+        .slice(0, 20)
+
+      console.log('✅ Found', results.length, 'matching products')
+      if (results.length > 0) {
+        console.log('📦 First result:', results[0])
+      }
+
+      return results
+    }, [products, searchTerm])
+
+    useEffect(() => {
+      if (!open) {
+        setHighlighted(0)
+      } else if (highlighted >= filtered.length) {
+        setHighlighted(filtered.length - 1)
+      }
+    }, [open, highlighted, filtered.length])
+
+    // Update dropdown position on scroll
+    useEffect(() => {
+      if (!open || !inputRef.current) return
+
+      const updatePosition = () => {
+        if (inputRef.current) {
+          const rect = inputRef.current.getBoundingClientRect()
+          setDropdownPosition({
+            top: rect.bottom,
+            left: rect.left,
+            width: rect.width
+          })
+        }
+      }
+
+      // Initial position
+      updatePosition()
+
+      // Update on scroll or resize
+      window.addEventListener('scroll', updatePosition, true)
+      window.addEventListener('resize', updatePosition)
+
+      return () => {
+        window.removeEventListener('scroll', updatePosition, true)
+        window.removeEventListener('resize', updatePosition)
+      }
+    }, [open])
+
+    const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!open && ['ArrowDown', 'ArrowUp', 'Enter'].includes(event.key)) {
+        setOpen(true)
+      }
+
+      switch (event.key) {
+        case 'ArrowDown': {
+          event.preventDefault()
+          event.stopPropagation()
+          setHighlighted((prev) => Math.min(prev + 1, Math.max(filtered.length - 1, 0)))
+          break
+        }
+        case 'ArrowUp': {
+          event.preventDefault()
+          event.stopPropagation()
+          setHighlighted((prev) => Math.max(prev - 1, 0))
+          break
+        }
+        case 'Enter': {
+          if (open && filtered[highlighted]) {
+            event.preventDefault()
+            onSelect(filtered[highlighted])
+            setOpen(false)
+          }
+          break
+        }
+        case 'Escape': {
+          setOpen(false)
+          break
+        }
+        default:
+          break
+      }
     }
+
+    return (
+      <div ref={containerRef} className="relative">
+        <div className="relative flex items-center gap-2">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            ref={inputRef}
+            data-disable-nav="true"
+            value={selectedProduct ? term : searchTerm}
+            placeholder="ابحث بالكود أو الاسم..."
+            onChange={(event) => {
+              const newValue = event.target.value
+              setSearchTerm(newValue)
+              onTermChange(newValue)
+              setOpen(true)
+              
+              // Update position when typing
+              if (inputRef.current) {
+                const rect = inputRef.current.getBoundingClientRect()
+                setDropdownPosition({
+                  top: rect.bottom,
+                  left: rect.left,
+                  width: rect.width
+                })
+              }
+            }}
+            onFocus={() => {
+              setOpen(true)
+              // Update position on focus
+              if (inputRef.current) {
+                const rect = inputRef.current.getBoundingClientRect()
+                setDropdownPosition({
+                  top: rect.bottom,
+                  left: rect.left,
+                  width: rect.width
+                })
+              }
+            }}
+            onKeyDown={handleKeyDown}
+            className={cn(
+              'h-9 pr-9',
+              selectedProduct && 'border-green-500 bg-green-50 dark:bg-green-950',
+            )}
+          />
+          {(searchTerm || term) && (
+            <Button type="button" variant="ghost" size="sm" onClick={onClear} className="h-9 px-2">
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+
+        {open && filtered.length > 0 && createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: `${dropdownPosition.top}px`,
+              left: `${dropdownPosition.left}px`,
+              width: `${dropdownPosition.width}px`,
+              zIndex: 9999,
+            }}
+            className="mt-1 bg-popover border rounded-md shadow-lg max-h-72 overflow-auto"
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <div className="sticky top-0 px-3 py-2 bg-muted/80 backdrop-blur-sm text-xs font-semibold border-b flex items-center justify-between">
+              <span>{filtered.length} نتيجة</span>
+              <span className="text-muted-foreground">↑↓ للتنقل • Enter للاختيار</span>
+            </div>
+            {filtered.map((product, index) => {
+              const isActive = index === highlighted
+              return (
+                <div
+                  key={product.id}
+                  className={cn(
+                    'px-3 py-2.5 cursor-pointer border-b last:border-b-0 transition-colors',
+                    isActive ? 'bg-primary/10' : 'hover:bg-muted/50',
+                  )}
+                  onMouseEnter={() => setHighlighted(index)}
+                  onClick={() => {
+                    setTimeout(() => {
+                      onSelect(product)
+                      setOpen(false)
+                    }, 0)
+                  }}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-mono text-primary font-semibold">{product.code}</div>
+                      <div className="text-sm font-medium truncate">{getProductDisplayName(product)}</div>
+                    </div>
+                    <div className="text-xs font-semibold text-green-600 whitespace-nowrap">
+                      {(product.cost_price ?? 0).toFixed(2)} ر.س
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>,
+          document.body
+        )}
+
+        {open && filtered.length === 0 && term && createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              top: `${dropdownPosition.top}px`,
+              left: `${dropdownPosition.left}px`,
+              width: `${dropdownPosition.width}px`,
+              zIndex: 9999,
+            }}
+            className="mt-1 bg-popover border rounded-md shadow-lg p-4 text-center text-sm text-muted-foreground"
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            لا توجد نتائج للبحث: "{term}"
+          </div>,
+          document.body
+        )}
+      </div>
+    )
   }
 
-  const resetForm = () => {
-    setSelectedVendor('')
-    setOrderDate(new Date())
-    setExpectedDeliveryDate(undefined)
-    setNotes('')
-    setLines([{
-      product_id: '',
-      quantity: 1,
-      unit_price: 0,
-      discount_percentage: 0,
-      tax_percentage: 15,
-      line_total: 0
-    }])
-  }
+  export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrderFormProps) {
+    const [loading, setLoading] = useState(false)
+    const [vendors, setVendors] = useState<any[]>([])
+    const [products, setProducts] = useState<Product[]>([])
+    const [selectedVendor, setSelectedVendor] = useState('')
+    const [orderDate, setOrderDate] = useState<Date>(new Date())
+    const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<Date | undefined>(undefined)
+    const [notes, setNotes] = useState('')
+    const [lines, setLines] = useState<PurchaseOrderLine[]>([createEmptyLine()])
+    const tableRef = useRef<HTMLTableElement | null>(null)
 
-  const { subtotal, discountAmount, taxAmount, total } = calculateTotals()
+    useKeyboardNav(tableRef)
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+    useEffect(() => {
+      if (open) {
+        void loadVendors()
+        void loadProducts()
+      }
+    }, [open])
+
+    const loadVendors = async () => {
+      try {
+        const data = await vendorsService.getAll()
+        setVendors(data || [])
+      } catch (error) {
+        console.error('Error loading vendors:', error)
+        toast.error('خطأ في تحميل الموردين')
+      }
+    }
+
+    const loadProducts = async () => {
+      try {
+        let items: Product[] = []
+
+        try {
+          const rawMaterials = await loadRawMaterials()
+          if (rawMaterials.length > 0) {
+            console.log('✅ Loaded', rawMaterials.length, 'raw materials')
+            console.log('📦 Sample product:', rawMaterials[0])
+            items = rawMaterials
+          }
+        } catch (rawError) {
+          console.warn('⚠️ Raw materials not available, falling back to purchasable list', rawError)
+        }
+
+        if (items.length === 0) {
+          const purchasable = await loadPurchasableProducts()
+          console.log('✅ Loaded', purchasable.length, 'purchasable products')
+          if (purchasable.length > 0) {
+            console.log('📦 Sample product:', purchasable[0])
+          }
+          items = purchasable
+        }
+
+        if (items.length === 0) {
+          toast.error('لم يتم العثور على منتجات للشراء')
+        } else {
+          console.log('📊 Total products loaded:', items.length)
+        }
+
+        setProducts(items)
+      } catch (error) {
+        console.error('Error loading products:', error)
+        toast.error('خطأ في تحميل المنتجات')
+      }
+    }
+
+    const totals = useMemo(() => calculateTotals(lines), [lines])
+
+    const addLine = useCallback(() => {
+      setLines((prev) => [...prev, createEmptyLine()])
+    }, [])
+
+    const removeLine = useCallback((index: number) => {
+      setLines((prev) => {
+        if (prev.length <= 1) return prev
+        return prev.filter((_, i) => i !== index)
+      })
+    }, [])
+
+    const updateLine = useCallback((index: number, partial: Partial<PurchaseOrderLine>) => {
+      setLines((prev) => {
+        const next = [...prev]
+        const updated = recalcLineTotals({ ...next[index], ...partial })
+        next[index] = updated
+        return next
+      })
+    }, [])
+
+    const handleProductSelect = useCallback(
+      (index: number, product: Product) => {
+        const displayName = getProductDisplayName(product)
+        updateLine(index, {
+          product_id: product.id,
+          product_code: product.code,
+          product_name: displayName,
+          unit_price: product.cost_price || 0,
+        })
+      },
+      [updateLine],
+    )
+
+    const handleProductTermChange = useCallback((index: number, term: string) => {
+      setLines((prev) => {
+        const next = [...prev]
+        const current = next[index]
+        const trimmed = term.trim()
+        
+        // إذا كان الحقل فارغاً، امسح كل شيء
+        if (trimmed.length === 0) {
+          const updated = recalcLineTotals({
+            ...current,
+            product_code: '',
+            product_name: '',
+            product_id: '',
+            unit_price: 0,
+          })
+          next[index] = updated
+          return next
+        }
+        
+        // إذا كان هناك منتج مختار بالفعل، لا تمسح بياناته (دع المستخدم يبحث)
+        // فقط حدث product_code للبحث
+        const updated = recalcLineTotals({
+          ...current,
+          product_code: term,
+          // احتفظ بـ product_name و product_id الحالية حتى يختار منتج جديد
+        })
+        next[index] = updated
+        return next
+      })
+    }, [])
+
+    const handleClearProduct = useCallback((index: number) => {
+      updateLine(index, {
+        product_id: '',
+        product_code: '',
+        product_name: '',
+        unit_price: 0,
+      })
+    }, [updateLine])
+
+    const handlePaste = useCallback(async () => {
+      try {
+        const rows = await parseClipboardTable()
+        if (!rows.length) {
+          toast.error('لم يتم العثور على بيانات قابلة للقراءة من الحافظة')
+          return
+        }
+
+        const byCode = new Map<string, Product>()
+        const byName = new Map<string, Product>()
+
+        products.forEach((product) => {
+          if (product.code) {
+            byCode.set(product.code.toLowerCase(), product)
+          }
+
+          const candidateNames = [product.name, product.name_ar, product.name_en]
+          candidateNames
+            .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+            .forEach((value) => {
+              byName.set(value.toLowerCase(), product)
+            })
+        })
+
+        const aggregated = new Map<string, PurchaseOrderLine>()
+
+        rows.forEach((cells, rowIndex) => {
+          const [codeRaw = '', qtyRaw = '1', priceRaw] = cells
+          const code = codeRaw.trim()
+          const quantity = parseFloat(qtyRaw.replace(',', '.')) || 1
+          const priceCandidate = priceRaw ? parseFloat(priceRaw.replace(',', '.')) : undefined
+          const lookupKey = code.toLowerCase()
+          const product = byCode.get(lookupKey) || byName.get(lookupKey)
+          const aggregationKey = (product?.code || code || `row-${rowIndex}`).toLowerCase()
+
+          const existing = aggregated.get(aggregationKey)
+          if (existing) {
+            existing.quantity += quantity
+            if (priceCandidate !== undefined && !Number.isNaN(priceCandidate)) {
+              existing.unit_price = priceCandidate
+            }
+          } else {
+            aggregated.set(
+              aggregationKey,
+              {
+                product_id: product?.id || '',
+                product_code: product?.code || code,
+                product_name: product?.name || code || `صنف ${rowIndex + 1}`,
+                quantity,
+                unit_price: priceCandidate ?? product?.cost_price ?? 0,
+                discount_percentage: 0,
+                tax_percentage: 15,
+                line_total: 0,
+              },
+            )
+          }
+        })
+
+        const newLines = Array.from(aggregated.values()).map((line) => recalcLineTotals(line))
+        setLines((prev) => [...prev, ...newLines])
+        toast.success(`تم لصق ${newLines.length} أصناف`)
+      } catch (error) {
+        console.error('Error parsing clipboard', error)
+        toast.error('تعذر قراءة بيانات الحافظة')
+      }
+    }, [products])
+
+    useEffect(() => {
+      const handleShortcut = (event: KeyboardEvent) => {
+        if (!(event.ctrlKey || event.metaKey)) return
+        if (event.key.toLowerCase() !== 'v') return
+        if (!tableRef.current) return
+        if (!document.activeElement) return
+        if (!tableRef.current.contains(document.activeElement)) return
+
+        event.preventDefault()
+        void handlePaste()
+      }
+
+      window.addEventListener('keydown', handleShortcut)
+      return () => window.removeEventListener('keydown', handleShortcut)
+    }, [handlePaste])
+
+    const handleSubmit = async (event: React.FormEvent) => {
+      event.preventDefault()
+
+      if (!selectedVendor) {
+        toast.error('الرجاء اختيار المورد')
+        return
+      }
+
+      const validLines = lines.filter((line) => line.product_id)
+      if (validLines.length === 0) {
+        toast.error('الرجاء إضافة منتج واحد على الأقل')
+        return
+      }
+
+      setLoading(true)
+
+      try {
+        const orgId = '00000000-0000-0000-0000-000000000001'
+        const orderNumber = `PO-${Date.now()}`
+
+        const { subtotal, discountAmount, taxAmount, total } = calculateTotals(validLines)
+
+        const { data: order, error: orderError } = await supabase
+          .from('purchase_orders')
+          .insert({
+            org_id: orgId,
+            order_number: orderNumber,
+            vendor_id: selectedVendor,
+            order_date: format(orderDate, 'yyyy-MM-dd'),
+            expected_delivery_date: expectedDeliveryDate ? format(expectedDeliveryDate, 'yyyy-MM-dd') : null,
+            status: 'draft',
+            subtotal,
+            discount_amount: discountAmount,
+            tax_amount: taxAmount,
+            total_amount: total,
+            notes: notes || null,
+          })
+          .select()
+          .single()
+
+        if (orderError) throw orderError
+
+        const orderLines = validLines.map((line, index) => ({
+          org_id: orgId,
+          purchase_order_id: order.id,
+          line_number: index + 1,
+          product_id: line.product_id,
+          description: line.description || null,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+          discount_percentage: line.discount_percentage,
+          tax_percentage: line.tax_percentage,
+        }))
+
+        const { error: linesError } = await supabase.from('purchase_order_lines').insert(orderLines)
+        if (linesError) throw linesError
+
+        toast.success(`تم إنشاء أمر الشراء ${orderNumber} بنجاح`)
+        onOpenChange(false)
+        resetForm()
+        onSuccess?.()
+      } catch (error: any) {
+        console.error('Error creating purchase order:', error)
+        toast.error(`خطأ في إنشاء أمر الشراء: ${error.message}`)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const resetForm = useCallback(() => {
+      setSelectedVendor('')
+      setOrderDate(new Date())
+      setExpectedDeliveryDate(undefined)
+      setNotes('')
+      setLines([createEmptyLine()])
+    }, [])
+
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>إضافة أمر شراء جديد</DialogTitle>
           <DialogDescription>
@@ -401,198 +814,143 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
 
           {/* Lines Section */}
           <div className="space-y-4">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-wrap justify-between items-center gap-2">
               <h3 className="text-lg font-semibold">المنتجات</h3>
-              <Button type="button" onClick={addLine} size="sm" variant="outline">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  onClick={addLine}
+                  size="sm"
+                  variant="outline"
+                  data-add-line
+                >
                 <Plus className="h-4 w-4 ml-2" />
                 إضافة سطر
               </Button>
+                <Button type="button" onClick={handlePaste} size="sm" variant="outline">
+                  <Upload className="h-4 w-4 ml-2" />
+                  لصق من Excel
+                </Button>
+              </div>
             </div>
 
-            <div className="border rounded-lg" ref={tableContainerRef}>
+            <div className="border rounded-lg overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table ref={tableRef} className="w-full table-fixed">
                   <thead className="bg-muted">
                     <tr>
-                      <th className="text-right p-2 text-sm font-medium">المنتج</th>
-                      <th className="text-right p-2 text-sm font-medium w-24">الكمية</th>
-                      <th className="text-right p-2 text-sm font-medium w-28">السعر</th>
-                      <th className="text-right p-2 text-sm font-medium w-24">خصم %</th>
-                      <th className="text-right p-2 text-sm font-medium w-24">ضريبة %</th>
-                      <th className="text-right p-2 text-sm font-medium w-28">الإجمالي</th>
-                      <th className="text-center p-2 w-12"></th>
+                      <th className="text-right p-2 text-sm font-medium w-[35%]">المنتج</th>
+                      <th className="text-right p-2 text-sm font-medium w-[12%]">الكمية</th>
+                      <th className="text-right p-2 text-sm font-medium w-[13%]">السعر</th>
+                      <th className="text-right p-2 text-sm font-medium w-[10%]">خصم %</th>
+                      <th className="text-right p-2 text-sm font-medium w-[10%]">ضريبة %</th>
+                      <th className="text-right p-2 text-sm font-medium w-[13%]">الإجمالي</th>
+                      <th className="text-center p-2 w-[7%]"></th>
                     </tr>
                   </thead>
                   <tbody>
                     {lines.map((line, index) => {
-                      const selectedProduct = products.find(p => p.id === line.product_id)
-                      const searchTerm = searchTerms[index] || ''
-                      const debouncedSearchTerm = debouncedSearchTerms[index] || ''
-                      const filteredProducts = products.filter(p => 
-                        p.code.toLowerCase().includes(debouncedSearchTerm.toLowerCase()) ||
-                        p.name.toLowerCase().includes(debouncedSearchTerm.toLowerCase())
-                      )
+                      const selectedProduct = line.product_id
+                        ? products.find((product) => product.id === line.product_id)
+                        : undefined
                       
+                      // إذا كان هناك منتج مختار، اعرض الكود + الاسم
+                      // إذا لم يكن هناك منتج مختار، اعرض فقط ما يكتبه المستخدم
+                      const displayTerm = line.product_id && selectedProduct
+                        ? `${selectedProduct.code} - ${getProductDisplayName(selectedProduct)}`
+                        : line.product_code || ''
+
                       return (
-                      <tr key={index} className="border-t" ref={(el) => rowRefs.current[index] = el}>
-                        <td className="p-2 relative">
-                          <div className="relative product-search-dropdown min-w-[300px]">
-                            <Input
-                              ref={(el) => inputRefs.current[index] = el}
-                              placeholder="🔍 ابحث بالكود أو الاسم..."
-                              value={searchTerm}
-                              onChange={(e) => {
-                                const newValue = e.target.value
-                                setSearchTerms({...searchTerms, [index]: newValue})
-                                console.log('🔍 Search:', newValue, 'Filtered:', filteredProducts.length)
-                                // Open only this dropdown, close others
-                                if (newValue.length > 0) {
-                                  setOpenDropdowns({ [index]: true })
-                                  console.log('📂 Dropdown opened for index:', index)
-                                } else {
-                                  setOpenDropdowns({})
-                                }
-                              }}
-                              onFocus={() => {
-                                // Open only this dropdown if there's text
-                                if (searchTerm.length > 0) {
-                                  setOpenDropdowns({ [index]: true })
-                                }
-                              }}
-                              onBlur={(e) => {
-                                // Check if focus moved to an element inside the dropdown
-                                const currentTarget = e.currentTarget
-                                // Delay to allow click events to fire on dropdown items
-                                setTimeout(() => {
-                                  // Only close if focus didn't move to a dropdown item
-                                  if (!currentTarget.contains(document.activeElement)) {
-                                    setOpenDropdowns(prev => {
-                                      const newState = { ...prev }
-                                      delete newState[index]
-                                      return newState
-                                    })
-                                  }
-                                }, 150)
-                              }}
-                              className="h-10 text-sm pr-10"
+                        <tr key={index} className="border-t hover:bg-muted/50">
+                          <td className="p-2">
+                            <InlineProductSearch
+                              products={products}
+                              term={displayTerm}
+                              selectedProduct={selectedProduct}
+                              onTermChange={(term) => handleProductTermChange(index, term)}
+                              onSelect={(product) => handleProductSelect(index, product)}
+                              onClear={() => handleClearProduct(index)}
                             />
-                            {selectedProduct && (
-                              <div className="absolute left-2 top-2 text-xs text-green-600 font-semibold">
-                                ✓ {selectedProduct.code}
-                              </div>
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="1"
+                              step="0.01"
+                              value={line.quantity}
+                              onChange={(event) =>
+                                updateLine(index, {
+                                  quantity: parseFloat(event.target.value) || 0,
+                                })
+                              }
+                              className="h-9"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={line.unit_price}
+                              onChange={(event) =>
+                                updateLine(index, {
+                                  unit_price: parseFloat(event.target.value) || 0,
+                                })
+                              }
+                              className="h-9"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={line.discount_percentage}
+                              onChange={(event) =>
+                                updateLine(index, {
+                                  discount_percentage: parseFloat(event.target.value) || 0,
+                                })
+                              }
+                              className="h-9"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              max="100"
+                              value={line.tax_percentage}
+                              onChange={(event) =>
+                                updateLine(index, {
+                                  tax_percentage: parseFloat(event.target.value) || 0,
+                                })
+                              }
+                              className="h-9"
+                            />
+                          </td>
+                          <td className="p-2">
+                            <div className="text-right font-semibold text-sm">
+                              {line.line_total.toFixed(2)}
+                            </div>
+                          </td>
+                          <td className="p-2 text-center">
+                            {lines.length > 1 && (
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeLine(index)}
+                                className="h-9 w-9 p-0"
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
                             )}
-                          </div>
-                          
-                          {/* Dropdown Results - Positioned directly below the input */}
-                          {openDropdowns[index] && filteredProducts.length > 0 && (
-                            <div 
-                              style={{
-                                position: 'fixed',
-                                top: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().bottom : 0,
-                                left: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().left : 0,
-                                width: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().width : 300,
-                              }}
-                              className="z-[9999] bg-white dark:bg-slate-900 border-2 border-blue-500 rounded-md shadow-2xl max-h-60 overflow-auto"
-                            >
-                              <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-xs text-blue-600 font-semibold border-b">
-                                {filteredProducts.length} نتيجة
-                              </div>
-                              {filteredProducts.slice(0, 20).map((product) => (
-                                <div
-                                  key={product.id}
-                                  className="px-3 py-3 cursor-pointer hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors border-b border-slate-100 dark:border-slate-800 last:border-0"
-                                  onClick={() => {
-                                    console.log('✅ Product clicked:', product.name)
-                                    updateLine(index, 'product_id', product.id)
-                                    updateLine(index, 'product_code', product.code)
-                                    updateLine(index, 'product_name', product.name)
-                                    updateLine(index, 'unit_price', product.cost_price || 0)
-                                    setSearchTerms({...searchTerms, [index]: product.code + ' - ' + product.name})
-                                    setOpenDropdowns({})
-                                  }}
-                                >
-                                  <div className="flex flex-col">
-                                    <span className="font-semibold text-sm text-blue-600">{product.code}</span>
-                                    <span className="font-medium text-sm">{product.name}</span>
-                                    <span className="text-xs text-green-600 font-semibold mt-1">
-                                      💰 {product.cost_price?.toFixed(2) || 0} ر.س
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                          
-                          {/* No results message */}
-                          {openDropdowns[index] && debouncedSearchTerm.length > 0 && filteredProducts.length === 0 && (
-                            <div 
-                              style={{
-                                position: 'fixed',
-                                top: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().bottom : 0,
-                                left: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().left : 0,
-                                width: inputRefs.current[index] ? inputRefs.current[index]!.getBoundingClientRect().width : 300,
-                              }}
-                              className="z-[9999] bg-white dark:bg-slate-900 border-2 border-red-500 rounded-md shadow-2xl p-4 text-center"
-                            >
-                              <div className="text-red-600 font-semibold">❌ لا توجد نتائج</div>
-                              <div className="text-sm text-muted-foreground mt-1">للبحث: "{debouncedSearchTerm}"</div>
-                            </div>
-                          )}
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            min="1"
-                            value={line.quantity}
-                            onChange={(e) => updateLine(index, 'quantity', parseFloat(e.target.value) || 0)}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={line.unit_price}
-                            onChange={(e) => updateLine(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
-                            value={line.discount_percentage}
-                            onChange={(e) => updateLine(index, 'discount_percentage', parseFloat(e.target.value) || 0)}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            max="100"
-                            value={line.tax_percentage}
-                            onChange={(e) => updateLine(index, 'tax_percentage', parseFloat(e.target.value) || 0)}
-                          />
-                        </td>
-                        <td className="p-2 text-right font-medium">
-                          {line.line_total.toFixed(2)}
-                        </td>
-                        <td className="p-2 text-center">
-                          {lines.length > 1 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeLine(index)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    )})}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -600,22 +958,24 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
 
             {/* Totals Summary */}
             <div className="flex justify-end">
-              <div className="w-80 space-y-2 border rounded-lg p-4 bg-muted/50">
+              <div className="w-80 space-y-2 border rounded-lg p-4 bg-muted/30">
                 <div className="flex justify-between text-sm">
-                  <span>الإجمالي الفرعي:</span>
-                  <span className="font-medium">{subtotal.toFixed(2)} ر.س</span>
+                  <span className="text-muted-foreground">الإجمالي الفرعي:</span>
+                  <span className="font-semibold">{totals.subtotal.toFixed(2)} ر.س</span>
                 </div>
-                <div className="flex justify-between text-sm text-red-600">
-                  <span>الخصم:</span>
-                  <span className="font-medium">-{discountAmount.toFixed(2)} ر.س</span>
-                </div>
+                {totals.discountAmount > 0 && (
+                  <div className="flex justify-between text-sm text-red-600">
+                    <span>الخصم:</span>
+                    <span className="font-semibold">-{totals.discountAmount.toFixed(2)} ر.س</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-sm">
-                  <span>الضريبة:</span>
-                  <span className="font-medium">{taxAmount.toFixed(2)} ر.س</span>
+                  <span className="text-muted-foreground">الضريبة:</span>
+                  <span className="font-semibold">{totals.taxAmount.toFixed(2)} ر.س</span>
                 </div>
-                <div className="flex justify-between text-lg font-bold border-t pt-2">
+                <div className="flex justify-between text-base font-bold border-t pt-2 mt-2">
                   <span>الإجمالي:</span>
-                  <span className="text-primary">{total.toFixed(2)} ر.س</span>
+                  <span className="text-primary">{totals.total.toFixed(2)} ر.س</span>
                 </div>
               </div>
             </div>
@@ -630,7 +990,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
             >
               إلغاء
             </Button>
-            <Button type="submit" disabled={loading}>
+            <Button type="submit" disabled={loading || lines.every((line) => !line.product_id)}>
               {loading ? 'جاري الحفظ...' : 'حفظ أمر الشراء'}
             </Button>
           </DialogFooter>

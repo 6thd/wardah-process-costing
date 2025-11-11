@@ -554,14 +554,14 @@ const TrialBalance = () => {
                       <TableCell colSpan={2} className="text-center border-r">
                         {isRTL ? 'الفرق' : 'Difference'}
                       </TableCell>
-                      <TableCell colSpan={2} className="text-center font-mono border-r">
-                        {Math.abs(totals.opening_debit - totals.opening_credit).toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                      <TableCell colSpan={2} className="text-center font-mono border-r" dir="ltr">
+                        {Math.abs(totals.opening_debit - totals.opening_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell colSpan={2} className="text-center font-mono border-r">
-                        {Math.abs(totals.period_debit - totals.period_credit).toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                      <TableCell colSpan={2} className="text-center font-mono border-r" dir="ltr">
+                        {Math.abs(totals.period_debit - totals.period_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell colSpan={2} className="text-center font-mono">
-                        {Math.abs(totals.closing_debit - totals.closing_credit).toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                      <TableCell colSpan={2} className="text-center font-mono" dir="ltr">
+                        {Math.abs(totals.closing_debit - totals.closing_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
                   </>

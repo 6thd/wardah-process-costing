@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export function formatCurrency(amount: number, currency = 'SAR'): string {
-  return new Intl.NumberFormat('ar-SA', {
+  return new Intl.NumberFormat('en-US', {
     style: 'decimal',
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
@@ -14,17 +14,17 @@ export function formatCurrency(amount: number, currency = 'SAR'): string {
 }
 
 export function formatNumber(number: number): string {
-  return new Intl.NumberFormat('ar-SA').format(number)
+  return new Intl.NumberFormat('en-US').format(number)
 }
 
 export function formatDate(date: Date | string): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleDateString('ar-SA')
+  return dateObj.toLocaleDateString('en-US')
 }
 
 export function formatDateTime(date: Date | string): string {
   const dateObj = typeof date === 'string' ? new Date(date) : date
-  return dateObj.toLocaleString('ar-SA')
+  return dateObj.toLocaleString('en-US')
 }
 
 export function debounce<T extends (...args: any[]) => void>(

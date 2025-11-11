@@ -18,7 +18,7 @@ const queryClient = new QueryClient({
     queries: {
       retry: 1, // Retry failed queries once
       staleTime: 5 * 60 * 1000, // 5 دقائق - تقليل الطلبات المتكررة
-      cacheTime: 10 * 60 * 1000, // 10 دقائق
+      gcTime: 10 * 60 * 1000, // 10 دقائق
       refetchOnWindowFocus: false, // عدم إعادة التحميل عند العودة للنافذة
       refetchOnReconnect: false, // عدم إعادة التحميل عند إعادة الاتصال
     },

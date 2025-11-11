@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Badge } from '@/components/ui/badge';
 import { getSupabase, GLAccount, getAllGLAccounts, getEffectiveTenantId } from '@/lib/supabase';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
@@ -17,7 +18,14 @@ import {
   Trash2,
   ChevronRight,
   ChevronDown,
-  FileDown
+  FileDown,
+  Search,
+  Filter,
+  ChevronUp,
+  Maximize2,
+  Minimize2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 
 // Main Module Router
@@ -118,42 +126,167 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
     );
 }
 
-// New AccountTreeItem Component for Collapsible Tree
-const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount }: { account: any, level: number, isRTL: boolean, expandedNodes: Set<string>, onToggleNode: (code: string) => void, onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void, onDeleteAccount: (account: any) => void }) => {
+// New AccountTreeItem Component for Collapsible Tree with Enhanced Design
+const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts }: { 
+  account: any, 
+  level: number, 
+  isRTL: boolean, 
+  expandedNodes: Set<string>, 
+  onToggleNode: (code: string) => void, 
+  onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void, 
+  onDeleteAccount: (account: any) => void,
+  searchTerm: string,
+  categoryFilter: string,
+  showInactiveAccounts: boolean
+}) => {
     const [isHovered, setIsHovered] = useState(false);
     const isExpanded = expandedNodes.has(account.code);
     const hasChildren = account.children && account.children.length > 0;
 
+    // Helper function to check if account or any child matches filters
+    const matchesFilters = (acc: any): boolean => {
+        // Check search term
+        const matchesSearch = !searchTerm || 
+            acc.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            (acc.name && acc.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+            (acc.name_ar && acc.name_ar.toLowerCase().includes(searchTerm.toLowerCase()));
+        
+        // Check category filter
+        const matchesCategory = categoryFilter === 'all' || acc.category === categoryFilter;
+        
+        // Check active status
+        const matchesActive = showInactiveAccounts || acc.is_active;
+        
+        return matchesSearch && matchesCategory && matchesActive;
+    };
+
+    // Check if this account or any child matches
+    const hasMatchingChild = (acc: any): boolean => {
+        if (matchesFilters(acc)) return true;
+        if (acc.children && acc.children.length > 0) {
+            return acc.children.some((child: any) => hasMatchingChild(child));
+        }
+        return false;
+    };
+
+    if (!hasMatchingChild(account)) {
+        return null;
+    }
+
+    const getCategoryBadge = (category: string) => {
+        const badges: any = {
+            'ASSET': { label: isRTL ? 'أصول' : 'Asset', variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+            'LIABILITY': { label: isRTL ? 'خصوم' : 'Liability', variant: 'secondary', className: 'bg-red-100 text-red-800 border-red-200' },
+            'EQUITY': { label: isRTL ? 'حقوق ملكية' : 'Equity', variant: 'outline', className: 'bg-purple-100 text-purple-800 border-purple-200' },
+            'REVENUE': { label: isRTL ? 'إيرادات' : 'Revenue', variant: 'default', className: 'bg-green-100 text-green-800 border-green-200' },
+            'EXPENSE': { label: isRTL ? 'مصروفات' : 'Expense', variant: 'destructive', className: 'bg-orange-100 text-orange-800 border-orange-200' }
+        };
+        const badge = badges[category] || { label: category, variant: 'outline', className: '' };
+        return <Badge variant="outline" className={`text-xs ${badge.className}`}>{badge.label}</Badge>;
+    };
+
+    const getNormalBalanceBadge = (normalBalance: string) => {
+        if (normalBalance === 'Debit') {
+            return <Badge variant="outline" className="text-xs bg-sky-50 text-sky-700 border-sky-200">{isRTL ? 'مدين' : 'Dr'}</Badge>;
+        } else {
+            return <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{isRTL ? 'دائن' : 'Cr'}</Badge>;
+        }
+    };
+
     return (
         <div key={account.code}>
             <div
-                className="flex justify-between items-center hover:bg-accent transition-colors group text-sm"
-                style={{ paddingRight: isRTL ? `${level * 24 + 8}px` : '8px', paddingLeft: isRTL ? '8px' : `${level * 24 + 8}px` }}
+                className={`flex justify-between items-center transition-all duration-150 group border-b border-border/40 ${
+                    isHovered ? 'bg-accent/50 shadow-sm' : ''
+                } ${
+                    !account.is_active ? 'opacity-50' : ''
+                } ${
+                    level === 0 ? 'font-semibold' : ''
+                }`}
+                style={{ 
+                    paddingRight: isRTL ? `${level * 24 + 12}px` : '12px', 
+                    paddingLeft: isRTL ? '12px' : `${level * 24 + 12}px`,
+                    paddingTop: '10px',
+                    paddingBottom: '10px'
+                }}
                 onMouseEnter={() => setIsHovered(true)}
                 onMouseLeave={() => setIsHovered(false)}
             >
-                <div className="flex items-center gap-1 flex-1 cursor-pointer" onClick={() => hasChildren && onToggleNode(account.code)}>
-                    {hasChildren ? (
-                        isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />
-                    ) : (
-                        <span className="w-4"></span> // Placeholder for alignment
-                    )}
-                    <p className="font-medium">{account.code} - {isRTL ? (account.name_ar || account.name) : (account.name_en || account.name)}</p>
+                <div className="flex items-center gap-3 flex-1">
+                    <div 
+                        className="cursor-pointer flex items-center hover:bg-accent/30 rounded-md p-1 transition-colors"
+                        onClick={() => hasChildren && onToggleNode(account.code)}
+                    >
+                        {hasChildren ? (
+                            isExpanded ? 
+                                <ChevronDown className="h-4 w-4 text-primary" /> : 
+                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                            <span className="w-4 h-4 flex items-center justify-center">
+                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40"></span>
+                            </span>
+                        )}
+                    </div>
+                    
+                    <div className="flex items-center gap-2 flex-1">
+                        <code className={`text-sm font-mono px-2 py-0.5 rounded bg-muted/50 ${level === 0 ? 'font-bold' : ''}`}>
+                            {account.code}
+                        </code>
+                        <span className={`${level === 0 ? 'text-base font-bold' : 'text-sm'} flex-1`}>
+                            {isRTL ? (account.name_ar || account.name) : (account.name_en || account.name)}
+                        </span>
+                    </div>
+                    
+                    <div className="flex items-center gap-2">
+                        {getCategoryBadge(account.category)}
+                        {getNormalBalanceBadge(account.normal_balance)}
+                        {account.allow_posting && (
+                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                {isRTL ? 'قابل للترحيل' : 'Postable'}
+                            </Badge>
+                        )}
+                        {!account.is_active && (
+                            <Badge variant="outline" className="text-xs bg-gray-100 text-gray-600 border-gray-300">
+                                {isRTL ? 'غير نشط' : 'Inactive'}
+                            </Badge>
+                        )}
+                    </div>
                 </div>
-                <div className="flex items-center gap-2 p-2">
-                    {isHovered && (
-                        <div className="flex items-center gap-1">
-                           {!account.allow_posting && (
-                                <Button variant="ghost" size="icon" title="إضافة حساب فرعي" onClick={() => onOpenModal('add', undefined, account)}><Plus className="h-4 w-4" /></Button>
-                            )}
-                            <Button variant="ghost" size="icon" title="تعديل الحساب" onClick={() => onOpenModal('edit', account)}><Pencil className="h-4 w-4" /></Button>
-                            <Button variant="ghost" size="icon" title="حذف الحساب" onClick={() => onDeleteAccount(account)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
-                        </div>
+                
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
+                    {!account.allow_posting && (
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
+                            title={isRTL ? "إضافة حساب فرعي" : "Add sub-account"}
+                            onClick={() => onOpenModal('add', undefined, account)}
+                        >
+                            <Plus className="h-4 w-4" />
+                        </Button>
                     )}
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700"
+                        title={isRTL ? "تعديل الحساب" : "Edit account"}
+                        onClick={() => onOpenModal('edit', account)}
+                    >
+                        <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 hover:bg-red-100 hover:text-red-700"
+                        title={isRTL ? "حذف الحساب" : "Delete account"}
+                        onClick={() => onDeleteAccount(account)}
+                    >
+                        <Trash2 className="h-4 w-4" />
+                    </Button>
                 </div>
             </div>
             {isExpanded && hasChildren && (
-                <div>
+                <div className="border-l-2 border-primary/20 ml-4">
                     {account.children.map((child: any) => (
                         <AccountTreeItem
                             key={child.code}
@@ -164,6 +297,9 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                             onToggleNode={onToggleNode}
                             onOpenModal={onOpenModal}
                             onDeleteAccount={onDeleteAccount}
+                            searchTerm={searchTerm}
+                            categoryFilter={categoryFilter}
+                            showInactiveAccounts={showInactiveAccounts}
                         />
                     ))}
                 </div>
@@ -179,6 +315,11 @@ function ChartOfAccounts() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
+
+    // Enhanced state for advanced features
+    const [searchTerm, setSearchTerm] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('all');
+    const [showInactiveAccounts, setShowInactiveAccounts] = useState(false);
 
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [modalType, setModalType] = useState<'add' | 'edit'>('add');
@@ -353,20 +494,156 @@ function ChartOfAccounts() {
     
     const accountTree = buildTree(accounts);
     
+    // Function to expand/collapse all nodes
+    const handleExpandAll = () => {
+        const allCodes = new Set<string>();
+        const collectCodes = (nodes: any[]) => {
+            nodes.forEach(node => {
+                if (node.children && node.children.length > 0) {
+                    allCodes.add(node.code);
+                    collectCodes(node.children);
+                }
+            });
+        };
+        collectCodes(accountTree);
+        setExpandedNodes(allCodes);
+    };
+
+    const handleCollapseAll = () => {
+        setExpandedNodes(new Set());
+    };
+
+    // Calculate statistics
+    const stats = {
+        total: accounts.length,
+        active: accounts.filter(a => a.is_active).length,
+        postable: accounts.filter(a => a.allow_posting).length,
+        byCategory: {
+            ASSET: accounts.filter(a => a.category === 'ASSET').length,
+            LIABILITY: accounts.filter(a => a.category === 'LIABILITY').length,
+            EQUITY: accounts.filter(a => a.category === 'EQUITY').length,
+            REVENUE: accounts.filter(a => a.category === 'REVENUE').length,
+            EXPENSE: accounts.filter(a => a.category === 'EXPENSE').length,
+        }
+    };
+    
     return (
         <div className="space-y-4 p-4 md:p-6" dir={isRTL ? "rtl" : "ltr"}>
             <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold">شجرة الحسابات</h1>
-                 <div className="flex gap-2">
-                    <Button onClick={handleExportToExcel} variant="outline"><FileDown className="me-2 h-4 w-4"/>تصدير Excel</Button>
-                    <Button onClick={handleExportToPdf} variant="outline"><FileDown className="me-2 h-4 w-4"/>تصدير PDF</Button>
-                    <Button onClick={() => handleOpenModal('add')}><Plus className="me-2 h-4 w-4"/>إضافة حساب</Button>
+                <div>
+                    <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
+                        {isRTL ? 'شجرة الحسابات' : 'Chart of Accounts'}
+                    </h1>
+                    <p className="text-sm text-muted-foreground mt-1">
+                        {isRTL ? `إجمالي ${stats.total} حساب - ${stats.active} نشط - ${stats.postable} قابل للترحيل` : 
+                                 `Total ${stats.total} accounts - ${stats.active} active - ${stats.postable} postable`}
+                    </p>
+                </div>
+                <div className="flex gap-2">
+                    <Button onClick={handleExportToExcel} variant="outline" size="sm">
+                        <FileDown className="me-2 h-4 w-4"/>
+                        {isRTL ? 'Excel' : 'Excel'}
+                    </Button>
+                    <Button onClick={handleExportToPdf} variant="outline" size="sm">
+                        <FileDown className="me-2 h-4 w-4"/>
+                        {isRTL ? 'PDF' : 'PDF'}
+                    </Button>
+                    <Button onClick={() => handleOpenModal('add')} size="sm">
+                        <Plus className="me-2 h-4 w-4"/>
+                        {isRTL ? 'إضافة حساب' : 'Add Account'}
+                    </Button>
                 </div>
             </div>
 
-            <div className="bg-card rounded-lg border">
+            {/* Advanced Filters */}
+            <div className="bg-card rounded-lg border p-4 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="md:col-span-2">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+                            <Input
+                                placeholder={isRTL ? 'بحث برقم أو اسم الحساب...' : 'Search by code or name...'}
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="pl-10"
+                            />
+                        </div>
+                    </div>
+
+                    <div>
+                        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                            <SelectTrigger>
+                                <Filter className="h-4 w-4 mr-2" />
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">{isRTL ? 'جميع الأنواع' : 'All Types'}</SelectItem>
+                                <SelectItem value="ASSET">{isRTL ? 'أصول' : 'Assets'} ({stats.byCategory.ASSET})</SelectItem>
+                                <SelectItem value="LIABILITY">{isRTL ? 'خصوم' : 'Liabilities'} ({stats.byCategory.LIABILITY})</SelectItem>
+                                <SelectItem value="EQUITY">{isRTL ? 'حقوق ملكية' : 'Equity'} ({stats.byCategory.EQUITY})</SelectItem>
+                                <SelectItem value="REVENUE">{isRTL ? 'إيرادات' : 'Revenue'} ({stats.byCategory.REVENUE})</SelectItem>
+                                <SelectItem value="EXPENSE">{isRTL ? 'مصروفات' : 'Expenses'} ({stats.byCategory.EXPENSE})</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={handleExpandAll}
+                            className="flex-1"
+                        >
+                            <Maximize2 className="h-4 w-4 mr-2" />
+                            {isRTL ? 'توسيع الكل' : 'Expand All'}
+                        </Button>
+                        <Button 
+                            variant="outline" 
+                            size="sm" 
+                            onClick={handleCollapseAll}
+                            className="flex-1"
+                        >
+                            <Minimize2 className="h-4 w-4 mr-2" />
+                            {isRTL ? 'طي الكل' : 'Collapse All'}
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
+                        <Checkbox 
+                            id="show_inactive"
+                            checked={showInactiveAccounts}
+                            onCheckedChange={(checked) => setShowInactiveAccounts(!!checked)}
+                        />
+                        <label htmlFor="show_inactive" className="text-sm cursor-pointer">
+                            {isRTL ? 'إظهار الحسابات غير النشطة' : 'Show inactive accounts'}
+                        </label>
+                    </div>
+                    
+                    {(searchTerm || categoryFilter !== 'all' || showInactiveAccounts) && (
+                        <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => {
+                                setSearchTerm('');
+                                setCategoryFilter('all');
+                                setShowInactiveAccounts(false);
+                            }}
+                        >
+                            {isRTL ? 'إعادة تعيين الفلاتر' : 'Reset Filters'}
+                        </Button>
+                    )}
+                </div>
+            </div>
+
+            {/* Account Tree */}
+            <div className="bg-card rounded-lg border shadow-sm">
                  {loading ? (
-                     <div className="p-8 text-center">جاري التحميل...</div>
+                     <div className="p-8 text-center">
+                         <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+                         <p className="mt-4 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
+                     </div>
                  ) : error ? (
                      <div className="p-8 text-center text-red-500">{error}</div>
                  ) : accountTree.length > 0 ? (
@@ -380,10 +657,13 @@ function ChartOfAccounts() {
                             onToggleNode={handleToggleNode}
                             onOpenModal={handleOpenModal}
                             onDeleteAccount={handleDeleteAccount}
+                            searchTerm={searchTerm}
+                            categoryFilter={categoryFilter}
+                            showInactiveAccounts={showInactiveAccounts}
                         />
                     ))
                  ) : (
-                     <div className="p-8 text-center text-muted-foreground">لا توجد حسابات لعرضها.</div>
+                     <div className="p-8 text-center text-muted-foreground">{isRTL ? 'لا توجد حسابات لعرضها.' : 'No accounts to display.'}</div>
                  )}
             </div>
 

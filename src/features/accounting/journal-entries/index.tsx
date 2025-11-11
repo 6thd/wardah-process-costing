@@ -876,11 +876,11 @@ const JournalEntries = () => {
                       <TableCell>
                         {isRTL ? entry.description_ar : entry.description}
                       </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {entry.total_debit.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                      <TableCell className="text-right font-mono" dir="ltr">
+                        {entry.total_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono">
-                        {entry.total_credit.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                      <TableCell className="text-right font-mono" dir="ltr">
+                        {entry.total_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell>{getStatusBadge(entry.status)}</TableCell>
                       <TableCell>

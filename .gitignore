@@ -6,7 +6,6 @@ node_modules
 # Production
 /dist
 /build
-
 # Environment variables
 .env
 .env.*
@@ -15,7 +14,6 @@ node_modules
 .env.development.local
 .env.test.local
 .env.production.local
-
 # Security sensitive files
 config-production.json
 secrets/
@@ -33,60 +31,46 @@ setup-supplier-invoices.cjs
 check-*.cjs
 add-*.cjs
 apply-*.cjs
-claude_desktop_config*.json
-
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-
 # OS
 .DS_Store
 Thumbs.db
-
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-
 # Testing
 /coverage
 *.lcov
-
 # Misc
 *.tsbuildinfo
 .eslintcache
 .stylelintcache
-
 # Local Netlify folder
 .netlify
-
 # Temporary folders
 tmp/
 temp/
-
 # GitHub Actions
 .github/secrets/
-
 # Editor backup files
 *~
 *.bak
-*.swp
-*.swo
 *#
-
 # Database dumps
 *.sql.bak
 *.dump
-
 # Log files
 *.log
 logs/
-
 # Runtime
 *.pid
 *.seed
 *.pid.lock
+claude_desktop_config*.json

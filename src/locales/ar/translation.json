@@ -10,7 +10,7 @@
     "inventory": "المخزون",
     "purchasing": "المشتريات",
     "sales": "المبيعات",
-    "general-ledger": "دفتر الأستاذ العام",
+    "general-ledger": "المحاسبة المالية",
     "hr": "الموارد البشرية",
     "reports": "التقارير",
     "settings": "الإعدادات",
@@ -34,7 +34,7 @@
     "customers": "العملاء",
     "delivery": "التسليم",
     "collections": "التحصيلات",
-    "accounts": "الحسابات",
+    "accounts": "شجرة الحسابات",
     "entries": "القيود اليومية",
     "trial-balance": "ميزان المراجعة",
     "posting": "الترحيل",
@@ -51,7 +51,8 @@
     "system": "إعدادات النظام",
     "integrations": "التكاملات",
     "backup": "النسخ الاحتياطي",
-    "gemini-dashboard": "لوحة معلومات Gemini"
+    "gemini-dashboard": "لوحة معلومات Gemini",
+    "journal-entries": "قيود اليومية"
   },
   "common": {
     "save": "حفظ",

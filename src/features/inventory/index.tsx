@@ -5,7 +5,10 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Card } from '@/components/ui/card'
+import { Plus, X, Trash2 } from 'lucide-react'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
+import { getSupabase } from '@/lib/supabase'
 import { toast } from 'sonner'
 import type { Item, Category } from '@/lib/supabase'
 
@@ -19,7 +22,10 @@ export function InventoryModule() {
       <Route path="movements" element={<StockMovements />} />
       <Route path="adjustments" element={<StockAdjustments />} />
       <Route path="valuation" element={<InventoryValuation />} />
-      <Route path="locations" element={<StorageLocations />} />
+      <Route path="locations" element={<StorageLocationsPage />} />
+      <Route path="warehouses" element={<WarehousesPage />} />
+      <Route path="bins" element={<StorageBinsPage />} />
+      <Route path="transfers" element={<StockTransfersPage />} />
       <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )
@@ -107,14 +113,50 @@ function InventoryOverview() {
           </p>
         </Link>
 
-        <div className="bg-card rounded-lg border p-6">
+        <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+            🏭 المخازن (1)
+          </h3>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            المخازن الرئيسية
+          </p>
+        </Link>
+
+        <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+            📍 مواقع التخزين (2)
+          </h3>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            المناطق والأرفف
+          </p>
+        </Link>
+
+        <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+            📦 صناديق التخزين (3)
+          </h3>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            المواقع الدقيقة + باركود
+          </p>
+        </Link>
+
+        <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+            🔄 تحويلات البضاعة
+          </h3>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            نقل المخزون بين المستودعات
+          </p>
+        </Link>
+
+        <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
           <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
             {t('inventory.adjustments')}
           </h3>
           <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
             تسويات المخزون
           </p>
-        </div>
+        </Link>
       </div>
 
       {/* Low Stock Alert */}
@@ -152,7 +194,7 @@ function ItemsManagement() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc')
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingItem, setEditingItem] = useState<Item | null>(null)
-  const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number; valuation_method?: string }>({
+  const [newItem, setNewItem] = useState<Omit<Item, 'id' | 'category'> & { name_ar: string; selling_price: number; valuation_method?: string; default_warehouse_id?: string }>({
     name: '',
     name_ar: '',
     code: '',
@@ -165,10 +207,16 @@ function ItemsManagement() {
     description: '',
     price: 0,
     valuation_method: 'Weighted Average', // Default valuation method
+    default_warehouse_id: '', // Default warehouse
   })
+
+  // Warehouses for item form
+  const [itemWarehouses, setItemWarehouses] = useState<any[]>([])
+  const [loadingItemWarehouses, setLoadingItemWarehouses] = useState(true)
 
   useEffect(() => {
     loadData()
+    loadItemWarehouses()
   }, [])
 
   const loadData = async () => {
@@ -184,6 +232,34 @@ function ItemsManagement() {
       toast.error('خطأ في تحميل البيانات')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const loadItemWarehouses = async () => {
+    try {
+      setLoadingItemWarehouses(true)
+      const supabase = getSupabase()
+      const { data, error } = await supabase
+        .from('warehouses')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+
+      if (error) throw error
+      
+      setItemWarehouses(data || [])
+      
+      // Auto-select first warehouse for new items
+      if (data && data.length > 0 && !newItem.default_warehouse_id) {
+        setNewItem(prev => ({
+          ...prev,
+          default_warehouse_id: data[0].id
+        }))
+      }
+    } catch (error) {
+      console.error('Error loading warehouses:', error)
+    } finally {
+      setLoadingItemWarehouses(false)
     }
   }
 
@@ -240,6 +316,12 @@ function ItemsManagement() {
 
   const handleAddItem = async () => {
     try {
+      // Validate warehouse selection
+      if (!newItem.default_warehouse_id) {
+        toast.error('الرجاء اختيار المخزن الافتراضي')
+        return
+      }
+
       // Clean up the data before sending
       const itemToAdd: any = {
         ...newItem,
@@ -262,6 +344,7 @@ function ItemsManagement() {
         description: '',
         price: 0,
         valuation_method: 'Weighted Average',
+        default_warehouse_id: itemWarehouses[0]?.id || '',
       })
       loadData()
     } catch (error) {
@@ -464,6 +547,25 @@ function ItemsManagement() {
                   </option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">المخزن الافتراضي *</label>
+              <select
+                value={newItem.default_warehouse_id}
+                onChange={(e) => setNewItem({...newItem, default_warehouse_id: e.target.value})}
+                disabled={loadingItemWarehouses}
+                className="w-full h-10 px-3 rounded-md border border-input bg-background"
+              >
+                <option value="">-- اختر المخزن --</option>
+                {itemWarehouses.map(wh => (
+                  <option key={wh.id} value={wh.id}>
+                    {wh.code} - {wh.name || wh.name_ar}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                💡 المخزن الذي سيتم تخزين المنتج فيه بشكل افتراضي
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">وحدة القياس</label>
@@ -708,24 +810,1496 @@ function ItemsManagement() {
 
 // Stock Adjustments Component
 function StockAdjustments() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
+  const [adjustments, setAdjustments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showNewForm, setShowNewForm] = useState(false)
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterType, setFilterType] = useState<string>('all')
+  const [viewMode, setViewMode] = useState(false)
+  const [selectedAdjustment, setSelectedAdjustment] = useState<any>(null)
+
+  // New adjustment state
+  const [newAdjustment, setNewAdjustment] = useState({
+    adjustment_date: new Date().toISOString().split('T')[0],
+    adjustment_type: 'PHYSICAL_COUNT',
+    reason: '',
+    reference_number: '',
+    warehouse_id: '',
+    increase_account_id: '',  // حساب الزيادة
+    decrease_account_id: '',  // حساب النقص
+    items: [] as any[]
+  })
+
+  // Warehouses state
+  const [warehouses, setWarehouses] = useState<any[]>([])
+  const [loadingWarehouses, setLoadingWarehouses] = useState(true)
+  
+  // GL Accounts state
+  const [glAccounts, setGLAccounts] = useState<any[]>([])
+  const [loadingAccounts, setLoadingAccounts] = useState(true)
+
+  // Item selection state
+  const [selectedProduct, setSelectedProduct] = useState<any>(null)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [products, setProducts] = useState<any[]>([])
+  const [showProductSearch, setShowProductSearch] = useState(false)
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false)
+
+  useEffect(() => {
+    loadAdjustments()
+    loadProducts()
+    loadWarehouses()
+    loadGLAccounts()
+  }, [])
+
+  // Reload when filters change
+  useEffect(() => {
+    if (!loading) {
+      loadAdjustments()
+    }
+  }, [filterStatus, filterType])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement
+      if (!target.closest('.product-search-container')) {
+        setShowProductSearch(false)
+      }
+      if (!target.closest('.type-dropdown-container')) {
+        setShowTypeDropdown(false)
+      }
+    }
+
+    if (showProductSearch || showTypeDropdown) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showProductSearch, showTypeDropdown])
+
+  const loadAdjustments = async () => {
+    try {
+      console.log('🔍 Loading adjustments...')
+      const supabase = getSupabase()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        console.log('❌ No user found')
+        setAdjustments([])
+        setLoading(false)
+        return
+      }
+
+      console.log('✅ User:', user.id)
+
+      const { data: userOrgs, error: orgError } = await supabase
+        .from('user_organizations')
+        .select('org_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (orgError || !userOrgs) {
+        console.log('❌ No organization found:', orgError)
+        setAdjustments([])
+        setLoading(false)
+        return
+      }
+
+      console.log('✅ Organization:', userOrgs.org_id)
+
+      let query = supabase
+        .from('stock_adjustments')
+        .select('*')
+        .eq('organization_id', userOrgs.org_id)
+        .order('created_at', { ascending: false })
+
+      if (filterStatus !== 'all') {
+        query = query.eq('status', filterStatus)
+      }
+
+      if (filterType !== 'all') {
+        query = query.eq('adjustment_type', filterType)
+      }
+
+      const { data, error } = await query
+
+      if (error) {
+        console.error('❌ Error loading adjustments:', error)
+        throw error
+      }
+
+      console.log('✅ Loaded adjustments:', data?.length || 0, data)
+      setAdjustments(data || [])
+    } catch (error) {
+      console.error('❌ Error loading adjustments:', error)
+      toast.error('خطأ في تحميل التسويات: ' + (error as any).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadProducts = async () => {
+    try {
+      const data = await itemsService.getAll()
+      setProducts(data || [])
+    } catch (error) {
+      console.error('Error loading products:', error)
+    }
+  }
+
+  const loadWarehouses = async () => {
+    try {
+      setLoadingWarehouses(true)
+      const supabase = getSupabase()
+      const { data, error } = await supabase
+        .from('warehouses')
+        .select('*')
+        .eq('is_active', true)
+        .order('name')
+
+      if (error) throw error
+      
+      setWarehouses(data || [])
+      
+      // Auto-select first warehouse
+      if (data && data.length > 0 && !newAdjustment.warehouse_id) {
+        setNewAdjustment(prev => ({
+          ...prev,
+          warehouse_id: data[0].id
+        }))
+      }
+    } catch (error) {
+      console.error('Error loading warehouses:', error)
+      toast.error('خطأ في تحميل المخازن')
+    } finally {
+      setLoadingWarehouses(false)
+    }
+  }
+
+  const loadGLAccounts = async () => {
+    try {
+      setLoadingAccounts(true)
+      const supabase = getSupabase()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        setGLAccounts([])
+        setLoadingAccounts(false)
+        return
+      }
+
+      const { data: userOrgs } = await supabase
+        .from('user_organizations')
+        .select('org_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!userOrgs) {
+        setGLAccounts([])
+        setLoadingAccounts(false)
+        return
+      }
+
+      // Load GL Accounts (expense and asset accounts)
+      const { data, error } = await supabase
+        .from('gl_accounts')
+        .select('*')
+        .eq('org_id', userOrgs.org_id)
+        .in('category', ['ASSET', 'EXPENSE'])
+        .eq('is_active', true)
+        .order('code')
+
+      if (error) throw error
+      
+      setGLAccounts(data || [])
+    } catch (error) {
+      console.error('Error loading GL accounts:', error)
+      toast.error('خطأ في تحميل الحسابات')
+    } finally {
+      setLoadingAccounts(false)
+    }
+  }
+
+  const adjustmentTypes = {
+    'PHYSICAL_COUNT': { label: 'جرد فعلي', icon: '📋', color: 'blue' },
+    'DAMAGE': { label: 'تالف', icon: '💔', color: 'red' },
+    'THEFT': { label: 'فقد/سرقة', icon: '🚨', color: 'orange' },
+    'EXPIRY': { label: 'منتهي الصلاحية', icon: '⏰', color: 'yellow' },
+    'QUALITY_ISSUE': { label: 'مشكلة جودة', icon: '⚠️', color: 'amber' },
+    'REVALUATION': { label: 'إعادة تقييم', icon: '💰', color: 'green' },
+    'OTHER': { label: 'أخرى', icon: '📝', color: 'gray' }
+  }
+
+  const handleAddItem = () => {
+    if (!newAdjustment.warehouse_id) {
+      toast.error('الرجاء اختيار المخزن أولاً')
+      return
+    }
+
+    if (!selectedProduct) {
+      toast.error('الرجاء اختيار منتج')
+      return
+    }
+
+    const existingItem = newAdjustment.items.find(
+      (i: any) => i.product_id === selectedProduct.id
+    )
+
+    if (existingItem) {
+      toast.error('المنتج موجود بالفعل في القائمة')
+      return
+    }
+
+    const newItem = {
+      id: Date.now().toString(),
+      product_id: selectedProduct.id,
+      product: selectedProduct,
+      warehouse_id: newAdjustment.warehouse_id, // Use warehouse from adjustment header
+      current_qty: selectedProduct.stock_quantity || 0,
+      new_qty: 0,
+      difference_qty: 0,
+      current_rate: selectedProduct.cost_price || 0,
+      value_difference: 0,
+      reason: ''
+    }
+
+    setNewAdjustment({
+      ...newAdjustment,
+      items: [...newAdjustment.items, newItem]
+    })
+
+    setSelectedProduct(null)
+    setSearchTerm('')
+    setShowProductSearch(false)
+  }
+
+  const handleItemChange = (itemId: string, field: string, value: any) => {
+    const updatedItems = newAdjustment.items.map((item: any) => {
+      if (item.id === itemId) {
+        const updated = { ...item, [field]: value }
+
+        // Recalculate difference and value
+        if (field === 'new_qty') {
+          updated.difference_qty = value - updated.current_qty
+          updated.value_difference = updated.difference_qty * updated.current_rate
+        }
+
+        return updated
+      }
+      return item
+    })
+
+    setNewAdjustment({
+      ...newAdjustment,
+      items: updatedItems
+    })
+  }
+
+  const handleRemoveItem = (itemId: string) => {
+    setNewAdjustment({
+      ...newAdjustment,
+      items: newAdjustment.items.filter((i: any) => i.id !== itemId)
+    })
+  }
+
+  const calculateTotals = () => {
+    const totalValueDiff = newAdjustment.items.reduce(
+      (sum: number, item: any) => sum + (item.value_difference || 0),
+      0
+    )
+
+    const increaseCount = newAdjustment.items.filter(
+      (i: any) => i.difference_qty > 0
+    ).length
+
+    const decreaseCount = newAdjustment.items.filter(
+      (i: any) => i.difference_qty < 0
+    ).length
+
+    return { totalValueDiff, increaseCount, decreaseCount }
+  }
+
+  const handleSaveAdjustment = async () => {
+    try {
+      if (newAdjustment.items.length === 0) {
+        toast.error('الرجاء إضافة منتج واحد على الأقل')
+        return
+      }
+
+      if (!newAdjustment.warehouse_id) {
+        toast.error('الرجاء اختيار المخزن')
+        return
+      }
+
+      if (!newAdjustment.increase_account_id) {
+        toast.error('الرجاء اختيار حساب الزيادة في المخزون')
+        return
+      }
+
+      if (!newAdjustment.decrease_account_id) {
+        toast.error('الرجاء اختيار حساب النقص في المخزون')
+        return
+      }
+
+      if (!newAdjustment.reason.trim()) {
+        toast.error('الرجاء إدخال سبب التسوية')
+        return
+      }
+
+      // Validate all items have new_qty set
+      const invalidItems = newAdjustment.items.filter(
+        (i: any) => i.difference_qty === 0
+      )
+
+      if (invalidItems.length > 0) {
+        toast.error('الرجاء تحديد الكمية الجديدة لجميع المنتجات')
+        return
+      }
+
+      const supabase = getSupabase()
+      
+      // Get user and organization
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('الرجاء تسجيل الدخول')
+        return
+      }
+
+      const { data: userOrg } = await supabase
+        .from('user_organizations')
+        .select('org_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!userOrg) {
+        toast.error('لم يتم العثور على المؤسسة')
+        return
+      }
+
+      // Calculate totals
+      const totalItems = newAdjustment.items.length
+      const totalQtyDiff = newAdjustment.items.reduce((sum: number, item: any) => sum + item.difference_qty, 0)
+      const totalValueDiff = newAdjustment.items.reduce((sum: number, item: any) => sum + item.value_difference, 0)
+
+      // Check if editing existing adjustment
+      const isEditing = selectedAdjustment?.isEditing
+
+      let adjustment: any
+
+      if (isEditing) {
+        // Update existing adjustment
+        const { data: updatedAdj, error: updateError } = await supabase
+          .from('stock_adjustments')
+          .update({
+            adjustment_date: newAdjustment.adjustment_date,
+            posting_date: newAdjustment.adjustment_date,
+            adjustment_type: newAdjustment.adjustment_type,
+            reason: newAdjustment.reason,
+            reference_number: newAdjustment.reference_number || null,
+            warehouse_id: newAdjustment.warehouse_id,
+            increase_account_id: newAdjustment.increase_account_id,
+            decrease_account_id: newAdjustment.decrease_account_id,
+            total_items: totalItems,
+            total_qty_difference: totalQtyDiff,
+            total_value_difference: totalValueDiff,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedAdjustment.id)
+          .select()
+          .single()
+
+        if (updateError) throw updateError
+        adjustment = updatedAdj
+
+        // Delete old items
+        const { error: deleteError } = await supabase
+          .from('stock_adjustment_items')
+          .delete()
+          .eq('adjustment_id', selectedAdjustment.id)
+
+        if (deleteError) throw deleteError
+      } else {
+        // Save new adjustment header
+        const { data: newAdj, error: adjError } = await supabase
+          .from('stock_adjustments')
+          .insert({
+            organization_id: userOrg.org_id,
+            adjustment_date: newAdjustment.adjustment_date,
+            posting_date: newAdjustment.adjustment_date,
+            adjustment_type: newAdjustment.adjustment_type,
+            reason: newAdjustment.reason,
+            reference_number: newAdjustment.reference_number || null,
+            warehouse_id: newAdjustment.warehouse_id,
+            increase_account_id: newAdjustment.increase_account_id,
+            decrease_account_id: newAdjustment.decrease_account_id,
+            status: 'DRAFT',
+            total_items: totalItems,
+            total_qty_difference: totalQtyDiff,
+            total_value_difference: totalValueDiff,
+            created_by: user.id
+          })
+          .select()
+          .single()
+
+        if (adjError) throw adjError
+        adjustment = newAdj
+      }
+
+      // Save adjustment items
+      const itemsToInsert = newAdjustment.items.map((item: any) => ({
+        adjustment_id: adjustment.id,
+        organization_id: userOrg.org_id,
+        product_id: item.product_id,
+        warehouse_id: item.warehouse_id || newAdjustment.warehouse_id, // Use item warehouse or adjustment warehouse
+        current_qty: item.current_qty,
+        new_qty: item.new_qty,
+        difference_qty: item.difference_qty,
+        current_rate: item.current_rate,
+        value_difference: item.value_difference,
+        reason: item.reason || null
+      }))
+
+      const { error: itemsError } = await supabase
+        .from('stock_adjustment_items')
+        .insert(itemsToInsert)
+
+      if (itemsError) throw itemsError
+
+      toast.success(isEditing ? 'تم تحديث التسوية بنجاح' : 'تم حفظ التسوية كمسودة بنجاح')
+      setShowNewForm(false)
+      setSelectedAdjustment(null)
+      setNewAdjustment({
+        adjustment_date: new Date().toISOString().split('T')[0],
+        adjustment_type: 'PHYSICAL_COUNT',
+        reason: '',
+        reference_number: '',
+        warehouse_id: warehouses[0]?.id || '',
+        increase_account_id: '',
+        decrease_account_id: '',
+        items: []
+      })
+      
+      // Reload adjustments
+      loadAdjustments()
+    } catch (error: any) {
+      console.error('Error saving adjustment:', error)
+      toast.error(error.message || 'خطأ في حفظ التسوية')
+    }
+  }
+
+  const handleSubmitAdjustment = async (adjustmentId: string) => {
+    try {
+      const supabase = getSupabase()
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) {
+        toast.error('الرجاء تسجيل الدخول')
+        return
+      }
+
+      // Get user's organization
+      const { data: userOrg } = await supabase
+        .from('user_organizations')
+        .select('org_id')
+        .eq('user_id', user.id)
+        .single()
+
+      if (!userOrg) {
+        toast.error('لم يتم العثور على المؤسسة')
+        return
+      }
+
+      // Get adjustment with items
+      const { data: adjustment, error: adjError } = await supabase
+        .from('stock_adjustments')
+        .select('*')
+        .eq('id', adjustmentId)
+        .single()
+
+      if (adjError || !adjustment) {
+        toast.error('لم يتم العثور على التسوية')
+        return
+      }
+
+      if (adjustment.status !== 'DRAFT') {
+        toast.error('يمكن فقط ترحيل التسويات بحالة مسودة')
+        return
+      }
+
+      // Get adjustment items
+      const { data: items, error: itemsError } = await supabase
+        .from('stock_adjustment_items')
+        .select('*')
+        .eq('adjustment_id', adjustmentId)
+
+      if (itemsError || !items || items.length === 0) {
+        toast.error('لم يتم العثور على بنود التسوية')
+        return
+      }
+
+      // Use the warehouse from the adjustment
+      const warehouseId = adjustment.warehouse_id
+
+      if (!warehouseId) {
+        toast.error('لم يتم تحديد المخزن في التسوية')
+        return
+      }
+
+      // Create stock ledger entries for each item
+      const stockLedgerEntries = items.map((item: any) => ({
+        org_id: userOrg.org_id,
+        posting_date: adjustment.posting_date,
+        posting_time: new Date().toTimeString().split(' ')[0],
+        voucher_type: 'Stock Adjustment',
+        voucher_id: adjustmentId,
+        voucher_number: adjustment.adjustment_number || adjustment.reference_number || `ADJ-${adjustmentId.substring(0, 8)}`,
+        product_id: item.product_id,
+        warehouse_id: item.warehouse_id || warehouseId, // Use item's warehouse or adjustment's warehouse
+        actual_qty: item.difference_qty,
+        qty_after_transaction: item.new_qty,
+        incoming_rate: item.difference_qty > 0 ? item.current_rate : 0,
+        outgoing_rate: item.difference_qty < 0 ? item.current_rate : 0,
+        valuation_rate: item.current_rate,
+        stock_value: item.new_qty * item.current_rate,
+        stock_value_difference: item.value_difference,
+        is_cancelled: false,
+        created_by: user.id
+      }))
+
+      const { error: ledgerError } = await supabase
+        .from('stock_ledger_entries')
+        .insert(stockLedgerEntries)
+
+      if (ledgerError) {
+        console.error('Error creating stock ledger entries:', ledgerError)
+        throw new Error('فشل في إنشاء قيود المخزون: ' + ledgerError.message)
+      }
+
+      // Create Journal Entries for accounting integration
+      try {
+        // Calculate totals for increases and decreases
+        const totalIncrease = items
+          .filter((item: any) => item.difference_qty > 0)
+          .reduce((sum: number, item: any) => sum + item.value_difference, 0)
+        
+        const totalDecrease = items
+          .filter((item: any) => item.difference_qty < 0)
+          .reduce((sum: number, item: any) => sum + Math.abs(item.value_difference), 0)
+
+        const journalEntries = []
+
+        // Entry for increases (Dr: Inventory Asset, Cr: Adjustment Account)
+        if (totalIncrease > 0 && adjustment.increase_account_id) {
+          const { data: warehouseData } = await supabase
+            .from('warehouses')
+            .select('inventory_account_id')
+            .eq('id', adjustment.warehouse_id)
+            .single()
+
+          if (warehouseData?.inventory_account_id) {
+            journalEntries.push({
+              account_id: warehouseData.inventory_account_id,
+              debit: totalIncrease,
+              credit: 0,
+              description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
+            })
+            journalEntries.push({
+              account_id: adjustment.increase_account_id,
+              debit: 0,
+              credit: totalIncrease,
+              description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
+            })
+          }
+        }
+
+        // Entry for decreases (Dr: Expense Account, Cr: Inventory Asset)
+        if (totalDecrease > 0 && adjustment.decrease_account_id) {
+          const { data: warehouseData } = await supabase
+            .from('warehouses')
+            .select('inventory_account_id')
+            .eq('id', adjustment.warehouse_id)
+            .single()
+
+          if (warehouseData?.inventory_account_id) {
+            journalEntries.push({
+              account_id: adjustment.decrease_account_id,
+              debit: totalDecrease,
+              credit: 0,
+              description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
+            })
+            journalEntries.push({
+              account_id: warehouseData.inventory_account_id,
+              debit: 0,
+              credit: totalDecrease,
+              description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
+            })
+          }
+        }
+
+        // Insert journal entries if any
+        if (journalEntries.length > 0) {
+          // Create GL Entry header (using gl_entries table)
+          const { data: glEntry, error: glError } = await supabase
+            .from('gl_entries')
+            .insert({
+              org_id: userOrg.org_id,
+              entry_date: adjustment.posting_date,
+              voucher_type: 'Stock Adjustment',
+              voucher_number: adjustment.adjustment_number || adjustment.reference_number || `ADJ-${adjustmentId.substring(0, 8)}`,
+              reference: adjustment.reference_number || null,
+              description: `تسوية مخزون - ${adjustment.reason}`,
+              status: 'posted',
+              total_debit: journalEntries.reduce((sum: number, e: any) => sum + e.debit, 0),
+              total_credit: journalEntries.reduce((sum: number, e: any) => sum + e.credit, 0),
+              created_by: user.id
+            })
+            .select('id')
+            .single()
+
+          if (glError) {
+            console.error('Error creating GL entry:', glError)
+            throw new Error('فشل في إنشاء القيد المحاسبي: ' + glError.message)
+          }
+
+          if (glEntry) {
+            // Add entry_id to all line items
+            const lineItems = journalEntries.map((entry: any) => ({
+              org_id: userOrg.org_id,
+              entry_id: glEntry.id,
+              account_id: entry.account_id,
+              debit: entry.debit || 0,
+              credit: entry.credit || 0,
+              description: entry.description || ''
+            }))
+
+            const { error: linesError } = await supabase
+              .from('journal_lines')
+              .insert(lineItems)
+
+            if (linesError) {
+              console.error('Error creating journal lines:', linesError)
+              throw new Error('فشل في إنشاء بنود القيد: ' + linesError.message)
+            } else {
+              console.log('✅ Journal entries created successfully:', {
+                entry_id: glEntry.id,
+                lines_count: lineItems.length,
+                total_debit: lineItems.reduce((sum: number, l: any) => sum + l.debit, 0),
+                total_credit: lineItems.reduce((sum: number, l: any) => sum + l.credit, 0)
+              })
+            }
+          }
+        } else {
+          console.warn('⚠️ No journal entries to create')
+        }
+      } catch (jeError: any) {
+        console.error('Error creating journal entries:', jeError)
+        // Don't fail the whole operation if journal entry creation fails
+        toast.warning('تم ترحيل التسوية لكن فشل إنشاء القيود المحاسبية: ' + jeError.message)
+      }
+      
+      // Update adjustment status to SUBMITTED
+      const { error: updateError } = await supabase
+        .from('stock_adjustments')
+        .update({
+          status: 'SUBMITTED',
+          submitted_at: new Date().toISOString(),
+          submitted_by: user.id
+        })
+        .eq('id', adjustmentId)
+
+      if (updateError) throw updateError
+
+      toast.success('✅ تم ترحيل التسوية بنجاح وتحديث قيود المخزون')
+      
+      // Close view mode and reload
+      setViewMode(false)
+      setSelectedAdjustment(null)
+      loadAdjustments()
+
+    } catch (error: any) {
+      console.error('Error submitting adjustment:', error)
+      toast.error(error.message || 'خطأ في ترحيل التسوية')
+    }
+  }
+
+  const filteredProducts = products.filter(
+    (p: any) =>
+      p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      p.code?.toLowerCase().includes(searchTerm.toLowerCase())
+  )
+
+  const { totalValueDiff, increaseCount, decreaseCount } = calculateTotals()
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تسويات المخزون</h1>
-        <p className="text-muted-foreground mt-2">
-          تعديل وتصحيح أرصدة المخزون
-        </p>
+      {/* Header */}
+      <div className="flex justify-between items-start">
+        <div>
+          <h1 className="text-3xl font-bold">تسويات المخزون</h1>
+          <p className="text-muted-foreground mt-2">
+            تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية
+          </p>
+        </div>
+        <Button
+          onClick={() => setShowNewForm(true)}
+          className="gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          تسوية جديدة
+        </Button>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - تسويات وتعديلات أرصدة المخزون
-        </p>
+
+      {/* New Adjustment Form */}
+      {showNewForm && (
+        <Card className="p-6" style={{ overflow: 'visible' }}>
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold">تسوية مخزون جديدة</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowNewForm(false)}
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {/* Header Info */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  التاريخ *
+                </label>
+                <input
+                  type="date"
+                  value={newAdjustment.adjustment_date}
+                  onChange={(e) =>
+                    setNewAdjustment({
+                      ...newAdjustment,
+                      adjustment_date: e.target.value
+                    })
+                  }
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  المخزن *
+                </label>
+                <select
+                  value={newAdjustment.warehouse_id}
+                  onChange={(e) => {
+                    const newWarehouseId = e.target.value
+                    setNewAdjustment({
+                      ...newAdjustment,
+                      warehouse_id: newWarehouseId,
+                      // Update all existing items with new warehouse
+                      items: newAdjustment.items.map((item: any) => ({
+                        ...item,
+                        warehouse_id: newWarehouseId
+                      }))
+                    })
+                  }}
+                  disabled={loadingWarehouses}
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-800"
+                >
+                  <option value="">اختر المخزن</option>
+                  {warehouses.map((wh) => (
+                    <option key={wh.id} value={wh.id}>
+                      {wh.code} - {wh.name || wh.name_ar}
+                    </option>
+                  ))}
+                </select>
+                {!newAdjustment.warehouse_id && (
+                  <p className="text-xs text-red-600 mt-1">
+                    ⚠️ يجب اختيار المخزن
+                  </p>
+                )}
+              </div>
+
+              <div className="relative">
+                <label className="block text-sm font-medium mb-1">
+                  نوع التسوية *
+                </label>
+                <div className="type-dropdown-container">
+                  <button
+                    type="button"
+                    onClick={() => setShowTypeDropdown(!showTypeDropdown)}
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-right bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center justify-between relative z-10"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="text-xl">{adjustmentTypes[newAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.icon}</span>
+                      <span>{adjustmentTypes[newAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.label}</span>
+                    </span>
+                    <svg 
+                      className={cn("w-4 h-4 transition-transform", showTypeDropdown && "rotate-180")} 
+                      fill="none" 
+                      stroke="currentColor" 
+                      viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  
+                  {showTypeDropdown && (
+                    <div 
+                      className="absolute left-0 right-0 top-full mt-1 bg-white dark:bg-gray-950 border-2 border-gray-400 dark:border-gray-400 rounded-lg shadow-2xl max-h-80 overflow-y-auto z-[9999]"
+                      style={{ 
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                      }}
+                    >
+                      {Object.entries(adjustmentTypes).map(([key, value]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => {
+                            setNewAdjustment({
+                              ...newAdjustment,
+                              adjustment_type: key
+                            })
+                            setShowTypeDropdown(false)
+                          }}
+                          className={cn(
+                            "w-full px-4 py-3 text-right hover:bg-gray-100 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-700 last:border-b-0 transition-colors flex items-center gap-3 bg-white dark:bg-gray-950",
+                            newAdjustment.adjustment_type === key && "bg-blue-50 dark:bg-blue-950 border-l-4 border-l-blue-500"
+                          )}
+                        >
+                          <span className="text-2xl">{value.icon}</span>
+                          <span className="font-medium text-gray-900 dark:text-white">{value.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  رقم المرجع
+                </label>
+                <input
+                  type="text"
+                  value={newAdjustment.reference_number}
+                  onChange={(e) =>
+                    setNewAdjustment({
+                      ...newAdjustment,
+                      reference_number: e.target.value
+                    })
+                  }
+                  placeholder="اختياري"
+                  className="w-full px-3 py-2 border rounded-md"
+                />
+              </div>
+            </div>
+
+            {/* GL Accounts Section */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-5 border-t pt-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  حساب الزيادة في المخزون *
+                </label>
+                <select
+                  value={newAdjustment.increase_account_id}
+                  onChange={(e) =>
+                    setNewAdjustment({
+                      ...newAdjustment,
+                      increase_account_id: e.target.value
+                    })
+                  }
+                  disabled={loadingAccounts}
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-800"
+                >
+                  <option value="">اختر الحساب</option>
+                  {glAccounts
+                    .filter(acc => acc.category === 'ASSET')
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} - {account.name}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  💡 الحساب الذي سيُضاف إليه عند زيادة المخزون (حساب أصول)
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">
+                  حساب النقص في المخزون *
+                </label>
+                <select
+                  value={newAdjustment.decrease_account_id}
+                  onChange={(e) =>
+                    setNewAdjustment({
+                      ...newAdjustment,
+                      decrease_account_id: e.target.value
+                    })
+                  }
+                  disabled={loadingAccounts}
+                  className="w-full px-3 py-2 border rounded-md bg-white dark:bg-gray-800"
+                >
+                  <option value="">اختر الحساب</option>
+                  {glAccounts
+                    .filter(acc => acc.category === 'EXPENSE')
+                    .map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {account.code} - {account.name}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  💡 الحساب الذي سيُخصم منه عند نقص المخزون (حساب مصروف)
+                </p>
+              </div>
+            </div>
+
+            <div className="relative z-5">
+              <label className="block text-sm font-medium mb-1">
+                السبب *
+              </label>
+              <textarea
+                value={newAdjustment.reason}
+                onChange={(e) =>
+                  setNewAdjustment({
+                    ...newAdjustment,
+                    reason: e.target.value
+                  })
+                }
+                placeholder="اذكر سبب التسوية بالتفصيل..."
+                rows={2}
+                className="w-full px-3 py-2 border rounded-md"
+              />
+            </div>
+
+            {/* Product Selection */}
+            <div className="relative z-20">
+              <label className="block text-sm font-medium mb-2">
+                إضافة منتج
+              </label>
+              
+              {!newAdjustment.warehouse_id && (
+                <div className="mb-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
+                  <p className="text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                    <span>⚠️</span>
+                    <span>يجب اختيار المخزن أولاً قبل إضافة المنتجات</span>
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <div className="flex-1 relative product-search-container">
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setShowProductSearch(true)
+                    }}
+                    onFocus={() => setShowProductSearch(true)}
+                    placeholder="ابحث عن منتج..."
+                    disabled={!newAdjustment.warehouse_id}
+                    className="w-full px-3 py-2 border rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                  />
+                  
+                  {showProductSearch && searchTerm && (
+                    <div 
+                      className="absolute z-[9999] w-full mt-1 bg-white dark:bg-gray-950 border-2 border-gray-400 dark:border-gray-400 rounded-lg shadow-2xl max-h-60 overflow-y-auto"
+                      style={{ 
+                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
+                      }}
+                    >
+                      {filteredProducts.length > 0 ? (
+                        filteredProducts.map((product) => (
+                          <button
+                            key={product.id}
+                            onClick={() => {
+                              setSelectedProduct(product)
+                              setSearchTerm(product.name)
+                              setShowProductSearch(false)
+                            }}
+                            className="w-full px-4 py-3 text-right hover:bg-gray-100 dark:hover:bg-gray-800 border-b border-gray-200 dark:border-gray-700 last:border-b-0 transition-colors bg-white dark:bg-gray-950"
+                          >
+                            <div className="font-medium text-gray-900 dark:text-white">{product.name}</div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {product.code} - الرصيد: {product.stock_quantity}
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-4 py-4 text-center text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-950">
+                          لا توجد نتائج
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <Button 
+                  onClick={handleAddItem}
+                  disabled={!newAdjustment.warehouse_id || !selectedProduct}
+                >
+                  إضافة
+                </Button>
+              </div>
+            </div>
+
+            {/* Items Table */}
+            {newAdjustment.items.length > 0 && (
+              <div className="border rounded-lg overflow-hidden relative z-0">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        المنتج
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        الرصيد الحالي
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        الكمية الجديدة
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        الفرق
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        السعر
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        فرق القيمة
+                      </th>
+                      <th className="px-4 py-3 text-right text-xs font-medium">
+                        ملاحظات
+                      </th>
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {newAdjustment.items.map((item: any) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{item.product?.name}</div>
+                          <div className="text-xs text-gray-500">
+                            {item.product?.code}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-center font-mono">
+                          {item.current_qty}
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="number"
+                            value={item.new_qty}
+                            onChange={(e) =>
+                              handleItemChange(
+                                item.id,
+                                'new_qty',
+                                parseFloat(e.target.value) || 0
+                              )
+                            }
+                            className="w-20 px-2 py-1 border rounded text-center"
+                            step="0.01"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={cn(
+                              'font-bold',
+                              item.difference_qty > 0
+                                ? 'text-green-600'
+                                : item.difference_qty < 0
+                                ? 'text-red-600'
+                                : 'text-gray-600'
+                            )}
+                          >
+                            {item.difference_qty > 0 ? '+' : ''}
+                            {(item.difference_qty || 0).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {(item.current_rate || 0).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={cn(
+                              'font-bold',
+                              item.value_difference > 0
+                                ? 'text-green-600'
+                                : item.value_difference < 0
+                                ? 'text-red-600'
+                                : 'text-gray-600'
+                            )}
+                          >
+                            {(item.value_difference || 0).toFixed(2)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <input
+                            type="text"
+                            value={item.reason || ''}
+                            onChange={(e) =>
+                              handleItemChange(item.id, 'reason', e.target.value)
+                            }
+                            placeholder="اختياري"
+                            className="w-full px-2 py-1 border rounded text-sm"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleRemoveItem(item.id)}
+                          >
+                            <Trash2 className="w-4 h-4 text-red-600" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Summary */}
+                <div className="bg-gray-50 p-4 border-t">
+                  <div className="flex justify-between items-center">
+                    <div className="flex gap-4 text-sm">
+                      <span>
+                        عدد المنتجات: <strong>{newAdjustment.items.length}</strong>
+                      </span>
+                      <span className="text-green-600">
+                        زيادة: <strong>{increaseCount}</strong>
+                      </span>
+                      <span className="text-red-600">
+                        نقص: <strong>{decreaseCount}</strong>
+                      </span>
+                    </div>
+                    <div className="text-lg font-bold">
+                      إجمالي فرق القيمة:{' '}
+                      <span
+                        className={cn(
+                          totalValueDiff > 0
+                            ? 'text-green-600'
+                            : totalValueDiff < 0
+                            ? 'text-red-600'
+                            : 'text-gray-600'
+                        )}
+                      >
+                        {totalValueDiff.toFixed(2)} ر.س
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowNewForm(false)
+                  setSelectedAdjustment(null)
+                  setNewAdjustment({
+                    adjustment_date: new Date().toISOString().split('T')[0],
+                    adjustment_type: 'PHYSICAL_COUNT',
+                    reason: '',
+                    reference_number: '',
+                    warehouse_id: warehouses[0]?.id || '',
+                    increase_account_id: '',
+                    decrease_account_id: '',
+                    items: []
+                  })
+                }}
+              >
+                إلغاء
+              </Button>
+              <Button
+                onClick={handleSaveAdjustment}
+                disabled={newAdjustment.items.length === 0}
+              >
+                {selectedAdjustment?.isEditing ? '💾 تحديث التسوية' : 'حفظ كمسودة'}
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* View Mode - Display Adjustment Details */}
+      {viewMode && selectedAdjustment && (
+        <Card className="p-6">
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <h3 className="text-2xl font-bold flex items-center gap-2">
+                <span>
+                  {adjustmentTypes[selectedAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.icon}
+                </span>
+                تفاصيل التسوية
+              </h3>
+              <Button variant="outline" onClick={() => {
+                setViewMode(false)
+                setSelectedAdjustment(null)
+              }}>
+                ✕ إغلاق
+              </Button>
+            </div>
+
+            {/* Adjustment Header Info */}
+            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+              <div>
+                <span className="text-sm text-muted-foreground">رقم التسوية:</span>
+                <p className="font-medium">{selectedAdjustment.adjustment_number}</p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">التاريخ:</span>
+                <p className="font-medium">
+                  {new Date(selectedAdjustment.adjustment_date).toLocaleDateString('en-US')}
+                </p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">النوع:</span>
+                <p className="font-medium">
+                  {adjustmentTypes[selectedAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.label}
+                </p>
+              </div>
+              <div>
+                <span className="text-sm text-muted-foreground">الحالة:</span>
+                <Badge
+                  variant={
+                    selectedAdjustment.status === 'SUBMITTED'
+                      ? 'default'
+                      : selectedAdjustment.status === 'DRAFT'
+                      ? 'secondary'
+                      : 'destructive'
+                  }
+                >
+                  {selectedAdjustment.status === 'SUBMITTED'
+                    ? 'مرحل'
+                    : selectedAdjustment.status === 'DRAFT'
+                    ? 'مسودة'
+                    : 'ملغي'}
+                </Badge>
+              </div>
+              <div className="col-span-2">
+                <span className="text-sm text-muted-foreground">السبب:</span>
+                <p className="font-medium">{selectedAdjustment.reason}</p>
+              </div>
+              {selectedAdjustment.reference_number && (
+                <div className="col-span-2">
+                  <span className="text-sm text-muted-foreground">رقم المرجع:</span>
+                  <p className="font-medium">{selectedAdjustment.reference_number}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Summary Statistics */}
+            <div className="grid grid-cols-4 gap-4">
+              <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
+                <p className="text-sm text-muted-foreground">إجمالي المنتجات</p>
+                <p className="text-2xl font-bold">{selectedAdjustment.total_items || 0}</p>
+              </div>
+              <div className="p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
+                <p className="text-sm text-muted-foreground">فرق الكمية</p>
+                <p className="text-2xl font-bold">{selectedAdjustment.total_qty_difference || 0}</p>
+              </div>
+              <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg">
+                <p className="text-sm text-muted-foreground">فرق القيمة</p>
+                <p className="text-2xl font-bold">
+                  {(selectedAdjustment.total_value_difference || 0).toFixed(2)} ر.س
+                </p>
+              </div>
+              <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
+                <p className="text-sm text-muted-foreground">يتطلب موافقة</p>
+                <p className="text-2xl font-bold">{selectedAdjustment.requires_approval ? 'نعم' : 'لا'}</p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            {selectedAdjustment.status === 'DRAFT' && (
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={async () => {
+                  try {
+                    // Load adjustment items
+                    const supabase = getSupabase()
+                    const { data: items, error } = await supabase
+                      .from('stock_adjustment_items')
+                      .select('*, products(*)')
+                      .eq('adjustment_id', selectedAdjustment.id)
+                    
+                    if (error) throw error
+
+                    // Set form data for editing
+                    setNewAdjustment({
+                      adjustment_date: selectedAdjustment.adjustment_date,
+                      adjustment_type: selectedAdjustment.adjustment_type,
+                      reason: selectedAdjustment.reason || '',
+                      reference_number: selectedAdjustment.reference_number,
+                      warehouse_id: selectedAdjustment.warehouse_id,
+                      increase_account_id: selectedAdjustment.increase_account_id || '',
+                      decrease_account_id: selectedAdjustment.decrease_account_id || '',
+                      items: items?.map(item => ({
+                        id: item.id,
+                        product_id: item.product_id,
+                        product: item.products,
+                        warehouse_id: item.warehouse_id,
+                        current_qty: item.current_qty || 0,
+                        new_qty: item.new_qty || 0,
+                        difference_qty: item.difference_qty || 0,
+                        current_rate: item.current_rate || 0,
+                        value_difference: item.value_difference || 0,
+                        reason: item.reason || ''
+                      })) || []
+                    })
+
+                    // Switch to edit mode
+                    setViewMode(false)
+                    setSelectedAdjustment({ ...selectedAdjustment, isEditing: true })
+                    setShowNewForm(true)
+                  } catch (error: any) {
+                    toast.error('فشل تحميل بيانات التسوية: ' + error.message)
+                  }
+                }}>
+                  ✏️ تعديل
+                </Button>
+                <Button onClick={async () => {
+                  if (confirm('هل أنت متأكد من ترحيل هذه التسوية؟ سيتم تحديث أرصدة المخزون وإنشاء القيود المحاسبية.')) {
+                    await handleSubmitAdjustment(selectedAdjustment.id)
+                  }
+                }}>
+                  ✅ ترحيل
+                </Button>
+                <Button variant="destructive" onClick={async () => {
+                  if (confirm('هل أنت متأكد من إلغاء هذه التسوية؟')) {
+                    try {
+                      const supabase = getSupabase()
+                      const { error } = await supabase
+                        .from('stock_adjustments')
+                        .update({ status: 'CANCELLED' })
+                        .eq('id', selectedAdjustment.id)
+                      
+                      if (error) throw error
+                      
+                      toast.success('تم إلغاء التسوية بنجاح')
+                      setViewMode(false)
+                      setSelectedAdjustment(null)
+                      loadAdjustments()
+                    } catch (error: any) {
+                      toast.error('فشل إلغاء التسوية: ' + error.message)
+                    }
+                  }
+                }}>
+                  🗑️ إلغاء
+                </Button>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card className="p-4">
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <label className="block text-sm font-medium mb-1">الحالة</label>
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">الكل</option>
+              <option value="DRAFT">مسودة</option>
+              <option value="SUBMITTED">مرحل</option>
+              <option value="CANCELLED">ملغي</option>
+            </select>
+          </div>
+          <div className="flex-1">
+            <label className="block text-sm font-medium mb-1">النوع</label>
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">الكل</option>
+              {Object.entries(adjustmentTypes).map(([key, value]) => (
+                <option key={key} value={key}>
+                  {value.icon} {value.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </Card>
+
+      {/* Adjustments List */}
+      <div className="bg-card rounded-lg border">
+        {adjustments.length === 0 ? (
+          <div className="p-12 text-center text-muted-foreground">
+            <p className="text-4xl mb-4">📋</p>
+            <p className="text-lg">لا توجد تسويات مخزون بعد</p>
+            <p className="text-sm mt-2">ابدأ بإنشاء تسوية جديدة</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {adjustments.map((adj) => (
+              <div 
+                key={adj.id} 
+                className="p-4 hover:bg-muted/50 cursor-pointer transition-colors"
+                onClick={() => {
+                  setSelectedAdjustment(adj)
+                  setViewMode(true)
+                }}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">
+                        {adjustmentTypes[adj.adjustment_type as keyof typeof adjustmentTypes]?.icon}
+                      </span>
+                      <div>
+                        <h3 className="font-medium">
+                          {adjustmentTypes[adj.adjustment_type as keyof typeof adjustmentTypes]?.label}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {adj.reference_number || adj.id}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="text-sm mt-2">{adj.reason}</p>
+                  </div>
+                  <div className="text-left">
+                    <Badge
+                      variant={
+                        adj.status === 'SUBMITTED'
+                          ? 'default'
+                          : adj.status === 'DRAFT'
+                          ? 'secondary'
+                          : 'destructive'
+                      }
+                    >
+                      {adj.status === 'SUBMITTED'
+                        ? 'مرحل'
+                        : adj.status === 'DRAFT'
+                        ? 'مسودة'
+                        : 'ملغي'}
+                    </Badge>
+                    <div className="text-sm text-muted-foreground mt-2">
+                      {new Date(adj.adjustment_date).toLocaleDateString('en-US')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -824,40 +2398,95 @@ function StockMovements() {
           <h3 className="font-semibold">حركات المخزون ({movements.length})</h3>
         </div>
         <div className="divide-y">
-          {movements.map((movement) => (
-            <div key={movement.id} className="p-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <h4 className="font-medium">{movement.item?.name}</h4>
-                  <p className="text-sm text-muted-foreground">{movement.item?.code}</p>
-                  {movement.notes && (
-                    <p className="text-sm text-muted-foreground mt-1">{movement.notes}</p>
-                  )}
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2">
-                    <Badge 
-                      variant={movement.movement_type === 'in' ? 'default' : 
-                              movement.movement_type === 'out' ? 'destructive' : 'secondary'}
-                    >
-                      {movement.movement_type === 'in' ? 'وارد' : 
-                       movement.movement_type === 'out' ? 'صادر' : 'تسوية'}
-                    </Badge>
-                    <span className={cn(
-                      "font-medium",
-                      movement.movement_type === 'in' ? 'text-green-600' : 
-                      movement.movement_type === 'out' ? 'text-red-600' : 'text-blue-600'
-                    )}>
-                      {movement.movement_type === 'out' ? '-' : '+'}{movement.quantity}
-                    </span>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    {new Date(movement.created_at).toLocaleDateString('ar-SA')}
-                  </div>
-                </div>
-              </div>
+          {movements.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p>لا توجد حركات مخزون بعد</p>
             </div>
-          ))}
+          ) : (
+            movements.map((movement) => {
+              // Determine movement direction from actual_qty
+              const isIncoming = movement.actual_qty > 0
+              const isOutgoing = movement.actual_qty < 0
+              
+              // Get voucher type in Arabic
+              const getVoucherTypeAr = (type: string) => {
+                const types: Record<string, string> = {
+                  'Goods Receipt': 'استلام بضاعة',
+                  'Delivery Note': 'إذن تسليم',
+                  'Stock Entry': 'قيد مخزون',
+                  'Material Issue': 'صرف مواد',
+                  'Material Receipt': 'استلام مواد',
+                  'Purchase Receipt': 'استلام مشتريات',
+                  'Sales Return': 'مرتجع مبيعات',
+                  'Purchase Return': 'مرتجع مشتريات',
+                  'Stock Adjustment': 'تسوية مخزون'
+                }
+                return types[type] || type
+              }
+
+              return (
+                <div key={movement.id} className="p-4 hover:bg-muted/50 transition-colors">
+                  <div className="flex justify-between items-start gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-medium text-base truncate">
+                            {movement.item?.name || 'منتج غير معروف'}
+                          </h4>
+                          <p className="text-sm text-muted-foreground">
+                            {movement.item?.code || 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <Badge 
+                          variant={isIncoming ? 'default' : isOutgoing ? 'destructive' : 'secondary'}
+                          className="text-xs"
+                        >
+                          {getVoucherTypeAr(movement.voucher_type || 'N/A')}
+                        </Badge>
+                        
+                        {movement.voucher_number && (
+                          <span className="text-xs text-muted-foreground">
+                            #{movement.voucher_number}
+                          </span>
+                        )}
+                        
+                        {movement.batch_no && (
+                          <Badge variant="outline" className="text-xs">
+                            دفعة: {movement.batch_no}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="text-left shrink-0">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={cn(
+                          "font-bold text-lg tabular-nums",
+                          isIncoming ? 'text-green-600' : 
+                          isOutgoing ? 'text-red-600' : 'text-blue-600'
+                        )}>
+                          {isIncoming ? '+' : ''}{movement.actual_qty?.toFixed(2)}
+                        </span>
+                      </div>
+                      
+                      <div className="text-xs text-muted-foreground space-y-0.5">
+                        <div>الرصيد: {movement.qty_after_transaction?.toFixed(2)}</div>
+                        <div>التقييم: {movement.valuation_rate?.toFixed(2)} ر.س</div>
+                        <div>القيمة: {movement.stock_value?.toFixed(2)} ر.س</div>
+                      </div>
+                      
+                      <div className="text-xs text-muted-foreground mt-2">
+                        {new Date(movement.posting_date).toLocaleDateString('ar-SA')}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
     </div>
@@ -1011,3 +2640,26 @@ function CategoriesManagement() {
     </div>
   )
 }
+
+// Warehouses Page Component
+import WarehouseManagement from './components/WarehouseManagement'
+import StorageLocationsManagement from './components/StorageLocationsManagement'
+import StorageBinsManagement from './components/StorageBinsManagement'
+import StockTransferManagement from './components/StockTransfer'
+
+function WarehousesPage() {
+  return <WarehouseManagement />
+}
+
+function StorageLocationsPage() {
+  return <StorageLocationsManagement />
+}
+
+function StorageBinsPage() {
+  return <StorageBinsManagement />
+}
+
+function StockTransfersPage() {
+  return <StockTransferManagement />
+}
+

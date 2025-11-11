@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { 
@@ -10,6 +11,7 @@ import {
   Settings,
   ChevronRight,
   ChevronLeft,
+  ChevronDown,
   BookOpen,
   Users
 } from 'lucide-react'
@@ -19,14 +21,29 @@ import { useUIStore } from '@/store/ui-store'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { getGlassClasses } from '@/lib/wardah-ui-utils'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 
 export function Sidebar() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore()
+  const [expandedItems, setExpandedItems] = useState<string[]>([])
 
   const isRTL = i18n.language === 'ar'
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
+
+  const toggleExpanded = (key: string) => {
+    setExpandedItems(prev => 
+      prev.includes(key) 
+        ? prev.filter(k => k !== key) 
+        : [...prev, key]
+    )
+  }
 
   const navigationItems = [
     {
@@ -168,134 +185,191 @@ export function Sidebar() {
       {/* Desktop Sidebar */}
       <aside
         className={cn(
-          "fixed top-16 z-40 h-[calc(100vh-4rem)] bg-card border border-border transition-all duration-300",
+          "fixed top-16 z-40 h-[calc(100vh-4rem)] bg-card/95 backdrop-blur-sm border border-border/50 transition-all duration-300 shadow-lg",
           sidebarCollapsed ? "w-16" : "w-64",
           "hidden lg:block",
           // RTL positioning
-          isRTL ? (
-            sidebarCollapsed ? "right-0" : "right-0"
-          ) : (
-            sidebarCollapsed ? "left-0" : "left-0"
-          ),
+          isRTL ? "right-0" : "left-0",
           // RTL border
           isRTL ? "border-l border-r-0" : "border-r border-l-0"
         )}
       >
         <ScrollArea className="h-full">
-          <nav className={cn("flex flex-col gap-2 p-4", getGlassClasses())}>
-            {navigationItems.map((item) => {
-              const Icon = item.icon
-              const isActive = location.pathname.startsWith(item.href)
-              
-              return (
-                <div key={item.key}>
-                  <NavLink
-                    to={item.href}
-                    className={cn(
-                      "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                      "hover:bg-accent hover:text-accent-foreground",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
-                      sidebarCollapsed && "justify-center px-2",
-                      // RTL text alignment
-                      isRTL ? "text-right" : "text-left"
-                    )}
-                    onClick={handleItemClick}
-                  >
-                    <Icon className="h-5 w-5 shrink-0" />
-                    {!sidebarCollapsed && (
-                      <span className={cn(
-                        "flex-1 truncate",
-                        isRTL ? "text-right" : "text-left"
-                      )}>
-                        {t(`navigation.${item.key}`)}
-                      </span>
-                    )}
-                    {item.badge && !sidebarCollapsed && (
-                      <Badge variant="secondary" className="ml-auto text-xs">
-                        {item.badge}
-                      </Badge>
-                    )}
-                    {sidebarCollapsed && (
-                      <span className="sr-only">{t(`navigation.${item.key}`)}</span>
-                    )}
-                  </NavLink>
-                  
-                  {/* Sub-items */}
-                  {!sidebarCollapsed && item.subItems && item.subItems.length > 0 && (
-                    <div className={cn(
-                      "ml-8 mt-1 space-y-1",
-                      isRTL ? "mr-8 ml-0" : "ml-8"
-                    )}>
-                      {item.subItems.map((subItem) => {
-                        const isSubActive = location.pathname === subItem.href
-                        return (
+          <TooltipProvider delayDuration={300}>
+            <nav className={cn("flex flex-col gap-1 p-3", getGlassClasses())}>
+              {navigationItems.map((item) => {
+                const Icon = item.icon
+                const isActive = location.pathname.startsWith(item.href)
+                const isExpanded = expandedItems.includes(item.key)
+                const hasSubItems = item.subItems && item.subItems.length > 0
+                
+                return (
+                  <div key={item.key} className="space-y-1">
+                    {sidebarCollapsed ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
                           <NavLink
-                            key={subItem.key}
-                            to={subItem.href}
+                            to={item.href}
                             className={cn(
-                              "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
-                              "text-muted-foreground hover:text-foreground",
-                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                              isSubActive && "text-primary font-medium"
+                              "flex items-center justify-center p-3 rounded-lg text-sm font-medium transition-all duration-200",
+                              "hover:bg-accent/50 hover:scale-105",
+                              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                              isActive && "bg-primary text-primary-foreground shadow-md hover:bg-primary/90"
                             )}
                             onClick={handleItemClick}
                           >
-                            <ChevronIcon className="h-3 w-3 shrink-0" />
-                            <span className={cn(
-                              "flex-1 truncate",
-                              isRTL ? "text-right" : "text-left"
-                            )}>
-                              {subItem.label}
-                            </span>
+                            <Icon className="h-5 w-5 shrink-0" />
+                            {item.badge && (
+                              <span className="absolute top-1 right-1 h-2 w-2 rounded-full bg-destructive" />
+                            )}
                           </NavLink>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </nav>
+                        </TooltipTrigger>
+                        <TooltipContent side={isRTL ? "left" : "right"} className="font-medium">
+                          {t(`navigation.${item.key}`)}
+                          {item.badge && (
+                            <Badge variant="secondary" className="ml-2 text-xs">
+                              {item.badge}
+                            </Badge>
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <>
+                        <div
+                          className={cn(
+                            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
+                            "hover:bg-accent/50 hover:shadow-sm",
+                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                            isActive && "bg-primary text-primary-foreground shadow-md hover:bg-primary/90",
+                            isRTL ? "text-right" : "text-left"
+                          )}
+                          onClick={() => {
+                            if (hasSubItems) {
+                              toggleExpanded(item.key)
+                            } else {
+                              handleItemClick()
+                            }
+                          }}
+                        >
+                          <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
+                          <span className={cn(
+                            "flex-1 truncate",
+                            isRTL ? "text-right" : "text-left"
+                          )}>
+                            {t(`navigation.${item.key}`)}
+                          </span>
+                          {item.badge && (
+                            <Badge 
+                              variant={isActive ? "outline" : "secondary"} 
+                              className={cn(
+                                "text-xs font-semibold px-2 py-0.5",
+                                isActive && "border-primary-foreground/20"
+                              )}
+                            >
+                              {item.badge}
+                            </Badge>
+                          )}
+                          {hasSubItems && (
+                            <ChevronDown 
+                              className={cn(
+                                "h-4 w-4 shrink-0 transition-transform duration-200",
+                                isExpanded && "rotate-180",
+                                isRTL && "rotate-180"
+                              )} 
+                            />
+                          )}
+                        </div>
+                        
+                        {/* Sub-items with animation */}
+                        {hasSubItems && (
+                          <div
+                            className={cn(
+                              "overflow-hidden transition-all duration-300 ease-in-out",
+                              isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0",
+                              isRTL ? "mr-4 pr-3 border-r-2 border-border/30" : "ml-4 pl-3 border-l-2 border-border/30"
+                            )}
+                          >
+                            <div className="space-y-0.5 py-1">
+                              {item.subItems.map((subItem) => {
+                                const isSubActive = location.pathname === subItem.href
+                                return (
+                                  <NavLink
+                                    key={subItem.key}
+                                    to={subItem.href}
+                                    className={cn(
+                                      "flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all duration-150",
+                                      "text-muted-foreground hover:text-foreground hover:bg-accent/30 hover:translate-x-1",
+                                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                      isSubActive && "text-primary font-semibold bg-primary/10 border-l-2 border-primary",
+                                      isRTL && "hover:-translate-x-1"
+                                    )}
+                                    onClick={handleItemClick}
+                                  >
+                                    <ChevronIcon className="h-3 w-3 shrink-0 opacity-60" />
+                                    <span className={cn(
+                                      "flex-1 truncate",
+                                      isRTL ? "text-right" : "text-left"
+                                    )}>
+                                      {subItem.label}
+                                    </span>
+                                  </NavLink>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </nav>
+          </TooltipProvider>
         </ScrollArea>
       </aside>
 
       {/* Mobile Sidebar */}
       {sidebarOpen && (
         <div 
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
         >
           <aside
             className={cn(
-              "fixed top-16 h-[calc(100vh-4rem)] bg-card border border-border transition-transform duration-300 ease-in-out",
-              "w-64",
+              "fixed top-16 h-[calc(100vh-4rem)] bg-card/95 backdrop-blur-md border border-border/50 shadow-2xl",
+              "transition-transform duration-300 ease-in-out w-64",
               // RTL positioning
               isRTL ? "right-0" : "left-0"
             )}
             onClick={(e) => e.stopPropagation()}
           >
             <ScrollArea className="h-full">
-              <nav className={cn("flex flex-col gap-2 p-4", getGlassClasses())}>
+              <nav className={cn("flex flex-col gap-1 p-3", getGlassClasses())}>
                 {navigationItems.map((item) => {
                   const Icon = item.icon
                   const isActive = location.pathname.startsWith(item.href)
+                  const isExpanded = expandedItems.includes(item.key)
+                  const hasSubItems = item.subItems && item.subItems.length > 0
                   
                   return (
-                    <div key={item.key}>
-                      <NavLink
-                        to={item.href}
+                    <div key={item.key} className="space-y-1">
+                      <div
                         className={cn(
-                          "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200",
-                          "hover:bg-accent hover:text-accent-foreground",
-                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          isActive && "bg-primary text-primary-foreground hover:bg-primary/90",
-                          // RTL text alignment
+                          "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
+                          "hover:bg-accent/50 hover:shadow-sm",
+                          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                          isActive && "bg-primary text-primary-foreground shadow-md hover:bg-primary/90",
                           isRTL ? "text-right" : "text-left"
                         )}
-                        onClick={handleItemClick}
+                        onClick={() => {
+                          if (hasSubItems) {
+                            toggleExpanded(item.key)
+                          } else {
+                            handleItemClick()
+                          }
+                        }}
                       >
-                        <Icon className="h-5 w-5 shrink-0" />
+                        <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
                         <span className={cn(
                           "flex-1 truncate",
                           isRTL ? "text-right" : "text-left"
@@ -303,42 +377,63 @@ export function Sidebar() {
                           {t(`navigation.${item.key}`)}
                         </span>
                         {item.badge && (
-                          <Badge variant="secondary" className="ml-auto text-xs">
+                          <Badge 
+                            variant={isActive ? "outline" : "secondary"} 
+                            className={cn(
+                              "text-xs font-semibold px-2 py-0.5",
+                              isActive && "border-primary-foreground/20"
+                            )}
+                          >
                             {item.badge}
                           </Badge>
                         )}
-                      </NavLink>
+                        {hasSubItems && (
+                          <ChevronDown 
+                            className={cn(
+                              "h-4 w-4 shrink-0 transition-transform duration-200",
+                              isExpanded && "rotate-180",
+                              isRTL && "rotate-180"
+                            )} 
+                          />
+                        )}
+                      </div>
                       
-                      {/* Sub-items */}
-                      {item.subItems && item.subItems.length > 0 && (
-                        <div className={cn(
-                          "ml-8 mt-1 space-y-1",
-                          isRTL ? "mr-8 ml-0" : "ml-8"
-                        )}>
-                          {item.subItems.map((subItem) => {
-                            const isSubActive = location.pathname === subItem.href
-                            return (
-                              <NavLink
-                                key={subItem.key}
-                                to={subItem.href}
-                                className={cn(
-                                  "flex items-center gap-2 px-3 py-1.5 rounded-md text-xs transition-colors",
-                                  "text-muted-foreground hover:text-foreground",
-                                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                  isSubActive && "text-primary font-medium"
-                                )}
-                                onClick={handleItemClick}
-                              >
-                                <ChevronIcon className="h-3 w-3 shrink-0" />
-                                <span className={cn(
-                                  "flex-1 truncate",
-                                  isRTL ? "text-right" : "text-left"
-                                )}>
-                                  {subItem.label}
-                                </span>
-                              </NavLink>
-                            )
-                          })}
+                      {/* Sub-items with animation */}
+                      {hasSubItems && (
+                        <div
+                          className={cn(
+                            "overflow-hidden transition-all duration-300 ease-in-out",
+                            isExpanded ? "max-h-96 opacity-100" : "max-h-0 opacity-0",
+                            isRTL ? "mr-4 pr-3 border-r-2 border-border/30" : "ml-4 pl-3 border-l-2 border-border/30"
+                          )}
+                        >
+                          <div className="space-y-0.5 py-1">
+                            {item.subItems.map((subItem) => {
+                              const isSubActive = location.pathname === subItem.href
+                              return (
+                                <NavLink
+                                  key={subItem.key}
+                                  to={subItem.href}
+                                  className={cn(
+                                    "flex items-center gap-2 px-3 py-2 rounded-md text-xs transition-all duration-150",
+                                    "text-muted-foreground hover:text-foreground hover:bg-accent/30 hover:translate-x-1",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    isSubActive && "text-primary font-semibold bg-primary/10 border-l-2 border-primary",
+                                    isRTL && "hover:-translate-x-1"
+                                  )}
+                                  onClick={handleItemClick}
+                                >
+                                  <ChevronIcon className="h-3 w-3 shrink-0 opacity-60" />
+                                  <span className={cn(
+                                    "flex-1 truncate",
+                                    isRTL ? "text-right" : "text-left"
+                                  )}>
+                                    {subItem.label}
+                                  </span>
+                                </NavLink>
+                              )
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>

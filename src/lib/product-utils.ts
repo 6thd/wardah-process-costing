@@ -10,6 +10,7 @@ import { supabase } from '@/lib/supabase'
  * These are summary/category items like "All / Finished Goods" with counts
  */
 const CATEGORY_ITEM_CODES = ['FG-001', 'RM-001']
+const CATEGORY_ITEM_CODES_IN = `(${CATEGORY_ITEM_CODES.map((code) => `"${code}"`).join(',')})`
 
 /**
  * Load all purchasable products (excluding category items and finished goods)
@@ -20,7 +21,7 @@ export async function loadPurchasableProducts() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .not('code', 'in', `(${CATEGORY_ITEM_CODES.join(',')})`)
+      .not('code', 'in', CATEGORY_ITEM_CODES_IN)
       .order('name')
     
     if (error) throw error
@@ -60,7 +61,7 @@ export async function loadSellableProducts() {
       .from('products')
       .select('*')
       .eq('category_id', finishedGoodsCategoryId)
-      .not('code', 'in', `(${CATEGORY_ITEM_CODES.join(',')})`)
+      .not('code', 'in', CATEGORY_ITEM_CODES_IN)
       .order('name')
     
     if (error) throw error
@@ -87,7 +88,7 @@ export async function loadAllProducts() {
     const { data, error } = await supabase
       .from('products')
       .select('*')
-      .not('code', 'in', `(${CATEGORY_ITEM_CODES.join(',')})`)
+      .not('code', 'in', CATEGORY_ITEM_CODES_IN)
       .order('name')
     
     if (error) throw error
@@ -127,7 +128,7 @@ export async function loadRawMaterials() {
       .from('products')
       .select('*')
       .eq('category_id', rawMaterialsCategoryId)
-      .not('code', 'in', `(${CATEGORY_ITEM_CODES.join(',')})`)
+      .not('code', 'in', CATEGORY_ITEM_CODES_IN)
       .order('name')
     
     if (error) throw error
