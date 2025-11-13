@@ -11,10 +11,17 @@ import {
   newSalesInvoicesService,
   deliveryNotesService
 } from '@/services/supabase-service'
+import {
+  getAllSalesOrders,
+  getAllSalesInvoices,
+  getSalesInvoiceWithDetails,
+  calculateInvoiceProfit
+} from '@/services/enhanced-sales-service'
 import { toast } from 'sonner'
 import type { Customer } from '@/lib/supabase'
 import { SalesInvoiceForm } from '@/components/forms/SalesInvoiceForm'
 import { DeliveryNoteForm } from '@/components/forms/DeliveryNoteForm'
+import { CustomerReceipts } from './components/CustomerReceipts'
 
 export function SalesModule() {
   return (
@@ -25,7 +32,8 @@ export function SalesModule() {
       <Route path="/orders" element={<SalesOrdersManagement />} />
       <Route path="/invoices" element={<SalesOrdersManagement />} />
       <Route path="/delivery" element={<DeliveryManagement />} />
-      <Route path="/collections" element={<CollectionsManagement />} />
+      <Route path="/collections" element={<CustomerReceipts />} />
+      <Route path="/receipts" element={<CustomerReceipts />} />
       <Route path="*" element={<Navigate to="/sales/overview" replace />} />
     </Routes>
   )
@@ -40,16 +48,51 @@ function SalesOverview() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [customersData, ordersData] = await Promise.all([
-          customersService.getAll(),
-          salesOrdersService.getAll()
-        ])
+        // Try to get customers
+        const customersData = await customersService.getAll().catch(() => [])
         setCustomers(customersData || [])
-        setOrders(ordersData || [])
+        
+        // Try to get sales invoices instead of sales orders (since sales_orders table may not exist)
+        try {
+          const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
+          const invoicesResult = await getAllSalesInvoices()
+          if (invoicesResult.success && invoicesResult.data) {
+            setOrders(invoicesResult.data || [])
+          } else {
+            // Fallback: try old service but handle errors gracefully
+            try {
+              const ordersData = await salesOrdersService.getAll()
+              setOrders(ordersData || [])
+            } catch (ordersError: any) {
+              if (ordersError.code === 'PGRST205') {
+                // Table doesn't exist, use empty array
+                console.warn('sales_orders table not found, using empty array')
+                setOrders([])
+              } else {
+                throw ordersError
+              }
+            }
+          }
+        } catch (invoiceError: any) {
+          console.warn('Error loading sales invoices, trying fallback:', invoiceError)
+          // Fallback: try old service but handle errors gracefully
+          try {
+            const ordersData = await salesOrdersService.getAll()
+            setOrders(ordersData || [])
+          } catch (ordersError: any) {
+            if (ordersError.code === 'PGRST205') {
+              // Table doesn't exist, use empty array
+              console.warn('sales_orders table not found, using empty array')
+              setOrders([])
+            } else {
+              console.error('Error loading sales data:', ordersError)
+              toast.error(`خطأ في تحميل بيانات المبيعات: ${ordersError.message}`)
+            }
+          }
+        }
       } catch (error: any) {
         console.error('Error loading sales data:', error)
         toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
-      } finally {
       }
     }
     loadData()
@@ -318,15 +361,31 @@ function SalesOrdersManagement() {
   const loadOrders = async () => {
     setLoading(true)
     try {
-      // Try new system first
-      try {
-        const newData = await newSalesInvoicesService.getAll()
-        console.log('✅ Loaded from NEW sales system:', newData)
-        setOrders(newData || [])
-      } catch (newError) {
-        console.warn('New system unavailable, fallback to old:', newError)
-        const oldData = await salesOrdersService.getAll()
-        setOrders(oldData || [])
+      // Try enhanced service first
+      const result = await getAllSalesInvoices()
+      if (result.success && result.data) {
+        setOrders(result.data)
+      } else {
+        // Fallback to old service
+        try {
+          const newData = await newSalesInvoicesService.getAll()
+          setOrders(newData || [])
+        } catch (newError) {
+          console.warn('New system unavailable, fallback to old:', newError)
+          try {
+            const oldData = await salesOrdersService.getAll()
+            setOrders(oldData || [])
+          } catch (oldError: any) {
+            if (oldError.code === 'PGRST205') {
+              // Table doesn't exist, use empty array
+              console.warn('sales_orders table not found, using empty array')
+              setOrders([])
+            } else {
+              console.error('Error loading sales orders:', oldError)
+              toast.error(`خطأ في تحميل فواتير المبيعات: ${oldError.message}`)
+            }
+          }
+        }
       }
     } catch (error: any) {
       console.error('Error loading sales orders:', error)
@@ -431,13 +490,37 @@ function SalesOrdersManagement() {
                     )}
                   </div>
                   <div className="text-right ml-4">
-                    {getStatusBadge(order.status)}
+                    <div className="flex gap-2 mb-2">
+                      {getStatusBadge(order.status)}
+                      {order.delivery_status && (
+                        <Badge variant={order.delivery_status === 'fully_delivered' ? 'secondary' : 'outline'}>
+                          {order.delivery_status === 'fully_delivered' ? 'مسلمة' : 
+                           order.delivery_status === 'partially_delivered' ? 'جزئية' : 'معلقة'}
+                        </Badge>
+                      )}
+                      {order.payment_status && (
+                        <Badge variant={order.payment_status === 'paid' ? 'secondary' : 'outline'}>
+                          {order.payment_status === 'paid' ? 'مدفوعة' : 
+                           order.payment_status === 'partially_paid' ? 'جزئية' : 'غير مدفوعة'}
+                        </Badge>
+                      )}
+                    </div>
                     <div className="font-bold text-lg mt-2 text-primary">
                       {(order.total_amount || 0).toFixed(2)} ريال
                     </div>
-                    {order.vat_amount > 0 && (
+                    {order.tax_amount > 0 && (
                       <div className="text-xs text-muted-foreground">
-                        شامل ضريبة: {order.vat_amount.toFixed(2)} ريال
+                        شامل ضريبة: {order.tax_amount.toFixed(2)} ريال
+                      </div>
+                    )}
+                    {order.paid_amount > 0 && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        مدفوع: {order.paid_amount.toFixed(2)} ريال
+                        {order.total_amount > order.paid_amount && (
+                          <span className="text-red-600">
+                            {' '}(متبقي: {((order.total_amount || 0) - (order.paid_amount || 0)).toFixed(2)})
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

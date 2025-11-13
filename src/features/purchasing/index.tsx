@@ -18,6 +18,7 @@ import type { Supplier, PurchaseOrder } from '@/lib/supabase'
 import { PurchaseOrderForm } from '@/components/forms/PurchaseOrderForm'
 import { GoodsReceiptForm } from '@/components/forms/GoodsReceiptForm'
 import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'
+import { SupplierPayments } from './components/SupplierPayments'
 
 export function PurchasingModule() {
   return (
@@ -28,7 +29,7 @@ export function PurchasingModule() {
       <Route path="orders" element={<PurchaseOrdersManagement />} />
       <Route path="receipts" element={<GoodsReceiptManagement />} />
       <Route path="invoices" element={<SupplierInvoicesManagement />} />
-      <Route path="payments" element={<PaymentsManagement />} />
+      <Route path="payments" element={<SupplierPayments />} />
       <Route path="*" element={<Navigate to="overview" replace />} />
     </Routes>
   )

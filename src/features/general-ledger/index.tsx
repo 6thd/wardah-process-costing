@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { AccountStatement } from '@/features/accounting/account-statement';
 import {
   Plus,
   Pencil,
@@ -33,6 +34,7 @@ export function GeneralLedgerModule() {
   return (
     <Routes>
       <Route path="/accounts" element={<ChartOfAccounts />} />
+      <Route path="/account-statement" element={<AccountStatement />} />
       {/* Other routes can be added here */}
       <Route path="*" element={<Navigate to="/general-ledger/accounts" replace />} />
     </Routes>

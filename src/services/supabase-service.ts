@@ -546,7 +546,9 @@ export const purchaseOrdersService = {
 export const salesOrdersService = {
   getAll: async () => {
     const supabase = await getClient()
-    const { data, error } = await supabase
+    
+    // First try sales_orders
+    let { data, error } = await supabase
       .from('sales_orders')
       .select(`
         *,
@@ -558,6 +560,33 @@ export const salesOrdersService = {
         )
       `)
       .order('created_at', { ascending: false })
+
+    // If table doesn't exist, try sales_invoices instead
+    if (error && error.code === 'PGRST205') {
+      console.warn('sales_orders table not found, trying sales_invoices instead')
+      const { data: invoicesData, error: invoicesError } = await supabase
+        .from('sales_invoices')
+        .select(`
+          *,
+          customer:customers(*)
+        `)
+        .order('invoice_date', { ascending: false })
+        .limit(100)
+
+      if (invoicesError) {
+        console.error('Error fetching sales_invoices:', invoicesError.message)
+        // Return empty array instead of throwing
+        return []
+      }
+      
+      // Map invoices to orders format for compatibility
+      return (invoicesData || []).map((inv: any) => ({
+        ...inv,
+        so_date: inv.invoice_date,
+        so_number: inv.invoice_number,
+        status: inv.payment_status || inv.delivery_status || 'draft'
+      }))
+    }
 
     if (error) {
         console.warn('Error fetching sales orders with user data, retrying without it.', error.message)
@@ -574,13 +603,18 @@ export const salesOrdersService = {
             .order('created_at', { ascending: false })
 
         if (fallbackError) {
+            if (fallbackError.code === 'PGRST205') {
+              // Table doesn't exist, return empty array
+              console.warn('sales_orders table not found, returning empty array')
+              return []
+            }
             console.error('Fallback fetch for sales orders also failed:', fallbackError.message)
             throw fallbackError
         }
         return fallbackData
     }
     
-    return data
+    return data || []
   },
 
   create: async (order: Omit<SalesOrder, 'id' | 'created_at' | 'updated_at'>, items: Omit<SalesOrderItem, 'id' | 'sales_order_id' | 'created_at'>[]) => {

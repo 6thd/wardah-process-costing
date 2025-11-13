@@ -22,6 +22,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { Plus, Trash2, CalendarIcon } from 'lucide-react'
 import { toast } from 'sonner'
 import { customersService } from '@/services/supabase-service'
+import { createSalesInvoice } from '@/services/enhanced-sales-service'
 import { supabase } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
@@ -175,60 +176,45 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
     
     try {
       const { subtotal, discountAmount, taxAmount, total } = calculateTotals()
-      const orgId = '00000000-0000-0000-0000-000000000001' // TODO: Get from auth context
       
-      // Generate invoice number
-      const invoiceNumber = `SI-${Date.now()}`
+      // Prepare invoice data for enhanced service
+      const invoiceData = {
+        customer_id: selectedCustomer,
+        invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
+        due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : format(invoiceDate, 'yyyy-MM-dd'),
+        subtotal: subtotal,
+        discount_amount: discountAmount,
+        tax_amount: taxAmount,
+        total_amount: total,
+        delivery_status: 'pending' as const,
+        payment_status: 'unpaid' as const,
+        notes: notes || undefined,
+        lines: lines.map(line => ({
+          item_id: line.product_id,
+          quantity: line.quantity,
+          unit_price: line.unit_price,
+          discount_percentage: line.discount_percentage,
+          tax_percentage: line.tax_rate,
+          line_total: line.line_total,
+          notes: line.description
+        }))
+      }
       
-      // Create sales invoice
-      const { data: invoice, error: invoiceError } = await supabase
-        .from('sales_invoices')
-        .insert({
-          org_id: orgId,
-          invoice_number: invoiceNumber,
-          customer_id: selectedCustomer,
-          invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
-          due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null,
-          status: 'draft',
-          subtotal: subtotal,
-          discount_amount: discountAmount,
-          tax_amount: taxAmount,
-          total_amount: total,
-          notes: notes || null
-        })
-        .select()
-        .single()
+      // Use enhanced sales service
+      const result = await createSalesInvoice(invoiceData)
       
-      if (invoiceError) throw invoiceError
-      
-      // Create invoice lines
-      const invoiceLines = lines.map((line, index) => ({
-        org_id: orgId,
-        invoice_id: invoice.id,
-        line_number: index + 1,
-        product_id: line.product_id,
-        description: line.description || null,
-        quantity: line.quantity,
-        unit_price: line.unit_price,
-        discount_percentage: line.discount_percentage,
-        tax_rate: line.tax_rate
-        // line_total is a generated column - don't include it
-      }))
-      
-      const { error: linesError } = await supabase
-        .from('sales_invoice_lines')
-        .insert(invoiceLines)
-      
-      if (linesError) throw linesError
-      
-      toast.success(`تم إنشاء فاتورة المبيعات ${invoiceNumber} بنجاح`)
-      onOpenChange(false)
-      resetForm()
-      onSuccess?.()
+      if (result.success && result.data) {
+        toast.success(`تم إنشاء فاتورة المبيعات ${result.data.invoice_number} بنجاح`)
+        onOpenChange(false)
+        resetForm()
+        onSuccess?.()
+      } else {
+        throw new Error(result.error || 'فشل في إنشاء الفاتورة')
+      }
       
     } catch (error: any) {
       console.error('Error creating sales invoice:', error)
-      toast.error(`خطأ في إنشاء فاتورة المبيعات: ${error.message}`)
+      toast.error(`خطأ في إنشاء فاتورة المبيعات: ${error.message || error}`)
     } finally {
       setLoading(false)
     }

@@ -9,6 +9,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
+import { createDeliveryNote } from '@/services/enhanced-sales-service'
 import { Loader2, Package, Truck, Calendar, DollarSign, CalendarIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { format } from 'date-fns'
@@ -210,93 +211,43 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
     setLoading(true)
 
     try {
-      // 1. Create delivery note
-      const deliveryNumber = `DN-${Date.now()}`
-      const { data: deliveryNote, error: dnError } = await supabase
-        .from('delivery_notes')
-        .insert({
-          delivery_number: deliveryNumber,
-          delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
-          invoice_id: selectedInvoiceId,
-          status: 'draft',
-          notes: notes || null
-        })
-        .select()
-        .single()
-
-      if (dnError) throw dnError
-
-      // 2. Insert delivery note lines and update inventory
-      for (const line of selectedLines) {
-        if (line.quantity_to_deliver <= 0) continue
-
-        // Insert delivery line
-        const { error: lineError } = await supabase
-          .from('delivery_note_lines')
-          .insert({
-            delivery_note_id: deliveryNote.id,
-            product_id: line.product_id,
-            quantity_delivered: line.quantity_to_deliver,
-            unit_price: line.unit_price
-          })
-
-        if (lineError) throw lineError
-
-        // Update invoice line delivered_quantity
-        const { error: updateLineError } = await supabase
-          .from('sales_invoice_lines')
-          .update({
-            delivered_quantity: line.already_delivered + line.quantity_to_deliver
-          })
-          .eq('id', line.invoice_line_id)
-
-        if (updateLineError) throw updateLineError
-
-        // Decrease product stock quantity
-        const { data: product, error: productError } = await supabase
-          .from('products')
-          .select('stock_quantity')
-          .eq('id', line.product_id)
-          .single()
-
-        if (productError) throw productError
-
-        const newStockQty = (product.stock_quantity || 0) - line.quantity_to_deliver
-
-        const { error: updateProductError } = await supabase
-          .from('products')
-          .update({ stock_quantity: newStockQty })
-          .eq('id', line.product_id)
-
-        if (updateProductError) throw updateProductError
+      if (!selectedInvoice) {
+        toast.error('الرجاء اختيار فاتورة')
+        return
       }
 
-      // 3. Check if invoice is fully delivered
-      const { data: allLines, error: checkError } = await supabase
-        .from('sales_invoice_lines')
-        .select('quantity, delivered_quantity')
-        .eq('invoice_id', selectedInvoiceId)
+      // Prepare delivery data for enhanced service
+      const deliveryData = {
+        sales_invoice_id: selectedInvoiceId,
+        customer_id: selectedInvoice.customer_id,
+        delivery_date: format(deliveryDate, 'yyyy-MM-dd'),
+        vehicle_number: undefined,
+        driver_name: undefined,
+        notes: notes || undefined,
+        lines: selectedLines.map(line => ({
+          sales_invoice_line_id: line.invoice_line_id,
+          item_id: line.product_id,
+          invoiced_quantity: line.ordered_quantity,
+          delivered_quantity: line.quantity_to_deliver,
+          unit_price: line.unit_price,
+          notes: undefined
+        }))
+      }
 
-      if (checkError) throw checkError
+      // Use enhanced sales service
+      const result = await createDeliveryNote(deliveryData)
 
-      const allFullyDelivered = allLines.every(
-        (line: any) => (line.delivered_quantity || 0) >= line.quantity
-      )
-
-      const newStatus = allFullyDelivered ? 'delivered' : 'partially_delivered'
-
-      // 4. Update invoice status
-      const { error: updateInvoiceError } = await supabase
-        .from('sales_invoices')
-        .update({ status: newStatus })
-        .eq('id', selectedInvoiceId)
-
-      if (updateInvoiceError) throw updateInvoiceError
-
-      toast.success(`تم إنشاء مذكرة التسليم ${deliveryNumber} بنجاح`)
-      onSuccess()
-      resetForm()
-      onOpenChange(false)
+      if (result.success && result.data) {
+        toast.success(`تم إنشاء مذكرة التسليم ${result.data.delivery_number || result.data.id} بنجاح`)
+        if (result.totalCOGS) {
+          toast.info(`تم حساب COGS: ${result.totalCOGS.toFixed(2)} ريال`)
+        }
+        onSuccess()
+        resetForm()
+        onOpenChange(false)
+      } else {
+        throw new Error(result.error || 'فشل في إنشاء مذكرة التسليم')
+      }
     } catch (error) {
       console.error('Error creating delivery note:', error)
       toast.error('خطأ في إنشاء مذكرة التسليم')

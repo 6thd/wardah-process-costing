@@ -19,6 +19,8 @@ import {
 import { ProcessCostingReport } from './process-costing-report'
 import { ReportsDashboard } from './components/ReportsDashboard'
 import GeminiDashboard from './components/GeminiDashboard'
+import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
+import { SalesReports as SalesReportsComponent } from './components/SalesReports'
 
 export function ReportsModule() {
   return (
@@ -32,7 +34,8 @@ export function ReportsModule() {
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
       <Route path="/advanced" element={<ReportsDashboard />} />
-      <Route path="/gemini" element={<GeminiDashboard />} />
+      <Route path="/gemini" element={<EnhancedGeminiDashboard />} />
+      <Route path="/gemini/legacy" element={<GeminiDashboard />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )
@@ -310,29 +313,9 @@ function ProcessCostingReportPage() {
   )
 }
 
-// Sales Reports Component
+// Sales Reports Component - Now uses the comprehensive SalesReportsComponent
 function SalesReports() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير المبيعات</h1>
-        <p className="text-muted-foreground mt-2">
-          أداء المبيعات وتحليل العملاء
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - أداء المبيعات، تحليل العملاء، المنتجات الأكثر مبيعاً
-        </p>
-      </div>
-    </div>
-  )
+  return <SalesReportsComponent />
 }
 
 // Purchasing Reports Component

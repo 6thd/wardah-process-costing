@@ -69,17 +69,10 @@ export const appRouter = createBrowserRouter([
             element: <GeneralLedgerModule />,
           },
           {
-            path: "accounting/journal-entries",
+            path: "accounting/*",
             lazy: async () => {
-              const { default: JournalEntries } = await import("@/features/accounting/journal-entries");
-              return { Component: JournalEntries };
-            },
-          },
-          {
-            path: "accounting/trial-balance",
-            lazy: async () => {
-              const { default: TrialBalance } = await import("@/features/accounting/trial-balance");
-              return { Component: TrialBalance };
+              const { AccountingModule } = await import("@/features/accounting");
+              return { Component: AccountingModule };
             },
           },
           {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, CheckCircle, XCircle, FileText, Calendar, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, XCircle, FileText, Calendar, Search, RotateCcw, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -8,10 +8,17 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
+import { BatchPostDialog } from './components/BatchPostDialog';
+import { ApprovalWorkflow } from './components/ApprovalWorkflow';
+import { AttachmentsSection } from './components/AttachmentsSection';
+import { CommentsSection } from './components/CommentsSection';
+import { JournalService } from '@/services/accounting/journal-service';
+import { toast } from 'sonner';
 
 interface JournalEntry {
   id: string;
@@ -98,6 +105,9 @@ const JournalEntries = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('');
+  const [batchPostDialogOpen, setBatchPostDialogOpen] = useState(false);
+  const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -834,6 +844,10 @@ const JournalEntries = () => {
             <Button variant="outline" onClick={() => { setSearchTerm(''); setStatusFilter('all'); setDateFilter(''); fetchEntries(); }}>
               {isRTL ? 'إعادة تعيين' : 'Reset'}
             </Button>
+            <Button variant="outline" onClick={() => setBatchPostDialogOpen(true)}>
+              <Layers className="h-4 w-4 mr-2" />
+              {isRTL ? 'ترحيل مجمع' : 'Batch Post'}
+            </Button>
           </div>
 
           <div className="rounded-md border">
@@ -914,18 +928,44 @@ const JournalEntries = () => {
                             </>
                           )}
                           {entry.status === 'posted' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={async () => {
-                                const lines = await fetchEntryLines(entry.id);
-                                setEditingEntry({ ...entry, lines });
-                                setIsDialogOpen(true);
-                              }}
-                              title={isRTL ? 'عرض' : 'View'}
-                            >
-                              <FileText className="h-4 w-4 text-blue-600" />
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={async () => {
+                                  const fullEntry = await JournalService.getEntryWithDetails(entry.id);
+                                  if (fullEntry) {
+                                    setViewingEntry(fullEntry);
+                                    setViewDialogOpen(true);
+                                  }
+                                }}
+                                title={isRTL ? 'عرض' : 'View'}
+                              >
+                                <FileText className="h-4 w-4 text-blue-600" />
+                              </Button>
+                              {!entry.reversed_by_entry_id && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={async () => {
+                                    if (confirm(isRTL ? 'هل تريد عكس هذا القيد؟' : 'Reverse this entry?')) {
+                                      try {
+                                        const result = await JournalService.reverseEntry(entry.id);
+                                        if (result.success) {
+                                          toast.success(isRTL ? 'تم عكس القيد' : 'Entry reversed');
+                                          fetchEntries();
+                                        }
+                                      } catch (error: any) {
+                                        toast.error(error.message || (isRTL ? 'فشل العكس' : 'Reversal failed'));
+                                      }
+                                    }
+                                  }}
+                                  title={isRTL ? 'عكس' : 'Reverse'}
+                                >
+                                  <RotateCcw className="h-4 w-4 text-orange-600" />
+                                </Button>
+                              )}
+                            </>
                           )}
                         </div>
                       </TableCell>
@@ -937,6 +977,119 @@ const JournalEntries = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Batch Post Dialog */}
+      <BatchPostDialog
+        isOpen={batchPostDialogOpen}
+        onClose={() => setBatchPostDialogOpen(false)}
+        entries={entries}
+        onSuccess={fetchEntries}
+      />
+
+      {/* View Entry Dialog with Tabs */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
+          <DialogHeader>
+            <DialogTitle>
+              {isRTL ? 'تفاصيل القيد' : 'Entry Details'} - {viewingEntry?.entry_number}
+            </DialogTitle>
+            <DialogDescription>
+              {isRTL ? 'عرض تفاصيل القيد والموافقات والمرفقات والتعليقات' : 'View entry details, approvals, attachments, and comments'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {viewingEntry && (
+            <Tabs defaultValue="details" className="w-full">
+              <TabsList className="grid w-full grid-cols-4">
+                <TabsTrigger value="details">
+                  {isRTL ? 'التفاصيل' : 'Details'}
+                </TabsTrigger>
+                <TabsTrigger value="approvals">
+                  {isRTL ? 'الموافقات' : 'Approvals'}
+                </TabsTrigger>
+                <TabsTrigger value="attachments">
+                  {isRTL ? 'المرفقات' : 'Attachments'}
+                </TabsTrigger>
+                <TabsTrigger value="comments">
+                  {isRTL ? 'التعليقات' : 'Comments'}
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="details" className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{isRTL ? 'رقم القيد' : 'Entry Number'}</Label>
+                    <p className="font-mono">{viewingEntry.entry_number}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'التاريخ' : 'Date'}</Label>
+                    <p>{format(new Date(viewingEntry.entry_date), 'dd/MM/yyyy')}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
+                    <p>{getStatusBadge(viewingEntry.status)}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'المدين' : 'Debit'}</Label>
+                    <p className="font-mono">{viewingEntry.total_debit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'الدائن' : 'Credit'}</Label>
+                    <p className="font-mono">{viewingEntry.total_credit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                  </div>
+                </div>
+
+                {viewingEntry.lines && viewingEntry.lines.length > 0 && (
+                  <div className="border rounded-lg">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>{isRTL ? 'الحساب' : 'Account'}</TableHead>
+                          <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
+                          <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
+                          <TableHead>{isRTL ? 'الوصف' : 'Description'}</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {viewingEntry.lines.map((line) => (
+                          <TableRow key={line.id || line.line_number}>
+                            <TableCell>
+                              {line.account_code} - {isRTL ? (line.account_name_ar || line.account_name) : line.account_name}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              {Number(line.debit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">
+                              {Number(line.credit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </TableCell>
+                            <TableCell>{isRTL ? line.description_ar : line.description}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="approvals">
+                <ApprovalWorkflow
+                  entryId={viewingEntry.id}
+                  entryNumber={viewingEntry.entry_number}
+                  canApprove={true}
+                />
+              </TabsContent>
+
+              <TabsContent value="attachments">
+                <AttachmentsSection entryId={viewingEntry.id} />
+              </TabsContent>
+
+              <TabsContent value="comments">
+                <CommentsSection entryId={viewingEntry.id} />
+              </TabsContent>
+            </Tabs>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

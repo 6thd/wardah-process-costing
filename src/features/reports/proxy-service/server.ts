@@ -15,6 +15,7 @@ import { AuthenticatedRequest } from './types';
 import { router as testRoutes } from './routes/test.routes';
 import { dataRoutes } from './routes/data.routes';
 import financialRoutes from './routes/financial.routes';
+import geminiProxyRoutes from './routes/gemini-proxy.routes';
 
 const app = express();
 
@@ -39,6 +40,8 @@ app.use(express.static(path.join(__dirname, '../public')));
 app.use('/reports', reportsRouter);
 app.use('/api/data', dataRoutes);
 app.use('/api', financialRoutes);
+// Gemini Proxy Routes (Real Data Integration)
+app.use('/api/wardah', geminiProxyRoutes);
 
 // ميدلوير المصادقة
 const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {

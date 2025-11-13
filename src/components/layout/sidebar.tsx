@@ -114,16 +114,27 @@ export function Sidebar() {
       ]
     },
     {
+      key: 'accounting',
+      icon: BookOpen,
+      href: '/accounting',
+      badge: null,
+      subItems: [
+        { key: 'overview', href: '/accounting/overview', label: isRTL ? 'نظرة عامة' : 'Overview' },
+        { key: 'chart-of-accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
+        { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
+        { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
+        { key: 'account-statement', href: '/accounting/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' },
+        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' }
+      ]
+    },
+    {
       key: 'general-ledger',
       icon: BookOpen,
       href: '/general-ledger',
       badge: null,
       subItems: [
-        { key: 'overview', href: '/general-ledger/overview', label: t('navigation.overview') },
-        { key: 'accounts', href: '/general-ledger/accounts', label: t('navigation.accounts') },
-        { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
-        { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
-        { key: 'posting', href: '/general-ledger/posting', label: t('navigation.posting') }
+        { key: 'accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
+        { key: 'account-statement', href: '/general-ledger/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' }
       ]
     },
     {
