@@ -1,244 +1,152 @@
-# Contributing to Wardah ERP
+# 🤝 Contributing to Wardah ERP
 
-شكراً لاهتمامك بالمساهمة في نظام وردة! 🎉
+شكراً لاهتمامك بالمساهمة في مشروع Wardah ERP!
 
-## 📋 جدول المحتويات
+---
+
+## 📋 Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
-- [كيفية المساهمة](#كيفية-المساهمة)
+- [Getting Started](#getting-started)
 - [Development Workflow](#development-workflow)
-- [معايير الكود](#معايير-الكود)
-- [Commit Messages](#commit-messages)
+- [Coding Standards](#coding-standards)
+- [Commit Guidelines](#commit-guidelines)
 - [Pull Request Process](#pull-request-process)
 
-## Code of Conduct
+---
 
-هذا المشروع يلتزم بمدونة سلوك المساهمين. بالمشاركة، من المتوقع منك الالتزام بهذه المدونة.
+## 📜 Code of Conduct
 
-## كيفية المساهمة
+### Our Standards
 
-### 🐛 الإبلاغ عن الأخطاء
+- ✅ Be respectful and inclusive
+- ✅ Welcome newcomers
+- ✅ Focus on constructive feedback
+- ✅ Respect different viewpoints
 
-إذا وجدت خطأ:
+### Unacceptable Behavior
 
-1. **تأكد** أن الخطأ لم يُبلّغ عنه من قبل في [GitHub Issues](https://github.com/6thd/wardah-process-costing/issues)
-2. **افتح** Issue جديد وأرفق:
-   - عنوان واضح ووصف دقيق
-   - خطوات لإعادة إنتاج الخطأ
-   - السلوك المتوقع والفعلي
-   - Screenshots إذا كان ممكناً
-   - معلومات البيئة (Browser, OS, Version)
+- ❌ Harassment or discrimination
+- ❌ Trolling or insulting comments
+- ❌ Personal attacks
 
-مثال:
-```markdown
-**نوع المشكلة:** Bug في Purchase Order
+---
 
-**الوصف:**
-عند إنشاء Purchase Order، الـ FIFO valuation لا يعمل صح
+## 🚀 Getting Started
 
-**الخطوات:**
-1. اذهب إلى Purchasing → Purchase Orders
-2. أنشئ PO جديد
-3. أضف منتج بطريقة FIFO
-4. احفظ واستلم البضاعة
-
-**السلوك المتوقع:**
-يجب أن يحسب COGS بـ FIFO
-
-**السلوك الفعلي:**
-التكلفة المحسوبة خاطئة
-
-**البيئة:**
-- Browser: Chrome 120
-- OS: Windows 11
-- Version: 1.0.0
-```
-
-### ✨ اقتراح ميزة جديدة
-
-لاقتراح ميزة:
-
-1. **افتح** Issue بعنوان واضح
-2. **اشرح** الميزة بالتفصيل
-3. **وضّح** حالات الاستخدام
-4. **أضف** mockups إذا كان ممكناً
-
-### 💻 المساهمة بالكود
-
-## Development Workflow
-
-### 1. Fork المشروع
+### 1. Fork & Clone
 
 ```bash
-# Fork على GitHub ثم:
+# Fork the repository on GitHub
+# Then clone your fork
 git clone https://github.com/YOUR_USERNAME/wardah-process-costing.git
 cd wardah-process-costing
 ```
 
-### 2. Setup البيئة
+### 2. Install Dependencies
 
 ```bash
-# Install dependencies
 npm install
-
-# Setup environment
-cp .env.example .env.local
-
-# تأكد من تعديل .env.local بمعلومات Supabase الخاصة بك
 ```
 
-### 3. أنشئ Branch
+### 3. Create a Branch
 
 ```bash
-# من main branch
-git checkout main
-git pull origin main
-
-# أنشئ feature branch
-git checkout -b feature/amazing-feature
-
-# أو bug fix branch
-git checkout -b fix/issue-123
+git checkout -b feature/your-feature-name
+# or
+git checkout -b fix/your-bug-fix
 ```
 
-### 4. اعمل على التغييرات
+---
+
+## 💻 Development Workflow
+
+### 1. Make Changes
+
+- Write clean, readable code
+- Follow TypeScript best practices
+- Add comments for complex logic
+- Update documentation if needed
+
+### 2. Test Your Changes
 
 ```bash
-# ابدأ development server
-npm run dev
+# Run tests
+npm test
 
-# اعمل على التغييرات...
-```
-
-### 5. اختبر التغييرات
-
-```bash
-# Type check
-npm run type-check
-
-# Lint
+# Check linting
 npm run lint
 
-# Build
-npm run build
-
-# اختبر في البراوزر
-npm run preview
+# Type check
+npm run type-check
 ```
 
-### 6. Commit التغييرات
+### 3. Commit Your Changes
+
+Follow our [commit guidelines](#commit-guidelines).
+
+### 4. Push & Create PR
 
 ```bash
-git add .
-git commit -m "feat(purchasing): add FIFO valuation strategy"
+git push origin feature/your-feature-name
 ```
 
-### 7. Push للـ Fork
+Then create a Pull Request on GitHub.
 
-```bash
-git push origin feature/amazing-feature
-```
+---
 
-### 8. افتح Pull Request
-
-اذهب إلى GitHub وافتح Pull Request من branch الخاص بك إلى `main`.
-
-## معايير الكود
+## 📝 Coding Standards
 
 ### TypeScript
 
-- ✅ استخدم TypeScript في كل الملفات
-- ✅ تجنب `any` type
-- ✅ استخدم interfaces للكائنات المعقدة
-- ✅ استخدم enums للقيم الثابتة
+- ✅ Use TypeScript for all new code
+- ✅ Define proper types/interfaces
+- ✅ Avoid `any` type
+- ✅ Use meaningful variable names
+
+### React Components
 
 ```typescript
-// ✅ جيد
-interface Product {
-  id: string;
-  code: string;
-  name: string;
-  cost_price: number;
-  valuation_method: ValuationMethod;
+// ✅ Good
+interface Props {
+  title: string;
+  onSave: () => void;
 }
 
-enum ValuationMethod {
-  FIFO = 'FIFO',
-  LIFO = 'LIFO',
-  WEIGHTED_AVERAGE = 'WEIGHTED_AVERAGE'
-}
-
-// ❌ سيء
-function updateProduct(product: any) {
-  // ...
-}
-```
-
-### React Best Practices
-
-- ✅ استخدم Functional Components
-- ✅ استخدم Custom Hooks للمنطق المشترك
-- ✅ Memoize expensive computations
-- ✅ استخدم React Query للـ data fetching
-
-```typescript
-// ✅ جيد
-const MyComponent: React.FC<Props> = ({ data }) => {
-  const { isLoading, error } = useQuery({
-    queryKey: ['products'],
-    queryFn: fetchProducts
-  });
-
-  const memoizedValue = useMemo(() => {
-    return expensiveCalculation(data);
-  }, [data]);
-
-  return <div>{/* ... */}</div>;
+export const MyComponent: React.FC<Props> = ({ title, onSave }) => {
+  // Component logic
 };
 
-// ❌ سيء
-class MyComponent extends React.Component {
+// ❌ Bad
+export const MyComponent = (props: any) => {
   // ...
-}
+};
 ```
-
-### Naming Conventions
-
-- **Components**: PascalCase (`PurchaseOrderForm.tsx`)
-- **Files**: kebab-case (`stock-ledger-service.ts`)
-- **Functions**: camelCase (`calculateCOGS()`)
-- **Constants**: UPPER_SNAKE_CASE (`DEFAULT_TAX_RATE`)
-- **Interfaces**: PascalCase with 'I' prefix optional (`Product` or `IProduct`)
 
 ### File Structure
 
 ```
 src/
-├── components/
-│   ├── forms/
-│   │   └── PurchaseOrderForm.tsx
-│   └── ui/
-│       └── button.tsx
-├── services/
-│   ├── purchasing-service.ts
-│   └── stock-ledger-service.ts
-├── hooks/
-│   └── use-products.ts
-└── types/
-    └── purchasing.ts
+├── features/
+│   └── module-name/
+│       ├── index.tsx          # Main component
+│       ├── components/        # Sub-components
+│       ├── hooks/             # Custom hooks
+│       └── services/         # API services
 ```
 
-### Style Guide
+### Naming Conventions
 
-- ✅ استخدم Prettier للـ formatting
-- ✅ استخدم ESLint للـ linting
-- ✅ Maximum line length: 100 characters
-- ✅ استخدم 2 spaces للـ indentation
-- ✅ استخدم single quotes
+- **Components**: PascalCase (`UserProfile.tsx`)
+- **Files**: kebab-case (`user-profile.tsx`)
+- **Functions**: camelCase (`getUserData`)
+- **Constants**: UPPER_SNAKE_CASE (`API_BASE_URL`)
 
-## Commit Messages
+---
 
-نستخدم [Conventional Commits](https://www.conventionalcommits.org/):
+## 📦 Commit Guidelines
+
+### Format
 
 ```
 <type>(<scope>): <subject>
@@ -250,137 +158,167 @@ src/
 
 ### Types
 
-- `feat`: ميزة جديدة
-- `fix`: إصلاح خطأ
-- `docs`: تحديث التوثيق
-- `style`: تنسيق الكود (لا يؤثر على الوظائف)
-- `refactor`: إعادة هيكلة بدون تغيير الوظائف
-- `perf`: تحسين الأداء
-- `test`: إضافة اختبارات
-- `chore`: صيانة وأعمال تطويرية
-
-### Scopes
-
-- `purchasing`: المشتريات
-- `stock`: المخزون
-- `sales`: المبيعات
-- `accounting`: المحاسبة
-- `valuation`: التقييم
-- `ui`: واجهة المستخدم
-- `db`: قاعدة البيانات
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation
+- `style`: Code style (formatting)
+- `refactor`: Code refactoring
+- `perf`: Performance improvement
+- `test`: Adding tests
+- `chore`: Maintenance tasks
 
 ### Examples
 
 ```bash
-# Feature
-git commit -m "feat(purchasing): implement FIFO valuation strategy"
+# Good commits
+feat(accounting): add trial balance export
+fix(manufacturing): resolve BOM calculation error
+docs(readme): update installation guide
+refactor(services): simplify API calls
 
-# Bug fix
-git commit -m "fix(stock): correct stock queue calculation in LIFO"
-
-# Documentation
-git commit -m "docs(readme): add setup instructions for Supabase"
-
-# Breaking change
-git commit -m "feat(valuation)!: change valuation API structure
-
-BREAKING CHANGE: ValuationStrategy interface now requires getRate() method"
+# Bad commits
+fix bug
+update
+changes
 ```
-
-## Pull Request Process
-
-### 1. قبل فتح PR
-
-- ✅ تأكد أن الكود يعمل
-- ✅ أضف tests إذا كان ممكناً
-- ✅ حدّث التوثيق
-- ✅ تأكد من ESLint و TypeScript checks نظيفة
-- ✅ Rebase على آخر main
-
-### 2. PR Description
-
-استخدم هذا Template:
-
-```markdown
-## ما التغيير؟
-<!-- وصف مختصر للتغييرات -->
-
-## لماذا؟
-<!-- شرح سبب التغيير -->
-
-## كيف تم الاختبار؟
-- [ ] Unit tests
-- [ ] Manual testing
-- [ ] Browser testing
-
-## Screenshots (إذا كان applicable)
-<!-- أضف صور للتغييرات في UI -->
-
-## Checklist
-- [ ] الكود يتبع معايير المشروع
-- [ ] تم تحديث التوثيق
-- [ ] تم إضافة/تحديث الاختبارات
-- [ ] جميع الاختبارات تمر بنجاح
-- [ ] لا توجد تحذيرات من ESLint/TypeScript
-
-## Related Issues
-<!-- اربط بـ Issue إذا كان موجود -->
-Fixes #123
-```
-
-### 3. Code Review Process
-
-- سيقوم المشرفون بمراجعة الكود
-- قد يُطلب منك إجراء تعديلات
-- بعد الموافقة، سيتم دمج الـ PR
-
-## 🎯 أولويات المساهمة
-
-### High Priority
-
-- ✅ Phase 4: Sales Integration
-- ✅ Testing Coverage
-- ✅ Documentation Improvements
-
-### Medium Priority
-
-- 🔄 Performance Optimizations
-- 🔄 UI/UX Enhancements
-- 🔄 More Valuation Methods
-
-### Low Priority
-
-- 📋 Code Refactoring
-- 📋 Additional Features
-
-## 📚 موارد مفيدة
-
-### للتعلم
-
-- [ERPNext Documentation](https://docs.erpnext.com/)
-- [React Documentation](https://react.dev/)
-- [TypeScript Handbook](https://www.typescriptlang.org/docs/)
-- [Supabase Documentation](https://supabase.com/docs)
-
-### للتطوير
-
-- [Shadcn/ui Components](https://ui.shadcn.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [React Query](https://tanstack.com/query/latest)
-
-## 🤝 الحصول على المساعدة
-
-إذا كنت بحاجة لمساعدة:
-
-1. اقرأ التوثيق أولاً
-2. ابحث في Issues الموجودة
-3. افتح Discussion على GitHub
-4. اسأل في Issue جديد
-
-## 📝 الترخيص
-
-بالمساهمة، أنت توافق على أن مساهماتك ستكون مرخصة تحت نفس ترخيص المشروع (MIT License).
 
 ---
 
-**شكراً لمساهمتك في جعل Wardah ERP أفضل!** 🙏✨
+## 🔄 Pull Request Process
+
+### Before Submitting
+
+- [ ] Code follows style guidelines
+- [ ] Tests pass locally
+- [ ] Documentation updated
+- [ ] No console.logs or debug code
+- [ ] Commit messages follow guidelines
+
+### PR Description Template
+
+```markdown
+## Description
+Brief description of changes
+
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
+
+## Testing
+How was this tested?
+
+## Screenshots (if applicable)
+Add screenshots here
+```
+
+### Review Process
+
+1. **Automated Checks** - CI/CD will run tests
+2. **Code Review** - Maintainers will review
+3. **Feedback** - Address any comments
+4. **Merge** - Once approved, it will be merged
+
+---
+
+## 🐛 Reporting Bugs
+
+### Bug Report Template
+
+```markdown
+**Describe the bug**
+A clear description of what the bug is.
+
+**To Reproduce**
+Steps to reproduce:
+1. Go to '...'
+2. Click on '...'
+3. See error
+
+**Expected behavior**
+What you expected to happen.
+
+**Screenshots**
+If applicable, add screenshots.
+
+**Environment:**
+- OS: [e.g. Windows 10]
+- Browser: [e.g. Chrome 120]
+- Version: [e.g. 2.0.0]
+```
+
+---
+
+## 💡 Feature Requests
+
+### Feature Request Template
+
+```markdown
+**Is your feature request related to a problem?**
+A clear description of the problem.
+
+**Describe the solution you'd like**
+What you want to happen.
+
+**Describe alternatives you've considered**
+Other solutions you've thought about.
+
+**Additional context**
+Any other information.
+```
+
+---
+
+## 📚 Documentation
+
+### When to Update Docs
+
+- ✅ Adding new features
+- ✅ Changing API/function signatures
+- ✅ Fixing bugs that affect usage
+- ✅ Adding new dependencies
+
+### Documentation Standards
+
+- Use clear, concise language
+- Include code examples
+- Add screenshots when helpful
+- Keep docs/INDEX.md updated
+
+---
+
+## 🎯 Areas for Contribution
+
+### High Priority:
+- 🐛 Bug fixes
+- 📚 Documentation improvements
+- ⚡ Performance optimizations
+- 🧪 Test coverage
+
+### Medium Priority:
+- 🎨 UI/UX improvements
+- 🔧 Code refactoring
+- 🌐 i18n translations
+- 📊 New reports
+
+### Low Priority:
+- 🎨 Theme customization
+- 📱 Mobile optimizations
+- 🔌 Plugin system
+
+---
+
+## ❓ Questions?
+
+- 💬 [GitHub Discussions](https://github.com/6thd/wardah-process-costing/discussions)
+- 📧 Email: support@wardah-erp.sa
+- 📖 [Documentation](./docs/INDEX.md)
+
+---
+
+## 🙏 Thank You!
+
+Your contributions make Wardah ERP better for everyone!
+
+**Happy Coding! 🚀**
