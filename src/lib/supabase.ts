@@ -57,11 +57,18 @@ export interface Supplier {
 export interface ManufacturingOrder {
     id: string;
     item_id: string;
+    product_id?: string;
     quantity: number;
     status: 'pending' | 'in-progress' | 'completed' | 'draft' | 'confirmed';
     created_by?: string; 
     order_number?: string;
     product_name?: string;
+    notes?: string;
+    start_date?: string;
+    due_date?: string;
+    org_id?: string;
+    created_at?: string;
+    updated_at?: string;
 }
 
 export interface ProcessCost {
@@ -329,6 +336,205 @@ export const getAccountChildren = async (parentId: string): Promise<any[]> => {
 export const debugGLAccounts = async () => {
     const { data, error } = await supabase.from('gl_accounts').select('*').limit(10);
     console.log('Debug GL Accounts:', data, error);
+};
+
+// ===================================================================
+// GL ACCOUNT CRUD OPERATIONS
+// عمليات إدارة دليل الحسابات
+// ===================================================================
+
+export interface CreateGLAccountInput {
+    code: string;
+    name: string;
+    name_ar?: string;
+    name_en?: string;
+    account_type: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
+    subtype?: string;
+    parent_id?: string | null;
+    description?: string;
+    is_active?: boolean;
+    opening_balance?: number;
+    opening_balance_type?: 'DEBIT' | 'CREDIT';
+}
+
+export interface UpdateGLAccountInput extends Partial<CreateGLAccountInput> {
+    id: string;
+}
+
+/**
+ * Create new GL Account
+ * إنشاء حساب جديد في دليل الحسابات
+ */
+export const createGLAccount = async (input: CreateGLAccountInput): Promise<{ success: boolean; data?: GLAccount; error?: string }> => {
+    try {
+        const orgId = await getEffectiveTenantId();
+        if (!orgId) throw new Error('Organization ID not found');
+
+        // Prepare account data
+        const accountData = {
+            org_id: orgId,
+            code: input.code,
+            name: input.name,
+            name_ar: input.name_ar || input.name,
+            name_en: input.name_en || input.name,
+            account_type: input.account_type,
+            subtype: input.subtype,
+            parent_id: input.parent_id || null,
+            description: input.description,
+            is_active: input.is_active !== false,
+            opening_balance: input.opening_balance || 0,
+            opening_balance_type: input.opening_balance_type || 'DEBIT',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabase
+            .from('gl_accounts')
+            .insert(accountData)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return { success: true, data };
+    } catch (error: any) {
+        console.error('Error creating GL account:', error);
+        return { success: false, error: error.message || 'Failed to create account' };
+    }
+};
+
+/**
+ * Update existing GL Account
+ * تحديث حساب موجود
+ */
+export const updateGLAccount = async (input: UpdateGLAccountInput): Promise<{ success: boolean; data?: GLAccount; error?: string }> => {
+    try {
+        const { id, ...updates } = input;
+        
+        const updateData: any = {
+            ...updates,
+            updated_at: new Date().toISOString()
+        };
+
+        // Remove undefined values
+        Object.keys(updateData).forEach(key => {
+            if (updateData[key] === undefined) {
+                delete updateData[key];
+            }
+        });
+
+        const { data, error } = await supabase
+            .from('gl_accounts')
+            .update(updateData)
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return { success: true, data };
+    } catch (error: any) {
+        console.error('Error updating GL account:', error);
+        return { success: false, error: error.message || 'Failed to update account' };
+    }
+};
+
+/**
+ * Delete GL Account (soft delete - set is_active to false)
+ * حذف حساب (حذف ناعم - تعطيل الحساب)
+ */
+export const deleteGLAccount = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+        // Check if account has children
+        const { data: children } = await supabase
+            .from('gl_accounts')
+            .select('id')
+            .eq('parent_id', id)
+            .limit(1);
+
+        if (children && children.length > 0) {
+            return { success: false, error: 'Cannot delete account with child accounts' };
+        }
+
+        // Check if account has transactions
+        const { data: transactions } = await supabase
+            .from('journal_entry_lines')
+            .select('id')
+            .eq('account_id', id)
+            .limit(1);
+
+        if (transactions && transactions.length > 0) {
+            // If has transactions, only deactivate
+            const { error } = await supabase
+                .from('gl_accounts')
+                .update({ is_active: false, updated_at: new Date().toISOString() })
+                .eq('id', id);
+
+            if (error) throw error;
+            
+            return { success: true };
+        }
+
+        // If no transactions, can safely delete
+        const { error } = await supabase
+            .from('gl_accounts')
+            .delete()
+            .eq('id', id);
+
+        if (error) throw error;
+
+        return { success: true };
+    } catch (error: any) {
+        console.error('Error deleting GL account:', error);
+        return { success: false, error: error.message || 'Failed to delete account' };
+    }
+};
+
+/**
+ * Get GL Account by ID
+ * الحصول على حساب محدد
+ */
+export const getGLAccountById = async (id: string): Promise<GLAccount | null> => {
+    try {
+        const { data, error } = await supabase
+            .from('gl_accounts')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+        return data;
+    } catch (error) {
+        console.error('Error fetching GL account:', error);
+        return null;
+    }
+};
+
+/**
+ * Check if account code exists
+ * التحقق من وجود رمز الحساب
+ */
+export const checkAccountCodeExists = async (code: string, excludeId?: string): Promise<boolean> => {
+    try {
+        const orgId = await getEffectiveTenantId();
+        let query = supabase
+            .from('gl_accounts')
+            .select('id')
+            .eq('org_id', orgId)
+            .eq('code', code);
+
+        if (excludeId) {
+            query = query.neq('id', excludeId);
+        }
+
+        const { data, error } = await query.limit(1);
+
+        if (error) throw error;
+        return (data && data.length > 0);
+    } catch (error) {
+        console.error('Error checking account code:', error);
+        return false;
+    }
 };
 
 export const getTenantId = async (): Promise<string | null> => {

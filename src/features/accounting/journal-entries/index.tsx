@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -19,6 +19,7 @@ import { AttachmentsSection } from './components/AttachmentsSection';
 import { CommentsSection } from './components/CommentsSection';
 import { JournalService } from '@/services/accounting/journal-service';
 import { toast } from 'sonner';
+import { PerformanceMonitor } from '@/lib/performance-monitor';
 
 interface JournalEntry {
   id: string;
@@ -70,6 +71,8 @@ interface JournalLine {
   reconciled_at?: string;
   reconciled_by?: string;
   created_at?: string;
+  tenant_id?: string;
+  org_id?: string;
 }
 
 interface Journal {
@@ -128,16 +131,29 @@ const JournalEntries = () => {
 
   const fetchJournals = async () => {
     try {
+      console.log('🔍 Fetching journals...');
       const { data, error } = await supabase
         .from('journals')
         .select('*')
         .eq('is_active', true)
         .order('code');
 
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Error fetching journals:', error);
+        throw error;
+      }
+
+      console.log('✅ Loaded journals:', data);
+
+      if (!data || data.length === 0) {
+        console.warn('⚠️ No journals found in database');
+        toast.error(isRTL ? 'لم يتم العثور على أنواع قيود. يرجى إنشاؤها أولاً.' : 'No journal types found. Please create them first.');
+      }
+
       setJournals(data || []);
-    } catch (error) {
-      console.error('Error fetching journals:', error);
+    } catch (error: any) {
+      console.error('❌ Error fetching journals:', error);
+      toast.error(isRTL ? 'خطأ في تحميل أنواع القيود' : 'Error loading journal types');
     }
   };
 
@@ -158,109 +174,146 @@ const JournalEntries = () => {
   };
 
   const fetchEntries = async () => {
-    setLoading(true);
-    try {
-      // Try new gl_entries table first
-      let query = supabase
-        .from('gl_entries')
-        .select(`
-          *
-        `)
-        .order('entry_date', { ascending: false })
-        .order('entry_number', { ascending: false });
-
-      if (statusFilter !== 'all') {
-        query = query.eq('status', statusFilter);
-      }
-
-      if (dateFilter) {
-        query = query.gte('entry_date', dateFilter);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.warn('gl_entries not found, trying journal_entries:', error);
-        // Fallback to old table
-        let oldQuery = supabase
-          .from('journal_entries')
+    await PerformanceMonitor.measure('Journal Entries List', async () => {
+      setLoading(true);
+      try {
+        // Try new gl_entries table first
+        let query = supabase
+          .from('gl_entries')
           .select(`
-            *,
-            journals (
-              name,
-              name_ar
-            )
+            *
           `)
           .order('entry_date', { ascending: false })
           .order('entry_number', { ascending: false });
 
         if (statusFilter !== 'all') {
-          oldQuery = oldQuery.eq('status', statusFilter);
+          query = query.eq('status', statusFilter);
         }
 
         if (dateFilter) {
-          oldQuery = oldQuery.gte('entry_date', dateFilter);
+          query = query.gte('entry_date', dateFilter);
         }
 
-        const { data: oldData, error: oldError } = await oldQuery;
-        
-        if (oldError) throw oldError;
-        
-        const entriesWithJournalNames = (oldData || []).map(entry => ({
-          ...entry,
-          journal_name: entry.journals?.name,
-          journal_name_ar: entry.journals?.name_ar
-        }));
+        const { data, error } = await query;
 
-        setEntries(entriesWithJournalNames);
-      } else {
-        console.log('✅ Loaded from gl_entries:', data);
-        setEntries(data || []);
+        if (error) {
+          console.warn('gl_entries not found, trying journal_entries:', error);
+          // Fallback to old table (without joins to avoid 406 error)
+          let oldQuery = supabase
+            .from('journal_entries')
+            .select('*')
+            .order('entry_date', { ascending: false })
+            .order('entry_number', { ascending: false });
+
+          if (statusFilter !== 'all') {
+            oldQuery = oldQuery.eq('status', statusFilter);
+          }
+
+          if (dateFilter) {
+            oldQuery = oldQuery.gte('entry_date', dateFilter);
+          }
+
+          const { data: oldData, error: oldError } = await oldQuery;
+
+          if (oldError) throw oldError;
+
+          // Fetch journal names separately if needed
+          const entriesWithJournalNames = await Promise.all((oldData || []).map(async (entry) => {
+            if (entry.journal_id && journals.length > 0) {
+              const journal = journals.find(j => j.id === entry.journal_id);
+              return {
+                ...entry,
+                journal_name: journal?.name || 'General Journal',
+                journal_name_ar: journal?.name_ar || 'قيد عام'
+              };
+            }
+            return {
+              ...entry,
+              journal_name: 'General Journal',
+              journal_name_ar: 'قيد عام'
+            };
+          }));
+
+          setEntries(entriesWithJournalNames);
+        } else {
+          console.log('✅ Loaded from gl_entries:', data);
+          setEntries(data || []);
+        }
+      } catch (error) {
+        console.error('Error fetching entries:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error fetching entries:', error);
-    } finally {
-      setLoading(false);
-    }
+    });
+  };
+
+  const normalizeLines = (rawLines: any[], entryId?: string) => {
+    if (!rawLines || rawLines.length === 0) return [];
+    return rawLines.map((line, index) => {
+      const accountById = line.account_id
+        ? accounts.find(a => a.id === line.account_id)
+        : undefined;
+
+      const accountByCode = !accountById && line.account_code
+        ? accounts.find(a => a.code === line.account_code)
+        : undefined;
+
+      const resolvedAccount = accountById || accountByCode;
+
+      return {
+        ...line,
+        id: line.id || (entryId ? `${entryId}-${index}` : `${index}`),
+        line_number: line.line_number || index + 1,
+        account_id: resolvedAccount?.id || line.account_id || '',
+        account_code: resolvedAccount?.code || line.account_code || '',
+        account_name: resolvedAccount?.name || line.account_name || '',
+        account_name_ar: resolvedAccount?.name_ar || line.account_name_ar || line.account_name || '',
+        debit: line.debit ?? '',
+        credit: line.credit ?? '',
+        description: line.description || '',
+        description_ar: line.description_ar || '',
+        currency_code: line.currency_code || 'SAR'
+      };
+    });
   };
 
   const fetchEntryLines = async (entryId: string) => {
     try {
-      // Try new gl_entry_lines table first
+      console.log('🔍 Fetching lines for entry:', entryId);
+      let lines = [];
+
+      // 1. Try new gl_entry_lines table first
       const { data: newData, error: newError } = await supabase
         .from('gl_entry_lines')
         .select('*')
         .eq('entry_id', entryId)
         .order('line_number');
 
-      if (!newError && newData) {
-        console.log('✅ Loaded lines from gl_entry_lines:', newData);
-        return newData;
+      if (!newError && newData && newData.length > 0) {
+        console.log('✅ Found lines in gl_entry_lines:', newData);
+        lines = newData;
+      } else {
+        // 2. Fallback to old journal_lines table
+        console.log('⚠️ No lines in gl_entry_lines, trying journal_lines...');
+        const { data: oldData, error: oldError } = await supabase
+          .from('journal_lines')
+          .select('*')
+          .eq('entry_id', entryId)
+          .order('line_number');
+
+        if (!oldError && oldData && oldData.length > 0) {
+          console.log('✅ Found lines in journal_lines:', oldData);
+          lines = oldData;
+        }
       }
 
-      // Fallback to old journal_lines table
-      const { data, error } = await supabase
-        .from('journal_lines')
-        .select(`
-          *,
-          gl_accounts (
-            code,
-            name,
-            name_ar,
-            name_en
-          )
-        `)
-        .eq('entry_id', entryId)
-        .order('line_number');
+      if (lines.length === 0) {
+        console.warn('⚠️ No lines found in either table for entry:', entryId);
+        return [];
+      }
 
-      if (error) throw error;
-
-      return (data || []).map(line => ({
-        ...line,
-        account_code: line.gl_accounts?.code,
-        account_name: line.gl_accounts?.name,
-        account_name_ar: line.gl_accounts?.name_ar
-      }));
+      // Fetch account details separately and map to lines
+      return normalizeLines(lines, entryId);
     } catch (error) {
       console.error('Error fetching entry lines:', error);
       return [];
@@ -308,6 +361,12 @@ const JournalEntries = () => {
     try {
       setLoading(true);
       const { totalDebit, totalCredit, balanced } = calculateTotals();
+      const tenantId = await getEffectiveTenantId();
+      if (!tenantId) {
+        toast.error(isRTL ? 'لم يتم تحديد المؤسسة الحالية' : 'Organization context not found');
+        setLoading(false);
+        return;
+      }
 
       // Validation: Journal type is required
       if (!formData.journal_id) {
@@ -332,6 +391,7 @@ const JournalEntries = () => {
       const entryData = {
         journal_id: formData.journal_id, // Required field, validated above
         entry_date: formData.entry_date,
+        entry_type: 'manual', // Changed to 'manual' (based on database enum)
         description: formData.description || null,
         description_ar: formData.description_ar || null,
         reference_type: formData.reference_type || null,
@@ -339,7 +399,7 @@ const JournalEntries = () => {
         status: 'draft',
         total_debit: totalDebit,
         total_credit: totalCredit,
-        org_id: '00000000-0000-0000-0000-000000000001'
+        org_id: tenantId
       };
 
       console.log('💾 Saving entry:', entryData);
@@ -347,7 +407,7 @@ const JournalEntries = () => {
       if (editingEntry) {
         // Update existing entry
         const { error: entryError } = await supabase
-          .from('journal_entries')
+          .from('gl_entries')
           .update(entryData)
           .eq('id', editingEntry.id);
 
@@ -355,7 +415,7 @@ const JournalEntries = () => {
 
         // Delete old lines
         await supabase
-          .from('journal_lines')
+          .from('gl_entry_lines')
           .delete()
           .eq('entry_id', editingEntry.id);
 
@@ -369,11 +429,12 @@ const JournalEntries = () => {
           currency_code: line.currency_code || 'SAR',
           description: line.description,
           description_ar: line.description_ar,
-          org_id: '00000000-0000-0000-0000-000000000001'
+          org_id: tenantId,
+          tenant_id: tenantId
         }));
 
         const { error: linesError } = await supabase
-          .from('journal_lines')
+          .from('gl_entry_lines')
           .insert(lines);
 
         if (linesError) throw linesError;
@@ -391,7 +452,7 @@ const JournalEntries = () => {
         };
 
         const { data: newEntry, error: entryError } = await supabase
-          .from('journal_entries')
+          .from('gl_entries')
           .insert([entryDataWithNumber])
           .select()
           .single();
@@ -408,11 +469,12 @@ const JournalEntries = () => {
           currency_code: line.currency_code || 'SAR',
           description: line.description,
           description_ar: line.description_ar,
-          org_id: '00000000-0000-0000-0000-000000000001'
+          org_id: tenantId,
+          tenant_id: tenantId
         }));
 
         const { error: linesError } = await supabase
-          .from('journal_lines')
+          .from('gl_entry_lines')
           .insert(lines);
 
         if (linesError) throw linesError;
@@ -421,10 +483,23 @@ const JournalEntries = () => {
       setIsDialogOpen(false);
       resetForm();
       fetchEntries();
-      alert(isRTL ? 'تم حفظ القيد بنجاح' : 'Entry saved successfully');
-    } catch (error) {
-      console.error('Error saving entry:', error);
-      alert(isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry');
+      toast.success(isRTL ? 'تم حفظ القيد بنجاح ✅' : 'Entry saved successfully ✅');
+    } catch (error: any) {
+      console.error('❌ Error saving entry:', error);
+
+      // More detailed error message
+      let errorMessage = isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry';
+      if (error?.message) {
+        errorMessage += ': ' + error.message;
+      }
+      if (error?.code) {
+        errorMessage += ' (Code: ' + error.code + ')';
+      }
+
+      toast.error(errorMessage);
+
+      // Don't close dialog on error so user can retry
+      // setIsDialogOpen(false);
     } finally {
       setLoading(false);
     }
@@ -471,7 +546,7 @@ const JournalEntries = () => {
     try {
       setLoading(true);
       const { error } = await supabase
-        .from('journal_entries')
+        .from('gl_entries')
         .delete()
         .eq('id', entry.id);
 
@@ -489,23 +564,49 @@ const JournalEntries = () => {
 
   const handleEdit = async (entry: JournalEntry) => {
     if (entry.status === 'posted') {
-      alert(isRTL ? 'لا يمكن تعديل قيد مرحّل' : 'Cannot edit a posted entry');
+      toast.warning(isRTL ? 'لا يمكن تعديل قيد مرحّل' : 'Cannot edit a posted entry');
       return;
     }
 
-    const lines = await fetchEntryLines(entry.id);
-    
-    setEditingEntry(entry);
-    setFormData({
-      journal_id: entry.journal_id,
-      entry_date: entry.entry_date,
-      description: entry.description || '',
-      description_ar: entry.description_ar || '',
-      reference_type: entry.reference_type || '',
-      reference_number: entry.reference_number || '',
-      lines: lines
-    });
-    setIsDialogOpen(true);
+    try {
+      setLoading(true);
+      let lines = await fetchEntryLines(entry.id);
+
+      if (!lines || lines.length === 0) {
+        console.warn('Trying to load lines via service fallback...');
+        const fullEntry = await JournalService.getEntryWithDetails(entry.id);
+        if (fullEntry?.lines?.length) {
+          lines = normalizeLines(fullEntry.lines, entry.id);
+        }
+      }
+
+      if (!lines || lines.length === 0) {
+        toast.error(
+          isRTL
+            ? '⚠️ هذا القيد فارغ (بدون بنود). يُرجى حذفه وإنشاء قيد جديد.'
+            : '⚠️ This entry is empty (no lines). Please delete it and create a new entry.',
+          { duration: 6000 }
+        );
+        return;
+      }
+
+      setEditingEntry(entry);
+      setFormData({
+        journal_id: entry.journal_id,
+        entry_date: entry.entry_date,
+        description: entry.description || '',
+        description_ar: entry.description_ar || '',
+        reference_type: entry.reference_type || '',
+        reference_number: entry.reference_number || '',
+        lines
+      });
+      setIsDialogOpen(true);
+    } catch (error: any) {
+      console.error('Error loading entry for edit:', error);
+      toast.error(error.message || (isRTL ? 'تعذر تحميل بيانات القيد' : 'Failed to load entry details'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetForm = () => {
@@ -527,7 +628,7 @@ const JournalEntries = () => {
       posted: 'default',
       reversed: 'destructive'
     };
-    
+
     const labels: Record<string, { ar: string; en: string }> = {
       draft: { ar: 'مسودة', en: 'Draft' },
       posted: { ar: 'مرحّل', en: 'Posted' },
@@ -546,7 +647,7 @@ const JournalEntries = () => {
       entry.entry_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.description_ar?.includes(searchTerm);
-    
+
     return matchesSearch;
   });
 
@@ -578,7 +679,7 @@ const JournalEntries = () => {
               <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
-                    {editingEntry 
+                    {editingEntry
                       ? (isRTL ? 'تعديل القيد' : 'Edit Entry')
                       : (isRTL ? 'قيد جديد' : 'New Entry')}
                   </DialogTitle>
@@ -664,140 +765,351 @@ const JournalEntries = () => {
                     </div>
                   </div>
 
-                  <div className="border-t pt-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold">
-                        {isRTL ? 'بنود القيد' : 'Entry Lines'}
-                      </h3>
-                      <Button type="button" onClick={addLine} size="sm">
-                        <Plus className="h-4 w-4 ml-1" />
-                        {isRTL ? 'إضافة بند' : 'Add Line'}
-                      </Button>
-                    </div>
+                  {/* Tabs for Lines, Attachments, and Comments - Professional Design */}
+                  <Tabs defaultValue="lines" className="w-full border-t pt-4">
+                    <TabsList className="grid w-full grid-cols-3">
+                      <TabsTrigger value="lines">{isRTL ? 'البنود' : 'Lines'}</TabsTrigger>
+                      <TabsTrigger value="attachments" disabled={!editingEntry}>
+                        {isRTL ? 'المرفقات' : 'Attachments'}
+                        {!editingEntry && <span className="text-xs opacity-50 ml-1">*</span>}
+                      </TabsTrigger>
+                      <TabsTrigger value="comments" disabled={!editingEntry}>
+                        {isRTL ? 'التعليقات' : 'Comments'}
+                        {!editingEntry && <span className="text-xs opacity-50 ml-1">*</span>}
+                      </TabsTrigger>
+                    </TabsList>
 
-                    <div className="space-y-2">
-                      {formData.lines.map((line, index) => (
-                        <Card key={index} className="p-4">
-                          <div className="grid grid-cols-12 gap-2 items-end">
-                            <div className="col-span-5">
-                              <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
-                              <Select
-                                value={line.account_id}
-                                onValueChange={(value) => updateLine(index, 'account_id', value)}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder={isRTL ? 'اختر الحساب' : 'Select account'} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  {accounts.map((account) => (
-                                    <SelectItem key={account.id} value={account.id}>
-                                      {account.code} - {isRTL ? (account.name_ar || account.name) : account.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </div>
-
-                            <div className="col-span-2">
-                              <Label>{isRTL ? 'مدين' : 'Debit'}</Label>
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                value={line.debit || ''}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // السماح فقط بالأرقام والنقطة العشرية
-                                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                                    updateLine(index, 'debit', value);
-                                    // إذا أدخل مبلغ في المدين، اجعل الدائن فارغ
-                                    if (value && Number(value) > 0) {
-                                      updateLine(index, 'credit', '');
-                                    }
-                                  }
-                                }}
-                                onFocus={(e) => e.target.select()}
-                                placeholder="0.00"
-                                className="text-right"
-                              />
-                            </div>
-
-                            <div className="col-span-2">
-                              <Label>{isRTL ? 'دائن' : 'Credit'}</Label>
-                              <Input
-                                type="text"
-                                inputMode="decimal"
-                                value={line.credit || ''}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  // السماح فقط بالأرقام والنقطة العشرية
-                                  if (value === '' || /^\d*\.?\d*$/.test(value)) {
-                                    updateLine(index, 'credit', value);
-                                    // إذا أدخل مبلغ في الدائن، اجعل المدين فارغ
-                                    if (value && Number(value) > 0) {
-                                      updateLine(index, 'debit', '');
-                                    }
-                                  }
-                                }}
-                                onFocus={(e) => e.target.select()}
-                                placeholder="0.00"
-                                className="text-right"
-                              />
-                            </div>
-
-                            <div className="col-span-2">
-                              <Label>{isRTL ? 'الوصف' : 'Description'}</Label>
-                              <Input
-                                value={line.description || ''}
-                                onChange={(e) => updateLine(index, 'description', e.target.value)}
-                                placeholder={isRTL ? 'وصف البند' : 'Line description'}
-                              />
-                            </div>
-
-                            <div className="col-span-1">
-                              <Button
-                                type="button"
-                                variant="destructive"
-                                size="icon"
-                                onClick={() => removeLine(index)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        </Card>
-                      ))}
-                    </div>
-
-                    {formData.lines.length > 0 && (
-                      <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-                        <div className="grid grid-cols-3 gap-4 text-center">
-                          <div>
-                            <p className="text-sm text-gray-600">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
-                            <p className="text-lg font-bold">{totalDebit.toFixed(2)}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
-                            <p className="text-lg font-bold">{totalCredit.toFixed(2)}</p>
-                          </div>
-                          <div>
-                            <p className="text-sm text-gray-600">{isRTL ? 'الحالة' : 'Status'}</p>
-                            <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
-                              {balanced 
-                                ? (isRTL ? '✓ متوازن' : '✓ Balanced')
-                                : (isRTL ? '✗ غير متوازن' : '✗ Not Balanced')}
-                            </p>
-                          </div>
-                        </div>
+                    {!editingEntry && (
+                      <div className="mt-2 px-4 py-2 bg-blue-50 border border-blue-200 rounded-md">
+                        <p className="text-xs text-blue-700 flex items-center gap-2">
+                          <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                          </svg>
+                          <span>
+                            {isRTL
+                              ? '* المرفقات والتعليقات ستكون متاحة بعد حفظ القيد'
+                              : '* Attachments and comments will be available after saving the entry'}
+                          </span>
+                        </p>
                       </div>
                     )}
-                  </div>
+
+                    <TabsContent value="lines" className="space-y-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold">
+                          {isRTL ? 'بنود القيد' : 'Entry Lines'}
+                        </h3>
+                        <Button type="button" onClick={addLine} size="sm">
+                          <Plus className="h-4 w-4 ml-1" />
+                          {isRTL ? 'إضافة بند' : 'Add Line'}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {formData.lines.map((line, index) => (
+                          <Card key={index} className="p-4">
+                            <div className="grid grid-cols-12 gap-2 items-end">
+                              <div className="col-span-5">
+                                <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
+                                <Select
+                                  value={line.account_id}
+                                  onValueChange={(value) => updateLine(index, 'account_id', value)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={isRTL ? 'اختر الحساب' : 'Select account'} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {accounts.map((account) => (
+                                      <SelectItem key={account.id} value={account.id}>
+                                        {account.code} - {isRTL ? (account.name_ar || account.name) : account.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'مدين' : 'Debit'}</Label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={line.debit || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                      updateLine(index, 'debit', value);
+                                      if (value && Number(value) > 0) {
+                                        updateLine(index, 'credit', '');
+                                      }
+                                    }
+                                  }}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder="0.00"
+                                  className="text-right"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'دائن' : 'Credit'}</Label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={line.credit || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                      updateLine(index, 'credit', value);
+                                      if (value && Number(value) > 0) {
+                                        updateLine(index, 'debit', '');
+                                      }
+                                    }
+                                  }}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder="0.00"
+                                  className="text-right"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'الوصف' : 'Description'}</Label>
+                                <Input
+                                  value={line.description || ''}
+                                  onChange={(e) => updateLine(index, 'description', e.target.value)}
+                                  placeholder={isRTL ? 'وصف البند' : 'Line description'}
+                                />
+                              </div>
+
+                              <div className="col-span-1">
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="icon"
+                                  onClick={() => removeLine(index)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+
+                      {formData.lines.length > 0 && (
+                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
+                              <p className="text-lg font-bold">{totalDebit.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
+                              <p className="text-lg font-bold">{totalCredit.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'الحالة' : 'Status'}</p>
+                              <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
+                                {balanced
+                                  ? (isRTL ? '✓ متوازن' : '✓ Balanced')
+                                  : (isRTL ? '✗ غير متوازن' : '✗ Not Balanced')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="attachments">
+                      {editingEntry ? (
+                        <AttachmentsSection entryId={editingEntry.id} />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                          <div className="rounded-full bg-blue-100 p-4 mb-4">
+                            <svg className="h-12 w-12 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                            </svg>
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
+                          </h3>
+                          <p className="text-sm text-gray-500 max-w-md">
+                            {isRTL
+                              ? 'لإضافة مرفقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة المرفقات.'
+                              : 'To add attachments, you need to save the entry first. After saving, you can edit the entry and add attachments.'}
+                          </p>
+                          <Button
+                            onClick={handleSubmit}
+                            disabled={loading || !balanced}
+                            className="mt-4"
+                          >
+                            {isRTL ? 'احفظ القيد الآن' : 'Save Entry Now'}
+                          </Button>
+                        </div>
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="comments">
+                      {editingEntry ? (
+                        <CommentsSection entryId={editingEntry.id} />
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+                          <div className="rounded-full bg-purple-100 p-4 mb-4">
+                            <svg className="h-12 w-12 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            </svg>
+                          </div>
+                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                            {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
+                          </h3>
+                          <p className="text-sm text-gray-500 max-w-md">
+                            {isRTL
+                              ? 'لإضافة تعليقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة التعليقات.'
+                              : 'To add comments, you need to save the entry first. After saving, you can edit the entry and add comments.'}
+                          </p>
+                          <Button
+                            onClick={handleSubmit}
+                            disabled={loading || !balanced}
+                            className="mt-4"
+                          >
+                            {isRTL ? 'احفظ القيد الآن' : 'Save Entry Now'}
+                          </Button>
+                        </div>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+
+                  {/* Remove the old conditional sections */}
+                  {false && !editingEntry && (
+                    <div className="border-t pt-4">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold">
+                          {isRTL ? 'بنود القيد' : 'Entry Lines'}
+                        </h3>
+                        <Button type="button" onClick={addLine} size="sm">
+                          <Plus className="h-4 w-4 ml-1" />
+                          {isRTL ? 'إضافة بند' : 'Add Line'}
+                        </Button>
+                      </div>
+
+                      <div className="space-y-2">
+                        {formData.lines.map((line, index) => (
+                          <Card key={index} className="p-4">
+                            <div className="grid grid-cols-12 gap-2 items-end">
+                              <div className="col-span-5">
+                                <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
+                                <Select
+                                  value={line.account_id}
+                                  onValueChange={(value) => updateLine(index, 'account_id', value)}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue placeholder={isRTL ? 'اختر الحساب' : 'Select account'} />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {accounts.map((account) => (
+                                      <SelectItem key={account.id} value={account.id}>
+                                        {account.code} - {isRTL ? (account.name_ar || account.name) : account.name}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'مدين' : 'Debit'}</Label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={line.debit || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                      updateLine(index, 'debit', value);
+                                      if (value && Number(value) > 0) {
+                                        updateLine(index, 'credit', '');
+                                      }
+                                    }
+                                  }}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder="0.00"
+                                  className="text-right"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'دائن' : 'Credit'}</Label>
+                                <Input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={line.credit || ''}
+                                  onChange={(e) => {
+                                    const value = e.target.value;
+                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                      updateLine(index, 'credit', value);
+                                      if (value && Number(value) > 0) {
+                                        updateLine(index, 'debit', '');
+                                      }
+                                    }
+                                  }}
+                                  onFocus={(e) => e.target.select()}
+                                  placeholder="0.00"
+                                  className="text-right"
+                                />
+                              </div>
+
+                              <div className="col-span-2">
+                                <Label>{isRTL ? 'الوصف' : 'Description'}</Label>
+                                <Input
+                                  value={line.description || ''}
+                                  onChange={(e) => updateLine(index, 'description', e.target.value)}
+                                  placeholder={isRTL ? 'وصف البند' : 'Line description'}
+                                />
+                              </div>
+
+                              <div className="col-span-1">
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="icon"
+                                  onClick={() => removeLine(index)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </Card>
+                        ))}
+                      </div>
+
+                      {formData.lines.length > 0 && (
+                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                          <div className="grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
+                              <p className="text-lg font-bold">{totalDebit.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
+                              <p className="text-lg font-bold">{totalCredit.toFixed(2)}</p>
+                            </div>
+                            <div>
+                              <p className="text-sm text-gray-600">{isRTL ? 'الحالة' : 'Status'}</p>
+                              <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
+                                {balanced
+                                  ? (isRTL ? '✓ متوازن' : '✓ Balanced')
+                                  : (isRTL ? '✗ غير متوازن' : '✗ Not Balanced')}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex justify-end gap-2 pt-4 border-t">
                     <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
                       {isRTL ? 'إلغاء' : 'Cancel'}
                     </Button>
                     <Button onClick={handleSubmit} disabled={loading || !balanced}>
-                      {loading 
+                      {loading
                         ? (isRTL ? 'جاري الحفظ...' : 'Saving...')
                         : (isRTL ? 'حفظ' : 'Save')}
                     </Button>
@@ -1027,7 +1339,7 @@ const JournalEntries = () => {
                   </div>
                   <div>
                     <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
-                    <p>{getStatusBadge(viewingEntry.status)}</p>
+                    <div>{getStatusBadge(viewingEntry.status)}</div>
                   </div>
                   <div>
                     <Label>{isRTL ? 'المدين' : 'Debit'}</Label>

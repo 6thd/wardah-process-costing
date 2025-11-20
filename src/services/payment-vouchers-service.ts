@@ -858,48 +858,52 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
     const tenantId = await getEffectiveTenantId()
     if (!tenantId) throw new Error('Tenant ID not found')
 
-    // Select only columns that definitely exist
-    const { data, error } = await supabase
+    // Try with full columns first
+    let { data, error } = await supabase
       .from('gl_accounts')
-      .select('id, code, name, subtype')
+      .select('id, code, name, name_ar, name_en, subtype')
       .eq('org_id', tenantId)
-      .in('subtype', ['CASH', 'BANK'])
       .eq('is_active', true)
       .order('code')
-
-    if (error) {
-      // If error, try without subtype filter (in case subtype column doesn't exist)
-      if (error.code === '42703' || (error.message && error.message.includes('subtype'))) {
-        console.warn('subtype column not found, trying without filter')
-        const { data: data2, error: error2 } = await supabase
-          .from('gl_accounts')
-          .select('id, code, name')
-          .eq('org_id', tenantId)
-          .eq('is_active', true)
-          .order('code')
-        
-        if (error2) throw error2
-        
-        // Filter manually by checking if code starts with cash/bank codes
-        const filtered = (data2 || []).filter((acc: any) => {
-          const code = acc.code?.toString() || ''
-          return code.startsWith('1101') || code.startsWith('1102') // Cash and Bank codes
-        })
-        
-        return { 
-          success: true, 
-          data: filtered.map((acc: any) => ({
-            ...acc,
-            name_ar: acc.name,
-            name_en: acc.name
-          }))
-        }
+    
+    // If error with specific columns, fallback to basic
+    if (error && error.code === '42703') {
+      console.warn('Some columns missing, using fallback query')
+      const { data: data2, error: error2 } = await supabase
+        .from('gl_accounts')
+        .select('id, code, name')
+        .eq('org_id', tenantId)
+        .eq('is_active', true)
+        .order('code')
+      
+      if (error2) throw error2
+      
+      // Filter manually by checking if code starts with cash/bank codes
+      const filtered = (data2 || []).filter((acc: any) => {
+        const code = acc.code?.toString() || ''
+        return code.startsWith('1101') || code.startsWith('1102') || code.startsWith('110')
+      })
+      
+      return { 
+        success: true, 
+        data: filtered.map((acc: any) => ({
+          ...acc,
+          name_ar: acc.name,
+          name_en: acc.name,
+          subtype: acc.code?.startsWith('1101') ? 'CASH' : 'BANK'
+        }))
       }
-      throw error
     }
 
-    // Add name_ar and name_en (use name as fallback)
-    const accounts = (data || []).map((acc: any) => ({
+    if (error) throw error
+
+    // Filter by subtype and ensure name_ar/name_en
+    const filtered = (data || []).filter((acc: any) => 
+      acc.subtype === 'CASH' || acc.subtype === 'BANK' ||
+      acc.code?.toString().startsWith('110')
+    )
+    
+    const accounts = filtered.map((acc: any) => ({
       ...acc,
       name_ar: acc.name_ar || acc.name,
       name_en: acc.name_en || acc.name

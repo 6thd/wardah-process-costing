@@ -162,23 +162,22 @@ export function AccountStatement() {
       const fromDateStr = fromDate ? format(fromDate, 'yyyy-MM-dd') : null;
       const toDateStr = format(toDate, 'yyyy-MM-dd');
 
-      // Try the RPC function first
+      // Get account code first
+      const account = accounts.find(a => a.id === selectedAccount);
+      if (!account) {
+        throw new Error(isRTL ? 'الحساب غير موجود' : 'Account not found');
+      }
+
+      // Try the RPC function first (using account code, not ID)
       let { data, error } = await supabase.rpc('get_account_statement', {
-        p_account_id: selectedAccount,
+        p_account_code: account.code,
         p_from_date: fromDateStr,
-        p_to_date: toDateStr,
-        p_include_unposted: false
+        p_to_date: toDateStr
       });
 
       // If RPC fails, try manual query
       if (error) {
         console.warn('RPC function failed, trying manual query:', error);
-        
-        // Get account code
-        const account = accounts.find(a => a.id === selectedAccount);
-        if (!account) {
-          throw new Error(isRTL ? 'الحساب غير موجود' : 'Account not found');
-        }
 
         // Build query with date filters
         let query = supabase

@@ -84,57 +84,77 @@ export const bomService = {
    * الحصول على جميع قوائم المواد
    */
   async getAllBOMs(orgId: string): Promise<BOMHeader[]> {
-    // جلب البيانات بدون join أولاً
-    const { data, error } = await supabase
-      .from('bom_headers')
-      .select('*')
-      .eq('org_id', orgId)
-      .order('bom_number', { ascending: false })
-
-    if (error) throw error
-    if (!data) return []
-    
-    // محاولة جلب بيانات الأصناف من products أو items
-    const itemIds = data.map(bom => bom.item_id).filter(Boolean)
-    if (itemIds.length > 0) {
-      // محاولة products أولاً
-      const { data: productsData } = await supabase
-        .from('products')
-        .select('id, code, name, product_code, product_name')
-        .in('id', itemIds)
-      
-      if (productsData && productsData.length > 0) {
-        const productsMap = new Map(productsData.map(p => [p.id, p]))
-        return data.map(bom => {
-          const product = productsMap.get(bom.item_id)
-          return {
-            ...bom,
-            item_code: product?.code || product?.product_code,
-            item_name: product?.name || product?.product_name
-          }
-        })
-      }
-      
-      // محاولة items إذا لم توجد products
-      const { data: itemsData } = await supabase
-        .from('items')
-        .select('id, code, name, item_code, item_name')
-        .in('id', itemIds)
-      
-      if (itemsData && itemsData.length > 0) {
-        const itemsMap = new Map(itemsData.map(i => [i.id, i]))
-        return data.map(bom => {
-          const item = itemsMap.get(bom.item_id)
-          return {
-            ...bom,
-            item_code: item?.code || item?.item_code,
-            item_name: item?.name || item?.item_name
-          }
-        })
-      }
+    if (!orgId) {
+      console.warn('orgId is empty, returning empty array')
+      return []
     }
     
-    return data
+    try {
+      // جلب البيانات بدون join أولاً
+      const { data, error } = await supabase
+        .from('bom_headers')
+        .select('*')
+        .eq('org_id', orgId)
+        .order('bom_number', { ascending: false })
+
+      // Handle missing table gracefully
+      if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+        console.warn('bom_headers table not found, returning empty array')
+        return []
+      }
+      
+      if (error) throw error
+      if (!data) return []
+      
+      // محاولة جلب بيانات الأصناف من products أو items
+      const itemIds = data.map(bom => bom.item_id).filter(Boolean)
+      if (itemIds.length > 0) {
+        // محاولة products أولاً
+        const { data: productsData } = await supabase
+          .from('products')
+          .select('id, code, name, product_code, product_name')
+          .in('id', itemIds)
+        
+        if (productsData && productsData.length > 0) {
+          const productsMap = new Map(productsData.map(p => [p.id, p]))
+          return data.map(bom => {
+            const product = productsMap.get(bom.item_id)
+            return {
+              ...bom,
+              item_code: product?.code || product?.product_code,
+              item_name: product?.name || product?.product_name
+            }
+          })
+        }
+        
+        // محاولة items إذا لم توجد products
+        const { data: itemsData } = await supabase
+          .from('items')
+          .select('id, code, name, item_code, item_name')
+          .in('id', itemIds)
+        
+        if (itemsData && itemsData.length > 0) {
+          const itemsMap = new Map(itemsData.map(i => [i.id, i]))
+          return data.map(bom => {
+            const item = itemsMap.get(bom.item_id)
+            return {
+              ...bom,
+              item_code: item?.code || item?.item_code,
+              item_name: item?.name || item?.item_name
+            }
+          })
+        }
+      }
+      
+      return data
+    } catch (error: any) {
+      // If table doesn't exist, return empty array
+      if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+        console.warn('bom_headers table not found, returning empty array')
+        return []
+      }
+      throw error
+    }
   },
 
   /**

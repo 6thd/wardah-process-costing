@@ -17,6 +17,9 @@ This document explains how to deploy the database schema for the HR module in th
 3. Copy the contents of `sql/15_hr_module.sql`
 4. Paste it into the SQL editor
 5. Click "Run" to execute the script
+6. Repeat the same steps للملفات التالية:
+   - `sql/hr/16_hr_operational_extensions.sql` (للتنبيهات، التسويات، سندات القبض والصرف)
+   - `sql/hr/17_hr_core_extensions.sql` (لسياسات العمل، الحضور الشهري، إقفال الرواتب، وحسابات GL)
 
 ### Option 2: Using psql or other PostgreSQL clients
 
@@ -24,6 +27,11 @@ This document explains how to deploy the database schema for the HR module in th
 2. Execute the `sql/15_hr_module.sql` file:
    ```bash
    psql -h [your-supabase-db-host] -d [your-database-name] -U [your-username] -f sql/15_hr_module.sql
+   ```
+3. ثم نفّذ ملفات الامتدادات:
+   ```bash
+   psql -h [your-supabase-db-host] -d [your-database-name] -U [your-username] -f sql/hr/16_hr_operational_extensions.sql
+   psql -h [your-supabase-db-host] -d [your-database-name] -U [your-username] -f sql/hr/17_hr_core_extensions.sql
    ```
 
 ### Option 3: Manual execution
@@ -41,6 +49,8 @@ If you prefer to execute the tables and constraints separately:
 9. Execute the attendance records table from `sql/15_hr_module.sql`
 10. Execute the leave types table from `sql/15_hr_module.sql`
 11. Execute the employee leaves table from `sql/15_hr_module.sql`
+12. Execute the smart alerts, settlements, and payroll adjustments objects from `sql/hr/16_hr_operational_extensions.sql`
+13. Execute سياسات العمل والحضور الشهري وإقفال الرواتب من `sql/hr/17_hr_core_extensions.sql`
 
 ## Verification
 
@@ -59,12 +69,20 @@ After deployment, you can verify the tables were created successfully:
    - `attendance_records`
    - `leave_types`
    - `employee_leaves`
+   - `hr_alerts`
+   - `hr_settlements`
+   - `hr_settlement_lines`
+   - `hr_payroll_adjustments`
+   - `hr_policies`
+   - `hr_attendance_monthly`
+   - `hr_payroll_locks`
+   - `hr_payroll_account_mappings`
 
 3. Verify the indexes were created:
    - Check that indexes exist for performance optimization on all HR tables
 
 4. Verify the RLS policies were applied:
-   - Check that Row Level Security is enabled on all HR tables
+   - تأكد من تفعيل RLS على جميع جداول الموارد البشرية، بما في ذلك الجداول الجديدة `hr_policies`, `hr_attendance_monthly`, `hr_payroll_locks`, `hr_payroll_account_mappings`.
    - Verify that policies exist for tenant-based data isolation
 
 ## Testing

@@ -4,6 +4,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { PerformanceMonitor } from '../lib/performance-monitor';
 
 // ===== TYPES =====
 
@@ -169,72 +170,74 @@ export async function calculateAccountBalance(
  * الحصول على ميزان المراجعة
  */
 export async function getTrialBalance(fromDate?: string, toDate?: string) {
-  try {
-    // 1. الحصول على جميع الحسابات
-    const { data: accounts, error: accountsError } = await supabase
-      .from('gl_accounts')
-      .select('account_code, account_name, account_type')
-      .order('account_code');
+  return PerformanceMonitor.measure('Trial Balance', async () => {
+    try {
+      // 1. الحصول على جميع الحسابات
+      const { data: accounts, error: accountsError } = await supabase
+        .from('gl_accounts')
+        .select('account_code, account_name, account_type')
+        .order('account_code');
 
-    if (accountsError) throw accountsError;
+      if (accountsError) throw accountsError;
 
-    // 2. حساب رصيد كل حساب
-    const balances = [];
+      // 2. حساب رصيد كل حساب
+      const balances = [];
 
-    for (const account of accounts || []) {
-      let query = supabase
-        .from('gl_entries')
-        .select('debit, credit')
-        .eq('account_code', account.account_code);
+      for (const account of accounts || []) {
+        let query = supabase
+          .from('gl_entries')
+          .select('debit, credit')
+          .eq('account_code', account.account_code);
 
-      if (fromDate) {
-        query = query.gte('transaction_date', fromDate);
-      }
-      if (toDate) {
-        query = query.lte('transaction_date', toDate);
-      }
+        if (fromDate) {
+          query = query.gte('transaction_date', fromDate);
+        }
+        if (toDate) {
+          query = query.lte('transaction_date', toDate);
+        }
 
-      const { data: entries } = await query;
+        const { data: entries } = await query;
 
-      let totalDebit = 0;
-      let totalCredit = 0;
+        let totalDebit = 0;
+        let totalCredit = 0;
 
-      entries?.forEach(entry => {
-        totalDebit += entry.debit;
-        totalCredit += entry.credit;
-      });
-
-      if (totalDebit !== 0 || totalCredit !== 0) {
-        balances.push({
-          account_code: account.account_code,
-          account_name: account.account_name,
-          account_type: account.account_type,
-          debit: totalDebit,
-          credit: totalCredit,
-          balance: totalDebit - totalCredit,
+        entries?.forEach(entry => {
+          totalDebit += entry.debit;
+          totalCredit += entry.credit;
         });
+
+        if (totalDebit !== 0 || totalCredit !== 0) {
+          balances.push({
+            account_code: account.account_code,
+            account_name: account.account_name,
+            account_type: account.account_type,
+            debit: totalDebit,
+            credit: totalCredit,
+            balance: totalDebit - totalCredit,
+          });
+        }
       }
+
+      // 3. حساب الإجماليات
+      const totals = balances.reduce(
+        (acc, curr) => ({
+          totalDebit: acc.totalDebit + curr.debit,
+          totalCredit: acc.totalCredit + curr.credit,
+        }),
+        { totalDebit: 0, totalCredit: 0 }
+      );
+
+      return {
+        success: true,
+        balances,
+        totals,
+        isBalanced: Math.abs(totals.totalDebit - totals.totalCredit) < 0.01,
+      };
+    } catch (error) {
+      console.error('Error generating trial balance:', error);
+      return { success: false, error };
     }
-
-    // 3. حساب الإجماليات
-    const totals = balances.reduce(
-      (acc, curr) => ({
-        totalDebit: acc.totalDebit + curr.debit,
-        totalCredit: acc.totalCredit + curr.credit,
-      }),
-      { totalDebit: 0, totalCredit: 0 }
-    );
-
-    return {
-      success: true,
-      balances,
-      totals,
-      isBalanced: Math.abs(totals.totalDebit - totals.totalCredit) < 0.01,
-    };
-  } catch (error) {
-    console.error('Error generating trial balance:', error);
-    return { success: false, error };
-  }
+  });
 }
 
 /**
@@ -401,58 +404,60 @@ export async function getBalanceSheet(asOfDate: string) {
  * الحصول على دفتر اليومية
  */
 export async function getGeneralJournal(fromDate?: string, toDate?: string, referenceType?: string) {
-  try {
-    let query = supabase
-      .from('gl_entries')
-      .select('*')
-      .order('transaction_date', { ascending: true })
-      .order('created_at', { ascending: true });
+  return PerformanceMonitor.measure('General Journal', async () => {
+    try {
+      let query = supabase
+        .from('gl_entries')
+        .select('*')
+        .order('transaction_date', { ascending: true })
+        .order('created_at', { ascending: true });
 
-    if (fromDate) {
-      query = query.gte('transaction_date', fromDate);
-    }
-    if (toDate) {
-      query = query.lte('transaction_date', toDate);
-    }
-    if (referenceType) {
-      query = query.eq('reference_type', referenceType);
-    }
-
-    const { data, error } = await query;
-
-    if (error) throw error;
-
-    // تجميع القيود حسب المرجع
-    const journalEntries: { [key: string]: any } = {};
-
-    data?.forEach(entry => {
-      const key = `${entry.reference_type}_${entry.reference_id}_${entry.transaction_date}`;
-      
-      if (!journalEntries[key]) {
-        journalEntries[key] = {
-          transaction_date: entry.transaction_date,
-          reference_type: entry.reference_type,
-          reference_id: entry.reference_id,
-          description: entry.description,
-          entries: [],
-          totalDebit: 0,
-          totalCredit: 0,
-        };
+      if (fromDate) {
+        query = query.gte('transaction_date', fromDate);
+      }
+      if (toDate) {
+        query = query.lte('transaction_date', toDate);
+      }
+      if (referenceType) {
+        query = query.eq('reference_type', referenceType);
       }
 
-      journalEntries[key].entries.push(entry);
-      journalEntries[key].totalDebit += entry.debit;
-      journalEntries[key].totalCredit += entry.credit;
-    });
+      const { data, error } = await query;
 
-    return {
-      success: true,
-      journalEntries: Object.values(journalEntries),
-    };
-  } catch (error) {
-    console.error('Error fetching general journal:', error);
-    return { success: false, error };
-  }
+      if (error) throw error;
+
+      // تجميع القيود حسب المرجع
+      const journalEntries: { [key: string]: any } = {};
+
+      data?.forEach(entry => {
+        const key = `${entry.reference_type}_${entry.reference_id}_${entry.transaction_date}`;
+
+        if (!journalEntries[key]) {
+          journalEntries[key] = {
+            transaction_date: entry.transaction_date,
+            reference_type: entry.reference_type,
+            reference_id: entry.reference_id,
+            description: entry.description,
+            entries: [],
+            totalDebit: 0,
+            totalCredit: 0,
+          };
+        }
+
+        journalEntries[key].entries.push(entry);
+        journalEntries[key].totalDebit += entry.debit;
+        journalEntries[key].totalCredit += entry.credit;
+      });
+
+      return {
+        success: true,
+        journalEntries: Object.values(journalEntries),
+      };
+    } catch (error) {
+      console.error('Error fetching general journal:', error);
+      return { success: false, error };
+    }
+  });
 }
 
 /**

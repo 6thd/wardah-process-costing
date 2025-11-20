@@ -7,7 +7,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
-import { getSupabase, GLAccount, getAllGLAccounts, getEffectiveTenantId } from '@/lib/supabase';
+import { 
+    getSupabase, 
+    GLAccount, 
+    getAllGLAccounts, 
+    getEffectiveTenantId,
+    createGLAccount,
+    updateGLAccount,
+    deleteGLAccount,
+    checkAccountCodeExists
+} from '@/lib/supabase';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -87,40 +96,40 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[425px]" dir={isRTL ? "rtl" : "ltr"}>
                 <DialogHeader>
-                    <DialogTitle>{account ? 'تعديل حساب' : 'إضافة حساب جديد'}</DialogTitle>
+                    <DialogTitle>{account ? (isRTL ? 'تعديل حساب' : 'Edit Account') : (isRTL ? 'إضافة حساب جديد' : 'Add New Account')}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4 py-4">
-                    <Input name="code" value={formData.code || ''} onChange={handleInputChange} placeholder="رمز الحساب" required />
-                    <Input name="name" value={formData.name || ''} onChange={handleInputChange} placeholder="اسم الحساب (انجليزي)" required />
-                    <Input name="name_ar" value={formData.name_ar || ''} onChange={handleInputChange} placeholder="اسم الحساب (عربي)" />
-                    <Select name="category" value={formData.category} onValueChange={(value) => handleSelectChange('category', value)}>
-                        <SelectTrigger><SelectValue placeholder="نوع الحساب" /></SelectTrigger>
+                    <Input name="code" value={formData.code || ''} onChange={handleInputChange} placeholder={isRTL ? "رمز الحساب" : "Account Code"} required />
+                    <Input name="name" value={formData.name || ''} onChange={handleInputChange} placeholder={isRTL ? "اسم الحساب (انجليزي)" : "Account Name (English)"} required />
+                    <Input name="name_ar" value={formData.name_ar || ''} onChange={handleInputChange} placeholder={isRTL ? "اسم الحساب (عربي)" : "Account Name (Arabic)"} />
+                    <Select name="category" value={formData.category || ''} onValueChange={(value) => handleSelectChange('category', value)}>
+                        <SelectTrigger><SelectValue placeholder={isRTL ? "نوع الحساب" : "Account Type"} /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="ASSET">الأصول</SelectItem>
-                            <SelectItem value="LIABILITY">الخصوم</SelectItem>
-                            <SelectItem value="EQUITY">حقوق الملكية</SelectItem>
-                            <SelectItem value="REVENUE">الإيرادات</SelectItem>
-                            <SelectItem value="EXPENSE">المصروفات</SelectItem>
+                            <SelectItem value="ASSET">{isRTL ? 'الأصول' : 'Assets'}</SelectItem>
+                            <SelectItem value="LIABILITY">{isRTL ? 'الخصوم' : 'Liabilities'}</SelectItem>
+                            <SelectItem value="EQUITY">{isRTL ? 'حقوق الملكية' : 'Equity'}</SelectItem>
+                            <SelectItem value="REVENUE">{isRTL ? 'الإيرادات' : 'Revenue'}</SelectItem>
+                            <SelectItem value="EXPENSE">{isRTL ? 'المصروفات' : 'Expenses'}</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Select name="normal_balance" value={formData.normal_balance} onValueChange={(value) => handleSelectChange('normal_balance', value)}>
-                        <SelectTrigger><SelectValue placeholder="الرصيد الطبيعي" /></SelectTrigger>
+                    <Select name="normal_balance" value={formData.normal_balance || ''} onValueChange={(value) => handleSelectChange('normal_balance', value)}>
+                        <SelectTrigger><SelectValue placeholder={isRTL ? "الرصيد الطبيعي" : "Normal Balance"} /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="Debit">مدين</SelectItem>
-                            <SelectItem value="Credit">دائن</SelectItem>
+                            <SelectItem value="Debit">{isRTL ? 'مدين' : 'Debit'}</SelectItem>
+                            <SelectItem value="Credit">{isRTL ? 'دائن' : 'Credit'}</SelectItem>
                         </SelectContent>
                     </Select>
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 rtl:space-x-reverse">
                         <Checkbox id="allow_posting" name="allow_posting" checked={!!formData.allow_posting} onCheckedChange={(checked) => handleSelectChange('allow_posting', !!checked)} />
-                        <label htmlFor="allow_posting">يقبل الترحيل</label>
+                        <label htmlFor="allow_posting" className="text-sm cursor-pointer">{isRTL ? 'يقبل الترحيل' : 'Allow Posting'}</label>
                     </div>
-                     <div className="flex items-center space-x-2">
+                     <div className="flex items-center space-x-2 rtl:space-x-reverse">
                         <Checkbox id="is_active" name="is_active" checked={!!formData.is_active} onCheckedChange={(checked) => handleSelectChange('is_active', !!checked)} />
-                        <label htmlFor="is_active">نشط</label>
+                        <label htmlFor="is_active" className="text-sm cursor-pointer">{isRTL ? 'نشط' : 'Active'}</label>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button type="button" variant="outline">إلغاء</Button></DialogClose>
-                        <Button type="submit">حفظ</Button>
+                        <DialogClose asChild><Button type="button" variant="outline">{isRTL ? 'إلغاء' : 'Cancel'}</Button></DialogClose>
+                        <Button type="submit">{isRTL ? 'حفظ' : 'Save'}</Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
@@ -381,39 +390,77 @@ function ChartOfAccounts() {
 
     const handleSaveAccount = async (formData: Partial<GLAccount>) => {
         try {
-            const supabase = getSupabase();
             const org_id = await getEffectiveTenantId();
-            if (!org_id) throw new Error("Organization ID not found");
+            if (!org_id) throw new Error(isRTL ? "معرف المؤسسة غير موجود" : "Organization ID not found");
+
+            // Validate required fields
+            if (!formData.code || !formData.name || !formData.category) {
+                toast.error(isRTL ? "الرجاء ملء جميع الحقول المطلوبة" : "Please fill all required fields");
+                return;
+            }
+
+            // Check for duplicate account code (only on create or if code changed)
+            if (modalType === 'add' || (modalType === 'edit' && selectedAccount && formData.code !== selectedAccount.code)) {
+                const codeExists = await checkAccountCodeExists(formData.code as string, org_id);
+                if (codeExists) {
+                    toast.error(isRTL ? `رمز الحساب "${formData.code}" موجود بالفعل` : `Account code "${formData.code}" already exists`);
+                    return;
+                }
+            }
 
             const dataToSave = { ...formData, org_id };
-            const { error } = modalType === 'edit' && selectedAccount
-                ? await supabase.from('gl_accounts').update(dataToSave).eq('id', selectedAccount.id)
-                : await supabase.from('gl_accounts').insert(dataToSave);
 
-            if (error) throw error;
-            toast.success(modalType === 'edit' ? 'تم تحديث الحساب' : 'تمت إضافة الحساب');
+            if (modalType === 'edit' && selectedAccount) {
+                // Update existing account
+                await updateGLAccount(selectedAccount.id, dataToSave);
+                toast.success(isRTL ? 'تم تحديث الحساب بنجاح' : 'Account updated successfully');
+            } else {
+                // Create new account
+                await createGLAccount(dataToSave);
+                toast.success(isRTL ? 'تمت إضافة الحساب بنجاح' : 'Account created successfully');
+            }
+
             handleCloseModal();
             await loadAccounts();
         } catch (err: any) {
-            toast.error(`فشل حفظ الحساب: ${err.message}`);
+            console.error('Error saving account:', err);
+            toast.error(isRTL ? `فشل حفظ الحساب: ${err.message}` : `Failed to save account: ${err.message}`);
         }
     };
     
     const handleDeleteAccount = async (account: GLAccount) => {
-        if (account.children && account.children.length > 0) {
-            toast.error('لا يمكن حذف هذا الحساب لأنه يحتوي على حسابات فرعية.');
-            return;
-        }
         const accountName = isRTL ? (account.name_ar || account.name) : (account.name_en || account.name);
-        if (window.confirm(`هل أنت متأكد من حذف الحساب "${accountName}"؟`)) {
+        const confirmMessage = isRTL 
+            ? `هل أنت متأكد من حذف الحساب "${accountName}"؟`
+            : `Are you sure you want to delete account "${accountName}"?`;
+            
+        if (window.confirm(confirmMessage)) {
             try {
-                const supabase = getSupabase();
-                const { error } = await supabase.from('gl_accounts').delete().eq('id', account.id);
-                if (error) throw error;
-                toast.success('تم حذف الحساب بنجاح');
-                await loadAccounts();
+                const org_id = await getEffectiveTenantId();
+                if (!org_id) throw new Error(isRTL ? "معرف المؤسسة غير موجود" : "Organization ID not found");
+
+                const result = await deleteGLAccount(account.id, org_id);
+                
+                if (result.success) {
+                    if (result.soft_deleted) {
+                        toast.success(
+                            isRTL 
+                                ? 'تم إلغاء تفعيل الحساب (يحتوي على معاملات)'
+                                : 'Account deactivated (has transactions)',
+                            { description: isRTL ? 'الحساب تم إخفاؤه وليس حذفه نهائياً' : 'Account was hidden, not permanently deleted' }
+                        );
+                    } else {
+                        toast.success(isRTL ? 'تم حذف الحساب بنجاح' : 'Account deleted successfully');
+                    }
+                    await loadAccounts();
+                } else {
+                    throw new Error(result.message || 'Delete failed');
+                }
             } catch (err: any) {
-                toast.error(`فشل حذف الحساب: ${err.message}`);
+                console.error('Error deleting account:', err);
+                toast.error(
+                    isRTL ? `فشل حذف الحساب: ${err.message}` : `Failed to delete account: ${err.message}`
+                );
             }
         }
     };

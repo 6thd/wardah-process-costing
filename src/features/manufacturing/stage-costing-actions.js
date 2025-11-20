@@ -14,7 +14,20 @@ import { toast } from 'sonner'
 // Temporary stubs
 const ProcessCosting = {
   calculateStageCosts: async () => ({ success: true, data: [] }),
-  getStageCosts: async () => ({ success: true, data: [] })
+  getStageCosts: async () => ({ success: true, data: [] }),
+  applyLaborTime: async () => ({ success: true, data: {} }),
+  applyOverhead: async (params) => {
+    // Stub implementation
+    return {
+      success: true,
+      data: {
+        overheadAmount: (params.baseQty || 0) * (params.overheadRate || 0),
+        ...params
+      }
+    }
+  },
+  upsertStageCost: async () => ({ success: true, data: {} }),
+  postStageToGL: async () => ({ success: true, data: {} })
 }
 const Manufacturing = {
   getManufacturingOrder: async () => ({ success: true, data: null })

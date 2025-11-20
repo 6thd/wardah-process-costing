@@ -136,7 +136,7 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
           ) : (
             <div className="space-y-3">
               {comments.map((comment) => (
-                <div
+                  <div
                   key={comment.id}
                   className="p-3 border rounded-lg hover:bg-gray-50"
                 >
@@ -154,9 +154,9 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
                           {format(new Date(comment.created_at), 'dd/MM/yyyy HH:mm')}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                      <div className="text-sm text-gray-700 whitespace-pre-wrap">
                         {comment.comment_text}
-                      </p>
+                      </div>
                     </div>
                     <Button
                       size="sm"

@@ -13,6 +13,7 @@ import { ar } from 'date-fns/locale';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { PerformanceMonitor } from '@/lib/performance-monitor';
 
 interface TrialBalanceRow {
   account_code: string;
@@ -41,70 +42,72 @@ const TrialBalance = () => {
   }, []);
 
   const fetchTrialBalance = async () => {
-    setLoading(true);
-    try {
-      console.log('🔍 Fetching trial balance from:', fromDate, 'to:', asOfDate);
-      
-      // Try new trialBalanceService first
+    await PerformanceMonitor.measure('Trial Balance Page Load', async () => {
+      setLoading(true);
       try {
-        console.log('📊 Calling trialBalanceService.get()...');
-        const data = await trialBalanceService.get(fromDate, asOfDate);
-        console.log('✅ Loaded from trialBalanceService:', data?.length, 'accounts');
-        console.log('📝 Sample:', data?.[0]);
-        
-        if (!data || data.length === 0) {
-          console.warn('⚠️ No data returned from trialBalanceService');
-          throw new Error('No data');
-        }
-        
-        // Convert to expected format
-        const formattedData = data.map((account: any) => ({
-          account_code: account.account_code,
-          account_name: account.account_name,
-          account_name_ar: account.account_name,
-          account_type: 'ASSET', // Default, could be enhanced
-          opening_debit: 0,
-          opening_credit: 0,
-          period_debit: account.debit,
-          period_credit: account.credit,
-          closing_debit: account.debit - account.credit > 0 ? account.debit - account.credit : 0,
-          closing_credit: account.credit - account.debit > 0 ? account.credit - account.debit : 0
-        }));
-        
-        console.log('✅ Formatted data ready:', formattedData.length, 'accounts');
-        setBalances(formattedData);
-        return;
-      } catch (newError: any) {
-        console.warn('⚠️ New service error:', newError?.message || newError);
-        console.warn('Trying RPC fallback...');
-      }
-      
-      // Fallback to RPC
-      const { data, error } = await supabase
-        .rpc('rpc_get_trial_balance', {
-          p_tenant: '00000000-0000-0000-0000-000000000001',
-          p_as_of_date: asOfDate
-        });
+        console.log('🔍 Fetching trial balance from:', fromDate, 'to:', asOfDate);
 
-      if (error) {
-        console.error('❌ RPC Error, falling back to manual:', error);
+        // Try new trialBalanceService first
+        try {
+          console.log('📊 Calling trialBalanceService.get()...');
+          const data = await trialBalanceService.get(fromDate, asOfDate);
+          console.log('✅ Loaded from trialBalanceService:', data?.length, 'accounts');
+          console.log('📝 Sample:', data?.[0]);
+
+          if (!data || data.length === 0) {
+            console.warn('⚠️ No data returned from trialBalanceService');
+            throw new Error('No data');
+          }
+
+          // Convert to expected format
+          const formattedData = data.map((account: any) => ({
+            account_code: account.account_code,
+            account_name: account.account_name || account.account_code,
+            account_name_ar: account.account_name_ar || account.account_name || account.account_code,
+            account_type: 'ASSET', // Default, could be enhanced
+            opening_debit: 0,
+            opening_credit: 0,
+            period_debit: account.debit,
+            period_credit: account.credit,
+            closing_debit: account.debit - account.credit > 0 ? account.debit - account.credit : 0,
+            closing_credit: account.credit - account.debit > 0 ? account.credit - account.debit : 0
+          }));
+
+          console.log('✅ Formatted data ready:', formattedData.length, 'accounts');
+          setBalances(formattedData);
+          return;
+        } catch (newError: any) {
+          console.warn('⚠️ New service error:', newError?.message || newError);
+          console.warn('Trying RPC fallback...');
+        }
+
+        // Fallback to RPC
+        const { data, error } = await supabase
+          .rpc('rpc_get_trial_balance', {
+            p_tenant: '00000000-0000-0000-0000-000000000001',
+            p_as_of_date: asOfDate
+          });
+
+        if (error) {
+          console.error('❌ RPC Error, falling back to manual:', error);
+          await fetchTrialBalanceManual();
+        } else {
+          console.log('✅ RPC Data received:', data?.length, 'rows');
+          setBalances(data || []);
+        }
+      } catch (error) {
+        console.error('❌ Exception, falling back to manual:', error);
         await fetchTrialBalanceManual();
-      } else {
-        console.log('✅ RPC Data received:', data?.length, 'rows');
-        setBalances(data || []);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('❌ Exception, falling back to manual:', error);
-      await fetchTrialBalanceManual();
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   const fetchTrialBalanceManual = async () => {
     try {
       console.log('📊 Fetching manual trial balance...');
-      
+
       // جلب جميع الحسابات
       const { data: accounts, error: accountsError } = await supabase
         .from('gl_accounts')
@@ -118,7 +121,7 @@ const TrialBalance = () => {
 
       // جلب جميع بنود القيود المرحلة - Try new table first
       let lines: any[] = [];
-      
+
       try {
         const { data: newLines, error: newError } = await supabase
           .from('gl_entry_lines')
@@ -130,7 +133,7 @@ const TrialBalance = () => {
             )
           `)
           .eq('entry.status', 'POSTED');
-        
+
         if (!newError && newLines) {
           console.log('✅ Posted lines from gl_entry_lines:', newLines?.length);
           lines = newLines;
@@ -155,7 +158,7 @@ const TrialBalance = () => {
         console.log('✅ Posted lines fetched from journal_lines:', oldLines?.length);
         lines = oldLines || [];
       }
-      
+
       console.log('📝 Sample line:', lines?.[0]);
 
       // حساب الأرصدة لكل حساب
@@ -182,7 +185,7 @@ const TrialBalance = () => {
         if (!balance) return;
 
         const entryDate = line.journal_entries.posting_date || line.journal_entries.entry_date;
-        
+
         if (entryDate <= asOfDate) {
           // الحركة ضمن الفترة
           if (entryDate >= fromDate) {
@@ -215,16 +218,16 @@ const TrialBalance = () => {
 
       // تحويل إلى مصفوفة وفلترة الحسابات بدون حركة
       const balanceArray = Array.from(balanceMap.values())
-        .filter(b => 
-          b.opening_debit !== 0 || 
-          b.opening_credit !== 0 || 
-          b.period_debit !== 0 || 
+        .filter(b =>
+          b.opening_debit !== 0 ||
+          b.opening_credit !== 0 ||
+          b.period_debit !== 0 ||
           b.period_credit !== 0
         );
 
       console.log('✅ Balance array generated:', balanceArray.length, 'accounts with movement');
       console.log('📊 Sample balances:', balanceArray.slice(0, 3));
-      
+
       setBalances(balanceArray);
     } catch (error) {
       console.error('❌ Error fetching manual trial balance:', error);
@@ -255,7 +258,7 @@ const TrialBalance = () => {
 
   const exportToExcel = () => {
     const totals = calculateTotals();
-    
+
     const excelData = balances.map(row => ({
       [isRTL ? 'كود الحساب' : 'Account Code']: row.account_code,
       [isRTL ? 'اسم الحساب' : 'Account Name']: isRTL ? (row.account_name_ar || row.account_name) : row.account_name,
@@ -284,7 +287,7 @@ const TrialBalance = () => {
     const worksheet = XLSX.utils.json_to_sheet(excelData);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, isRTL ? 'ميزان المراجعة' : 'Trial Balance');
-    
+
     XLSX.writeFile(workbook, `trial-balance-${asOfDate}.xlsx`);
   };
 
@@ -300,7 +303,7 @@ const TrialBalance = () => {
     // العنوان
     doc.setFontSize(16);
     doc.text(isRTL ? 'ميزان المراجعة' : 'Trial Balance', doc.internal.pageSize.width / 2, 15, { align: 'center' });
-    
+
     doc.setFontSize(10);
     doc.text(
       `${isRTL ? 'من تاريخ' : 'From'}: ${format(new Date(fromDate), 'dd/MM/yyyy')} ${isRTL ? 'إلى' : 'To'}: ${format(new Date(asOfDate), 'dd/MM/yyyy')}`,
@@ -347,12 +350,12 @@ const TrialBalance = () => {
       ]],
       body: tableData,
       theme: 'grid',
-      styles: { 
+      styles: {
         font: 'helvetica',
         fontSize: 8,
         halign: 'center'
       },
-      headStyles: { 
+      headStyles: {
         fillColor: [66, 139, 202],
         fontStyle: 'bold'
       },
@@ -366,14 +369,14 @@ const TrialBalance = () => {
     doc.save(`trial-balance-${asOfDate}.pdf`);
   };
 
-  const filteredBalances = accountTypeFilter === 'all' 
-    ? balances 
+  const filteredBalances = accountTypeFilter === 'all'
+    ? balances
     : balances.filter(b => b.account_type === accountTypeFilter);
 
   const totals = calculateTotals();
 
   // التحقق من التوازن
-  const isBalanced = 
+  const isBalanced =
     Math.abs(totals.opening_debit - totals.opening_credit) < 0.01 &&
     Math.abs(totals.period_debit - totals.period_credit) < 0.01 &&
     Math.abs(totals.closing_debit - totals.closing_credit) < 0.01;
@@ -446,7 +449,7 @@ const TrialBalance = () => {
             <div className="flex items-end">
               <Button onClick={fetchTrialBalance} disabled={loading} className="w-full">
                 <RefreshCw className={`h-4 w-4 ml-2 ${loading ? 'animate-spin' : ''}`} />
-                {loading 
+                {loading
                   ? (isRTL ? 'جاري التحميل...' : 'Loading...')
                   : (isRTL ? 'تحديث' : 'Refresh')}
               </Button>
@@ -456,7 +459,7 @@ const TrialBalance = () => {
           {!isBalanced && balances.length > 0 && (
             <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
               <p className="text-red-800 font-semibold">
-                {isRTL 
+                {isRTL
                   ? '⚠️ تحذير: ميزان المراجعة غير متوازن! يرجى مراجعة القيود المحاسبية'
                   : '⚠️ Warning: Trial Balance is not balanced! Please review journal entries'}
               </p>
@@ -523,7 +526,7 @@ const TrialBalance = () => {
                         </TableCell>
                       </TableRow>
                     ))}
-                    
+
                     {/* صف الإجماليات */}
                     <TableRow className="bg-blue-100 font-bold border-t-2 border-blue-200">
                       <TableCell colSpan={2} className="text-center border-r text-gray-900 bg-blue-100">
@@ -573,8 +576,8 @@ const TrialBalance = () => {
           {isBalanced && balances.length > 0 && (
             <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
               <p className="text-green-800 font-semibold text-center">
-                {isRTL 
-                  ? '✓ ميزان المراجعة متوازن' 
+                {isRTL
+                  ? '✓ ميزان المراجعة متوازن'
                   : '✓ Trial Balance is Balanced'}
               </p>
             </div>

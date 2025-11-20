@@ -3,32 +3,42 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { supabase, withOrgContext } from '@/lib/supabase'
+import type { WorkCenter } from '@/types/work-center'
 
-export interface WorkCenter {
-  id: string
-  org_id: string
-  code: string
-  name: string
-  name_ar: string
-  description: string | null
-  hourly_rate: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
+export type { WorkCenter }
 
 export const useWorkCenters = () => {
   return useQuery({
     queryKey: ['work-centers'],
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
-      const { data, error } = await withOrgContext(
-        supabase.from('work_centers').select('*')
-      )
-      
-      if (error) throw error
-      return data as WorkCenter[]
+      try {
+        const { data, error } = await withOrgContext(
+          supabase.from('work_centers').select('*')
+        )
+        
+        // Handle missing table gracefully
+        if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
+          console.warn('work_centers table not found, returning empty array')
+          return [] as WorkCenter[]
+        }
+        
+        if (error) throw error
+        return (data || []) as WorkCenter[]
+      } catch (error: any) {
+        // If table doesn't exist, return empty array
+        if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+          console.warn('work_centers table not found, returning empty array')
+          return [] as WorkCenter[]
+        }
+        throw error
+      }
     },
+    // Performance optimization: Cache for 10 minutes (work centers change rarely)
+    staleTime: 10 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
   })
 }
 

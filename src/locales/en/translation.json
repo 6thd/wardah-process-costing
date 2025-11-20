@@ -105,11 +105,148 @@
   "manufacturing": {
     "title": "Manufacturing Management",
     "overview": "Overview",
-    "workCenters": "Work Centers",
     "processCosting": "Process Costing",
     "boms": "Bills of Materials",
     "manufacturingOrders": "Manufacturing Orders",
     "production": "Production Tracking",
+    "processCostingPage": {
+      "title": "Process Costing",
+      "subtitle": "Advanced system for calculating process manufacturing costs"
+    },
+    "equivalentUnitsPage": {
+      "title": "Equivalent Units",
+      "subtitle": "Calculate equivalent units and analyze costs"
+    },
+    "varianceAlertsPage": {
+      "title": "Variance Alerts",
+      "subtitle": "Monitor cost variances and take action"
+    },
+    "overviewPage": {
+      "subtitle": "Manage manufacturing operations and process costs",
+      "metrics": {
+        "active": "Active orders",
+        "completed": "Completed orders",
+        "pending": "Pending",
+        "efficiency": "Production efficiency"
+      },
+      "cards": {
+        "orders": {
+          "title": "Manufacturing Orders",
+          "description": "Create and monitor manufacturing orders",
+          "activeBadge": "{{count}} active",
+          "totalBadge": "{{count}} total"
+        },
+        "processCosting": {
+          "title": "Process Costing",
+          "description": "Advanced process costing engine",
+          "badge": "Advanced"
+        },
+        "workCenters": {
+          "title": "Work Centers",
+          "description": "Manage work centers and machines"
+        },
+        "bom": {
+          "title": "Bill of Materials",
+          "description": "All materials required for production"
+        },
+        "quality": {
+          "title": "Quality Control",
+          "description": "Inspect and ensure product quality"
+        },
+        "labor": {
+          "title": "Labor Management",
+          "description": "Track labor hours and attendance",
+          "badge": "Coming soon"
+        }
+      },
+      "latestOrders": {
+        "title": "Latest Manufacturing Orders",
+        "viewAll": "View all",
+        "status": {
+          "completed": "Completed",
+          "inProgress": "In progress",
+          "pending": "Pending"
+        },
+        "unitsLabel": "{{count}} units"
+      }
+    },
+    "ordersPage": {
+      "title": "Manufacturing Orders",
+      "subtitle": "Manage all manufacturing orders",
+      "newOrder": "New order",
+      "loadError": "Failed to load manufacturing orders",
+      "statusUpdated": "Order status updated",
+      "statusUpdateFailed": "Failed to update order status",
+      "stats": {
+        "inProgress": "In progress",
+        "completed": "Completed",
+        "drafts": "Drafts",
+        "total": "Total"
+      },
+      "listTitle": "Manufacturing orders list ({{count}})",
+      "listPlaceholder": "Coming soon – detailed manufacturing orders list",
+      "notesColumn": "Notes",
+      "form": {
+        "sectionTitle": "Create new order",
+        "orderNumber": "Order number",
+        "product": "Product",
+        "productPlaceholder": "Select product",
+        "noProducts": "No products available",
+        "quantity": "Planned quantity",
+        "status": "Status",
+        "dateRange": "Date range (start / due)",
+        "notes": "Notes",
+        "submit": "Create order",
+        "creating": "Creating...",
+        "productRequired": "Please select a product",
+        "createSuccess": "Manufacturing order created successfully",
+        "createError": "Could not create manufacturing order",
+        "missingOrg": "Organization ID not found"
+      }
+    },
+    "workCenters": {
+      "title": "Work Centers",
+      "subtitle": "Manage work centers and machines",
+      "metrics": {
+        "total": "Total centers",
+        "active": "Active",
+        "avgRate": "Average hourly rate"
+      },
+      "list": {
+        "title": "Centers list",
+        "loading": "Loading...",
+        "empty": "No work centers yet",
+        "noDescription": "No description",
+        "hourlyRate": "Hourly rate: {{amount}}",
+        "statusActive": "Active",
+        "statusInactive": "Inactive",
+        "toggleEnable": "Enable",
+        "toggleDisable": "Disable"
+      },
+      "form": {
+        "title": "Add new center",
+        "code": "Code",
+        "nameAr": "Name (Arabic)",
+        "nameEn": "Name (English)",
+        "description": "Description",
+        "hourlyRate": "Hourly rate",
+        "submit": "Save",
+        "saving": "Saving..."
+      },
+      "messages": {
+        "validation": "Please fill in the required fields",
+        "missingOrg": "Organization ID not found",
+        "createSuccess": "Work center created successfully",
+        "createError": "Could not create work center",
+        "updateSuccess": "Work center status updated",
+        "updateError": "Could not update status"
+      }
+    },
+    "qualityControlPage": {
+      "title": "Quality Control",
+      "subtitle": "Inspect and ensure product quality",
+      "comingSoon": "Coming soon – advanced quality inspection"
+    },
     "stages": {
       "title": "Manufacturing Stages",
       "stageNumber": "Stage Number",
@@ -145,6 +282,7 @@
       "status": {
         "draft": "Draft",
         "confirmed": "Confirmed",
+        "pending": "Pending",
         "inProgress": "In Progress",
         "completed": "Completed",
         "cancelled": "Cancelled"
@@ -315,6 +453,75 @@
     "setting": {
       "management": "Payroll settings and leave types configuration"
     },
+    "policies": {
+      "title": "Workforce Policies",
+      "description": "Configure working hours, shifts, weekends and overtime rules.",
+      "employeeHours": "Employee hours per shift",
+      "workerHours": "Worker hours per shift",
+      "workerShifts": "Worker shifts per day",
+      "overtimeMultiplier": "Overtime multiplier",
+      "overtimeGrace": "Overtime grace (minutes)",
+      "weekendDays": "Weekend days",
+      "save": "Save policies",
+      "weekendOptions": {
+        "thursday": "Thursday",
+        "friday": "Friday",
+        "saturday": "Saturday"
+      }
+    },
+    "payrollAccounts": {
+      "title": "Payroll GL Mapping",
+      "description": "Map salary components, allowances and deductions to ledger accounts for automated posting.",
+      "component": "Component",
+      "account": "Ledger account",
+      "accountPlaceholder": "Select GL account",
+      "noAccounts": "No ledger accounts available. Please create accounts first.",
+      "basic_salary": "Basic Salary",
+      "housing_allowance": "Housing Allowance",
+      "transport_allowance": "Transportation Allowance",
+      "other_allowance": "Other Allowances",
+      "deductions": "Deductions",
+      "loans": "Loans / Advances",
+      "payable": "Payroll Payable",
+      "net_payable": "Net Payable (Cash/Bank)",
+      "descriptions": {
+        "basic_salary": "Base contract salary for employees.",
+        "housing_allowance": "Housing allowance accrued each month.",
+        "transport_allowance": "Transportation allowance or mileage.",
+        "other_allowance": "Any other taxable/non-taxable allowances.",
+        "deductions": "Penalties, absences, GOSI and other deductions.",
+        "loans": "Employee loans and advance settlements.",
+        "payable": "Accrued payroll payable balance.",
+        "net_payable": "Net amount transferred to cash/bank."
+      }
+    },
+    "payrollProcessing": {
+      "title": "Monthly Payroll Processing",
+      "description": "Preview gross salaries, deductions and net pay before locking the month.",
+      "periodLabel": "Payroll month",
+      "refresh": "Recalculate",
+      "locked": "Month locked",
+      "unlocked": "Month open",
+      "lockButton": "Lock payroll & post journal",
+      "lockSuccess": "Payroll locked and journal posted successfully.",
+      "noData": "No payroll data available for this month.",
+      "exportExcel": "Export to Excel (CSV)",
+      "cards": {
+        "gross": "Gross payroll",
+        "allowances": "Allowances",
+        "deductions": "Deductions",
+        "net": "Net payroll"
+      },
+      "table": {
+        "employee": "Employee",
+        "base": "Base salary",
+        "allowances": "Allowances",
+        "overtime": "Overtime",
+        "deductions": "Deductions",
+        "absence": "Absence",
+        "net": "Net pay"
+      }
+    },
     "department": {
       "title": "Departments",
       "management": "Manage departments in the organization",
@@ -407,7 +614,8 @@
     "noDataFound": "No data found",
     "connectionError": "Connection error",
     "unauthorized": "Unauthorized access",
-    "sessionExpired": "Session expired"
+    "sessionExpired": "Session expired",
+    "loading": "Loading..."
   },
   "geminiDashboard": {
     "title": "Revolutionary AI-Powered Financial Dashboard with Google Gemini",

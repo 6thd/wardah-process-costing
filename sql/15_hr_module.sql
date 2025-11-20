@@ -372,8 +372,11 @@ INSERT INTO leave_types (org_id, code, name, name_ar, is_paid, max_days_per_year
 -- SUCCESS MESSAGE
 -- =======================================
 
-RAISE NOTICE '✅ HR Module Database Schema Created Successfully!';
-RAISE NOTICE '📋 Next steps:';
-RAISE NOTICE '1. Run the HR module React components';
-RAISE NOTICE '2. Configure HR settings in the application';
-RAISE NOTICE '3. Import employee data';
+DO $$
+BEGIN
+  RAISE NOTICE '✅ HR Module Database Schema Created Successfully!';
+  RAISE NOTICE '📋 Next steps:';
+  RAISE NOTICE '1. Run the HR module React components';
+  RAISE NOTICE '2. Configure HR settings in the application';
+  RAISE NOTICE '3. Import employee data';
+END $$;

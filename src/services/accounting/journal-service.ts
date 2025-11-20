@@ -265,21 +265,17 @@ export class JournalService {
 
       if (uploadError) throw uploadError;
 
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('documents')
-        .getPublicUrl(filePath);
-
       // Save attachment record
       const { data, error } = await supabase
         .from('journal_entry_attachments')
         .insert({
           entry_id: entryId,
           file_name: file.name,
-          file_path: publicUrl,
+          file_path: filePath,
           file_size: file.size,
           file_type: file.type,
-          tenant_id: tenantId
+          org_id: tenantId,
+          tenant_id: tenantId // Added tenant_id to satisfy constraint
         })
         .select()
         .single();
@@ -385,73 +381,54 @@ export class JournalService {
       let entry: any = null;
       let entryError: any = null;
 
-      // Try journal_entries first (current table)
-      const { data: jeData, error: jeError } = await supabase
-        .from('journal_entries')
-        .select(`
-          *,
-          journals (
-            name,
-            name_ar
-          )
-        `)
+      // Use gl_entries directly (journal_entries has RLS issues)
+      const { data: glData, error: glError } = await supabase
+        .from('gl_entries')
+        .select('*')
         .eq('id', entryId)
         .single();
 
-      if (!jeError && jeData) {
-        entry = jeData;
+      if (glError) {
+        entryError = glError;
       } else {
-        // Try gl_entries as fallback
-        const { data: glData, error: glError } = await supabase
-          .from('gl_entries')
-          .select('*')
-          .eq('id', entryId)
-          .single();
-
-        if (glError) {
-          entryError = glError;
-        } else {
-          entry = glData;
-        }
+        entry = glData;
       }
 
       if (entryError) throw entryError;
       if (!entry) return null;
 
-      // Get lines - try both table names
+      // Get lines - use gl_entry_lines directly
       let lines: any[] = [];
-      const { data: jlData } = await supabase
-        .from('journal_lines')
-        .select(`
-          *,
-          gl_accounts (
-            code,
-            name,
-            name_ar
-          )
-        `)
+      const { data: glLinesData } = await supabase
+        .from('gl_entry_lines')
+        .select('*')
         .eq('entry_id', entryId)
         .order('line_number');
 
-      if (jlData) {
-        lines = jlData;
-      } else {
-        // Try gl_entry_lines as fallback
-        const { data: glLinesData } = await supabase
-          .from('gl_entry_lines')
-          .select(`
-            *,
-            gl_accounts (
-              code,
-              name,
-              name_ar
-            )
-          `)
-          .eq('entry_id', entryId)
-          .order('line_number');
-
-        if (glLinesData) {
-          lines = glLinesData;
+      if (glLinesData) {
+        lines = glLinesData;
+      }
+      
+      // Fetch GL account details separately for each line if needed
+      if (lines.length > 0) {
+        const accountIds = lines.map(l => l.account_id).filter(Boolean);
+        if (accountIds.length > 0) {
+          const { data: accounts } = await supabase
+            .from('gl_accounts')
+            .select('id, code, name, name_ar')
+            .in('id', accountIds);
+          
+          if (accounts) {
+            lines = lines.map(line => {
+              const account = accounts.find(a => a.id === line.account_id);
+              return {
+                ...line,
+                account_code: account?.code,
+                account_name: account?.name,
+                account_name_ar: account?.name_ar
+              };
+            });
+          }
         }
       }
 

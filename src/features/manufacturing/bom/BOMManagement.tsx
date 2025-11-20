@@ -3,7 +3,7 @@
  * لوحة إدارة قوائم المواد
  */
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,20 +22,29 @@ import {
 import { useBOMs, useDeleteBOM, useApproveBOM, useCopyBOM } from '@/hooks/manufacturing/useBOM'
 import { useAuthStore } from '@/store/auth-store'
 import { BOMHeader } from '@/services/manufacturing/bomService'
+import { getEffectiveTenantId } from '@/lib/supabase'
 
 export function BOMManagement() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const orgId = 'default-org-id' // TODO: Get from user context
+  const [orgId, setOrgId] = useState<string>('')
+
+  useEffect(() => {
+    const loadOrgId = async () => {
+      const id = await getEffectiveTenantId()
+      setOrgId(id || '')
+    }
+    loadOrgId()
+  }, [])
   
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'APPROVED' | 'OBSOLETE'>('ALL')
 
   // Queries and mutations
-  const { data: boms, isLoading } = useBOMs(orgId)
-  const deleteBOM = useDeleteBOM(orgId)
-  const approveBOM = useApproveBOM(orgId, user?.id || '')
-  const copyBOM = useCopyBOM(orgId)
+  const { data: boms, isLoading } = useBOMs(orgId || undefined)
+  const deleteBOM = useDeleteBOM(orgId || undefined)
+  const approveBOM = useApproveBOM(orgId || undefined, user?.id || '')
+  const copyBOM = useCopyBOM(orgId || undefined)
 
   // Filter BOMs
   const filteredBOMs = boms?.filter(bom => {

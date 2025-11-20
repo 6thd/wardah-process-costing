@@ -23,14 +23,23 @@ export function BOMBuilder() {
   const { bomId } = useParams<{ bomId: string }>()
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const orgId = 'default-org-id' // TODO: Get from user context
+  const [orgId, setOrgId] = useState<string>('')
+
+  useEffect(() => {
+    const loadOrgId = async () => {
+      const { getEffectiveTenantId } = await import('@/lib/supabase')
+      const id = await getEffectiveTenantId()
+      setOrgId(id || '')
+    }
+    loadOrgId()
+  }, [])
   
   // Fetch existing BOM if editing
   const { data: bomData } = useBOM(bomId)
   
   // Mutations
-  const createBOM = useCreateBOM(orgId)
-  const updateBOM = useUpdateBOM(orgId)
+  const createBOM = useCreateBOM(orgId || undefined)
+  const updateBOM = useUpdateBOM(orgId || undefined)
 
   // Form state
   const [bomNumber, setBomNumber] = useState('')

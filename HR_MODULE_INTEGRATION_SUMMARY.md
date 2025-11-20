@@ -7,11 +7,12 @@ This document summarizes the integration of the HR module into the Wardah ERP sy
 The HR module has been successfully integrated into the Wardah ERP system with the following components:
 
 1. **Frontend React Components** - Located in `src/features/hr/`
-2. **Database Schema** - Located in `sql/15_hr_module.sql`
-3. **Navigation Integration** - Added to the main sidebar
-4. **Routing Integration** - Added to the main application router
-5. **Translation Support** - Added Arabic and English translations
-6. **Deployment Instructions** - Created deployment guide
+2. **Service Layer (Supabase Fallbacks)** - Located in `src/services/hr/hr-service.ts`
+3. **Database Schema** - Located in `sql/15_hr_module.sql` + `sql/hr/16_hr_operational_extensions.sql`
+4. **Navigation Integration** - Added to the main sidebar
+5. **Routing Integration** - Added to the main application router
+6. **Translation Support** - Added Arabic and English translations
+7. **Deployment Instructions** - Updated deployment guide with the new extensions
 
 ## Components Integrated
 
@@ -19,35 +20,29 @@ The HR module has been successfully integrated into the Wardah ERP system with t
 
 - **Location**: `src/features/hr/index.tsx`
 - **Features**:
-  - HR Overview Dashboard
-  - Employee Management Section
-  - Payroll Management Section
-  - Attendance Management Section
-  - HR Reports Section
-- **Technology**: React/TypeScript with React Router
+  - HR Overview Dashboard with smart KPIs, alerts, payroll tracker
+  - Employee management grid with inline status badges
+  - Attendance console with daily insights and biometric-ready workflows
+  - Payroll run history, leave approvals, settlement calculator, predictive analytics
+  - Smart alerts + AI insights tab aligned مع متطلبات «حاسبني»
+- **Technology**: React/TypeScript, React Query, shadcn/ui
 - **Internationalization**: Full RTL support for Arabic and English
 
 ### 2. Database Schema
 
-- **Location**: `sql/15_hr_module.sql`
-- **Tables Created**:
-  - `employees` - Employee master data
-  - `departments` - Department information
-  - `positions` - Position/Job information
-  - `salary_components` - Salary components (earnings, deductions, benefits)
-  - `employee_salary_structures` - Employee-specific salary structures
-  - `payroll_periods` - Payroll period management
-  - `payroll_runs` - Payroll processing runs
-  - `payroll_details` - Detailed payroll calculations
-  - `attendance_records` - Daily attendance tracking
-  - `leave_types` - Leave type definitions
-  - `employee_leaves` - Employee leave requests and approvals
+- **Locations**:
+  - Core HR: `sql/15_hr_module.sql`
+  - Operational extensions: `sql/hr/16_hr_operational_extensions.sql`
+- **Tables Covered**:
+  - `employees`, `departments`, `positions`, `salary_components`
+  - `payroll_periods`, `payroll_runs`, `payroll_details`
+  - `attendance_records`, `leave_types`, `employee_leaves`
+  - `hr_alerts` (smart alerts), `hr_settlements`, `hr_settlement_lines`, `hr_payroll_adjustments`
 - **Features**:
   - Multi-tenant architecture with `org_id` references
-  - Row Level Security (RLS) policies for data isolation
-  - Audit fields (`created_at`, `updated_at`) with triggers
-  - Comprehensive indexing for performance
-  - Sample data for initial testing
+  - Row Level Security (RLS) policies for data isolation across all new tables
+  - Audit triggers via `hr_touch_updated_at`
+  - Compliance-ready settlement + adjustment tracking required by «حاسبني»
 
 ### 3. Application Integration
 

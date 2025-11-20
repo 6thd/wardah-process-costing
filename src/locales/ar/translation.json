@@ -108,11 +108,148 @@
   "manufacturing": {
     "title": "إدارة التصنيع",
     "overview": "نظرة عامة",
-    "workCenters": "مراكز العمل",
     "processCosting": "تكاليف المراحل",
     "boms": "قوائم المواد",
     "manufacturingOrders": "أوامر التصنيع",
     "production": "متابعة الإنتاج",
+    "processCostingPage": {
+      "title": "تكاليف المراحل (Process Costing)",
+      "subtitle": "نظام متقدم لاحتساب تكاليف مراحل التصنيع"
+    },
+    "equivalentUnitsPage": {
+      "title": "الوحدات المكافئة",
+      "subtitle": "حساب الوحدات المكافئة وتحليل التكاليف"
+    },
+    "varianceAlertsPage": {
+      "title": "تنبيهات الانحرافات",
+      "subtitle": "مراقبة انحرافات التكلفة واتخاذ الإجراءات"
+    },
+    "overviewPage": {
+      "subtitle": "إدارة عمليات التصنيع وتكاليف المراحل",
+      "metrics": {
+        "active": "أوامر نشطة",
+        "completed": "أوامر مكتملة",
+        "pending": "في الانتظار",
+        "efficiency": "كفاءة الإنتاج"
+      },
+      "cards": {
+        "orders": {
+          "title": "أوامر التصنيع",
+          "description": "إنشاء ومتابعة أوامر التصنيع",
+          "activeBadge": "{{count}} نشط",
+          "totalBadge": "{{count}} إجمالي"
+        },
+        "processCosting": {
+          "title": "تكاليف المراحل",
+          "description": "نظام متقدم لاحتساب تكاليف مراحل التصنيع",
+          "badge": "متقدم"
+        },
+        "workCenters": {
+          "title": "مراكز العمل",
+          "description": "إدارة مراكز العمل والآلات"
+        },
+        "bom": {
+          "title": "قوائم المواد (BOM)",
+          "description": "قوائم المواد المطلوبة للتصنيع"
+        },
+        "quality": {
+          "title": "ضبط الجودة",
+          "description": "فحص وضبط جودة المنتجات"
+        },
+        "labor": {
+          "title": "إدارة العمالة",
+          "description": "تسجيل أوقات العمل والحضور",
+          "badge": "قريباً"
+        }
+      },
+      "latestOrders": {
+        "title": "أحدث أوامر التصنيع",
+        "viewAll": "عرض الكل",
+        "status": {
+          "completed": "مكتمل",
+          "inProgress": "جاري",
+          "pending": "في الانتظار"
+        },
+        "unitsLabel": "{{count}} وحدة"
+      }
+    },
+    "ordersPage": {
+      "title": "أوامر التصنيع",
+      "subtitle": "إدارة أوامر التصنيع",
+      "newOrder": "أمر جديد",
+      "loadError": "خطأ في تحميل أوامر التصنيع",
+      "statusUpdated": "تم تحديث حالة الأمر",
+      "statusUpdateFailed": "تعذر تحديث حالة الأمر",
+      "stats": {
+        "inProgress": "جارية",
+        "completed": "مكتملة",
+        "drafts": "مسودات",
+        "total": "إجمالي"
+      },
+      "listTitle": "قائمة أوامر التصنيع ({{count}})",
+      "listPlaceholder": "قريباً - قائمة مفصلة بأوامر التصنيع",
+      "notesColumn": "ملاحظات",
+      "form": {
+        "sectionTitle": "إنشاء أمر جديد",
+        "orderNumber": "رقم الأمر",
+        "product": "المنتج",
+        "productPlaceholder": "اختر المنتج",
+        "noProducts": "لا توجد منتجات متاحة",
+        "quantity": "الكمية المخطط إنتاجها",
+        "status": "الحالة",
+        "dateRange": "الفترة (تاريخ البدء / التسليم)",
+        "notes": "ملاحظات",
+        "submit": "إنشاء الأمر",
+        "creating": "جاري الإنشاء...",
+        "productRequired": "يرجى اختيار المنتج",
+        "createSuccess": "تم إنشاء أمر التصنيع بنجاح",
+        "createError": "تعذر إنشاء أمر التصنيع",
+        "missingOrg": "لم يتم العثور على معرف المنظمة"
+      }
+    },
+    "workCenters": {
+      "title": "مراكز العمل",
+      "subtitle": "إدارة مراكز العمل والآلات",
+      "metrics": {
+        "total": "إجمالي المراكز",
+        "active": "المفعّلة",
+        "avgRate": "متوسط تكلفة الساعة"
+      },
+      "list": {
+        "title": "قائمة المراكز",
+        "loading": "جاري التحميل...",
+        "empty": "لا توجد مراكز عمل",
+        "noDescription": "لا يوجد وصف",
+        "hourlyRate": "تكلفة الساعة: {{amount}}",
+        "statusActive": "مفعل",
+        "statusInactive": "متوقف",
+        "toggleEnable": "تفعيل",
+        "toggleDisable": "إيقاف"
+      },
+      "form": {
+        "title": "إضافة مركز جديد",
+        "code": "الكود",
+        "nameAr": "الاسم (عربي)",
+        "nameEn": "الاسم (إنجليزي)",
+        "description": "الوصف",
+        "hourlyRate": "تكلفة الساعة",
+        "submit": "حفظ",
+        "saving": "جاري الحفظ..."
+      },
+      "messages": {
+        "validation": "يرجى تعبئة الحقول الإلزامية",
+        "missingOrg": "لم يتم العثور على معرف المنظمة",
+        "createSuccess": "تم إنشاء مركز العمل بنجاح",
+        "createError": "تعذّر إنشاء مركز العمل",
+        "updateSuccess": "تم تحديث حالة مركز العمل",
+        "updateError": "تعذّر تحديث الحالة"
+      }
+    },
+    "qualityControlPage": {
+      "title": "ضبط الجودة",
+      "subtitle": "فحص وضبط جودة المنتجات",
+      "comingSoon": "قريباً - نظام فحص وضبط الجودة"
+    },
     "stages": {
       "title": "مراحل التصنيع",
       "stageNumber": "رقم المرحلة",
@@ -148,6 +285,7 @@
       "status": {
         "draft": "مسودة",
         "confirmed": "مؤكد",
+        "pending": "معلق",
         "inProgress": "قيد التنفيذ",
         "completed": "مكتمل",
         "cancelled": "ملغى"
@@ -300,7 +438,8 @@
     "noDataFound": "لا توجد بيانات",
     "connectionError": "خطأ في الاتصال",
     "unauthorized": "غير مخول للوصول",
-    "sessionExpired": "انتهت صلاحية الجلسة"
+    "sessionExpired": "انتهت صلاحية الجلسة",
+    "loading": "جاري التحميل..."
   },
   "hr": {
     "title": "إدارة الموارد البشرية",
@@ -362,6 +501,75 @@
     "settings": "الإعدادات",
     "setting": {
       "management": "إعدادات الرواتب وأنواع الإجازات"
+    },
+    "policies": {
+      "title": "سياسات العمل",
+      "description": "اضبط ساعات العمل والورديات وأيام العطل ومعامل العمل الإضافي.",
+      "employeeHours": "ساعات الموظفين لكل وردية",
+      "workerHours": "ساعات العمال لكل وردية",
+      "workerShifts": "عدد الورديات اليومية للعمال",
+      "overtimeMultiplier": "معامل العمل الإضافي",
+      "overtimeGrace": "مهلة العمل الإضافي (بالدقائق)",
+      "weekendDays": "أيام العطلة الأسبوعية",
+      "save": "حفظ السياسات",
+      "weekendOptions": {
+        "thursday": "الخميس",
+        "friday": "الجمعة",
+        "saturday": "السبت"
+      }
+    },
+    "payrollAccounts": {
+      "title": "ترميز الرواتب على دفتر الأستاذ",
+      "description": "اربط عناصر الرواتب والبدلات والخصومات بحسابات دفتر الأستاذ لعمل قيود تلقائية عند الإقفال.",
+      "component": "البند",
+      "account": "حساب دفتر الأستاذ",
+      "accountPlaceholder": "اختر حساباً ماليًا",
+      "noAccounts": "لا توجد حسابات متاحة. يرجى إنشاء الحسابات أولاً.",
+      "basic_salary": "الراتب الأساسي",
+      "housing_allowance": "بدل السكن",
+      "transport_allowance": "بدل المواصلات",
+      "other_allowance": "بدلات أخرى",
+      "deductions": "الخصومات",
+      "loans": "السلف والقروض",
+      "payable": "رواتب مستحقة الدفع",
+      "net_payable": "صافي الرواتب (نقد/بنك)",
+      "descriptions": {
+        "basic_salary": "الراتب الأساسي حسب العقد.",
+        "housing_allowance": "بدل السكن الشهري.",
+        "transport_allowance": "بدل النقل أو تعويض المواصلات.",
+        "other_allowance": "أي بدلات إضافية أخرى.",
+        "deductions": "الغيابات والجزاءات والاشتراكات النظامية.",
+        "loans": "السلف والدفعات المقدمة للموظف.",
+        "payable": "إجمالي الرواتب المستحقة قبل الدفع.",
+        "net_payable": "المبلغ الصافي المحول إلى النقد أو البنك."
+      }
+    },
+    "payrollProcessing": {
+      "title": "معالجة الرواتب الشهرية",
+      "description": "استعرض الرواتب الإجمالية والخصومات والصافي قبل إقفال الشهر وإصدار القيد.",
+      "periodLabel": "شهر الرواتب",
+      "refresh": "إعادة الحساب",
+      "locked": "الشهر مقفل",
+      "unlocked": "الشهر مفتوح",
+      "lockButton": "إقفال الرواتب وإصدار القيد",
+      "lockSuccess": "تم إقفال الرواتب وإصدار القيد المحاسبي بنجاح.",
+      "noData": "لا توجد بيانات رواتب لهذا الشهر.",
+      "exportExcel": "تصدير إلى إكسل (CSV)",
+      "cards": {
+        "gross": "إجمالي الرواتب",
+        "allowances": "البدلات",
+        "deductions": "الخصومات",
+        "net": "صافي الرواتب"
+      },
+      "table": {
+        "employee": "الموظف",
+        "base": "الراتب الأساسي",
+        "allowances": "البدلات",
+        "overtime": "العمل الإضافي",
+        "deductions": "الخصومات",
+        "absence": "الغياب",
+        "net": "الصافي"
+      }
     },
     "department": {
       "title": "الأقسام",

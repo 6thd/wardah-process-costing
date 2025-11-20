@@ -12,6 +12,7 @@ import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, Target, Al
 import { geminiFinancialService } from '@/services/gemini-financial-service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { PerformanceMonitor } from '@/lib/performance-monitor';
 
 interface DashboardMetrics {
   kpis: any;
@@ -31,46 +32,48 @@ export function EnhancedGeminiDashboard() {
 
   // Auto-sync with Wardah data
   const syncWithWardah = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch real financial data
-      const kpis = await geminiFinancialService.fetchRealFinancialKPIs();
-      const breakEven = await geminiFinancialService.calculateBreakEvenAnalysis();
-      const monthlyData = await geminiFinancialService.fetchMonthlyFinancialData();
-      
-      const startDate = new Date(new Date().getFullYear(), 0, 1);
-      const endDate = new Date();
-      const profitLoss = await geminiFinancialService.analyzeProfitLoss(startDate, endDate);
+    return PerformanceMonitor.measure('Dashboard Sync', async () => {
+      try {
+        setLoading(true);
 
-      // Format for Gemini dashboard
-      const formattedData = geminiFinancialService.formatForGeminiDashboard(kpis, monthlyData);
+        // Fetch real financial data
+        const kpis = await geminiFinancialService.fetchRealFinancialKPIs();
+        const breakEven = await geminiFinancialService.calculateBreakEvenAnalysis();
+        const monthlyData = await geminiFinancialService.fetchMonthlyFinancialData();
 
-      // Send data to iframe
-      if (iframeRef.current?.contentWindow) {
-        iframeRef.current.contentWindow.postMessage({
-          type: 'WARDHAH_DATA_SYNC',
-          data: formattedData,
+        const startDate = new Date(new Date().getFullYear(), 0, 1);
+        const endDate = new Date();
+        const profitLoss = await geminiFinancialService.analyzeProfitLoss(startDate, endDate);
+
+        // Format for Gemini dashboard
+        const formattedData = geminiFinancialService.formatForGeminiDashboard(kpis, monthlyData);
+
+        // Send data to iframe
+        if (iframeRef.current?.contentWindow) {
+          iframeRef.current.contentWindow.postMessage({
+            type: 'WARDHAH_DATA_SYNC',
+            data: formattedData,
+            kpis,
+            breakEven,
+            profitLoss
+          }, '*');
+        }
+
+        setMetrics({
           kpis,
           breakEven,
-          profitLoss
-        }, '*');
+          profitLoss,
+          monthlyData
+        });
+
+        toast.success(isRTL ? 'تم مزامنة البيانات بنجاح' : 'Data synced successfully');
+      } catch (error: any) {
+        console.error('Error syncing data:', error);
+        toast.error(error.message || (isRTL ? 'فشل في مزامنة البيانات' : 'Failed to sync data'));
+      } finally {
+        setLoading(false);
       }
-
-      setMetrics({
-        kpis,
-        breakEven,
-        profitLoss,
-        monthlyData
-      });
-
-      toast.success(isRTL ? 'تم مزامنة البيانات بنجاح' : 'Data synced successfully');
-    } catch (error: any) {
-      console.error('Error syncing data:', error);
-      toast.error(error.message || (isRTL ? 'فشل في مزامنة البيانات' : 'Failed to sync data'));
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   useEffect(() => {
@@ -114,7 +117,7 @@ export function EnhancedGeminiDashboard() {
                 {isRTL ? 'لوحة Gemini المالية الذكية' : 'Gemini AI Financial Dashboard'}
               </CardTitle>
               <CardDescription>
-                {isRTL 
+                {isRTL
                   ? 'تحليل مالي متقدم مع Google Gemini AI - بيانات حقيقية من وردة ERP'
                   : 'Advanced financial analysis with Google Gemini AI - Real data from Wardah ERP'}
               </CardDescription>
@@ -233,7 +236,7 @@ export function EnhancedGeminiDashboard() {
                   <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600" />
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      {isRTL 
+                      {isRTL
                         ? 'تحذير: هامش الأمان منخفض. يجب زيادة المبيعات أو تقليل التكاليف.'
                         : 'Warning: Low margin of safety. Consider increasing sales or reducing costs.'}
                     </p>
