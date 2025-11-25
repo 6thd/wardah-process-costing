@@ -32,7 +32,6 @@ ON CONFLICT (name) DO UPDATE SET
 -- 2. إضافة الصلاحيات لكل موديول
 -- =====================================
 
--- دالة مساعدة لإضافة صلاحيات موديول
 DO $$
 DECLARE
   module_row RECORD;
@@ -45,27 +44,28 @@ BEGIN
     FOR i IN 1..array_length(actions, 1) LOOP
       INSERT INTO permissions (
         module_id, 
-        key, 
-        name, 
-        name_ar, 
-        description, 
-        description_ar, 
+        resource,
+        resource_ar,
         action, 
-        is_active
+        action_ar,
+        permission_key,
+        description, 
+        description_ar
       )
       VALUES (
         module_row.id,
-        module_row.name || ':' || actions[i],
-        action_names[i] || ' ' || module_row.name,
-        action_names_ar[i] || ' ' || module_row.name_ar,
-        'Permission to ' || lower(action_names[i]) || ' in ' || module_row.name,
-        'صلاحية ' || action_names_ar[i] || ' في ' || module_row.name_ar,
+        module_row.name,
+        module_row.name_ar,
         actions[i],
-        true
+        action_names_ar[i],
+        module_row.name || '.' || module_row.name || '.' || actions[i],
+        'Permission to ' || lower(action_names[i]) || ' in ' || module_row.name,
+        'صلاحية ' || action_names_ar[i] || ' في ' || module_row.name_ar
       )
-      ON CONFLICT (key) DO UPDATE SET
-        name = EXCLUDED.name,
-        name_ar = EXCLUDED.name_ar,
+      ON CONFLICT (permission_key) DO UPDATE SET
+        resource = EXCLUDED.resource,
+        resource_ar = EXCLUDED.resource_ar,
+        action_ar = EXCLUDED.action_ar,
         description = EXCLUDED.description,
         description_ar = EXCLUDED.description_ar;
     END LOOP;
