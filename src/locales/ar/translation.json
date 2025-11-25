@@ -56,7 +56,15 @@
     "integrations": "التكاملات",
     "backup": "النسخ الاحتياطي",
     "gemini-dashboard": "لوحة معلومات Gemini",
-    "journal-entries": "قيود اليومية"
+    "journal-entries": "قيود اليومية",
+    "org-admin": "إدارة المنظمة",
+    "orgAdminDashboard": "لوحة التحكم",
+    "orgAdminUsers": "المستخدمون",
+    "orgAdminInvitations": "الدعوات",
+    "orgAdminRoles": "الأدوار والصلاحيات",
+    "super-admin": "إدارة النظام",
+    "superAdminDashboard": "لوحة التحكم",
+    "superAdminOrganizations": "المنظمات"
   },
   "common": {
     "save": "حفظ",

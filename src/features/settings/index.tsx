@@ -41,22 +41,22 @@ function SettingsOverview() {
       options: ['معلومات الشركة', 'عنوان المراسلة', 'الشعار والهوية']
     },
     {
-      title: 'إدارة المستخدمين',
-      description: 'إضافة وإدارة حسابات المستخدمين',
+      title: 'إدارة المنظمة',
+      description: 'إدارة المستخدمين والأدوار والصلاحيات',
       icon: Users,
-      href: '/settings/users',
+      href: '/org-admin',
       color: 'text-green-600',
       bgColor: 'bg-green-50',
-      options: ['إضافة مستخدمين', 'إدارة الأدوار', 'فرق العمل']
+      options: ['إدارة المستخدمين', 'الأدوار والصلاحيات', 'الدعوات']
     },
     {
-      title: 'الصلاحيات والأمان',
-      description: 'إدارة صلاحيات الوصول والأمان',
+      title: 'الأمان والوصول',
+      description: 'إعدادات الأمان وسياسات الوصول',
       icon: Shield,
-      href: '/settings/permissions',
+      href: '/org-admin/roles',
       color: 'text-red-600',
       bgColor: 'bg-red-50',
-      options: ['صلاحيات الوصول', 'أمان البيانات', 'مراجعة العمليات']
+      options: ['الأدوار', 'مصفوفة الصلاحيات', 'سياسات الوصول']
     },
     {
       title: 'إعدادات النظام',
@@ -199,54 +199,16 @@ function CompanySettings() {
   )
 }
 
-// User Management Component
+// User Management Component - Redirect to Org Admin
 function UserManagement() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">إدارة المستخدمين</h1>
-        <p className="text-muted-foreground mt-2">
-          إضافة وإدارة حسابات المستخدمين
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - إضافة مستخدمين، إدارة الأدوار، فرق العمل
-        </p>
-      </div>
-    </div>
-  )
+  // ⚡ إعادة توجيه إلى Org Admin للمستخدمين
+  return <Navigate to="/org-admin/users" replace />
 }
 
-// Permissions Management Component
+// Permissions Management Component - Redirect to Org Admin
 function PermissionsManagement() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">الصلاحيات والأمان</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة صلاحيات الوصول وأمان النظام
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - صلاحيات الوصول، أمان البيانات، مراجعة العمليات
-        </p>
-      </div>
-    </div>
-  )
+  // ⚡ إعادة توجيه إلى Org Admin للصلاحيات
+  return <Navigate to="/org-admin/roles" replace />
 }
 
 // System Settings Component

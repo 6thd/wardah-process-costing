@@ -56,7 +56,15 @@
     "integrations": "Integrations",
     "backup": "Backup",
     "gemini-dashboard": "Gemini Dashboard",
-    "journal-entries": "Journal Entries"
+    "journal-entries": "Journal Entries",
+    "org-admin": "Organization Admin",
+    "orgAdminDashboard": "Dashboard",
+    "orgAdminUsers": "Users",
+    "orgAdminInvitations": "Invitations",
+    "orgAdminRoles": "Roles & Permissions",
+    "super-admin": "System Admin",
+    "superAdminDashboard": "Dashboard",
+    "superAdminOrganizations": "Organizations"
   },
   "common": {
     "save": "Save",
