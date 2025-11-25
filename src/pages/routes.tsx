@@ -4,6 +4,7 @@ import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حما
 import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
 import { SignUpPage } from "@/pages/signup"; // ✅ صفحة التسجيل الجديد
 import { SuperAdminModule } from "@/pages/super-admin"; // ✅ لوحة Super Admin
+import { OrgAdminModule } from "@/pages/org-admin/module"; // ✅ لوحة Org Admin
 
 // Import all the modules
 import { DashboardModule } from "@/features/dashboard";
@@ -123,6 +124,13 @@ export const appRouter = createBrowserRouter([
           {
             path: "super-admin/*",
             element: <SuperAdminModule />,
+          },
+          // ===================================
+          // 🟢 Org Admin (داخل MainLayout)
+          // ===================================
+          {
+            path: "org-admin/*",
+            element: <OrgAdminModule />,
           },
         ],
       }

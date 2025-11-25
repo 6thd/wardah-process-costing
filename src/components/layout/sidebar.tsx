@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   ChevronDown,
   BookOpen,
-  Users
+  Users,
+  Building2
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
@@ -183,6 +184,18 @@ export function Sidebar() {
         { key: 'system', href: '/settings/system', label: t('navigation.system') },
         { key: 'integrations', href: '/settings/integrations', label: t('navigation.integrations') },
         { key: 'backup', href: '/settings/backup', label: t('navigation.backup') }
+      ]
+    },
+    {
+      key: 'org-admin',
+      icon: Building2,
+      href: '/org-admin',
+      badge: null,
+      subItems: [
+        { key: 'dashboard', href: '/org-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
+        { key: 'users', href: '/org-admin/users', label: isRTL ? 'المستخدمين' : 'Users' },
+        { key: 'invitations', href: '/org-admin/invitations', label: isRTL ? 'الدعوات' : 'Invitations' },
+        { key: 'roles', href: '/org-admin/roles', label: isRTL ? 'الأدوار' : 'Roles' }
       ]
     },
   ]
