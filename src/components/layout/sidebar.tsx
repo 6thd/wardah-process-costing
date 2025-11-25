@@ -229,7 +229,8 @@ export function Sidebar() {
         { key: 'dashboard', href: '/org-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
         { key: 'users', href: '/org-admin/users', label: isRTL ? 'المستخدمين' : 'Users' },
         { key: 'invitations', href: '/org-admin/invitations', label: isRTL ? 'الدعوات' : 'Invitations' },
-        { key: 'roles', href: '/org-admin/roles', label: isRTL ? 'الأدوار' : 'Roles' }
+        { key: 'roles', href: '/org-admin/roles', label: isRTL ? 'الأدوار' : 'Roles' },
+        { key: 'audit-log', href: '/org-admin/audit-log', label: isRTL ? 'سجل التدقيق' : 'Audit Log' }
       ]
     },
     {
