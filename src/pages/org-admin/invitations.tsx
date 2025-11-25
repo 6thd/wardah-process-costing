@@ -62,6 +62,10 @@ import {
   RotateCcw,
   Trash2,
   UserPlus,
+  Share2,
+  MessageCircle,
+  Check,
+  Link,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -81,6 +85,10 @@ export default function OrgAdminInvitations() {
     message: '',
   });
   const [creating, setCreating] = useState(false);
+  
+  // Invite link dialog
+  const [showLinkDialog, setShowLinkDialog] = useState(false);
+  const [newInviteLink, setNewInviteLink] = useState('');
 
   // Get org name and inviter name
   const currentOrg = organizations.find(o => o.org_id === currentOrgId);
@@ -126,12 +134,16 @@ export default function OrgAdminInvitations() {
 
     setCreating(true);
     try {
-      const result = await createInvitation(currentOrgId, formData, orgName, inviterName);
+      const result = await createInvitation(currentOrgId, formData);
       if (result.success && result.invitation) {
         setInvitations([result.invitation, ...invitations]);
         setDialogOpen(false);
         setFormData({ email: '', role_ids: [], message: '' });
-        toast.success('تم إنشاء الدعوة وإرسال البريد بنجاح');
+        
+        // Show invitation link dialog
+        const inviteLink = `${window.location.origin}/signup?invite=${result.invitation.token}`;
+        setNewInviteLink(inviteLink);
+        setShowLinkDialog(true);
       } else {
         toast.error(result.error || 'فشل إنشاء الدعوة');
       }
@@ -143,12 +155,14 @@ export default function OrgAdminInvitations() {
   }
 
   async function handleResend(invitationId: string) {
-    const result = await resendInvitation(invitationId, orgName, inviterName);
-    if (result.success) {
-      toast.success('تم إعادة إرسال الدعوة بنجاح');
+    const result = await resendInvitation(invitationId);
+    if (result.success && result.token) {
+      const inviteLink = `${window.location.origin}/signup?invite=${result.token}`;
+      setNewInviteLink(inviteLink);
+      setShowLinkDialog(true);
       loadData();
     } else {
-      toast.error(result.error || 'فشل إعادة الإرسال');
+      toast.error(result.error || 'فشل تجديد الدعوة');
     }
   }
 
@@ -539,6 +553,89 @@ export default function OrgAdminInvitations() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Invite Link Dialog */}
+      <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
+        <DialogContent className="bg-slate-900 border-slate-800 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+              تم إنشاء الدعوة بنجاح!
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              شارك هذا الرابط مع المستخدم للانضمام إلى المنظمة
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {/* Link Display */}
+            <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Link className="h-4 w-4 text-teal-400" />
+                <span className="text-xs text-slate-400">رابط الدعوة</span>
+              </div>
+              <p className="text-sm text-white break-all font-mono bg-slate-900 p-2 rounded" dir="ltr">
+                {newInviteLink}
+              </p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                onClick={() => copyInviteLink(newInviteLink.split('invite=')[1])}
+                className="bg-teal-600 hover:bg-teal-500"
+              >
+                <Copy className="h-4 w-4 ml-2" />
+                نسخ الرابط
+              </Button>
+              
+              <Button
+                onClick={() => {
+                  const text = `مرحباً! تمت دعوتك للانضمام إلى ${orgName}. استخدم هذا الرابط للتسجيل: ${newInviteLink}`;
+                  const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                  window.open(whatsappUrl, '_blank');
+                }}
+                className="bg-green-600 hover:bg-green-500"
+              >
+                <MessageCircle className="h-4 w-4 ml-2" />
+                إرسال عبر WhatsApp
+              </Button>
+            </div>
+
+            {/* Share via Native Share API */}
+            {typeof navigator !== 'undefined' && navigator.share && (
+              <Button
+                variant="outline"
+                className="w-full border-slate-700 text-slate-300 hover:text-white"
+                onClick={async () => {
+                  try {
+                    await navigator.share({
+                      title: `دعوة للانضمام إلى ${orgName}`,
+                      text: `تمت دعوتك للانضمام إلى ${orgName}`,
+                      url: newInviteLink,
+                    });
+                  } catch (err) {
+                    console.log('Share cancelled');
+                  }
+                }}
+              >
+                <Share2 className="h-4 w-4 ml-2" />
+                مشاركة عبر تطبيق آخر
+              </Button>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowLinkDialog(false)}
+              className="border-slate-700 text-slate-300"
+            >
+              إغلاق
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
