@@ -49,6 +49,12 @@ export interface CustomerReceipt {
   posted_at?: string
   posted_by?: string
   lines?: CustomerReceiptLine[]
+  // Joined fields
+  customer?: {
+    id: string
+    name: string
+    name_ar?: string
+  }
 }
 
 export interface CustomerReceiptLine {
@@ -80,6 +86,12 @@ export interface SupplierPayment {
   posted_at?: string
   posted_by?: string
   lines?: SupplierPaymentLine[]
+  // Joined fields
+  vendor?: {
+    id: string
+    name: string
+    name_ar?: string
+  }
 }
 
 export interface SupplierPaymentLine {

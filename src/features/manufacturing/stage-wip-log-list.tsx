@@ -52,11 +52,15 @@ export function StageWipLogList() {
   })
 
   // Load related data
-  const { data: manufacturingOrders = [] } = useManufacturingOrders()
-  const { data: stages = [] } = useManufacturingStages()
+  const { data: manufacturingOrdersData } = useManufacturingOrders()
+  const { data: stagesData } = useManufacturingStages()
+  
+  // Type assertions
+  const manufacturingOrders = (manufacturingOrdersData || []) as any[]
+  const stages = (stagesData || []) as any[]
 
   // Load WIP logs
-  const { data: wipLogs = [], isLoading, isError, refetch } = useQuery({
+  const { data: wipLogsData, isLoading, isError, refetch } = useQuery({
     queryKey: ['stage-wip-log', filters],
     queryFn: async () => {
       const filtersToUse: any = {}
@@ -67,6 +71,8 @@ export function StageWipLogList() {
     },
     enabled: true
   })
+  
+  const wipLogs = (wipLogsData || []) as any[]
 
   // Delete mutation
   const deleteMutation = useMutation({

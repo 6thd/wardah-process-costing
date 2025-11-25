@@ -62,7 +62,7 @@ class ProcessCostingService {
    */
   async applyLaborTime(params: ProcessCostingParams): Promise<{ success: boolean; data: LaborTimeResult }> {
     try {
-      const { moId, stageId, stageNo, workCenterId, laborHours, hourlyRate, employeeName, operationCode, notes } = params
+      const { moId, stageId, stageNo, workCenterId: paramWorkCenterId, laborHours, hourlyRate, employeeName, operationCode, notes } = params
 
       if (!moId || (!stageId && !stageNo) || !laborHours || !hourlyRate) {
         throw new Error('Missing required parameters: moId, stageId/stageNo, laborHours, hourlyRate')
@@ -91,6 +91,7 @@ class ProcessCostingService {
       }
 
       // wc_id is required in labor_time_logs schema
+      let workCenterId = paramWorkCenterId
       if (!workCenterId) {
         // Try to get a default work center for this org
         // Note: work_centers uses org_id (not tenant_id)
@@ -335,24 +336,16 @@ class ProcessCostingService {
       }
 
       // Upsert based on what's available
-      let query = supabase.from('stage_costs')
-
-      if (stageId && stageNo) {
-        // Try both
-        query = query.upsert(stageCostData, {
-          onConflict: 'manufacturing_order_id,stage_id,org_id'
-        })
-      } else if (stageId) {
-        query = query.upsert(stageCostData, {
-          onConflict: 'manufacturing_order_id,stage_id,org_id'
-        })
-      } else if (stageNo) {
-        query = query.upsert(stageCostData, {
-          onConflict: 'manufacturing_order_id,stage_number,org_id'
-        })
+      let conflictColumns = 'manufacturing_order_id,stage_number,org_id'
+      if (stageId) {
+        conflictColumns = 'manufacturing_order_id,stage_id,org_id'
       }
 
-      const { data, error } = await query.select().single()
+      const { data, error } = await supabase
+        .from('stage_costs')
+        .upsert(stageCostData, { onConflict: conflictColumns })
+        .select()
+        .single()
 
       if (error && !error.message.includes('Could not find')) {
         throw error

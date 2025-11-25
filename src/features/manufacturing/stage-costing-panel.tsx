@@ -77,10 +77,16 @@ export default function StageCostingPanel() {
   const [selectedMO, setSelectedMO] = useState<any>(null)
 
   // Use our new React Query hooks
-  const { data: manufacturingOrders = [], isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders()
-  const { data: workCenters = [], isLoading: isWCLoading, isError: isWCError } = useWorkCenters()
-  const { data: stages = [], isLoading: isStagesLoading, isError: isStagesError } = useManufacturingStages()
-  const { data: stageCosts = [], isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId) as { data: StageCost[], isLoading: boolean, isError: boolean }
+  const { data: manufacturingOrdersData, isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders()
+  const { data: workCentersData, isLoading: isWCLoading, isError: isWCError } = useWorkCenters()
+  const { data: stagesData, isLoading: isStagesLoading, isError: isStagesError } = useManufacturingStages()
+  const { data: stageCostsData, isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId)
+  
+  // Type assertions for data
+  const manufacturingOrders = (manufacturingOrdersData || []) as any[]
+  const workCenters = (workCentersData || []) as any[]
+  const stages = (stagesData || []) as any[]
+  const stageCosts = (stageCostsData || []) as StageCost[]
 
   // Setup realtime subscriptions
   useRealtimeSubscription('manufacturing_orders', 'manufacturing-orders')

@@ -533,7 +533,8 @@ export async function getProductSalesAnalysis(
       invoiceLinesQuery = invoiceLinesQuery.eq('product_id', productId);
     }
 
-    let { data: invoiceLines, error: linesError } = await invoiceLinesQuery;
+    let { data: invoiceLinesData, error: linesError } = await invoiceLinesQuery;
+    let invoiceLines: any[] | null = invoiceLinesData;
 
     // If relationship with items doesn't exist, try without items join
     if (linesError && (linesError.code === 'PGRST200' || (linesError.message && linesError.message.includes('relationship')))) {

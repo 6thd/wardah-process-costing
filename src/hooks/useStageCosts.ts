@@ -24,6 +24,11 @@ export interface StageCost {
   created_at: string
   updated_at: string
   work_center?: WorkCenter
+  manufacturing_stage?: {
+    id: string
+    name: string
+    name_ar?: string
+  }
 }
 
 export const useStageCosts = (moId: string) => {

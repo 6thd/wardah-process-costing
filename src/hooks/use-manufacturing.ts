@@ -6,7 +6,7 @@ import { useAuthStore } from '../store/auth-store'
 export function useManufacturingOrders() {
   return useQuery({
     queryKey: ['manufacturing-orders'],
-    queryFn: manufacturingService.getAll,
+    queryFn: async () => manufacturingService.getAll(),
   })
 }
 

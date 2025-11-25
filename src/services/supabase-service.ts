@@ -305,18 +305,18 @@ export const manufacturingService = {
               // Parallel queries: fetch products and items simultaneously
               // Note: Use only columns that exist in the tables (code, name, not product_code/product_name)
               const [productsResult, itemsResult] = await Promise.all([
-                supabase
-                  .from('products')
-                  .select('id, code, name')
-                  .in('id', itemIds)
-                  .then(res => res.data || [])
-                  .catch(() => []),
-                supabase
-                  .from('items')
-                  .select('id, code, name, sku')
-                  .in('id', itemIds)
-                  .then(res => res.data || [])
-                  .catch(() => [])
+                (async () => {
+                  try {
+                    const res = await supabase.from('products').select('id, code, name').in('id', itemIds)
+                    return res.data || []
+                  } catch { return [] }
+                })(),
+                (async () => {
+                  try {
+                    const res = await supabase.from('items').select('id, code, name, sku').in('id', itemIds)
+                    return res.data || []
+                  } catch { return [] }
+                })()
               ])
 
               // Merge results: prefer products over items
@@ -619,14 +619,14 @@ export const manufacturingService = {
 
       // Only apply automatic date logic if dates weren't provided in updateData
       if (!providedUpdateData || (!providedUpdateData.start_date && !providedUpdateData.end_date)) {
-        if (status === 'completed' || dbStatus === 'completed' || dbStatus === 'done') {
+        if (status === 'completed' || dbStatus === 'completed' || (dbStatus as string) === 'done') {
           // Only set end_date if not already provided
           if (!updateData.end_date) {
             updateData.end_date = new Date().toISOString()
           }
         }
         
-        if (status === 'in-progress' || dbStatus === 'in-progress' || dbStatus === 'in_progress') {
+        if (status === 'in-progress' || dbStatus === 'in-progress' || (dbStatus as string) === 'in_progress') {
           // Set start_date if not already set and not provided
           if (!updateData.start_date) {
             const { data: currentOrder } = await supabase
@@ -1686,6 +1686,22 @@ export const stageWipLogService = {
       return data
     } catch (error: any) {
       console.error('Error closing period:', error)
+      throw error
+    }
+  },
+
+  delete: async (id: string) => {
+    try {
+      const supabase = await getClient()
+      const { error } = await supabase
+        .from('stage_wip_log')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+      return { success: true }
+    } catch (error: any) {
+      console.error('Error deleting stage WIP log:', error)
       throw error
     }
   }

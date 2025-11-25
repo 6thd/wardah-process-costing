@@ -4,12 +4,12 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { manufacturingService } from '@/services/supabase-service'
-import type { ManufacturingOrder } from '@/lib/supabase'
+import { getSupabase, type ManufacturingOrder } from '@/lib/supabase'
 
 export const useManufacturingOrders = () => {
   return useQuery({
     queryKey: ['manufacturing-orders'],
-    queryFn: manufacturingService.getAll,
+    queryFn: async () => manufacturingService.getAll(),
     // Performance optimization: Cache for 5 minutes
     staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes (formerly cacheTime)
@@ -23,6 +23,7 @@ export const useCreateManufacturingOrder = () => {
   
   return useMutation({
     mutationFn: async (order: Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>) => {
+      const supabase = getSupabase()
       if (!supabase) throw new Error('Supabase client not initialized')
       const { data, error } = await supabase
         .from('manufacturing_orders')

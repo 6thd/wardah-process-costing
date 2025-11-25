@@ -28,6 +28,8 @@
     "build",
     "src/features/inventory/components/**/*",
     "src/features/testing/**/*",
+    "src/features/reports/proxy-service/**/*",
+    "src/features/reports/routes/**/*",
     "src/services/warehouse-service.ts",
     "src/services/stock-adjustment-service.ts",
     "src/services/valuation/**/*",
