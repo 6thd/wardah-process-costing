@@ -59,7 +59,7 @@ export function Header() {
     }
   }
 
-  const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'مستخدم';
+  const userFullName = (user as any)?.user_metadata?.full_name || user?.email?.split('@')[0] || 'مستخدم';
   const userEmail = user?.email || '';
   const userAvatarFallback = userFullName?.charAt(0)?.toUpperCase();
 
@@ -196,7 +196,7 @@ export function Header() {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="h-9 px-2 hover:bg-accent/50 transition-colors">
                 <Avatar className="h-7 w-7 ring-2 ring-primary/20">
-                  <AvatarImage src={user?.user_metadata?.avatar_url || undefined} />
+                  <AvatarImage src={(user as any)?.user_metadata?.avatar_url || undefined} />
                   <AvatarFallback className="text-xs bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
                     {userAvatarFallback}
                   </AvatarFallback>
@@ -218,7 +218,7 @@ export function Header() {
               <DropdownMenuLabel className="p-4">
                 <div className={cn("flex items-center gap-3", isRTL ? "flex-row-reverse" : "")}>
                   <Avatar className="h-12 w-12 ring-2 ring-primary/30">
-                    <AvatarImage src={user?.user_metadata?.avatar_url || undefined} />
+                    <AvatarImage src={(user as any)?.user_metadata?.avatar_url || undefined} />
                     <AvatarFallback className="text-lg bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
                       {userAvatarFallback}
                     </AvatarFallback>
