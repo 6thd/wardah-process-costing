@@ -1,6 +1,7 @@
 export interface AppConfig {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  ORG_ID?: string;
   TABLE_NAMES: Record<string, string>;
   APP_SETTINGS: {
     default_currency: string;

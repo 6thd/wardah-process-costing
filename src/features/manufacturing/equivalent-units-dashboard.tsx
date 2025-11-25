@@ -23,6 +23,7 @@ import {
   Calculator
 } from 'lucide-react'
 import { useToast } from '@/components/ui/use-toast'
+import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 // Fixed import paths - DISABLED (domain not implemented)
 // import { equivalentUnitsService } from '../../domain/manufacturing/equivalentUnits'
 
@@ -59,9 +60,12 @@ export function EquivalentUnitsDashboard() {
   const { toast } = useToast()
   const queryClient = useQueryClient()
   
+  // Load manufacturing stages
+  const { data: stages = [], isLoading: isStagesLoading } = useManufacturingStages()
+  
   // State
   const [selectedMO, setSelectedMO] = useState<string>('')
-  const [selectedStage, setSelectedStage] = useState<number>(10)
+  const [selectedStage, setSelectedStage] = useState<string>('')
   const [beginningWip, setBeginningWip] = useState<number>(0)
   const [unitsStarted, setUnitsStarted] = useState<number>(0)
   const [unitsCompleted, setUnitsCompleted] = useState<number>(0)
@@ -461,20 +465,24 @@ export function EquivalentUnitsDashboard() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="stage-select">Stage</Label>
+              <Label htmlFor="stage-select">المرحلة</Label>
               <Select 
-                value={selectedStage.toString()} 
-                onValueChange={(value: string) => setSelectedStage(parseInt(value))}
+                value={selectedStage} 
+                onValueChange={(value: string) => setSelectedStage(value)}
+                disabled={isStagesLoading}
               >
                 <SelectTrigger id="stage-select" className="wardah-glass-card">
-                  <SelectValue placeholder="Select Stage" />
+                  <SelectValue placeholder="اختر المرحلة" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="10">Stage 10 - Rolling</SelectItem>
-                  <SelectItem value="20">Stage 20 - Transparency Processing</SelectItem>
-                  <SelectItem value="30">Stage 30 - Lid Formation</SelectItem>
-                  <SelectItem value="40">Stage 40 - Container Formation</SelectItem>
-                  <SelectItem value="50">Stage 50 - Regrind Processing</SelectItem>
+                  {stages
+                    .filter((stage: any) => stage.is_active)
+                    .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
+                    .map((stage: any) => (
+                      <SelectItem key={stage.id} value={stage.id}>
+                        {stage.code} - {stage.name_ar || stage.name} (الترتيب: {stage.order_sequence})
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>

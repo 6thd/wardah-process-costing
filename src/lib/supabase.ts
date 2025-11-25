@@ -59,7 +59,7 @@ export interface ManufacturingOrder {
     item_id: string;
     product_id?: string;
     quantity: number;
-    status: 'pending' | 'in-progress' | 'completed' | 'draft' | 'confirmed';
+    status: 'pending' | 'in-progress' | 'completed' | 'draft' | 'confirmed' | 'cancelled' | 'on-hold' | 'quality-check';
     created_by?: string; 
     order_number?: string;
     product_name?: string;
@@ -131,9 +131,11 @@ export interface GLAccount {
     parent_id: string | null;
 }
 
-export const withOrgContext = <T,>(query: T): T => {
-    // This is a placeholder function.
-    console.log('withOrgContext called, but it is a placeholder.');
+// withOrgContext is deprecated - use explicit .eq('org_id', orgId) in queries instead
+// Kept for backward compatibility only
+export const withOrgContext = <T>(query: T): T => {
+    // No-op: org_id filtering should be done explicitly in queries
+    // This prevents the "placeholder" warning but doesn't modify queries
     return query;
 };
 

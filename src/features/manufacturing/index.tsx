@@ -35,12 +35,33 @@ import {
   Users,
   BarChart3,
   CheckCircle,
-  Plus
+  Plus,
+  Eye
 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import {
+  getStatusInfo,
+  getValidNextStatuses,
+  isValidStatusTransition,
+  prepareStatusChange,
+  isActiveOrder,
+  isCompletedOrder,
+  isPendingOrder,
+  type ManufacturingOrderStatus
+} from '@/utils/manufacturing-order-status'
 import StageCostingPanel from './stage-costing-panel.tsx'
 import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
 import { VarianceAlerts } from './variance-alerts'
 import { BOMManagement, BOMBuilder } from './bom'
+import { ManufacturingStagesList } from './manufacturing-stages-list'
+import { StageWipLogList } from './stage-wip-log-list'
+import { StandardCostsList } from './standard-costs-list'
 import type { ManufacturingOrder } from '@/lib/supabase'
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { useWorkCenters, useCreateWorkCenter, type WorkCenter } from '@/hooks/useWorkCenters'
@@ -55,6 +76,9 @@ export function ManufacturingModule() {
       <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
       <Route path="variance-alerts" element={<VarianceAlertsPage />} />
       <Route path="workcenters" element={<WorkCentersManagement />} />
+      <Route path="stages" element={<ManufacturingStagesPage />} />
+      <Route path="wip-log" element={<StageWipLogPage />} />
+      <Route path="standard-costs" element={<StandardCostsPage />} />
       <Route path="bom" element={<BOMManagement />} />
       <Route path="bom/new" element={<BOMBuilder />} />
       <Route path="bom/:bomId/edit" element={<BOMBuilder />} />
@@ -118,6 +142,66 @@ function VarianceAlertsPage() {
   )
 }
 
+function ManufacturingStagesPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold wardah-text-gradient-google">
+          {t('manufacturing.stagesPage.title', { defaultValue: 'مراحل التصنيع' })}
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          {t('manufacturing.stagesPage.subtitle', { defaultValue: 'إدارة مراحل التصنيع وخطوات الإنتاج' })}
+        </p>
+      </div>
+
+      <ManufacturingStagesList />
+    </div>
+  )
+}
+
+function StageWipLogPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold wardah-text-gradient-google">
+          {t('manufacturing.wipLogPage.title', { defaultValue: 'سجلات العمل قيد التنفيذ (WIP)' })}
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          {t('manufacturing.wipLogPage.subtitle', { defaultValue: 'تتبع ومراقبة العمل قيد التنفيذ لكل مرحلة تصنيع' })}
+        </p>
+      </div>
+
+      <StageWipLogList />
+    </div>
+  )
+}
+
+function StandardCostsPage() {
+  const { t, i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left")}>
+        <h1 className="text-3xl font-bold wardah-text-gradient-google">
+          {t('manufacturing.standardCostsPage.title', { defaultValue: 'التكاليف القياسية' })}
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          {t('manufacturing.standardCostsPage.subtitle', { defaultValue: 'إدارة التكاليف القياسية للمنتجات والمراحل لتحليل الانحرافات' })}
+        </p>
+      </div>
+
+      <StandardCostsList />
+    </div>
+  )
+}
+
 function ManufacturingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -145,9 +229,9 @@ function ManufacturingOverview() {
     loadOrders()
   }, [])
 
-  const activeOrders = orders.filter(order => order.status === 'in-progress' || order.status === 'confirmed')
-  const completedOrders = orders.filter(order => order.status === 'completed')
-  const pendingOrders = orders.filter(order => order.status === 'draft')
+  const activeOrders = orders.filter(order => isActiveOrder(order.status as ManufacturingOrderStatus))
+  const completedOrders = orders.filter(order => isCompletedOrder(order.status as ManufacturingOrderStatus))
+  const pendingOrders = orders.filter(order => isPendingOrder(order.status as ManufacturingOrderStatus))
 
   return (
     <div className="space-y-6">
@@ -320,6 +404,9 @@ function ManufacturingOrdersManagement() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [products, setProducts] = useState<{ id: string; name: string; code?: string }[]>([])
   const [productsLoading, setProductsLoading] = useState(false)
+  const [selectedOrder, setSelectedOrder] = useState<ManufacturingOrder | null>(null)
+  const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
+  const [loadingOrderDetails, setLoadingOrderDetails] = useState(false)
   const [orderForm, setOrderForm] = useState({
     orderNumber: '',
     productId: '',
@@ -443,37 +530,33 @@ function ManufacturingOrdersManagement() {
     }
   }
 
+  // Get status options based on current status (for form creation)
   const orderStatusOptions: ManufacturingOrder['status'][] = [
     'draft',
     'confirmed',
     'pending',
     'in-progress',
-    'completed'
+    'completed',
+    'cancelled',
+    'on-hold',
+    'quality-check'
   ]
-
-  const statusTranslationMap: Record<ManufacturingOrder['status'], string> = {
-    draft: 'draft',
-    confirmed: 'confirmed',
-    'in-progress': 'inProgress',
-    completed: 'completed',
-    pending: 'pending'
+  
+  // Get valid next statuses for a specific order
+  const getStatusOptions = (currentStatus: ManufacturingOrder['status']): ManufacturingOrder['status'][] => {
+    const validNext = getValidNextStatuses(currentStatus as ManufacturingOrderStatus)
+    // Always include current status
+    return [currentStatus, ...validNext]
   }
 
-  const getStatusLabel = (status: ManufacturingOrder['status']) =>
-    t(`manufacturing.manufacturingOrder.status.${statusTranslationMap[status]}`)
+  const getStatusLabel = (status: ManufacturingOrder['status']) => {
+    const info = getStatusInfo(status as ManufacturingOrderStatus)
+    return isRTL ? info.labelAr : info.label
+  }
 
   const getStatusBadgeVariant = (status: ManufacturingOrder['status']) => {
-    switch (status) {
-      case 'completed':
-        return 'default'
-      case 'in-progress':
-      case 'confirmed':
-        return 'secondary'
-      case 'pending':
-        return 'outline'
-      default:
-        return 'outline'
-    }
+    const info = getStatusInfo(status as ManufacturingOrderStatus)
+    return info.variant
   }
 
   const handleCreateOrder = async (event: React.FormEvent) => {
@@ -525,8 +608,8 @@ function ManufacturingOrdersManagement() {
   }
 
   const updateOrderStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: ManufacturingOrder['status'] }) => {
-      return await manufacturingService.updateStatus(id, status)
+    mutationFn: async ({ id, status, updateData }: { id: string; status: ManufacturingOrder['status']; updateData?: any }) => {
+      return await manufacturingService.updateStatus(id, status, updateData)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['manufacturing-orders'] })
@@ -534,13 +617,90 @@ function ManufacturingOrdersManagement() {
     }
   })
 
-  const handleStatusChange = async (orderId: string, status: ManufacturingOrder['status']) => {
+  const handleStatusChange = async (orderId: string, newStatus: ManufacturingOrder['status']) => {
     try {
-      await updateOrderStatus.mutateAsync({ id: orderId, status })
-      toast.success(t('manufacturing.ordersPage.statusUpdated'))
-    } catch (error) {
-      console.error(error)
-      toast.error(t('manufacturing.ordersPage.statusUpdateFailed'))
+      // Find current order
+      const currentOrder = orders.find(o => o.id === orderId)
+      if (!currentOrder) {
+        toast.error(isRTL ? 'الطلب غير موجود' : 'Order not found')
+        return
+      }
+
+      const currentStatus = currentOrder.status as ManufacturingOrderStatus
+      const targetStatus = newStatus as ManufacturingOrderStatus
+
+      // Allow no-op: if selecting the same status, skip validation
+      if (targetStatus === currentStatus) {
+        // No change needed, but we can still update the timestamp
+        // This matches the dropdown logic that allows same status selection
+        return
+      }
+
+      // Validate transition (only if status is actually changing)
+      if (!isValidStatusTransition(currentStatus, targetStatus)) {
+        const currentInfo = getStatusInfo(currentStatus)
+        const targetInfo = getStatusInfo(targetStatus)
+        toast.error(
+          isRTL 
+            ? `لا يمكن الانتقال من "${currentInfo.labelAr}" إلى "${targetInfo.labelAr}"`
+            : `Cannot transition from "${currentInfo.label}" to "${targetInfo.label}"`
+        )
+        return
+      }
+
+      // Prepare status change (business logic)
+      const changeResult = prepareStatusChange({
+        orderId,
+        fromStatus: currentStatus,
+        toStatus: targetStatus,
+        orderData: {
+          quantity: currentOrder.quantity,
+          start_date: (currentOrder as any).start_date,
+          due_date: (currentOrder as any).due_date
+        }
+      })
+
+      if (!changeResult.success) {
+        toast.error(isRTL ? changeResult.messageAr : changeResult.message)
+        return
+      }
+
+      // Prepare update data with status and date changes if needed
+      const updateData: any = { status: targetStatus }
+      if (changeResult.shouldUpdateDates) {
+        if (changeResult.startDate) {
+          updateData.start_date = changeResult.startDate
+        }
+        if (changeResult.endDate) {
+          updateData.end_date = changeResult.endDate
+        }
+      }
+
+      // Update in database - pass updateData to ensure atomic update
+      await updateOrderStatus.mutateAsync({ id: orderId, status: targetStatus, updateData })
+
+      toast.success(isRTL ? changeResult.messageAr : changeResult.message || 'Status updated')
+    } catch (error: any) {
+      console.error('Error changing status:', error)
+      toast.error(error.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'))
+    }
+  }
+
+  const handleViewOrder = async (orderId: string) => {
+    try {
+      setLoadingOrderDetails(true)
+      const order = await manufacturingService.getById(orderId)
+      if (order) {
+        setSelectedOrder(order as ManufacturingOrder)
+        setOrderDetailsOpen(true)
+      } else {
+        toast.error(t('manufacturing.ordersPage.orderNotFound') || 'Order not found')
+      }
+    } catch (error: any) {
+      console.error('Error loading order details:', error)
+      toast.error(error.message || t('manufacturing.ordersPage.loadError'))
+    } finally {
+      setLoadingOrderDetails(false)
     }
   }
 
@@ -739,14 +899,23 @@ function ManufacturingOrdersManagement() {
                 </TableRow>
               ) : (
                 orders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">{order.order_number || '—'}</TableCell>
+                  <TableRow 
+                    key={order.id}
+                    className="group cursor-pointer hover:bg-accent/50"
+                    onClick={() => handleViewOrder(order.id)}
+                  >
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {order.order_number || '—'}
+                        <Eye className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100" />
+                      </div>
+                    </TableCell>
                     <TableCell>
                       {((order as any).item?.name || (order as any).item?.product_name) ?? '—'}
                     </TableCell>
                     <TableCell>{order.quantity ?? 0}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <Badge variant={getStatusBadgeVariant(order.status)}>
                           {getStatusLabel(order.status)}
                         </Badge>
@@ -761,11 +930,30 @@ function ManufacturingOrdersManagement() {
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {orderStatusOptions.map((status) => (
-                              <SelectItem key={`${order.id}-${status}`} value={status}>
-                                {getStatusLabel(status)}
-                              </SelectItem>
-                            ))}
+                            {getStatusOptions(order.status).map((status) => {
+                              const info = getStatusInfo(status as ManufacturingOrderStatus)
+                              const isValid = isValidStatusTransition(
+                                order.status as ManufacturingOrderStatus,
+                                status as ManufacturingOrderStatus
+                              ) || status === order.status
+                              
+                              return (
+                                <SelectItem 
+                                  key={`${order.id}-${status}`} 
+                                  value={status}
+                                  disabled={!isValid && status !== order.status}
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span>{isRTL ? info.labelAr : info.label}</span>
+                                    {!isValid && status !== order.status && (
+                                      <span className="text-xs text-muted-foreground">
+                                        ({isRTL ? 'غير متاح' : 'unavailable'})
+                                      </span>
+                                    )}
+                                  </div>
+                                </SelectItem>
+                              )
+                            })}
                           </SelectContent>
                         </Select>
                       </div>
@@ -780,6 +968,114 @@ function ManufacturingOrdersManagement() {
           </Table>
         </div>
       </div>
+
+      {/* Order Details Dialog */}
+      <Dialog open={orderDetailsOpen} onOpenChange={setOrderDetailsOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
+          <DialogHeader>
+            <DialogTitle>
+              {isRTL ? 'تفاصيل أمر التصنيع' : 'Manufacturing Order Details'} - {selectedOrder?.order_number || '—'}
+            </DialogTitle>
+            <DialogDescription>
+              {isRTL ? 'عرض تفاصيل أمر التصنيع الكاملة' : 'View complete manufacturing order details'}
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingOrderDetails ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : selectedOrder ? (
+            <div className="space-y-6">
+              {/* Basic Information */}
+              <Card>
+                <CardHeader>
+                  <h3 className="text-lg font-semibold">{isRTL ? 'المعلومات الأساسية' : 'Basic Information'}</h3>
+                </CardHeader>
+                <CardContent className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label>{isRTL ? 'رقم الأمر' : 'Order Number'}</Label>
+                    <p className="font-medium">{selectedOrder.order_number || '—'}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
+                    <div className="mt-1">
+                      <Badge variant={getStatusBadgeVariant(selectedOrder.status)}>
+                        {getStatusLabel(selectedOrder.status)}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'المنتج' : 'Product'}</Label>
+                    <p className="font-medium">
+                      {((selectedOrder as any).item?.name || (selectedOrder as any).item?.code) ?? '—'}
+                    </p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'الكمية المطلوبة' : 'Quantity to Produce'}</Label>
+                    <p className="font-medium">{selectedOrder.quantity ?? 0}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'تاريخ البدء المخطط' : 'Planned Start Date'}</Label>
+                    <p className="font-medium">{formatDate((selectedOrder as any).start_date) || '—'}</p>
+                  </div>
+                  <div>
+                    <Label>{isRTL ? 'تاريخ الانتهاء المخطط' : 'Planned End Date'}</Label>
+                    <p className="font-medium">{formatDate((selectedOrder as any).due_date) || '—'}</p>
+                  </div>
+                  {(selectedOrder as any).created_at && (
+                    <div>
+                      <Label>{isRTL ? 'تاريخ الإنشاء' : 'Created At'}</Label>
+                      <p className="font-medium">{formatDate((selectedOrder as any).created_at)}</p>
+                    </div>
+                  )}
+                  {(selectedOrder as any).updated_at && (
+                    <div>
+                      <Label>{isRTL ? 'آخر تحديث' : 'Last Updated'}</Label>
+                      <p className="font-medium">{formatDate((selectedOrder as any).updated_at)}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Notes */}
+              {selectedOrder.notes && (
+                <Card>
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">{isRTL ? 'ملاحظات' : 'Notes'}</h3>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedOrder.notes}</p>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Product Details */}
+              {(selectedOrder as any).item && (
+                <Card>
+                  <CardHeader>
+                    <h3 className="text-lg font-semibold">{isRTL ? 'تفاصيل المنتج' : 'Product Details'}</h3>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label>{isRTL ? 'رمز المنتج' : 'Product Code'}</Label>
+                      <p className="font-medium">{(selectedOrder as any).item?.code || '—'}</p>
+                    </div>
+                    <div>
+                      <Label>{isRTL ? 'اسم المنتج' : 'Product Name'}</Label>
+                      <p className="font-medium">{(selectedOrder as any).item?.name || '—'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              {isRTL ? 'لا توجد تفاصيل' : 'No details available'}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

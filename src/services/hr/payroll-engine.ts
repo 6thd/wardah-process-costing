@@ -142,7 +142,10 @@ export async function calculatePayrollPreview(
   let totalsAbsence = 0;
 
   for (const employee of employees) {
-    const components = structuresByEmployee[employee.id] ?? [];
+    const components = (structuresByEmployee[employee.id] ?? []) as Array<{
+      value: number;
+      component: { code?: string | null; component_type?: string | null } | null;
+    }>;
     const { base, allowances, deductions, allowanceBreakdown, deductionBreakdown } =
       extractCompensationComponents(components);
 

@@ -22,12 +22,13 @@ import { registerStageCostingActions, unregisterStageCostingActions } from './st
 // Import our new hooks
 import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
 import { useWorkCenters } from '@/hooks/useWorkCenters'
+import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { useStageCosts, StageCost } from '@/hooks/useStageCosts'
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription'
 
 interface StageCostingFormData {
   manufacturingOrderId: string
-  stageNumber: number
+  stageId: string  // Changed from stageNumber to stageId
   workCenterId: string
   goodQuantity: number
   scrapQuantity: number
@@ -58,7 +59,7 @@ export default function StageCostingPanel() {
   
   const [formData, setFormData] = useState<StageCostingFormData>({
     manufacturingOrderId: '',
-    stageNumber: 1,
+    stageId: '',  // Changed from stageNumber to stageId
     workCenterId: '',
     goodQuantity: 0,
     scrapQuantity: 0,
@@ -78,6 +79,7 @@ export default function StageCostingPanel() {
   // Use our new React Query hooks
   const { data: manufacturingOrders = [], isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders()
   const { data: workCenters = [], isLoading: isWCLoading, isError: isWCError } = useWorkCenters()
+  const { data: stages = [], isLoading: isStagesLoading, isError: isStagesError } = useManufacturingStages()
   const { data: stageCosts = [], isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId) as { data: StageCost[], isLoading: boolean, isError: boolean }
 
   // Setup realtime subscriptions
@@ -191,13 +193,13 @@ export default function StageCostingPanel() {
           </div>
         
           {/* Loading and Error States */}
-          {(isMOLoading || isWCLoading || isSCLoading) && (
+          {(isMOLoading || isWCLoading || isStagesLoading || isSCLoading) && (
             <div className="mb-4 p-4 wardah-glass-card">
               <p>جاري تحميل البيانات...</p>
             </div>
           )}
           
-          {(isMOError || isWCError || isSCError) && (
+          {(isMOError || isWCError || isStagesError || isSCError) && (
             <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
               <p className="text-red-700 dark:text-red-300">خطأ في تحميل البيانات. يرجى التحديث.</p>
             </div>
@@ -224,15 +226,24 @@ export default function StageCostingPanel() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">رقم المرحلة</label>
-              <Input 
-                name="stageNumber"
-                type="number"
-                min="1"
-                value={formData.stageNumber}
-                onChange={(e) => handleInputChange('stageNumber', parseInt(e.target.value))}
-                className="wardah-glass-card"
-              />
+              <label className="block text-sm font-medium mb-2">المرحلة</label>
+              <select 
+                name="stageId"
+                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
+                value={formData.stageId}
+                onChange={(e) => handleInputChange('stageId', e.target.value)}
+                disabled={isStagesLoading}
+              >
+                <option value="">اختر المرحلة</option>
+                {stages
+                  .filter((stage: any) => stage.is_active)
+                  .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
+                  .map((stage: any) => (
+                    <option key={stage.id} value={stage.id}>
+                      {stage.code} - {stage.name_ar || stage.name} (الترتيب: {stage.order_sequence})
+                    </option>
+                  ))}
+              </select>
             </div>
             
             <div>
@@ -550,7 +561,11 @@ export default function StageCostingPanel() {
               <tbody>
                 {stageCosts.map((stage, index) => (
                   <tr key={stage.id || index} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <td className="p-2 font-medium">{stage.stage_number}</td>
+                    <td className="p-2 font-medium">
+                      {stage.manufacturing_stage?.name_ar || 
+                       stage.manufacturing_stage?.name || 
+                       `Stage ${stage.stage_number || stage.stage_id || 'N/A'}`}
+                    </td>
                     <td className="p-2">{stage.work_center?.name || stage.work_center_id}</td>
                     <td className="p-2">{stage.good_quantity}</td>
                     <td className="p-2 font-medium">{stage.total_cost?.toFixed(2)} ريال</td>

@@ -20,6 +20,9 @@
     "performance": "Performance",
     "orders": "Orders",
     "process-costing": "Process Costing",
+    "stages": "Manufacturing Stages",
+    "wipLog": "WIP Logs",
+    "standardCosts": "Standard Costs",
     "workcenters": "Work Centers",
     "bom": "Bill of Materials",
     "quality": "Quality",
@@ -260,6 +263,18 @@
       "transferredIn": "Transferred In",
       "totalCost": "Total Cost",
       "unitCost": "Unit Cost"
+    },
+    "stagesPage": {
+      "title": "Manufacturing Stages",
+      "subtitle": "Manage manufacturing stages and production steps"
+    },
+    "wipLogPage": {
+      "title": "WIP Logs",
+      "subtitle": "Track and monitor work-in-process for each manufacturing stage"
+    },
+    "standardCostsPage": {
+      "title": "Standard Costs",
+      "subtitle": "Manage standard costs for products and stages for variance analysis"
     },
     "workCenter": {
       "name": "Work Center Name",

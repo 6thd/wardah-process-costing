@@ -171,7 +171,10 @@ export const bomTreeService = {
       } else if (setting.setting_type === 'json') {
         value = JSON.parse(value)
       }
-      settings[setting.setting_key as keyof BOMTreeSettings] = value
+      const key = setting.setting_key as keyof BOMTreeSettings
+      if (key in settings || ['bom_tree_cache_duration_hours', 'bom_max_levels', 'bom_auto_calculate_cost'].includes(key)) {
+        (settings as any)[key] = value
+      }
     })
 
     return {
@@ -229,7 +232,7 @@ export const bomTreeService = {
     const { data, error } = await query
 
     if (error) throw error
-    return data?.length || 0
+    return (data && Array.isArray(data) ? data.length : 0) || 0
   }
 }
 

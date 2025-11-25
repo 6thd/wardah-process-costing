@@ -5,35 +5,27 @@
 
 import uiEvents from '../../ui/events.js'
 import { toast } from 'sonner'
+import { processCostingService } from '@/services/process-costing-service'
 
 // Import domain modules - DISABLED (not implemented)
-// const ProcessCosting = await import('../../domain/processCosting.js')
 // const Manufacturing = await import('../../domain/manufacturing.js')
 // const Audit = await import('../../domain/audit.js')
 
-// Temporary stubs
+// Process Costing Service - using actual implementation
 const ProcessCosting = {
   calculateStageCosts: async () => ({ success: true, data: [] }),
-  getStageCosts: async () => ({ success: true, data: [] }),
-  applyLaborTime: async () => ({ success: true, data: {} }),
-  applyOverhead: async (params) => {
-    // Stub implementation
-    return {
-      success: true,
-      data: {
-        overheadAmount: (params.baseQty || 0) * (params.overheadRate || 0),
-        ...params
-      }
-    }
-  },
-  upsertStageCost: async () => ({ success: true, data: {} }),
+  getStageCosts: async (moId) => processCostingService.getStageCosts(moId),
+  applyLaborTime: async (params) => processCostingService.applyLaborTime(params),
+  applyOverhead: async (params) => processCostingService.applyOverhead(params),
+  upsertStageCost: async (params) => processCostingService.upsertStageCost(params),
   postStageToGL: async () => ({ success: true, data: {} })
 }
 const Manufacturing = {
   getManufacturingOrder: async () => ({ success: true, data: null })
 }
 const Audit = {
-  logAction: async () => ({ success: true })
+  logAction: async () => ({ success: true }),
+  logProcessCostingOperation: async () => ({ success: true }) // Stub for process costing operations
 }
 
 /**
@@ -125,11 +117,28 @@ export function registerStageCostingActions() {
     element.textContent = 'جاري التسجيل...'
 
     try {
+      // Get stageId or fallback to stageNumber for backward compatibility
+      const stageId = formData.get('stageId')
+      const stageNumber = formData.get('stageNumber') // Fallback for old forms
+      const moId = formData.get('manufacturingOrderId')
+      
+      // Validate required fields
+      if (!moId) {
+        toast.error('يجب اختيار أمر التصنيع')
+        return
+      }
+      
+      if (!stageId && !stageNumber) {
+        toast.error('يجب اختيار المرحلة')
+        return
+      }
+      
       const result = await ProcessCosting.applyLaborTime({
-        moId: formData.get('manufacturingOrderId'),
-        stageNo: parseInt(formData.get('stageNumber')),
+        moId: moId,
+        stageId: stageId || null,  // New: Use stageId
+        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
         workCenterId: formData.get('workCenterId'),
-        hours: laborHours,
+        laborHours: laborHours,  // Fixed: use laborHours instead of hours
         hourlyRate: laborRate,
         employeeName: formData.get('employeeName'),
         operationCode: formData.get('operationCode'),
@@ -161,8 +170,8 @@ export function registerStageCostingActions() {
     const formData = new FormData(form)
     const overheadRate = parseFloat(formData.get('overheadRate'))
 
-    if (!overheadRate) {
-      toast.error('يجب إدخال معدل التكاليف غير المباشرة')
+    if (isNaN(overheadRate) || overheadRate < 0) {
+      toast.error('يجب إدخال معدل التكاليف غير المباشرة (قيمة صحيحة أكبر من أو تساوي الصفر)')
       return
     }
 
@@ -176,9 +185,14 @@ export function registerStageCostingActions() {
       const laborRate = parseFloat(formData.get('laborRate'))
       const baseAmount = laborHours * laborRate
 
+      // Get stageId or fallback to stageNumber for backward compatibility
+      const stageId = formData.get('stageId')
+      const stageNumber = formData.get('stageNumber') // Fallback for old forms
+      
       const result = await ProcessCosting.applyOverhead({
         moId: formData.get('manufacturingOrderId'),
-        stageNo: parseInt(formData.get('stageNumber')),
+        stageId: stageId || null,  // New: Use stageId
+        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
         workCenterId: formData.get('workCenterId'),
         allocationBase: 'labor_cost',
         baseQty: baseAmount,
@@ -214,8 +228,8 @@ export function registerStageCostingActions() {
     const workCenterId = formData.get('workCenterId')
     const goodQuantity = parseFloat(formData.get('goodQuantity'))
 
-    if (!moId || !workCenterId || !goodQuantity) {
-      toast.error('يجب إدخال جميع البيانات المطلوبة')
+    if (!moId || !workCenterId || isNaN(goodQuantity) || goodQuantity < 0) {
+      toast.error('يجب إدخال جميع البيانات المطلوبة (الكمية الجيدة يجب أن تكون قيمة صحيحة أكبر من أو تساوي الصفر)')
       return
     }
 
@@ -225,9 +239,14 @@ export function registerStageCostingActions() {
     element.textContent = 'جاري الاحتساب...'
 
     try {
+      // Get stageId or fallback to stageNumber for backward compatibility
+      const stageId = formData.get('stageId')
+      const stageNumber = formData.get('stageNumber') // Fallback for old forms
+      
       const result = await ProcessCosting.upsertStageCost({
         moId: moId,
-        stageNo: parseInt(formData.get('stageNumber')),
+        stageId: stageId || null,  // New: Use stageId
+        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
         workCenterId: workCenterId,
         goodQty: goodQuantity,
         directMaterialCost: parseFloat(formData.get('directMaterialCost')) || 0,
@@ -240,17 +259,34 @@ export function registerStageCostingActions() {
       if (result.success) {
         const efficiency = goodQuantity / (goodQuantity + (parseFloat(formData.get('scrapQuantity')) || 0) + (parseFloat(formData.get('reworkQuantity')) || 0)) * 100
         
-        toast.success(`تم احتساب المرحلة ${formData.get('stageNumber')}: ${result.data.totalCost.toFixed(2)} ريال`)
+        // Get stage name if available
+        const stageId = formData.get('stageId')
+        const stageName = stageId ? `Stage ${stageId}` : `المرحلة ${formData.get('stageNumber') || 'غير محدد'}`
+        // Use snake_case properties to match StageCostResult interface
+        const totalCost = result.data.total_cost || result.data.totalCost || 0
+        const unitCost = result.data.unit_cost || result.data.unitCost || 0
+        toast.success(`تم احتساب ${stageName}: ${totalCost.toFixed(2)} ريال`)
+        
+        // Update form with result
+        const stageIdInput = form.querySelector('[name="stageId"]')
+        const stageNumberInput = form.querySelector('[name="stageNumber"]')
+        if (stageIdInput) {
+          stageIdInput.value = stageId || ''
+        }
+        if (stageNumberInput) {
+          stageNumberInput.value = formData.get('stageNumber') || ''
+        }
         
         // Log the operation
         await Audit.logProcessCostingOperation({
           operation: 'stage_cost_calculation',
           moId: moId,
-          stageNo: parseInt(formData.get('stageNumber')),
+          stageId: stageId || null,
+          stageNo: stageNumber ? parseInt(stageNumber) : null,
           details: {
             goodQuantity: goodQuantity,
-            totalCost: result.data.totalCost,
-            unitCost: result.data.unitCost
+            totalCost: totalCost,
+            unitCost: unitCost
           },
           newValues: result.data
         })

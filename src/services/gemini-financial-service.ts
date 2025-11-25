@@ -147,8 +147,8 @@ class GeminiFinancialService {
         .eq('is_active', true);
 
       const expenseAccountIds = expenseAccounts?.map(a => a.id) || [];
-      const totalExpenses = (expenseData || [])
-        .filter(line => expenseAccountIds.includes(line.account_id))
+      const totalExpenses = ((expenseData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
+        .filter(line => line.account_id && expenseAccountIds.includes(line.account_id))
         .reduce((sum, line) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0);
 
       // 4. حساب قيم المخزون
@@ -391,8 +391,8 @@ class GeminiFinancialService {
         .gte('journal_entries.entry_date', startDate.toISOString().split('T')[0])
         .lte('journal_entries.entry_date', endDate.toISOString().split('T')[0]);
 
-      return (revenueData || [])
-        .filter(line => revenueAccountIds.includes(line.account_id))
+      return ((revenueData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
+        .filter(line => line.account_id && revenueAccountIds.includes(line.account_id))
         .reduce((sum, line) => sum + (Number(line.credit || 0) - Number(line.debit || 0)), 0);
     } catch (error) {
       console.error('Error getting revenue for period:', error);

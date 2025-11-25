@@ -538,7 +538,7 @@ export async function getProductSalesAnalysis(
     // If relationship with items doesn't exist, try without items join
     if (linesError && (linesError.code === 'PGRST200' || (linesError.message && linesError.message.includes('relationship')))) {
       console.warn('items relationship not found in sales_invoice_lines, trying without join');
-      invoiceLinesQuery = supabase
+      let retryQuery = supabase
         .from('sales_invoice_lines')
         .select(`
           id,
@@ -552,14 +552,14 @@ export async function getProductSalesAnalysis(
         .in('sales_invoice_id', invoiceIds);
       
       if (tenantId) {
-        invoiceLinesQuery = invoiceLinesQuery.eq('org_id', tenantId);
+        retryQuery = retryQuery.eq('org_id', tenantId);
       }
       
       if (productId) {
-        invoiceLinesQuery = invoiceLinesQuery.eq('product_id', productId);
+        retryQuery = retryQuery.eq('product_id', productId);
       }
       
-      const retryResult = await invoiceLinesQuery;
+      const retryResult = await retryQuery;
       invoiceLines = retryResult.data;
       linesError = retryResult.error;
       

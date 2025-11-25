@@ -66,6 +66,9 @@ export function Sidebar() {
         { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
         { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
+        { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
+        { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
+        { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },
         { key: 'workcenters', href: '/manufacturing/workcenters', label: t('navigation.workcenters') },
         { key: 'bom', href: '/manufacturing/bom', label: t('navigation.bom') },
         { key: 'quality', href: '/manufacturing/quality', label: t('navigation.quality') }

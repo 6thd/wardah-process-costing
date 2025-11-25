@@ -94,7 +94,128 @@ export interface JournalComment {
   updated_at: string;
 }
 
+export interface CreateJournalEntryRequest {
+  journal_id?: string | null;
+  entry_date: string;
+  description?: string;
+  description_ar?: string;
+  reference_type?: string;
+  reference_number?: string;
+  lines: Array<{
+    account_id: string;
+    line_number: number;
+    debit: number;
+    credit: number;
+    description?: string;
+    description_ar?: string;
+    currency_code?: string;
+  }>;
+}
+
 export class JournalService {
+  /**
+   * Create a journal entry with lines
+   */
+  static async createEntry(request: CreateJournalEntryRequest): Promise<{
+    success: boolean;
+    data?: any;
+    error?: any;
+  }> {
+    try {
+      const tenantId = await getEffectiveTenantId();
+      if (!tenantId) throw new Error('Tenant ID not found');
+
+      // Calculate totals
+      const totalDebit = request.lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
+      const totalCredit = request.lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
+
+      // Validate balance
+      if (Math.abs(totalDebit - totalCredit) > 0.01) {
+        throw new Error(`Entry not balanced! Debit: ${totalDebit}, Credit: ${totalCredit}`);
+      }
+
+      // Get default journal if not provided
+      let journalId = request.journal_id;
+      if (!journalId) {
+        const { data: defaultJournal } = await supabase
+          .from('journals')
+          .select('id')
+          .eq('org_id', tenantId)
+          .eq('is_active', true)
+          .order('created_at', { ascending: true })
+          .limit(1)
+          .single();
+
+        if (defaultJournal) {
+          journalId = defaultJournal.id;
+        } else {
+          throw new Error('No active journal found');
+        }
+      }
+
+      // Generate entry number
+      const { data: entryNumber, error: numberError } = await supabase
+        .rpc('generate_entry_number', { p_journal_id: journalId });
+
+      if (numberError) throw numberError;
+
+      // Create entry header
+      const entryData = {
+        journal_id: journalId,
+        entry_number: entryNumber,
+        entry_date: request.entry_date,
+        entry_type: 'manual',
+        description: request.description || null,
+        description_ar: request.description_ar || null,
+        reference_type: request.reference_type || null,
+        reference_number: request.reference_number || null,
+        status: 'draft',
+        total_debit: totalDebit,
+        total_credit: totalCredit,
+        org_id: tenantId
+      };
+
+      const { data: newEntry, error: entryError } = await supabase
+        .from('gl_entries')
+        .insert([entryData])
+        .select()
+        .single();
+
+      if (entryError) throw entryError;
+
+      // Insert lines
+      const lines = request.lines.map((line) => ({
+        entry_id: newEntry.id,
+        line_number: line.line_number,
+        account_id: line.account_id,
+        debit: Number(line.debit) || 0,
+        credit: Number(line.credit) || 0,
+        currency_code: line.currency_code || 'SAR',
+        description: line.description || null,
+        description_ar: line.description_ar || null,
+        org_id: tenantId,
+        tenant_id: tenantId
+      }));
+
+      const { error: linesError } = await supabase
+        .from('gl_entry_lines')
+        .insert(lines);
+
+      if (linesError) throw linesError;
+
+      return {
+        success: true,
+        data: { ...newEntry, lines }
+      };
+    } catch (error: any) {
+      console.error('Error creating journal entry:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to create journal entry'
+      };
+    }
+  }
+
   /**
    * Batch Post multiple journal entries
    */

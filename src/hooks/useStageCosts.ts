@@ -10,7 +10,8 @@ export interface StageCost {
   id: string
   org_id: string
   manufacturing_order_id: string
-  stage_number: number
+  stage_id?: string  // New: UUID from manufacturing_stages
+  stage_number?: number  // Old: Fallback for backward compatibility
   work_center_id: string
   good_quantity: number
   defective_quantity: number | null
@@ -34,13 +35,65 @@ export const useStageCosts = (moId: string) => {
         if (!moId) return [] as StageCost[]
 
         try {
-          const { data, error } = await supabase.from('stage_costs')
-            .select(`
-                *,
-                work_center:work_centers(name, code)
-              `)
-            .eq('manufacturing_order_id', moId)
-            .order('stage_number')
+          // Try with mo_id first (old schema - most likely)
+          let { data, error } = await supabase.from('stage_costs')
+            .select('*')
+            .eq('mo_id', moId)
+          
+          // If that fails, try with manufacturing_order_id (new schema)
+          if (error && (error.code === '42703' || error.message?.includes('mo_id') || error.code === '400')) {
+            console.debug('Trying with manufacturing_order_id instead of mo_id')
+            const result = await supabase.from('stage_costs')
+              .select('*')
+              .eq('manufacturing_order_id', moId)
+            
+            data = result.data
+            error = result.error
+          }
+          
+          // If we have data, enrich with work_center and manufacturing_stage
+          if (data && !error && data.length > 0) {
+            // Get unique work center IDs
+            const workCenterIds = [...new Set(data.map((item: any) => item.wc_id || item.work_center_id).filter(Boolean))]
+            const stageIds = [...new Set(data.map((item: any) => item.stage_id).filter(Boolean))]
+            
+            // Fetch work centers
+            let workCenters: any[] = []
+            if (workCenterIds.length > 0) {
+              const { data: wcData } = await supabase
+                .from('work_centers')
+                .select('id, name, code')
+                .in('id', workCenterIds)
+              workCenters = wcData || []
+            }
+            
+            // Fetch manufacturing stages
+            let stages: any[] = []
+            if (stageIds.length > 0) {
+              const { data: stageData } = await supabase
+                .from('manufacturing_stages')
+                .select('*')
+                .in('id', stageIds)
+              stages = stageData || []
+            }
+            
+            // Map relationships
+            const wcMap = new Map(workCenters.map((wc: any) => [wc.id, wc]))
+            const stageMap = new Map(stages.map((s: any) => [s.id, s]))
+            
+            data = data.map((item: any) => ({
+              ...item,
+              work_center: item.wc_id ? wcMap.get(item.wc_id) : (item.work_center_id ? wcMap.get(item.work_center_id) : null),
+              manufacturing_stage: item.stage_id ? stageMap.get(item.stage_id) : null
+            }))
+          }
+          
+          // Sort in memory if needed (more reliable than database order)
+          const sortedData = data ? [...data].sort((a: any, b: any) => {
+            const aStage = a.stage_number || a.stage_no || 0
+            const bStage = b.stage_number || b.stage_no || 0
+            return aStage - bStage
+          }) : null
 
           // Handle missing table gracefully
           if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
@@ -48,8 +101,11 @@ export const useStageCosts = (moId: string) => {
             return [] as StageCost[]
           }
 
-          if (error) throw error
-          return (data || []) as StageCost[]
+          if (error) {
+            console.error('Error fetching stage costs:', error)
+            throw error
+          }
+          return (sortedData || []) as StageCost[]
         } catch (error: any) {
           // If table doesn't exist, return empty array
           if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {

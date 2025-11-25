@@ -247,16 +247,25 @@ export const customersService = {
 
 // Manufacturing Orders Service (Enhanced)
 export const manufacturingService = {
-  getAll: async () => {
+  getAll: async (options?: { limit?: number; includeItems?: boolean }) => {
     return PerformanceMonitor.measure('Manufacturing Orders List', async () => {
       try {
         const supabase = await getClient()
+        const limit = options?.limit || 100 // Default limit to improve performance
+        const includeItems = options?.includeItems !== false // Default to true for backward compatibility
 
         // جلب البيانات بدون joins أولاً (لتجنب مشاكل العلاقات)
-        const { data, error } = await supabase
+        let query = supabase
           .from('manufacturing_orders')
           .select('*')
           .order('created_at', { ascending: false })
+        
+        // Apply limit to improve performance
+        if (limit > 0) {
+          query = query.limit(limit)
+        }
+        
+        const { data, error } = await query
 
         // Handle missing table gracefully
         if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
@@ -283,27 +292,28 @@ export const manufacturingService = {
 
         if (error) throw error
 
-        // محاولة جلب بيانات إضافية بشكل منفصل إذا كانت موجودة
-        // Performance optimization: Use Promise.all for parallel queries
-        if (data && data.length > 0) {
+        // محاولة جلب بيانات إضافية بشكل منفصل إذا كانت موجودة ومطلوبة
+        // Performance optimization: Only fetch related data if requested
+        if (includeItems && data && data.length > 0) {
           // جلب بيانات المنتجات إذا كان item_id أو product_id موجود
-          const itemIds = data
+          const itemIds = [...new Set(data
             .map(order => (order as any).item_id || (order as any).product_id)
-            .filter(Boolean)
+            .filter(Boolean))] // Remove duplicates
 
-          if (itemIds.length > 0) {
+          if (itemIds.length > 0 && itemIds.length <= 50) { // Limit to 50 items to avoid slow queries
             try {
               // Parallel queries: fetch products and items simultaneously
+              // Note: Use only columns that exist in the tables (code, name, not product_code/product_name)
               const [productsResult, itemsResult] = await Promise.all([
                 supabase
                   .from('products')
-                  .select('id, code, name, product_code, product_name')
+                  .select('id, code, name')
                   .in('id', itemIds)
                   .then(res => res.data || [])
                   .catch(() => []),
                 supabase
                   .from('items')
-                  .select('id, code, name, item_code, item_name')
+                  .select('id, code, name, sku')
                   .in('id', itemIds)
                   .then(res => res.data || [])
                   .catch(() => [])
@@ -330,7 +340,22 @@ export const manufacturingService = {
               // تجاهل أخطاء جلب البيانات الإضافية
               console.warn('Could not load related data:', e)
             }
+          } else if (itemIds.length > 50) {
+            console.warn('Too many items to fetch, skipping related data for performance')
           }
+        }
+
+        // Normalize status values from database to frontend format
+        // Convert old format to new format if needed
+        if (data && Array.isArray(data)) {
+          data.forEach((order: any) => {
+            if (order.status === 'in_progress') {
+              order.status = 'in-progress'
+            } else if (order.status === 'done') {
+              order.status = 'completed'
+            }
+            // Keep other statuses as-is (on-hold, quality-check, etc. are already correct)
+          })
         }
 
         return data || []
@@ -355,6 +380,18 @@ export const manufacturingService = {
             }
 
             if (simpleError) throw simpleError
+            
+            // Normalize status values
+            if (data && Array.isArray(data)) {
+              data.forEach((order: any) => {
+                if (order.status === 'in_progress') {
+                  order.status = 'in-progress'
+                } else if (order.status === 'done') {
+                  order.status = 'completed'
+                }
+              })
+            }
+            
             return data || []
           } catch (e: any) {
             if (e.code === 'PGRST205') {
@@ -412,7 +449,7 @@ export const manufacturingService = {
             // محاولة products
             const { data: product } = await supabase
               .from('products')
-              .select('id, code, name, product_code, product_name')
+              .select('id, code, name')
               .eq('id', itemId)
               .single()
 
@@ -422,7 +459,7 @@ export const manufacturingService = {
               // محاولة items
               const { data: item } = await supabase
                 .from('items')
-                .select('id, code, name, item_code, item_name')
+                .select('id, code, name, sku')
                 .eq('id', itemId)
                 .single()
 
@@ -473,29 +510,136 @@ export const manufacturingService = {
 
   create: async (order: Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>) => {
     const supabase = await getClient()
+    // Insert without joins first
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .insert(order)
-      .select(`
-        *,
-        item:products(*)
-      `)
+      .select('*')
       .single()
 
+    // Handle missing relationship gracefully
+    if (error && (error.code === 'PGRST200' || error.message?.includes('Could not find a relationship'))) {
+      // Try again without joins
+      const { data: simpleData, error: simpleError } = await supabase
+        .from('manufacturing_orders')
+        .insert(order)
+        .select('*')
+        .single()
+
+      if (simpleError) throw simpleError
+      
+      // Try to load product data separately if needed
+      if (simpleData) {
+        const itemId = (simpleData as any).item_id || (simpleData as any).product_id
+        if (itemId) {
+          try {
+            const { data: product } = await supabase
+              .from('products')
+              .select('id, code, name')
+              .eq('id', itemId)
+              .single()
+
+            if (product) {
+              (simpleData as any).item = product
+            } else {
+              const { data: item } = await supabase
+                .from('items')
+                .select('id, code, name, sku')
+                .eq('id', itemId)
+                .single()
+
+              if (item) {
+                (simpleData as any).item = item
+              }
+            }
+          } catch (e) {
+            // Ignore errors loading related data
+            console.warn('Could not load related data:', e)
+          }
+        }
+      }
+      
+      return simpleData
+    }
+
     if (error) throw error
+    
+    // Try to load product data separately if needed
+    if (data) {
+      const itemId = (data as any).item_id || (data as any).product_id
+      if (itemId) {
+        try {
+          const { data: product } = await supabase
+            .from('products')
+            .select('id, code, name')
+            .eq('id', itemId)
+            .single()
+
+          if (product) {
+            (data as any).item = product
+          } else {
+            const { data: item } = await supabase
+              .from('items')
+              .select('id, code, name, sku')
+              .eq('id', itemId)
+              .single()
+
+            if (item) {
+              (data as any).item = item
+            }
+          }
+        } catch (e) {
+          // Ignore errors loading related data
+          console.warn('Could not load related data:', e)
+        }
+      }
+    }
+    
     return data
   },
 
-  updateStatus: async (id: string, status: ManufacturingOrder['status']) => {
+  updateStatus: async (id: string, status: ManufacturingOrder['status'], providedUpdateData?: any) => {
     try {
       const supabase = await getClient()
-      const updateData: any = {
-        status,
+      
+      // Map status to database format
+      // Database now supports all new statuses after migration 33
+      // Use status directly - no mapping needed anymore
+      const dbStatus = status
+      
+      // Start with provided updateData or create new object
+      const updateData: any = providedUpdateData ? { ...providedUpdateData } : {
+        status: dbStatus,
         updated_at: new Date().toISOString()
       }
 
-      if (status === 'completed') {
-        updateData.end_date = new Date().toISOString()
+      // Ensure status and updated_at are set
+      updateData.status = dbStatus
+      updateData.updated_at = new Date().toISOString()
+
+      // Only apply automatic date logic if dates weren't provided in updateData
+      if (!providedUpdateData || (!providedUpdateData.start_date && !providedUpdateData.end_date)) {
+        if (status === 'completed' || dbStatus === 'completed' || dbStatus === 'done') {
+          // Only set end_date if not already provided
+          if (!updateData.end_date) {
+            updateData.end_date = new Date().toISOString()
+          }
+        }
+        
+        if (status === 'in-progress' || dbStatus === 'in-progress' || dbStatus === 'in_progress') {
+          // Set start_date if not already set and not provided
+          if (!updateData.start_date) {
+            const { data: currentOrder } = await supabase
+              .from('manufacturing_orders')
+              .select('start_date')
+              .eq('id', id)
+              .single()
+            
+            if (currentOrder && !currentOrder.start_date) {
+              updateData.start_date = new Date().toISOString()
+            }
+          }
+        }
       }
 
       // Update without joins
@@ -505,6 +649,15 @@ export const manufacturingService = {
         .eq('id', id)
         .select('*')
         .single()
+
+      // Normalize status value from database to frontend format
+      if (data) {
+        if ((data as any).status === 'in_progress') {
+          (data as any).status = 'in-progress'
+        } else if ((data as any).status === 'done') {
+          (data as any).status = 'completed'
+        }
+      }
 
       // Handle missing table gracefully
       if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
@@ -539,7 +692,7 @@ export const manufacturingService = {
           try {
             const { data: product } = await supabase
               .from('products')
-              .select('id, code, name, product_code, product_name')
+              .select('id, code, name')
               .eq('id', itemId)
               .single()
 
@@ -548,7 +701,7 @@ export const manufacturingService = {
             } else {
               const { data: item } = await supabase
                 .from('items')
-                .select('id, code, name, item_code, item_name')
+                .select('id, code, name, sku')
                 .eq('id', itemId)
                 .single()
 
@@ -1279,4 +1432,426 @@ export const subscribeToManufacturingOrders = (callback: (orders: any[]) => void
       manufacturingService.getAll().then(callback)
     })
     .subscribe()
+}
+
+// ===================================================================
+// MANUFACTURING STAGES SERVICE
+// ===================================================================
+export const manufacturingStagesService = {
+  getAll: async () => {
+    return PerformanceMonitor.measure('Manufacturing Stages List', async () => {
+      try {
+        const config = await getConfig()
+        const tenantId = await getTenantId()
+        const supabase = await getClient()
+
+        let query = supabase
+          .from('manufacturing_stages')
+          .select('*, work_centers(*), gl_accounts:wip_gl_account_id(*)')
+          .order('order_sequence', { ascending: true })
+
+        // Use tenantId or fallback to config.ORG_ID (with null check)
+        const orgId = tenantId || (config?.ORG_ID)
+        if (orgId) {
+          query = query.eq('org_id', orgId)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+        return data || []
+      } catch (error: any) {
+        console.error('❌ Error fetching manufacturing stages:', error)
+        throw error
+      }
+    })
+  },
+
+  getById: async (id: string) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('manufacturing_stages')
+        .select('*, work_centers(*), gl_accounts:wip_gl_account_id(*)')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error fetching manufacturing stage:', error)
+      throw error
+    }
+  },
+
+  create: async (stage: any) => {
+    try {
+      const config = await getConfig()
+      const tenantId = await getTenantId()
+      const supabase = await getClient()
+
+      // Use tenantId or fallback to config.ORG_ID (with null check)
+      const orgId = tenantId || (config?.ORG_ID)
+
+      const { data, error } = await supabase
+        .from('manufacturing_stages')
+        .insert({
+          ...stage,
+          org_id: orgId
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('❌ Error creating manufacturing stage:', error)
+      throw error
+    }
+  },
+
+  update: async (id: string, updates: any) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('manufacturing_stages')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error updating manufacturing stage:', error)
+      throw error
+    }
+  },
+
+  delete: async (id: string) => {
+    try {
+      const supabase = await getClient()
+      const { error } = await supabase
+        .from('manufacturing_stages')
+        .delete()
+        .eq('id', id)
+
+      if (error) throw error
+      return { success: true }
+    } catch (error: any) {
+      console.error('Error deleting manufacturing stage:', error)
+      throw error
+    }
+  }
+}
+
+// ===================================================================
+// STAGE WIP LOG SERVICE
+// ===================================================================
+export const stageWipLogService = {
+  getAll: async (filters?: {
+    moId?: string
+    stageId?: string
+    periodStart?: string
+    periodEnd?: string
+    isClosed?: boolean
+  }) => {
+    return PerformanceMonitor.measure('Stage WIP Log List', async () => {
+      try {
+        const config = await getConfig()
+        const tenantId = await getTenantId()
+        const supabase = await getClient()
+
+        let query = supabase
+          .from('stage_wip_log')
+          .select('*, manufacturing_stages(*), manufacturing_orders(*)')
+          .order('period_start', { ascending: false })
+          .order('created_at', { ascending: false })
+
+        if (tenantId) {
+          query = query.eq('org_id', tenantId)
+        }
+
+        if (filters?.moId) {
+          query = query.eq('mo_id', filters.moId)
+        }
+
+        if (filters?.stageId) {
+          query = query.eq('stage_id', filters.stageId)
+        }
+
+        if (filters?.periodStart) {
+          query = query.gte('period_start', filters.periodStart)
+        }
+
+        if (filters?.periodEnd) {
+          query = query.lte('period_end', filters.periodEnd)
+        }
+
+        if (filters?.isClosed !== undefined) {
+          query = query.eq('is_closed', filters.isClosed)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+        return data || []
+      } catch (error: any) {
+        console.error('Error fetching stage WIP log:', error)
+        throw error
+      }
+    })
+  },
+
+  getById: async (id: string) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('stage_wip_log')
+        .select('*, manufacturing_stages(*), manufacturing_orders(*)')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error fetching stage WIP log:', error)
+      throw error
+    }
+  },
+
+  create: async (wipLog: any) => {
+    try {
+      const config = await getConfig()
+      const tenantId = await getTenantId()
+      const supabase = await getClient()
+
+      const { data, error } = await supabase
+        .from('stage_wip_log')
+        .insert({
+          ...wipLog,
+          org_id: tenantId || (config?.ORG_ID)
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error creating stage WIP log:', error)
+      throw error
+    }
+  },
+
+  update: async (id: string, updates: any) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('stage_wip_log')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error updating stage WIP log:', error)
+      throw error
+    }
+  },
+
+  closePeriod: async (id: string, closedBy?: string) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('stage_wip_log')
+        .update({
+          is_closed: true,
+          closed_at: new Date().toISOString(),
+          closed_by: closedBy,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error closing period:', error)
+      throw error
+    }
+  }
+}
+
+// ===================================================================
+// STANDARD COSTS SERVICE
+// ===================================================================
+export const standardCostsService = {
+  getAll: async (filters?: {
+    productId?: string
+    stageId?: string
+    isActive?: boolean
+  }) => {
+    return PerformanceMonitor.measure('Standard Costs List', async () => {
+      try {
+        const config = await getConfig()
+        const tenantId = await getTenantId()
+        const supabase = await getClient()
+
+        let query = supabase
+          .from('standard_costs')
+          .select('*, products(*), manufacturing_stages(*)')
+          .order('effective_from', { ascending: false })
+
+        if (tenantId) {
+          query = query.eq('org_id', tenantId)
+        }
+
+        if (filters?.productId) {
+          query = query.eq('product_id', filters.productId)
+        }
+
+        if (filters?.stageId) {
+          query = query.eq('stage_id', filters.stageId)
+        }
+
+        if (filters?.isActive !== undefined) {
+          query = query.eq('is_active', filters.isActive)
+        }
+
+        const { data, error } = await query
+
+        if (error) throw error
+        return data || []
+      } catch (error: any) {
+        console.error('Error fetching standard costs:', error)
+        throw error
+      }
+    })
+  },
+
+  getById: async (id: string) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('standard_costs')
+        .select('*, products(*), manufacturing_stages(*)')
+        .eq('id', id)
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error fetching standard cost:', error)
+      throw error
+    }
+  },
+
+  getActive: async (productId: string, stageId: string, date?: string) => {
+    try {
+      const config = await getConfig()
+      const tenantId = await getTenantId()
+      const supabase = await getClient()
+      const checkDate = date || new Date().toISOString().split('T')[0]
+
+      // Use tenantId or fallback to config.ORG_ID (with null check)
+      const orgId = tenantId || (config?.ORG_ID)
+      if (!orgId) {
+        throw new Error('Organization ID is required but not available')
+      }
+
+      const { data, error } = await supabase
+        .from('standard_costs')
+        .select('*, products(*), manufacturing_stages(*)')
+        .eq('org_id', orgId)
+        .eq('product_id', productId)
+        .eq('stage_id', stageId)
+        .eq('is_active', true)
+        .lte('effective_from', checkDate)
+        .or(`effective_to.is.null,effective_to.gte.${checkDate}`)
+        .order('effective_from', { ascending: false })
+        .limit(1)
+        .single()
+
+      if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows returned
+      return data || null
+    } catch (error: any) {
+      console.error('Error fetching active standard cost:', error)
+      throw error
+    }
+  },
+
+  create: async (standardCost: any) => {
+    try {
+      const config = await getConfig()
+      const tenantId = await getTenantId()
+      const supabase = await getClient()
+
+      const { data, error } = await supabase
+        .from('standard_costs')
+        .insert({
+          ...standardCost,
+          org_id: tenantId || (config?.ORG_ID)
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error creating standard cost:', error)
+      throw error
+    }
+  },
+
+  update: async (id: string, updates: any) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('standard_costs')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error updating standard cost:', error)
+      throw error
+    }
+  },
+
+  approve: async (id: string, approvedBy: string) => {
+    try {
+      const supabase = await getClient()
+      const { data, error } = await supabase
+        .from('standard_costs')
+        .update({
+          approved_by: approvedBy,
+          approved_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single()
+
+      if (error) throw error
+      return data
+    } catch (error: any) {
+      console.error('Error approving standard cost:', error)
+      throw error
+    }
+  }
 }

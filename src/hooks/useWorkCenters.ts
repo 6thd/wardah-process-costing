@@ -2,7 +2,8 @@
 // React Query hooks for work centers
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase, withOrgContext } from '@/lib/supabase'
+import { supabase } from '@/lib/supabase'
+import { loadConfig } from '@/lib/config'
 import type { WorkCenter } from '@/types/work-center'
 
 export type { WorkCenter }
@@ -13,9 +14,21 @@ export const useWorkCenters = () => {
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
       try {
-        const { data, error } = await withOrgContext(
-          supabase.from('work_centers').select('*')
-        )
+        // Get current organization ID from config
+        const config = await loadConfig()
+        const orgId = config.ORG_ID
+
+        let query = supabase
+          .from('work_centers')
+          .select('*')
+          .order('name')
+
+        // Filter by organization ID if available
+        if (orgId) {
+          query = query.eq('org_id', orgId)
+        }
+        
+        const { data, error } = await query
         
         // Handle missing table gracefully
         if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {

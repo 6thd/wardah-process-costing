@@ -1,36 +1,15 @@
 // src/hooks/useManufacturingOrders.ts
 // React Query hooks for manufacturing orders
+// ✅ Updated to use manufacturingService.getAll for better performance
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { supabase, withOrgContext, type ManufacturingOrder } from '@/lib/supabase'
+import { manufacturingService } from '@/services/supabase-service'
+import type { ManufacturingOrder } from '@/lib/supabase'
 
 export const useManufacturingOrders = () => {
   return useQuery({
     queryKey: ['manufacturing-orders'],
-    queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not initialized')
-      try {
-        const { data, error } = await withOrgContext(
-          supabase.from('manufacturing_orders').select('*')
-        )
-        
-        // Handle missing table gracefully
-        if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
-          console.warn('manufacturing_orders table not found, returning empty array')
-          return [] as ManufacturingOrder[]
-        }
-        
-        if (error) throw error
-        return (data || []) as ManufacturingOrder[]
-      } catch (error: any) {
-        // If table doesn't exist, return empty array
-        if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
-          console.warn('manufacturing_orders table not found, returning empty array')
-          return [] as ManufacturingOrder[]
-        }
-        throw error
-      }
-    },
+    queryFn: manufacturingService.getAll,
     // Performance optimization: Cache for 5 minutes
     staleTime: 5 * 60 * 1000, // Data stays fresh for 5 minutes
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes (formerly cacheTime)

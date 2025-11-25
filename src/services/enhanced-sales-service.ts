@@ -612,19 +612,21 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
       return;
     }
 
-    // Calculate amounts
-    const revenueAmount = invoice.subtotal - (invoice.discount_amount || 0);
-    const vatAmount = invoice.tax_amount || 0;
-    const totalAmount = invoice.total_amount;
+    // Calculate amounts - use invoiceData if invoice doesn't have the property
+    const revenueAmount = (invoiceData.subtotal || invoice.subtotal) - ((invoiceData.discount_amount || invoice.discount_amount) || 0);
+    const vatAmount = (invoiceData.tax_amount || invoice.tax_amount) || 0;
+    const totalAmount = invoiceData.total_amount || invoice.total_amount;
+    const invoiceNumber = invoiceData.invoice_number || invoice.invoice_number || '';
+    const invoiceDate = invoiceData.invoice_date || invoice.invoice_date;
 
     // Create journal entry using JournalService
     const journalEntry = {
       journal_id: null, // Will use default
-      entry_date: invoice.invoice_date,
-      description: `فاتورة مبيعات ${invoice.invoice_number}`,
-      description_ar: `فاتورة مبيعات ${invoice.invoice_number}`,
+      entry_date: invoiceDate,
+      description: `فاتورة مبيعات ${invoiceNumber}`,
+      description_ar: `فاتورة مبيعات ${invoiceNumber}`,
       reference_type: 'SALES_INVOICE',
-      reference_number: invoice.invoice_number,
+      reference_number: invoiceNumber,
       lines: [
         // Debit: Accounts Receivable
         {
@@ -632,8 +634,8 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
           line_number: 1,
           debit: totalAmount,
           credit: 0,
-          description: `فاتورة مبيعات ${invoice.invoice_number}`,
-          description_ar: `فاتورة مبيعات ${invoice.invoice_number}`
+          description: `فاتورة مبيعات ${invoiceNumber}`,
+          description_ar: `فاتورة مبيعات ${invoiceNumber}`
         },
         // Credit: Sales Revenue
         {
@@ -641,8 +643,8 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
           line_number: 2,
           debit: 0,
           credit: revenueAmount,
-          description: `إيرادات مبيعات - ${invoice.invoice_number}`,
-          description_ar: `إيرادات مبيعات - ${invoice.invoice_number}`
+          description: `إيرادات مبيعات - ${invoiceNumber}`,
+          description_ar: `إيرادات مبيعات - ${invoiceNumber}`
         }
       ]
     };
@@ -654,8 +656,8 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
         line_number: 3,
         debit: 0,
         credit: vatAmount,
-        description: `ضريبة مخرجات - ${invoice.invoice_number}`,
-        description_ar: `ضريبة مخرجات - ${invoice.invoice_number}`
+        description: `ضريبة مخرجات - ${invoiceNumber}`,
+        description_ar: `ضريبة مخرجات - ${invoiceNumber}`
       });
     }
 
@@ -1011,12 +1013,15 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
       return;
     }
 
+    // Get invoice number safely
+    const invoiceNumber = invoice?.invoice_number || collection.reference_number || collectionNumber;
+
     // Create journal entry
     const journalEntry = {
       journal_id: null,
       entry_date: collection.collection_date,
-      description: `تحصيل من فاتورة ${invoice.invoice_number}`,
-      description_ar: `تحصيل من فاتورة ${invoice.invoice_number}`,
+      description: `تحصيل من فاتورة ${invoiceNumber}`,
+      description_ar: `تحصيل من فاتورة ${invoiceNumber}`,
       reference_type: 'CUSTOMER_COLLECTION',
       reference_number: collectionNumber,
       lines: [
@@ -1026,8 +1031,8 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
           line_number: 1,
           debit: collection.amount,
           credit: 0,
-          description: `تحصيل من فاتورة ${invoice.invoice_number}`,
-          description_ar: `تحصيل من فاتورة ${invoice.invoice_number}`
+          description: `تحصيل من فاتورة ${invoiceNumber}`,
+          description_ar: `تحصيل من فاتورة ${invoiceNumber}`
         },
         // Credit: Accounts Receivable
         {
@@ -1035,8 +1040,8 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
           line_number: 2,
           debit: 0,
           credit: collection.amount,
-          description: `تحصيل من فاتورة ${invoice.invoice_number}`,
-          description_ar: `تحصيل من فاتورة ${invoice.invoice_number}`
+          description: `تحصيل من فاتورة ${invoiceNumber}`,
+          description_ar: `تحصيل من فاتورة ${invoiceNumber}`
         }
       ]
     };
