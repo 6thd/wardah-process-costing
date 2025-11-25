@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { 
@@ -14,11 +14,13 @@ import {
   ChevronDown,
   BookOpen,
   Users,
-  Building2
+  Building2,
+  Shield
 } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/ui-store'
+import { usePermissions } from '@/hooks/usePermissions'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { getGlassClasses } from '@/lib/wardah-ui-utils'
@@ -29,11 +31,30 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 
+// تعريف أكواد الموديولات للصلاحيات
+const MODULE_CODES = {
+  DASHBOARD: 'dashboard',
+  MANUFACTURING: 'manufacturing',
+  INVENTORY: 'inventory',
+  PURCHASING: 'purchasing',
+  SALES: 'sales',
+  ACCOUNTING: 'accounting',
+  GENERAL_LEDGER: 'general_ledger',
+  HR: 'hr',
+  REPORTS: 'reports',
+  SETTINGS: 'settings',
+  ORG_ADMIN: 'org_admin',
+  SUPER_ADMIN: 'super_admin',
+} as const;
+
 export function Sidebar() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore()
   const [expandedItems, setExpandedItems] = useState<string[]>([])
+  
+  // 🔐 استخدام صلاحيات المستخدم
+  const { hasPermission, isOrgAdmin, isSuperAdmin, loading: permissionsLoading } = usePermissions()
 
   const isRTL = i18n.language === 'ar'
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
@@ -46,12 +67,14 @@ export function Sidebar() {
     )
   }
 
-  const navigationItems = [
+  // تعريف عناصر التنقل مع الصلاحيات
+  const allNavigationItems = [
     {
       key: 'dashboard',
       icon: LayoutDashboard,
       href: '/dashboard',
       badge: null,
+      moduleCode: MODULE_CODES.DASHBOARD, // لا يحتاج صلاحية - متاح للجميع
       subItems: [
         { key: 'overview', href: '/dashboard/overview', label: t('navigation.overview') },
         { key: 'analytics', href: '/dashboard/analytics', label: t('navigation.analytics') },
@@ -62,7 +85,8 @@ export function Sidebar() {
       key: 'manufacturing',
       icon: Factory,
       href: '/manufacturing',
-      badge: '2', // Active MOs
+      badge: '2',
+      moduleCode: MODULE_CODES.MANUFACTURING,
       subItems: [
         { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
         { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
@@ -80,6 +104,7 @@ export function Sidebar() {
       icon: Package,
       href: '/inventory',
       badge: null,
+      moduleCode: MODULE_CODES.INVENTORY,
       subItems: [
         { key: 'overview', href: '/inventory/overview', label: t('navigation.overview') },
         { key: 'items', href: '/inventory/items', label: t('navigation.items') },
@@ -93,7 +118,8 @@ export function Sidebar() {
       key: 'purchasing',
       icon: ShoppingCart,
       href: '/purchasing',
-      badge: '3', // Pending POs
+      badge: '3',
+      moduleCode: MODULE_CODES.PURCHASING,
       subItems: [
         { key: 'overview', href: '/purchasing/overview', label: t('navigation.overview') },
         { key: 'suppliers', href: '/purchasing/suppliers', label: t('navigation.suppliers') },
@@ -108,6 +134,7 @@ export function Sidebar() {
       icon: DollarSign,
       href: '/sales',
       badge: null,
+      moduleCode: MODULE_CODES.SALES,
       subItems: [
         { key: 'overview', href: '/sales/overview', label: t('navigation.overview') },
         { key: 'customers', href: '/sales/customers', label: t('navigation.customers') },
@@ -122,6 +149,7 @@ export function Sidebar() {
       icon: BookOpen,
       href: '/accounting',
       badge: null,
+      moduleCode: MODULE_CODES.ACCOUNTING,
       subItems: [
         { key: 'overview', href: '/accounting/overview', label: isRTL ? 'نظرة عامة' : 'Overview' },
         { key: 'chart-of-accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
@@ -136,16 +164,18 @@ export function Sidebar() {
       icon: BookOpen,
       href: '/general-ledger',
       badge: null,
+      moduleCode: MODULE_CODES.GENERAL_LEDGER,
       subItems: [
         { key: 'accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
         { key: 'account-statement', href: '/general-ledger/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' }
       ]
     },
     {
-      key: 'hr', // Add HR module to navigation
+      key: 'hr',
       icon: Users,
       href: '/hr',
       badge: null,
+      moduleCode: MODULE_CODES.HR,
       subItems: [
         { key: 'overview', href: '/hr/overview', label: t('navigation.overview') },
         { key: 'employees', href: '/hr/employees', label: t('navigation.employees') },
@@ -162,6 +192,7 @@ export function Sidebar() {
       icon: BarChart3,
       href: '/reports',
       badge: null,
+      moduleCode: MODULE_CODES.REPORTS,
       subItems: [
         { key: 'financial', href: '/reports/financial', label: t('navigation.financial') },
         { key: 'inventory', href: '/reports/inventory', label: t('navigation.inventory') },
@@ -177,6 +208,7 @@ export function Sidebar() {
       icon: Settings,
       href: '/settings',
       badge: null,
+      moduleCode: MODULE_CODES.SETTINGS,
       subItems: [
         { key: 'company', href: '/settings/company', label: t('navigation.company') },
         { key: 'users', href: '/settings/users', label: t('navigation.users') },
@@ -191,6 +223,8 @@ export function Sidebar() {
       icon: Building2,
       href: '/org-admin',
       badge: null,
+      moduleCode: MODULE_CODES.ORG_ADMIN,
+      requireOrgAdmin: true, // يتطلب صلاحية Org Admin
       subItems: [
         { key: 'dashboard', href: '/org-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
         { key: 'users', href: '/org-admin/users', label: isRTL ? 'المستخدمين' : 'Users' },
@@ -198,7 +232,43 @@ export function Sidebar() {
         { key: 'roles', href: '/org-admin/roles', label: isRTL ? 'الأدوار' : 'Roles' }
       ]
     },
+    {
+      key: 'super-admin',
+      icon: Shield,
+      href: '/super-admin',
+      badge: null,
+      moduleCode: MODULE_CODES.SUPER_ADMIN,
+      requireSuperAdmin: true, // يتطلب صلاحية Super Admin
+      subItems: [
+        { key: 'dashboard', href: '/super-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
+        { key: 'organizations', href: '/super-admin/organizations', label: isRTL ? 'المنظمات' : 'Organizations' }
+      ]
+    },
   ]
+
+  // 🔐 فلترة العناصر بناءً على الصلاحيات
+  // ملاحظة: للتبسيط حالياً - نعرض جميع العناصر ونترك الحماية على مستوى Routes
+  // سيتم تحسين هذا لاحقاً مع تحسين نظام الصلاحيات
+  const navigationItems = useMemo(() => {
+    return allNavigationItems.filter(item => {
+      // Dashboard متاح للجميع
+      if (item.key === 'dashboard') return true;
+      
+      // Super Admin فقط - يظهر إذا كان المستخدم super admin
+      if (item.requireSuperAdmin) {
+        return isSuperAdmin;
+      }
+      
+      // Org Admin فقط - يظهر إذا كان المستخدم org admin أو super admin
+      if (item.requireOrgAdmin) {
+        return isOrgAdmin || isSuperAdmin;
+      }
+      
+      // باقي الموديولات - متاحة لجميع المستخدمين المصادقين
+      // الحماية الفعلية تكون على مستوى الـ Routes
+      return true;
+    });
+  }, [isOrgAdmin, isSuperAdmin]);
 
   const handleItemClick = () => {
     // Close mobile sidebar when item is clicked

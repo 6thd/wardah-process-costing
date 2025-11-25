@@ -55,7 +55,7 @@ export function usePermissions(): UserPermissions & {
 
   // Load permissions
   const loadPermissions = useCallback(async () => {
-    if (!user?.id || !currentOrgId) {
+    if (!user?.id) {
       setPermissions([]);
       setIsOrgAdmin(false);
       setIsSuperAdmin(false);
@@ -63,10 +63,14 @@ export function usePermissions(): UserPermissions & {
       return;
     }
 
+    // إذا لم يكن هناك org_id محدد، نتحقق من صلاحيات Super Admin أولاً
+    // ثم نتحقق إذا كان المستخدم org admin في أي منظمة
+    const orgIdToCheck = currentOrgId || localStorage.getItem('current_org_id');
+
     // Check cache
     if (
       permissionCache &&
-      permissionCache.orgId === currentOrgId &&
+      permissionCache.orgId === orgIdToCheck &&
       permissionCache.userId === user.id &&
       Date.now() - permissionCache.timestamp < CACHE_DURATION
     ) {
@@ -83,13 +87,13 @@ export function usePermissions(): UserPermissions & {
     try {
       const supabase = getSupabase();
 
-      // Check if super admin
+      // Check if super admin (يتم التحقق منها حتى بدون org_id)
       const { data: superAdminData } = await supabase
         .from('super_admins')
         .select('id')
         .eq('user_id', user.id)
         .eq('is_active', true)
-        .single();
+        .maybeSingle(); // استخدام maybeSingle بدلاً من single لتجنب الخطأ
 
       const isSA = !!superAdminData;
       setIsSuperAdmin(isSA);
@@ -102,17 +106,44 @@ export function usePermissions(): UserPermissions & {
         return;
       }
 
-      // Check org admin status
-      const { data: orgData } = await supabase
+      // إذا لم يكن هناك org_id، نتحقق من أي منظمة
+      let orgQuery = supabase
         .from('user_organizations')
-        .select('is_org_admin')
+        .select('is_org_admin, org_id')
         .eq('user_id', user.id)
-        .eq('org_id', currentOrgId)
-        .eq('is_active', true)
-        .single();
+        .eq('is_active', true);
+      
+      if (orgIdToCheck) {
+        orgQuery = orgQuery.eq('org_id', orgIdToCheck);
+      }
+
+      const { data: orgData } = await orgQuery.maybeSingle();
 
       const isOA = orgData?.is_org_admin || false;
       setIsOrgAdmin(isOA);
+
+      // إذا كان Org Admin - له جميع الصلاحيات
+      if (isOA) {
+        setPermissions([]);
+        setLoading(false);
+        // تحديث الكاش
+        permissionCache = {
+          orgId: orgIdToCheck || '',
+          userId: user.id,
+          permissions: [],
+          isOrgAdmin: isOA,
+          isSuperAdmin: isSA,
+          timestamp: Date.now(),
+        };
+        return;
+      }
+
+      // إذا لم يكن هناك org_id، لا يمكن جلب الصلاحيات
+      if (!orgIdToCheck) {
+        setPermissions([]);
+        setLoading(false);
+        return;
+      }
 
       // Get user permissions through roles
       const { data: userRoles } = await supabase
@@ -130,7 +161,7 @@ export function usePermissions(): UserPermissions & {
           )
         `)
         .eq('user_id', user.id)
-        .eq('org_id', currentOrgId);
+        .eq('org_id', orgIdToCheck);
 
       // Extract permissions
       const perms: Permission[] = [];
@@ -158,7 +189,7 @@ export function usePermissions(): UserPermissions & {
 
       // Update cache
       permissionCache = {
-        orgId: currentOrgId,
+        orgId: orgIdToCheck || '',
         userId: user.id,
         permissions: uniquePerms,
         isOrgAdmin: isOA,

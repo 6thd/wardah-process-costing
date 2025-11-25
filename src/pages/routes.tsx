@@ -1,10 +1,12 @@
 import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حماية المسارات
+import { ModuleGuard } from "@/components/auth/ModuleGuard"; // ✅ حماية الموديولات
 import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
 import { SignUpPage } from "@/pages/signup"; // ✅ صفحة التسجيل الجديد
 import { SuperAdminModule } from "@/pages/super-admin"; // ✅ لوحة Super Admin
 import { OrgAdminModule } from "@/pages/org-admin/module"; // ✅ لوحة Org Admin
+import { MODULE_CODES } from "@/config/module-permissions"; // ✅ أكواد الموديولات
 
 // Import all the modules
 import { DashboardModule } from "@/features/dashboard";
@@ -69,50 +71,92 @@ export const appRouter = createBrowserRouter([
           },
           {
             path: "dashboard/*",
-            element: <DashboardModule />,
+            element: <DashboardModule />, // الداشبورد متاح للجميع
           },
           {
             path: "general-ledger/*",
-            element: <GeneralLedgerModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.GENERAL_LEDGER} action="view">
+                <GeneralLedgerModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "accounting/*",
             lazy: async () => {
               const { AccountingModule } = await import("@/features/accounting");
-              return { Component: AccountingModule };
+              return { 
+                Component: () => (
+                  <ModuleGuard moduleCode={MODULE_CODES.ACCOUNTING} action="view">
+                    <AccountingModule />
+                  </ModuleGuard>
+                )
+              };
             },
           },
           {
             path: "inventory/*",
-            element: <InventoryModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.INVENTORY} action="view">
+                <InventoryModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "manufacturing/*",
-            element: <ManufacturingModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.MANUFACTURING} action="view">
+                <ManufacturingModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "purchasing/*",
-            element: <PurchasingModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.PURCHASING} action="view">
+                <PurchasingModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "sales/*",
-            element: <SalesModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.SALES} action="view">
+                <SalesModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "hr/*",
-            element: <HRModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.HR} action="view">
+                <HRModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "reports/*",
-            element: <ReportsModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.REPORTS} action="view">
+                <ReportsModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "gemini-dashboard/*",
-            element: <GeminiDashboardModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.REPORTS} action="view">
+                <GeminiDashboardModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "settings/*",
-            element: <SettingsModule />,
+            element: (
+              <ModuleGuard moduleCode={MODULE_CODES.SETTINGS} action="view">
+                <SettingsModule />
+              </ModuleGuard>
+            ),
           },
           {
             path: "design-system",
