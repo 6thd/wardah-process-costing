@@ -144,11 +144,11 @@ export const withOrgContext = <T>(query: T): T => {
 
 
 // Use environment variables for Supabase config (Vite exposes these as import.meta.env)
-// Fallback to hardcoded values for development
+// Fallback to values from config.json (matching public/config.json)
 const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 
-  'https://lnpkwxbhqpruotjkngsq.supabase.co';
+  'https://uutfztmqvajmsxnrqeiv.supabase.co';
 const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || 
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxucGt3eGJocXBydW90amtuZ3NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY0MDY2MDksImV4cCI6MjA1MTk4MjYwOX0.j0cNHOWw8eI-OlgPtW7Wn7K5aHJPz_6XGCF_zfOfdks';
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c';
 
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
