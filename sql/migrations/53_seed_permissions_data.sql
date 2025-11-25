@@ -3,30 +3,29 @@
 -- إضافة بيانات الصلاحيات والموديولات الأولية
 
 -- =====================================
--- 1. إضافة الموديولات
+-- 1. إضافة/تحديث الموديولات
 -- =====================================
 
-INSERT INTO modules (code, name, name_ar, description, description_ar, icon, sort_order, is_active)
+INSERT INTO modules (name, name_ar, description, description_ar, icon, display_order, is_active)
 VALUES 
-  ('dashboard', 'Dashboard', 'لوحة التحكم', 'Main dashboard and overview', 'لوحة التحكم الرئيسية والنظرة العامة', 'LayoutDashboard', 1, true),
-  ('manufacturing', 'Manufacturing', 'التصنيع', 'Manufacturing orders and process costing', 'أوامر التصنيع وتكلفة المراحل', 'Factory', 2, true),
-  ('inventory', 'Inventory', 'المخزون', 'Inventory management and stock control', 'إدارة المخزون والتحكم بالمخزون', 'Package', 3, true),
-  ('purchasing', 'Purchasing', 'المشتريات', 'Purchase orders and supplier management', 'أوامر الشراء وإدارة الموردين', 'ShoppingCart', 4, true),
-  ('sales', 'Sales', 'المبيعات', 'Sales orders and customer management', 'أوامر البيع وإدارة العملاء', 'TrendingUp', 5, true),
-  ('accounting', 'Accounting', 'المحاسبة', 'Journal entries and financial reports', 'قيود اليومية والتقارير المالية', 'Calculator', 6, true),
-  ('general_ledger', 'General Ledger', 'الأستاذ العام', 'Chart of accounts and ledger', 'شجرة الحسابات والأستاذ', 'BookOpen', 7, true),
-  ('hr', 'Human Resources', 'الموارد البشرية', 'Employee and payroll management', 'إدارة الموظفين والرواتب', 'Users', 8, true),
-  ('reports', 'Reports', 'التقارير', 'Financial and operational reports', 'التقارير المالية والتشغيلية', 'BarChart3', 9, true),
-  ('settings', 'Settings', 'الإعدادات', 'System settings and configuration', 'إعدادات النظام والتكوين', 'Settings', 10, true),
-  ('org_admin', 'Organization Admin', 'إدارة المنظمة', 'User and role management', 'إدارة المستخدمين والأدوار', 'Building2', 11, true),
-  ('super_admin', 'Super Admin', 'مدير النظام', 'Platform administration', 'إدارة المنصة', 'Shield', 12, true)
-ON CONFLICT (code) DO UPDATE SET
-  name = EXCLUDED.name,
+  ('dashboard', 'لوحة التحكم', 'Main dashboard and overview', 'لوحة التحكم الرئيسية والنظرة العامة', '📊', 1, true),
+  ('manufacturing', 'التصنيع', 'Manufacturing orders and process costing', 'أوامر التصنيع وتكلفة المراحل', '🏭', 2, true),
+  ('inventory', 'المخزون', 'Inventory management and stock control', 'إدارة المخزون والتحكم بالمخزون', '📦', 3, true),
+  ('purchasing', 'المشتريات', 'Purchase orders and supplier management', 'أوامر الشراء وإدارة الموردين', '🛒', 4, true),
+  ('sales', 'المبيعات', 'Sales orders and customer management', 'أوامر البيع وإدارة العملاء', '📈', 5, true),
+  ('accounting', 'المحاسبة', 'Journal entries and financial reports', 'قيود اليومية والتقارير المالية', '🧮', 6, true),
+  ('general_ledger', 'الأستاذ العام', 'Chart of accounts and ledger', 'شجرة الحسابات والأستاذ', '📒', 7, true),
+  ('hr', 'الموارد البشرية', 'Employee and payroll management', 'إدارة الموظفين والرواتب', '👥', 8, true),
+  ('reports', 'التقارير', 'Financial and operational reports', 'التقارير المالية والتشغيلية', '📊', 9, true),
+  ('settings', 'الإعدادات', 'System settings and configuration', 'إعدادات النظام والتكوين', '⚙️', 10, true),
+  ('org_admin', 'إدارة المنظمة', 'User and role management', 'إدارة المستخدمين والأدوار', '🏢', 11, true),
+  ('super_admin', 'مدير النظام', 'Platform administration', 'إدارة المنصة', '🛡️', 12, true)
+ON CONFLICT (name) DO UPDATE SET
   name_ar = EXCLUDED.name_ar,
   description = EXCLUDED.description,
   description_ar = EXCLUDED.description_ar,
   icon = EXCLUDED.icon,
-  sort_order = EXCLUDED.sort_order,
+  display_order = EXCLUDED.display_order,
   is_active = EXCLUDED.is_active;
 
 -- =====================================
@@ -42,7 +41,7 @@ DECLARE
   action_names_ar TEXT[] := ARRAY['عرض', 'إنشاء', 'تعديل', 'حذف', 'اعتماد', 'تصدير', 'استيراد', 'طباعة'];
   i INTEGER;
 BEGIN
-  FOR module_row IN SELECT id, code, name, name_ar FROM modules LOOP
+  FOR module_row IN SELECT id, name, name_ar FROM modules LOOP
     FOR i IN 1..array_length(actions, 1) LOOP
       INSERT INTO permissions (
         module_id, 
@@ -56,7 +55,7 @@ BEGIN
       )
       VALUES (
         module_row.id,
-        module_row.code || ':' || actions[i],
+        module_row.name || ':' || actions[i],
         action_names[i] || ' ' || module_row.name,
         action_names_ar[i] || ' ' || module_row.name_ar,
         'Permission to ' || lower(action_names[i]) || ' in ' || module_row.name,
@@ -183,4 +182,3 @@ BEGIN
   RAISE NOTICE '   - الصلاحيات: %', permissions_count;
   RAISE NOTICE '   - قوالب الأدوار: %', templates_count;
 END $$;
-
