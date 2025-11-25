@@ -2,6 +2,7 @@ import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حماية المسارات
 import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
+import { SignUpPage } from "@/pages/signup"; // ✅ صفحة التسجيل الجديد
 
 // Import all the modules
 import { DashboardModule } from "@/features/dashboard";
@@ -38,11 +39,15 @@ const AppLayout = () => {
 
 export const appRouter = createBrowserRouter([
   // ===================================
-  // مسار تسجيل الدخول (غير محمي)
+  // مسارات المصادقة (غير محمية)
   // ===================================
   {
     path: "/login",
     element: <LoginPage />
+  },
+  {
+    path: "/signup",
+    element: <SignUpPage />
   },
   
   // ===================================

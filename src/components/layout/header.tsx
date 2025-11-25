@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { ThemeToggle } from '@/components/theme-toggle'
 import { LanguageToggle } from '@/components/language-toggle'
+import { OrganizationSelector } from '@/components/organization-selector'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
 import { cn } from '@/lib/utils'
@@ -104,6 +105,7 @@ export function Header() {
           
           <ThemeToggle />
           <LanguageToggle />
+          <OrganizationSelector />
           
           {/* Notifications */}
           <DropdownMenu>

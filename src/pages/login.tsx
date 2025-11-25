@@ -3,7 +3,7 @@
 // الهدف: صفحة تسجيل الدخول للنظام
 
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { getSupabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -216,6 +216,16 @@ export function LoginPage() {
               <p className="text-center">📧 admin@wardah.sa</p>
               <p className="text-center">🔑 admin123</p>
             </div>
+          </div>
+
+          {/* Sign Up Link */}
+          <div className="mt-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              ليس لديك حساب؟{' '}
+              <Link to="/signup" className="font-medium text-primary hover:underline">
+                إنشاء حساب جديد
+              </Link>
+            </p>
           </div>
         </CardContent>
       </Card>
