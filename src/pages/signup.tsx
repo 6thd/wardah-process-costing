@@ -1,19 +1,33 @@
 // src/pages/signup.tsx
-// صفحة تسجيل حساب جديد مع دعم Multi-Tenant
+// صفحة تسجيل حساب جديد مع دعم Multi-Tenant والدعوات
 
-import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { getSupabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, UserPlus, AlertCircle, Building2, Mail, Lock, User, CheckCircle2 } from 'lucide-react';
+import { Loader2, UserPlus, AlertCircle, Building2, Mail, Lock, User, CheckCircle2, MailOpen } from 'lucide-react';
 import { getOrganizationByCode, addUserToOrganization } from '@/services/organization-service';
+import { acceptInvitation } from '@/services/org-admin-service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+
+interface InvitationData {
+  id: string;
+  email: string;
+  org_id: string;
+  org_name?: string;
+  status: string;
+  expires_at: string;
+}
 
 export function SignUpPage() {
-  const [mode, setMode] = useState<'join' | 'create'>('join');
+  const [searchParams] = useSearchParams();
+  const inviteToken = searchParams.get('invite');
+  
+  const [mode, setMode] = useState<'join' | 'create' | 'invite'>('join');
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -25,9 +39,71 @@ export function SignUpPage() {
     newOrgCode: '',
   });
   const [loading, setLoading] = useState(false);
+  const [loadingInvite, setLoadingInvite] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [invitation, setInvitation] = useState<InvitationData | null>(null);
   const navigate = useNavigate();
+
+  // Load invitation data if token exists
+  useEffect(() => {
+    if (inviteToken) {
+      loadInvitation(inviteToken);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inviteToken]);
+
+  async function loadInvitation(token: string) {
+    setLoadingInvite(true);
+    try {
+      const supabase = getSupabase();
+      
+      const { data, error } = await supabase
+        .from('invitations')
+        .select(`
+          id,
+          email,
+          org_id,
+          status,
+          expires_at,
+          organization:organizations(name, name_ar)
+        `)
+        .eq('token', token)
+        .single();
+
+      if (error || !data) {
+        setError('رابط الدعوة غير صالح أو منتهي الصلاحية');
+        return;
+      }
+
+      if (data.status !== 'pending') {
+        setError('هذه الدعوة تم استخدامها بالفعل أو ملغاة');
+        return;
+      }
+
+      if (new Date(data.expires_at) < new Date()) {
+        setError('انتهت صلاحية هذه الدعوة');
+        return;
+      }
+
+      setInvitation({
+        id: data.id,
+        email: data.email,
+        org_id: data.org_id,
+        org_name: (data.organization as any)?.name_ar || (data.organization as any)?.name,
+        status: data.status,
+        expires_at: data.expires_at,
+      });
+      
+      setFormData(prev => ({ ...prev, email: data.email }));
+      setMode('invite');
+    } catch (err) {
+      console.error('Error loading invitation:', err);
+      setError('فشل تحميل بيانات الدعوة');
+    } finally {
+      setLoadingInvite(false);
+    }
+  }
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -45,11 +121,12 @@ export function SignUpPage() {
 
     if (mode === 'join') {
       if (!orgCode.trim()) return 'يرجى إدخال رمز المنظمة';
-    } else {
+    } else if (mode === 'create') {
       if (!newOrgName.trim()) return 'يرجى إدخال اسم المنظمة';
       if (!newOrgCode.trim()) return 'يرجى إدخال رمز المنظمة';
       if (newOrgCode.length < 3) return 'رمز المنظمة يجب أن يكون 3 أحرف على الأقل';
     }
+    // mode === 'invite' doesn't need org code
 
     return null;
   };
@@ -71,8 +148,40 @@ export function SignUpPage() {
     try {
       const supabase = getSupabase();
 
-      if (mode === 'join') {
-        // Mode 1: Join existing organization
+      if (mode === 'invite' && invitation && inviteToken) {
+        // Mode: Join via invitation
+        // Verify email matches invitation
+        if (formData.email.trim().toLowerCase() !== invitation.email.toLowerCase()) {
+          setError(`البريد الإلكتروني يجب أن يكون ${invitation.email}`);
+          setLoading(false);
+          return;
+        }
+
+        const { data: authData, error: signUpError } = await supabase.auth.signUp({
+          email: formData.email.trim(),
+          password: formData.password,
+          options: {
+            data: {
+              full_name: formData.fullName.trim(),
+            },
+          },
+        });
+
+        if (signUpError) throw signUpError;
+
+        if (authData.user) {
+          // Accept invitation (adds user to org with assigned roles)
+          const result = await acceptInvitation(inviteToken, authData.user.id);
+          
+          if (!result.success) {
+            throw new Error(result.error || 'فشل قبول الدعوة');
+          }
+
+          setSuccess(`✅ تم التسجيل بنجاح! مرحباً بك في ${invitation.org_name}`);
+          setTimeout(() => navigate('/login'), 3000);
+        }
+      } else if (mode === 'join') {
+        // Mode 1: Join existing organization by code
         const org = await getOrganizationByCode(formData.orgCode);
         if (!org) {
           setError('رمز المنظمة غير صحيح أو المنظمة غير نشطة');
@@ -191,18 +300,40 @@ export function SignUpPage() {
         </CardHeader>
 
         <CardContent>
-          <Tabs value={mode} onValueChange={(v) => setMode(v as 'join' | 'create')} className="mb-6">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="join" className="gap-2">
-                <Building2 className="h-4 w-4" />
-                الانضمام لمنظمة
-              </TabsTrigger>
-              <TabsTrigger value="create" className="gap-2">
-                <Building2 className="h-4 w-4" />
-                إنشاء منظمة جديدة
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {/* Show invitation info if available */}
+          {loadingInvite ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <span className="mr-3">جاري تحميل بيانات الدعوة...</span>
+            </div>
+          ) : invitation ? (
+            <div className="mb-6 p-4 rounded-lg bg-primary/10 border border-primary/20">
+              <div className="flex items-center gap-3 mb-2">
+                <MailOpen className="h-5 w-5 text-primary" />
+                <span className="font-semibold text-primary">دعوة للانضمام</span>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                تمت دعوتك للانضمام إلى منظمة{' '}
+                <Badge variant="secondary" className="mx-1">{invitation.org_name}</Badge>
+              </p>
+              <p className="text-xs text-muted-foreground mt-2">
+                البريد: <span dir="ltr" className="font-mono">{invitation.email}</span>
+              </p>
+            </div>
+          ) : (
+            <Tabs value={mode} onValueChange={(v) => setMode(v as 'join' | 'create')} className="mb-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="join" className="gap-2">
+                  <Building2 className="h-4 w-4" />
+                  الانضمام لمنظمة
+                </TabsTrigger>
+                <TabsTrigger value="create" className="gap-2">
+                  <Building2 className="h-4 w-4" />
+                  إنشاء منظمة جديدة
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
 
           <form onSubmit={handleSignUp} className="space-y-5">
             {/* Common Fields */}
@@ -239,11 +370,16 @@ export function SignUpPage() {
                     onChange={(e) => handleInputChange('email', e.target.value)}
                     placeholder="ahmad@example.com"
                     required
-                    disabled={loading}
+                    disabled={loading || mode === 'invite'}
                     className="text-right pr-10"
                     autoComplete="email"
                   />
                 </div>
+                {mode === 'invite' && (
+                  <p className="text-xs text-muted-foreground text-right">
+                    البريد مرتبط بالدعوة ولا يمكن تغييره
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -288,7 +424,10 @@ export function SignUpPage() {
             </div>
 
             {/* Mode-specific fields */}
-            {mode === 'join' ? (
+            {mode === 'invite' ? (
+              // Invitation mode - no org code needed
+              null
+            ) : mode === 'join' ? (
               <div className="space-y-2">
                 <label htmlFor="orgCode" className="block text-sm font-medium">
                   رمز المنظمة

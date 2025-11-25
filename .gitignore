@@ -39,6 +39,7 @@ apply-*.cjs
 # OS
 .DS_Store
 Thumbs.db
+AppData/
 # Logs
 npm-debug.log*
 yarn-debug.log*
