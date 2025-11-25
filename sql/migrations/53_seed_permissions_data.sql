@@ -81,7 +81,8 @@ INSERT INTO role_templates (
   name_ar, 
   description, 
   description_ar, 
-  permissions_config, 
+  permission_keys,
+  category,
   is_active
 )
 VALUES 
@@ -90,7 +91,8 @@ VALUES
     'وصول كامل',
     'Full access to all modules and features',
     'وصول كامل لجميع الموديولات والميزات',
-    '{"modules": ["*"], "actions": ["*"]}',
+    ARRAY['*.*.*'],
+    'admin',
     true
   ),
   (
@@ -98,7 +100,8 @@ VALUES
     'محاسب',
     'Access to accounting and financial modules',
     'وصول لموديولات المحاسبة والمالية',
-    '{"modules": ["accounting", "general_ledger", "reports"], "actions": ["view", "create", "edit", "export", "print"]}',
+    ARRAY['accounting.accounting.view', 'accounting.accounting.create', 'accounting.accounting.edit', 'general_ledger.general_ledger.view', 'reports.reports.view'],
+    'finance',
     true
   ),
   (
@@ -106,7 +109,8 @@ VALUES
     'مدير مبيعات',
     'Full access to sales module',
     'وصول كامل لموديول المبيعات',
-    '{"modules": ["sales", "inventory", "reports"], "actions": ["view", "create", "edit", "delete", "approve", "export", "print"]}',
+    ARRAY['sales.sales.view', 'sales.sales.create', 'sales.sales.edit', 'sales.sales.delete', 'sales.sales.approve', 'inventory.inventory.view', 'reports.reports.view'],
+    'sales',
     true
   ),
   (
@@ -114,7 +118,8 @@ VALUES
     'مدير مشتريات',
     'Full access to purchasing module',
     'وصول كامل لموديول المشتريات',
-    '{"modules": ["purchasing", "inventory", "reports"], "actions": ["view", "create", "edit", "delete", "approve", "export", "print"]}',
+    ARRAY['purchasing.purchasing.view', 'purchasing.purchasing.create', 'purchasing.purchasing.edit', 'purchasing.purchasing.delete', 'purchasing.purchasing.approve', 'inventory.inventory.view', 'reports.reports.view'],
+    'purchasing',
     true
   ),
   (
@@ -122,7 +127,8 @@ VALUES
     'مدير مخزون',
     'Full access to inventory module',
     'وصول كامل لموديول المخزون',
-    '{"modules": ["inventory", "reports"], "actions": ["view", "create", "edit", "delete", "export", "print"]}',
+    ARRAY['inventory.inventory.view', 'inventory.inventory.create', 'inventory.inventory.edit', 'inventory.inventory.delete', 'reports.reports.view'],
+    'inventory',
     true
   ),
   (
@@ -130,7 +136,8 @@ VALUES
     'مدير إنتاج',
     'Full access to manufacturing module',
     'وصول كامل لموديول التصنيع',
-    '{"modules": ["manufacturing", "inventory", "reports"], "actions": ["view", "create", "edit", "delete", "approve", "export", "print"]}',
+    ARRAY['manufacturing.manufacturing.view', 'manufacturing.manufacturing.create', 'manufacturing.manufacturing.edit', 'manufacturing.manufacturing.delete', 'manufacturing.manufacturing.approve', 'inventory.inventory.view', 'reports.reports.view'],
+    'manufacturing',
     true
   ),
   (
@@ -138,7 +145,8 @@ VALUES
     'مدير موارد بشرية',
     'Full access to HR module',
     'وصول كامل لموديول الموارد البشرية',
-    '{"modules": ["hr", "reports"], "actions": ["view", "create", "edit", "delete", "approve", "export", "print"]}',
+    ARRAY['hr.hr.view', 'hr.hr.create', 'hr.hr.edit', 'hr.hr.delete', 'hr.hr.approve', 'reports.reports.view'],
+    'hr',
     true
   ),
   (
@@ -146,7 +154,8 @@ VALUES
     'مشاهد فقط',
     'View-only access to all modules',
     'وصول للعرض فقط لجميع الموديولات',
-    '{"modules": ["*"], "actions": ["view"]}',
+    ARRAY['dashboard.dashboard.view', 'manufacturing.manufacturing.view', 'inventory.inventory.view', 'sales.sales.view', 'purchasing.purchasing.view', 'reports.reports.view'],
+    'viewer',
     true
   ),
   (
@@ -154,14 +163,11 @@ VALUES
     'إدخال بيانات',
     'Basic data entry access',
     'وصول أساسي لإدخال البيانات',
-    '{"modules": ["inventory", "sales", "purchasing"], "actions": ["view", "create"]}',
+    ARRAY['inventory.inventory.view', 'inventory.inventory.create', 'sales.sales.view', 'sales.sales.create', 'purchasing.purchasing.view', 'purchasing.purchasing.create'],
+    'data_entry',
     true
   )
-ON CONFLICT (name) DO UPDATE SET
-  name_ar = EXCLUDED.name_ar,
-  description = EXCLUDED.description,
-  description_ar = EXCLUDED.description_ar,
-  permissions_config = EXCLUDED.permissions_config;
+ON CONFLICT (name) DO NOTHING;
 
 -- =====================================
 -- 4. التحقق من النتائج
