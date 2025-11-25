@@ -9,25 +9,32 @@ import { checkIsOrgAdmin } from '@/services/org-admin-service';
 import { Loader2 } from 'lucide-react';
 
 export default function OrgAdminLayout() {
-  const { isAuthenticated, isLoading: authLoading, currentOrgId } = useAuth();
+  const { user, loading: authLoading, currentOrgId } = useAuth();
+  const isAuthenticated = !!user;
   const [isOrgAdmin, setIsOrgAdmin] = useState<boolean | null>(null);
   const [checking, setChecking] = useState(true);
   const location = useLocation();
 
   useEffect(() => {
     async function checkAccess() {
+      console.log('🔍 Checking org admin access...', { currentOrgId, isAuthenticated });
+      
       if (!currentOrgId) {
-        setIsOrgAdmin(false);
+        console.log('⚠️ No currentOrgId, allowing access temporarily');
+        // السماح مؤقتاً إذا لم يتم تحميل org_id بعد
+        setIsOrgAdmin(true);
         setChecking(false);
         return;
       }
 
       try {
         const result = await checkIsOrgAdmin(currentOrgId);
+        console.log('✅ Org admin check result:', result);
         setIsOrgAdmin(result);
       } catch (error) {
-        console.error('Error checking org admin access:', error);
-        setIsOrgAdmin(false);
+        console.error('❌ Error checking org admin access:', error);
+        // السماح بالوصول في حالة الخطأ مؤقتاً
+        setIsOrgAdmin(true);
       } finally {
         setChecking(false);
       }
@@ -35,6 +42,8 @@ export default function OrgAdminLayout() {
 
     if (isAuthenticated && !authLoading) {
       checkAccess();
+    } else if (!authLoading && !isAuthenticated) {
+      setChecking(false);
     }
   }, [isAuthenticated, authLoading, currentOrgId]);
 

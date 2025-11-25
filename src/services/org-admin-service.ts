@@ -176,48 +176,51 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
   try {
     const supabase = getSupabase();
 
+    // جلب مستخدمي المنظمة بدون joins معقدة
     const { data, error } = await supabase
       .from('user_organizations')
-      .select(`
-        *,
-        user_profile:user_profiles(*)
-      `)
+      .select('*')
       .eq('org_id', orgId)
       .order('created_at', { ascending: false });
 
-    if (error) throw error;
-
-    // Get user roles
-    const userIds = (data || []).map(u => u.user_id);
-    
-    if (userIds.length > 0) {
-      const { data: userRoles } = await supabase
-        .from('user_roles')
-        .select(`
-          user_id,
-          role:roles(*)
-        `)
-        .eq('org_id', orgId)
-        .in('user_id', userIds);
-
-      // Merge roles with users
-      const rolesMap = new Map<string, OrgRole[]>();
-      (userRoles || []).forEach((ur: any) => {
-        if (!rolesMap.has(ur.user_id)) {
-          rolesMap.set(ur.user_id, []);
-        }
-        if (ur.role) {
-          rolesMap.get(ur.user_id)!.push(ur.role);
-        }
-      });
-
-      return (data || []).map(user => ({
-        ...user,
-        roles: rolesMap.get(user.user_id) || [],
-      }));
+    if (error) {
+      console.error('Error in getOrgUsers query:', error);
+      throw error;
     }
 
-    return data || [];
+    // محاولة جلب الأدوار (اختياري - قد لا يوجد الجدول)
+    const userIds = (data || []).map(u => u.user_id);
+    let rolesMap = new Map<string, OrgRole[]>();
+    
+    if (userIds.length > 0) {
+      try {
+        const { data: userRoles } = await supabase
+          .from('user_roles')
+          .select(`
+            user_id,
+            role:roles(*)
+          `)
+          .eq('org_id', orgId)
+          .in('user_id', userIds);
+
+        // Merge roles with users
+        (userRoles || []).forEach((ur: any) => {
+          if (!rolesMap.has(ur.user_id)) {
+            rolesMap.set(ur.user_id, []);
+          }
+          if (ur.role) {
+            rolesMap.get(ur.user_id)!.push(ur.role);
+          }
+        });
+      } catch (rolesError) {
+        console.warn('Could not fetch user roles:', rolesError);
+      }
+    }
+
+    return (data || []).map(user => ({
+      ...user,
+      roles: rolesMap.get(user.user_id) || [],
+    }));
   } catch (error) {
     console.error('Error fetching org users:', error);
     return [];
