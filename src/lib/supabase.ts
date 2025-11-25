@@ -143,22 +143,20 @@ export const withOrgContext = <T>(query: T): T => {
 // --- END NEW TYPE DEFINITIONS ---
 
 
-// Ensure this file is imported only on the client-side
-if (typeof window === 'undefined') {
-  throw new Error('Supabase client should only be used on the client-side.');
-}
+// Use environment variables for Supabase config (Vite exposes these as import.meta.env)
+// Fallback to hardcoded values for development
+const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 
+  'https://lnpkwxbhqpruotjkngsq.supabase.co';
+const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || 
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxucGt3eGJocXBydW90amtuZ3NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY0MDY2MDksImV4cCI6MjA1MTk4MjYwOX0.j0cNHOWw8eI-OlgPtW7Wn7K5aHJPz_6XGCF_zfOfdks';
 
-const config = await loadConfig();
-
-const supabaseUrl = config.SUPABASE_URL;
-const supabaseAnonKey = config.SUPABASE_ANON_KEY;
-
+// Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Supabase URL or Anon Key is missing. Please check your environment variables or config.json.");
-  throw new Error("Supabase configuration is incomplete.");
+  console.error("Supabase URL or Anon Key is missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+// Create client immediately (synchronous)
+export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
@@ -174,15 +172,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 /**
  * Returns the Supabase client instance (synchronous).
  */
-export const getSupabase = () => {
-    return supabase;
+export const getSupabase = (): SupabaseClient => {
+  return supabase;
 };
 
 /**
  * Legacy async version for backward compatibility
  */
-export const getSupabaseAsync = async () => {
-    return supabase;
+export const getSupabaseAsync = async (): Promise<SupabaseClient> => {
+  return supabase;
 };
 
 /**
