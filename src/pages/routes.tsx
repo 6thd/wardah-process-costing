@@ -3,6 +3,7 @@ import { MainLayout } from "@/components/layout/main-layout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حماية المسارات
 import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
 import { SignUpPage } from "@/pages/signup"; // ✅ صفحة التسجيل الجديد
+import { SuperAdminModule } from "@/pages/super-admin"; // ✅ لوحة Super Admin
 
 // Import all the modules
 import { DashboardModule } from "@/features/dashboard";
@@ -115,6 +116,13 @@ export const appRouter = createBrowserRouter([
           {
             path: "design-system",
             element: <DesignSystemDemo />,
+          },
+          // ===================================
+          // 🔴 Super Admin (داخل MainLayout)
+          // ===================================
+          {
+            path: "super-admin/*",
+            element: <SuperAdminModule />,
           },
         ],
       }
