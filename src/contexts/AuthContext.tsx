@@ -32,9 +32,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   
   // Load user's organizations
   const loadOrganizations = async (userId: string) => {
+    console.log('🔄 Loading organizations for user:', userId);
+    
+    // Default org from config
+    const configOrgId = '00000000-0000-0000-0000-000000000001';
+    
     try {
       const supabase = getSupabase();
-      const { data, error } = await supabase
+      
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout')), 5000)
+      );
+      
+      const queryPromise = supabase
         .from('user_organizations')
         .select(`
           *,
@@ -43,14 +54,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .eq('user_id', userId)
         .eq('is_active', true);
 
+      const result = await Promise.race([queryPromise, timeoutPromise]) as any;
+      const { data, error } = result;
+
+      console.log('📦 Organizations result:', { data, error });
+
       if (error) {
-        console.error('Error loading organizations:', error);
+        console.error('❌ Error loading organizations:', error);
+        setCurrentOrgIdState(configOrgId);
+        localStorage.setItem('current_org_id', configOrgId);
         return;
       }
 
       setOrganizations(data || []);
 
-      // Set current org from localStorage or first available
+      // Set current org from localStorage or first available or config default
       const storedOrgId = localStorage.getItem('current_org_id');
       if (storedOrgId && data?.find((uo: any) => uo.org_id === storedOrgId)) {
         setCurrentOrgIdState(storedOrgId);
@@ -58,9 +76,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const firstOrgId = data[0].org_id;
         setCurrentOrgIdState(firstOrgId);
         localStorage.setItem('current_org_id', firstOrgId);
+      } else {
+        // No organizations found, use config default
+        console.log('⚠️ No organizations found, using default:', configOrgId);
+        setCurrentOrgIdState(configOrgId);
+        localStorage.setItem('current_org_id', configOrgId);
       }
     } catch (error) {
-      console.error('Error in loadOrganizations:', error);
+      console.error('❌ Error in loadOrganizations:', error);
+      // Fallback to config org_id
+      setCurrentOrgIdState(configOrgId);
+      localStorage.setItem('current_org_id', configOrgId);
     }
   };
 
