@@ -1,5 +1,10 @@
 import { useTranslation } from 'react-i18next'
-import { Menu, Bell, User, Search, Settings, LogOut } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { 
+  Menu, Bell, User, Search, Settings, LogOut,
+  Shield, Building2, KeyRound, Activity, 
+  HelpCircle, UserCog, History, Smartphone
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -9,6 +14,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  DropdownMenuGroup,
+  DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -17,14 +24,19 @@ import { LanguageToggle } from '@/components/language-toggle'
 import { OrganizationSelector } from '@/components/organization-selector'
 import { useUIStore } from '@/store/ui-store'
 import { useAuthStore } from '@/store/auth-store'
+import { useAuth } from '@/contexts/AuthContext'
 import { cn } from '@/lib/utils'
 import { getGlassClasses } from '@/lib/wardah-ui-utils'
 
 export function Header() {
   const { t, i18n } = useTranslation()
-  const { user, logout } = useAuthStore()
+  const navigate = useNavigate()
+  const { user: storeUser, logout: storeLogout } = useAuthStore()
+  const { user: authUser, signOut } = useAuth()
   const { setSidebarOpen, setSidebarCollapsed, sidebarCollapsed, notifications } = useUIStore()
 
+  // استخدام المستخدم من AuthContext أو AuthStore
+  const user = authUser || storeUser
   const isRTL = i18n.language === 'ar'
   const unreadCount = notifications.filter(n => !n.read).length
 
@@ -36,8 +48,20 @@ export function Header() {
     }
   }
 
-  const userFullName = user?.full_name || user?.email?.split('@')[0] || 'User';
-  const userAvatarFallback = userFullName?.charAt(0);
+  // تسجيل الخروج
+  const handleLogout = async () => {
+    try {
+      await signOut()
+      storeLogout()
+      navigate('/login')
+    } catch (error) {
+      console.error('Logout error:', error)
+    }
+  }
+
+  const userFullName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'مستخدم';
+  const userEmail = user?.email || '';
+  const userAvatarFallback = userFullName?.charAt(0)?.toUpperCase();
 
   return (
     <header className="fixed top-0 left-0 right-0 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border z-50">
@@ -167,50 +191,160 @@ export function Header() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* User Menu */}
+          {/* User Menu - قائمة المستخدم المتطورة */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" className="h-9 px-2">
-                <Avatar className="h-7 w-7">
-                  <AvatarImage src={userFullName || undefined} />
-                  <AvatarFallback className="text-xs">
+              <Button variant="ghost" className="h-9 px-2 hover:bg-accent/50 transition-colors">
+                <Avatar className="h-7 w-7 ring-2 ring-primary/20">
+                  <AvatarImage src={user?.user_metadata?.avatar_url || undefined} />
+                  <AvatarFallback className="text-xs bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
                     {userAvatarFallback}
                   </AvatarFallback>
                 </Avatar>
                 <span className={cn(
-                  "hidden md:inline-block text-sm",
+                  "hidden md:inline-block text-sm font-medium",
                   isRTL ? "mr-2" : "ml-2"
                 )}>
                   {userFullName}
                 </span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align={isRTL ? "start" : "end"} className={getGlassClasses()}>
-              <DropdownMenuLabel className={isRTL ? "text-right" : "text-left"}>
-                <div className="flex flex-col">
-                  <span>{userFullName}</span>
-                  <span className="text-xs text-muted-foreground">{user?.email}</span>
+            <DropdownMenuContent 
+              align={isRTL ? "start" : "end"} 
+              className={cn("w-72", getGlassClasses())}
+              sideOffset={8}
+            >
+              {/* معلومات المستخدم */}
+              <DropdownMenuLabel className="p-4">
+                <div className={cn("flex items-center gap-3", isRTL ? "flex-row-reverse" : "")}>
+                  <Avatar className="h-12 w-12 ring-2 ring-primary/30">
+                    <AvatarImage src={user?.user_metadata?.avatar_url || undefined} />
+                    <AvatarFallback className="text-lg bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
+                      {userAvatarFallback}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className={cn("flex flex-col", isRTL ? "items-end" : "items-start")}>
+                    <span className="font-semibold text-base">{userFullName}</span>
+                    <span className="text-xs text-muted-foreground">{userEmail}</span>
+                    <Badge variant="secondary" className="mt-1 text-[10px]">
+                      <Shield className="h-3 w-3 mr-1" />
+                      {isRTL ? 'مسؤول المنظمة' : 'Org Admin'}
+                    </Badge>
+                  </div>
                 </div>
               </DropdownMenuLabel>
+              
               <DropdownMenuSeparator />
-              <DropdownMenuItem className={isRTL ? "text-right" : "text-left"}>
-                <User className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-                {t('settings.users')}
-              </DropdownMenuItem>
-              <DropdownMenuItem className={isRTL ? "text-right" : "text-left"}>
-                <Settings className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-                {t('navigation.settings')}
-              </DropdownMenuItem>
+              
+              {/* إدارة الحساب */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={cn("text-xs text-muted-foreground px-2", isRTL ? "text-right" : "")}>
+                  {isRTL ? 'إدارة الحساب' : 'Account Management'}
+                </DropdownMenuLabel>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/settings/profile')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <User className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'الملف الشخصي' : 'My Profile'}</span>
+                  <DropdownMenuShortcut>⌘P</DropdownMenuShortcut>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/settings/preferences')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <UserCog className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'تفضيلات الحساب' : 'Preferences'}</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/settings/security')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <KeyRound className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'الأمان وكلمة المرور' : 'Security'}</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              
               <DropdownMenuSeparator />
+              
+              {/* إدارة المنظمة */}
+              <DropdownMenuGroup>
+                <DropdownMenuLabel className={cn("text-xs text-muted-foreground px-2", isRTL ? "text-right" : "")}>
+                  {isRTL ? 'إدارة المنظمة' : 'Organization'}
+                </DropdownMenuLabel>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/org-admin/users')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <Building2 className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'إدارة المستخدمين' : 'Manage Users'}</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/org-admin/roles')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <Shield className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'الأدوار والصلاحيات' : 'Roles & Permissions'}</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/settings')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <Settings className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'الإعدادات' : 'Settings'}</span>
+                  <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              
+              <DropdownMenuSeparator />
+              
+              {/* النشاط والدعم */}
+              <DropdownMenuGroup>
+                <DropdownMenuItem 
+                  onClick={() => navigate('/activity-log')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <History className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'سجل النشاط' : 'Activity Log'}</span>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => navigate('/active-sessions')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <Smartphone className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'الجلسات النشطة' : 'Active Sessions'}</span>
+                  <Badge variant="secondary" className="text-[10px]">2</Badge>
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem 
+                  onClick={() => window.open('https://docs.wardah.sa', '_blank')}
+                  className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
+                >
+                  <HelpCircle className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
+                  <span className="flex-1">{isRTL ? 'المساعدة والدعم' : 'Help & Support'}</span>
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
+              
+              <DropdownMenuSeparator />
+              
+              {/* تسجيل الخروج */}
               <DropdownMenuItem 
-                onClick={logout} 
+                onClick={handleLogout} 
                 className={cn(
-                  "text-destructive",
-                  isRTL ? "text-right" : "text-left"
+                  "cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10",
+                  isRTL ? "flex-row-reverse" : ""
                 )}
               >
                 <LogOut className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-                {t('auth.logout')}
+                <span className="flex-1">{isRTL ? 'تسجيل الخروج' : 'Sign Out'}</span>
+                <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
