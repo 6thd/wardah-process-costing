@@ -400,7 +400,9 @@ export async function getInvitations(orgId: string): Promise<Invitation[]> {
  */
 export async function createInvitation(
   orgId: string,
-  input: CreateInvitationInput
+  input: CreateInvitationInput,
+  orgName?: string,
+  inviterName?: string
 ): Promise<{ success: boolean; invitation?: Invitation; error?: string }> {
   try {
     const supabase = getSupabase();
@@ -413,18 +415,11 @@ export async function createInvitation(
       .eq('org_id', orgId)
       .eq('email', input.email.toLowerCase())
       .eq('status', 'pending')
-      .single();
+      .maybeSingle();
 
     if (existing) {
       return { success: false, error: 'هذا البريد مدعو بالفعل' };
     }
-
-    // Check if user already in org
-    const { data: existingUser } = await supabase
-      .from('user_profiles')
-      .select('user_id')
-      .ilike('user_id', `%${input.email}%`) // This won't work, need to check auth.users
-      .single();
 
     // Generate token
     const token = generateToken();
@@ -446,6 +441,20 @@ export async function createInvitation(
 
     if (error) throw error;
 
+    // Send invitation email
+    const emailResult = await sendInvitationEmail(
+      input.email,
+      token,
+      orgName || 'المنظمة',
+      inviterName || 'مدير النظام',
+      input.message
+    );
+
+    if (!emailResult.success) {
+      console.warn('⚠️ Invitation created but email failed:', emailResult.error);
+      // Don't fail the whole operation, just warn
+    }
+
     return { success: true, invitation: data };
   } catch (error: any) {
     console.error('Error creating invitation:', error);
@@ -457,10 +466,23 @@ export async function createInvitation(
  * Resend invitation
  */
 export async function resendInvitation(
-  invitationId: string
+  invitationId: string,
+  orgName?: string,
+  inviterName?: string
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabase();
+
+    // Get invitation details first
+    const { data: invitation, error: fetchError } = await supabase
+      .from('invitations')
+      .select('*')
+      .eq('id', invitationId)
+      .single();
+
+    if (fetchError || !invitation) {
+      throw new Error('الدعوة غير موجودة');
+    }
 
     const newToken = generateToken();
 
@@ -475,7 +497,18 @@ export async function resendInvitation(
 
     if (error) throw error;
 
-    // TODO: Send email with new token
+    // Send invitation email with new token
+    const emailResult = await sendInvitationEmail(
+      invitation.email,
+      newToken,
+      orgName || 'المنظمة',
+      inviterName || 'مدير النظام',
+      invitation.invitation_message
+    );
+
+    if (!emailResult.success) {
+      console.warn('⚠️ Invitation updated but email failed:', emailResult.error);
+    }
 
     return { success: true };
   } catch (error: any) {
@@ -637,6 +670,46 @@ function generateToken(): string {
     token += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return token;
+}
+
+/**
+ * Send invitation email via Edge Function
+ */
+async function sendInvitationEmail(
+  email: string,
+  token: string,
+  orgName: string,
+  inviterName: string,
+  message?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const supabase = getSupabase();
+    
+    // Build invite link
+    const baseUrl = window.location.origin;
+    const inviteLink = `${baseUrl}/signup?invite=${token}`;
+
+    const response = await supabase.functions.invoke('send-invitation-email', {
+      body: {
+        email,
+        inviterName,
+        orgName,
+        inviteLink,
+        message,
+      },
+    });
+
+    if (response.error) {
+      console.error('Error from Edge Function:', response.error);
+      return { success: false, error: response.error.message };
+    }
+
+    console.log('✅ Invitation email sent successfully:', response.data);
+    return { success: true };
+  } catch (error: any) {
+    console.error('❌ Error sending invitation email:', error);
+    return { success: false, error: error.message || 'فشل إرسال البريد الإلكتروني' };
+  }
 }
 
 // =====================================

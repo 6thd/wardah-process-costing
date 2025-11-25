@@ -66,7 +66,7 @@ import {
 import { toast } from 'sonner';
 
 export default function OrgAdminInvitations() {
-  const { currentOrgId } = useAuth();
+  const { currentOrgId, user, organizations } = useAuth();
   const navigate = useNavigate();
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [roles, setRoles] = useState<OrgRole[]>([]);
@@ -81,6 +81,11 @@ export default function OrgAdminInvitations() {
     message: '',
   });
   const [creating, setCreating] = useState(false);
+
+  // Get org name and inviter name
+  const currentOrg = organizations.find(o => o.org_id === currentOrgId);
+  const orgName = currentOrg?.organization?.name_ar || currentOrg?.organization?.name || 'المنظمة';
+  const inviterName = user?.email?.split('@')[0] || 'مدير النظام';
 
   useEffect(() => {
     loadData();
@@ -121,12 +126,12 @@ export default function OrgAdminInvitations() {
 
     setCreating(true);
     try {
-      const result = await createInvitation(currentOrgId, formData);
+      const result = await createInvitation(currentOrgId, formData, orgName, inviterName);
       if (result.success && result.invitation) {
         setInvitations([result.invitation, ...invitations]);
         setDialogOpen(false);
         setFormData({ email: '', role_ids: [], message: '' });
-        toast.success('تم إنشاء الدعوة بنجاح');
+        toast.success('تم إنشاء الدعوة وإرسال البريد بنجاح');
       } else {
         toast.error(result.error || 'فشل إنشاء الدعوة');
       }
@@ -138,9 +143,9 @@ export default function OrgAdminInvitations() {
   }
 
   async function handleResend(invitationId: string) {
-    const result = await resendInvitation(invitationId);
+    const result = await resendInvitation(invitationId, orgName, inviterName);
     if (result.success) {
-      toast.success('تم إعادة إرسال الدعوة');
+      toast.success('تم إعادة إرسال الدعوة بنجاح');
       loadData();
     } else {
       toast.error(result.error || 'فشل إعادة الإرسال');
