@@ -164,10 +164,40 @@ export default function OrgAdminInvitations() {
     }
   }
 
-  function copyInviteLink(token: string) {
+  async function copyInviteLink(token: string) {
     const link = `${window.location.origin}/signup?invite=${token}`;
-    navigator.clipboard.writeText(link);
-    toast.success('تم نسخ رابط الدعوة');
+    
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(link);
+        toast.success('تم نسخ رابط الدعوة');
+      } else {
+        // Fallback for older browsers or non-HTTPS
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-999999px';
+        textArea.style.top = '-999999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        
+        if (successful) {
+          toast.success('تم نسخ رابط الدعوة');
+        } else {
+          // Show the link in a toast if copy fails
+          toast.info(`رابط الدعوة: ${link}`, { duration: 10000 });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to copy:', err);
+      // Show the link if all else fails
+      toast.info(`رابط الدعوة: ${link}`, { duration: 10000 });
+    }
   }
 
   function getStatusConfig(status: string) {
