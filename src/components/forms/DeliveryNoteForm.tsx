@@ -230,6 +230,8 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
           invoiced_quantity: line.ordered_quantity,
           delivered_quantity: line.quantity_to_deliver,
           unit_price: line.unit_price,
+          unit_cost_at_delivery: line.unit_cost || 0,
+          cogs_amount: (line.unit_cost || 0) * line.quantity_to_deliver,
           notes: undefined
         }))
       }

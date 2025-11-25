@@ -42,7 +42,9 @@ export async function applyApprovedLeaveToAttendance(leaveId: string) {
     return;
   }
 
-  const leaveCode: string = (leave.leave_type?.code ?? '') || '';
+  // Handle leave_type which might be an object or array
+  const leaveType = Array.isArray(leave.leave_type) ? leave.leave_type[0] : leave.leave_type;
+  const leaveCode: string = (leaveType?.code ?? '') || '';
   const normalized = leaveCode.toUpperCase();
   let status = 'leave';
   let reason = 'annual';

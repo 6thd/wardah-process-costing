@@ -76,6 +76,7 @@ class GeminiFinancialService {
       const { data: revenueData } = await supabase
         .from('journal_lines')
         .select(`
+          account_id,
           credit,
           debit,
           journal_entries!inner (
@@ -95,14 +96,15 @@ class GeminiFinancialService {
         .eq('is_active', true);
 
       const revenueAccountIds = revenueAccounts?.map(a => a.id) || [];
-      const totalRevenue = (revenueData || [])
-        .filter(line => revenueAccountIds.includes(line.account_id))
+      const totalRevenue = ((revenueData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
+        .filter(line => line.account_id && revenueAccountIds.includes(line.account_id))
         .reduce((sum, line) => sum + (Number(line.credit || 0) - Number(line.debit || 0)), 0);
 
       // 2. حساب COGS من قيود اليومية (حسابات COGS)
       const { data: cogsData } = await supabase
         .from('journal_lines')
         .select(`
+          account_id,
           debit,
           credit,
           journal_entries!inner (
@@ -121,8 +123,8 @@ class GeminiFinancialService {
         .eq('is_active', true);
 
       const cogsAccountIds = cogsAccounts?.map(a => a.id) || [];
-      const totalCOGS = (cogsData || [])
-        .filter(line => cogsAccountIds.includes(line.account_id))
+      const totalCOGS = ((cogsData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
+        .filter(line => line.account_id && cogsAccountIds.includes(line.account_id))
         .reduce((sum, line) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0);
 
       // 3. حساب المصروفات التشغيلية

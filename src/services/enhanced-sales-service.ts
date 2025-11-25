@@ -563,7 +563,13 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
     if (linesError) throw linesError;
 
     // 7. Create accounting entry for sales
-    await createSalesAccountingEntry(invData, invoice);
+    // Create invoice object with invoice_number for accounting entry
+    const invoiceForAccounting: SalesInvoice = {
+      ...invoice,
+      id: invData.id,
+      invoice_number: invoiceNumber
+    };
+    await createSalesAccountingEntry(invData, invoiceForAccounting);
 
     // 8. Get full invoice with relations
     const { data: fullInvoice, error: fetchError } = await supabase

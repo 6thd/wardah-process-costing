@@ -586,7 +586,7 @@ export async function getProductSalesAnalysis(
     // (invoice_lines may not have tenant/org column)
     if (linesError && tenantId && (linesError.code === '42703' || (linesError.message && linesError.message.includes('org_id')))) {
       console.warn('org_id column not found in sales_invoice_lines, trying without tenant filter');
-      invoiceLinesQuery = supabase
+      let finalRetryQuery = supabase
         .from('sales_invoice_lines')
         .select(`
           id,
@@ -600,12 +600,30 @@ export async function getProductSalesAnalysis(
         .in('sales_invoice_id', invoiceIds);
       
       if (productId) {
-        invoiceLinesQuery = invoiceLinesQuery.eq('product_id', productId);
+        finalRetryQuery = finalRetryQuery.eq('product_id', productId);
       }
       
-      const retryResult = await invoiceLinesQuery;
+      const retryResult = await finalRetryQuery;
       invoiceLines = retryResult.data;
       linesError = retryResult.error;
+      
+      // If we got lines without items, fetch items separately
+      if (invoiceLines && invoiceLines.length > 0) {
+        const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
+        if (productIds.length > 0) {
+          const { data: itemsData } = await supabase
+            .from('items')
+            .select('id, code, name')
+            .in('id', productIds);
+          
+          // Map items to lines
+          const itemsMap = new Map((itemsData || []).map((item: any) => [item.id, item]));
+          invoiceLines = invoiceLines.map((line: any) => ({
+            ...line,
+            items: [itemsMap.get(line.product_id) || { id: line.product_id, code: '', name: '' }]
+          }));
+        }
+      }
     }
 
     if (linesError) throw linesError;

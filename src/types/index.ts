@@ -3,8 +3,8 @@
 
 export * from './auth'
 export * from './config'
-export * from './inventory'
-export * from './manufacturing'
-export * from './purchasing'
-export * from './sales'
+// export * from './inventory' // File not found - commented out
+// export * from './manufacturing' // File not found - commented out
+// export * from './purchasing' // File not found - commented out
+// export * from './sales' // File not found - commented out
 export * from './security'

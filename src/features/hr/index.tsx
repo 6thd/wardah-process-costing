@@ -62,6 +62,7 @@ import {
 import {
   listAttendanceForPeriod,
   AttendanceDayPayload,
+  setDayStatusFallback,
 } from '@/services/hr/attendance-service';
 import { createEmployee } from '@/services/hr/employee-service';
 

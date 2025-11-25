@@ -408,16 +408,48 @@ function ChartOfAccounts() {
                 }
             }
 
-            const dataToSave = { ...formData, org_id };
+            // Convert category to account_type for CreateGLAccountInput
+            const accountType = formData.category as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE' | undefined;
+            if (!accountType) {
+                toast.error(isRTL ? "نوع الحساب مطلوب" : "Account type is required");
+                return;
+            }
 
             if (modalType === 'edit' && selectedAccount) {
-                // Update existing account
-                await updateGLAccount(selectedAccount.id, dataToSave);
-                toast.success(isRTL ? 'تم تحديث الحساب بنجاح' : 'Account updated successfully');
+                // Update existing account - UpdateGLAccountInput needs { id, ...updates }
+                const updateData: any = {
+                    id: selectedAccount.id,
+                    code: formData.code,
+                    name: formData.name,
+                    name_ar: formData.name_ar,
+                    name_en: formData.name_en,
+                    account_type: accountType,
+                    parent_id: formData.parent_id || null,
+                    is_active: formData.is_active,
+                };
+                const result = await updateGLAccount(updateData);
+                if (result.success) {
+                    toast.success(isRTL ? 'تم تحديث الحساب بنجاح' : 'Account updated successfully');
+                } else {
+                    throw new Error(result.error || 'Update failed');
+                }
             } else {
-                // Create new account
-                await createGLAccount(dataToSave);
-                toast.success(isRTL ? 'تمت إضافة الحساب بنجاح' : 'Account created successfully');
+                // Create new account - CreateGLAccountInput needs account_type (required)
+                const createData: any = {
+                    code: formData.code as string,
+                    name: formData.name as string,
+                    name_ar: formData.name_ar,
+                    name_en: formData.name_en,
+                    account_type: accountType,
+                    parent_id: formData.parent_id || null,
+                    is_active: formData.is_active !== false,
+                };
+                const result = await createGLAccount(createData);
+                if (result.success) {
+                    toast.success(isRTL ? 'تمت إضافة الحساب بنجاح' : 'Account created successfully');
+                } else {
+                    throw new Error(result.error || 'Create failed');
+                }
             }
 
             handleCloseModal();
@@ -436,25 +468,24 @@ function ChartOfAccounts() {
             
         if (window.confirm(confirmMessage)) {
             try {
-                const org_id = await getEffectiveTenantId();
-                if (!org_id) throw new Error(isRTL ? "معرف المؤسسة غير موجود" : "Organization ID not found");
-
-                const result = await deleteGLAccount(account.id, org_id);
+                const result = await deleteGLAccount(account.id);
                 
                 if (result.success) {
-                    if (result.soft_deleted) {
+                    toast.success(isRTL ? 'تم حذف الحساب بنجاح' : 'Account deleted successfully');
+                    await loadAccounts();
+                } else {
+                    // Check if error indicates soft delete (has transactions)
+                    if (result.error && result.error.includes('transactions')) {
                         toast.success(
                             isRTL 
                                 ? 'تم إلغاء تفعيل الحساب (يحتوي على معاملات)'
                                 : 'Account deactivated (has transactions)',
                             { description: isRTL ? 'الحساب تم إخفاؤه وليس حذفه نهائياً' : 'Account was hidden, not permanently deleted' }
                         );
+                        await loadAccounts();
                     } else {
-                        toast.success(isRTL ? 'تم حذف الحساب بنجاح' : 'Account deleted successfully');
+                        throw new Error(result.error || 'Delete failed');
                     }
-                    await loadAccounts();
-                } else {
-                    throw new Error(result.message || 'Delete failed');
                 }
             } catch (err: any) {
                 console.error('Error deleting account:', err);

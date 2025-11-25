@@ -232,7 +232,11 @@ export const bomTreeService = {
     const { data, error } = await query
 
     if (error) throw error
-    return (data && Array.isArray(data) ? data.length : 0) || 0
+    // delete() may return null or undefined, so we check for array
+    if (data && Array.isArray(data)) {
+      return data.length
+    }
+    return 0
   }
 }
 
