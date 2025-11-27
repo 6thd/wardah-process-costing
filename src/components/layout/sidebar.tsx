@@ -177,14 +177,14 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.HR,
       subItems: [
-        { key: 'overview', href: '/hr/overview', label: t('navigation.overview') },
-        { key: 'employees', href: '/hr/employees', label: t('navigation.employees') },
-        { key: 'departments', href: '/hr/departments', label: t('navigation.departments') },
-        { key: 'positions', href: '/hr/positions', label: t('navigation.positions') },
-        { key: 'payroll', href: '/hr/payroll', label: t('navigation.payroll') },
-        { key: 'attendance', href: '/hr/attendance', label: t('navigation.attendance') },
-        { key: 'leave-types', href: '/hr/leave-types', label: t('navigation.leave-types') },
-        { key: 'reports', href: '/hr/reports', label: t('navigation.reports') }
+        { key: 'overview', href: '/hr/overview', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
+        { key: 'employees', href: '/hr/employees', label: isRTL ? 'الموظفون' : 'Employees' },
+        { key: 'attendance', href: '/hr/attendance', label: isRTL ? 'الحضور' : 'Attendance' },
+        { key: 'payroll', href: '/hr/payroll', label: isRTL ? 'الرواتب' : 'Payroll' },
+        { key: 'leaves', href: '/hr/leaves', label: isRTL ? 'الإجازات' : 'Leaves' },
+        { key: 'settlements', href: '/hr/settlements', label: isRTL ? 'التسويات' : 'Settlements' },
+        { key: 'reports', href: '/hr/reports', label: isRTL ? 'التقارير' : 'Reports' },
+        { key: 'settings', href: '/hr/settings', label: isRTL ? 'الإعدادات' : 'Settings' }
       ]
     },
     {
