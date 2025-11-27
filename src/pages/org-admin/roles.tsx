@@ -71,9 +71,11 @@ import { toast } from 'sonner';
 interface Permission {
   id: string;
   module_id: string;
+  resource: string;
+  resource_ar: string;
   action: string;
-  name: string;
-  name_ar: string;
+  action_ar: string;
+  permission_key: string;
   description?: string;
   description_ar?: string;
 }
@@ -776,7 +778,7 @@ export default function OrgAdminRoles() {
                                   className="border-slate-600"
                                 />
                                 <span className="text-sm text-slate-300">
-                                  {perm.name_ar || perm.name}
+                                  {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
                               </div>
                             ))}
