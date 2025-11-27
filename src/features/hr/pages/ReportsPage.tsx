@@ -319,7 +319,7 @@ export const ReportsPage: React.FC = () => {
               return (
                 <div
                   key={dept.name}
-                  className="flex items-center gap-4 rounded-lg border p-4 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-4 rounded-lg border p-4 hover:bg-muted/50 transition-colors"
                 >
                   <div className={`w-3 h-3 rounded-full ${colors[index % colors.length]}`} />
                   <div className="flex-1">

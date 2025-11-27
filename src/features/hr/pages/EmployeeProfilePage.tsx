@@ -123,7 +123,7 @@ export const EmployeeProfilePage: React.FC = () => {
                                 </CardHeader>
                                 <CardContent>
                                     <div className="space-y-4">
-                                        <div className="flex justify-between items-center p-3 bg-slate-50 rounded-md">
+                                        <div className="flex justify-between items-center p-3 bg-muted/50 rounded-md">
                                             <span className="font-medium">الراتب الأساسي</span>
                                             <span className="font-bold">{employee.salary?.toLocaleString()} {employee.currency}</span>
                                         </div>

@@ -154,7 +154,7 @@ export const EmployeeListPage: React.FC = () => {
                                     {filteredEmployees.map((employee) => (
                                         <TableRow
                                             key={employee.id}
-                                            className="cursor-pointer hover:bg-slate-50"
+                                            className="cursor-pointer hover:bg-muted/50"
                                             onClick={() => navigate(`/hr/employees/${employee.id}`)}
                                         >
                                             <TableCell>

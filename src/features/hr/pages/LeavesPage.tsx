@@ -150,45 +150,45 @@ export const LeavesPage: React.FC = () => {
 
       {/* بطاقات الإحصائيات */}
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="border-amber-200/50 bg-amber-50/30">
+        <Card className="border-amber-500/30 bg-amber-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-amber-700">طلبات معلقة</p>
-                <p className="text-2xl font-bold text-amber-900">{leaveStats.pending}</p>
+                <p className="text-sm text-amber-400">طلبات معلقة</p>
+                <p className="text-2xl font-bold text-amber-300">{leaveStats.pending}</p>
               </div>
               <AlertCircle className="h-8 w-8 text-amber-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-emerald-200/50 bg-emerald-50/30">
+        <Card className="border-emerald-500/30 bg-emerald-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-emerald-700">تمت الموافقة</p>
-                <p className="text-2xl font-bold text-emerald-900">{leaveStats.approved}</p>
+                <p className="text-sm text-emerald-400">تمت الموافقة</p>
+                <p className="text-2xl font-bold text-emerald-300">{leaveStats.approved}</p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-emerald-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-rose-200/50 bg-rose-50/30">
+        <Card className="border-rose-500/30 bg-rose-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-rose-700">مرفوضة</p>
-                <p className="text-2xl font-bold text-rose-900">{leaveStats.rejected}</p>
+                <p className="text-sm text-rose-400">مرفوضة</p>
+                <p className="text-2xl font-bold text-rose-300">{leaveStats.rejected}</p>
               </div>
               <XCircle className="h-8 w-8 text-rose-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-blue-200/50 bg-blue-50/30">
+        <Card className="border-blue-500/30 bg-blue-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-blue-700">إجمالي الطلبات</p>
-                <p className="text-2xl font-bold text-blue-900">{leaveStats.total}</p>
+                <p className="text-sm text-blue-400">إجمالي الطلبات</p>
+                <p className="text-2xl font-bold text-blue-300">{leaveStats.total}</p>
               </div>
               <CalendarDays className="h-8 w-8 text-blue-500" />
             </div>
@@ -208,7 +208,7 @@ export const LeavesPage: React.FC = () => {
               return (
                 <div
                   key={type.id}
-                  className="flex items-center gap-3 rounded-lg border p-3 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
                 >
                   <Icon className={`h-5 w-5 ${type.color}`} />
                   <div className="flex-1 min-w-0">

@@ -97,7 +97,7 @@ export const DashboardPage: React.FC = () => {
                             {Object.entries(attendanceStats).map(([status, count]) => (
                                 <div
                                     key={status}
-                                    className={`rounded-full px-3 py-1 text-xs font-medium ${ATTENDANCE_COLORS[status] ?? 'bg-slate-50 text-slate-700 border border-slate-100'}`}
+                                    className={`rounded-full px-3 py-1 text-xs font-medium ${ATTENDANCE_COLORS[status] ?? 'bg-muted text-muted-foreground border border-border'}`}
                                 >
                                     {status} • {count}
                                 </div>
@@ -112,7 +112,7 @@ export const DashboardPage: React.FC = () => {
                             {todaysAttendance.map((log) => (
                                 <div
                                     key={log.id}
-                                    className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2 text-sm hover:bg-slate-50 transition-colors"
+                                    className="flex items-center justify-between rounded-md border border-border/50 px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
                                 >
                                     <div>
                                         <p className="font-medium">
@@ -124,7 +124,7 @@ export const DashboardPage: React.FC = () => {
                                         </p>
                                     </div>
                                     <Badge
-                                        className={`capitalize ${ATTENDANCE_COLORS[log.status] ?? 'bg-slate-100 text-slate-700'}`}
+                                        className={`capitalize ${ATTENDANCE_COLORS[log.status] ?? 'bg-muted text-muted-foreground'}`}
                                     >
                                         {log.status}
                                     </Badge>
@@ -149,7 +149,7 @@ export const DashboardPage: React.FC = () => {
                         {payrollRuns.map((run) => (
                             <div
                                 key={run.id}
-                                className="flex items-start justify-between rounded-md border border-border/60 p-3 text-sm hover:bg-slate-50 transition-colors"
+                                className="flex items-start justify-between rounded-md border border-border/60 p-3 text-sm hover:bg-muted/50 transition-colors"
                             >
                                 <div>
                                     <p className="font-semibold">{run.periodCode}</p>
@@ -158,7 +158,7 @@ export const DashboardPage: React.FC = () => {
                                     </p>
                                 </div>
                                 <Badge
-                                    className={`capitalize ${STATUS_BADGES[run.status] ?? 'bg-slate-100 text-slate-700'}`}
+                                    className={`capitalize ${STATUS_BADGES[run.status] ?? 'bg-muted text-muted-foreground'}`}
                                 >
                                     {run.status}
                                 </Badge>

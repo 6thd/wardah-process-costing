@@ -11,7 +11,7 @@ interface HrDashboardLayoutProps {
 
 export const HrDashboardLayout: React.FC<HrDashboardLayoutProps> = ({ children }) => {
     return (
-        <div className="h-full overflow-auto p-6 bg-slate-50/50">
+        <div className="h-full overflow-auto p-6">
             <PageTransition>
                 {children}
             </PageTransition>

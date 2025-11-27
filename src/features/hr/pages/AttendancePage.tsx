@@ -113,8 +113,8 @@ export const AttendancePage: React.FC = () => {
                 <CardContent className="p-0">
                     <ScrollArea className="h-[600px] w-full">
                         <div className="min-w-[1200px]">
-                            <div className="flex border-b bg-slate-50 sticky top-0 z-10">
-                                <div className="w-48 p-3 font-semibold text-sm border-l sticky right-0 bg-slate-50 z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                            <div className="flex border-b bg-muted sticky top-0 z-10">
+                                <div className="w-48 p-3 font-semibold text-sm border-l sticky right-0 bg-muted z-20 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
                                     الموظف
                                 </div>
                                 {daysArray.map((day) => (
@@ -127,14 +127,14 @@ export const AttendancePage: React.FC = () => {
                             {employees.map((employee) => {
                                 const empAttendance = monthlyAttendanceMap.get(employee.id) || {};
                                 return (
-                                    <div key={employee.id} className="flex border-b hover:bg-slate-50/50 transition-colors">
-                                        <div className="w-48 p-3 text-sm font-medium border-l sticky right-0 bg-white hover:bg-slate-50 z-10 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
+                                    <div key={employee.id} className="flex border-b hover:bg-muted/50/50 transition-colors">
+                                        <div className="w-48 p-3 text-sm font-medium border-l sticky right-0 bg-white hover:bg-muted/50 z-10 shadow-[4px_0_8px_-4px_rgba(0,0,0,0.1)]">
                                             {employee.name}
                                         </div>
                                         {daysArray.map((day) => {
                                             const dayData = empAttendance[day.toString()];
                                             const status = dayData?.status || 'off';
-                                            const colorClass = ATTENDANCE_COLORS[status] || 'bg-slate-50';
+                                            const colorClass = ATTENDANCE_COLORS[status] || 'bg-muted';
 
                                             return (
                                                 <div key={day} className="w-10 p-1 border-l last:border-l-0 flex items-center justify-center">

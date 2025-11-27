@@ -62,25 +62,25 @@ export interface AttendanceModalState {
 }
 
 export const STATUS_BADGES: Record<string, string> = {
-    active: 'bg-emerald-100 text-emerald-800',
-    inactive: 'bg-slate-100 text-slate-800',
-    terminated: 'bg-rose-100 text-rose-800',
-    probation: 'bg-amber-100 text-amber-800',
-    pending: 'bg-amber-100 text-amber-800',
-    approved: 'bg-emerald-100 text-emerald-800',
-    rejected: 'bg-rose-100 text-rose-800',
-    draft: 'bg-slate-100 text-slate-800',
-    calculated: 'bg-blue-100 text-blue-800',
-    paid: 'bg-emerald-100 text-emerald-800',
+    active: 'bg-emerald-500/20 text-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-400',
+    inactive: 'bg-slate-500/20 text-slate-400 dark:bg-slate-500/20 dark:text-slate-400',
+    terminated: 'bg-rose-500/20 text-rose-400 dark:bg-rose-500/20 dark:text-rose-400',
+    probation: 'bg-amber-500/20 text-amber-400 dark:bg-amber-500/20 dark:text-amber-400',
+    pending: 'bg-amber-500/20 text-amber-400 dark:bg-amber-500/20 dark:text-amber-400',
+    approved: 'bg-emerald-500/20 text-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-400',
+    rejected: 'bg-rose-500/20 text-rose-400 dark:bg-rose-500/20 dark:text-rose-400',
+    draft: 'bg-slate-500/20 text-slate-400 dark:bg-slate-500/20 dark:text-slate-400',
+    calculated: 'bg-blue-500/20 text-blue-400 dark:bg-blue-500/20 dark:text-blue-400',
+    paid: 'bg-emerald-500/20 text-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-400',
 };
 
 export const ATTENDANCE_COLORS: Record<string, string> = {
-    present: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
-    absent: 'bg-rose-50 text-rose-700 border border-rose-100',
-    late: 'bg-amber-50 text-amber-700 border border-amber-100',
-    leave: 'bg-blue-50 text-blue-700 border border-blue-100',
-    remote: 'bg-violet-50 text-violet-700 border border-violet-100',
-    off: 'bg-slate-50 text-slate-600 border border-slate-100',
+    present: 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
+    absent: 'bg-rose-500/20 text-rose-400 border border-rose-500/30',
+    late: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
+    leave: 'bg-blue-500/20 text-blue-400 border border-blue-500/30',
+    remote: 'bg-violet-500/20 text-violet-400 border border-violet-500/30',
+    off: 'bg-slate-500/20 text-slate-400 border border-slate-500/30',
 };
 
 export const PAYROLL_ACCOUNT_TYPES: Array<{

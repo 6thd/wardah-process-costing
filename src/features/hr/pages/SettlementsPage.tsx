@@ -145,56 +145,56 @@ export const SettlementsPage: React.FC = () => {
 
       {/* بطاقات الإحصائيات */}
       <div className="grid gap-4 md:grid-cols-5">
-        <Card className="border-amber-200/50 bg-amber-50/30">
+        <Card className="border-amber-500/30 bg-amber-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-amber-700">قيد المعالجة</p>
-                <p className="text-2xl font-bold text-amber-900">{settlementStats.pending}</p>
+                <p className="text-sm text-amber-400">قيد المعالجة</p>
+                <p className="text-2xl font-bold text-amber-300">{settlementStats.pending}</p>
               </div>
               <Clock className="h-8 w-8 text-amber-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-blue-200/50 bg-blue-50/30">
+        <Card className="border-blue-500/30 bg-blue-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-blue-700">معتمدة</p>
-                <p className="text-2xl font-bold text-blue-900">{settlementStats.approved}</p>
+                <p className="text-sm text-blue-400">معتمدة</p>
+                <p className="text-2xl font-bold text-blue-300">{settlementStats.approved}</p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-blue-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-emerald-200/50 bg-emerald-50/30">
+        <Card className="border-emerald-500/30 bg-emerald-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-emerald-700">مدفوعة</p>
-                <p className="text-2xl font-bold text-emerald-900">{settlementStats.paid}</p>
+                <p className="text-sm text-emerald-400">مدفوعة</p>
+                <p className="text-2xl font-bold text-emerald-300">{settlementStats.paid}</p>
               </div>
               <DollarSign className="h-8 w-8 text-emerald-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-slate-200/50 bg-slate-50/30">
+        <Card className="border-slate-500/30 bg-slate-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-700">الإجمالي</p>
-                <p className="text-2xl font-bold text-slate-900">{settlementStats.total}</p>
+                <p className="text-sm text-slate-400">الإجمالي</p>
+                <p className="text-2xl font-bold text-slate-300">{settlementStats.total}</p>
               </div>
               <Briefcase className="h-8 w-8 text-slate-500" />
             </div>
           </CardContent>
         </Card>
-        <Card className="border-purple-200/50 bg-purple-50/30">
+        <Card className="border-purple-500/30 bg-purple-500/10">
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-purple-700">إجمالي المبالغ</p>
-                <p className="text-xl font-bold text-purple-900">
+                <p className="text-sm text-purple-400">إجمالي المبالغ</p>
+                <p className="text-xl font-bold text-purple-300">
                   {settlementStats.totalAmount.toLocaleString()} ر.س
                 </p>
               </div>
@@ -205,10 +205,10 @@ export const SettlementsPage: React.FC = () => {
       </div>
 
       {/* حاسبة مكافأة نهاية الخدمة */}
-      <Card className="bg-gradient-to-br from-teal-50/50 to-cyan-50/50 border-teal-200/50">
+      <Card className="bg-gradient-to-br from-teal-500/10 to-cyan-500/10 border-teal-500/30">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5 text-teal-600" />
+              <Calculator className="h-5 w-5 text-teal-400" />
             حاسبة مكافأة نهاية الخدمة (نظام العمل السعودي)
           </CardTitle>
           <CardDescription>
@@ -418,10 +418,10 @@ export const SettlementsPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="rounded-lg bg-teal-50 border border-teal-200 p-4">
+              <div className="rounded-lg bg-teal-500/10 border border-teal-500/30 p-4">
                 <div className="flex justify-between items-center">
-                  <span className="font-semibold text-teal-900">إجمالي التسوية:</span>
-                  <span className="text-2xl font-bold text-teal-700">
+                  <span className="font-semibold text-teal-300">إجمالي التسوية:</span>
+                  <span className="text-2xl font-bold text-teal-400">
                     {selectedSettlement.totalAmount?.toLocaleString()} ر.س
                   </span>
                 </div>

@@ -99,25 +99,25 @@ export const PayrollPage: React.FC = () => {
                     </CardHeader>
                     <CardContent className="space-y-4">
                         <div className="grid grid-cols-2 gap-4">
-                            <div className="p-4 bg-slate-50 rounded-lg">
+                            <div className="p-4 bg-muted/50 rounded-lg">
                                 <p className="text-sm text-muted-foreground">إجمالي الرواتب</p>
                                 <p className="text-2xl font-bold text-emerald-600">
                                     {preview?.totals?.gross?.toLocaleString() ?? 0}
                                 </p>
                             </div>
-                            <div className="p-4 bg-slate-50 rounded-lg">
+                            <div className="p-4 bg-muted/50 rounded-lg">
                                 <p className="text-sm text-muted-foreground">صافي الدفع</p>
                                 <p className="text-2xl font-bold text-blue-600">
                                     {preview?.totals?.net?.toLocaleString() ?? 0}
                                 </p>
                             </div>
-                            <div className="p-4 bg-slate-50 rounded-lg">
+                            <div className="p-4 bg-muted/50 rounded-lg">
                                 <p className="text-sm text-muted-foreground">الاستقطاعات</p>
                                 <p className="text-xl font-semibold text-rose-600">
                                     {preview?.totals?.deductions?.toLocaleString() ?? 0}
                                 </p>
                             </div>
-                            <div className="p-4 bg-slate-50 rounded-lg">
+                            <div className="p-4 bg-muted/50 rounded-lg">
                                 <p className="text-sm text-muted-foreground">العمل الإضافي</p>
                                 <p className="text-xl font-semibold text-amber-600">
                                     {preview?.totals?.overtime?.toLocaleString() ?? 0}
@@ -141,7 +141,7 @@ export const PayrollPage: React.FC = () => {
                                 payrollRuns.map((run) => (
                                     <div
                                         key={run.id}
-                                        className="flex items-center justify-between p-3 border rounded-md hover:bg-slate-50"
+                                        className="flex items-center justify-between p-3 border rounded-md hover:bg-muted/50"
                                     >
                                         <div>
                                             <p className="font-medium">{run.periodCode}</p>
