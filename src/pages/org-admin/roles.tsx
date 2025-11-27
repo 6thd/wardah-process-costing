@@ -49,6 +49,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft,
   Shield,
@@ -664,7 +665,8 @@ export default function OrgAdminRoles() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 overflow-y-auto py-4 space-y-6">
+            <ScrollArea className="flex-1 max-h-[60vh] pr-4">
+              <div className="py-4 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -789,7 +791,8 @@ export default function OrgAdminRoles() {
                   })}
                 </div>
               </div>
-            </div>
+              </div>
+            </ScrollArea>
 
             <DialogFooter className="gap-2 pt-4 border-t border-slate-800">
               <Button
