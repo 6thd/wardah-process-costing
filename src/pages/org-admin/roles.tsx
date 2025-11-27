@@ -49,7 +49,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import {
   ArrowLeft,
   Shield,
@@ -665,7 +664,7 @@ export default function OrgAdminRoles() {
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="flex-1 h-[50vh] border border-slate-800/50 rounded-lg bg-slate-950/30">
+            <div className="flex-1 h-[400px] overflow-y-auto border border-slate-800/50 rounded-lg bg-slate-950/30 scrollbar-elegant">
               <div className="p-4 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
@@ -792,7 +791,7 @@ export default function OrgAdminRoles() {
                 </div>
               </div>
               </div>
-            </ScrollArea>
+            </div>
 
             <DialogFooter className="gap-2 pt-4 border-t border-slate-800">
               <Button
