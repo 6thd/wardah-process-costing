@@ -146,7 +146,7 @@ export const PayrollPage: React.FC = () => {
                                         <div>
                                             <p className="font-medium">{run.periodCode}</p>
                                             <p className="text-xs text-muted-foreground">
-                                                {run.runDate ? format(new Date(run.runDate), 'PPP', { locale: ar }) : ''}
+                                                {run.processedOn ? format(new Date(run.processedOn), 'PPP', { locale: ar }) : ''}
                                             </p>
                                         </div>
                                         <div className="text-left">

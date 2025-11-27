@@ -30,7 +30,7 @@ export interface PayrollRun {
     status: 'draft' | 'calculated' | 'approved' | 'paid';
     totalNet?: number;
     currency?: string;
-    runDate?: string;
+    processedOn?: string;
 }
 
 export interface HrDashboardMetrics {

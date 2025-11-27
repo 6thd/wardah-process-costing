@@ -63,13 +63,14 @@ import {
 
 // أنواع حسابات الرواتب
 const PAYROLL_ACCOUNT_TYPES: { value: PayrollAccountType; label: string }[] = [
-  { value: 'SALARY_EXPENSE', label: 'مصروف الرواتب' },
-  { value: 'ALLOWANCE', label: 'البدلات' },
-  { value: 'DEDUCTION', label: 'الخصومات' },
-  { value: 'GOSI_EMPLOYER', label: 'التأمينات (صاحب العمل)' },
-  { value: 'GOSI_EMPLOYEE', label: 'التأمينات (الموظف)' },
-  { value: 'ACCRUED_SALARIES', label: 'رواتب مستحقة' },
-  { value: 'CASH_BANK', label: 'النقدية/البنك' },
+  { value: 'basic_salary', label: 'الراتب الأساسي' },
+  { value: 'housing_allowance', label: 'بدل السكن' },
+  { value: 'transport_allowance', label: 'بدل النقل' },
+  { value: 'other_allowance', label: 'بدلات أخرى' },
+  { value: 'deductions', label: 'الخصومات' },
+  { value: 'loans', label: 'السلف' },
+  { value: 'payable', label: 'رواتب مستحقة' },
+  { value: 'net_payable', label: 'صافي الدفع' },
 ];
 
 export const SettingsPage: React.FC = () => {
@@ -180,59 +181,48 @@ export const SettingsPage: React.FC = () => {
             <CardContent className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>أيام العمل الأسبوعية</Label>
-                  <Select
-                    value={String(currentPolicies?.workingDaysPerWeek || 5)}
-                    onValueChange={(v) => handlePolicyChange('workingDaysPerWeek', Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="5">5 أيام</SelectItem>
-                      <SelectItem value="6">6 أيام</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>ساعات العمل اليومية</Label>
+                  <Label>ساعات العمل اليومية (موظفون)</Label>
                   <Input
                     type="number"
-                    value={currentPolicies?.workingHoursPerDay || 8}
-                    onChange={(e) => handlePolicyChange('workingHoursPerDay', Number(e.target.value))}
+                    value={currentPolicies?.employee_daily_hours || 8}
+                    onChange={(e) => handlePolicyChange('employee_daily_hours', Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    ساعات العمل للموظفين الإداريين
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>ساعات العمل اليومية (عمال)</Label>
+                  <Input
+                    type="number"
+                    value={currentPolicies?.worker_daily_hours || 11}
+                    onChange={(e) => handlePolicyChange('worker_daily_hours', Number(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    ساعات العمل للعمال في المصنع
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>عدد الورديات (عمال)</Label>
+                  <Input
+                    type="number"
+                    value={currentPolicies?.worker_shifts || 2}
+                    onChange={(e) => handlePolicyChange('worker_shifts', Number(e.target.value))}
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>بداية السنة المالية للموارد البشرية</Label>
+                  <Label>معامل العمل الإضافي</Label>
                   <Select
-                    value={String(currentPolicies?.fiscalYearStartMonth || 1)}
-                    onValueChange={(v) => handlePolicyChange('fiscalYearStartMonth', Number(v))}
+                    value={String(currentPolicies?.overtime_multiplier || 1.5)}
+                    onValueChange={(v) => handlePolicyChange('overtime_multiplier', Number(v))}
                   >
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {[...Array(12)].map((_, i) => (
-                        <SelectItem key={i + 1} value={String(i + 1)}>
-                          {new Date(2024, i, 1).toLocaleDateString('ar-SA', { month: 'long' })}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label>العملة الافتراضية</Label>
-                  <Select
-                    value={currentPolicies?.defaultCurrency || 'SAR'}
-                    onValueChange={(v) => handlePolicyChange('defaultCurrency', v)}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="SAR">ريال سعودي (SAR)</SelectItem>
-                      <SelectItem value="AED">درهم إماراتي (AED)</SelectItem>
-                      <SelectItem value="USD">دولار أمريكي (USD)</SelectItem>
+                      <SelectItem value="1.25">1.25x</SelectItem>
+                      <SelectItem value="1.5">1.5x</SelectItem>
+                      <SelectItem value="2">2x</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -269,72 +259,42 @@ export const SettingsPage: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>الإجازة السنوية (أيام)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.annualLeaveDays || 21}
-                    onChange={(e) => handlePolicyChange('annualLeaveDays', Number(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    وفقاً لنظام العمل السعودي: 21 يوم لأقل من 5 سنوات، 30 يوم لأكثر
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>الإجازة المرضية (أيام)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.sickLeaveDays || 30}
-                    onChange={(e) => handlePolicyChange('sickLeaveDays', Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>إجازة الأمومة (أيام)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.maternityLeaveDays || 70}
-                    onChange={(e) => handlePolicyChange('maternityLeaveDays', Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>إجازة الأبوة (أيام)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.paternityLeaveDays || 3}
-                    onChange={(e) => handlePolicyChange('paternityLeaveDays', Number(e.target.value))}
-                  />
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-400">إعدادات الإجازات</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      سياسات الإجازات يتم إدارتها من خلال جدول leave_types في قاعدة البيانات.
+                      يمكنك إضافة أنواع جديدة أو تعديل الأنواع الموجودة مباشرة من قاعدة البيانات.
+                    </p>
+                  </div>
                 </div>
               </div>
 
-              <div className="rounded-lg border p-4 space-y-4">
-                <h4 className="font-medium">خيارات إضافية</h4>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>السماح بترحيل الإجازات</Label>
+              <div className="grid gap-4 md:grid-cols-2">
+                <Card className="border-emerald-500/30">
+                  <CardContent className="p-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-emerald-400">الإجازة السنوية</p>
+                      <p className="text-2xl font-bold">21 يوم</p>
                       <p className="text-xs text-muted-foreground">
-                        ترحيل الرصيد المتبقي للسنة التالية
+                        وفقاً لنظام العمل السعودي
                       </p>
                     </div>
-                    <Switch
-                      checked={currentPolicies?.allowLeaveCarryover || false}
-                      onCheckedChange={(v) => handlePolicyChange('allowLeaveCarryover', v)}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <Label>طلب موافقة المدير</Label>
+                  </CardContent>
+                </Card>
+                <Card className="border-rose-500/30">
+                  <CardContent className="p-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-medium text-rose-400">الإجازة المرضية</p>
+                      <p className="text-2xl font-bold">30 يوم</p>
                       <p className="text-xs text-muted-foreground">
-                        تفعيل سير عمل الموافقات للإجازات
+                        بموجب تقرير طبي
                       </p>
                     </div>
-                    <Switch
-                      checked={currentPolicies?.requireManagerApproval || true}
-                      onCheckedChange={(v) => handlePolicyChange('requireManagerApproval', v)}
-                    />
-                  </div>
-                </div>
+                  </CardContent>
+                </Card>
               </div>
 
               <div className="flex justify-end">
@@ -366,34 +326,21 @@ export const SettingsPage: React.FC = () => {
             <CardContent className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
-                  <Label>وقت بدء العمل</Label>
-                  <Input
-                    type="time"
-                    value={currentPolicies?.workStartTime || '08:00'}
-                    onChange={(e) => handlePolicyChange('workStartTime', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>وقت نهاية العمل</Label>
-                  <Input
-                    type="time"
-                    value={currentPolicies?.workEndTime || '17:00'}
-                    onChange={(e) => handlePolicyChange('workEndTime', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>فترة السماح للتأخير (دقائق)</Label>
+                  <Label>فترة السماح للعمل الإضافي (دقائق)</Label>
                   <Input
                     type="number"
-                    value={currentPolicies?.lateGracePeriod || 15}
-                    onChange={(e) => handlePolicyChange('lateGracePeriod', Number(e.target.value))}
+                    value={currentPolicies?.overtime_grace_minutes || 0}
+                    onChange={(e) => handlePolicyChange('overtime_grace_minutes', Number(e.target.value))}
                   />
+                  <p className="text-xs text-muted-foreground">
+                    الحد الأدنى للدقائق الإضافية لاحتساب العمل الإضافي
+                  </p>
                 </div>
                 <div className="space-y-2">
                   <Label>معامل العمل الإضافي</Label>
                   <Select
-                    value={String(currentPolicies?.overtimeMultiplier || 1.5)}
-                    onValueChange={(v) => handlePolicyChange('overtimeMultiplier', Number(v))}
+                    value={String(currentPolicies?.overtime_multiplier || 1.5)}
+                    onValueChange={(v) => handlePolicyChange('overtime_multiplier', Number(v))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -407,40 +354,26 @@ export const SettingsPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="rounded-lg border p-4 space-y-4">
-                <h4 className="font-medium">خصومات التأخير</h4>
-                <div className="grid gap-4 md:grid-cols-3">
-                  <div className="space-y-2">
-                    <Label>خصم التأخير الأول</Label>
-                    <Input
-                      type="number"
-                      placeholder="0"
-                      value={currentPolicies?.firstLateDeduction || 0}
-                      onChange={(e) => handlePolicyChange('firstLateDeduction', Number(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">ريال</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>خصم التأخير الثاني</Label>
-                    <Input
-                      type="number"
-                      placeholder="50"
-                      value={currentPolicies?.secondLateDeduction || 50}
-                      onChange={(e) => handlePolicyChange('secondLateDeduction', Number(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">ريال</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>خصم التأخير الثالث فأكثر</Label>
-                    <Input
-                      type="number"
-                      placeholder="100"
-                      value={currentPolicies?.thirdLateDeduction || 100}
-                      onChange={(e) => handlePolicyChange('thirdLateDeduction', Number(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">ريال</p>
-                  </div>
+              <div className="rounded-lg border border-blue-500/30 p-4 space-y-3">
+                <h4 className="font-medium text-blue-400">أيام نهاية الأسبوع</h4>
+                <div className="flex flex-wrap gap-2">
+                  {['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map((day, idx) => {
+                    const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][idx];
+                    const isWeekend = currentPolicies?.weekend_days?.includes(dayKey);
+                    return (
+                      <Badge 
+                        key={day}
+                        variant={isWeekend ? 'default' : 'outline'}
+                        className={isWeekend ? 'bg-blue-500/20 text-blue-400' : ''}
+                      >
+                        {day}
+                      </Badge>
+                    );
+                  })}
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  الأيام المحددة: {currentPolicies?.weekend_days?.join(', ') || 'لا يوجد'}
+                </p>
               </div>
 
               <div className="flex justify-end">

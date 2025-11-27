@@ -97,7 +97,7 @@ export const ReportsPage: React.FC = () => {
 
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
-    queryFn: () => getEmployees(500),
+    queryFn: getEmployees,
   });
 
   const { data: payrollRuns = [] } = useQuery({

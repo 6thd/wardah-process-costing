@@ -83,7 +83,7 @@ export const LeavesPage: React.FC = () => {
   // جلب قائمة الموظفين
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
-    queryFn: () => getEmployees(500),
+    queryFn: getEmployees,
   });
 
   // تصفية الطلبات
