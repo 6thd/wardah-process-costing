@@ -5,7 +5,13 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { getOrgRolesWithStats, OrgRole } from '@/services/org-admin-service';
+import { 
+  getOrgRolesWithStats, 
+  OrgRole, 
+  getRoleTemplates, 
+  createRoleFromTemplate, 
+  RoleTemplate 
+} from '@/services/org-admin-service';
 import { getSupabase } from '@/lib/supabase';
 import {
   Card,
@@ -56,6 +62,9 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  FileText,
+  Copy,
+  Sparkles,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -91,6 +100,11 @@ export default function OrgAdminRoles() {
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Templates state
+  const [templates, setTemplates] = useState<RoleTemplate[]>([]);
+  const [activeTab, setActiveTab] = useState<'roles' | 'templates'>('roles');
+  const [creatingFromTemplate, setCreatingFromTemplate] = useState<string | null>(null);
 
   // Form state
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -122,6 +136,10 @@ export default function OrgAdminRoles() {
       const rolesData = await getOrgRolesWithStats(currentOrgId);
       setRoles(rolesData);
 
+      // Load templates
+      const templatesData = await getRoleTemplates();
+      setTemplates(templatesData);
+
       // Load modules with permissions
       const { data: modulesData } = await supabase
         .from('modules')
@@ -138,6 +156,52 @@ export default function OrgAdminRoles() {
     } finally {
       setLoading(false);
     }
+  }
+
+  async function handleCreateFromTemplate(templateId: string) {
+    if (!currentOrgId) return;
+
+    setCreatingFromTemplate(templateId);
+    try {
+      const result = await createRoleFromTemplate(currentOrgId, templateId);
+      
+      if (result.success) {
+        toast.success('تم إنشاء الدور من القالب بنجاح');
+        loadData();
+        setActiveTab('roles');
+      } else {
+        toast.error(result.error || 'فشل إنشاء الدور');
+      }
+    } catch (error: any) {
+      console.error('Error creating role from template:', error);
+      toast.error(error.message || 'فشل إنشاء الدور');
+    } finally {
+      setCreatingFromTemplate(null);
+    }
+  }
+
+  function getCategoryLabel(category: string): string {
+    const categories: Record<string, string> = {
+      accounting: 'المحاسبة',
+      manufacturing: 'التصنيع',
+      sales: 'المبيعات',
+      inventory: 'المخزون',
+      hr: 'الموارد البشرية',
+      general: 'عام',
+    };
+    return categories[category] || category;
+  }
+
+  function getCategoryColor(category: string): string {
+    const colors: Record<string, string> = {
+      accounting: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+      manufacturing: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+      sales: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+      inventory: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+      hr: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+      general: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    };
+    return colors[category] || colors.general;
   }
 
   function openNewRoleDialog() {
@@ -366,31 +430,61 @@ export default function OrgAdminRoles() {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Roles Grid */}
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[1, 2, 3].map(i => (
-              <Skeleton key={i} className="h-48 w-full bg-slate-800 rounded-xl" />
-            ))}
-          </div>
-        ) : roles.length === 0 ? (
-          <Card className="bg-slate-900/50 border-slate-800">
-            <CardContent className="p-12 text-center">
-              <Shield className="h-12 w-12 mx-auto text-slate-600 mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">لا توجد أدوار</h3>
-              <p className="text-slate-400 mb-4">قم بإنشاء دور جديد للبدء</p>
-              <Button
-                onClick={openNewRoleDialog}
-                className="bg-gradient-to-r from-teal-600 to-cyan-600"
-              >
-                <Plus className="h-4 w-4 ml-2" />
-                إنشاء دور
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {roles.map(role => (
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'roles' | 'templates')} className="mb-6">
+          <TabsList className="bg-slate-800/50 border border-slate-700">
+            <TabsTrigger 
+              value="roles" 
+              className="data-[state=active]:bg-slate-700 data-[state=active]:text-white"
+            >
+              <Shield className="h-4 w-4 ml-2" />
+              الأدوار ({roles.length})
+            </TabsTrigger>
+            <TabsTrigger 
+              value="templates"
+              className="data-[state=active]:bg-slate-700 data-[state=active]:text-white"
+            >
+              <Sparkles className="h-4 w-4 ml-2" />
+              قوالب جاهزة ({templates.length})
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Roles Tab */}
+          <TabsContent value="roles" className="mt-6">
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map(i => (
+                  <Skeleton key={i} className="h-48 w-full bg-slate-800 rounded-xl" />
+                ))}
+              </div>
+            ) : roles.length === 0 ? (
+              <Card className="bg-slate-900/50 border-slate-800">
+                <CardContent className="p-12 text-center">
+                  <Shield className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">لا توجد أدوار</h3>
+                  <p className="text-slate-400 mb-4">قم بإنشاء دور جديد أو استخدم قالب جاهز</p>
+                  <div className="flex items-center justify-center gap-3">
+                    <Button
+                      onClick={openNewRoleDialog}
+                      className="bg-gradient-to-r from-teal-600 to-cyan-600"
+                    >
+                      <Plus className="h-4 w-4 ml-2" />
+                      إنشاء دور
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => setActiveTab('templates')}
+                      className="border-slate-700"
+                    >
+                      <Sparkles className="h-4 w-4 ml-2" />
+                      استخدام قالب
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {roles.map(role => (
               <Card
                 key={role.id}
                 className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all group"
@@ -472,6 +566,86 @@ export default function OrgAdminRoles() {
             ))}
           </div>
         )}
+          </TabsContent>
+
+          {/* Templates Tab */}
+          <TabsContent value="templates" className="mt-6">
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3].map(i => (
+                  <Skeleton key={i} className="h-48 w-full bg-slate-800 rounded-xl" />
+                ))}
+              </div>
+            ) : templates.length === 0 ? (
+              <Card className="bg-slate-900/50 border-slate-800">
+                <CardContent className="p-12 text-center">
+                  <Sparkles className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                  <h3 className="text-lg font-semibold text-white mb-2">لا توجد قوالب</h3>
+                  <p className="text-slate-400">لم يتم إعداد قوالب أدوار جاهزة بعد</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-6">
+                <p className="text-slate-400 text-sm">
+                  اختر قالباً جاهزاً لإنشاء دور بسرعة مع الصلاحيات المناسبة
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {templates.map(template => (
+                    <Card
+                      key={template.id}
+                      className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all group"
+                    >
+                      <CardHeader className="pb-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <CardTitle className="text-white flex items-center gap-2">
+                              <FileText className="h-4 w-4 text-cyan-400" />
+                              {template.name_ar || template.name}
+                            </CardTitle>
+                            {template.description_ar || template.description ? (
+                              <CardDescription className="text-slate-400 mt-1">
+                                {template.description_ar || template.description}
+                              </CardDescription>
+                            ) : null}
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {template.category && (
+                              <Badge className={getCategoryColor(template.category)}>
+                                {getCategoryLabel(template.category)}
+                              </Badge>
+                            )}
+                            <span className="text-xs text-slate-500">
+                              {template.permission_keys?.length || 0} صلاحية
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={() => handleCreateFromTemplate(template.id)}
+                            disabled={creatingFromTemplate === template.id}
+                            className="bg-gradient-to-r from-cyan-600 to-teal-600 hover:from-cyan-500 hover:to-teal-500"
+                          >
+                            {creatingFromTemplate === template.id ? (
+                              <RefreshCw className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <>
+                                <Copy className="h-4 w-4 ml-1" />
+                                استخدام
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
       </main>
 
       {/* Role Form Dialog */}

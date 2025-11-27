@@ -155,7 +155,7 @@ export function usePermissions(): UserPermissions & {
             role_permissions(
               permission:permissions(
                 action,
-                module:modules(code)
+                module:modules(name)
               )
             )
           )
@@ -168,9 +168,9 @@ export function usePermissions(): UserPermissions & {
       (userRoles || []).forEach((ur: any) => {
         if (ur.role?.is_active) {
           (ur.role.role_permissions || []).forEach((rp: any) => {
-            if (rp.permission?.module?.code) {
+            if (rp.permission?.module?.name) {
               perms.push({
-                module_code: rp.permission.module.code,
+                module_code: rp.permission.module.name,
                 action: rp.permission.action,
               });
             }

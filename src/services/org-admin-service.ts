@@ -620,6 +620,137 @@ export async function getOrgRolesWithStats(orgId: string): Promise<OrgRole[]> {
 }
 
 // =====================================
+// Role Templates
+// =====================================
+
+export interface RoleTemplate {
+  id: string;
+  name: string;
+  name_ar: string;
+  description?: string;
+  description_ar?: string;
+  category?: string;
+  permission_keys: string[];
+  is_active: boolean;
+}
+
+export async function getRoleTemplates(): Promise<RoleTemplate[]> {
+  try {
+    const supabase = getSupabase();
+    
+    const { data, error } = await supabase
+      .from('role_templates')
+      .select('*')
+      .eq('is_active', true)
+      .order('category', { ascending: true });
+
+    if (error) {
+      console.error('Error fetching role templates:', error);
+      return [];
+    }
+
+    return data || [];
+  } catch (error) {
+    console.error('Error in getRoleTemplates:', error);
+    return [];
+  }
+}
+
+export async function createRoleFromTemplate(
+  orgId: string,
+  templateId: string,
+  customName?: string,
+  customNameAr?: string
+): Promise<{ success: boolean; role?: OrgRole; error?: string }> {
+  try {
+    const supabase = getSupabase();
+
+    // 1. Get the template
+    const { data: template, error: templateError } = await supabase
+      .from('role_templates')
+      .select('*')
+      .eq('id', templateId)
+      .single();
+
+    if (templateError || !template) {
+      return { success: false, error: 'Template not found' };
+    }
+
+    // 2. Create the role
+    const { data: role, error: roleError } = await supabase
+      .from('roles')
+      .insert({
+        org_id: orgId,
+        name: customName || template.name,
+        name_ar: customNameAr || template.name_ar,
+        description: template.description,
+        description_ar: template.description_ar,
+        is_system_role: false,
+        is_active: true,
+      })
+      .select()
+      .single();
+
+    if (roleError || !role) {
+      console.error('Error creating role from template:', roleError);
+      return { success: false, error: roleError?.message || 'Failed to create role' };
+    }
+
+    // 3. Get permissions that match the template's permission keys
+    // Template uses patterns like 'manufacturing.%' or 'sales.customers.read'
+    const permissionKeys = template.permission_keys || [];
+    
+    if (permissionKeys.length > 0) {
+      // Build query for permissions
+      // For patterns with %, we use ilike; for exact matches, we use eq
+      let query = supabase.from('permissions').select('id, permission_key');
+      
+      // We need to handle wildcards - for now, fetch all and filter in JS
+      const { data: allPermissions } = await query;
+      
+      if (allPermissions && allPermissions.length > 0) {
+        const matchingPermissionIds: string[] = [];
+        
+        for (const perm of allPermissions) {
+          for (const pattern of permissionKeys) {
+            if (pattern.includes('%')) {
+              // Wildcard pattern - convert to regex
+              const regexPattern = pattern.replace(/%/g, '.*');
+              const regex = new RegExp(`^${regexPattern}$`);
+              if (regex.test(perm.permission_key)) {
+                matchingPermissionIds.push(perm.id);
+                break;
+              }
+            } else {
+              // Exact match
+              if (perm.permission_key === pattern) {
+                matchingPermissionIds.push(perm.id);
+                break;
+              }
+            }
+          }
+        }
+
+        // 4. Create role_permissions
+        if (matchingPermissionIds.length > 0) {
+          const rolePermissions = matchingPermissionIds.map(permId => ({
+            role_id: role.id,
+            permission_id: permId,
+          }));
+
+          await supabase.from('role_permissions').insert(rolePermissions);
+        }
+      }
+    }
+
+    return { success: true, role };
+  } catch (error: any) {
+    console.error('Error in createRoleFromTemplate:', error);
+    return { success: false, error: error.message || 'Unknown error' };
+  }
+}
+
+// =====================================
 // Helper Functions
 // =====================================
 
@@ -653,6 +784,8 @@ export const orgAdminService = {
   revokeInvitation,
   acceptInvitation,
   getOrgRolesWithStats,
+  getRoleTemplates,
+  createRoleFromTemplate,
 };
 
 export default orgAdminService;
