@@ -665,8 +665,8 @@ export default function OrgAdminRoles() {
               </DialogDescription>
             </DialogHeader>
 
-            <ScrollArea className="flex-1 max-h-[60vh] pr-4">
-              <div className="py-4 space-y-6">
+            <ScrollArea className="flex-1 h-[50vh] border border-slate-800/50 rounded-lg bg-slate-950/30">
+              <div className="p-4 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
