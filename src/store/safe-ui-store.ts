@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { safeStorageAdapter } from '@/lib/safe-storage'
 
 export type Theme = 'light' | 'dark' | 'system'
 export type Language = 'ar' | 'en'
@@ -141,6 +142,7 @@ export const useSafeUIStore = create<SafeUIState>()(
     }),
     {
       name: 'safe-ui-storage',
+      storage: createJSONStorage(() => safeStorageAdapter),
       partialize: (state) => ({
         theme: state.theme,
         language: state.language,

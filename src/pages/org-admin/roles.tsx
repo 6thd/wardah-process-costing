@@ -2,7 +2,8 @@
 // بسم الله الرحمن الرحيم
 // Org Admin - Roles & Permissions Management
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import * as React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
@@ -102,6 +103,7 @@ export default function OrgAdminRoles() {
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   // Templates state
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
@@ -123,42 +125,82 @@ export default function OrgAdminRoles() {
   // Expanded modules for permission selection
   const [expandedModules, setExpandedModules] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadData();
-  }, [currentOrgId]);
+  // Handle dialog close - memoized to prevent re-renders
+  const handleDialogClose = useCallback((open: boolean) => {
+    if (!open) {
+      setDialogOpen(false);
+      // Reset form when dialog closes - defer to avoid state update during render
+      requestAnimationFrame(() => {
+        setEditingRole(null);
+        setFormData({
+          name: '',
+          name_ar: '',
+          description: '',
+          description_ar: '',
+          permission_ids: [],
+        });
+        setExpandedModules([]);
+      });
+    }
+  }, []);
 
-  async function loadData() {
-    if (!currentOrgId) return;
+  const loadData = useCallback(async () => {
+    if (!currentOrgId) {
+      setLoading(false);
+      setError('لا يوجد معرف منظمة محدد');
+      return;
+    }
     
     setLoading(true);
+    setError(null);
+    
     try {
       const supabase = getSupabase();
 
-      // Load roles
-      const rolesData = await getOrgRolesWithStats(currentOrgId);
-      setRoles(rolesData);
+      // Load with timeout
+      const loadPromise = Promise.all([
+        getOrgRolesWithStats(currentOrgId),
+        getRoleTemplates(),
+        supabase
+          .from('modules')
+          .select(`
+            *,
+            permissions(*)
+          `)
+          .order('display_order')
+      ]);
 
-      // Load templates
-      const templatesData = await getRoleTemplates();
-      setTemplates(templatesData);
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('انتهت مهلة التحميل')), 30000)
+      );
 
-      // Load modules with permissions
-      const { data: modulesData } = await supabase
-        .from('modules')
-        .select(`
-          *,
-          permissions(*)
-        `)
-        .order('display_order');
+      const result = await Promise.race([
+        loadPromise,
+        timeoutPromise
+      ]) as [OrgRole[], RoleTemplate[], any];
 
-      setModules(modulesData || []);
-    } catch (error) {
+      setRoles(result[0]);
+      setTemplates(result[1]);
+      setModules(result[2]?.data || []);
+    } catch (error: any) {
       console.error('Error loading data:', error);
-      toast.error('فشل تحميل البيانات');
+      setError(error.message || 'فشل تحميل البيانات');
+      toast.error(error.message || 'فشل تحميل البيانات');
     } finally {
       setLoading(false);
     }
-  }
+  }, [currentOrgId]);
+
+  useEffect(() => {
+    if (currentOrgId) {
+      loadData();
+    } else {
+      // If no currentOrgId, stop loading immediately
+      setLoading(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrgId]);
+
 
   async function handleCreateFromTemplate(templateId: string) {
     if (!currentOrgId) return;
@@ -219,7 +261,7 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }
 
-  async function openEditRoleDialog(role: OrgRole) {
+  const openEditRoleDialog = useCallback(async (role: OrgRole) => {
     const supabase = getSupabase();
     
     // Get role permissions
@@ -237,7 +279,7 @@ export default function OrgAdminRoles() {
       permission_ids: (rolePerms || []).map(rp => rp.permission_id),
     });
     setDialogOpen(true);
-  }
+  }, []);
 
   async function handleSaveRole(e: React.FormEvent) {
     e.preventDefault();
@@ -356,33 +398,37 @@ export default function OrgAdminRoles() {
     }
   }
 
-  function toggleModule(moduleId: string) {
-    if (expandedModules.includes(moduleId)) {
-      setExpandedModules(expandedModules.filter(id => id !== moduleId));
-    } else {
-      setExpandedModules([...expandedModules, moduleId]);
-    }
-  }
+  const toggleModule = useCallback((moduleId: string) => {
+    setExpandedModules(prev => {
+      if (prev.includes(moduleId)) {
+        return prev.filter(id => id !== moduleId);
+      } else {
+        return [...prev, moduleId];
+      }
+    });
+  }, []);
 
-  function toggleModulePermissions(module: Module, select: boolean) {
-    if (select) {
-      const modulePermIds = module.permissions.map(p => p.id);
-      setFormData({
-        ...formData,
-        permission_ids: [...new Set([...formData.permission_ids, ...modulePermIds])],
-      });
-    } else {
-      const modulePermIds = new Set(module.permissions.map(p => p.id));
-      setFormData({
-        ...formData,
-        permission_ids: formData.permission_ids.filter(id => !modulePermIds.has(id)),
-      });
-    }
-  }
+  const toggleModulePermissions = useCallback((module: Module, select: boolean) => {
+    setFormData(prev => {
+      if (select) {
+        const modulePermIds = module.permissions.map(p => p.id);
+        return {
+          ...prev,
+          permission_ids: [...new Set([...prev.permission_ids, ...modulePermIds])],
+        };
+      } else {
+        const modulePermIds = new Set(module.permissions.map(p => p.id));
+        return {
+          ...prev,
+          permission_ids: prev.permission_ids.filter(id => !modulePermIds.has(id)),
+        };
+      }
+    });
+  }, []);
 
-  function getModuleSelectedCount(module: Module) {
+  const getModuleSelectedCount = useCallback((module: Module) => {
     return module.permissions.filter(p => formData.permission_ids.includes(p.id)).length;
-  }
+  }, [formData.permission_ids]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
@@ -651,10 +697,13 @@ export default function OrgAdminRoles() {
       </main>
 
       {/* Role Form Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
-          <form onSubmit={handleSaveRole} className="flex flex-col h-full">
-            <DialogHeader>
+      <Dialog 
+        open={dialogOpen}
+        onOpenChange={handleDialogClose}
+      >
+        <DialogContent className="bg-slate-900 border-slate-800 max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+          <form onSubmit={handleSaveRole} className="flex flex-col h-full max-h-[90vh] overflow-hidden">
+            <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b border-slate-800">
               <DialogTitle className="text-white flex items-center gap-2">
                 <Shield className="h-5 w-5 text-purple-400" />
                 {editingRole ? 'تعديل الدور' : 'إنشاء دور جديد'}
@@ -664,7 +713,7 @@ export default function OrgAdminRoles() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 h-[400px] overflow-y-auto border border-slate-800/50 rounded-lg bg-slate-950/30 scrollbar-elegant">
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 bg-slate-950/30" style={{ maxHeight: 'calc(90vh - 200px)' }}>
               <div className="p-4 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
@@ -733,6 +782,7 @@ export default function OrgAdminRoles() {
                                 toggleModulePermissions(module, !!checked);
                               }}
                               onClick={(e) => e.stopPropagation()}
+                              onPointerDown={(e) => e.stopPropagation()}
                               className="border-slate-600"
                             />
                             <span className="font-medium text-white">
@@ -760,22 +810,41 @@ export default function OrgAdminRoles() {
                                     ? 'bg-teal-950/50 border border-teal-500/30'
                                     : 'bg-slate-950/50 border border-transparent hover:border-slate-700'
                                 }`}
-                                onClick={() => {
-                                  if (formData.permission_ids.includes(perm.id)) {
-                                    setFormData({
-                                      ...formData,
-                                      permission_ids: formData.permission_ids.filter(id => id !== perm.id),
-                                    });
-                                  } else {
-                                    setFormData({
-                                      ...formData,
-                                      permission_ids: [...formData.permission_ids, perm.id],
-                                    });
-                                  }
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setFormData(prev => {
+                                    if (prev.permission_ids.includes(perm.id)) {
+                                      return {
+                                        ...prev,
+                                        permission_ids: prev.permission_ids.filter(id => id !== perm.id),
+                                      };
+                                    } else {
+                                      return {
+                                        ...prev,
+                                        permission_ids: [...prev.permission_ids, perm.id],
+                                      };
+                                    }
+                                  });
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
                                 }}
                               >
                                 <Checkbox
                                   checked={formData.permission_ids.includes(perm.id)}
+                                  onCheckedChange={(checked) => {
+                                    setFormData(prev => {
+                                      if (checked) {
+                                        return { ...prev, permission_ids: [...prev.permission_ids, perm.id] };
+                                      } else {
+                                        return { ...prev, permission_ids: prev.permission_ids.filter(id => id !== perm.id) };
+                                      }
+                                    });
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onPointerDown={(e) => e.stopPropagation()}
                                   className="border-slate-600"
                                 />
                                 <span className="text-sm text-slate-300">
@@ -793,19 +862,19 @@ export default function OrgAdminRoles() {
               </div>
             </div>
 
-            <DialogFooter className="gap-2 pt-4 border-t border-slate-800">
+            <DialogFooter className="gap-2 px-6 py-4 border-t border-slate-800 bg-slate-900 flex-shrink-0 sticky bottom-0 z-10">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setDialogOpen(false)}
-                className="border-slate-700 text-slate-300"
+                className="border-slate-700 text-slate-300 hover:bg-slate-800"
               >
                 إلغاء
               </Button>
               <Button
                 type="submit"
                 disabled={saving}
-                className="bg-gradient-to-r from-teal-600 to-cyan-600"
+                className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50"
               >
                 {saving ? 'جاري الحفظ...' : editingRole ? 'حفظ التغييرات' : 'إنشاء الدور'}
               </Button>

@@ -5,6 +5,7 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { getSupabase } from '@/lib/supabase';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 // تعريف نوع السياق
 interface AuthContextType {
@@ -32,7 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
-    localStorage.getItem('current_org_id') || DEFAULT_ORG_ID
+    safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
   
@@ -74,10 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (error) {
         console.error('❌ Error loading organizations:', error);
         // استخدام القيمة الافتراضية من localStorage أو config
-        const storedOrg = localStorage.getItem('current_org_id');
+        const storedOrg = safeLocalStorage.getItem('current_org_id');
         if (!storedOrg) {
           setCurrentOrgIdState(DEFAULT_ORG_ID);
-          localStorage.setItem('current_org_id', DEFAULT_ORG_ID);
+          safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
         }
         return;
       }
@@ -86,26 +87,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       lastLoadedUserIdRef.current = userId;
 
       // Set current org from localStorage or first available or config default
-      const storedOrgId = localStorage.getItem('current_org_id');
+      const storedOrgId = safeLocalStorage.getItem('current_org_id');
       if (storedOrgId && data?.find((uo: any) => uo.org_id === storedOrgId)) {
         setCurrentOrgIdState(storedOrgId);
       } else if (data && data.length > 0) {
         const firstOrgId = data[0].org_id;
         setCurrentOrgIdState(firstOrgId);
-        localStorage.setItem('current_org_id', firstOrgId);
+        safeLocalStorage.setItem('current_org_id', firstOrgId);
       } else {
         // No organizations found, use config default
         console.log('⚠️ No organizations found, using default:', DEFAULT_ORG_ID);
         setCurrentOrgIdState(DEFAULT_ORG_ID);
-        localStorage.setItem('current_org_id', DEFAULT_ORG_ID);
+        safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
       }
     } catch (error) {
       console.error('❌ Error in loadOrganizations:', error);
       // Fallback to stored or default org_id
-      const storedOrg = localStorage.getItem('current_org_id');
+      const storedOrg = safeLocalStorage.getItem('current_org_id');
       if (!storedOrg) {
         setCurrentOrgIdState(DEFAULT_ORG_ID);
-        localStorage.setItem('current_org_id', DEFAULT_ORG_ID);
+        safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
       }
     } finally {
       loadingOrgsRef.current = false;
@@ -166,7 +167,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (event === 'SIGNED_OUT') {
           setOrganizations([]);
           setCurrentOrgIdState(null);
-          localStorage.removeItem('current_org_id');
+          safeLocalStorage.removeItem('current_org_id');
           lastLoadedUserIdRef.current = null;
         }
         
@@ -196,7 +197,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(null);
       setOrganizations([]);
       setCurrentOrgIdState(null);
-      localStorage.removeItem('current_org_id');
+      safeLocalStorage.removeItem('current_org_id');
       lastLoadedUserIdRef.current = null;
     } catch (error) {
       console.error('Sign out error:', error);
@@ -224,7 +225,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const setCurrentOrgId = (orgId: string) => {
     setCurrentOrgIdState(orgId);
-    localStorage.setItem('current_org_id', orgId);
+    safeLocalStorage.setItem('current_org_id', orgId);
   };
 
   const refreshOrganizations = async () => {

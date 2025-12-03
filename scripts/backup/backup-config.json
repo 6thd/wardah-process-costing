@@ -1,0 +1,55 @@
+{
+  "backup": {
+    "enabled": true,
+    "schedule": {
+      "daily": {
+        "time": "02:00",
+        "timezone": "Asia/Riyadh"
+      },
+      "before_migrations": true
+    },
+    "retention": {
+      "days": 30,
+      "keep_monthly": 12,
+      "keep_yearly": 5
+    },
+    "compression": {
+      "enabled": true,
+      "format": "gzip"
+    },
+    "storage": {
+      "local": {
+        "enabled": true,
+        "path": "./backups"
+      },
+      "cloud": {
+        "enabled": false,
+        "provider": "s3",
+        "bucket": "wardah-backups",
+        "region": "me-south-1"
+      }
+    },
+    "notifications": {
+      "enabled": true,
+      "on_success": false,
+      "on_failure": true,
+      "email": "admin@wardah.sa"
+    }
+  },
+  "restore": {
+    "test_restore": {
+      "enabled": true,
+      "schedule": "weekly",
+      "day": "sunday",
+      "time": "03:00"
+    }
+  },
+  "monitoring": {
+    "check_backup_age": {
+      "enabled": true,
+      "max_age_hours": 26,
+      "alert_on_failure": true
+    }
+  }
+}
+

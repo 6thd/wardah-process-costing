@@ -255,17 +255,23 @@
     <div id="notificationContainer"></div>
 
     <script>
-        // Register service worker for caching
-        if ('serviceWorker' in navigator) {
+        // Register service worker for caching (with safe error handling)
+        if ('serviceWorker' in navigator && window.isSecureContext) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('/gemini-dashboard/service-worker.js')
-                    .then(registration => {
-                        console.log('Service Worker registered with scope:', registration.scope);
-                    })
-                    .catch(error => {
-                        console.log('Service Worker registration failed:', error);
-                    });
+                try {
+                    navigator.serviceWorker.register('/gemini-dashboard/service-worker.js')
+                        .then(registration => {
+                            console.log('Service Worker registered with scope:', registration.scope);
+                        })
+                        .catch(error => {
+                            console.warn('Service Worker registration failed (non-critical):', error);
+                        });
+                } catch (error) {
+                    console.warn('Service Worker registration error (non-critical):', error);
+                }
             });
+        } else {
+            console.log('Service Worker not available (not supported or not in secure context)');
         }
 
         // Optimized initialization with progressive loading

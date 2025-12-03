@@ -2,6 +2,7 @@
 // إدارة المنظمات في نظام multi-tenant
 
 import { getSupabase } from '@/lib/supabase';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 export interface Organization {
   id: string;
@@ -177,20 +178,20 @@ export async function checkUserOrgAccess(
  * Store current org_id in localStorage
  */
 export function setCurrentOrg(orgId: string) {
-  localStorage.setItem('current_org_id', orgId);
+  safeLocalStorage.setItem('current_org_id', orgId);
 }
 
 /**
  * Get current org_id from localStorage
  */
 export function getCurrentOrg(): string | null {
-  return localStorage.getItem('current_org_id');
+  return safeLocalStorage.getItem('current_org_id');
 }
 
 /**
  * Clear current org
  */
 export function clearCurrentOrg() {
-  localStorage.removeItem('current_org_id');
+  safeLocalStorage.removeItem('current_org_id');
 }
 

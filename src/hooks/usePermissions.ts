@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSupabase } from '@/lib/supabase';
+import { safeLocalStorage } from '@/lib/safe-storage';
 
 // =====================================
 // Types
@@ -65,7 +66,7 @@ export function usePermissions(): UserPermissions & {
 
     // إذا لم يكن هناك org_id محدد، نتحقق من صلاحيات Super Admin أولاً
     // ثم نتحقق إذا كان المستخدم org admin في أي منظمة
-    const orgIdToCheck = currentOrgId || localStorage.getItem('current_org_id');
+    const orgIdToCheck = currentOrgId || safeLocalStorage.getItem('current_org_id');
 
     // Check cache
     if (

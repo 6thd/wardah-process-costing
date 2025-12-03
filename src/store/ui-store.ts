@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { safeStorageAdapter, safeLocalStorage } from '@/lib/safe-storage'
 
 export type Theme = 'light' | 'dark' | 'system'
 export type Language = 'ar' | 'en'
@@ -67,9 +68,9 @@ export const useUIStore = create<UIState>()(
       currentSubPage: '',
       breadcrumbs: [],
       notifications: [],
-      lastVisitedTab: localStorage.getItem('ui.lastTab') || 'dashboard',
-      autoSaveEnabled: localStorage.getItem('ui.autoSave') !== 'false',
-      compactMode: localStorage.getItem('ui.compact') === 'true',
+      lastVisitedTab: safeLocalStorage.getItem('ui.lastTab') || 'dashboard',
+      autoSaveEnabled: safeLocalStorage.getItem('ui.autoSave') !== 'false',
+      compactMode: safeLocalStorage.getItem('ui.compact') === 'true',
 
       // Actions
       setTheme: (theme: Theme) => {
@@ -111,7 +112,7 @@ export const useUIStore = create<UIState>()(
 
       setCurrentModule: (module: string) => {
         set({ currentModule: module })
-        localStorage.setItem('ui.lastTab', module)
+        safeLocalStorage.setItem('ui.lastTab', module);
       },
 
       setCurrentSubPage: (subPage: string) => {
@@ -120,17 +121,17 @@ export const useUIStore = create<UIState>()(
 
       setLastVisitedTab: (tab: string) => {
         set({ lastVisitedTab: tab })
-        localStorage.setItem('ui.lastTab', tab)
+        safeLocalStorage.setItem('ui.lastTab', tab);
       },
 
       setAutoSaveEnabled: (enabled: boolean) => {
         set({ autoSaveEnabled: enabled })
-        localStorage.setItem('ui.autoSave', enabled.toString())
+        safeLocalStorage.setItem('ui.autoSave', enabled.toString());
       },
 
       setCompactMode: (compact: boolean) => {
         set({ compactMode: compact })
-        localStorage.setItem('ui.compact', compact.toString())
+        safeLocalStorage.setItem('ui.compact', compact.toString());
       },
 
       setBreadcrumbs: (breadcrumbs: Array<{ label: string; href?: string }>) => {
@@ -194,6 +195,7 @@ export const useUIStore = create<UIState>()(
     }),
     {
       name: 'ui-storage',
+      storage: createJSONStorage(() => safeStorageAdapter),
       partialize: (state) => ({
         theme: state.theme,
         language: state.language,

@@ -4,6 +4,13 @@ import LanguageDetector from 'i18next-browser-languagedetector'
 
 console.log('🔧 Initializing i18n...')
 
+// Safe language detection that doesn't fail if localStorage is unavailable
+const safeLanguageDetector = new LanguageDetector(null, {
+  order: ['navigator', 'htmlTag'], // Removed localStorage
+  caches: [], // Disable caching
+  lookupLocalStorage: 'i18nextLng',
+});
+
 // Import translation files
 import arTranslation from './locales/ar/translation.json'
 import enTranslation from './locales/en/translation.json'
@@ -20,7 +27,7 @@ const resources = {
 console.log('✅ Translation resources loaded')
 
 i18n
-  .use(LanguageDetector)
+  .use(safeLanguageDetector as any)
   .use(initReactI18next)
   .init({
     resources,
@@ -32,8 +39,8 @@ i18n
     },
     
     detection: {
-      order: ['localStorage', 'navigator', 'htmlTag'],
-      caches: ['localStorage'],
+      order: ['navigator', 'htmlTag'], // Removed localStorage to avoid storage access errors
+      caches: [], // Disable caching to avoid storage access errors
     },
     
     react: {

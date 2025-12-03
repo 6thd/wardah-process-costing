@@ -40,26 +40,53 @@ export const useStageCosts = (moId: string) => {
         if (!moId) return [] as StageCost[]
 
         try {
-          // Try with mo_id first (old schema - most likely)
+          // Based on schema check: table uses manufacturing_order_id (not mo_id)
+          // Try manufacturing_order_id first (this is the actual column name)
           let { data, error } = await supabase.from('stage_costs')
             .select('*')
-            .eq('mo_id', moId)
+            .eq('manufacturing_order_id', moId)
           
-          // If that fails, try with manufacturing_order_id (new schema)
-          if (error && (error.code === '42703' || error.message?.includes('mo_id') || error.code === '400')) {
-            console.debug('Trying with manufacturing_order_id instead of mo_id')
+          // If that fails, try mo_id as fallback (for backward compatibility)
+          if (error && (
+            error.code === '42703' || 
+            error.code === 'PGRST116' ||
+            error.code === '400' ||
+            error.message?.includes('manufacturing_order_id') ||
+            error.message?.includes('column') ||
+            error.message?.includes('does not exist')
+          )) {
+            console.debug('manufacturing_order_id failed, trying mo_id:', error.message)
             const result = await supabase.from('stage_costs')
               .select('*')
-              .eq('manufacturing_order_id', moId)
+              .eq('mo_id', moId)
             
             data = result.data
             error = result.error
           }
           
+          // If still error, try without filter (RLS will handle it)
+          if (error && error.code === '400') {
+            console.debug('Trying without filter, using RLS only')
+            const rlsResult = await supabase.from('stage_costs')
+              .select('*')
+              .limit(100) // Get all accessible records, filter in memory
+            
+            if (rlsResult.data && !rlsResult.error) {
+              // Filter in memory by manufacturing_order_id or mo_id
+              data = rlsResult.data.filter((item: any) => 
+                item.manufacturing_order_id === moId || item.mo_id === moId
+              )
+              error = null
+            } else {
+              data = rlsResult.data
+              error = rlsResult.error
+            }
+          }
+          
           // If we have data, enrich with work_center and manufacturing_stage
           if (data && !error && data.length > 0) {
-            // Get unique work center IDs
-            const workCenterIds = [...new Set(data.map((item: any) => item.wc_id || item.work_center_id).filter(Boolean))]
+            // Get unique work center IDs (table uses work_center_id, not wc_id)
+            const workCenterIds = [...new Set(data.map((item: any) => item.work_center_id || item.wc_id).filter(Boolean))]
             const stageIds = [...new Set(data.map((item: any) => item.stage_id).filter(Boolean))]
             
             // Fetch work centers
@@ -88,8 +115,12 @@ export const useStageCosts = (moId: string) => {
             
             data = data.map((item: any) => ({
               ...item,
-              work_center: item.wc_id ? wcMap.get(item.wc_id) : (item.work_center_id ? wcMap.get(item.work_center_id) : null),
-              manufacturing_stage: item.stage_id ? stageMap.get(item.stage_id) : null
+              // Map work center (table uses work_center_id, not wc_id)
+              work_center: item.work_center_id ? wcMap.get(item.work_center_id) : (item.wc_id ? wcMap.get(item.wc_id) : null),
+              manufacturing_stage: item.stage_id ? stageMap.get(item.stage_id) : null,
+              // Normalize column names for consistency
+              manufacturing_order_id: item.manufacturing_order_id || item.mo_id,
+              work_center_id: item.work_center_id || item.wc_id
             }))
           }
           
@@ -106,9 +137,21 @@ export const useStageCosts = (moId: string) => {
             return [] as StageCost[]
           }
 
+          // Handle 400 Bad Request - likely RLS or column issue
+          if (error && error.code === '400') {
+            console.warn('400 Bad Request when fetching stage_costs:', error.message)
+            // Try to get error details
+            if (error.message?.includes('RLS') || error.message?.includes('policy')) {
+              console.warn('RLS policy may be blocking access. Check RLS policies on stage_costs table.')
+            }
+            // Return empty array instead of throwing to prevent UI errors
+            return [] as StageCost[]
+          }
+
           if (error) {
             console.error('Error fetching stage costs:', error)
-            throw error
+            // For other errors, also return empty array to prevent UI breakage
+            return [] as StageCost[]
           }
           return (sortedData || []) as StageCost[]
         } catch (error: any) {
@@ -117,7 +160,14 @@ export const useStageCosts = (moId: string) => {
             console.warn('stage_costs table not found, returning empty array')
             return [] as StageCost[]
           }
-          throw error
+          // For 400 errors, return empty array instead of throwing
+          if (error.code === '400') {
+            console.warn('400 Bad Request when fetching stage_costs:', error.message)
+            return [] as StageCost[]
+          }
+          // Log other errors but don't break the UI
+          console.error('Unexpected error fetching stage costs:', error)
+          return [] as StageCost[]
         }
       })
     },

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { safeStorageAdapter } from '@/lib/safe-storage'
 import { getSupabase } from '../lib/supabase'
 import type { AuthError, AuthChangeEvent, Session } from '@supabase/supabase-js'
 import { loadConfig } from '../lib/config'
@@ -261,6 +262,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'wardah-auth',
+      storage: createJSONStorage(() => safeStorageAdapter),
       partialize: (state) => ({ 
         user: state.user, 
         isAuthenticated: state.isAuthenticated 

@@ -1,5 +1,6 @@
 // src/lib/persistentCache.ts
 import { QueryClient } from '@tanstack/react-query';
+import { safeLocalStorage } from './safe-storage';
 
 export const createOptimizedQueryClient = () => {
   const queryClient = new QueryClient({
@@ -27,26 +28,18 @@ export const createOptimizedQueryClient = () => {
 // Simple localStorage cache implementation
 export const localStorageCache = {
   set: (key: string, value: any) => {
-    try {
-      localStorage.setItem(key, JSON.stringify(value));
-    } catch (e) {
-      console.warn('Failed to set cache item', e);
-    }
+    safeLocalStorage.setItem(key, JSON.stringify(value));
   },
   get: (key: string) => {
+    const item = safeLocalStorage.getItem(key);
+    if (!item) return undefined;
     try {
-      const item = localStorage.getItem(key);
-      return item ? JSON.parse(item) : undefined;
+      return JSON.parse(item);
     } catch (e) {
-      console.warn('Failed to get cache item', e);
       return undefined;
     }
   },
   remove: (key: string) => {
-    try {
-      localStorage.removeItem(key);
-    } catch (e) {
-      console.warn('Failed to remove cache item', e);
-    }
+    safeLocalStorage.removeItem(key);
   }
 };

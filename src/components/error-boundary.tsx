@@ -1,6 +1,8 @@
 import { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import ErrorHandler from '@/lib/errors/ErrorHandler'
+import { AppError } from '@/lib/errors'
 
 interface Props {
   children: ReactNode
@@ -23,6 +25,21 @@ export class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error:', error, errorInfo)
+    
+    // Send to error handler
+    ErrorHandler.handle(error)
+    
+    // Send to monitoring (if available)
+    if (typeof window !== 'undefined' && (window as any).Sentry) {
+      const Sentry = (window as any).Sentry
+      Sentry.captureException(error, {
+        contexts: {
+          react: {
+            componentStack: errorInfo.componentStack,
+          },
+        },
+      })
+    }
   }
 
   public render() {

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { persist, createJSONStorage } from 'zustand/middleware'
+import { safeStorageAdapter } from '@/lib/safe-storage'
 
 export interface SafeUser {
   id: string
@@ -132,6 +133,7 @@ export const useSafeAuthStore = create<SafeAuthState>()(
     }),
     {
       name: 'safe-auth-storage',
+      storage: createJSONStorage(() => safeStorageAdapter),
       partialize: (state) => ({ 
         user: state.user, 
         isAuthenticated: state.isAuthenticated 
