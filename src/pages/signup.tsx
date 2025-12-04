@@ -1,7 +1,7 @@
 // src/pages/signup.tsx
 // صفحة تسجيل حساب جديد مع دعم Multi-Tenant والدعوات
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { getSupabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
@@ -45,16 +45,11 @@ export function SignUpPage() {
   const [invitation, setInvitation] = useState<InvitationData | null>(null);
   const navigate = useNavigate();
 
-  // Load invitation data if token exists
-  useEffect(() => {
-    if (inviteToken) {
-      loadInvitation(inviteToken);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inviteToken]);
-
-  async function loadInvitation(token: string) {
+  // Wrap loadInvitation in useCallback to stabilize the reference
+  const loadInvitation = useCallback(async (token: string) => {
     setLoadingInvite(true);
+    setError('');
+    
     try {
       const supabase = getSupabase();
       
@@ -73,16 +68,19 @@ export function SignUpPage() {
 
       if (error || !data) {
         setError('رابط الدعوة غير صالح أو منتهي الصلاحية');
+        setLoadingInvite(false);
         return;
       }
 
       if (data.status !== 'pending') {
         setError('هذه الدعوة تم استخدامها بالفعل أو ملغاة');
+        setLoadingInvite(false);
         return;
       }
 
       if (new Date(data.expires_at) < new Date()) {
         setError('انتهت صلاحية هذه الدعوة');
+        setLoadingInvite(false);
         return;
       }
 
@@ -103,7 +101,24 @@ export function SignUpPage() {
     } finally {
       setLoadingInvite(false);
     }
-  }
+  }, []);
+
+  // Load invitation data if token exists
+  useEffect(() => {
+    let isMounted = true;
+
+    if (inviteToken && isMounted) {
+      loadInvitation(inviteToken);
+    } else {
+      // Clear loading state if no token
+      setLoadingInvite(false);
+    }
+
+    // Cleanup function to prevent state updates after unmount
+    return () => {
+      isMounted = false;
+    };
+  }, [inviteToken, loadInvitation]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -559,4 +574,3 @@ export function SignUpPage() {
     </div>
   );
 }
-
