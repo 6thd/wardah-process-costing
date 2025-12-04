@@ -620,7 +620,11 @@
       "september": "سبتمبر",
       "october": "أكتوبر",
       "november": "نوفمبر",
-      "december": "ديسمبر"
+      "december": "ديسمبر",
+      "tracking": "تتبع الحضور والإنصراف والغيابات",
+      "monthlyReport": "سجل الحضور الشهري",
+      "records": "سجل الحضور",
+      "pendingRequests": "طلبات الإجازة"
     },
     "payroll": {
       "title": "إدارة الرواتب",
@@ -635,17 +639,6 @@
         "approved": "موافق عليه",
         "paid": "مدفوع"
       }
-    },
-    "attendance": {
-      "title": "سجل الحضور",
-      "tracking": "تتبع الحضور والإنصراف والغيابات",
-      "monthlyReport": "سجل الحضور الشهري",
-      "records": "سجل الحضور",
-      "pendingRequests": "طلبات الإجازة",
-      "present": "حاضر",
-      "absent": "غائب",
-      "late": "متأخر",
-      "leave": "إجازة"
     },
     "leave": {
       "title": "الإجازات",

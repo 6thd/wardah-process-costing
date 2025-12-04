@@ -580,7 +580,11 @@
       "september": "September",
       "october": "October",
       "november": "November",
-      "december": "December"
+      "december": "December",
+      "tracking": "Track attendance, absence and leave records",
+      "monthlyReport": "Monthly Attendance Report",
+      "records": "Attendance Records",
+      "pendingRequests": "Leave Requests"
     },
     "payroll": {
       "title": "Payroll Management",
@@ -595,17 +599,6 @@
         "approved": "Approved",
         "paid": "Paid"
       }
-    },
-    "attendance": {
-      "title": "Attendance Records",
-      "tracking": "Track attendance, absence and leave records",
-      "monthlyReport": "Monthly Attendance Report",
-      "records": "Attendance Records",
-      "pendingRequests": "Leave Requests",
-      "present": "Present",
-      "absent": "Absent",
-      "late": "Late",
-      "leave": "Leave"
     },
     "leaveTypes": {
       "title": "Leave Management",
