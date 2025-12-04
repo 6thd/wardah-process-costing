@@ -48,7 +48,7 @@ export function EnhancedGeminiDashboard() {
         // Format for Gemini dashboard
         const formattedData = geminiFinancialService.formatForGeminiDashboard(kpis, monthlyData);
 
-        // Send data to iframe
+        // Send data to iframe (using same origin for security)
         if (iframeRef.current?.contentWindow) {
           iframeRef.current.contentWindow.postMessage({
             type: 'WARDHAH_DATA_SYNC',
@@ -56,7 +56,7 @@ export function EnhancedGeminiDashboard() {
             kpis,
             breakEven,
             profitLoss
-          }, '*');
+          }, window.location.origin);
         }
 
         setMetrics({
@@ -94,9 +94,15 @@ export function EnhancedGeminiDashboard() {
     };
   }, [autoRefresh]);
 
-  // Listen for messages from iframe
+  // Listen for messages from iframe (verify origin for security)
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // Verify message is from same origin
+      if (event.origin !== window.location.origin) {
+        console.warn('Ignoring message from unauthorized origin:', event.origin);
+        return;
+      }
+      
       if (event.data.type === 'REQUEST_WARDHAH_DATA') {
         syncWithWardah();
       }

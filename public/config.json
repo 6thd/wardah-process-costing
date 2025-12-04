@@ -1,4 +1,5 @@
 {
+  "_comment": "⚠️ SECURITY WARNING: SUPABASE_ANON_KEY is exposed here for development only. In production, use environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY). This file is ignored in production builds.",
   "SUPABASE_URL": "https://uutfztmqvajmsxnrqeiv.supabase.co",
   "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c",
   "ORG_ID": "00000000-0000-0000-0000-000000000001",

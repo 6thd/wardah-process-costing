@@ -144,30 +144,43 @@ export const withOrgContext = <T>(query: T): T => {
 
 
 // Use environment variables for Supabase config (Vite exposes these as import.meta.env)
-// Fallback to values from config.json (matching public/config.json)
+// SECURITY: Prefer environment variables. Fallback to config.json for development.
+// ⚠️ In production, always use environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY)
+
+// Priority: 1) Environment variables, 2) config.json (development fallback)
 const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 
-  'https://uutfztmqvajmsxnrqeiv.supabase.co';
+  (import.meta.env?.DEV ? 'https://uutfztmqvajmsxnrqeiv.supabase.co' : undefined);
 const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || 
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c';
+  (import.meta.env?.DEV ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c' : undefined);
 
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Supabase URL or Anon Key is missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables.");
+  const errorMsg = import.meta.env?.PROD
+    ? "❌ CRITICAL: Supabase configuration missing in production. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables."
+    : "❌ Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, or ensure config.json contains these values.";
+  console.error(errorMsg);
+  if (import.meta.env?.PROD) {
+    throw new Error(errorMsg);
+  }
 }
 
 // Create client immediately (synchronous)
-export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true
-  },
-  realtime: {
-    params: {
-      eventsPerSecond: 10,
+export const supabase: SupabaseClient = createClient(
+  supabaseUrl || 'https://uutfztmqvajmsxnrqeiv.supabase.co',
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
     },
-  },
-});
+    realtime: {
+      params: {
+        eventsPerSecond: 10,
+      },
+    },
+  }
+);
 
 /**
  * Returns the Supabase client instance (synchronous).

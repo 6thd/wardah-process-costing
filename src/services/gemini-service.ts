@@ -24,18 +24,25 @@ class GeminiService {
     console.log('Initializing Gemini Dashboard integration...')
   }
 
-  // Send a message to the iframe dashboard
+  // Send a message to the iframe dashboard (using same origin for security)
   sendMessageToDashboard(message: any) {
     const iframe = document.getElementById('gemini-dashboard-iframe') as HTMLIFrameElement
     if (iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage(message, '*')
+      // Use window.location.origin instead of '*' for security
+      iframe.contentWindow.postMessage(message, window.location.origin)
     }
   }
 
-  // Listen for messages from the iframe dashboard
+  // Listen for messages from the iframe dashboard (verify origin for security)
   listenForMessages(callback: (message: any) => void) {
     const handler = (event: MessageEvent) => {
-      // Verify the message is from our dashboard
+      // Verify the message is from same origin
+      if (event.origin !== window.location.origin) {
+        console.warn('Ignoring message from unauthorized origin:', event.origin)
+        return
+      }
+      
+      // Verify the message is from our dashboard iframe
       const iframe = document.getElementById('gemini-dashboard-iframe') as HTMLIFrameElement | null
       if (iframe && event.source === iframe.contentWindow) {
         callback(event.data)
