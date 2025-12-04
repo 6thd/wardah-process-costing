@@ -144,20 +144,19 @@ export const withOrgContext = <T>(query: T): T => {
 
 
 // Use environment variables for Supabase config (Vite exposes these as import.meta.env)
-// SECURITY: Prefer environment variables. Fallback to config.json for development.
-// ⚠️ In production, always use environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY)
+// SECURITY: NEVER hard-code secrets in source code. Always use environment variables.
+// ⚠️ In production, ALWAYS use environment variables (VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY)
+// ⚠️ The leaked JWT token has been removed. Generate a new one from Supabase dashboard and set it as an environment variable.
 
-// Priority: 1) Environment variables, 2) config.json (development fallback)
-const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || 
-  (import.meta.env?.DEV ? 'https://uutfztmqvajmsxnrqeiv.supabase.co' : undefined);
-const supabaseAnonKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_ANON_KEY) || 
-  (import.meta.env?.DEV ? 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c' : undefined);
+// Priority: Environment variables ONLY (no hardcoded fallbacks for security)
+const supabaseUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_URL : undefined;
+const supabaseAnonKey = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_ANON_KEY : undefined;
 
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
   const errorMsg = import.meta.env?.PROD
-    ? "❌ CRITICAL: Supabase configuration missing in production. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables."
-    : "❌ Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, or ensure config.json contains these values.";
+    ? "❌ CRITICAL: Supabase configuration missing in production. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables. See .env.example for reference."
+    : "❌ Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables. Copy .env.example to .env and fill in your values. See docs/security/SECRETS_MANAGEMENT.md for details.";
   console.error(errorMsg);
   if (import.meta.env?.PROD) {
     throw new Error(errorMsg);
@@ -165,9 +164,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 }
 
 // Create client immediately (synchronous)
+// SECURITY: Do not use fallback values - fail fast if environment variables are missing
 export const supabase: SupabaseClient = createClient(
-  supabaseUrl || 'https://uutfztmqvajmsxnrqeiv.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
+  supabaseUrl || '',
+  supabaseAnonKey || '',
   {
     auth: {
       persistSession: true,
