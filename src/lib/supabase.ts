@@ -152,13 +152,27 @@ export const withOrgContext = <T>(query: T): T => {
 const supabaseUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_URL : undefined;
 const supabaseAnonKey = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_ANON_KEY : undefined;
 
+// Debug logging in development
+if (import.meta.env?.DEV) {
+  console.log('🔍 Environment check:', {
+    hasUrl: !!supabaseUrl,
+    hasKey: !!supabaseAnonKey,
+    urlLength: supabaseUrl?.length || 0,
+    keyLength: supabaseAnonKey?.length || 0,
+    mode: import.meta.env?.MODE,
+    isProd: import.meta.env?.PROD
+  });
+}
+
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
-  const errorMsg = import.meta.env?.PROD
+  const isProduction = import.meta.env?.PROD || import.meta.env?.MODE === 'production';
+  const errorMsg = isProduction
     ? "❌ CRITICAL: Supabase configuration missing in production. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables. See .env.example for reference."
     : "❌ Supabase configuration missing. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY environment variables. Copy .env.example to .env and fill in your values. See docs/security/SECRETS_MANAGEMENT.md for details.";
   console.error(errorMsg);
-  if (import.meta.env?.PROD) {
+  // Only throw in actual production builds, not in dev mode
+  if (isProduction && import.meta.env?.MODE === 'production') {
     throw new Error(errorMsg);
   }
 }
