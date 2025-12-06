@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "validate-env": "tsx scripts/env/validate-env.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:security": "vitest run tests/security"
   },
   "dependencies": {
