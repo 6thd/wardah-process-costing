@@ -123,6 +123,8 @@ export function BOMTreeView({
     return (
       <div className="select-none">
         <div
+          role="button"
+          tabIndex={0}
           className={`
             flex items-center gap-2 p-2 rounded-lg cursor-pointer
             hover:bg-accent transition-colors
@@ -130,6 +132,12 @@ export function BOMTreeView({
           `}
           style={{ paddingLeft: `${level * 24 + 8}px` }}
           onClick={() => handleNodeSelect(node)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              handleNodeSelect(node)
+            }
+          }}
         >
           {/* أيقونة التوسيع */}
           <div className="w-6 flex items-center justify-center">
