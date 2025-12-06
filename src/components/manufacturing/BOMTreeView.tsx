@@ -122,22 +122,15 @@ export function BOMTreeView({
 
     return (
       <div className="select-none">
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           className={`
-            flex items-center gap-2 p-2 rounded-lg cursor-pointer
+            w-full flex items-center gap-2 p-2 rounded-lg border-0 text-left
             hover:bg-accent transition-colors
             ${isSelected ? 'bg-accent border-l-2 border-primary' : ''}
           `}
           style={{ paddingLeft: `${level * 24 + 8}px` }}
           onClick={() => handleNodeSelect(node)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              handleNodeSelect(node)
-            }
-          }}
         >
           {/* أيقونة التوسيع */}
           <div className="w-6 flex items-center justify-center">
@@ -199,7 +192,7 @@ export function BOMTreeView({
               )}
             </div>
           </div>
-        </div>
+        </button>
 
         {/* العقد الفرعية */}
         {hasChildren && isExpanded && (
