@@ -334,6 +334,8 @@ export function Sidebar() {
                     ) : (
                       <>
                         <div
+                          role="button"
+                          tabIndex={0}
                           className={cn(
                             "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
                             "hover:bg-accent/50 hover:shadow-sm",
@@ -346,6 +348,16 @@ export function Sidebar() {
                               toggleExpanded(item.key)
                             } else {
                               handleItemClick()
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault()
+                              if (hasSubItems) {
+                                toggleExpanded(item.key)
+                              } else {
+                                handleItemClick()
+                              }
                             }
                           }}
                         >

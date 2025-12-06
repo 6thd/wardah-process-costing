@@ -359,6 +359,8 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
               return (
                 <div
                   key={product.id}
+                  role="button"
+                  tabIndex={0}
                   className={cn(
                     'px-3 py-2.5 cursor-pointer border-b last:border-b-0 transition-colors',
                     isActive ? 'bg-primary/10' : 'hover:bg-muted/50',
@@ -369,6 +371,13 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                       onSelect(product)
                       setOpen(false)
                     }, 0)
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSelect(product)
+                      setOpen(false)
+                    }
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
