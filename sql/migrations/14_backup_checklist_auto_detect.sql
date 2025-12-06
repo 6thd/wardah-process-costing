@@ -136,7 +136,8 @@ BEGIN
         total_column TEXT
     );
     
-    DELETE FROM stage_costs_column_mapping;
+    -- Clear temp table before insert (safe: temporary table, session-scoped)
+    TRUNCATE TABLE stage_costs_column_mapping;
     INSERT INTO stage_costs_column_mapping VALUES (
         v_mo_column, v_stage_column, v_org_column, 
         v_dm_column, v_dl_column, v_moh_column, v_total_column

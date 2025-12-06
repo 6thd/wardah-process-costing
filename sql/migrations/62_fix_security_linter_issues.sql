@@ -75,7 +75,8 @@ BEGIN
         mo_col TEXT
     );
     
-    DELETE FROM stage_costs_columns;
+    -- Clear temp table before insert (safe: temporary table, session-scoped)
+    TRUNCATE TABLE stage_costs_columns;
     INSERT INTO stage_costs_columns VALUES (v_work_center_col, v_mo_col);
 END $$;
 

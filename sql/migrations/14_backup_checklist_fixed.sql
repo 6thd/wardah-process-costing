@@ -93,7 +93,8 @@ BEGIN
         org_column TEXT
     );
     
-    DELETE FROM stage_costs_columns;
+    -- Clear temp table before insert (safe: temporary table, session-scoped)
+    TRUNCATE TABLE stage_costs_columns;
     INSERT INTO stage_costs_columns VALUES (v_mo_column, v_org_column);
 END $$;
 
