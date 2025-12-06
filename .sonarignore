@@ -1,0 +1,32 @@
+# SonarQube Ignore File
+# Files and directories listed here will be excluded from SonarQube analysis
+
+# Archived legacy scripts with old/hardcoded tokens (for reference only, not used in production)
+scripts/archive/**
+
+# Node modules (external dependencies)
+node_modules/**
+
+# Build output
+dist/**
+build/**
+
+# Test coverage reports
+coverage/**
+
+# Environment files (should not be scanned)
+.env
+.env.*
+!.env.example
+
+# Dependencies lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Generated files
+*.generated.*
+
+# Backup files
+*.backup
+*.bak
