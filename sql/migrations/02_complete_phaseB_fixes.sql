@@ -399,13 +399,13 @@ CREATE POLICY receipt_vouchers_org_isolation ON receipt_vouchers
 
 -- Function to generate next voucher number
 CREATE OR REPLACE FUNCTION generate_voucher_number(
-    p_voucher_type VARCHAR,
+    p_voucher_type VARCHAR(50),
     p_org_id UUID
 )
-RETURNS VARCHAR AS $$
+RETURNS VARCHAR(50) AS $$
 DECLARE
     v_next_number INTEGER;
-    v_prefix VARCHAR;
+    v_prefix VARCHAR(10);
 BEGIN
     -- Set prefix based on voucher type
     v_prefix := CASE p_voucher_type
