@@ -357,12 +357,11 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
             {filtered.map((product, index) => {
               const isActive = index === highlighted
               return (
-                <div
+                <button
                   key={product.id}
-                  role="button"
-                  tabIndex={0}
+                  type="button"
                   className={cn(
-                    'px-3 py-2.5 cursor-pointer border-b last:border-b-0 transition-colors',
+                    'w-full px-3 py-2.5 text-left border-b last:border-b-0 transition-colors',
                     isActive ? 'bg-primary/10' : 'hover:bg-muted/50',
                   )}
                   onMouseEnter={() => setHighlighted(index)}
@@ -371,13 +370,6 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                       onSelect(product)
                       setOpen(false)
                     }, 0)
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onSelect(product)
-                      setOpen(false)
-                    }
                   }}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -389,7 +381,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                       {(product.cost_price ?? 0).toFixed(2)} ر.س
                     </div>
                   </div>
-                </div>
+                </button>
               )
             })}
           </div>,

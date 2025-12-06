@@ -333,11 +333,10 @@ export function Sidebar() {
                       </Tooltip>
                     ) : (
                       <>
-                        <div
-                          role="button"
-                          tabIndex={0}
+                        <button
+                          type="button"
                           className={cn(
-                            "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
+                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group border-0",
                             "hover:bg-accent/50 hover:shadow-sm",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                             isActive && "bg-primary text-primary-foreground shadow-md hover:bg-primary/90",
@@ -348,16 +347,6 @@ export function Sidebar() {
                               toggleExpanded(item.key)
                             } else {
                               handleItemClick()
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault()
-                              if (hasSubItems) {
-                                toggleExpanded(item.key)
-                              } else {
-                                handleItemClick()
-                              }
                             }
                           }}
                         >
@@ -388,7 +377,7 @@ export function Sidebar() {
                               )} 
                             />
                           )}
-                        </div>
+                        </button>
                         
                         {/* Sub-items with animation */}
                         {hasSubItems && (

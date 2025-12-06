@@ -224,17 +224,11 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                 onMouseLeave={() => setIsHovered(false)}
             >
                 <div className="flex items-center gap-3 flex-1">
-                    <div 
-                        role="button"
-                        tabIndex={hasChildren ? 0 : -1}
-                        className="cursor-pointer flex items-center hover:bg-accent/30 rounded-md p-1 transition-colors"
+                    <button
+                        type="button"
+                        disabled={!hasChildren}
+                        className="cursor-pointer flex items-center hover:bg-accent/30 rounded-md p-1 transition-colors disabled:cursor-default disabled:opacity-50 border-0 bg-transparent"
                         onClick={() => hasChildren && onToggleNode(account.code)}
-                        onKeyDown={(e) => {
-                            if (hasChildren && (e.key === 'Enter' || e.key === ' ')) {
-                                e.preventDefault()
-                                onToggleNode(account.code)
-                            }
-                        }}
                     >
                         {hasChildren ? (
                             isExpanded ? 
@@ -245,7 +239,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                                 <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40"></span>
                             </span>
                         )}
-                    </div>
+                    </button>
                     
                     <div className="flex items-center gap-2 flex-1">
                         <code className={`text-sm font-mono px-2 py-0.5 rounded bg-muted/50 ${level === 0 ? 'font-bold' : ''}`}>
