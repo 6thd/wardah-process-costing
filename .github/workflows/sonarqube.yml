@@ -18,7 +18,7 @@ jobs:
           fetch-depth: 0  # Full history for better analysis
           
       - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
+        uses: sonarsource/sonarqube-scan-action@84b43ff6736f4042e11cec7d4e49e825ab5fc0df  # v3.0.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: https://sonarcloud.io
