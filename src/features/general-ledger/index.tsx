@@ -225,8 +225,16 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
             >
                 <div className="flex items-center gap-3 flex-1">
                     <div 
+                        role="button"
+                        tabIndex={hasChildren ? 0 : -1}
                         className="cursor-pointer flex items-center hover:bg-accent/30 rounded-md p-1 transition-colors"
                         onClick={() => hasChildren && onToggleNode(account.code)}
+                        onKeyDown={(e) => {
+                            if (hasChildren && (e.key === 'Enter' || e.key === ' ')) {
+                                e.preventDefault()
+                                onToggleNode(account.code)
+                            }
+                        }}
                     >
                         {hasChildren ? (
                             isExpanded ? 

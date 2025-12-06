@@ -733,7 +733,7 @@ export function AccountStatement() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{isRTL ? '#' : '#'}</TableHead>
+                        <TableHead>#</TableHead>
                         <TableHead>{isRTL ? 'الحساب' : 'Account'}</TableHead>
                         <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
                         <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>

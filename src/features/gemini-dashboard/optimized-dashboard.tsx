@@ -41,7 +41,8 @@ export function OptimizedDashboard() {
     })
     
     if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src
+      const currentSrc = iframeRef.current.src
+      iframeRef.current.src = currentSrc
     }
   }
 
