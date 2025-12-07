@@ -39,8 +39,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
 
-  const handleSend = () => {
-    if (message.trim()) {
+  const handleSendMessage = () => {
+    if (message.trim() !== '') {
       onSendMessage(message);
       setMessages([...messages, { text: message, sender: 'user' }]);
       setMessage('');

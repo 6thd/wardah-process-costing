@@ -573,7 +573,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
           </div>
 
           {/* Vendor and PO Selection */}
-          <div className={`grid ${createMode === 'with-po' && selectedVendorId ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+          <div className={`grid ${(createMode === 'with-po' && selectedVendorId) ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
             <div className="space-y-2">
               <Label>اختر المورد *</Label>
               <Select 

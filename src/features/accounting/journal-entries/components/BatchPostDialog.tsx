@@ -29,7 +29,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
   }>>([]);
 
   // Filter draft entries only
-  const draftEntries = entries.filter(e => e.status === 'draft');
+  const draftEntries = (entries || []).filter(e => e.status === 'draft');
 
   const toggleEntry = (entryId: string) => {
     const newSelected = new Set(selectedEntries);
@@ -62,7 +62,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
       const entryIds = Array.from(selectedEntries);
       const result = await JournalService.batchPostEntries(entryIds);
       
-      setResults(result.results);
+      setResults(result.results || []);
       
       if (result.success) {
         toast.success(
@@ -135,7 +135,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                   <TableBody>
                     {draftEntries.map((entry) => {
                       const isSelected = selectedEntries.has(entry.id);
-                      const result = results.find(r => r.entry_id === entry.id);
+                      const result = results?.find(r => r.entry_id === entry.id);
                       
                       return (
                         <TableRow key={entry.id}>
@@ -179,7 +179,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                 </Table>
               </div>
 
-              {results.length > 0 && (
+              {results && results.length > 0 && (
                 <div className="border rounded-lg p-4 bg-gray-50">
                   <h4 className="font-semibold mb-2">
                     {isRTL ? 'نتائج الترحيل' : 'Posting Results'}
