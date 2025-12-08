@@ -1,12 +1,8 @@
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Calendar } from '@/components/ui/calendar';
-import { CalendarIcon, Download } from 'lucide-react';
-import { format } from 'date-fns';
-import { arSA, enUS } from 'date-fns/locale';
+import { Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DatePicker } from './utils/datePickerHelpers';
 
 interface SalesReportsDateFilterProps {
   fromDate: Date | undefined;
@@ -31,8 +27,6 @@ export function SalesReportsDateFilter({
   loading,
   isRTL
 }: SalesReportsDateFilterProps) {
-  const locale = isRTL ? arSA : enUS;
-
   return (
     <Card>
       <CardHeader>
@@ -40,56 +34,20 @@ export function SalesReportsDateFilter({
       </CardHeader>
       <CardContent>
         <div className={cn("flex gap-4 items-end", isRTL ? "flex-row-reverse" : "")}>
-          <div className="flex-1">
-            <Label>{isRTL ? 'من تاريخ' : 'From Date'}</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !fromDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {fromDate ? format(fromDate, 'PPP', { locale }) : <span>{isRTL ? 'اختر التاريخ' : 'Pick a date'}</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align={isRTL ? 'end' : 'start'}>
-                <Calendar
-                  mode="single"
-                  selected={fromDate}
-                  onSelect={onFromDateChange}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
-          <div className="flex-1">
-            <Label>{isRTL ? 'إلى تاريخ' : 'To Date'}</Label>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  className={cn(
-                    "w-full justify-start text-left font-normal",
-                    !toDate && "text-muted-foreground"
-                  )}
-                >
-                  <CalendarIcon className="mr-2 h-4 w-4" />
-                  {toDate ? format(toDate, 'PPP', { locale }) : <span>{isRTL ? 'اختر التاريخ' : 'Pick a date'}</span>}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align={isRTL ? 'end' : 'start'}>
-                <Calendar
-                  mode="single"
-                  selected={toDate}
-                  onSelect={onToDateChange}
-                  initialFocus
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+          <DatePicker
+            date={fromDate}
+            onDateChange={onFromDateChange}
+            label={isRTL ? 'من تاريخ' : 'From Date'}
+            placeholder={isRTL ? 'اختر التاريخ' : 'Pick a date'}
+            isRTL={isRTL}
+          />
+          <DatePicker
+            date={toDate}
+            onDateChange={onToDateChange}
+            label={isRTL ? 'إلى تاريخ' : 'To Date'}
+            placeholder={isRTL ? 'اختر التاريخ' : 'Pick a date'}
+            isRTL={isRTL}
+          />
           <Button onClick={onViewClick} disabled={loading || !fromDate || !toDate}>
             {isRTL ? 'عرض' : 'View'}
           </Button>

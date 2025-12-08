@@ -1,6 +1,8 @@
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProfitabilityAnalysis } from '@/services/sales-reports-service';
+import { renderLoadingState, renderEmptyState } from '../utils/renderHelpers';
+import { ProfitabilityMetrics } from './ProfitabilityMetrics';
 
 interface ProfitabilityTabProps {
   loading: boolean;
@@ -10,78 +12,16 @@ interface ProfitabilityTabProps {
 
 export function ProfitabilityTab({ loading, profitability, isRTL }: ProfitabilityTabProps) {
   if (loading) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
-        </CardContent>
-      </Card>
-    );
+    return renderLoadingState(isRTL);
   }
 
   if (!profitability) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات' : 'No data available'}
-        </CardContent>
-      </Card>
-    );
+    return renderEmptyState(isRTL);
   }
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'إجمالي الإيرادات' : 'Total Revenue'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{profitability.totalRevenue.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'إجمالي COGS' : 'Total COGS'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-600">{profitability.totalCOGS.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'الربح الإجمالي' : 'Gross Profit'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{profitability.grossProfit.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'هامش الربح الإجمالي %' : 'Gross Profit Margin %'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{profitability.grossProfitMargin.toFixed(2)}%</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'الربح الصافي' : 'Net Profit'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{profitability.netProfit.toFixed(2)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>{isRTL ? 'هامش الربح الصافي %' : 'Net Profit Margin %'}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{profitability.netProfitMargin.toFixed(2)}%</div>
-          </CardContent>
-        </Card>
-      </div>
+      <ProfitabilityMetrics profitability={profitability} isRTL={isRTL} />
 
       {profitability.byCustomer.length > 0 && (
         <Card>

@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProductSalesAnalysis } from '@/services/sales-reports-service';
+import { renderLoadingState, renderEmptyState } from '../utils/renderHelpers';
 
 interface ProductAnalysisTabProps {
   loading: boolean;
@@ -10,24 +11,11 @@ interface ProductAnalysisTabProps {
 
 export function ProductAnalysisTab({ loading, productAnalysis, isRTL }: ProductAnalysisTabProps) {
   if (loading) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
-        </CardContent>
-      </Card>
-    );
+    return renderLoadingState(isRTL);
   }
 
   if (productAnalysis.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات' : 'No data available'}
-        </CardContent>
-      </Card>
-    );
+    return renderEmptyState(isRTL);
   }
 
   return (
