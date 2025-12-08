@@ -457,17 +457,10 @@ export default function OrgAdminUsers() {
               <p className="text-center text-slate-400 py-4">لا توجد أدوار متاحة</p>
             ) : (
               roles.map(role => (
-                <div
+                <button
                   key={role.id}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      // Handle click action here
-                    }
-                  }}
-                  className={`p-4 rounded-lg border transition-colors cursor-pointer ${
+                  type="button"
+                  className={`p-4 rounded-lg border transition-colors cursor-pointer w-full text-left ${
                     selectedRoleIds.includes(role.id)
                       ? 'border-teal-500 bg-teal-950/30'
                       : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
@@ -499,7 +492,7 @@ export default function OrgAdminUsers() {
                       {role.permissions_count} صلاحية
                     </Badge>
                   </div>
-                </div>
+                </button>
               ))
             )}
           </div>

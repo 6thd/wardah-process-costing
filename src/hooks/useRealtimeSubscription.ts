@@ -16,12 +16,14 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
 
     // Clean up previous channel if exists
     if (channelRef.current) {
-      try {
-        supabase.removeChannel(channelRef.current)
-      } catch (error) {
-        // Ignore errors when removing channel (it might already be closed)
-        console.debug('Channel already removed or closed')
-      }
+      void (async () => {
+        try {
+          await supabase.removeChannel(channelRef.current)
+        } catch (error) {
+          // Ignore errors when removing channel (it might already be closed)
+          console.debug('Channel already removed or closed')
+        }
+      })()
     }
 
     const channel = supabase
@@ -45,14 +47,17 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
 
     return () => {
       if (channelRef.current && supabase) {
-        try {
-          // Always attempt to remove the channel - Supabase handles cleanup gracefully
-          supabase.removeChannel(channelRef.current)
-        } catch (error) {
-          // Ignore errors - channel might already be closed
-          console.debug('Error removing channel (likely already closed):', error)
-        }
-        channelRef.current = null
+        // Use void to explicitly ignore promise result
+        void (async () => {
+          try {
+            // Always attempt to remove the channel - Supabase handles cleanup gracefully
+            await supabase.removeChannel(channelRef.current)
+          } catch (error) {
+            // Ignore errors - channel might already be closed
+            console.debug('Error removing channel (likely already closed):', error)
+          }
+          channelRef.current = null
+        })()
       }
     }
   }, [tableName, key, queryClient])

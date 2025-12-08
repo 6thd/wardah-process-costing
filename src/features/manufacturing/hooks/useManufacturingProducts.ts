@@ -60,7 +60,7 @@ export function useManufacturingProducts() {
         } else if (error) {
           throw error;
         } else {
-          productData = data || [];
+          productData = data || null;
         }
       } catch (error: any) {
         if (error.code === 'PGRST205') {

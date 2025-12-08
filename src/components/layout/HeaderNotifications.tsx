@@ -68,10 +68,12 @@ export function HeaderNotifications({ notifications, isRTL }: HeaderNotification
                 isRTL ? "flex-row-reverse" : "flex-row"
               )}>
                 <div className={`w-2 h-2 rounded-full ${
-                  notification.type === 'success' ? 'bg-success' :
-                  notification.type === 'error' ? 'bg-destructive' :
-                  notification.type === 'warning' ? 'bg-warning' :
-                  'bg-info'
+                  (() => {
+                    if (notification.type === 'success') return 'bg-success';
+                    if (notification.type === 'error') return 'bg-destructive';
+                    if (notification.type === 'warning') return 'bg-warning';
+                    return 'bg-info';
+                  })()
                 }`} />
                 <span className="font-medium text-sm">{notification.title}</span>
                 {!notification.read && (

@@ -78,11 +78,12 @@ export function InitializeDatabase() {
             <h3 className="text-md font-semibold mb-2">Steps</h3>
             <div className="space-y-2">
               {initializationStatus.results.map((result) => {
-                const statusClass = result.status === 'completed' 
-                  ? 'bg-green-100 text-green-800'
-                  : result.status === 'failed'
-                  ? 'bg-red-100 text-red-800'
-                  : 'bg-blue-100 text-blue-800';
+                let statusClass = 'bg-blue-100 text-blue-800';
+                if (result.status === 'completed') {
+                  statusClass = 'bg-green-100 text-green-800';
+                } else if (result.status === 'failed') {
+                  statusClass = 'bg-red-100 text-red-800';
+                }
                 
                 return (
                   <div key={`${result.step}-${result.status}`} className="p-2 rounded border">

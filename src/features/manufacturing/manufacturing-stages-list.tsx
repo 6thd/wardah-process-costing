@@ -291,7 +291,7 @@ export function ManufacturingStagesList() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {stages
+                  {[...stages]
                     .sort((a, b) => (a.order_sequence || 0) - (b.order_sequence || 0))
                     .map((stage) => (
                       <TableRow key={stage.id}>

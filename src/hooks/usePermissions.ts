@@ -70,10 +70,9 @@ export function usePermissions(): UserPermissions & {
 
     // Check cache
     if (
-      permissionCache &&
-      permissionCache.orgId === orgIdToCheck &&
-      permissionCache.userId === user.id &&
-      Date.now() - permissionCache.timestamp < CACHE_DURATION
+      permissionCache?.orgId === orgIdToCheck &&
+      permissionCache?.userId === user.id &&
+      Date.now() - (permissionCache?.timestamp || 0) < CACHE_DURATION
     ) {
       setPermissions(permissionCache.permissions);
       setIsOrgAdmin(permissionCache.isOrgAdmin);

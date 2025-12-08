@@ -410,7 +410,7 @@ export async function getProductSalesAnalysis(
     let invoiceLines: any[] | null = invoiceLinesData;
     
     // If sales_invoice_id column doesn't exist, try invoice_id instead
-    if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+    if (linesError && (linesError.code === '42703' || linesError.message?.includes('sales_invoice_id'))) {
       console.warn('sales_invoice_id column not found in initial query, trying invoice_id instead');
       let altQuery = supabase
         .from('sales_invoice_lines')
@@ -503,7 +503,7 @@ export async function getProductSalesAnalysis(
     
     // If org_id doesn't exist in invoice_lines, try without tenant filter
     // (invoice_lines may not have tenant/org column)
-    if (linesError && tenantId && (linesError.code === '42703' || (linesError.message && linesError.message.includes('org_id')))) {
+    if (linesError && tenantId && (linesError.code === '42703' || linesError.message?.includes('org_id'))) {
       console.warn('org_id column not found in sales_invoice_lines, trying without tenant filter');
       // Try with sales_invoice_id first
       let finalRetryQuery = supabase
@@ -528,7 +528,7 @@ export async function getProductSalesAnalysis(
       linesError = retryResult.error;
       
       // If sales_invoice_id still fails, try invoice_id
-      if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+      if (linesError && (linesError.code === '42703' || linesError.message?.includes('sales_invoice_id'))) {
         console.warn('sales_invoice_id column not found, trying invoice_id instead');
         let altFinalQuery = supabase
           .from('sales_invoice_lines')
@@ -579,7 +579,7 @@ export async function getProductSalesAnalysis(
     }
     
     // If sales_invoice_id column doesn't exist, try invoice_id instead
-    if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+    if (linesError && (linesError.code === '42703' || linesError.message?.includes('sales_invoice_id'))) {
       console.warn('sales_invoice_id column not found, trying invoice_id instead');
       let altQuery = supabase
         .from('sales_invoice_lines')

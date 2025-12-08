@@ -45,7 +45,7 @@ const KPICard: React.FC<KPICardProps> = ({ title, value, icon, trend }) => (
     <i className={`fas ${icon} fa-2x wardah-text-gradient-google`}></i>
     <h3>{title}</h3>
     <div className="kpi-value wardah-text-gradient-google">{value}</div>
-    {trend && (
+    {!!trend && (
       <div className={`trend ${trend > 0 ? 'positive' : 'negative'}`}>
         <i className={`fas fa-arrow-${trend > 0 ? 'up' : 'down'}`}></i>
         {Math.abs(trend)}%

@@ -26,7 +26,6 @@ interface Account {
 export function useJournalData(isRTL: boolean) {
   const [journals, setJournals] = useState<Journal[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(false);
 
   const fetchJournals = async () => {
     try {
@@ -80,7 +79,6 @@ export function useJournalData(isRTL: boolean) {
   return {
     journals,
     accounts,
-    loading,
     fetchJournals,
     fetchAccounts
   };
