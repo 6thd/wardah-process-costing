@@ -5,8 +5,7 @@
  * Provides comprehensive sales reporting and profitability analysis
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { calculateInvoiceProfit } from './enhanced-sales-service';
 
 // ===== TYPES =====
@@ -76,6 +75,75 @@ export interface ProfitabilityAnalysis {
   monthlyTrends: MonthlySalesTrend[];
 }
 
+// ===== HELPER FUNCTIONS =====
+
+/**
+ * Execute a query with tenant fallback (org_id -> tenant_id -> no filter)
+ */
+async function executeQueryWithTenantFallback<T>(
+  tableName: string,
+  selectColumns: string,
+  tenantId: string | null,
+  additionalFilters?: (query: any) => any
+): Promise<{ data: T[] | null; error: any }> {
+  if (!tenantId) {
+    let query = supabase.from(tableName).select(selectColumns);
+    if (additionalFilters) {
+      query = additionalFilters(query);
+    }
+    const result = await query;
+    return { data: result.data as T[] | null, error: result.error };
+  }
+
+  // Try org_id first
+  let query = supabase.from(tableName).select(selectColumns).eq('org_id', tenantId);
+  if (additionalFilters) {
+    query = additionalFilters(query);
+  }
+  let { data, error } = await query;
+
+  // If org_id fails, try tenant_id
+  if (error && (error.code === '42703' || error.message?.includes('org_id'))) {
+    console.warn(`org_id column not found in ${tableName}, trying tenant_id`);
+    query = supabase.from(tableName).select(selectColumns).eq('tenant_id', tenantId);
+    if (additionalFilters) {
+      query = additionalFilters(query);
+    }
+    const retryResult = await query;
+    data = retryResult.data;
+    error = retryResult.error;
+
+    // If tenant_id also fails, skip tenant filter
+    if (error && (error.code === '42703' || error.message?.includes('tenant_id'))) {
+      console.warn(`Neither org_id nor tenant_id found in ${tableName}, skipping tenant filter`);
+      query = supabase.from(tableName).select(selectColumns);
+      if (additionalFilters) {
+        query = additionalFilters(query);
+      }
+      const finalResult = await query;
+      data = finalResult.data;
+      error = finalResult.error;
+    }
+  }
+
+  return { data: data as T[] | null, error };
+}
+
+/**
+ * Handle query errors gracefully (return empty array for missing tables)
+ */
+function handleQueryError(error: any, tableName: string): { data: any[]; error: any } {
+  if (error?.code === 'PGRST205') {
+    console.warn(`${tableName} table not found, skipping data`);
+    return { data: [], error: null };
+  }
+  if (error) {
+    console.warn(`Error fetching ${tableName}:`, error);
+    return { data: [], error: null };
+  }
+  return { data: [], error: null };
+}
+
 // ===== SALES PERFORMANCE REPORT =====
 
 /**
@@ -90,135 +158,42 @@ export async function getSalesPerformance(
     if (!tenantId) throw new Error('Tenant ID not found');
 
     // Get sales invoices
-    // sales_invoices table uses org_id, not tenant_id
-    let invoicesQuery = supabase
-      .from('sales_invoices')
-      .select('id, total_amount, paid_amount, invoice_date')
-      .gte('invoice_date', startDate)
-      .lte('invoice_date', endDate);
-
-    // Try to filter by org_id first (correct column name)
-    if (tenantId) {
-      invoicesQuery = invoicesQuery.eq('org_id', tenantId);
-    }
-
-    let { data: invoices, error: invoicesError } = await invoicesQuery;
-
-    // If org_id doesn't exist, try tenant_id (fallback)
-    if (invoicesError && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('org_id')))) {
-      console.warn('org_id column not found in sales_invoices, trying tenant_id');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select('id, total_amount, paid_amount, invoice_date')
-        .eq('tenant_id', tenantId)
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
-      
-      const retryResult = await invoicesQuery;
-      invoices = retryResult.data;
-      invoicesError = retryResult.error;
-      
-      // If tenant_id also fails, skip tenant filter
-      if (invoicesError && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('tenant_id')))) {
-        console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
-        invoicesQuery = supabase
-          .from('sales_invoices')
-          .select('id, total_amount, paid_amount, invoice_date')
-          .gte('invoice_date', startDate)
-          .lte('invoice_date', endDate);
-        
-        const finalResult = await invoicesQuery;
-        invoices = finalResult.data;
-        invoicesError = finalResult.error;
-      }
-    }
+    const { data: invoices, error: invoicesError } = await executeQueryWithTenantFallback(
+      'sales_invoices',
+      'id, total_amount, paid_amount, invoice_date',
+      tenantId,
+      (query) => query.gte('invoice_date', startDate).lte('invoice_date', endDate)
+    );
 
     if (invoicesError) throw invoicesError;
 
     // Get sales orders (if table exists)
-    // sales_orders table may use org_id or tenant_id
-    let ordersQuery = supabase
-      .from('sales_orders')
-      .select('id, total_amount, so_date')
-      .gte('so_date', startDate)
-      .lte('so_date', endDate);
-
-    // Try to filter by org_id first (most common)
-    if (tenantId) {
-      ordersQuery = ordersQuery.eq('org_id', tenantId);
-    }
-
-    let { data: orders, error: ordersError } = await ordersQuery;
+    const { data: ordersData, error: ordersError } = await executeQueryWithTenantFallback(
+      'sales_orders',
+      'id, total_amount, so_date',
+      tenantId,
+      (query) => query.gte('so_date', startDate).lte('so_date', endDate)
+    );
     
-    // If org_id doesn't exist, try tenant_id
-    if (ordersError && tenantId && (ordersError.code === '42703' || (ordersError.message && ordersError.message.includes('org_id')))) {
-      console.warn('org_id column not found in sales_orders, trying tenant_id');
-      ordersQuery = supabase
-        .from('sales_orders')
-        .select('id, total_amount, so_date')
-        .eq('tenant_id', tenantId)
-        .gte('so_date', startDate)
-        .lte('so_date', endDate);
-      
-      const retryResult = await ordersQuery;
-      orders = retryResult.data;
-      ordersError = retryResult.error;
-    }
-    
-    // If sales_orders table doesn't exist, just return empty array
-    if (ordersError && ordersError.code === 'PGRST205') {
-      console.warn('sales_orders table not found, skipping orders data');
-      orders = []; // Set to empty array
-      ordersError = null; // Clear error
-    } else if (ordersError) {
-      console.warn('Error fetching sales orders:', ordersError);
-      orders = []; // Set to empty array
-      ordersError = null; // Clear error
-    }
+    const { data: orders } = ordersError 
+      ? handleQueryError(ordersError, 'sales_orders')
+      : { data: ordersData };
 
     // Get collections (if table exists)
-    let collectionsQuery = supabase
-      .from('customer_collections')
-      .select('amount, collection_date')
-      .gte('collection_date', startDate)
-      .lte('collection_date', endDate);
-
-    // Try to filter by org_id first
-    if (tenantId) {
-      collectionsQuery = collectionsQuery.eq('org_id', tenantId);
-    }
-
-    let { data: collections, error: collectionsError } = await collectionsQuery;
+    const { data: collectionsData, error: collectionsError } = await executeQueryWithTenantFallback(
+      'customer_collections',
+      'amount, collection_date',
+      tenantId,
+      (query) => query.gte('collection_date', startDate).lte('collection_date', endDate)
+    );
     
-    // If org_id doesn't exist, try tenant_id
-    if (collectionsError && tenantId && (collectionsError.code === '42703' || (collectionsError.message && collectionsError.message.includes('org_id')))) {
-      console.warn('org_id column not found in customer_collections, trying tenant_id');
-      collectionsQuery = supabase
-        .from('customer_collections')
-        .select('amount, collection_date')
-        .eq('tenant_id', tenantId)
-        .gte('collection_date', startDate)
-        .lte('collection_date', endDate);
-      
-      const retryResult = await collectionsQuery;
-      collections = retryResult.data;
-      collectionsError = retryResult.error;
-    }
-    
-    // If customer_collections table doesn't exist, just return empty array
-    if (collectionsError && collectionsError.code === 'PGRST205') {
-      console.warn('customer_collections table not found, skipping collections data');
-      collections = []; // Set to empty array
-      collectionsError = null; // Clear error
-    } else if (collectionsError) {
-      console.warn('Error fetching collections:', collectionsError);
-      collections = []; // Set to empty array
-      collectionsError = null; // Clear error
-    }
+    const { data: collections } = collectionsError 
+      ? handleQueryError(collectionsError, 'customer_collections')
+      : { data: collectionsData };
 
-    const totalSales = (invoices || []).reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
-    const totalCollections = (collections || []).reduce((sum, col) => sum + Number(col.amount || 0), 0);
-    const outstandingAmount = (invoices || []).reduce((sum, inv) => {
+    const totalSales = (invoices || []).reduce((sum: number, inv: any) => sum + Number(inv.total_amount || 0), 0);
+    const totalCollections = (collections || []).reduce((sum: number, col: any) => sum + Number(col.amount || 0), 0);
+    const outstandingAmount = (invoices || []).reduce((sum: number, inv: any) => {
       const paid = Number(inv.paid_amount || 0);
       const total = Number(inv.total_amount || 0);
       return sum + (total - paid);
@@ -226,16 +201,16 @@ export async function getSalesPerformance(
 
     const totalInvoices = invoices?.length || 0;
     const totalOrders = orders?.length || 0;
-    const averageOrderValue = totalOrders > 0 ? totalSales / totalOrders : 0;
-    const collectionRate = totalSales > 0 ? (totalCollections / totalSales) * 100 : 0;
+    const averageOrderValue = totalOrders > 0 ? (totalSales as number) / totalOrders : 0;
+    const collectionRate = (totalSales as number) > 0 ? ((totalCollections as number) / (totalSales as number)) * 100 : 0;
 
     return {
-      totalSales,
+      totalSales: totalSales as number,
       totalInvoices,
       totalOrders,
       averageOrderValue,
       totalCollections,
-      outstandingAmount,
+      outstandingAmount: outstandingAmount as number,
       collectionRate,
       periodStart: startDate,
       periodEnd: endDate
@@ -260,107 +235,41 @@ export async function getCustomerSalesAnalysis(
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
 
-    // sales_invoices uses org_id
-    let invoicesQuery = supabase
-      .from('sales_invoices')
-      .select(`
+    // Build select columns with customer relationship
+    const selectColumns = `
+      id,
+      customer_id,
+      total_amount,
+      paid_amount,
+      invoice_date,
+      customers!inner (
         id,
-        customer_id,
-        total_amount,
-        paid_amount,
-        invoice_date,
-        customers!inner (
-          id,
-          code,
-          name
-        )
-      `);
+        code,
+        name,
+        name_ar
+      )
+    `;
 
-    // Try to filter by org_id first (correct column name)
-    if (tenantId) {
-      invoicesQuery = invoicesQuery.eq('org_id', tenantId);
-    }
-
-    if (startDate) {
-      invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
-    }
-    if (endDate) {
-      invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
-    }
-    if (customerId) {
-      invoicesQuery = invoicesQuery.eq('customer_id', customerId);
-    }
-
-    let { data: invoices, error: invoicesError } = await invoicesQuery;
-
-    // If org_id doesn't exist, try tenant_id
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('org_id')))) {
-      console.warn('org_id column not found in sales_invoices, trying tenant_id');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select(`
-          id,
-          customer_id,
-          total_amount,
-          paid_amount,
-          invoice_date,
-          customers!inner (
-            id,
-            code,
-            name,
-            name_ar
-          )
-        `)
-        .eq('tenant_id', tenantId);
-      
+    // Build additional filters
+    const buildFilters = (query: any) => {
       if (startDate) {
-        invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
+        query = query.gte('invoice_date', startDate);
       }
       if (endDate) {
-        invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
+        query = query.lte('invoice_date', endDate);
       }
       if (customerId) {
-        invoicesQuery = invoicesQuery.eq('customer_id', customerId);
+        query = query.eq('customer_id', customerId);
       }
-      
-      const retryResult = await invoicesQuery;
-      invoices = retryResult.data;
-      invoicesError = retryResult.error;
-      
-      // If tenant_id also fails, skip tenant filter
-      if (invoicesError && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('tenant_id')))) {
-        console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
-        invoicesQuery = supabase
-          .from('sales_invoices')
-          .select(`
-            id,
-            customer_id,
-            total_amount,
-            paid_amount,
-            invoice_date,
-            customers!inner (
-              id,
-              code,
-              name,
-              name_ar
-            )
-          `);
-        
-        if (startDate) {
-          invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
-        }
-        if (endDate) {
-          invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
-        }
-        if (customerId) {
-          invoicesQuery = invoicesQuery.eq('customer_id', customerId);
-        }
-        
-        const finalResult = await invoicesQuery;
-        invoices = finalResult.data;
-        invoicesError = finalResult.error;
-      }
-    }
+      return query;
+    };
+
+    const { data: invoices, error: invoicesError } = await executeQueryWithTenantFallback(
+      'sales_invoices',
+      selectColumns,
+      tenantId,
+      buildFilters
+    );
 
     if (invoicesError) throw invoicesError;
 
@@ -391,14 +300,16 @@ export async function getCustomerSalesAnalysis(
         });
       }
 
-      const analysis = customerMap.get(customerId)!;
-      analysis.totalSales += totalAmount;
-      analysis.totalInvoices += 1;
-      analysis.totalCollections += paidAmount;
-      analysis.outstandingAmount += (totalAmount - paidAmount);
-      
-      if (inv.invoice_date > (analysis.lastInvoiceDate || '')) {
-        analysis.lastInvoiceDate = inv.invoice_date;
+      const analysis = customerMap.get(customerId);
+      if (analysis) {
+        analysis.totalSales += totalAmount;
+        analysis.totalInvoices += 1;
+        analysis.totalCollections += paidAmount;
+        analysis.outstandingAmount += (totalAmount - paidAmount);
+        
+        if (inv.invoice_date > (analysis.lastInvoiceDate || '')) {
+          analysis.lastInvoiceDate = inv.invoice_date;
+        }
       }
     });
 
@@ -437,59 +348,20 @@ export async function getProductSalesAnalysis(
 
     // Get invoice lines with products
     // First, get invoices in date range
-    // sales_invoices uses org_id
-    let invoicesQuery = supabase
-      .from('sales_invoices')
-      .select('id, invoice_date')
-      .eq('org_id', tenantId);
-
-    if (startDate) {
-      invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
-    }
-    if (endDate) {
-      invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
-    }
-
-    let { data: invoices, error: invoicesError } = await invoicesQuery;
-    
-    // If org_id doesn't exist, try tenant_id
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('org_id')))) {
-      console.warn('org_id column not found in sales_invoices, trying tenant_id');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select('id, invoice_date')
-        .eq('tenant_id', tenantId);
-      
-      if (startDate) {
-        invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
+    const { data: invoices, error: invoicesError } = await executeQueryWithTenantFallback(
+      'sales_invoices',
+      'id, invoice_date',
+      tenantId,
+      (query) => {
+        if (startDate) {
+          query = query.gte('invoice_date', startDate);
+        }
+        if (endDate) {
+          query = query.lte('invoice_date', endDate);
+        }
+        return query;
       }
-      if (endDate) {
-        invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
-      }
-      
-      const retryResult = await invoicesQuery;
-      invoices = retryResult.data;
-      invoicesError = retryResult.error;
-    }
-    
-    // If tenant_id also fails, skip tenant filter
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('tenant_id')))) {
-      console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select('id, invoice_date');
-      
-      if (startDate) {
-        invoicesQuery = invoicesQuery.gte('invoice_date', startDate);
-      }
-      if (endDate) {
-        invoicesQuery = invoicesQuery.lte('invoice_date', endDate);
-      }
-      
-      const finalResult = await invoicesQuery;
-      invoices = finalResult.data;
-      invoicesError = finalResult.error;
-    }
+    );
     
     // If invoices query fails, return empty array
     if (invoicesError) {
@@ -497,7 +369,7 @@ export async function getProductSalesAnalysis(
       return [];
     }
 
-    const invoiceIds = (invoices || []).map(inv => inv.id);
+    const invoiceIds = (invoices || []).map((inv: any) => inv.id);
 
     if (invoiceIds.length === 0) {
       return [];
@@ -505,6 +377,7 @@ export async function getProductSalesAnalysis(
 
     // Get invoice lines
     // sales_invoice_lines may use org_id
+    // Try sales_invoice_id first, then fallback to invoice_id if needed
     let invoiceLinesQuery = supabase
       .from('sales_invoice_lines')
       .select(`
@@ -535,9 +408,54 @@ export async function getProductSalesAnalysis(
 
     let { data: invoiceLinesData, error: linesError } = await invoiceLinesQuery;
     let invoiceLines: any[] | null = invoiceLinesData;
+    
+    // If sales_invoice_id column doesn't exist, try invoice_id instead
+    if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+      console.warn('sales_invoice_id column not found in initial query, trying invoice_id instead');
+      let altQuery = supabase
+        .from('sales_invoice_lines')
+        .select(`
+          id,
+          invoice_id,
+          product_id,
+          quantity,
+          unit_price,
+          line_total,
+          unit_cost_at_sale,
+          items!inner (
+            id,
+            code,
+            name
+          )
+        `)
+        .in('invoice_id', invoiceIds);
+      
+      if (tenantId) {
+        altQuery = altQuery.eq('org_id', tenantId);
+      }
+      
+      if (productId) {
+        altQuery = altQuery.eq('product_id', productId);
+      }
+      
+      const altResult = await altQuery;
+      if (altResult.data && !altResult.error) {
+        // Map invoice_id to sales_invoice_id for consistency
+        invoiceLines = altResult.data.map((line: any) => ({
+          ...line,
+          sales_invoice_id: line.invoice_id
+        }));
+        linesError = null;
+      } else if (altResult.error && (altResult.error.code === 'PGRST200' || altResult.error.message?.includes('relationship'))) {
+        // If relationship also fails, try without items join
+        linesError = altResult.error;
+      } else {
+        linesError = altResult.error;
+      }
+    }
 
     // If relationship with items doesn't exist, try without items join
-    if (linesError && (linesError.code === 'PGRST200' || (linesError.message && linesError.message.includes('relationship')))) {
+    if (linesError && (linesError.code === 'PGRST200' || linesError.message?.includes('relationship'))) {
       console.warn('items relationship not found in sales_invoice_lines, trying without join');
       let retryQuery = supabase
         .from('sales_invoice_lines')
@@ -587,6 +505,7 @@ export async function getProductSalesAnalysis(
     // (invoice_lines may not have tenant/org column)
     if (linesError && tenantId && (linesError.code === '42703' || (linesError.message && linesError.message.includes('org_id')))) {
       console.warn('org_id column not found in sales_invoice_lines, trying without tenant filter');
+      // Try with sales_invoice_id first
       let finalRetryQuery = supabase
         .from('sales_invoice_lines')
         .select(`
@@ -608,6 +527,38 @@ export async function getProductSalesAnalysis(
       invoiceLines = retryResult.data;
       linesError = retryResult.error;
       
+      // If sales_invoice_id still fails, try invoice_id
+      if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+        console.warn('sales_invoice_id column not found, trying invoice_id instead');
+        let altFinalQuery = supabase
+          .from('sales_invoice_lines')
+          .select(`
+            id,
+            invoice_id,
+            product_id,
+            quantity,
+            unit_price,
+            line_total,
+            unit_cost_at_sale
+          `)
+          .in('invoice_id', invoiceIds);
+        
+        if (productId) {
+          altFinalQuery = altFinalQuery.eq('product_id', productId);
+        }
+        
+        const altFinalResult = await altFinalQuery;
+        if (altFinalResult.data && !altFinalResult.error) {
+          invoiceLines = altFinalResult.data.map((line: any) => ({
+            ...line,
+            sales_invoice_id: line.invoice_id
+          }));
+          linesError = null;
+        } else {
+          linesError = altFinalResult.error;
+        }
+      }
+      
       // If we got lines without items, fetch items separately
       if (invoiceLines && invoiceLines.length > 0) {
         const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
@@ -626,8 +577,62 @@ export async function getProductSalesAnalysis(
         }
       }
     }
+    
+    // If sales_invoice_id column doesn't exist, try invoice_id instead
+    if (linesError && (linesError.code === '42703' || (linesError.message && linesError.message.includes('sales_invoice_id')))) {
+      console.warn('sales_invoice_id column not found, trying invoice_id instead');
+      let altQuery = supabase
+        .from('sales_invoice_lines')
+        .select(`
+          id,
+          invoice_id,
+          product_id,
+          quantity,
+          unit_price,
+          line_total,
+          unit_cost_at_sale
+        `)
+        .in('invoice_id', invoiceIds);
+      
+      if (productId) {
+        altQuery = altQuery.eq('product_id', productId);
+      }
+      
+      const altResult = await altQuery;
+      if (altResult.data && !altResult.error) {
+        // Map invoice_id to sales_invoice_id for consistency
+        invoiceLines = altResult.data.map((line: any) => ({
+          ...line,
+          sales_invoice_id: line.invoice_id
+        }));
+        
+        // Fetch items separately if needed
+        if (invoiceLines && invoiceLines.length > 0) {
+          const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
+          if (productIds.length > 0) {
+            const { data: itemsData } = await supabase
+              .from('items')
+              .select('id, code, name')
+              .in('id', productIds);
+            
+            const itemsMap = new Map((itemsData || []).map((item: any) => [item.id, item]));
+            invoiceLines = invoiceLines.map((line: any) => ({
+              ...line,
+              items: [itemsMap.get(line.product_id) || { id: line.product_id, code: '', name: '' }]
+            }));
+          }
+        }
+        linesError = null;
+      } else {
+        linesError = altResult.error;
+      }
+    }
 
-    if (linesError) throw linesError;
+    if (linesError) {
+      console.error('Error fetching invoice lines:', linesError);
+      // Return empty array instead of throwing to allow other reports to work
+      return [];
+    }
 
     // Group by product
     const productMap = new Map<string, ProductSalesAnalysis>();
@@ -661,12 +666,14 @@ export async function getProductSalesAnalysis(
         });
       }
 
-      const analysis = productMap.get(productId)!;
-      analysis.totalQuantitySold += quantity;
-      analysis.totalRevenue += revenue;
-      analysis.totalCOGS += cogs;
-      analysis.totalProfit += (revenue - cogs);
-      analysis.numberOfInvoices += 1;
+      const analysis = productMap.get(productId);
+      if (analysis) {
+        analysis.totalQuantitySold += quantity;
+        analysis.totalRevenue += revenue;
+        analysis.totalCOGS += cogs;
+        analysis.totalProfit += (revenue - cogs);
+        analysis.numberOfInvoices += 1;
+      }
     });
 
     // Calculate averages and margins
@@ -720,7 +727,7 @@ export async function getMonthlySalesTrends(
     let { data: invoices, error: invoicesError } = await invoicesQuery;
     
     // If org_id doesn't exist, try tenant_id
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('org_id')))) {
+    if (invoicesError && tenantId && (invoicesError.code === '42703' || invoicesError.message?.includes('org_id'))) {
       console.warn('org_id column not found in sales_invoices, trying tenant_id');
       invoicesQuery = supabase
         .from('sales_invoices')
@@ -804,9 +811,11 @@ export async function getMonthlySalesTrends(
         });
       }
 
-      const trend = monthMap.get(monthKey)!;
-      trend.totalSales += Number(inv.total_amount || 0);
-      trend.totalInvoices += 1;
+      const trend = monthMap.get(monthKey);
+      if (trend) {
+        trend.totalSales += Number(inv.total_amount || 0);
+        trend.totalInvoices += 1;
+      }
     });
 
     (collections || []).forEach((col: any) => {
@@ -838,6 +847,88 @@ export async function getMonthlySalesTrends(
 // ===== PROFITABILITY ANALYSIS =====
 
 /**
+ * Fetch invoices with fallback for org_id/tenant_id
+ */
+async function fetchInvoicesWithFallback(tenantId: string, startDate: string, endDate: string): Promise<any[]> {
+  // Try org_id first
+  let invoicesQuery = supabase
+    .from('sales_invoices')
+    .select('id, total_amount, invoice_date')
+    .eq('org_id', tenantId)
+    .gte('invoice_date', startDate)
+    .lte('invoice_date', endDate);
+
+  let { data: invoices, error: invoicesError } = await invoicesQuery;
+  
+  // If org_id doesn't exist, try tenant_id
+  if (invoicesError && (invoicesError.code === '42703' || invoicesError.message?.includes('org_id'))) {
+    console.warn('org_id column not found in sales_invoices, trying tenant_id');
+    invoicesQuery = supabase
+      .from('sales_invoices')
+      .select('id, total_amount, invoice_date')
+      .eq('tenant_id', tenantId)
+      .gte('invoice_date', startDate)
+      .lte('invoice_date', endDate);
+    
+    const retryResult = await invoicesQuery;
+    invoices = retryResult.data;
+    invoicesError = retryResult.error;
+  }
+  
+  // If tenant_id also fails, skip tenant filter
+  if (invoicesError && (invoicesError.code === '42703' || invoicesError.message?.includes('tenant_id'))) {
+    console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
+    invoicesQuery = supabase
+      .from('sales_invoices')
+      .select('id, total_amount, invoice_date')
+      .gte('invoice_date', startDate)
+      .lte('invoice_date', endDate);
+    
+    const finalResult = await invoicesQuery;
+    invoices = finalResult.data;
+    invoicesError = finalResult.error;
+  }
+
+  if (invoicesError) throw invoicesError;
+  return invoices || [];
+}
+
+/**
+ * Calculate total COGS for invoices
+ */
+async function calculateTotalCOGS(invoices: any[]): Promise<number> {
+  let totalCOGS = 0;
+  for (const invoice of invoices) {
+    try {
+      const profitResult = await calculateInvoiceProfit(invoice.id);
+      if (profitResult.success) {
+        totalCOGS += profitResult.cogs;
+      }
+    } catch (error) {
+      console.error(`Error calculating profit for invoice ${invoice.id}:`, error);
+    }
+  }
+  return totalCOGS;
+}
+
+/**
+ * Calculate profit metrics
+ */
+function calculateProfitMetrics(totalRevenue: number, totalCOGS: number, totalExpenses: number) {
+  const grossProfit = totalRevenue - totalCOGS;
+  const grossProfitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+  const netProfit = grossProfit - totalExpenses;
+  const netProfitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+
+  return {
+    grossProfit,
+    grossProfitMargin,
+    netProfit,
+    netProfitMargin
+  };
+}
+
+/**
  * Get comprehensive profitability analysis
  */
 export async function getProfitabilityAnalysis(
@@ -848,77 +939,20 @@ export async function getProfitabilityAnalysis(
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
 
-    // Get all invoices in period
-    // sales_invoices uses org_id
-    let invoicesQuery = supabase
-      .from('sales_invoices')
-      .select('id, total_amount, invoice_date')
-      .eq('org_id', tenantId)
-      .gte('invoice_date', startDate)
-      .lte('invoice_date', endDate);
+    const invoices = await fetchInvoicesWithFallback(tenantId, startDate, endDate);
+    const totalRevenue = invoices.reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
+    const totalCOGS = await calculateTotalCOGS(invoices);
+    const totalExpenses = 0; // Placeholder - would come from GL/accounting module
 
-    let { data: invoices, error: invoicesError } = await invoicesQuery;
-    
-    // If org_id doesn't exist, try tenant_id
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('org_id')))) {
-      console.warn('org_id column not found in sales_invoices, trying tenant_id');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select('id, total_amount, invoice_date')
-        .eq('tenant_id', tenantId)
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
-      
-      const retryResult = await invoicesQuery;
-      invoices = retryResult.data;
-      invoicesError = retryResult.error;
-    }
-    
-    // If tenant_id also fails, skip tenant filter
-    if (invoicesError && tenantId && (invoicesError.code === '42703' || (invoicesError.message && invoicesError.message.includes('tenant_id')))) {
-      console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
-      invoicesQuery = supabase
-        .from('sales_invoices')
-        .select('id, total_amount, invoice_date')
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
-      
-      const finalResult = await invoicesQuery;
-      invoices = finalResult.data;
-      invoicesError = finalResult.error;
-    }
-
-    if (invoicesError) throw invoicesError;
-
-    // Calculate total revenue
-    const totalRevenue = (invoices || []).reduce((sum, inv) => sum + Number(inv.total_amount || 0), 0);
-
-    // Calculate COGS and profit for each invoice
-    let totalCOGS = 0;
-    for (const invoice of invoices || []) {
-      try {
-        const profitResult = await calculateInvoiceProfit(invoice.id);
-        if (profitResult.success) {
-          totalCOGS += profitResult.cogs;
-        }
-      } catch (error) {
-        console.error(`Error calculating profit for invoice ${invoice.id}:`, error);
-      }
-    }
-
-    const grossProfit = totalRevenue - totalCOGS;
-    const grossProfitMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
+    const { grossProfit, grossProfitMargin, netProfit, netProfitMargin } = 
+      calculateProfitMetrics(totalRevenue, totalCOGS, totalExpenses);
 
     // Get customer and product analyses
-    const byCustomer = await getCustomerSalesAnalysis(startDate, endDate);
-    const byProduct = await getProductSalesAnalysis(startDate, endDate);
-    const monthlyTrends = await getMonthlySalesTrends(startDate, endDate);
-
-    // For now, operating expenses are not tracked separately in sales module
-    // They would come from GL/accounting module
-    const totalExpenses = 0; // Placeholder
-    const netProfit = grossProfit - totalExpenses;
-    const netProfitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    const [byCustomer, byProduct, monthlyTrends] = await Promise.all([
+      getCustomerSalesAnalysis(startDate, endDate),
+      getProductSalesAnalysis(startDate, endDate),
+      getMonthlySalesTrends(startDate, endDate)
+    ]);
 
     return {
       totalRevenue,

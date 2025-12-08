@@ -28,6 +28,10 @@ import { DatePickerWithRange } from '@/components/ui/date-range-picker'
 import { DateRange } from 'react-day-picker'
 import { manufacturingService } from '@/services/supabase-service'
 import { toast } from 'sonner'
+import { useManufacturingOrders } from './hooks/useManufacturingOrders'
+import { useManufacturingProducts } from './hooks/useManufacturingProducts'
+import { createManufacturingOrder, getOrderDetails } from './services/manufacturingOrderService'
+import { getStatusLabel, getStatusBadgeVariant, getStatusOptions, validateStatusTransition, prepareStatusUpdate } from './utils/statusHelpers'
 import {
   Factory,
   Settings,
@@ -47,9 +51,7 @@ import {
 } from '@/components/ui/dialog'
 import {
   getStatusInfo,
-  getValidNextStatuses,
   isValidStatusTransition,
-  prepareStatusChange,
   isActiveOrder,
   isCompletedOrder,
   isPendingOrder,
@@ -399,11 +401,7 @@ function ManufacturingOverview() {
 function ManufacturingOrdersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
-  const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
-  const [products, setProducts] = useState<{ id: string; name: string; code?: string }[]>([])
-  const [productsLoading, setProductsLoading] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<ManufacturingOrder | null>(null)
   const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
   const [loadingOrderDetails, setLoadingOrderDetails] = useState(false)
@@ -423,10 +421,8 @@ function ManufacturingOrdersManagement() {
     to: undefined
   })
 
-  useEffect(() => {
-    loadOrders()
-    loadProducts()
-  }, [])
+  const { orders, loading, loadOrders } = useManufacturingOrders()
+  const { products, loading: productsLoading } = useManufacturingProducts()
 
   useEffect(() => {
     setOrderForm((prev) => ({
@@ -436,101 +432,6 @@ function ManufacturingOrdersManagement() {
     }))
   }, [dateRange])
 
-  const loadOrders = async () => {
-    try {
-      const data = await manufacturingService.getAll()
-      setOrders(data || [])
-    } catch (error: any) {
-      // Handle missing table gracefully
-      if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
-        console.warn('manufacturing_orders table not found, using empty array')
-        setOrders([])
-      } else {
-        console.error('Error loading orders:', error)
-        toast.error(t('manufacturing.ordersPage.loadError'))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const loadProducts = async () => {
-    try {
-      setProductsLoading(true)
-      const orgId = await getEffectiveTenantId()
-
-      const mapProducts = (data: any[] | null | undefined) =>
-        (data || []).map((item) => ({
-          id: item.id,
-          name: item.name || item.code || 'Unnamed product',
-          code: item.code
-        }))
-
-      const buildProductQuery = () => {
-        let query = supabase
-          .from('products')
-          .select('id, name, code, org_id')
-          .order('name', { ascending: true })
-          .limit(100)
-
-        if (orgId) {
-          query = query.eq('org_id', orgId)
-        }
-
-        return query
-      }
-
-      const buildItemsQuery = () => {
-        let query = supabase
-          .from('items')
-          .select('id, name, code, org_id')
-          .order('name', { ascending: true })
-          .limit(100)
-
-        if (orgId) {
-          query = query.eq('org_id', orgId)
-        }
-
-        return query
-      }
-
-      let productData: any[] | null = null
-
-      try {
-        const { data, error } = await buildProductQuery()
-        if (error && (error.code === 'PGRST205' || error.message?.includes('relation'))) {
-          productData = null
-        } else if (error) {
-          throw error
-        } else {
-          productData = data || []
-        }
-      } catch (error: any) {
-        if (error.code === 'PGRST205') {
-          productData = null
-        } else {
-          throw error
-        }
-      }
-
-      if (!productData || productData.length === 0) {
-        const { data: itemsData, error: itemsError } = await buildItemsQuery()
-        if (itemsError && itemsError.code !== 'PGRST205') {
-          throw itemsError
-        }
-        productData = itemsData || []
-      }
-
-      setProducts(mapProducts(productData))
-    } catch (error) {
-      console.warn('Could not load products for manufacturing orders form', error)
-      setProducts([])
-    } finally {
-      setProductsLoading(false)
-    }
-  }
-
-  // Get status options based on current status (for form creation)
   const orderStatusOptions: ManufacturingOrder['status'][] = [
     'draft',
     'confirmed',
@@ -541,53 +442,14 @@ function ManufacturingOrdersManagement() {
     'on-hold',
     'quality-check'
   ]
-  
-  // Get valid next statuses for a specific order
-  const getStatusOptions = (currentStatus: ManufacturingOrder['status']): ManufacturingOrder['status'][] => {
-    const validNext = getValidNextStatuses(currentStatus as ManufacturingOrderStatus)
-    // Always include current status
-    return [currentStatus, ...validNext]
-  }
-
-  const getStatusLabel = (status: ManufacturingOrder['status']) => {
-    const info = getStatusInfo(status as ManufacturingOrderStatus)
-    return isRTL ? info.labelAr : info.label
-  }
-
-  const getStatusBadgeVariant = (status: ManufacturingOrder['status']) => {
-    const info = getStatusInfo(status as ManufacturingOrderStatus)
-    return info.variant
-  }
 
   const handleCreateOrder = async (event: React.FormEvent) => {
     event.preventDefault()
 
-    if (!orderForm.productId) {
-      toast.error(t('manufacturing.ordersPage.form.productRequired'))
-      return
-    }
-
-    try {
-      setCreatingOrder(true)
-      const orgId = await getEffectiveTenantId()
-      if (!orgId) {
-        toast.error(t('manufacturing.ordersPage.form.missingOrg'))
-        return
-      }
-
-      await manufacturingService.create({
-        org_id: orgId,
-        order_number: orderForm.orderNumber.trim() || `MO-${Date.now()}`,
-        product_id: orderForm.productId,
-        item_id: orderForm.productId,
-        quantity: Number(orderForm.quantity) || 0,
-        status: orderForm.status,
-        start_date: orderForm.startDate || null,
-        due_date: orderForm.dueDate || null,
-        notes: orderForm.notes || null
-      } as any)
-
-      toast.success(t('manufacturing.ordersPage.form.createSuccess'))
+    setCreatingOrder(true)
+    const success = await createManufacturingOrder(orderForm, t)
+    
+    if (success) {
       setOrderForm({
         orderNumber: '',
         productId: '',
@@ -599,12 +461,9 @@ function ManufacturingOrdersManagement() {
       })
       setShowAddForm(false)
       loadOrders()
-    } catch (error) {
-      console.error(error)
-      toast.error(t('manufacturing.ordersPage.form.createError'))
-    } finally {
-      setCreatingOrder(false)
     }
+    
+    setCreatingOrder(false)
   }
 
   const updateOrderStatus = useMutation({
@@ -619,7 +478,6 @@ function ManufacturingOrdersManagement() {
 
   const handleStatusChange = async (orderId: string, newStatus: ManufacturingOrder['status']) => {
     try {
-      // Find current order
       const currentOrder = orders.find(o => o.id === orderId)
       if (!currentOrder) {
         toast.error(isRTL ? 'الطلب غير موجود' : 'Order not found')
@@ -629,57 +487,35 @@ function ManufacturingOrdersManagement() {
       const currentStatus = currentOrder.status as ManufacturingOrderStatus
       const targetStatus = newStatus as ManufacturingOrderStatus
 
-      // Allow no-op: if selecting the same status, skip validation
-      if (targetStatus === currentStatus) {
-        // No change needed, but we can still update the timestamp
-        // This matches the dropdown logic that allows same status selection
+      const validation = validateStatusTransition(currentStatus, targetStatus, isRTL)
+      if (!validation.valid) {
+        toast.error(validation.message)
         return
       }
 
-      // Validate transition (only if status is actually changing)
-      if (!isValidStatusTransition(currentStatus, targetStatus)) {
-        const currentInfo = getStatusInfo(currentStatus)
-        const targetInfo = getStatusInfo(targetStatus)
-        toast.error(
-          isRTL 
-            ? `لا يمكن الانتقال من "${currentInfo.labelAr}" إلى "${targetInfo.labelAr}"`
-            : `Cannot transition from "${currentInfo.label}" to "${targetInfo.label}"`
-        )
-        return
-      }
-
-      // Prepare status change (business logic)
-      const changeResult = prepareStatusChange({
+      const statusUpdate = prepareStatusUpdate(
         orderId,
-        fromStatus: currentStatus,
-        toStatus: targetStatus,
-        orderData: {
+        currentStatus,
+        targetStatus,
+        {
           quantity: currentOrder.quantity,
           start_date: (currentOrder as any).start_date,
           due_date: (currentOrder as any).due_date
         }
-      })
+      )
 
-      if (!changeResult.success) {
-        toast.error(isRTL ? changeResult.messageAr : changeResult.message)
+      if (!statusUpdate.success) {
+        toast.error(isRTL ? statusUpdate.messageAr : statusUpdate.message)
         return
       }
 
-      // Prepare update data with status and date changes if needed
-      const updateData: any = { status: targetStatus }
-      if (changeResult.shouldUpdateDates) {
-        if (changeResult.startDate) {
-          updateData.start_date = changeResult.startDate
-        }
-        if (changeResult.endDate) {
-          updateData.end_date = changeResult.endDate
-        }
-      }
+      await updateOrderStatus.mutateAsync({ 
+        id: orderId, 
+        status: targetStatus, 
+        updateData: statusUpdate.updateData 
+      })
 
-      // Update in database - pass updateData to ensure atomic update
-      await updateOrderStatus.mutateAsync({ id: orderId, status: targetStatus, updateData })
-
-      toast.success(isRTL ? changeResult.messageAr : changeResult.message || 'Status updated')
+      toast.success(isRTL ? statusUpdate.messageAr : statusUpdate.message || 'Status updated')
     } catch (error: any) {
       console.error('Error changing status:', error)
       toast.error(error.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'))
@@ -689,9 +525,9 @@ function ManufacturingOrdersManagement() {
   const handleViewOrder = async (orderId: string) => {
     try {
       setLoadingOrderDetails(true)
-      const order = await manufacturingService.getById(orderId)
+      const order = await getOrderDetails(orderId)
       if (order) {
-        setSelectedOrder(order as ManufacturingOrder)
+        setSelectedOrder(order)
         setOrderDetailsOpen(true)
       } else {
         toast.error(t('manufacturing.ordersPage.orderNotFound') || 'Order not found')
@@ -837,7 +673,7 @@ function ManufacturingOrdersManagement() {
                   <SelectContent>
                     {orderStatusOptions.map((status) => (
                       <SelectItem key={status} value={status}>
-                        {getStatusLabel(status)}
+                        {getStatusLabel(status, isRTL)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -917,7 +753,7 @@ function ManufacturingOrdersManagement() {
                     <TableCell>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                         <Badge variant={getStatusBadgeVariant(order.status)}>
-                          {getStatusLabel(order.status)}
+                          {getStatusLabel(order.status, isRTL)}
                         </Badge>
                         <Select
                           value={order.status}
@@ -1001,7 +837,7 @@ function ManufacturingOrdersManagement() {
                     <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
                     <div className="mt-1">
                       <Badge variant={getStatusBadgeVariant(selectedOrder.status)}>
-                        {getStatusLabel(selectedOrder.status)}
+                        {getStatusLabel(selectedOrder.status, isRTL)}
                       </Badge>
                     </div>
                   </div>

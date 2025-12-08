@@ -598,7 +598,7 @@ function ItemsManagement() {
               <Input
                 type="number"
                 value={newItem.stock_quantity}
-                onChange={(e) => setNewItem({...newItem, stock_quantity: parseInt(e.target.value) || 0})}
+                onChange={(e) => setNewItem({...newItem, stock_quantity: Number.parseInt(e.target.value, 10) || 0})}
               />
             </div>
             <div>
@@ -606,7 +606,7 @@ function ItemsManagement() {
               <Input
                 type="number"
                 value={newItem.minimum_stock}
-                onChange={(e) => setNewItem({...newItem, minimum_stock: parseInt(e.target.value) || 0})}
+                onChange={(e) => setNewItem({...newItem, minimum_stock: Number.parseInt(e.target.value, 10) || 0})}
               />
             </div>
             <div>

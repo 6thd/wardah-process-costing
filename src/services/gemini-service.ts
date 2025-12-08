@@ -28,8 +28,8 @@ class GeminiService {
   sendMessageToDashboard(message: any) {
     const iframe = document.getElementById('gemini-dashboard-iframe') as HTMLIFrameElement
     if (iframe && iframe.contentWindow) {
-      // Use window.location.origin instead of '*' for security
-      iframe.contentWindow.postMessage(message, window.location.origin)
+      // Use globalThis.window.location.origin instead of '*' for security
+      iframe.contentWindow.postMessage(message, globalThis.window.location.origin)
     }
   }
 
@@ -37,7 +37,7 @@ class GeminiService {
   listenForMessages(callback: (message: any) => void) {
     const handler = (event: MessageEvent) => {
       // Verify the message is from same origin
-      if (event.origin !== window.location.origin) {
+      if (event.origin !== globalThis.window.location.origin) {
         console.warn('Ignoring message from unauthorized origin:', event.origin)
         return
       }
@@ -49,7 +49,7 @@ class GeminiService {
       }
     }
     
-    window.addEventListener('message', handler)
+    globalThis.window.addEventListener('message', handler)
     
     // Return a function to remove the listener
     return () => window.removeEventListener('message', handler)

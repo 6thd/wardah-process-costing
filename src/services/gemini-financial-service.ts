@@ -3,8 +3,7 @@
  * خدمة مالية متقدمة لربط لوحة Gemini بالبيانات الحقيقية
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 export interface FinancialKPIs {
   totalSales: number;

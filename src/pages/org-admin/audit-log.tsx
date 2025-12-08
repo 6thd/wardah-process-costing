@@ -9,7 +9,6 @@ import { getSupabase } from '@/lib/supabase';
 import { 
   FileText, 
   Search, 
-  Filter, 
   Download, 
   RefreshCw,
   User,
@@ -27,7 +26,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -129,7 +128,13 @@ const getActionLabel = (action: string, isRTL: boolean) => {
     reject: { ar: 'رفض', en: 'Reject' },
   };
   const label = labels[action.toLowerCase()];
-  return label ? (isRTL ? label.ar : label.en) : action;
+  if (!label) {
+    return action;
+  }
+  if (isRTL) {
+    return label.ar;
+  }
+  return label.en;
 };
 
 // =====================================
@@ -137,7 +142,7 @@ const getActionLabel = (action: string, isRTL: boolean) => {
 // =====================================
 
 export default function OrgAdminAuditLog() {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const { currentOrgId } = useAuth();
   const isRTL = i18n.language === 'ar';
 
@@ -172,7 +177,7 @@ export default function OrgAdminAuditLog() {
       // Calculate date range
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setDate(startDate.getDate() - parseInt(dateFilter));
+      startDate.setDate(startDate.getDate() - Number.parseInt(dateFilter, 10));
 
       let query = supabase
         .from('audit_logs')
@@ -353,112 +358,125 @@ export default function OrgAdminAuditLog() {
       {/* Logs List */}
       <Card className="bg-slate-900/50 border-slate-800">
         <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-8 w-8 animate-spin text-violet-500" />
-            </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <AlertCircle className="h-12 w-12 text-amber-500 mb-4" />
-              <p className="text-slate-400">{error}</p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={loadAuditLogs}
-                className="mt-4 border-slate-700"
-              >
-                {isRTL ? 'إعادة المحاولة' : 'Retry'}
-              </Button>
-            </div>
-          ) : logs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <FileText className="h-12 w-12 text-slate-600 mb-4" />
-              <p className="text-slate-400">
-                {isRTL ? 'لا توجد سجلات' : 'No logs found'}
-              </p>
-              <p className="text-slate-500 text-sm mt-1">
-                {isRTL ? 'سيتم عرض الأنشطة هنا عند حدوثها' : 'Activities will appear here when they occur'}
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-800">
-              {logs.map((log) => {
-                const EntityIcon = getEntityIcon(log.entity_type);
-                return (
-                  <div
-                    key={log.id}
-                    className="p-4 hover:bg-slate-800/50 transition-colors"
+          {(() => {
+            if (loading) {
+              return (
+                <div className="flex items-center justify-center py-12">
+                  <RefreshCw className="h-8 w-8 animate-spin text-violet-500" />
+                </div>
+              );
+            }
+            if (error) {
+              return (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <AlertCircle className="h-12 w-12 text-amber-500 mb-4" />
+                  <p className="text-slate-400">{error}</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadAuditLogs}
+                    className="mt-4 border-slate-700"
                   >
-                    <div className="flex items-start gap-4">
-                      {/* Icon */}
-                      <div className="p-2 rounded-lg bg-slate-800">
-                        <EntityIcon className="h-5 w-5 text-slate-400" />
-                      </div>
+                    {isRTL ? 'إعادة المحاولة' : 'Retry'}
+                  </Button>
+                </div>
+              );
+            }
+            if (logs.length === 0) {
+              return (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <FileText className="h-12 w-12 text-slate-600 mb-4" />
+                  <p className="text-slate-400">
+                    {isRTL ? 'لا توجد سجلات' : 'No logs found'}
+                  </p>
+                  <p className="text-slate-500 text-sm mt-1">
+                    {isRTL ? 'سيتم عرض الأنشطة هنا عند حدوثها' : 'Activities will appear here when they occur'}
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <>
+                <div className="divide-y divide-slate-800">
+                  {logs.map((log) => {
+                    const EntityIcon = getEntityIcon(log.entity_type);
+                    return (
+                      <div
+                        key={log.id}
+                        className="p-4 hover:bg-slate-800/50 transition-colors"
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* Icon */}
+                          <div className="p-2 rounded-lg bg-slate-800">
+                            <EntityIcon className="h-5 w-5 text-slate-400" />
+                          </div>
 
-                      {/* Content */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Badge className={`${getActionColor(log.action)} border`}>
-                            {getActionLabel(log.action, isRTL)}
-                          </Badge>
-                          <span className="text-white font-medium">
-                            {log.entity_type}
-                          </span>
-                          {log.entity_id && (
-                            <code className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400">
-                              {log.entity_id.substring(0, 8)}...
-                            </code>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {formatDate(log.created_at, isRTL)}
-                          </span>
-                          {log.user_email && (
-                            <span className="flex items-center gap-1">
-                              <User className="h-3 w-3" />
-                              {log.user_email}
-                            </span>
-                          )}
+                          {/* Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge className={`${getActionColor(log.action)} border`}>
+                                {getActionLabel(log.action, isRTL)}
+                              </Badge>
+                              <span className="text-white font-medium">
+                                {log.entity_type}
+                              </span>
+                              {log.entity_id && (
+                                <code className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400">
+                                  {log.entity_id.substring(0, 8)}...
+                                </code>
+                              )}
+                            </div>
+                            
+                            <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" />
+                                {formatDate(log.created_at, isRTL)}
+                              </span>
+                              {log.user_email && (
+                                <span className="flex items-center gap-1">
+                                  <User className="h-3 w-3" />
+                                  {log.user_email}
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
+                    );
+                  })}
+                </div>
+                
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between p-4 border-t border-slate-800">
+                    <p className="text-sm text-slate-400">
+                      {isRTL ? `صفحة ${page} من ${totalPages}` : `Page ${page} of ${totalPages}`}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => Math.max(1, p - 1))}
+                        disabled={page === 1}
+                        className="border-slate-700"
+                      >
+                        {isRTL ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                        disabled={page === totalPages}
+                        className="border-slate-700"
+                      >
+                        {isRTL ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                      </Button>
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between p-4 border-t border-slate-800">
-              <p className="text-sm text-slate-400">
-                {isRTL ? `صفحة ${page} من ${totalPages}` : `Page ${page} of ${totalPages}`}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(p => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="border-slate-700"
-                >
-                  {isRTL ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="border-slate-700"
-                >
-                  {isRTL ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-          )}
+                )}
+              </>
+            );
+          })()}
         </CardContent>
       </Card>
     </div>

@@ -273,7 +273,7 @@ export function Sidebar() {
 
   const handleItemClick = () => {
     // Close mobile sidebar when item is clicked
-    if (window.innerWidth < 1024) {
+    if (globalThis.window.innerWidth < 1024) {
       setSidebarOpen(false)
     }
   }

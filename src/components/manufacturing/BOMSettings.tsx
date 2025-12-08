@@ -104,7 +104,7 @@ export function BOMSettings() {
             value={settings.bom_max_levels}
             onChange={(e) => setSettings({
               ...settings,
-              bom_max_levels: parseInt(e.target.value) || 20
+              bom_max_levels: Number.parseInt(e.target.value, 10) || 20
             })}
           />
           <p className="text-sm text-muted-foreground">

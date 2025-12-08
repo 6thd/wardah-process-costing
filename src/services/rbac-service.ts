@@ -132,7 +132,10 @@ export async function getPermissionsGrouped(): Promise<Map<string, Permission[]>
       if (!grouped.has(moduleId)) {
         grouped.set(moduleId, []);
       }
-      grouped.get(moduleId)!.push(perm);
+      const modulePerms = grouped.get(moduleId);
+      if (modulePerms) {
+        modulePerms.push(perm);
+      }
     });
 
     return grouped;
@@ -509,7 +512,10 @@ export async function getUserPermissions(
   
   // Check cache
   if (Date.now() < cacheExpiry && permissionsCache.has(cacheKey)) {
-    return permissionsCache.get(cacheKey)!;
+    const cached = permissionsCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
   }
 
   try {

@@ -3,8 +3,7 @@
  * Enhanced with Batch Posting, Approvals, Attachments, Comments
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 export interface JournalEntry {
   id: string;
@@ -213,6 +212,36 @@ export class JournalService {
         success: false,
         error: error.message || 'Failed to create journal entry'
       };
+    }
+  }
+
+  /**
+   * Post a single journal entry
+   */
+  static async postJournalEntry(entryId: string): Promise<{
+    success: boolean;
+    message?: string;
+    error?: string;
+  }> {
+    try {
+      const tenantId = await getEffectiveTenantId();
+      if (!tenantId) throw new Error('Tenant ID not found');
+
+      // Use batch post with single entry
+      const result = await this.batchPostEntries([entryId]);
+      
+      if (result.success_count > 0) {
+        return { success: true, message: 'Entry posted successfully' };
+      } else {
+        const failedResult = result.results.find(r => r.entry_id === entryId);
+        return { 
+          success: false, 
+          error: failedResult?.error || 'Failed to post entry' 
+        };
+      }
+    } catch (error: any) {
+      console.error('Error posting entry:', error);
+      return { success: false, error: error.message || 'Failed to post entry' };
     }
   }
 
@@ -494,109 +523,132 @@ export class JournalService {
   }
 
   /**
-   * Get full entry with all related data
+   * Fetch entry from database
    */
-  static async getEntryWithDetails(entryId: string): Promise<JournalEntry | null> {
-    try {
-      // Get entry - try both table names for compatibility
-      let entry: any = null;
-      let entryError: any = null;
+  private static async fetchEntry(entryId: string): Promise<any> {
+    const { data: glData, error: glError } = await supabase
+      .from('gl_entries')
+      .select('*')
+      .eq('id', entryId)
+      .single();
 
-      // Use gl_entries directly (journal_entries has RLS issues)
-      const { data: glData, error: glError } = await supabase
-        .from('gl_entries')
+    if (glError) throw glError;
+    return glData;
+  }
+
+  /**
+   * Fetch entry lines from database
+   */
+  private static async fetchEntryLines(entryId: string): Promise<any[]> {
+    const { data: glLinesData } = await supabase
+      .from('gl_entry_lines')
+      .select('*')
+      .eq('entry_id', entryId)
+      .order('line_number');
+
+    return glLinesData || [];
+  }
+
+  /**
+   * Enrich lines with account details
+   */
+  private static async enrichLinesWithAccounts(lines: any[]): Promise<any[]> {
+    if (lines.length === 0) return lines;
+
+    const accountIds = lines.map(l => l.account_id).filter(Boolean);
+    if (accountIds.length === 0) return lines;
+
+    const { data: accounts } = await supabase
+      .from('gl_accounts')
+      .select('id, code, name, name_ar')
+      .in('id', accountIds);
+
+    if (!accounts) return lines;
+
+    return lines.map(line => {
+      const account = accounts.find(a => a.id === line.account_id);
+      return {
+        ...line,
+        account_code: account?.code,
+        account_name: account?.name,
+        account_name_ar: account?.name_ar
+      };
+    });
+  }
+
+  /**
+   * Fetch related data (approvals, attachments, comments)
+   */
+  private static async fetchEntryRelatedData(entryId: string): Promise<[any[], any[], any[]]> {
+    return Promise.all([
+      this.getEntryApprovals(entryId).catch(() => []),
+      this.getEntryAttachments(entryId).catch(() => []),
+      this.getEntryComments(entryId).catch(() => [])
+    ]);
+  }
+
+  /**
+   * Build entry response with all details
+   */
+  private static buildEntryResponse(entry: any, lines: any[], approvals: any[], attachments: any[], comments: any[]): JournalEntry {
+    return {
+      ...entry,
+      journal_name: entry.journals?.name || entry.journal_name,
+      journal_name_ar: entry.journals?.name_ar || entry.journal_name_ar,
+      lines: lines.map((line: any) => ({
+        ...line,
+        account_code: line.gl_accounts?.code || line.account_code,
+        account_name: line.gl_accounts?.name || line.account_name,
+        account_name_ar: line.gl_accounts?.name_ar || line.account_name_ar
+      })),
+      approvals: approvals || [],
+      attachments: attachments || [],
+      comments: comments || []
+    };
+  }
+
+  /**
+   * Get fallback entry (basic info only)
+   */
+  private static async getFallbackEntry(entryId: string): Promise<JournalEntry | null> {
+    try {
+      const { data: entry } = await supabase
+        .from('journal_entries')
         .select('*')
         .eq('id', entryId)
         .single();
 
-      if (glError) {
-        entryError = glError;
-      } else {
-        entry = glData;
-      }
-
-      if (entryError) throw entryError;
       if (!entry) return null;
-
-      // Get lines - use gl_entry_lines directly
-      let lines: any[] = [];
-      const { data: glLinesData } = await supabase
-        .from('gl_entry_lines')
-        .select('*')
-        .eq('entry_id', entryId)
-        .order('line_number');
-
-      if (glLinesData) {
-        lines = glLinesData;
-      }
-      
-      // Fetch GL account details separately for each line if needed
-      if (lines.length > 0) {
-        const accountIds = lines.map(l => l.account_id).filter(Boolean);
-        if (accountIds.length > 0) {
-          const { data: accounts } = await supabase
-            .from('gl_accounts')
-            .select('id, code, name, name_ar')
-            .in('id', accountIds);
-          
-          if (accounts) {
-            lines = lines.map(line => {
-              const account = accounts.find(a => a.id === line.account_id);
-              return {
-                ...line,
-                account_code: account?.code,
-                account_name: account?.name,
-                account_name_ar: account?.name_ar
-              };
-            });
-          }
-        }
-      }
-
-      // Get approvals, attachments, comments (with error handling)
-      const [approvals, attachments, comments] = await Promise.all([
-        this.getEntryApprovals(entryId).catch(() => []),
-        this.getEntryAttachments(entryId).catch(() => []),
-        this.getEntryComments(entryId).catch(() => [])
-      ]);
 
       return {
         ...entry,
-        journal_name: entry.journals?.name || entry.journal_name,
-        journal_name_ar: entry.journals?.name_ar || entry.journal_name_ar,
-        lines: (lines || []).map((line: any) => ({
-          ...line,
-          account_code: line.gl_accounts?.code || line.account_code,
-          account_name: line.gl_accounts?.name || line.account_name,
-          account_name_ar: line.gl_accounts?.name_ar || line.account_name_ar
-        })),
-        approvals: approvals || [],
-        attachments: attachments || [],
-        comments: comments || []
-      };
+        lines: [],
+        approvals: [],
+        attachments: [],
+        comments: []
+      } as JournalEntry;
+    } catch (error: unknown) {
+      console.error('Error in journal service:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get full entry with all related data
+   */
+  static async getEntryWithDetails(entryId: string): Promise<JournalEntry | null> {
+    try {
+      const entry = await this.fetchEntry(entryId);
+      if (!entry) return null;
+
+      const rawLines = await this.fetchEntryLines(entryId);
+      const enrichedLines = await this.enrichLinesWithAccounts(rawLines);
+      const [approvals, attachments, comments] = await this.fetchEntryRelatedData(entryId);
+
+      return this.buildEntryResponse(entry, enrichedLines, approvals, attachments, comments);
     } catch (error: any) {
       console.error('Error fetching entry details:', error);
-      // Return basic entry info even if details fail
-      try {
-        const { data: entry } = await supabase
-          .from('journal_entries')
-          .select('*')
-          .eq('id', entryId)
-          .single();
-
-        if (entry) {
-          return {
-            ...entry,
-            lines: [],
-            approvals: [],
-            attachments: [],
-            comments: []
-          } as JournalEntry;
-        }
-      } catch (e) {
-        // Ignore
-      }
-      return null;
+      return this.getFallbackEntry(entryId);
     }
   }
 }

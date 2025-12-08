@@ -74,8 +74,17 @@
     <div id="results"></div>
 
     <script>
-        const supabaseUrl = 'https://oobdeuhczdjmlfjkvdel.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYmRldWhjemRqbWxmamt2ZGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzEzNTE1NjcsImV4cCI6MjA0NjkyNzU2N30.RwrRxCPzqQJkjDz_Sk5gww_Kw1r2uAaKzw-I58MR3Ww';
+        // ⚠️ SECURITY WARNING: Never hardcode API keys in HTML files!
+        // For production, load from environment variables or a secure config endpoint
+        // This is a test file - replace with actual environment-based configuration
+        const supabaseUrl = window.env?.SUPABASE_URL || 'https://your-project.supabase.co';
+        const supabaseKey = window.env?.VITE_SUPABASE_ANON_KEY || 'YOUR_ANON_KEY_HERE';
+        
+        if (!supabaseUrl || !supabaseKey || supabaseKey === 'YOUR_ANON_KEY_HERE') {
+            console.error('❌ ERROR: Missing Supabase configuration!');
+            console.error('Please configure SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+            document.body.innerHTML = '<h1>Configuration Error</h1><p>Please set up Supabase credentials. See README_ENV_SETUP.md</p>';
+        }
         
         const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
 

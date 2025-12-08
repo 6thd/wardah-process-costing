@@ -209,7 +209,10 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
             rolesMap.set(ur.user_id, []);
           }
           if (ur.role) {
-            rolesMap.get(ur.user_id)!.push(ur.role);
+            const userRoles = rolesMap.get(ur.user_id);
+            if (userRoles) {
+              userRoles.push(ur.role);
+            }
           }
         });
       } catch (rolesError) {
@@ -457,7 +460,7 @@ export async function resendInvitation(
 
     const newToken = generateToken();
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('invitations')
       .update({
         token: newToken,
@@ -715,18 +718,16 @@ export async function createRoleFromTemplate(
           for (const pattern of permissionKeys) {
             if (pattern.includes('%')) {
               // Wildcard pattern - convert to regex
-              const regexPattern = pattern.replace(/%/g, '.*');
+              const regexPattern = pattern.replaceAll('%', '.*');
               const regex = new RegExp(`^${regexPattern}$`);
               if (regex.test(perm.permission_key)) {
                 matchingPermissionIds.push(perm.id);
                 break;
               }
-            } else {
+            } else if (perm.permission_key === pattern) {
               // Exact match
-              if (perm.permission_key === pattern) {
-                matchingPermissionIds.push(perm.id);
-                break;
-              }
+              matchingPermissionIds.push(perm.id);
+              break;
             }
           }
         }

@@ -29,8 +29,14 @@ jobs:
       - name: Type checking
         run: npm run type-check
         
-      # - name: Run tests
-      #   run: npm run test
+      - name: Run tests with coverage
+        run: npm run test:coverage
+        
+      - name: Upload coverage to SonarQube
+        uses: sonarsource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         
       - name: Build project
         run: npm run build

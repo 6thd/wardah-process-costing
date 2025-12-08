@@ -260,7 +260,7 @@ export class PurchaseOrderController extends BuyingController<PurchaseOrder> {
     // Filter lines if specific lines selected
     let linesToReceive = this.lines
     if (selectedLines && selectedLines.length > 0) {
-      linesToReceive = this.lines.filter(line => selectedLines.includes(line.id!))
+      linesToReceive = this.lines.filter(line => line.id && selectedLines.includes(line.id))
     }
 
     // Filter out fully received lines

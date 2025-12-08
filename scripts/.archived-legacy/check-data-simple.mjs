@@ -1,7 +1,24 @@
 import { createClient } from '@supabase/supabase-js';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-const supabaseUrl = 'https://oobdeuhczdjmlfjkvdel.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYmRldWhjemRqbWxmamt2ZGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzEzNTE1NjcsImV4cCI6MjA0NjkyNzU2N30.RwrRxCPzqQJkjDz_Sk5gww_Kw1r2uAaKzw-I58MR3Ww';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+dotenv.config({ path: join(__dirname, '.env') });
+
+// ⚠️ SECURITY: Load Supabase configuration from environment variables
+// Never hardcode API keys in source code!
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY;
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ ERROR: Missing Supabase configuration!');
+  console.error('Please set SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file');
+  console.error('See README_ENV_SETUP.md for reference');
+  process.exit(1);
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey);
 

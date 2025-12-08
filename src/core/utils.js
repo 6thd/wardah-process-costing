@@ -70,7 +70,7 @@ export const validateRequired = (value, fieldName) => {
 export const validatePositiveNumber = (value, fieldName) => {
   validateRequired(value, fieldName)
   
-  if (isNaN(value) || value < 0) {
+  if (Number.isNaN(value) || value < 0) {
     throw new Error(`${fieldName} must be a positive number`)
   }
 }

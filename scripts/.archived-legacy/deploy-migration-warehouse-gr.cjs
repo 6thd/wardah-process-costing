@@ -2,9 +2,19 @@ const { createClient } = require('@supabase/supabase-js')
 const fs = require('fs')
 const path = require('path')
 
-// Load Supabase configuration
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://uutfztmqvajmsxnrqeiv.supabase.co'
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzA1NTE5MTMsImV4cCI6MjA0NjEyNzkxM30.OlVLshRNP4BqYVl1gGJ_H0EXrMFLfMWIBxbNYuHa_Ek'
+require('dotenv').config({ path: require('path').join(__dirname, '.env') })
+
+// ⚠️ SECURITY: Load Supabase configuration from environment variables
+// Never hardcode API keys in source code!
+const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_SERVICE_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  console.error('❌ ERROR: Missing Supabase configuration!')
+  console.error('Please set SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file')
+  console.error('See .env.example for reference')
+  process.exit(1)
+}
 
 const supabase = createClient(supabaseUrl, supabaseKey)
 

@@ -4,8 +4,7 @@
  * Handles data migrations with rollback support and progress tracking
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { AppError } from '@/lib/errors/AppError';
 
 /**
@@ -39,8 +38,8 @@ export interface MigrationStatus {
  * Data Migration Runner
  */
 class DataMigrationRunner {
-  private migrations: Map<string, DataMigration> = new Map();
-  private executedMigrations: Set<string> = new Set();
+  private readonly migrations: Map<string, DataMigration> = new Map();
+  private readonly executedMigrations: Set<string> = new Set();
 
   /**
    * Register a migration

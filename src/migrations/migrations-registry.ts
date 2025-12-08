@@ -52,5 +52,6 @@ export function initializeMigrations(): void {
 // Auto-initialize on import
 initializeMigrations();
 
-export default migrationRunner;
+// Re-export migrationRunner as default
+export { migrationRunner as default } from './data-migration-runner';
 

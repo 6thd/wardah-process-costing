@@ -343,7 +343,7 @@ registerAction('stage-save-labor', async (context: ActionContext): Promise<Actio
     const applyLabor = createSecureRPC('apply_labor_time')
     const result = await applyLabor({
       p_mo_id: data.moId,
-      p_stage_no: parseInt(data.stageNo),
+      p_stage_no: Number.parseInt(data.stageNo, 10),
       p_hours: parseFloat(data.hours),
       p_hourly_rate: parseFloat(data.hourlyRate),
       p_worker_name: data.workerName
@@ -370,7 +370,7 @@ registerAction('stage-apply-oh', async (context: ActionContext): Promise<ActionR
     const applyOverhead = createSecureRPC('apply_overhead')
     const result = await applyOverhead({
       p_mo_id: data.moId,
-      p_stage_no: parseInt(data.stageNo),
+      p_stage_no: Number.parseInt(data.stageNo, 10),
       p_base_qty: parseFloat(data.baseQty),
       p_overhead_rate: parseFloat(data.overheadRate),
       p_basis: data.basis || 'labor_hours'
@@ -397,7 +397,7 @@ registerAction('stage-recalc', async (context: ActionContext): Promise<ActionRes
     const upsertStage = createSecureRPC('upsert_stage_cost')
     const result = await upsertStage({
       p_mo_id: data.moId,
-      p_stage_no: parseInt(data.stageNo),
+      p_stage_no: Number.parseInt(data.stageNo, 10),
       p_work_center_id: data.workCenterId,
       p_good_qty: parseFloat(data.goodQty || 0),
       p_scrap_qty: parseFloat(data.scrapQty || 0),

@@ -1,9 +1,20 @@
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs').promises;
 
-// Supabase configuration from config.json
-const SUPABASE_URL = 'https://rytzljjlthouptdqeuxh.supabase.co';
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NzgzNzU1NiwiZXhwIjoyMDczNDEzNTU2fQ.jcHrsuij3JafysuxrSO-J6q-7llnj-wDocUVjCjRXao';
+require('dotenv').config({ path: require('path').join(__dirname, '.env') })
+
+// ⚠️ SECURITY: Load Supabase configuration from environment variables
+// Never hardcode API keys in source code!
+// Note: This script uses SERVICE_KEY for admin operations
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+  console.error('❌ ERROR: Missing Supabase configuration!')
+  console.error('Please set SUPABASE_URL and SUPABASE_SERVICE_KEY in your .env file')
+  console.error('See .env.example for reference')
+  process.exit(1)
+}
 
 // Create Supabase client with service role key for full access
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {

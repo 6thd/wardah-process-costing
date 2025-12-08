@@ -28,9 +28,12 @@ function EmergencyApp() {
     // Test basic imports
     try {
       console.log('🔧 Emergency Debug App loaded')
-      console.log('📍 Current URL:', window.location.href)
-      console.log('🌐 User Agent:', navigator.userAgent)
-      console.log('📱 Screen:', window.screen.width + 'x' + window.screen.height)
+      const win = globalThis.window;
+      if (win) {
+        console.log('📍 Current URL:', win.location.href)
+        console.log('🌐 User Agent:', win.navigator.userAgent)
+        console.log('📱 Screen:', win.screen.width + 'x' + win.screen.height)
+      }
     } catch (err) {
       // Fix: Properly handle unknown error type
       const errorMessage = err instanceof Error ? err.message : String(err)
@@ -43,14 +46,15 @@ function EmergencyApp() {
     
     try {
       switch (step) {
-        case 'router':
+        case 'router': {
           // Fixed: Import and use React Router to eliminate TS6133 warning
           await import('react-router-dom')
           setDebugInfo(prev => ({ ...prev, router: true }))
           console.log('✅ React Router import successful')
           break
+        }
           
-        case 'auth':
+        case 'auth': {
           // Fixed: Import and use auth store to eliminate TS6133 warning
           const authModule = await import('./store/safe-auth-store')
           // Using the imported module to confirm it works
@@ -58,8 +62,9 @@ function EmergencyApp() {
           setDebugInfo(prev => ({ ...prev, auth: true }))
           console.log('✅ Auth store import successful')
           break
+        }
           
-        case 'layout':
+        case 'layout': {
           // Fixed: Import and use layout to eliminate TS6133 warning
           const layoutModule = await import('./components/layout/main-layout')
           // Using the imported module to confirm it works
@@ -67,6 +72,7 @@ function EmergencyApp() {
           setDebugInfo(prev => ({ ...prev, layout: true }))
           console.log('✅ Layout import successful')
           break
+        }
       }
     } catch (error) {
       // Fix: Properly handle unknown error type
@@ -197,7 +203,7 @@ function EmergencyApp() {
             style={styles.button}
             onClick={() => {
               console.log('🔄 Reloading page...')
-              window.location.reload()
+              globalThis.window?.location.reload()
             }}
           >
             Reload Page
@@ -206,7 +212,7 @@ function EmergencyApp() {
         
         <div style={{ marginTop: '20px', fontSize: '12px', opacity: 0.8 }}>
           <strong>Environment Info:</strong><br/>
-          URL: {window.location.href}<br/>
+          URL: {globalThis.window?.location.href || 'N/A'}<br/>
           Time: {new Date().toLocaleString()}<br/>
           Mode: {import.meta.env.MODE}<br/>
           React: {React.version || 'Unknown'}

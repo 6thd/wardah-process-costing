@@ -106,7 +106,7 @@ export class StockLedgerService {
       newRate = prevRate
       newValue = newQty * newRate
 
-      // TODO: Phase 3 - Implement FIFO/LIFO queue consumption
+      // Note: Phase 3 - FIFO/LIFO queue consumption will be implemented later
       
       entry.incoming_rate = 0
       entry.outgoing_rate = prevRate
@@ -348,6 +348,10 @@ export class StockLedgerService {
    * Cancel Stock Ledger Entry (create reversal entry)
    */
   static async cancelEntry(sle: StockLedgerEntry): Promise<void> {
+    if (!sle.id) {
+      throw new Error('Cannot cancel entry without id')
+    }
+
     // Create reversal entry
     const reversalEntry: StockLedgerEntry = {
       ...sle,
@@ -364,7 +368,7 @@ export class StockLedgerService {
     await supabase
       .from('stock_ledger_entries')
       .update({ is_cancelled: true })
-      .eq('id', sle.id!)
+      .eq('id', sle.id)
   }
 
   /**

@@ -9,26 +9,22 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, UserPlus, AlertCircle, Building2, Mail, Lock, User, CheckCircle2, MailOpen } from 'lucide-react';
-import { getOrganizationByCode, addUserToOrganization } from '@/services/organization-service';
-import { acceptInvitation } from '@/services/org-admin-service';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-
-interface InvitationData {
-  id: string;
-  email: string;
-  org_id: string;
-  org_name?: string;
-  status: string;
-  expires_at: string;
-}
+import {
+  handleInviteSignUp,
+  handleJoinSignUp,
+  handleCreateOrgSignUp,
+  getSignUpErrorMessage
+} from '@/pages/signup/services/signupHandlers';
+import type { InvitationData, SignUpFormData } from '@/pages/signup/types';
 
 export function SignUpPage() {
   const [searchParams] = useSearchParams();
   const inviteToken = searchParams.get('invite');
   
   const [mode, setMode] = useState<'join' | 'create' | 'invite'>('join');
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<SignUpFormData>({
     fullName: '',
     email: '',
     password: '',
@@ -151,7 +147,6 @@ export function SignUpPage() {
     setError('');
     setSuccess('');
 
-    // Validate form
     const validationError = validateForm();
     if (validationError) {
       setError(validationError);
@@ -161,138 +156,25 @@ export function SignUpPage() {
     setLoading(true);
 
     try {
-      const supabase = getSupabase();
+      let result;
 
       if (mode === 'invite' && invitation && inviteToken) {
-        // Mode: Join via invitation
-        // Verify email matches invitation
-        if (formData.email.trim().toLowerCase() !== invitation.email.toLowerCase()) {
-          setError(`البريد الإلكتروني يجب أن يكون ${invitation.email}`);
-          setLoading(false);
-          return;
-        }
-
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email: formData.email.trim(),
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.fullName.trim(),
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-
-        if (authData.user) {
-          // Accept invitation (adds user to org with assigned roles)
-          const result = await acceptInvitation(inviteToken, authData.user.id);
-          
-          if (!result.success) {
-            throw new Error(result.error || 'فشل قبول الدعوة');
-          }
-
-          setSuccess(`✅ تم التسجيل بنجاح! مرحباً بك في ${invitation.org_name}`);
-          setTimeout(() => navigate('/login'), 3000);
-        }
+        result = await handleInviteSignUp(formData, invitation, inviteToken);
       } else if (mode === 'join') {
-        // Mode 1: Join existing organization by code
-        const org = await getOrganizationByCode(formData.orgCode);
-        if (!org) {
-          setError('رمز المنظمة غير صحيح أو المنظمة غير نشطة');
-          setLoading(false);
-          return;
-        }
-
-        // Create user account
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email: formData.email.trim(),
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.fullName.trim(),
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-
-        if (authData.user) {
-          // Add user to organization
-          const result = await addUserToOrganization({
-            userId: authData.user.id,
-            orgId: org.id,
-            role: 'user',
-          });
-
-          if (!result.success) {
-            throw new Error(result.error || 'فشل إضافة المستخدم للمنظمة');
-          }
-
-          setSuccess('✅ تم التسجيل بنجاح! يرجى تأكيد بريدك الإلكتروني للمتابعة');
-          setTimeout(() => navigate('/login'), 3000);
-        }
+        result = await handleJoinSignUp(formData);
       } else {
-        // Mode 2: Create new organization
-        const supabase = getSupabase();
+        result = await handleCreateOrgSignUp(formData);
+      }
 
-        // Create user account first
-        const { data: authData, error: signUpError } = await supabase.auth.signUp({
-          email: formData.email.trim(),
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.fullName.trim(),
-            },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-
-        if (authData.user) {
-          // Create organization (the service will automatically add user as admin)
-          const { data: orgData, error: orgError } = await supabase
-            .from('organizations')
-            .insert({
-              name: formData.newOrgName.trim(),
-              name_ar: formData.newOrgNameAr.trim() || formData.newOrgName.trim(),
-              code: formData.newOrgCode.trim().toUpperCase(),
-              is_active: true,
-            })
-            .select()
-            .single();
-
-          if (orgError) throw orgError;
-
-          // Add user as admin
-          const { error: userOrgError } = await supabase
-            .from('user_organizations')
-            .insert({
-              user_id: authData.user.id,
-              org_id: orgData.id,
-              role: 'admin',
-              is_active: true,
-            });
-
-          if (userOrgError) throw userOrgError;
-
-          setSuccess('✅ تم إنشاء المنظمة والحساب بنجاح! يرجى تأكيد بريدك الإلكتروني');
-          setTimeout(() => navigate('/login'), 3000);
-        }
+      if (result.success) {
+        setSuccess(result.message);
+        setTimeout(() => navigate('/login'), 3000);
+      } else {
+        setError(result.error || 'فشل التسجيل');
       }
     } catch (err: any) {
       console.error('Error during sign up:', err);
-
-      let errorMessage = 'فشل التسجيل. يرجى المحاولة مرة أخرى.';
-
-      if (err.message?.includes('already registered')) {
-        errorMessage = 'البريد الإلكتروني مسجل بالفعل';
-      } else if (err.message?.includes('duplicate key')) {
-        errorMessage = 'رمز المنظمة مستخدم بالفعل';
-      } else if (err.message) {
-        errorMessage = err.message;
-      }
-
+      const errorMessage = getSignUpErrorMessage(err);
       setError(errorMessage);
     } finally {
       setLoading(false);

@@ -2,7 +2,7 @@
 // تم إنشاؤه: 28 أكتوبر 2025
 // الهدف: إدارة موحدة لحالة المصادقة في التطبيق
 
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useRef, useMemo, useCallback, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { getSupabase } from '@/lib/supabase';
 import { safeLocalStorage } from '@/lib/safe-storage';
@@ -28,11 +28,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
 
 // Provider Component
-export function AuthProvider({ children }: { children: ReactNode }) {
+export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
+  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(() => 
     safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -40,6 +40,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Refs لمنع الاستدعاءات المتكررة
   const loadingOrgsRef = useRef(false);
   const lastLoadedUserIdRef = useRef<string | null>(null);
+  const isSigningOutRef = useRef(false);
+  const authStateChangeHandledRef = useRef<string | null>(null);
   
   // Load user's organizations
   const loadOrganizations = async (userId: string, force = false) => {
@@ -151,7 +153,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       async (event, session) => {
         if (!mounted) return;
         
+        // منع معالجة نفس الحدث مرتين
+        const eventKey = `${event}-${session?.user?.id || 'null'}-${Date.now()}`;
+        if (authStateChangeHandledRef.current === eventKey) {
+          return;
+        }
+        authStateChangeHandledRef.current = eventKey;
+        
         console.log('Auth state changed:', event);
+        
+        // منع معالجة SIGNED_OUT المتكررة
+        if (event === 'SIGNED_OUT') {
+          if (isSigningOutRef.current) {
+            // تم التعامل معه بالفعل
+            return;
+          }
+          isSigningOutRef.current = true;
+        } else {
+          isSigningOutRef.current = false;
+        }
+        
         setSession(session);
         setUser(session?.user ?? null);
         
@@ -182,30 +203,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
   
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
+    // منع استدعاءات متعددة
+    if (isSigningOutRef.current) {
+      console.log('⏳ Already signing out, skipping...');
+      return;
+    }
+    
+    isSigningOutRef.current = true;
+    
     try {
       const supabase = getSupabase();
-      const { error } = await supabase.auth.signOut();
       
-      if (error) {
-        console.error('Error signing out:', error);
-        throw error;
-      }
-      
-      // Clear local state
+      // Clear local state first to prevent re-renders
       setUser(null);
       setSession(null);
       setOrganizations([]);
       setCurrentOrgIdState(null);
       safeLocalStorage.removeItem('current_org_id');
       lastLoadedUserIdRef.current = null;
+      
+      const { error } = await supabase.auth.signOut();
+      
+      if (error) {
+        console.error('Error signing out:', error);
+        isSigningOutRef.current = false;
+        throw error;
+      }
     } catch (error) {
       console.error('Sign out error:', error);
+      isSigningOutRef.current = false;
       throw error;
+    } finally {
+      // Reset after a short delay to allow auth state change to process
+      setTimeout(() => {
+        isSigningOutRef.current = false;
+      }, 1000);
     }
-  };
+  }, []);
   
-  const refreshSession = async () => {
+  const refreshSession = useCallback(async () => {
     try {
       const supabase = getSupabase();
       const { data: { session }, error } = await supabase.auth.refreshSession();
@@ -221,20 +258,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error('Refresh session error:', error);
       throw error;
     }
-  };
+  }, []);
 
-  const setCurrentOrgId = (orgId: string) => {
+  const setCurrentOrgId = useCallback((orgId: string) => {
     setCurrentOrgIdState(orgId);
     safeLocalStorage.setItem('current_org_id', orgId);
-  };
+  }, []);
 
-  const refreshOrganizations = async () => {
+  const refreshOrganizations = useCallback(async () => {
     if (user) {
       await loadOrganizations(user.id, true); // force reload
     }
-  };
+  }, [user]);
   
-  const value = {
+  const value = useMemo(() => ({
     user,
     session,
     loading,
@@ -245,7 +282,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     refreshSession,
     setCurrentOrgId,
     refreshOrganizations,
-  };
+  }), [user, session, loading, currentOrgId, organizations, signOut, refreshSession, setCurrentOrgId, refreshOrganizations]);
   
   return (
     <AuthContext.Provider value={value}>

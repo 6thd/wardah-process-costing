@@ -408,7 +408,7 @@ export function OrganizationForm() {
                     type="number"
                     min={1}
                     value={form.max_users}
-                    onChange={(e) => handleChange('max_users', parseInt(e.target.value) || 5)}
+                    onChange={(e) => handleChange('max_users', Number.parseInt(e.target.value, 10) || 5)}
                   />
                 </div>
               </div>

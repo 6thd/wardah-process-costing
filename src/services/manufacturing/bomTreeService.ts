@@ -165,7 +165,7 @@ export const bomTreeService = {
     data?.forEach(setting => {
       let value: any = setting.setting_value
       if (setting.setting_type === 'number') {
-        value = parseFloat(value)
+        value = Number.parseFloat(value)
       } else if (setting.setting_type === 'boolean') {
         value = value === 'true'
       } else if (setting.setting_type === 'json') {

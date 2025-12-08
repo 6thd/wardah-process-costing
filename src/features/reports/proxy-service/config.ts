@@ -23,7 +23,7 @@ for (const [key, value] of Object.entries(defaults)) {
 // تصدير المتغيرات البيئية
 export const environment = {
   nodeEnv: process.env.NODE_ENV || 'development',
-  port: parseInt(process.env.PORT || '3001', 10),
+  port: Number.parseInt(process.env.PORT || '3001', 10),
   wardah: {
     apiEndpoint: process.env.WARDAH_API_ENDPOINT || 'http://localhost:8000',
     apiKey: process.env.WARDAH_API_KEY || 'dev_key'

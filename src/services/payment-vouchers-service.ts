@@ -10,8 +10,7 @@
  * - Payment methods support
  */
 
-import { supabase } from '@/lib/supabase'
-import { getEffectiveTenantId } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 // ========================================
 // Types & Interfaces
@@ -112,7 +111,6 @@ export interface SupplierPaymentLine {
  */
 async function generateReceiptNumber(): Promise<string> {
   try {
-    const tenantId = await getEffectiveTenantId()
     const year = new Date().getFullYear()
     const month = String(new Date().getMonth() + 1).padStart(2, '0')
     const prefix = `CR-${year}${month}-`
@@ -128,12 +126,13 @@ async function generateReceiptNumber(): Promise<string> {
 
     let sequence = 1
     if (lastReceipt?.collection_number) {
-      const lastSeq = parseInt(lastReceipt.collection_number.split('-')[2] || '0')
+      const lastSeq = Number.parseInt(lastReceipt.collection_number.split('-')[2] || '0', 10)
       sequence = lastSeq + 1
     }
 
     return `${prefix}${String(sequence).padStart(5, '0')}`
-  } catch (error) {
+  } catch (error: unknown) {
+    console.error('Error generating receipt number:', error);
     // Fallback
     return `CR-${Date.now()}`
   }
@@ -229,14 +228,87 @@ export async function createCustomerReceipt(
 }
 
 /**
+ * Validate receipt status before posting
+ */
+function validateReceiptStatus(receipt: any): void {
+  if (receipt.status === 'posted') {
+    throw new Error('السند مقرر مسبقاً')
+  }
+  if (receipt.status === 'cancelled') {
+    throw new Error('لا يمكن إقرار سند ملغي')
+  }
+}
+
+/**
+ * Determine payment status based on amounts
+ */
+function determinePaymentStatus(balance: number, newPaidAmount: number): string {
+  if (balance <= 0) {
+    return 'paid';
+  }
+  if (newPaidAmount > 0) {
+    return 'partially_paid';
+  }
+  return 'unpaid';
+}
+
+/**
+ * Update invoice paid amounts
+ */
+async function updateInvoicePaidAmounts(lines: any[]): Promise<void> {
+  if (!lines || lines.length === 0) return;
+
+  for (const line of lines) {
+    if (!line.invoice_id) continue;
+
+    const invoice = line.invoice;
+    const currentPaid = Number(invoice?.paid_amount || 0);
+    const allocatedAmount = Number(line.allocated_amount || 0);
+    const newPaidAmount = currentPaid + allocatedAmount;
+    const totalAmount = Number(invoice?.total_amount || 0);
+    const balance = totalAmount - newPaidAmount;
+
+    const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
+
+    await supabase
+      .from('sales_invoices')
+      .update({
+        paid_amount: newPaidAmount,
+        payment_status: paymentStatus
+      })
+      .eq('id', line.invoice_id);
+  }
+}
+
+/**
+ * Update receipt status to posted
+ */
+async function updateReceiptStatus(receiptId: string, glEntryId: string | null, createdBy: string): Promise<any> {
+  const { data: updatedReceipt, error: updateError } = await supabase
+    .from('customer_collections')
+    .update({
+      status: 'posted',
+      gl_entry_id: glEntryId,
+      posted_at: new Date().toISOString(),
+      posted_by: createdBy
+    })
+    .eq('id', receiptId)
+    .select()
+    .single();
+
+  if (updateError) throw updateError;
+  return updatedReceipt;
+}
+
+/**
  * Post customer receipt (إقرار سند القبض)
  */
 export async function postCustomerReceipt(
   receiptId: string
 ): Promise<{ success: boolean; data?: any; error?: any }> {
   try {
-    const tenantId = await getEffectiveTenantId()
-    if (!tenantId) throw new Error('Tenant ID not found')
+    const tenantId = await getEffectiveTenantId();
+    if (!tenantId) throw new Error('Tenant ID not found');
 
     // Get receipt with lines
     const { data: receipt, error: receiptError } = await supabase
@@ -250,69 +322,24 @@ export async function postCustomerReceipt(
         )
       `)
       .eq('id', receiptId)
-      .single()
+      .single();
 
-    if (receiptError) throw receiptError
-    if (receipt.status === 'posted') {
-      throw new Error('السند مقرر مسبقاً')
-    }
-    if (receipt.status === 'cancelled') {
-      throw new Error('لا يمكن إقرار سند ملغي')
-    }
+    if (receiptError) throw receiptError;
+    validateReceiptStatus(receipt);
 
     // Update invoice paid amounts
-    if (receipt.lines && receipt.lines.length > 0) {
-      for (const line of receipt.lines) {
-        if (line.invoice_id) {
-          const invoice = line.invoice
-          const currentPaid = Number(invoice?.paid_amount || 0)
-          const allocatedAmount = Number(line.allocated_amount || 0)
-          const newPaidAmount = currentPaid + allocatedAmount
-          const totalAmount = Number(invoice?.total_amount || 0)
-          const balance = totalAmount - newPaidAmount
-
-          // Determine payment status
-          let paymentStatus = 'unpaid'
-          if (balance <= 0) {
-            paymentStatus = 'paid'
-          } else if (newPaidAmount > 0) {
-            paymentStatus = 'partially_paid'
-          }
-
-          // Update invoice
-          await supabase
-            .from('sales_invoices')
-            .update({
-              paid_amount: newPaidAmount,
-              payment_status: paymentStatus
-            })
-            .eq('id', line.invoice_id)
-        }
-      }
-    }
+    await updateInvoicePaidAmounts(receipt.lines);
 
     // Create accounting entry
-    const glEntryId = await createReceiptAccountingEntry(receipt)
+    const glEntryId = await createReceiptAccountingEntry(receipt);
 
     // Update receipt status
-    const { data: updatedReceipt, error: updateError } = await supabase
-      .from('customer_collections')
-      .update({
-        status: 'posted',
-        gl_entry_id: glEntryId,
-        posted_at: new Date().toISOString(),
-        posted_by: receipt.created_by
-      })
-      .eq('id', receiptId)
-      .select()
-      .single()
+    const updatedReceipt = await updateReceiptStatus(receiptId, glEntryId, receipt.created_by);
 
-    if (updateError) throw updateError
-
-    return { success: true, data: updatedReceipt }
+    return { success: true, data: updatedReceipt };
   } catch (error: any) {
-    console.error('Error posting customer receipt:', error)
-    return { success: false, error: error.message || error }
+    console.error('Error posting customer receipt:', error);
+    return { success: false, error: error.message || error };
   }
 }
 
@@ -491,7 +518,6 @@ export async function getAllCustomerReceipts(filters?: {
  */
 async function generatePaymentNumber(): Promise<string> {
   try {
-    const tenantId = await getEffectiveTenantId()
     const year = new Date().getFullYear()
     const month = String(new Date().getMonth() + 1).padStart(2, '0')
     const prefix = `SP-${year}${month}-`
@@ -507,12 +533,13 @@ async function generatePaymentNumber(): Promise<string> {
 
     let sequence = 1
     if (lastPayment?.payment_number) {
-      const lastSeq = parseInt(lastPayment.payment_number.split('-')[2] || '0')
+      const lastSeq = Number.parseInt(lastPayment.payment_number.split('-')[2] || '0', 10)
       sequence = lastSeq + 1
     }
 
     return `${prefix}${String(sequence).padStart(5, '0')}`
-  } catch (error) {
+  } catch (error: unknown) {
+    console.error('Error generating payment number:', error);
     // Fallback
     return `SP-${Date.now()}`
   }
@@ -608,14 +635,62 @@ export async function createSupplierPayment(
 }
 
 /**
+ * Update supplier invoice paid amounts
+ */
+async function updateSupplierInvoicePaidAmounts(lines: any[]): Promise<void> {
+  if (!lines || lines.length === 0) return;
+
+  for (const line of lines) {
+    if (!line.invoice_id) continue;
+
+    const invoice = line.invoice;
+    const currentPaid = Number(invoice?.paid_amount || 0);
+    const allocatedAmount = Number(line.allocated_amount || 0);
+    const newPaidAmount = currentPaid + allocatedAmount;
+    const totalAmount = Number(invoice?.total_amount || 0);
+    const balance = totalAmount - newPaidAmount;
+
+    const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
+
+    await supabase
+      .from('supplier_invoices')
+      .update({
+        paid_amount: newPaidAmount,
+        status: paymentStatus
+      })
+      .eq('id', line.invoice_id);
+  }
+}
+
+/**
+ * Update payment status to posted
+ */
+async function updatePaymentStatus(paymentId: string, glEntryId: string | null, createdBy: string): Promise<any> {
+  const { data: updatedPayment, error: updateError } = await supabase
+    .from('supplier_payments')
+    .update({
+      status: 'posted',
+      gl_entry_id: glEntryId,
+      posted_at: new Date().toISOString(),
+      posted_by: createdBy
+    })
+    .eq('id', paymentId)
+    .select()
+    .single();
+
+  if (updateError) throw updateError;
+  return updatedPayment;
+}
+
+/**
  * Post supplier payment (إقرار سند الصرف)
  */
 export async function postSupplierPayment(
   paymentId: string
 ): Promise<{ success: boolean; data?: any; error?: any }> {
   try {
-    const tenantId = await getEffectiveTenantId()
-    if (!tenantId) throw new Error('Tenant ID not found')
+    const tenantId = await getEffectiveTenantId();
+    if (!tenantId) throw new Error('Tenant ID not found');
 
     // Get payment with lines
     const { data: payment, error: paymentError } = await supabase
@@ -629,69 +704,24 @@ export async function postSupplierPayment(
         )
       `)
       .eq('id', paymentId)
-      .single()
+      .single();
 
-    if (paymentError) throw paymentError
-    if (payment.status === 'posted') {
-      throw new Error('السند مقرر مسبقاً')
-    }
-    if (payment.status === 'cancelled') {
-      throw new Error('لا يمكن إقرار سند ملغي')
-    }
+    if (paymentError) throw paymentError;
+    validateReceiptStatus(payment);
 
     // Update invoice paid amounts
-    if (payment.lines && payment.lines.length > 0) {
-      for (const line of payment.lines) {
-        if (line.invoice_id) {
-          const invoice = line.invoice
-          const currentPaid = Number(invoice?.paid_amount || 0)
-          const allocatedAmount = Number(line.allocated_amount || 0)
-          const newPaidAmount = currentPaid + allocatedAmount
-          const totalAmount = Number(invoice?.total_amount || 0)
-          const balance = totalAmount - newPaidAmount
-
-          // Determine payment status
-          let paymentStatus = 'unpaid'
-          if (balance <= 0) {
-            paymentStatus = 'paid'
-          } else if (newPaidAmount > 0) {
-            paymentStatus = 'partially_paid'
-          }
-
-          // Update invoice
-          await supabase
-            .from('supplier_invoices')
-            .update({
-              paid_amount: newPaidAmount,
-              status: paymentStatus
-            })
-            .eq('id', line.invoice_id)
-        }
-      }
-    }
+    await updateSupplierInvoicePaidAmounts(payment.lines);
 
     // Create accounting entry
-    const glEntryId = await createPaymentAccountingEntry(payment)
+    const glEntryId = await createPaymentAccountingEntry(payment);
 
     // Update payment status
-    const { data: updatedPayment, error: updateError } = await supabase
-      .from('supplier_payments')
-      .update({
-        status: 'posted',
-        gl_entry_id: glEntryId,
-        posted_at: new Date().toISOString(),
-        posted_by: payment.created_by
-      })
-      .eq('id', paymentId)
-      .select()
-      .single()
+    const updatedPayment = await updatePaymentStatus(paymentId, glEntryId, payment.created_by);
 
-    if (updateError) throw updateError
-
-    return { success: true, data: updatedPayment }
+    return { success: true, data: updatedPayment };
   } catch (error: any) {
-    console.error('Error posting supplier payment:', error)
-    return { success: false, error: error.message || error }
+    console.error('Error posting supplier payment:', error);
+    return { success: false, error: error.message || error };
   }
 }
 
@@ -879,7 +909,7 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
       .order('code')
     
     // If error with specific columns, fallback to basic
-    if (error && error.code === '42703') {
+    if (error?.code === '42703') {
       console.warn('Some columns missing, using fallback query')
       const { data: data2, error: error2 } = await supabase
         .from('gl_accounts')

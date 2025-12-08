@@ -272,16 +272,27 @@ export const useAuthStore = create<AuthState>()(
 )
 
 // Initialize auth check on app load
+// Note: Auth state changes are handled by AuthContext to avoid infinite loops
+// This listener is kept for backward compatibility but should not trigger logout
+// to prevent conflicts with AuthContext's signOut handler
+let authStateChangeSubscription: { unsubscribe: () => void } | null = null;
 try {
   const client = getSupabase()
   if (client) {
-    client.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+    const { data: { subscription } } = client.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      // Only update store state, don't call logout() to avoid infinite loop
+      // AuthContext handles the actual signOut flow
       if (event === 'SIGNED_OUT') {
-        useAuthStore.getState().logout()
+        // Just update the store state without calling logout()
+        useAuthStore.setState({ 
+          user: null, 
+          isAuthenticated: false 
+        });
       } else if (event === 'SIGNED_IN' && session) {
         useAuthStore.getState().checkAuth()
       }
-    })
+    });
+    authStateChangeSubscription = { unsubscribe: subscription.unsubscribe };
   }
 } catch (error) {
   console.error('Failed to initialize auth state change listener:', error)

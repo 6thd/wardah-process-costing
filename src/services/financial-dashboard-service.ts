@@ -1,5 +1,4 @@
-import { getSupabase } from '@/lib/supabase'
-import { getTenantId } from '@/lib/supabase'
+import { getSupabase, getTenantId } from '@/lib/supabase'
 
 // Interface for financial KPIs
 export interface FinancialKPIs {

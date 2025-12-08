@@ -90,7 +90,7 @@ export const PayrollPage: React.FC = () => {
     const handlePeriodChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
         if (!value) return;
-        const [yearPart, monthPart] = value.split('-').map((part) => parseInt(part, 10));
+        const [yearPart, monthPart] = value.split('-').map((part) => Number.parseInt(part, 10));
         if (!Number.isNaN(yearPart) && !Number.isNaN(monthPart)) {
             setSelectedPeriod({ year: yearPart, month: monthPart });
         }

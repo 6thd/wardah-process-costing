@@ -2,8 +2,7 @@
 // بسم الله الرحمن الرحيم
 // Org Admin - Roles & Permissions Management
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import * as React from 'react';
+import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { 
@@ -27,7 +26,6 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
@@ -36,7 +34,6 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
@@ -55,12 +52,10 @@ import {
   Shield,
   Plus,
   RefreshCw,
-  Settings,
   Edit2,
   Trash2,
   Lock,
   Key,
-  Check,
   ChevronDown,
   ChevronUp,
   FileText,
@@ -97,13 +92,37 @@ interface RoleFormData {
   permission_ids: string[];
 }
 
+function getCategoryLabel(category: string): string {
+  const categories: Record<string, string> = {
+    accounting: 'المحاسبة',
+    manufacturing: 'التصنيع',
+    sales: 'المبيعات',
+    inventory: 'المخزون',
+    hr: 'الموارد البشرية',
+    general: 'عام',
+  };
+  return categories[category] || category;
+}
+
+function getCategoryColor(category: string): string {
+  const colors: Record<string, string> = {
+    accounting: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+    manufacturing: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    sales: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    inventory: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    hr: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+    general: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+  };
+  return colors[category] || colors.general;
+}
+
 export default function OrgAdminRoles() {
   const { currentOrgId } = useAuth();
   const navigate = useNavigate();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [, setError] = useState<string | null>(null);
   
   // Templates state
   const [templates, setTemplates] = useState<RoleTemplate[]>([]);
@@ -224,29 +243,6 @@ export default function OrgAdminRoles() {
     }
   }
 
-  function getCategoryLabel(category: string): string {
-    const categories: Record<string, string> = {
-      accounting: 'المحاسبة',
-      manufacturing: 'التصنيع',
-      sales: 'المبيعات',
-      inventory: 'المخزون',
-      hr: 'الموارد البشرية',
-      general: 'عام',
-    };
-    return categories[category] || category;
-  }
-
-  function getCategoryColor(category: string): string {
-    const colors: Record<string, string> = {
-      accounting: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-      manufacturing: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-      sales: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      inventory: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-      hr: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-      general: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
-    };
-    return colors[category] || colors.general;
-  }
 
   function openNewRoleDialog() {
     setEditingRole(null);
@@ -281,7 +277,7 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }, []);
 
-  async function handleSaveRole(e: React.FormEvent) {
+  async function handleSaveRole(e: FormEvent) {
     e.preventDefault();
     if (!currentOrgId) return;
 
@@ -876,7 +872,11 @@ export default function OrgAdminRoles() {
                 disabled={saving}
                 className="bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-50"
               >
-                {saving ? 'جاري الحفظ...' : editingRole ? 'حفظ التغييرات' : 'إنشاء الدور'}
+                {(() => {
+                  if (saving) return 'جاري الحفظ...';
+                  if (editingRole) return 'حفظ التغييرات';
+                  return 'إنشاء الدور';
+                })()}
               </Button>
             </DialogFooter>
           </form>

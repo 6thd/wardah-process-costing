@@ -51,14 +51,20 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
 
     await this.loadLines()
 
+    const warehouseId = this.doc.warehouse_id
+    const docId = this.doc.id
+    if (!warehouseId || !docId) {
+      throw new Error('Warehouse and document ID are required')
+    }
+
     return this.lines.map(line => ({
       product_id: line.product_id,
-      warehouse_id: this.doc.warehouse_id!,
+      warehouse_id: warehouseId,
       quantity: line.quantity,  // Positive for incoming stock
       rate: line.unit_price,
       posting_date: new Date(this.doc.receipt_date || new Date()),
       voucher_type: 'Goods Receipt',
-      voucher_id: this.doc.id!
+      voucher_id: docId
     }))
   }
 
@@ -140,10 +146,14 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
    * Validate GR quantities against PO
    */
   private async validateAgainstPO(): Promise<void> {
+    if (!this.doc.purchase_order_id) {
+      return // No PO to validate against
+    }
+
     const { data: poLines, error } = await supabase
       .from('purchase_order_lines')
       .select('*')
-      .eq('purchase_order_id', this.doc.purchase_order_id!)
+      .eq('purchase_order_id', this.doc.purchase_order_id)
 
     if (error) {
       throw new Error(`Failed to load PO lines: ${error.message}`)
@@ -242,7 +252,7 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
     if (lastDoc?.receipt_number) {
       const match = lastDoc.receipt_number.match(/-(\d+)$/)
       if (match) {
-        nextNum = parseInt(match[1]) + 1
+        nextNum = Number.parseInt(match[1], 10) + 1
       }
     }
 
@@ -277,7 +287,7 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
 
     // Reverse PO received quantities
     if (this.doc.purchase_order_id) {
-      await this.updatePOReceivedQuantities(true)
+      await this.reversePOReceivedQuantities()
     }
 
     // Reverse product stock quantities
@@ -287,50 +297,159 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
   }
 
   /**
-   * Update PO received quantities
+   * Add received quantity
    */
-  private async updatePOReceivedQuantities(reverse: boolean = false): Promise<void> {
-    for (const line of this.lines) {
-      if (line.purchase_order_line_id) {
-        // Get current received quantity
-        const { data: poLine } = await supabase
-          .from('purchase_order_lines')
-          .select('received_quantity, quantity')
-          .eq('id', line.purchase_order_line_id)
-          .single()
+  private addReceivedQuantity(currentReceived: number, quantity: number): number {
+    return currentReceived + quantity;
+  }
 
-        if (poLine) {
-          const currentReceived = poLine.received_quantity || 0
-          const newReceived = reverse 
-            ? currentReceived - line.quantity 
-            : currentReceived + line.quantity
+  /**
+   * Subtract received quantity
+   */
+  private subtractReceivedQuantity(currentReceived: number, quantity: number): number {
+    return currentReceived - quantity;
+  }
 
-          await supabase
-            .from('purchase_order_lines')
-            .update({
-              received_quantity: newReceived,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', line.purchase_order_line_id)
+  /**
+   * Determine PO status based on received percentage
+   */
+  private getPOStatus(percentReceived: number): string {
+    if (percentReceived >= 100) {
+      return 'Fully Received';
+    }
+    if (percentReceived > 0) {
+      return 'Partially Received';
+    }
+    return 'Submitted';
+  }
 
-          // Update PO status
-          const percentReceived = (newReceived / poLine.quantity) * 100
-          let poStatus = 'Submitted'
-          if (percentReceived > 0 && percentReceived < 100) {
-            poStatus = 'Partially Received'
-          } else if (percentReceived >= 100) {
-            poStatus = 'Fully Received'
-          }
+  /**
+   * Update a single PO line received quantity (forward)
+   */
+  private async updatePOLineReceivedQuantity(
+    lineId: string, 
+    quantity: number
+  ): Promise<{ newReceived: number; totalQuantity: number } | null> {
+    const { data: poLine } = await supabase
+      .from('purchase_order_lines')
+      .select('received_quantity, quantity')
+      .eq('id', lineId)
+      .single();
 
-          await supabase
-            .from('purchase_orders')
-            .update({
-              status: poStatus,
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', this.doc.purchase_order_id)
-        }
+    if (!poLine) {
+      return null;
+    }
+
+    const currentReceived = poLine.received_quantity || 0;
+    const newReceived = this.addReceivedQuantity(currentReceived, quantity);
+
+    await supabase
+      .from('purchase_order_lines')
+      .update({
+        received_quantity: newReceived,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', lineId);
+
+    return { newReceived, totalQuantity: poLine.quantity };
+  }
+
+  /**
+   * Reverse a single PO line received quantity
+   */
+  private async reversePOLineReceivedQuantity(
+    lineId: string, 
+    quantity: number
+  ): Promise<{ newReceived: number; totalQuantity: number } | null> {
+    const { data: poLine } = await supabase
+      .from('purchase_order_lines')
+      .select('received_quantity, quantity')
+      .eq('id', lineId)
+      .single();
+
+    if (!poLine) {
+      return null;
+    }
+
+    const currentReceived = poLine.received_quantity || 0;
+    const newReceived = this.subtractReceivedQuantity(currentReceived, quantity);
+
+    await supabase
+      .from('purchase_order_lines')
+      .update({
+        received_quantity: newReceived,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', lineId);
+
+    return { newReceived, totalQuantity: poLine.quantity };
+  }
+
+  /**
+   * Update PO status based on received quantities
+   */
+  private async updatePOStatus(percentReceived: number): Promise<void> {
+    if (!this.doc.purchase_order_id) {
+      return;
+    }
+
+    const poStatus = this.getPOStatus(percentReceived);
+    await supabase
+      .from('purchase_orders')
+      .update({
+        status: poStatus,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', this.doc.purchase_order_id);
+  }
+
+  /**
+   * Update PO received quantities (forward)
+   */
+  private async updatePOReceivedQuantities(): Promise<void> {
+    const linesWithPO = this.lines.filter(line => line.purchase_order_line_id);
+    
+    for (const line of linesWithPO) {
+      if (!line.purchase_order_line_id) {
+        continue;
       }
+
+      const result = await this.updatePOLineReceivedQuantity(
+        line.purchase_order_line_id,
+        line.quantity
+      );
+
+      if (!result) {
+        continue;
+      }
+
+      const percentReceived = (result.newReceived / result.totalQuantity) * 100;
+      await this.updatePOStatus(percentReceived);
+    }
+  }
+
+  /**
+   * Reverse PO received quantities
+   */
+  private async reversePOReceivedQuantities(): Promise<void> {
+    const linesWithPO = this.lines.filter(line => line.purchase_order_line_id);
+    
+    for (const line of linesWithPO) {
+      if (!line.purchase_order_line_id) {
+        continue;
+      }
+
+      const result = await this.reversePOLineReceivedQuantity(
+        line.purchase_order_line_id,
+        line.quantity
+      );
+
+      if (!result) {
+        continue;
+      }
+
+      const percentReceived = (result.newReceived / result.totalQuantity) * 100;
+      await this.updatePOStatus(percentReceived);
     }
   }
 
@@ -371,13 +490,19 @@ export class GoodsReceiptController extends StockController<GoodsReceipt> {
   private async createStockEntries(): Promise<void> {
     await this.loadLines()
 
+    const docId = this.doc.id
+    const warehouseId = this.doc.warehouse_id
+    if (!docId || !warehouseId) {
+      throw new Error('Document ID and warehouse are required to create stock entries')
+    }
+
     for (const line of this.lines) {
       await StockLedgerService.createEntry({
         voucher_type: 'Goods Receipt',
-        voucher_id: this.doc.id!,
+        voucher_id: docId,
         voucher_number: this.doc.receipt_number,
         product_id: line.product_id,
-        warehouse_id: this.doc.warehouse_id!,
+        warehouse_id: warehouseId,
         posting_date: this.doc.receipt_date || new Date().toISOString().split('T')[0],
         actual_qty: line.quantity,
         incoming_rate: line.unit_price,

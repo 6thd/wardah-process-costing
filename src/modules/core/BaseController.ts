@@ -117,9 +117,7 @@ export abstract class BaseController<T extends BaseDocument> {
     this.doc.updated_at = new Date().toISOString()
 
     // Set docstatus to draft if not set
-    if (this.doc.docstatus === undefined) {
-      this.doc.docstatus = 0
-    }
+    this.doc.docstatus ??= 0;
 
     // Run lifecycle hooks
     await this.validate()

@@ -67,7 +67,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
           placeholder="اكتب سؤالك هنا..."
         />
         <button 
-          onClick={handleSend}
+          onClick={handleSendMessage}
           aria-label="إرسال الرسالة"
           title="إرسال"
         >

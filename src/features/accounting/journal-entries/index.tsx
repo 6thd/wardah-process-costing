@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Edit, Trash2, CheckCircle, XCircle, FileText, Calendar, Search, RotateCcw, Layers } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, FileText, Search, RotateCcw, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -17,92 +17,18 @@ import { BatchPostDialog } from './components/BatchPostDialog';
 import { ApprovalWorkflow } from './components/ApprovalWorkflow';
 import { AttachmentsSection } from './components/AttachmentsSection';
 import { CommentsSection } from './components/CommentsSection';
-import { JournalService } from '@/services/accounting/journal-service';
 import { toast } from 'sonner';
-import { PerformanceMonitor } from '@/lib/performance-monitor';
-
-interface JournalEntry {
-  id: string;
-  org_id: string;
-  journal_id: string;
-  entry_number: string;
-  entry_date: string;
-  posting_date?: string;
-  period_id?: string;
-  reference_type?: string;
-  reference_id?: string;
-  reference_number?: string;
-  description?: string;
-  description_ar?: string;
-  status: 'draft' | 'posted' | 'reversed';
-  posted_at?: string;
-  posted_by?: string;
-  reversed_by_entry_id?: string;
-  reversal_reason?: string;
-  total_debit: number;
-  total_credit: number;
-  created_at: string;
-  updated_at: string;
-  created_by?: string;
-  updated_by?: string;
-  journal_name?: string;
-  journal_name_ar?: string;
-  lines?: JournalLine[];
-}
-
-interface JournalLine {
-  id?: string;
-  entry_id?: string;
-  line_number: number;
-  account_id: string;
-  account_code?: string;
-  account_name?: string;
-  account_name_ar?: string;
-  cost_center_id?: string;
-  partner_id?: string;
-  product_id?: string;
-  project_id?: string;
-  debit?: number | string;
-  credit?: number | string;
-  currency_code: string;
-  description?: string;
-  description_ar?: string;
-  reconciled?: boolean;
-  reconciled_at?: string;
-  reconciled_by?: string;
-  created_at?: string;
-  tenant_id?: string;
-  org_id?: string;
-}
-
-interface Journal {
-  id: string;
-  code: string;
-  name: string;
-  name_ar?: string;
-  journal_type: string;
-  sequence_prefix: string;
-  is_active: boolean;
-}
-
-interface Account {
-  id: string;
-  code: string;
-  name: string;
-  name_ar?: string;
-  name_en?: string;
-  category?: string;
-  allow_posting?: boolean;
-  is_active: boolean;
-}
+import { useJournalData } from './hooks/useJournalData';
+import { useJournalEntries } from './hooks/useJournalEntries';
+import { fetchEntryLines } from './hooks/useEntryLines';
+import { calculateTotals, validateEntry, normalizeLines } from './utils/journalHelpers';
+import { createJournalEntry, updateJournalEntry, postJournalEntry, deleteJournalEntry } from './services/journalEntryService';
+import { JournalService } from '@/services/accounting/journal-service';
+import type { JournalEntry, JournalLine, Account } from './types';
 
 const JournalEntries = () => {
   const { i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [journals, setJournals] = useState<Journal[]>([]);
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [loading, setLoading] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -111,6 +37,7 @@ const JournalEntries = () => {
   const [batchPostDialogOpen, setBatchPostDialogOpen] = useState(false);
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Form state
   const [formData, setFormData] = useState({
@@ -123,202 +50,13 @@ const JournalEntries = () => {
     lines: [] as Partial<JournalLine>[]
   });
 
-  useEffect(() => {
-    fetchJournals();
-    fetchAccounts();
-    fetchEntries();
-  }, []);
+  const { journals, accounts } = useJournalData(isRTL);
+  const { entries, loading: entriesLoading, fetchEntries } = useJournalEntries({ 
+    statusFilter, 
+    dateFilter, 
+    journals 
+  });
 
-  const fetchJournals = async () => {
-    try {
-      console.log('🔍 Fetching journals...');
-      const { data, error } = await supabase
-        .from('journals')
-        .select('*')
-        .eq('is_active', true)
-        .order('code');
-
-      if (error) {
-        console.error('❌ Error fetching journals:', error);
-        throw error;
-      }
-
-      console.log('✅ Loaded journals:', data);
-
-      if (!data || data.length === 0) {
-        console.warn('⚠️ No journals found in database');
-        toast.error(isRTL ? 'لم يتم العثور على أنواع قيود. يرجى إنشاؤها أولاً.' : 'No journal types found. Please create them first.');
-      }
-
-      setJournals(data || []);
-    } catch (error: any) {
-      console.error('❌ Error fetching journals:', error);
-      toast.error(isRTL ? 'خطأ في تحميل أنواع القيود' : 'Error loading journal types');
-    }
-  };
-
-  const fetchAccounts = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('gl_accounts')
-        .select('*')
-        .eq('allow_posting', true)
-        .eq('is_active', true)
-        .order('code');
-
-      if (error) throw error;
-      setAccounts(data || []);
-    } catch (error) {
-      console.error('Error fetching accounts:', error);
-    }
-  };
-
-  const fetchEntries = async () => {
-    await PerformanceMonitor.measure('Journal Entries List', async () => {
-      setLoading(true);
-      try {
-        // Try new gl_entries table first
-        let query = supabase
-          .from('gl_entries')
-          .select(`
-            *
-          `)
-          .order('entry_date', { ascending: false })
-          .order('entry_number', { ascending: false });
-
-        if (statusFilter !== 'all') {
-          query = query.eq('status', statusFilter);
-        }
-
-        if (dateFilter) {
-          query = query.gte('entry_date', dateFilter);
-        }
-
-        const { data, error } = await query;
-
-        if (error) {
-          console.warn('gl_entries not found, trying journal_entries:', error);
-          // Fallback to old table (without joins to avoid 406 error)
-          let oldQuery = supabase
-            .from('journal_entries')
-            .select('*')
-            .order('entry_date', { ascending: false })
-            .order('entry_number', { ascending: false });
-
-          if (statusFilter !== 'all') {
-            oldQuery = oldQuery.eq('status', statusFilter);
-          }
-
-          if (dateFilter) {
-            oldQuery = oldQuery.gte('entry_date', dateFilter);
-          }
-
-          const { data: oldData, error: oldError } = await oldQuery;
-
-          if (oldError) throw oldError;
-
-          // Fetch journal names separately if needed
-          const entriesWithJournalNames = await Promise.all((oldData || []).map(async (entry) => {
-            if (entry.journal_id && journals.length > 0) {
-              const journal = journals.find(j => j.id === entry.journal_id);
-              return {
-                ...entry,
-                journal_name: journal?.name || 'General Journal',
-                journal_name_ar: journal?.name_ar || 'قيد عام'
-              };
-            }
-            return {
-              ...entry,
-              journal_name: 'General Journal',
-              journal_name_ar: 'قيد عام'
-            };
-          }));
-
-          setEntries(entriesWithJournalNames);
-        } else {
-          console.log('✅ Loaded from gl_entries:', data);
-          setEntries(data || []);
-        }
-      } catch (error) {
-        console.error('Error fetching entries:', error);
-      } finally {
-        setLoading(false);
-      }
-    });
-  };
-
-  const normalizeLines = (rawLines: any[], entryId?: string) => {
-    if (!rawLines || rawLines.length === 0) return [];
-    return rawLines.map((line, index) => {
-      const accountById = line.account_id
-        ? accounts.find(a => a.id === line.account_id)
-        : undefined;
-
-      const accountByCode = !accountById && line.account_code
-        ? accounts.find(a => a.code === line.account_code)
-        : undefined;
-
-      const resolvedAccount = accountById || accountByCode;
-
-      return {
-        ...line,
-        id: line.id || (entryId ? `${entryId}-${index}` : `${index}`),
-        line_number: line.line_number || index + 1,
-        account_id: resolvedAccount?.id || line.account_id || '',
-        account_code: resolvedAccount?.code || line.account_code || '',
-        account_name: resolvedAccount?.name || line.account_name || '',
-        account_name_ar: resolvedAccount?.name_ar || line.account_name_ar || line.account_name || '',
-        debit: line.debit ?? '',
-        credit: line.credit ?? '',
-        description: line.description || '',
-        description_ar: line.description_ar || '',
-        currency_code: line.currency_code || 'SAR'
-      };
-    });
-  };
-
-  const fetchEntryLines = async (entryId: string) => {
-    try {
-      console.log('🔍 Fetching lines for entry:', entryId);
-      let lines = [];
-
-      // 1. Try new gl_entry_lines table first
-      const { data: newData, error: newError } = await supabase
-        .from('gl_entry_lines')
-        .select('*')
-        .eq('entry_id', entryId)
-        .order('line_number');
-
-      if (!newError && newData && newData.length > 0) {
-        console.log('✅ Found lines in gl_entry_lines:', newData);
-        lines = newData;
-      } else {
-        // 2. Fallback to old journal_lines table
-        console.log('⚠️ No lines in gl_entry_lines, trying journal_lines...');
-        const { data: oldData, error: oldError } = await supabase
-          .from('journal_lines')
-          .select('*')
-          .eq('entry_id', entryId)
-          .order('line_number');
-
-        if (!oldError && oldData && oldData.length > 0) {
-          console.log('✅ Found lines in journal_lines:', oldData);
-          lines = oldData;
-        }
-      }
-
-      if (lines.length === 0) {
-        console.warn('⚠️ No lines found in either table for entry:', entryId);
-        return [];
-      }
-
-      // Fetch account details separately and map to lines
-      return normalizeLines(lines, entryId);
-    } catch (error) {
-      console.error('Error fetching entry lines:', error);
-      return [];
-    }
-  };
 
   const addLine = () => {
     setFormData({
@@ -351,186 +89,65 @@ const JournalEntries = () => {
     setFormData({ ...formData, lines: newLines });
   };
 
-  const calculateTotals = () => {
-    const totalDebit = formData.lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
-    const totalCredit = formData.lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
-    return { totalDebit, totalCredit, balanced: totalDebit === totalCredit && totalDebit > 0 };
-  };
 
   const handleSubmit = async () => {
     try {
       setLoading(true);
-      const { totalDebit, totalCredit, balanced } = calculateTotals();
-      const tenantId = await getEffectiveTenantId();
-      if (!tenantId) {
-        toast.error(isRTL ? 'لم يتم تحديد المؤسسة الحالية' : 'Organization context not found');
+      const { totalDebit, totalCredit } = calculateTotals(formData.lines);
+      
+      const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
+      if (!validation.valid) {
+        alert(validation.message);
         setLoading(false);
         return;
       }
 
-      // Validation: Journal type is required
-      if (!formData.journal_id) {
-        alert(isRTL ? 'يجب اختيار نوع القيد' : 'Please select a journal type');
-        setLoading(false);
-        return;
-      }
-
-      if (!balanced) {
-        alert(isRTL ? 'القيد غير متوازن! يجب تساوي المدين والدائن' : 'Entry not balanced! Debit and Credit must be equal');
-        setLoading(false);
-        return;
-      }
-
-      if (formData.lines.length === 0) {
-        alert(isRTL ? 'يجب إضافة بنود للقيد' : 'Please add lines to the entry');
-        setLoading(false);
-        return;
-      }
-
-      // Create journal entry
       const entryData = {
-        journal_id: formData.journal_id, // Required field, validated above
+        journal_id: formData.journal_id,
         entry_date: formData.entry_date,
-        entry_type: 'manual', // Changed to 'manual' (based on database enum)
-        description: formData.description || null,
-        description_ar: formData.description_ar || null,
-        reference_type: formData.reference_type || null,
-        reference_number: formData.reference_number || null,
-        status: 'draft',
+        description: formData.description,
+        description_ar: formData.description_ar,
+        reference_type: formData.reference_type,
+        reference_number: formData.reference_number,
         total_debit: totalDebit,
         total_credit: totalCredit,
-        org_id: tenantId
+        lines: formData.lines
       };
 
-      console.log('💾 Saving entry:', entryData);
-
       if (editingEntry) {
-        // Update existing entry
-        const { error: entryError } = await supabase
-          .from('gl_entries')
-          .update(entryData)
-          .eq('id', editingEntry.id);
-
-        if (entryError) throw entryError;
-
-        // Delete old lines
-        await supabase
-          .from('gl_entry_lines')
-          .delete()
-          .eq('entry_id', editingEntry.id);
-
-        // Insert new lines
-        const lines = formData.lines.map((line, index) => ({
-          entry_id: editingEntry.id,
-          line_number: index + 1,
-          account_id: line.account_id,
-          debit: Number(line.debit) || 0,
-          credit: Number(line.credit) || 0,
-          currency_code: line.currency_code || 'SAR',
-          description: line.description,
-          description_ar: line.description_ar,
-          org_id: tenantId,
-          tenant_id: tenantId
-        }));
-
-        const { error: linesError } = await supabase
-          .from('gl_entry_lines')
-          .insert(lines);
-
-        if (linesError) throw linesError;
+        const success = await updateJournalEntry({ ...entryData, id: editingEntry.id }, isRTL);
+        if (success) {
+          setIsDialogOpen(false);
+          resetForm();
+          fetchEntries();
+        }
       } else {
-        // Generate entry number first
-        const { data: entryNumber, error: numberError } = await supabase
-          .rpc('generate_entry_number', { p_journal_id: formData.journal_id });
-
-        if (numberError) throw numberError;
-
-        // Create new entry with generated number
-        const entryDataWithNumber = {
-          ...entryData,
-          entry_number: entryNumber
-        };
-
-        const { data: newEntry, error: entryError } = await supabase
-          .from('gl_entries')
-          .insert([entryDataWithNumber])
-          .select()
-          .single();
-
-        if (entryError) throw entryError;
-
-        // Insert lines
-        const lines = formData.lines.map((line, index) => ({
-          entry_id: newEntry.id,
-          line_number: index + 1,
-          account_id: line.account_id,
-          debit: Number(line.debit) || 0,
-          credit: Number(line.credit) || 0,
-          currency_code: line.currency_code || 'SAR',
-          description: line.description,
-          description_ar: line.description_ar,
-          org_id: tenantId,
-          tenant_id: tenantId
-        }));
-
-        const { error: linesError } = await supabase
-          .from('gl_entry_lines')
-          .insert(lines);
-
-        if (linesError) throw linesError;
+        const entryId = await createJournalEntry(entryData, isRTL);
+        if (entryId) {
+          setIsDialogOpen(false);
+          resetForm();
+          fetchEntries();
+        }
       }
-
-      setIsDialogOpen(false);
-      resetForm();
-      fetchEntries();
-      toast.success(isRTL ? 'تم حفظ القيد بنجاح ✅' : 'Entry saved successfully ✅');
     } catch (error: any) {
       console.error('❌ Error saving entry:', error);
-
-      // More detailed error message
-      let errorMessage = isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry';
-      if (error?.message) {
-        errorMessage += ': ' + error.message;
-      }
-      if (error?.code) {
-        errorMessage += ' (Code: ' + error.code + ')';
-      }
-
-      toast.error(errorMessage);
-
-      // Don't close dialog on error so user can retry
-      // setIsDialogOpen(false);
+      toast.error(error?.message || (isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry'));
     } finally {
       setLoading(false);
     }
   };
 
   const handlePost = async (entry: JournalEntry) => {
-    if (!window.confirm(isRTL ? `هل تريد ترحيل القيد ${entry.entry_number}؟` : `Post entry ${entry.entry_number}?`)) {
+    if (!globalThis.window?.confirm(isRTL ? `هل تريد ترحيل القيد ${entry.entry_number}؟` : `Post entry ${entry.entry_number}?`)) {
       return;
     }
 
-    try {
-      setLoading(true);
-      const { data, error } = await supabase
-        .rpc('post_journal_entry', { p_entry_id: entry.id });
-
-      if (error) throw error;
-
-      const result = typeof data === 'string' ? JSON.parse(data) : data;
-
-      if (result.success) {
-        alert(isRTL ? 'تم ترحيل القيد بنجاح' : 'Entry posted successfully');
-        fetchEntries();
-      } else {
-        alert(result.error || (isRTL ? 'فشل الترحيل' : 'Posting failed'));
-      }
-    } catch (error) {
-      console.error('Error posting entry:', error);
-      alert(isRTL ? 'حدث خطأ أثناء الترحيل' : 'Error posting entry');
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    const success = await postJournalEntry(entry, isRTL);
+    if (success) {
+      fetchEntries();
     }
+    setLoading(false);
   };
 
   const handleDelete = async (entry: JournalEntry) => {
@@ -539,27 +156,16 @@ const JournalEntries = () => {
       return;
     }
 
-    if (!window.confirm(isRTL ? `هل تريد حذف القيد ${entry.entry_number}؟` : `Delete entry ${entry.entry_number}?`)) {
+    if (!globalThis.window?.confirm(isRTL ? `هل تريد حذف القيد ${entry.entry_number}؟` : `Delete entry ${entry.entry_number}?`)) {
       return;
     }
 
-    try {
-      setLoading(true);
-      const { error } = await supabase
-        .from('gl_entries')
-        .delete()
-        .eq('id', entry.id);
-
-      if (error) throw error;
-
+    setLoading(true);
+    const success = await deleteJournalEntry(entry, isRTL);
+    if (success) {
       fetchEntries();
-      alert(isRTL ? 'تم حذف القيد' : 'Entry deleted');
-    } catch (error) {
-      console.error('Error deleting entry:', error);
-      alert(isRTL ? 'حدث خطأ أثناء الحذف' : 'Error deleting entry');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   };
 
   const handleEdit = async (entry: JournalEntry) => {
@@ -570,13 +176,13 @@ const JournalEntries = () => {
 
     try {
       setLoading(true);
-      let lines = await fetchEntryLines(entry.id);
+      let lines = await fetchEntryLines(entry.id, accounts);
 
       if (!lines || lines.length === 0) {
         console.warn('Trying to load lines via service fallback...');
         const fullEntry = await JournalService.getEntryWithDetails(entry.id);
         if (fullEntry?.lines?.length) {
-          lines = normalizeLines(fullEntry.lines, entry.id);
+          lines = normalizeLines(fullEntry.lines, entry.id, accounts);
         }
       }
 
@@ -651,7 +257,7 @@ const JournalEntries = () => {
     return matchesSearch;
   });
 
-  const { totalDebit, totalCredit, balanced } = calculateTotals();
+  const { totalDebit, totalCredit, balanced } = calculateTotals(formData.lines);
 
   return (
     <div className="container mx-auto p-6" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -679,9 +285,12 @@ const JournalEntries = () => {
               <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
-                    {editingEntry
-                      ? (isRTL ? 'تعديل القيد' : 'Edit Entry')
-                      : (isRTL ? 'قيد جديد' : 'New Entry')}
+                    {(() => {
+                      if (editingEntry) {
+                        return isRTL ? 'تعديل القيد' : 'Edit Entry';
+                      }
+                      return isRTL ? 'قيد جديد' : 'New Entry';
+                    })()}
                   </DialogTitle>
                   <DialogDescription>
                     {isRTL ? 'أدخل تفاصيل القيد' : 'Enter entry details'}
@@ -807,7 +416,7 @@ const JournalEntries = () => {
 
                       <div className="space-y-2">
                         {formData.lines.map((line, index) => (
-                          <Card key={index} className="p-4">
+                          <Card key={`line-${index}-${line.account_id || 'new'}`} className="p-4">
                             <div className="grid grid-cols-12 gap-2 items-end">
                               <div className="col-span-5">
                                 <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
@@ -908,9 +517,12 @@ const JournalEntries = () => {
                             <div>
                               <p className="text-sm text-gray-600">{isRTL ? 'الحالة' : 'Status'}</p>
                               <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
-                                {balanced
-                                  ? (isRTL ? '✓ متوازن' : '✓ Balanced')
-                                  : (isRTL ? '✗ غير متوازن' : '✗ Not Balanced')}
+                                {(() => {
+                                  if (balanced) {
+                                    return isRTL ? '✓ متوازن' : '✓ Balanced';
+                                  }
+                                  return isRTL ? '✗ غير متوازن' : '✗ Not Balanced';
+                                })()}
                               </p>
                             </div>
                           </div>
@@ -982,9 +594,12 @@ const JournalEntries = () => {
                       {isRTL ? 'إلغاء' : 'Cancel'}
                     </Button>
                     <Button onClick={handleSubmit} disabled={loading || !balanced}>
-                      {loading
-                        ? (isRTL ? 'جاري الحفظ...' : 'Saving...')
-                        : (isRTL ? 'حفظ' : 'Save')}
+                      {(() => {
+                        if (loading) {
+                          return isRTL ? 'جاري الحفظ...' : 'Saving...';
+                        }
+                        return isRTL ? 'حفظ' : 'Save';
+                      })()}
                     </Button>
                   </div>
                 </div>
@@ -1070,7 +685,12 @@ const JournalEntries = () => {
                         {format(new Date(entry.entry_date), 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })}
                       </TableCell>
                       <TableCell>
-                        {isRTL ? (entry.journal_name_ar || entry.journal_name) : entry.journal_name}
+                        {(() => {
+                          if (isRTL) {
+                            return entry.journal_name_ar || entry.journal_name;
+                          }
+                          return entry.journal_name;
+                        })()}
                       </TableCell>
                       <TableCell>
                         {isRTL ? entry.description_ar : entry.description}

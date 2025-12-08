@@ -116,7 +116,7 @@ router.get('/profit-loss', verifyApiKey, async (req: Request, res: Response) => 
 router.get('/monthly-data', verifyApiKey, async (req: Request, res: Response) => {
   try {
     const year = req.query.year 
-      ? parseInt(req.query.year as string) 
+      ? Number.parseInt(req.query.year as string, 10) 
       : new Date().getFullYear();
 
     const monthlyData = await geminiFinancialService.fetchMonthlyFinancialData(year);
@@ -173,7 +173,7 @@ router.get('/transactions', verifyApiKey, async (req: Request, res: Response) =>
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
 
-    const limit = parseInt(req.query.limit as string) || 10;
+    const limit = Number.parseInt(req.query.limit as string, 10) || 10;
 
     // Get recent journal entries
     const { data: entries, error } = await supabase

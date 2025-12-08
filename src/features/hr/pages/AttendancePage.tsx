@@ -276,7 +276,7 @@ export const AttendancePage: React.FC = () => {
                         <div className="flex gap-2 flex-1">
                             <Select
                                 value={selectedPeriod.month.toString()}
-                                onValueChange={(v) => setSelectedPeriod(prev => ({ ...prev, month: parseInt(v) }))}
+                                onValueChange={(v) => setSelectedPeriod(prev => ({ ...prev, month: Number.parseInt(v, 10) }))}
                             >
                                 <SelectTrigger className="w-[180px]">
                                     <SelectValue placeholder="الشهر" />
@@ -294,7 +294,7 @@ export const AttendancePage: React.FC = () => {
                             </Select>
                             <Select
                                 value={selectedPeriod.year.toString()}
-                                onValueChange={(v) => setSelectedPeriod(prev => ({ ...prev, year: parseInt(v) }))}
+                                onValueChange={(v) => setSelectedPeriod(prev => ({ ...prev, year: Number.parseInt(v, 10) }))}
                             >
                                 <SelectTrigger className="w-[120px]">
                                     <SelectValue placeholder="السنة" />

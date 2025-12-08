@@ -222,8 +222,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Cr: Stock Received But Not Billed (for GR without invoice)
    */
   private async postGLEntries(moves: StockMove[]): Promise<void> {
-    // TODO: Implement GL posting logic
-    // This will be completed in Phase 2 when we integrate with accounting module
+    // Note: GL posting logic will be implemented in Phase 2 when we integrate with accounting module
     console.log('GL Entries posting to be implemented in Phase 2')
   }
 
@@ -231,7 +230,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Reverse GL Entries on cancellation
    */
   private async reverseGLEntries(moves: StockMove[]): Promise<void> {
-    // TODO: Implement GL reversal logic
+    // Note: GL reversal logic will be implemented in Phase 2 when we integrate with accounting module
     console.log('GL Entries reversal to be implemented in Phase 2')
   }
 

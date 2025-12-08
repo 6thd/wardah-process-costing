@@ -90,7 +90,7 @@ app.use((err: Error, req: express.Request, res: Response, next: NextFunction) =>
   });
 });
 
-const PORT = parseInt(process.env.PORT || '3001', 10);
+const PORT = Number.parseInt(process.env.PORT || '3001', 10);
 app.listen(PORT, () => {
   logger.info(`الخدمة الوسيطة تعمل على المنفذ ${PORT}`);
 });

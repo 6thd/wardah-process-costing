@@ -18,9 +18,6 @@ import {
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -175,8 +172,10 @@ export default function OrgAdminUsers() {
       } else {
         toast.error(result.error || 'فشل تحديث الأدوار');
       }
-    } catch (error) {
-      toast.error('حدث خطأ');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'حدث خطأ';
+      console.error('Error saving roles:', error);
+      toast.error(errorMessage);
     } finally {
       setSavingRoles(false);
     }
@@ -270,7 +269,11 @@ export default function OrgAdminUsers() {
                       : 'border-slate-700 text-slate-400 hover:text-white'
                     }
                   >
-                    {f === 'all' ? 'الكل' : f === 'active' ? 'النشطين' : 'المعطلين'}
+                    {(() => {
+                      if (f === 'all') return 'الكل';
+                      if (f === 'active') return 'النشطين';
+                      return 'المعطلين';
+                    })()}
                   </Button>
                 ))}
               </div>
@@ -281,27 +284,34 @@ export default function OrgAdminUsers() {
         {/* Users Table */}
         <Card className="bg-slate-900/50 border-slate-800">
           <CardContent className="p-0">
-            {loading ? (
-              <div className="p-6 space-y-4">
-                {[1, 2, 3].map(i => (
-                  <Skeleton key={i} className="h-16 w-full bg-slate-800" />
-                ))}
-              </div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="p-12 text-center">
-                <Users className="h-12 w-12 mx-auto text-slate-600 mb-4" />
-                <h3 className="text-lg font-semibold text-white mb-2">لا يوجد مستخدمين</h3>
-                <p className="text-slate-400 mb-4">
-                  {searchTerm ? 'لم يتم العثور على نتائج' : 'قم بدعوة مستخدمين للانضمام للمنظمة'}
-                </p>
-                <Link to="/org-admin/invitations">
-                  <Button className="bg-gradient-to-r from-teal-600 to-cyan-600">
-                    <UserPlus className="h-4 w-4 ml-2" />
-                    دعوة مستخدم
-                  </Button>
-                </Link>
-              </div>
-            ) : (
+            {(() => {
+              if (loading) {
+                return (
+                  <div className="p-6 space-y-4">
+                    {[1, 2, 3].map(i => (
+                      <Skeleton key={i} className="h-16 w-full bg-slate-800" />
+                    ))}
+                  </div>
+                );
+              }
+              if (filteredUsers.length === 0) {
+                return (
+                  <div className="p-12 text-center">
+                    <Users className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                    <h3 className="text-lg font-semibold text-white mb-2">لا يوجد مستخدمين</h3>
+                    <p className="text-slate-400 mb-4">
+                      {searchTerm ? 'لم يتم العثور على نتائج' : 'قم بدعوة مستخدمين للانضمام للمنظمة'}
+                    </p>
+                    <Link to="/org-admin/invitations">
+                      <Button className="bg-gradient-to-r from-teal-600 to-cyan-600">
+                        <UserPlus className="h-4 w-4 ml-2" />
+                        دعوة مستخدم
+                      </Button>
+                    </Link>
+                  </div>
+                );
+              }
+              return (
               <div className="divide-y divide-slate-800">
                 {filteredUsers.map(u => (
                   <div
@@ -347,7 +357,7 @@ export default function OrgAdminUsers() {
                       ))}
                       {(u.roles?.length || 0) > 2 && (
                         <Badge variant="outline" className="border-slate-700 text-slate-400">
-                          +{u.roles!.length - 2}
+                          +{(u.roles?.length || 0) - 2}
                         </Badge>
                       )}
                     </div>
@@ -423,7 +433,8 @@ export default function OrgAdminUsers() {
                   </div>
                 ))}
               </div>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
       </main>
@@ -448,6 +459,14 @@ export default function OrgAdminUsers() {
               roles.map(role => (
                 <div
                   key={role.id}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      // Handle click action here
+                    }
+                  }}
                   className={`p-4 rounded-lg border transition-colors cursor-pointer ${
                     selectedRoleIds.includes(role.id)
                       ? 'border-teal-500 bg-teal-950/30'

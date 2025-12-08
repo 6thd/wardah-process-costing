@@ -202,7 +202,7 @@ export function ManufacturingStagesList() {
                             id="order_sequence"
                             type="number"
                             value={formData.order_sequence}
-                            onChange={(e) => handleInputChange('order_sequence', parseInt(e.target.value))}
+                            onChange={(e) => handleInputChange('order_sequence', Number.parseInt(e.target.value, 10))}
                             min={1}
                             required
                           />

@@ -13,10 +13,8 @@
  * - COGS calculation
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { JournalService } from './accounting/journal-service';
-import { StockLedgerService } from '@/modules/inventory/StockLedgerService';
 
 // ===== TYPES =====
 
@@ -149,7 +147,7 @@ async function generateSalesOrderNumber(): Promise<string> {
 
     const lastNumber = data?.[0]?.so_number || 'SO-000000';
     const match = lastNumber.match(/SO-(\d+)/);
-    const nextNum = match ? parseInt(match[1]) + 1 : 1;
+    const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `SO-${String(nextNum).padStart(6, '0')}`;
   } catch (error: any) {
@@ -177,7 +175,7 @@ async function generateInvoiceNumber(): Promise<string> {
 
     const lastNumber = data?.[0]?.invoice_number || 'SI-000000';
     const match = lastNumber.match(/SI-(\d+)/);
-    const nextNum = match ? parseInt(match[1]) + 1 : 1;
+    const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `SI-${String(nextNum).padStart(6, '0')}`;
   } catch (error: any) {
@@ -205,7 +203,7 @@ async function generateDeliveryNumber(): Promise<string> {
 
     const lastNumber = data?.[0]?.delivery_number || 'DN-000000';
     const match = lastNumber.match(/DN-(\d+)/);
-    const nextNum = match ? parseInt(match[1]) + 1 : 1;
+    const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `DN-${String(nextNum).padStart(6, '0')}`;
   } catch (error: any) {

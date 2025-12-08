@@ -229,7 +229,7 @@ export abstract class BuyingController<T extends BuyingDocument> extends BaseCon
     if (lastDoc?.name) {
       const match = lastDoc.name.match(/-(\d+)$/)
       if (match) {
-        nextNum = parseInt(match[1]) + 1
+        nextNum = Number.parseInt(match[1], 10) + 1
       }
     }
 
