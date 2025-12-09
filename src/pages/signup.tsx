@@ -11,6 +11,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, UserPlus, AlertCircle, Building2, Mail, Lock, User, CheckCircle2, MailOpen } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
+import { VALIDATION_MESSAGES } from '@/constants/validationMessages';
 import {
   handleInviteSignUp,
   handleJoinSignUp,
@@ -127,8 +128,8 @@ export function SignUpPage() {
     if (!fullName.trim()) return 'يرجى إدخال الاسم الكامل';
     if (!email.trim()) return 'يرجى إدخال البريد الإلكتروني';
     if (!email.includes('@')) return 'البريد الإلكتروني غير صحيح';
-    if (password.length < 6) return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
-    if (password !== confirmPassword) return 'كلمتا المرور غير متطابقتين';
+    if (password.length < 6) return VALIDATION_MESSAGES.PASSWORD_TOO_SHORT;
+    if (password !== confirmPassword) return VALIDATION_MESSAGES.PASSWORD_MISMATCH;
 
     if (mode === 'join') {
       if (!orgCode.trim()) return 'يرجى إدخال رمز المنظمة';

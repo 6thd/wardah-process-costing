@@ -184,7 +184,18 @@ const generateTempId = (): string => {
   } catch (error) {
     // ignore
   }
-  return `tmp-${Math.random().toString(36).substring(2, 11)}`;
+  // Use crypto API for secure temporary ID
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return `tmp-${crypto.randomUUID()}`;
+  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(9);
+    crypto.getRandomValues(array);
+    const random = Array.from(array, byte => byte.toString(36)).join('').substring(0, 9);
+    return `tmp-${random}`;
+  } else {
+    // Fallback
+    return `tmp-${Math.random().toString(36).substring(2, 11)}`;
+  }
 };
 
 const fetchFromTables = async (

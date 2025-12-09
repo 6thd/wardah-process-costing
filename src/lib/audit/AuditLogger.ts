@@ -103,7 +103,18 @@ class AuditLogger {
         // Try to get from sessionStorage or generate a session ID
         let sessionId = sessionStorage.getItem('session_id');
         if (!sessionId) {
-          sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Use crypto API for secure session ID
+          if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+            sessionId = `session_${crypto.randomUUID()}`;
+          } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            const array = new Uint8Array(9);
+            crypto.getRandomValues(array);
+            const random = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+            sessionId = `session_${Date.now()}_${random}`;
+          } else {
+            // Fallback
+            sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          }
           sessionStorage.setItem('session_id', sessionId);
         }
         return sessionId;

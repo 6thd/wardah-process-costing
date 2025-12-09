@@ -757,11 +757,19 @@ export async function createRoleFromTemplate(
 
 function generateToken(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-  let token = '';
-  for (let i = 0; i < 64; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
+  // Use crypto API for secure random token generation
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(64);
+    crypto.getRandomValues(array);
+    let token = '';
+    for (let i = 0; i < 64; i++) {
+      token += chars.charAt(array[i] % chars.length);
+    }
+    return token;
   }
-  return token;
+  
+  // Fallback (should not happen in modern browsers)
+  throw new Error('Crypto API not available. Cannot generate secure token.');
 }
 
 // Email sending removed - using manual link sharing instead

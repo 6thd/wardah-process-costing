@@ -40,7 +40,18 @@ class RealtimeManager {
    * Subscribe to changes on specific tables
    */
   subscribeTables(tables: string[], onChange: RealtimeCallback): string {
-    const subscriptionId = Math.random().toString(36).substr(2, 9)
+    // Use crypto API for secure subscription ID
+    let subscriptionId: string;
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      subscriptionId = crypto.randomUUID();
+    } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const array = new Uint8Array(9);
+      crypto.getRandomValues(array);
+      subscriptionId = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+    } else {
+      // Fallback
+      subscriptionId = Math.random().toString(36).substr(2, 9);
+    }
     
     // Create a single channel for multiple tables
     if (!supabase) throw new Error('Supabase client not initialized')
@@ -89,7 +100,18 @@ class RealtimeManager {
    * Subscribe to a specific manufacturing order's changes
    */
   subscribeManufacturingOrder(moId: string, onChange: RealtimeCallback): string {
-    const subscriptionId = Math.random().toString(36).substr(2, 9)
+    // Use crypto API for secure subscription ID
+    let subscriptionId: string;
+    if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+      subscriptionId = crypto.randomUUID();
+    } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+      const array = new Uint8Array(9);
+      crypto.getRandomValues(array);
+      subscriptionId = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+    } else {
+      // Fallback
+      subscriptionId = Math.random().toString(36).substr(2, 9);
+    }
     
     if (!supabase) throw new Error('Supabase client not initialized')
     const channel = supabase.channel(`mo-${moId}-${subscriptionId}`)

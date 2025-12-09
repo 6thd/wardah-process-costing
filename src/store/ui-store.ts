@@ -139,7 +139,18 @@ export const useUIStore = create<UIState>()(
       },
 
       addNotification: (notification) => {
-        const id = Math.random().toString(36).substr(2, 9)
+        // Use crypto API for secure ID generation
+        let id: string;
+        if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+          id = crypto.randomUUID();
+        } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+          const array = new Uint8Array(9);
+          crypto.getRandomValues(array);
+          id = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+        } else {
+          // Fallback
+          id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+        }
         const newNotification = {
           ...notification,
           id,

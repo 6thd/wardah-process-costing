@@ -197,10 +197,75 @@ export const sortBy = (array, key, direction = 'asc') => {
 /**
  * String utilities
  */
+
+/**
+ * Generate cryptographically secure random ID
+ * @param {string} prefix - Optional prefix for the ID
+ * @returns {string} Secure random ID
+ */
 export const generateId = (prefix = '') => {
-  const timestamp = Date.now().toString(36)
-  const random = Math.random().toString(36).substr(2, 5)
-  return prefix ? `${prefix}_${timestamp}_${random}` : `${timestamp}_${random}`
+  // Use crypto.randomUUID() for modern browsers
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    const uuid = crypto.randomUUID();
+    return prefix ? `${prefix}_${uuid}` : uuid;
+  }
+  
+  // Fallback: Use crypto.getRandomValues()
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(16);
+    crypto.getRandomValues(array);
+    const hex = Array.from(array, byte => 
+      byte.toString(16).padStart(2, '0')
+    ).join('');
+    return prefix ? `${prefix}_${hex}` : hex;
+  }
+  
+  // Last resort fallback (for very old environments)
+  console.warn('Crypto API not available, using timestamp-based ID');
+  const timestamp = Date.now().toString(36);
+  const random = Math.floor(Math.random() * 1000000).toString(36);
+  return prefix ? `${prefix}_${timestamp}_${random}` : `${timestamp}_${random}`;
+}
+
+/**
+ * Generate secure random token
+ * @param {number} length - Length of token in bytes
+ * @returns {string} Hex string token
+ */
+export const generateSecureToken = (length = 32) => {
+  if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
+    throw new Error('Crypto API not available. Cannot generate secure token.');
+  }
+  
+  const array = new Uint8Array(length);
+  crypto.getRandomValues(array);
+  return Array.from(array, byte => 
+    byte.toString(16).padStart(2, '0')
+  ).join('');
+}
+
+/**
+ * Generate secure random number in range
+ * @param {number} min - Minimum value (inclusive)
+ * @param {number} max - Maximum value (exclusive)
+ * @returns {number} Secure random number
+ */
+export const generateSecureRandomNumber = (min, max) => {
+  if (typeof crypto === 'undefined' || !crypto.getRandomValues) {
+    throw new Error('Crypto API not available');
+  }
+  
+  const range = max - min;
+  const bytesNeeded = Math.ceil(Math.log2(range) / 8);
+  const array = new Uint8Array(bytesNeeded);
+  
+  let result;
+  do {
+    crypto.getRandomValues(array);
+    result = array.reduce((acc, byte, i) => acc + byte * (256 ** i), 0);
+  } while (result >= range);
+  
+  return min + result;
 }
 
 export const slugify = (text) => {

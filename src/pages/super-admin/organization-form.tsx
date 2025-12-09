@@ -37,6 +37,7 @@ import {
   Organization,
 } from '@/services/super-admin-service';
 import { toast } from 'sonner';
+import { VALIDATION_MESSAGES } from '@/constants/validationMessages';
 import { Skeleton } from '@/components/ui/skeleton';
 
 // =====================================
@@ -207,19 +208,19 @@ export function OrganizationForm() {
       }
 
       if (!form.admin_email.trim()) {
-        newErrors.admin_email = 'البريد الإلكتروني مطلوب';
+        newErrors.admin_email = VALIDATION_MESSAGES.EMAIL_REQUIRED;
       } else if (!form.admin_email.includes('@')) {
-        newErrors.admin_email = 'البريد الإلكتروني غير صحيح';
+        newErrors.admin_email = VALIDATION_MESSAGES.EMAIL_INVALID_FORMAT;
       }
 
       if (!form.admin_password) {
-        newErrors.admin_password = 'كلمة المرور مطلوبة';
+        newErrors.admin_password = VALIDATION_MESSAGES.PASSWORD_REQUIRED;
       } else if (form.admin_password.length < 6) {
-        newErrors.admin_password = 'كلمة المرور يجب أن تكون 6 أحرف على الأقل';
+        newErrors.admin_password = VALIDATION_MESSAGES.PASSWORD_TOO_SHORT;
       }
 
       if (form.admin_password !== form.admin_password_confirm) {
-        newErrors.admin_password_confirm = 'كلمتا المرور غير متطابقتين';
+        newErrors.admin_password_confirm = VALIDATION_MESSAGES.PASSWORD_MISMATCH;
       }
     }
 

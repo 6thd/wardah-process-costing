@@ -39,5 +39,15 @@ export function debounce<T extends (...args: any[]) => void>(
 }
 
 export function generateId(): string {
-  return Math.random().toString(36).substr(2, 9)
+  // Use crypto API for secure ID generation
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const array = new Uint8Array(9);
+    crypto.getRandomValues(array);
+    return Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+  } else {
+    // Fallback
+    return Math.random().toString(36).substr(2, 9);
+  }
 }
