@@ -86,7 +86,10 @@ export const parseJWTPayload = (token: string): Record<string, any> | null => {
  * Validate UUID format
  */
 export const isValidUUID = (uuid: string): boolean => {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+  // NOSONAR - UUID regex is safe (fixed length, no nested quantifiers)
+  // UUID format: 8-4-4-4-12 hex digits with dashes
+  if (!uuid || uuid.length !== 36) return false // Fast length check
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i // NOSONAR
   return uuidRegex.test(uuid)
 }
 
@@ -296,7 +299,10 @@ export const validateInput = {
   uuid: (value: string): boolean => isValidUUID(value),
   
   email: (value: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    // NOSONAR - Simple email regex, safe from ReDoS (no nested quantifiers)
+    // Alternative: Use URL constructor for validation (more secure but slower)
+    if (!value || value.length > 254) return false // RFC 5321 max length
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // NOSONAR
     return emailRegex.test(value)
   },
   
@@ -314,8 +320,10 @@ export const validateInput = {
   },
   
   code: (value: string): boolean => {
+    // NOSONAR - Simple code regex, safe from ReDoS (no nested quantifiers)
     // Alphanumeric with dashes and underscores, 2-20 chars
-    const codeRegex = /^[A-Za-z0-9_-]{2,20}$/
+    if (!value || value.length < 2 || value.length > 20) return false // Fast length check
+    const codeRegex = /^[A-Za-z0-9_-]{2,20}$/ // NOSONAR
     return codeRegex.test(value)
   }
 }
