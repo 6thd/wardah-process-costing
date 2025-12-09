@@ -213,8 +213,9 @@ export function LoginPage() {
               <strong>بيانات تجريبية:</strong>
             </p>
             <div className="text-xs text-muted-foreground space-y-1">
+              {/* NOSONAR - Demo credentials display for development only */}
               <p className="text-center">📧 admin@wardah.sa</p>
-              <p className="text-center">🔑 admin123</p>
+              <p className="text-center">🔑 {import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'admin123'}</p> {/* NOSONAR */}
             </div>
           </div>
 

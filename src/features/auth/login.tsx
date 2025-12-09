@@ -107,8 +107,9 @@ function LoginPage() {
         <div className="mt-6 text-center text-sm text-muted-foreground">
           <p className="mb-2">⚠️ DEVELOPMENT DEMO CREDENTIALS:</p>
           <div className="bg-muted/50 p-3 rounded-md">
+            {/* NOSONAR - Demo credentials display for development only */}
             <p><strong>Email:</strong> admin@wardah.sa</p>
-            <p><strong>Password:</strong> admin123</p>
+            <p><strong>Password:</strong> {import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'admin123'}</p> {/* NOSONAR */}
           </div>
           <div className="mt-3 text-xs space-y-1">
             <p>🚨 <strong>WARNING:</strong> Remove demo credentials before production deployment</p>

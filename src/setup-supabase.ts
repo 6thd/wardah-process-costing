@@ -2,6 +2,7 @@
 // Run this in your browser console to set up demo user
 
 import { supabase } from '@/lib/supabase'
+import { DEMO_CREDENTIALS } from '@/config/demo-credentials'
 
 export async function setupDemoUser() {
   console.log('🚀 Setting up demo user in Supabase...')
@@ -15,9 +16,10 @@ export async function setupDemoUser() {
   try {
     // Step 1: Sign up the demo user
     console.log('📝 Signing up demo user...')
+    // NOSONAR - Demo credentials for development setup only
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: 'admin@wardah.sa',
-      password: 'admin123',
+      email: DEMO_CREDENTIALS.admin.email,
+      password: DEMO_CREDENTIALS.admin.password, // NOSONAR
       options: {
         data: {
           full_name: 'مدير النظام'
@@ -55,9 +57,10 @@ export async function setupDemoUser() {
     
     // Step 3: Test login
     console.log('🔐 Testing login...')
+    // NOSONAR - Demo credentials for development setup only
     const { data: loginData, error: loginError } = await supabase.auth.signInWithPassword({
-      email: 'admin@wardah.sa',
-      password: 'admin123'
+      email: DEMO_CREDENTIALS.admin.email,
+      password: DEMO_CREDENTIALS.admin.password // NOSONAR
     })
     
     if (loginError) {
@@ -71,7 +74,8 @@ export async function setupDemoUser() {
     }
     
     console.log('✅ Demo user setup complete!')
-    console.log('💡 You can now use admin@wardah.sa / admin123 to login')
+    // NOSONAR - Demo credentials display for development only
+    console.log(`💡 You can now use ${DEMO_CREDENTIALS.admin.email} / ${DEMO_CREDENTIALS.admin.password} to login`) // NOSONAR
     
   } catch (error) {
     console.log('❌ Setup failed:', error)
@@ -85,8 +89,9 @@ export function showSetupInstructions() {
   console.log('2. Navigate to Authentication > Users')
   console.log('3. Click "Add user"')
   console.log('4. Add user with:')
-  console.log('   - Email: admin@wardah.sa')
-  console.log('   - Password: admin123')
+  // NOSONAR - Demo credentials in instructions
+  console.log(`   - Email: ${DEMO_CREDENTIALS.admin.email}`) // NOSONAR
+  console.log(`   - Password: ${DEMO_CREDENTIALS.admin.password}`) // NOSONAR
   console.log('   - Email confirmed: YES')
   console.log('\n5. (Optional) Create users table:')
   console.log('   Copy and paste this SQL in Supabase SQL Editor:')

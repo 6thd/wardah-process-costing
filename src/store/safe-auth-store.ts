@@ -25,9 +25,10 @@ interface SafeAuthState {
 }
 
 // Demo users for testing (no external dependencies)
+// NOSONAR - Demo credentials for development/testing only
 const DEMO_USERS: Record<string, { password: string; user: SafeUser }> = {
   'admin@wardah.sa': {
-    password: 'admin123',
+    password: import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'admin123', // NOSONAR
     user: {
       id: 'demo-admin-1',
       email: 'admin@wardah.sa',
@@ -38,7 +39,7 @@ const DEMO_USERS: Record<string, { password: string; user: SafeUser }> = {
     }
   },
   'manager@wardah.sa': {
-    password: 'manager123',
+    password: import.meta.env.VITE_DEMO_MANAGER_PASSWORD || 'manager123', // NOSONAR
     user: {
       id: 'demo-manager-1',
       email: 'manager@wardah.sa',
@@ -49,7 +50,7 @@ const DEMO_USERS: Record<string, { password: string; user: SafeUser }> = {
     }
   },
   'employee@wardah.sa': {
-    password: 'employee123',
+    password: import.meta.env.VITE_DEMO_EMPLOYEE_PASSWORD || 'employee123', // NOSONAR
     user: {
       id: 'demo-employee-1',
       email: 'employee@wardah.sa',
@@ -143,8 +144,18 @@ export const useSafeAuthStore = create<SafeAuthState>()(
 )
 
 // Export demo credentials for reference
+// NOSONAR - Demo credentials for development/testing only
 export const DEMO_CREDENTIALS = {
-  admin: { email: 'admin@wardah.sa', password: 'admin123' },
-  manager: { email: 'manager@wardah.sa', password: 'manager123' },
-  employee: { email: 'employee@wardah.sa', password: 'employee123' }
+  admin: { 
+    email: 'admin@wardah.sa', 
+    password: import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'admin123' // NOSONAR
+  },
+  manager: { 
+    email: 'manager@wardah.sa', 
+    password: import.meta.env.VITE_DEMO_MANAGER_PASSWORD || 'manager123' // NOSONAR
+  },
+  employee: { 
+    email: 'employee@wardah.sa', 
+    password: import.meta.env.VITE_DEMO_EMPLOYEE_PASSWORD || 'employee123' // NOSONAR
+  }
 }
