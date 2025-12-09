@@ -9,9 +9,9 @@ import { useWardahTheme } from '@/components/wardah-theme-provider';
 import { getGlassClasses } from '@/lib/wardah-ui-utils';
 
 interface VarianceReportProps {
-  manufacturingOrderId: string;
-  startDate?: string;
-  endDate?: string;
+  readonly manufacturingOrderId: string;
+  readonly startDate?: string;
+  readonly endDate?: string;
 }
 
 interface MaterialVariance {
@@ -43,7 +43,6 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
   startDate,
   endDate
 }) => {
-  const { theme } = useWardahTheme();
   
   const { data: materialVariances, isLoading: loadingMaterial, error: materialError } = useQuery({
     queryKey: ['material-variances', manufacturingOrderId, startDate, endDate],

@@ -7,11 +7,11 @@ import { arSA, enUS, Locale } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
 
 interface DatePickerProps {
-  date: Date | undefined;
-  onDateChange: (date: Date | undefined) => void;
-  label: string;
-  placeholder: string;
-  isRTL: boolean;
+  readonly date: Date | undefined;
+  readonly onDateChange: (date: Date | undefined) => void;
+  readonly label: string;
+  readonly placeholder: string;
+  readonly isRTL: boolean;
 }
 
 export function DatePicker({ date, onDateChange, label, placeholder, isRTL }: DatePickerProps) {

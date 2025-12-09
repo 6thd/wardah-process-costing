@@ -1,4 +1,4 @@
-const fs = require('fs').promises;
+const fs = require('node:fs').promises;
 
 async function verifySQLSyntax() {
   console.log('Verifying SQL syntax in Advanced Reports files...');

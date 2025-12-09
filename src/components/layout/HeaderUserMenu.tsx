@@ -17,17 +17,17 @@ import { getGlassClasses } from '@/lib/wardah-ui-utils';
 import { AccountManagementItems, OrganizationItems, ActivityItems } from './HeaderUserMenuItems';
 
 interface User {
-  email?: string;
-  user_metadata?: {
-    full_name?: string;
-    avatar_url?: string;
+  readonly email?: string;
+  readonly user_metadata?: {
+    readonly full_name?: string;
+    readonly avatar_url?: string;
   };
 }
 
 interface HeaderUserMenuProps {
-  user: User | null;
-  onLogout: () => void;
-  isRTL: boolean;
+  readonly user: User | null;
+  readonly onLogout: () => void;
+  readonly isRTL: boolean;
 }
 
 export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {

@@ -6,15 +6,14 @@ import {
 import {
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuGroup,
   DropdownMenuShortcut,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 
 interface HeaderUserMenuItemsProps {
-  isRTL: boolean;
-  navigate: ReturnType<typeof useNavigate>;
+  readonly isRTL: boolean;
+  readonly navigate: ReturnType<typeof useNavigate>;
 }
 
 export function AccountManagementItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {

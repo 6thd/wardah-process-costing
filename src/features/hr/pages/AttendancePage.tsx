@@ -3,7 +3,7 @@
 // صفحة الحضور والانصراف المحسّنة
 
 import React from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
     Card,
     CardContent,
@@ -18,7 +18,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -37,15 +36,13 @@ import { listAttendanceForPeriod } from '@/services/hr/attendance-service';
 import { ATTENDANCE_COLORS } from '../types';
 import { 
     Calendar, Clock, UserCheck, UserX, AlertCircle, 
-    Download, Filter, Plus, TrendingUp, CheckCircle, 
+    Download, Plus, TrendingUp, CheckCircle, 
     XCircle, Timer, CalendarDays, Users
 } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, parseISO } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay } from 'date-fns';
 
 export const AttendancePage: React.FC = () => {
     const { toast } = useToast();
-    const queryClient = useQueryClient();
     const initialDate = React.useMemo(() => new Date(), []);
     const [selectedPeriod, setSelectedPeriod] = React.useState(() => ({
         year: initialDate.getFullYear(),

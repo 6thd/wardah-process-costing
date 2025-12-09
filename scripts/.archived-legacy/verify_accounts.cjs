@@ -1,5 +1,5 @@
 const { createClient } = require('@supabase/supabase-js');
-require('dotenv').config({ path: require('path').join(__dirname, '.env') });
+require('dotenv').config({ path: require('node:path').join(__dirname, '.env') });
 
 // ⚠️ SECURITY: Load Supabase configuration from environment variables
 // Never hardcode API keys in source code!

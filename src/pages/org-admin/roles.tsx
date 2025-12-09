@@ -767,8 +767,9 @@ export default function OrgAdminRoles() {
                         className="border border-slate-800 rounded-lg overflow-hidden"
                       >
                         {/* Module Header */}
-                        <div
-                          className="flex items-center justify-between p-3 bg-slate-950/50 cursor-pointer hover:bg-slate-900/50 transition-colors"
+                        <button
+                          type="button"
+                          className="w-full flex items-center justify-between p-3 bg-slate-950/50 cursor-pointer hover:bg-slate-900/50 transition-colors border-0 bg-transparent text-left"
                           onClick={() => toggleModule(module.id)}
                         >
                           <div className="flex items-center gap-3">
@@ -793,15 +794,16 @@ export default function OrgAdminRoles() {
                           ) : (
                             <ChevronDown className="h-4 w-4 text-slate-400" />
                           )}
-                        </div>
+                        </button>
 
                         {/* Permissions List */}
                         {isExpanded && (
                           <div className="p-3 border-t border-slate-800 grid grid-cols-2 gap-2">
                             {module.permissions.map(perm => (
-                              <div
+                              <button
                                 key={perm.id}
-                                className={`flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
+                                type="button"
+                                className={`w-full text-left flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
                                     : 'bg-slate-950/50 border border-transparent hover:border-slate-700'
@@ -846,7 +848,7 @@ export default function OrgAdminRoles() {
                                 <span className="text-sm text-slate-300">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
-                              </div>
+                              </button>
                             ))}
                           </div>
                         )}

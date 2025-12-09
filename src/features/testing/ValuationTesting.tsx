@@ -215,10 +215,11 @@ export const ValuationTesting: React.FC = () => {
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="product-code" className="block text-sm font-medium text-gray-700 mb-1">
                   كود المنتج
                 </label>
                 <input
+                  id="product-code"
                   type="text"
                   value={productCode}
                   onChange={(e) => setProductCode(e.target.value)}
@@ -228,10 +229,11 @@ export const ValuationTesting: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="product-name" className="block text-sm font-medium text-gray-700 mb-1">
                   اسم المنتج
                 </label>
                 <input
+                  id="product-name"
                   type="text"
                   value={productName}
                   onChange={(e) => setProductName(e.target.value)}
@@ -241,10 +243,11 @@ export const ValuationTesting: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="valuation-method" className="block text-sm font-medium text-gray-700 mb-1">
                   طريقة التقييم
                 </label>
                 <select
+                  id="valuation-method"
                   value={valuationMethod}
                   onChange={(e) => setValuationMethod(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md"
@@ -317,10 +320,10 @@ export const ValuationTesting: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="transaction-type" className="block text-sm font-medium text-gray-700 mb-1">
                     نوع الحركة
                   </label>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div id="transaction-type" className="grid grid-cols-2 gap-2">
                     <button
                       onClick={() => setTransactionType('IN')}
                       className={`py-2 px-4 rounded border transition-colors ${
@@ -345,10 +348,11 @@ export const ValuationTesting: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="quantity" className="block text-sm font-medium text-gray-700 mb-1">
                     الكمية
                   </label>
                   <input
+                    id="quantity"
                     type="number"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
@@ -361,10 +365,11 @@ export const ValuationTesting: React.FC = () => {
 
                 {transactionType === 'IN' && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="unit-rate" className="block text-sm font-medium text-gray-700 mb-1">
                       سعر الوحدة
                     </label>
                     <input
+                      id="unit-rate"
                       type="number"
                       value={rate}
                       onChange={(e) => setRate(e.target.value)}

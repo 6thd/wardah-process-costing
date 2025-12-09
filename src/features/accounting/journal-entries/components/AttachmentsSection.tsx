@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { supabase } from '@/lib/supabase';
 
 interface AttachmentsSectionProps {
-  entryId: string;
+  readonly entryId: string;
 }
 
 export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {

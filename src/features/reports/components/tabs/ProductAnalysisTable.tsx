@@ -2,8 +2,8 @@ import { cn } from '@/lib/utils';
 import type { ProductSalesAnalysis } from '@/services/sales-reports-service';
 
 interface ProductAnalysisTableProps {
-  productAnalysis: ProductSalesAnalysis[];
-  isRTL: boolean;
+  readonly productAnalysis: ReadonlyArray<ProductSalesAnalysis>;
+  readonly isRTL: boolean;
 }
 
 export function ProductAnalysisTable({ productAnalysis, isRTL }: ProductAnalysisTableProps) {

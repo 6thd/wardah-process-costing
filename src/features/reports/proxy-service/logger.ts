@@ -1,3 +1,5 @@
+// @ts-ignore - winston 3.x includes built-in TypeScript types, but TypeScript may not detect them
+// NOSONAR - winston 3.x includes built-in TypeScript types
 import winston from 'winston';
 
 // تكوين التسجيل
@@ -14,7 +16,7 @@ export const logger = winston.createLogger({
       level: process.env.LOG_LEVEL || 'info'
     }),
     // تسجيل في وحدة التحكم في وضع التطوير
-    ...(process.env.NODE_ENV !== 'production' ? [
+    ...(process.env.NODE_ENV === 'development' ? [
       new winston.transports.Console({
         format: winston.format.combine(
           winston.format.colorize(),

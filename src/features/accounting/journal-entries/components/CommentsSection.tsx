@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 interface CommentsSectionProps {
-  entryId: string;
+  readonly entryId: string;
 }
 
 export function CommentsSection({ entryId }: CommentsSectionProps) {
@@ -124,9 +124,10 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
             />
             <Button onClick={handleAddComment} disabled={loading || !newComment.trim()}>
               <Send className="h-4 w-4 mr-2" />
-              {loading
-                ? (isRTL ? 'جاري الإضافة...' : 'Adding...')
-                : (isRTL ? 'إضافة' : 'Add')}
+              {(() => {
+                if (loading) return isRTL ? 'جاري الإضافة...' : 'Adding...';
+                return isRTL ? 'إضافة' : 'Add';
+              })()}
             </Button>
           </div>
 

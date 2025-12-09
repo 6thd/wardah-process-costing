@@ -8,9 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { 
   suppliersService, 
   purchaseOrdersService,
-  newPurchaseOrdersService,
-  vendorsService,
-  goodsReceiptsService
+  newPurchaseOrdersService
 } from '@/services/supabase-service'
 import { supabase } from '@/lib/supabase'
 import { toast } from 'sonner'

@@ -110,7 +110,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
 
 // مكون لوحة التحكم الرئيسية
 const GeminiDashboard: React.FC = () => {
-  const { theme } = useWardahTheme();
+  // Theme is not used in this component
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

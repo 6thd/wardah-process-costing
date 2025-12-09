@@ -13,8 +13,8 @@ import { bomAlternativeService, BOMAlternative } from '@/services/manufacturing/
 import { toast } from 'sonner'
 
 interface BOMAlternativesProps {
-  primaryBomId: string
-  onAlternativeSelect?: (alternativeBomId: string) => void
+  readonly primaryBomId: string
+  readonly onAlternativeSelect?: (alternativeBomId: string) => void
 }
 
 export function BOMAlternatives({ primaryBomId, onAlternativeSelect }: BOMAlternativesProps) {

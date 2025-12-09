@@ -16,17 +16,16 @@ import {
   AlertTriangle,
   Search,
   RefreshCw,
-  Download
 } from 'lucide-react'
 import { bomTreeService, BOMTreeNode } from '@/services/manufacturing/bomTreeService'
 import { toast } from 'sonner'
 
 interface BOMTreeViewProps {
-  bomId: string
-  quantity?: number
-  onNodeSelect?: (node: BOMTreeNode) => void
-  showCosts?: boolean
-  showSearch?: boolean
+  readonly bomId: string
+  readonly quantity?: number
+  readonly onNodeSelect?: (node: BOMTreeNode) => void
+  readonly showCosts?: boolean
+  readonly showSearch?: boolean
 }
 
 export function BOMTreeView({

@@ -274,13 +274,16 @@ export default function StageCostingPanel() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">حالة الأمر</label>
-              <div className="pt-2">
+              <label htmlFor="mo-status" className="block text-sm font-medium mb-2">حالة الأمر</label>
+              <div id="mo-status" className="pt-2">
                 {selectedMO && (
                   <Badge variant={selectedMO.status === 'in_progress' ? 'default' : 'outline'}>
-                    {selectedMO.status === 'pending' ? 'في الانتظار' :
-                     selectedMO.status === 'in_progress' ? 'قيد التنفيذ' :
-                     selectedMO.status === 'completed' ? 'مكتمل' : selectedMO.status}
+                    {(() => {
+                      if (selectedMO.status === 'pending') return 'في الانتظار';
+                      if (selectedMO.status === 'in_progress') return 'قيد التنفيذ';
+                      if (selectedMO.status === 'completed') return 'مكتمل';
+                      return selectedMO.status;
+                    })()}
                   </Badge>
                 )}
               </div>
@@ -591,9 +594,12 @@ export default function StageCostingPanel() {
                     <td className="p-2">{stage.unit_cost?.toFixed(2)} ريال</td>
                     <td className="p-2">
                       <Badge variant={stage.status === 'completed' ? 'default' : 'outline'}>
-                        {stage.status === 'precosted' ? 'تكلفة مُقدرة' :
-                         stage.status === 'actual' ? 'تكلفة فعلية' :
-                         stage.status === 'completed' ? 'مكتملة' : stage.status}
+                        {(() => {
+                          if (stage.status === 'precosted') return 'تكلفة مُقدرة';
+                          if (stage.status === 'actual') return 'تكلفة فعلية';
+                          if (stage.status === 'completed') return 'مكتملة';
+                          return stage.status;
+                        })()}
                       </Badge>
                     </td>
                     <td className="p-2 text-sm text-gray-600">

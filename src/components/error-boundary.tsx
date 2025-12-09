@@ -2,10 +2,9 @@ import { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import ErrorHandler from '@/lib/errors/ErrorHandler'
-import { AppError } from '@/lib/errors'
 
 interface Props {
-  children: ReactNode
+  readonly children: ReactNode
 }
 
 interface State {

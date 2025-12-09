@@ -47,21 +47,21 @@ export const useSmartPrefetch = () => {
     const prefetchCriticalData = async () => {
       try {
         // Active products
-        queryClient.prefetchQuery({
+        await queryClient.prefetchQuery({
           queryKey: ['products', 'active'],
           queryFn: () => fetchActiveProducts(),
           staleTime: 10 * 60 * 1000, // 10 minutes
         });
 
         // Work centers
-        queryClient.prefetchQuery({
+        await queryClient.prefetchQuery({
           queryKey: ['work-centers'],
           queryFn: () => fetchWorkCenters(),
           staleTime: 30 * 60 * 1000, // 30 minutes
         });
 
         // Active manufacturing orders
-        queryClient.prefetchQuery({
+        await queryClient.prefetchQuery({
           queryKey: ['manufacturing-orders', 'active'],
           queryFn: () => fetchActiveManufacturingOrders(),
           staleTime: 2 * 60 * 1000, // 2 minutes

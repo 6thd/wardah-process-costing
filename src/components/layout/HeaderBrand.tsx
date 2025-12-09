@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
 interface HeaderBrandProps {
-  isRTL: boolean;
+  readonly isRTL: boolean;
 }
 
 export function HeaderBrand({ isRTL }: HeaderBrandProps) {

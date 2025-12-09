@@ -18,13 +18,13 @@ import {
 import { ATTENDANCE_COLORS, STATUS_BADGES } from '../types';
 import { 
     AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-    LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
+    XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer 
 } from 'recharts';
 import {
     Users, UserCheck, UserX, Clock, TrendingUp, TrendingDown,
-    Calendar, DollarSign, AlertCircle, CalendarClock, Briefcase, Award
+    Calendar, DollarSign, AlertCircle
 } from 'lucide-react';
-import { format, subDays, startOfMonth, endOfMonth } from 'date-fns';
+import { format, subDays } from 'date-fns';
 import { ar } from 'date-fns/locale';
 
 const CHART_COLORS = {

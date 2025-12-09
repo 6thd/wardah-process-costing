@@ -65,7 +65,7 @@ class TenantAwareSupabaseClient {
     }
 
     if (this.tenantIdPromise) {
-      return this.tenantIdPromise;
+      return await this.tenantIdPromise;
     }
 
     this.tenantIdPromise = getEffectiveTenantId();

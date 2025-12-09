@@ -6,7 +6,6 @@
 import { useState, useEffect } from 'react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -21,8 +20,8 @@ import { bomCostingService, BOMCostComparison } from '@/services/manufacturing/b
 import { toast } from 'sonner'
 
 interface BOMCostAnalysisProps {
-  bomId: string
-  quantity?: number
+  readonly bomId: string
+  readonly quantity?: number
 }
 
 export function BOMCostAnalysis({ bomId, quantity = 1 }: BOMCostAnalysisProps) {

@@ -24,21 +24,16 @@ export function registerServiceWorker(scriptPath: string, scope?: string): Promi
       return;
     }
 
-    try {
-      navigator.serviceWorker
-        .register(scriptPath, { scope: scope || '/' })
-        .then((registration) => {
-          console.log('✅ Service Worker registered:', registration.scope);
-          resolve(registration);
-        })
-        .catch((error) => {
-          console.warn('⚠️ Service Worker registration failed:', error);
-          resolve(null);
-        });
-    } catch (error) {
-      console.warn('⚠️ Service Worker registration error:', error);
-      resolve(null);
-    }
+    navigator.serviceWorker
+      .register(scriptPath, { scope: scope || '/' })
+      .then((registration) => {
+        console.log('✅ Service Worker registered:', registration.scope);
+        resolve(registration);
+      })
+      .catch((error) => {
+        console.warn('⚠️ Service Worker registration failed:', error);
+        resolve(null);
+      });
   });
 }
 

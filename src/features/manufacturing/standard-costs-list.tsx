@@ -40,10 +40,7 @@ import {
   Edit, 
   Trash2, 
   RefreshCw, 
-  DollarSign,
-  TrendingUp,
-  Package,
-  Factory
+  DollarSign
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { standardCostsService } from '@/services/supabase-service'
@@ -394,7 +391,10 @@ export function StandardCostsList() {
                         إلغاء
                       </Button>
                       <Button type="submit" disabled={saveMutation.isPending}>
-                        {saveMutation.isPending ? 'جاري الحفظ...' : (editingCost ? 'تحديث' : 'إنشاء')}
+                        {(() => {
+                          if (saveMutation.isPending) return 'جاري الحفظ...';
+                          return editingCost ? 'تحديث' : 'إنشاء';
+                        })()}
                       </Button>
                     </DialogFooter>
                   </form>

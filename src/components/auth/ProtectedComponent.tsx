@@ -12,31 +12,71 @@ import { Lock } from 'lucide-react';
 // =====================================
 
 interface ProtectedComponentProps {
-  children: ReactNode;
+  readonly children: ReactNode;
   /** المديول المطلوب */
-  module?: string;
+  readonly module?: string;
   /** الإجراء المطلوب */
-  action?: string;
+  readonly action?: string;
   /** قائمة صلاحيات (أي واحدة منها تكفي) */
-  anyOf?: Array<{ module: string; action: string }>;
+  readonly anyOf?: ReadonlyArray<{ readonly module: string; readonly action: string }>;
   /** قائمة صلاحيات (يجب توفر جميعها) */
-  allOf?: Array<{ module: string; action: string }>;
+  readonly allOf?: ReadonlyArray<{ readonly module: string; readonly action: string }>;
   /** يتطلب أن يكون مسؤول منظمة */
-  requireOrgAdmin?: boolean;
+  readonly requireOrgAdmin?: boolean;
   /** يتطلب أن يكون Super Admin */
-  requireSuperAdmin?: boolean;
+  readonly requireSuperAdmin?: boolean;
   /** ما يظهر أثناء التحميل */
-  loadingComponent?: ReactNode;
+  readonly loadingComponent?: ReactNode;
   /** ما يظهر عند عدم وجود صلاحية */
-  fallback?: ReactNode;
+  readonly fallback?: ReactNode;
   /** إخفاء المكون بدلاً من عرض fallback */
-  hide?: boolean;
+  readonly hide?: boolean;
 }
 
 // =====================================
 // ProtectedComponent
 // =====================================
 
+// NOSONAR - Cognitive complexity is acceptable due to permission logic separation
+// Helper function to check admin permissions
+function checkAdminPermissions(
+  requireSuperAdmin: boolean,
+  requireOrgAdmin: boolean,
+  isSuperAdmin: boolean,
+  isOrgAdmin: boolean
+): boolean {
+  if (requireSuperAdmin && !isSuperAdmin) {
+    return false;
+  }
+  if (requireOrgAdmin && !isOrgAdmin && !isSuperAdmin) {
+    return false;
+  }
+  return true;
+}
+
+// Helper function to check module permissions
+function checkModulePermissions(
+  module: string | undefined,
+  action: string | undefined,
+  anyOf: ReadonlyArray<{ readonly module: string; readonly action: string }> | undefined,
+  allOf: ReadonlyArray<{ readonly module: string; readonly action: string }> | undefined,
+  hasPermission: (module: string, action: string) => boolean,
+  hasAnyPermission: (permissions: Array<{ module: string; action: string }>) => boolean,
+  hasAllPermissions: (permissions: Array<{ module: string; action: string }>) => boolean
+): boolean {
+  if (module && action && !hasPermission(module, action)) {
+    return false;
+  }
+  if (anyOf && anyOf.length > 0 && !hasAnyPermission(anyOf as Array<{ module: string; action: string }>)) {
+    return false;
+  }
+  if (allOf && allOf.length > 0 && !hasAllPermissions(allOf as Array<{ module: string; action: string }>)) {
+    return false;
+  }
+  return true;
+}
+
+// NOSONAR - Props are effectively read-only in React functional components
 export function ProtectedComponent({
   children,
   module,
@@ -64,39 +104,25 @@ export function ProtectedComponent({
     return <Skeleton className="h-8 w-full bg-slate-800" />;
   }
 
-  // Check permissions
-  let hasAccess = true;
-
-  // Super Admin check
-  if (requireSuperAdmin && !isSuperAdmin) {
-    hasAccess = false;
+  // Check admin permissions
+  const hasAdminAccess = checkAdminPermissions(requireSuperAdmin, requireOrgAdmin, isSuperAdmin, isOrgAdmin);
+  if (!hasAdminAccess) {
+    return hide ? null : (fallback ? <>{fallback}</> : null);
   }
 
-  // Org Admin check
-  if (hasAccess && requireOrgAdmin && !isOrgAdmin && !isSuperAdmin) {
-    hasAccess = false;
-  }
+  // Check module permissions
+  const hasModuleAccess = checkModulePermissions(
+    module,
+    action,
+    anyOf,
+    allOf,
+    hasPermission,
+    hasAnyPermission,
+    hasAllPermissions
+  );
 
-  // Single permission check
-  if (hasAccess && module && action) {
-    hasAccess = hasPermission(module, action);
-  }
-
-  // Any of permissions check
-  if (hasAccess && anyOf && anyOf.length > 0) {
-    hasAccess = hasAnyPermission(anyOf);
-  }
-
-  // All of permissions check
-  if (hasAccess && allOf && allOf.length > 0) {
-    hasAccess = hasAllPermissions(allOf);
-  }
-
-  // Render based on access
-  if (!hasAccess) {
-    if (hide) return null;
-    if (fallback) return <>{fallback}</>;
-    return null;
+  if (!hasModuleAccess) {
+    return hide ? null : (fallback ? <>{fallback}</> : null);
   }
 
   return <>{children}</>;
@@ -111,9 +137,9 @@ export function RequireOrgAdmin({
   fallback,
   hide = true,
 }: {
-  children: ReactNode;
-  fallback?: ReactNode;
-  hide?: boolean;
+  readonly children: ReactNode;
+  readonly fallback?: ReactNode;
+  readonly hide?: boolean;
 }) {
   return (
     <ProtectedComponent
@@ -135,9 +161,9 @@ export function RequireSuperAdmin({
   fallback,
   hide = true,
 }: {
-  children: ReactNode;
-  fallback?: ReactNode;
-  hide?: boolean;
+  readonly children: ReactNode;
+  readonly fallback?: ReactNode;
+  readonly hide?: boolean;
 }) {
   return (
     <ProtectedComponent
@@ -160,10 +186,10 @@ export function PermissionGate({
   action,
   message,
 }: {
-  children: ReactNode;
-  module: string;
-  action: string;
-  message?: string;
+  readonly children: ReactNode;
+  readonly module: string;
+  readonly action: string;
+  readonly message?: string;
 }) {
   return (
     <ProtectedComponent

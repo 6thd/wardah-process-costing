@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { AuthenticatedRequest } from '../types';
 import { logger } from '../logger';
-import { environment } from '../config';
 
 export const router = Router();
 

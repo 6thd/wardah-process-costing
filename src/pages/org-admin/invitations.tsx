@@ -308,9 +308,10 @@ export default function OrgAdminInvitations() {
                         <Label className="text-slate-300">الأدوار</Label>
                         <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2">
                           {roles.map(role => (
-                            <div
+                            <button
                               key={role.id}
-                              className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                              type="button"
+                              className={`w-full text-left p-3 rounded-lg border transition-colors cursor-pointer ${
                                 formData.role_ids.includes(role.id)
                                   ? 'border-teal-500 bg-teal-950/30'
                                   : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
@@ -338,7 +339,7 @@ export default function OrgAdminInvitations() {
                                   {role.name_ar || role.name}
                                 </span>
                               </div>
-                            </div>
+                            </button>
                           ))}
                           {roles.length === 0 && (
                             <p className="text-slate-500 text-sm text-center py-4">

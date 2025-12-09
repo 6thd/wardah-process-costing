@@ -7,9 +7,9 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { 
-    Plus, Search, FileDown, Filter, Grid3x3, List, Edit, Trash2, 
+    Plus, Search, FileDown, Grid3x3, List, Edit, Trash2, 
     MoreHorizontal, UserPlus, Users, Building2, Briefcase, Calendar,
-    CheckSquare, X
+    X
 } from 'lucide-react';
 import {
     Table,
@@ -19,7 +19,7 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -62,7 +62,6 @@ import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
 import { createEmployee } from '@/services/hr/employee-service';
 import { STATUS_BADGES } from '../types';
-import type { HrEmployee } from '@/services/hr/hr-service';
 
 type ViewMode = 'table' | 'grid';
 type FilterStatus = 'all' | 'active' | 'inactive' | 'probation' | 'terminated';

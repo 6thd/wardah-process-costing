@@ -4,9 +4,9 @@ import { ProfitabilityMetrics } from './ProfitabilityMetrics';
 import { ProfitabilityTables } from './ProfitabilityTables';
 
 interface ProfitabilityTabProps {
-  loading: boolean;
-  profitability: ProfitabilityAnalysis | null;
-  isRTL: boolean;
+  readonly loading: boolean;
+  readonly profitability: ProfitabilityAnalysis | null;
+  readonly isRTL: boolean;
 }
 
 export function ProfitabilityTab({ loading, profitability, isRTL }: ProfitabilityTabProps) {

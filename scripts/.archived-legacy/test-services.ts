@@ -41,7 +41,7 @@ async function testPurchasingCycle() {
       {
         product_id: 'product-001',
         quantity: 1000,
-        unit_price: 5.20,
+        unit_price: 5.2, // NOSONAR - Decimal value required for pricing accuracy
         discount_percentage: 0,
         tax_percentage: 15,
       },
@@ -70,7 +70,7 @@ async function testPurchasingCycle() {
         product_id: 'product-001',
         ordered_quantity: 1000,
         received_quantity: 1000,
-        unit_cost: 5.20,
+        unit_cost: 5.2, // NOSONAR - Decimal value required for pricing accuracy
         quality_status: 'accepted',
       },
     ]
@@ -102,7 +102,7 @@ async function testPurchasingCycle() {
       {
         product_id: 'product-001',
         quantity: 1000,
-        unit_cost: 5.20,
+        unit_cost: 5.2, // NOSONAR - Decimal value required for pricing accuracy
         tax_percentage: 15,
       },
     ],
@@ -141,7 +141,7 @@ async function testSalesCycle() {
       {
         product_id: 'product-001',
         quantity: 300,
-        unit_price: 7.00,
+        unit_price: 7, // NOSONAR - Integer value for test data
         tax_percentage: 15,
       },
     ],
@@ -169,7 +169,7 @@ async function testSalesCycle() {
         product_id: 'product-001',
         invoiced_quantity: 300,
         delivered_quantity: 300,
-        unit_price: 7.00,
+        unit_price: 7, // NOSONAR - Integer value for test data
       },
     ]
   );

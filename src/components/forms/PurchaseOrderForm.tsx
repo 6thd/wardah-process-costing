@@ -59,9 +59,9 @@ interface PurchaseOrderLine {
 }
 
 interface PurchaseOrderFormProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess?: () => void
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly onSuccess?: () => void
 }
 
 const recalcLineTotals = (line: PurchaseOrderLine): PurchaseOrderLine => {
@@ -121,12 +121,12 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
 }
 
   interface InlineProductSearchProps {
-    products: Product[]
-    term: string
-    selectedProduct?: Product
-    onTermChange: (term: string) => void
-    onSelect: (product: Product) => void
-    onClear: () => void
+    readonly products: ReadonlyArray<Product>
+    readonly term: string
+    readonly selectedProduct?: Product
+    readonly onTermChange: (term: string) => void
+    readonly onSelect: (product: Product) => void
+    readonly onClear: () => void
   }
 
   function InlineProductSearch({

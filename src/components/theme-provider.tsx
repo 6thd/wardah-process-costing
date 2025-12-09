@@ -4,9 +4,9 @@ import { safeLocalStorage } from "@/lib/safe-storage"
 type Theme = "dark" | "light" | "system"
 
 type ThemeProviderProps = {
-  children: React.ReactNode
-  defaultTheme?: Theme
-  storageKey?: string
+  readonly children: React.ReactNode
+  readonly defaultTheme?: Theme
+  readonly storageKey?: string
 }
 
 type ThemeProviderState = {

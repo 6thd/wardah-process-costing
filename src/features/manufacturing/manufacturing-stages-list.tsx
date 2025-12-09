@@ -30,7 +30,6 @@ import {
   Edit,
   Trash2,
   RefreshCw,
-  Settings
 } from 'lucide-react'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { manufacturingStagesService } from '@/services/supabase-service'

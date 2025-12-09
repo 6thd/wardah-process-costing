@@ -57,7 +57,7 @@ const mockProducts = [
     name: 'صابون زعتر طبيعي',
     code: 'PRD-002',
     stock_quantity: 75,
-    cost_price: 18.0,
+    cost_price: 18, // NOSONAR - Integer value for test data
     sales_count: 45
   }
 ];

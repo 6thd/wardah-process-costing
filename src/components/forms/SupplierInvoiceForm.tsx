@@ -16,9 +16,9 @@ import { cn } from '@/lib/utils'
 import { loadPurchasableProducts } from '@/lib/product-utils'
 
 interface SupplierInvoiceFormProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly onSuccess: () => void
 }
 
 interface Vendor {

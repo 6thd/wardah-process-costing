@@ -6,14 +6,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { JournalService, JournalApproval } from '@/services/accounting/journal-service';
 import { useTranslation } from 'react-i18next';
-import { CheckCircle, XCircle, Clock, User } from 'lucide-react';
+import { CheckCircle, XCircle, Clock } from 'lucide-react';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 interface ApprovalWorkflowProps {
-  entryId: string;
-  entryNumber: string;
-  canApprove?: boolean;
+  readonly entryId: string;
+  readonly entryNumber: string;
+  readonly canApprove?: boolean;
 }
 
 export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: ApprovalWorkflowProps) {
@@ -212,9 +212,10 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
                 {isRTL ? 'إلغاء' : 'Cancel'}
               </Button>
               <Button onClick={confirmApprove} disabled={loading}>
-                {loading
-                  ? (isRTL ? 'جاري...' : 'Processing...')
-                  : (isRTL ? 'موافقة' : 'Approve')}
+                {(() => {
+                  if (loading) return isRTL ? 'جاري...' : 'Processing...';
+                  return isRTL ? 'موافقة' : 'Approve';
+                })()}
               </Button>
             </div>
           </div>

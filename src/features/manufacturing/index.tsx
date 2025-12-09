@@ -375,14 +375,17 @@ function ManufacturingOverview() {
                 </div>
                 <div className="text-right flex items-center gap-2">
                   <Badge
-                    variant={order.status === 'completed' ? 'default' :
-                      order.status === 'in-progress' ? 'secondary' : 'outline'}
+                    variant={(() => {
+                      if (order.status === 'completed') return 'default';
+                      if (order.status === 'in-progress') return 'secondary';
+                      return 'outline';
+                    })()}
                   >
-                    {order.status === 'completed'
-                      ? t('manufacturing.overviewPage.latestOrders.status.completed')
-                      : order.status === 'in-progress'
-                        ? t('manufacturing.overviewPage.latestOrders.status.inProgress')
-                        : t('manufacturing.overviewPage.latestOrders.status.pending')}
+                    {(() => {
+                      if (order.status === 'completed') return t('manufacturing.overviewPage.latestOrders.status.completed');
+                      if (order.status === 'in-progress') return t('manufacturing.overviewPage.latestOrders.status.inProgress');
+                      return t('manufacturing.overviewPage.latestOrders.status.pending');
+                    })()}
                   </Badge>
                   <span className="text-sm text-muted-foreground">
                     {t('manufacturing.overviewPage.latestOrders.unitsLabel', { count: order.quantity })}
@@ -751,7 +754,7 @@ function ManufacturingOrdersManagement() {
                     </TableCell>
                     <TableCell>{order.quantity ?? 0}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
                         <Badge variant={getStatusBadgeVariant(order.status)}>
                           {getStatusLabel(order.status, isRTL)}
                         </Badge>

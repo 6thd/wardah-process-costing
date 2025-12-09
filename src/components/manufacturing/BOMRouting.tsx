@@ -13,8 +13,8 @@ import { bomRoutingService, BOMOperation, RoutingCost } from '@/services/manufac
 import { toast } from 'sonner'
 
 interface BOMRoutingProps {
-  bomId: string
-  quantity?: number
+  readonly bomId: string
+  readonly quantity?: number
 }
 
 export function BOMRouting({ bomId, quantity = 1 }: BOMRoutingProps) {

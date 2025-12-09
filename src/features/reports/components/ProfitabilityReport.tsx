@@ -6,8 +6,7 @@ import { getGlassClasses } from '@/lib/wardah-ui-utils';
 
 interface ProfitabilityReportProps {}
 
-export const ProfitabilityReport: React.FC<ProfitabilityReportProps> = ({ 
-}) => {
+export const ProfitabilityReport: React.FC<ProfitabilityReportProps> = () => {
   return (
     <Card className={getGlassClasses()}>
       <CardHeader>

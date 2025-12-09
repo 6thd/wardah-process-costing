@@ -10,10 +10,10 @@ import { CheckCircle, XCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface BatchPostDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  entries: Array<{ id: string; entry_number: string; total_debit: number; status: string }>;
-  onSuccess: () => void;
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
+  readonly entries: ReadonlyArray<{ readonly id: string; readonly entry_number: string; readonly total_debit: number; readonly status: string }>;
+  readonly onSuccess: () => void;
 }
 
 export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPostDialogProps) {
@@ -113,9 +113,12 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
             <>
               <div className="flex justify-between items-center">
                 <Button variant="outline" size="sm" onClick={selectAll}>
-                  {selectedEntries.size === draftEntries.length
-                    ? (isRTL ? 'إلغاء التحديد الكامل' : 'Deselect All')
-                    : (isRTL ? 'تحديد الكل' : 'Select All')}
+                  {(() => {
+                    const isAllSelected = selectedEntries.size === draftEntries.length;
+                    return isAllSelected 
+                      ? (isRTL ? 'إلغاء التحديد الكامل' : 'Deselect All')
+                      : (isRTL ? 'تحديد الكل' : 'Select All');
+                  })()}
                 </Button>
                 <Badge variant="secondary">
                   {selectedEntries.size} / {draftEntries.length} {isRTL ? 'محدد' : 'selected'}

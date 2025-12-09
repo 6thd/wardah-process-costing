@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardHeader, CardContent } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { 
   Plus, 
@@ -265,7 +265,7 @@ export function BOMManagement() {
                         {new Date(bom.effective_date).toLocaleDateString('ar-SA')}
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
                           <Button
                             size="sm"
                             variant="ghost"

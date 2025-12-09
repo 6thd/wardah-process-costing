@@ -16,13 +16,13 @@ import { getWarehouses, type Warehouse } from '@/services/stock-ledger-service';
 import { Loader2, Warehouse as WarehouseIcon } from 'lucide-react';
 
 interface WarehouseSelectorProps {
-  value: string;
-  onChange: (warehouseId: string) => void;
-  label?: string;
-  required?: boolean;
-  disabled?: boolean;
-  showLabel?: boolean;
-  className?: string;
+  readonly value: string;
+  readonly onChange: (warehouseId: string) => void;
+  readonly label?: string;
+  readonly required?: boolean;
+  readonly disabled?: boolean;
+  readonly showLabel?: boolean;
+  readonly className?: string;
 }
 
 export function WarehouseSelector({

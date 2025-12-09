@@ -33,20 +33,16 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { toast } from 'sonner';
 import {
   Calculator,
   FileText,
   DollarSign,
-  Calendar,
-  User,
   Plus,
   Search,
   Download,
   Printer,
   CheckCircle2,
   Clock,
-  AlertTriangle,
   Briefcase,
 } from 'lucide-react';
 import { getSettlementRecords, getEmployees } from '@/services/hr/hr-service';

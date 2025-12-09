@@ -10,7 +10,6 @@ import { format } from 'date-fns';
 import { useTrialBalance } from './hooks/useTrialBalance';
 import { calculateTotals, filterBalancesByType } from './utils/trialBalanceHelpers';
 import { exportToExcel, exportToPDF } from './utils/trialBalanceExport';
-import type { TrialBalanceRow } from './types';
 
 const TrialBalance = () => {
   const { i18n } = useTranslation();

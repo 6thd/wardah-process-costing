@@ -2,9 +2,9 @@ import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/
 import type { SalesPerformanceMetrics } from '@/services/sales-reports-service';
 
 interface SalesPerformanceTabProps {
-  loading: boolean;
-  performance: SalesPerformanceMetrics | null;
-  isRTL: boolean;
+  readonly loading: boolean;
+  readonly performance: SalesPerformanceMetrics | null;
+  readonly isRTL: boolean;
 }
 
 export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerformanceTabProps) {

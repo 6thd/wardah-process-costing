@@ -102,10 +102,10 @@ export function useRequirePermission(module: string, action: string): boolean {
  * Permission Guard component
  */
 interface PermissionGuardProps {
-  module: string;
-  action: string;
-  children: React.ReactNode;
-  fallback?: React.ReactNode;
+  readonly module: string;
+  readonly action: string;
+  readonly children: React.ReactNode;
+  readonly fallback?: React.ReactNode;
 }
 
 export function PermissionGuard({ module, action, children, fallback }: PermissionGuardProps) {

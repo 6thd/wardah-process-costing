@@ -14,16 +14,16 @@ import { getGlassClasses } from '@/lib/wardah-ui-utils';
 import { useTranslation } from 'react-i18next';
 
 interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  type: 'success' | 'error' | 'warning' | 'info';
-  read: boolean;
+  readonly id: string;
+  readonly title: string;
+  readonly message: string;
+  readonly type: 'success' | 'error' | 'warning' | 'info';
+  readonly read: boolean;
 }
 
 interface HeaderNotificationsProps {
-  notifications: Notification[];
-  isRTL: boolean;
+  readonly notifications: ReadonlyArray<Notification>;
+  readonly isRTL: boolean;
 }
 
 export function HeaderNotifications({ notifications, isRTL }: HeaderNotificationsProps) {

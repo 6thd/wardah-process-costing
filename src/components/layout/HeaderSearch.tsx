@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
 interface HeaderSearchProps {
-  isRTL: boolean;
+  readonly isRTL: boolean;
 }
 
 export function HeaderSearch({ isRTL }: HeaderSearchProps) {

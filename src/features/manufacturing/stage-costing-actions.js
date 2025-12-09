@@ -282,7 +282,7 @@ export function registerStageCostingActions() {
           operation: 'stage_cost_calculation',
           moId: moId,
           stageId: stageId || null,
-          stageNo: stageNumber ? parseInt(stageNumber) : null,
+          stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,
           details: {
             goodQuantity: goodQuantity,
             totalCost: totalCost,
@@ -440,7 +440,11 @@ async function generateStageCostReport(moId, stageCosts) {
                 <td>${stage.good_quantity}</td>
                 <td>${stage.total_cost?.toFixed(2)} ريال</td>
                 <td>${stage.unit_cost?.toFixed(2)} ريال</td>
-                <td>${stage.status === 'completed' ? 'مكتملة' : stage.status === 'actual' ? 'فعلية' : 'مقدرة'}</td>
+                <td>${(() => {
+                  if (stage.status === 'completed') return 'مكتملة';
+                  if (stage.status === 'actual') return 'فعلية';
+                  return 'مقدرة';
+                })()}</td>
                 <td>${new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA')}</td>
               </tr>
             `).join('')}

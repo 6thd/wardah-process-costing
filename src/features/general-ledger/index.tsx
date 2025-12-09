@@ -8,7 +8,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { 
-    getSupabase, 
     GLAccount, 
     getAllGLAccounts, 
     getEffectiveTenantId,
@@ -31,11 +30,8 @@ import {
   FileDown,
   Search,
   Filter,
-  ChevronUp,
   Maximize2,
-  Minimize2,
-  Eye,
-  EyeOff
+  Minimize2
 } from 'lucide-react';
 
 // Main Module Router
@@ -51,7 +47,7 @@ export function GeneralLedgerModule() {
 }
 
 // Account Form Modal Component
-function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: { isOpen: boolean, onClose: () => void, onSave: (data: Partial<GLAccount>) => void, account?: GLAccount | null, parentAccount?: GLAccount | null }) {
+function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: { readonly isOpen: boolean, readonly onClose: () => void, readonly onSave: (data: Partial<GLAccount>) => void, readonly account?: GLAccount | null, readonly parentAccount?: GLAccount | null }) {
     const { i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
     const [formData, setFormData] = useState<Partial<GLAccount>>({});

@@ -5,15 +5,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { DatePicker } from './utils/datePickerHelpers';
 
 interface SalesReportsDateFilterProps {
-  fromDate: Date | undefined;
-  toDate: Date | undefined;
-  onFromDateChange: (date: Date | undefined) => void;
-  onToDateChange: (date: Date | undefined) => void;
-  onViewClick: () => void;
-  onExportExcel: () => void;
-  onExportPDF: () => void;
-  loading: boolean;
-  isRTL: boolean;
+  readonly fromDate: Date | undefined;
+  readonly toDate: Date | undefined;
+  readonly onFromDateChange: (date: Date | undefined) => void;
+  readonly onToDateChange: (date: Date | undefined) => void;
+  readonly onViewClick: () => void;
+  readonly onExportExcel: () => void;
+  readonly onExportPDF: () => void;
+  readonly loading: boolean;
+  readonly isRTL: boolean;
 }
 
 export function SalesReportsDateFilter({

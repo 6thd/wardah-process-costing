@@ -13,7 +13,7 @@ const WardahThemeContext = createContext<WardahThemeContextType>({
 
 // Props for the theme provider
 interface WardahThemeProviderProps {
-  children: ReactNode;
+  readonly children: ReactNode;
 }
 
 // Theme provider component

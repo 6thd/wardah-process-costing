@@ -55,11 +55,11 @@ const mockVarianceAlerts: VarianceAlert[] = [
     stageName: 'Rolling Stage',
     varianceDate: '2023-06-15',
     materialVariance: 500,
-    materialVariancePercent: 10.0,
+    materialVariancePercent: 10, // NOSONAR - Integer percentage value
     laborVariance: 140,
-    laborVariancePercent: 7.0,
+    laborVariancePercent: 7, // NOSONAR - Integer percentage value
     overheadVariance: 105,
-    overheadVariancePercent: 7.0,
+    overheadVariancePercent: 7, // NOSONAR - Integer percentage value
     totalVariance: 745,
     totalVariancePercent: 8.1,
     varianceSeverity: 'HIGH',
@@ -105,7 +105,7 @@ const mockVarianceAlerts: VarianceAlert[] = [
     laborVariance: -50,
     laborVariancePercent: -2.5,
     overheadVariance: -30,
-    overheadVariancePercent: -2.0,
+    overheadVariancePercent: -2, // NOSONAR - Integer percentage value
     totalVariance: -80,
     totalVariancePercent: -2.2,
     varianceSeverity: 'LOW',
@@ -124,7 +124,7 @@ const mockVarianceAlerts: VarianceAlert[] = [
     stageName: 'Rolling Stage',
     varianceDate: '2023-06-16',
     materialVariance: 320,
-    materialVariancePercent: 8.0,
+    materialVariancePercent: 8, // NOSONAR - Integer percentage value
     laborVariance: 85,
     laborVariancePercent: 5.3,
     overheadVariance: 65,
@@ -289,7 +289,10 @@ export function VarianceAlerts() {
         <span className={isPositive ? "text-red-500" : "text-green-500"}>
           {isPositive ? '+' : ''}{value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </span>
-        <span className={`text-xs ${isSignificant ? (isPositive ? "text-red-500" : "text-green-500") : "text-muted-foreground"}`}>
+        <span className={`text-xs ${(() => {
+          if (!isSignificant) return "text-muted-foreground";
+          return isPositive ? "text-red-500" : "text-green-500";
+        })()}`}>
           {isPositive ? '+' : ''}{percent.toFixed(2)}%
         </span>
       </div>

@@ -16,7 +16,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   BarChart3,
   PieChart,
@@ -27,15 +26,11 @@ import {
   Download,
   FileSpreadsheet,
   FileText,
-  Filter,
   Clock,
   Building2,
-  Briefcase,
   UserCheck,
-  UserMinus,
-  AlertTriangle,
 } from 'lucide-react';
-import { getHrDashboardMetrics, getEmployees, getPayrollRuns, getAttendanceLogs } from '@/services/hr/hr-service';
+import { getHrDashboardMetrics, getEmployees, getPayrollRuns } from '@/services/hr/hr-service';
 
 // أنواع التقارير
 const REPORT_TYPES = [

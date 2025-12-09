@@ -3,8 +3,8 @@ import { cn } from '@/lib/utils';
 import type { ProfitabilityAnalysis } from '@/services/sales-reports-service';
 
 interface ProfitabilityTablesProps {
-  profitability: ProfitabilityAnalysis;
-  isRTL: boolean;
+  readonly profitability: ProfitabilityAnalysis;
+  readonly isRTL: boolean;
 }
 
 export function ProfitabilityTables({ profitability, isRTL }: ProfitabilityTablesProps) {

@@ -6,10 +6,8 @@ import { WIPReport } from './WIPReport';
 import { ProfitabilityReport } from './ProfitabilityReport';
 import GeminiDashboard from './GeminiDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { useWardahTheme } from '@/components/wardah-theme-provider';
 
 export const ReportsDashboard: React.FC = () => {
-  const { theme } = useWardahTheme();
   const [selectedMO, setSelectedMO] = useState<string>('');
 
   // Sample manufacturing orders for demo
@@ -29,9 +27,9 @@ export const ReportsDashboard: React.FC = () => {
         <CardContent>
           <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="w-full md:w-64">
-              <label className="block text-sm font-medium mb-1 text-right">اختر أمر التصنيع</label>
+              <label htmlFor="mo-select" className="block text-sm font-medium mb-1 text-right">اختر أمر التصنيع</label>
               <Select value={selectedMO} onValueChange={setSelectedMO}>
-                <SelectTrigger className="text-right">
+                <SelectTrigger id="mo-select" className="text-right">
                   <SelectValue placeholder="اختر أمر التصنيع" />
                 </SelectTrigger>
                 <SelectContent>

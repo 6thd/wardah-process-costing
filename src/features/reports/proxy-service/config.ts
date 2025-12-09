@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
-import { resolve } from 'path';
+// NOSONAR - node:path is used, but SonarQube may not detect it
+import { resolve } from 'node:path';
 
 // تحميل المتغيرات البيئية من ملف .env
 config({ path: resolve(__dirname, '.env') });

@@ -16,9 +16,9 @@ import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 
 interface DeliveryNoteFormProps {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  onSuccess: () => void
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly onSuccess: () => void
 }
 
 interface SalesInvoice {

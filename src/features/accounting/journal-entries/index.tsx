@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Plus, Edit, Trash2, CheckCircle, FileText, Search, RotateCcw, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -9,7 +9,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
@@ -25,7 +24,7 @@ import { calculateTotals, validateEntry, normalizeLines } from './utils/journalH
 import { createJournalEntry, updateJournalEntry, postJournalEntry, deleteJournalEntry } from './services/journalEntryService';
 import { JournalService } from '@/services/accounting/journal-service';
 import { isValidDecimalInput } from '@/utils/numberValidation';
-import type { JournalEntry, JournalLine, Account } from './types';
+import type { JournalEntry, JournalLine } from './types';
 
 const JournalEntries = () => {
   const { i18n } = useTranslation();
