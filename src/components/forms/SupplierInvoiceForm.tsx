@@ -259,7 +259,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
   }
 
   const handleQuantityChange = (index: number, value: string) => {
-    const qty = parseFloat(value) || 0
+    const qty = Number.parseFloat(value) || 0
     setInvoiceLines(lines =>
       lines.map((line, i) => {
         if (i === index) {
@@ -863,7 +863,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                               onChange={(e) => {
                                 setInvoiceLines(lines =>
                                   lines.map((l, i) =>
-                                    i === index ? { ...l, unit_price: parseFloat(e.target.value) || 0 } : l
+                                    i === index ? { ...l, unit_price: Number.parseFloat(e.target.value) || 0 } : l
                                   )
                                 )
                               }}
@@ -879,7 +879,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                               onChange={(e) => {
                                 setInvoiceLines(lines =>
                                   lines.map((l, i) =>
-                                    i === index ? { ...l, discount_amount: parseFloat(e.target.value) || 0 } : l
+                                    i === index ? { ...l, discount_amount: Number.parseFloat(e.target.value) || 0 } : l
                                   )
                                 )
                               }}

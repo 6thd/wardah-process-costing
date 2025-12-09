@@ -579,8 +579,8 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
         rows.forEach((cells, rowIndex) => {
           const [codeRaw = '', qtyRaw = '1', priceRaw] = cells
           const code = codeRaw.trim()
-          const quantity = parseFloat(qtyRaw.replace(',', '.')) || 1
-          const priceCandidate = priceRaw ? parseFloat(priceRaw.replace(',', '.')) : undefined
+          const quantity = Number.parseFloat(qtyRaw.replace(',', '.')) || 1
+          const priceCandidate = priceRaw ? Number.parseFloat(priceRaw.replace(',', '.')) : undefined
           const lookupKey = code.toLowerCase()
           const product = byCode.get(lookupKey) || byName.get(lookupKey)
           const aggregationKey = (product?.code || code || `row-${rowIndex}`).toLowerCase()
@@ -881,7 +881,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                               value={line.quantity}
                               onChange={(event) =>
                                 updateLine(index, {
-                                  quantity: parseFloat(event.target.value) || 0,
+                                  quantity: Number.parseFloat(event.target.value) || 0,
                                 })
                               }
                               className="h-9"
@@ -895,7 +895,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                               value={line.unit_price}
                               onChange={(event) =>
                                 updateLine(index, {
-                                  unit_price: parseFloat(event.target.value) || 0,
+                                  unit_price: Number.parseFloat(event.target.value) || 0,
                                 })
                               }
                               className="h-9"
@@ -910,7 +910,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                               value={line.discount_percentage}
                               onChange={(event) =>
                                 updateLine(index, {
-                                  discount_percentage: parseFloat(event.target.value) || 0,
+                                  discount_percentage: Number.parseFloat(event.target.value) || 0,
                                 })
                               }
                               className="h-9"
@@ -925,7 +925,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                               value={line.tax_percentage}
                               onChange={(event) =>
                                 updateLine(index, {
-                                  tax_percentage: parseFloat(event.target.value) || 0,
+                                  tax_percentage: Number.parseFloat(event.target.value) || 0,
                                 })
                               }
                               className="h-9"

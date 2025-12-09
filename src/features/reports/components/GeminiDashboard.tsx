@@ -96,8 +96,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
           className="chat-input"
           onKeyPress={(e) => e.key === 'Enter' && handleSend()}
         />
-        <button onClick={handleSend} className="send-button">
-          <i className="fas fa-paper-plane"></i>
+        <button 
+          onClick={handleSend} 
+          className="send-button"
+          aria-label="إرسال الرسالة"
+        >
+          <i className="fas fa-paper-plane" aria-hidden="true"></i>
         </button>
       </div>
     </div>

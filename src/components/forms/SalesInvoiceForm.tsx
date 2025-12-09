@@ -389,7 +389,7 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
                             type="number"
                             min="1"
                             value={line.quantity}
-                            onChange={(e) => updateLine(index, 'quantity', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateLine(index, 'quantity', Number.parseFloat(e.target.value) || 0)}
                           />
                         </td>
                         <td className="p-2">
@@ -398,7 +398,7 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
                             step="0.01"
                             min="0"
                             value={line.unit_price}
-                            onChange={(e) => updateLine(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateLine(index, 'unit_price', Number.parseFloat(e.target.value) || 0)}
                           />
                         </td>
                         <td className="p-2">
@@ -408,7 +408,7 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
                             min="0"
                             max="100"
                             value={line.discount_percentage}
-                            onChange={(e) => updateLine(index, 'discount_percentage', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateLine(index, 'discount_percentage', Number.parseFloat(e.target.value) || 0)}
                           />
                         </td>
                         <td className="p-2">
@@ -418,7 +418,7 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
                             min="0"
                             max="100"
                             value={line.tax_rate}
-                            onChange={(e) => updateLine(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => updateLine(index, 'tax_rate', Number.parseFloat(e.target.value) || 0)}
                           />
                         </td>
                         <td className="p-2 text-right font-medium">

@@ -637,7 +637,7 @@ export default function WarehouseManagement() {
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        total_capacity: parseFloat(e.target.value) || undefined,
+                        total_capacity: Number.parseFloat(e.target.value) || undefined,
                       })
                     }
                     placeholder="1000"

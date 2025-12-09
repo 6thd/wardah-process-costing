@@ -435,8 +435,9 @@ function ItemsManagement() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {/* Search */}
           <div>
-            <label className="block text-sm font-medium mb-2">🔍 البحث</label>
+            <label htmlFor="search-term" className="block text-sm font-medium mb-2">🔍 البحث</label>
             <Input
+              id="search-term"
               placeholder="ابحث بالاسم أو الكود..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -445,8 +446,9 @@ function ItemsManagement() {
 
           {/* Category Filter */}
           <div>
-            <label className="block text-sm font-medium mb-2">📁 الفئة</label>
+            <label htmlFor="category-filter" className="block text-sm font-medium mb-2">📁 الفئة</label>
             <select
+              id="category-filter"
               value={selectedCategory}
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="w-full h-10 px-3 rounded-md border border-input bg-background"
@@ -465,8 +467,9 @@ function ItemsManagement() {
 
           {/* Stock Filter */}
           <div>
-            <label className="block text-sm font-medium mb-2">📊 حالة المخزون</label>
+            <label htmlFor="stock-filter" className="block text-sm font-medium mb-2">📊 حالة المخزون</label>
             <select
+              id="stock-filter"
               value={stockFilter}
               onChange={(e) => setStockFilter(e.target.value as any)}
               className="w-full h-10 px-3 rounded-md border border-input bg-background"
@@ -479,9 +482,10 @@ function ItemsManagement() {
 
           {/* Sort */}
           <div>
-            <label className="block text-sm font-medium mb-2">⬇️ الترتيب</label>
+            <label htmlFor="sort-by" className="block text-sm font-medium mb-2">⬇️ الترتيب</label>
             <div className="flex gap-2">
               <select
+                id="sort-by"
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
                 className="flex-1 h-10 px-3 rounded-md border border-input bg-background"
@@ -510,32 +514,36 @@ function ItemsManagement() {
           <h3 className="font-semibold mb-4">إضافة صنف جديد</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">اسم الصنف</label>
+              <label htmlFor="item-name" className="block text-sm font-medium mb-2">اسم الصنف</label>
               <Input
+                id="item-name"
                 value={newItem.name}
                 onChange={(e) => setNewItem({...newItem, name: e.target.value})}
                 placeholder="اسم الصنف"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الاسم بالعربية</label>
+              <label htmlFor="item-name-ar" className="block text-sm font-medium mb-2">الاسم بالعربية</label>
               <Input
+                id="item-name-ar"
                 value={newItem.name_ar}
                 onChange={(e) => setNewItem({...newItem, name_ar: e.target.value})}
                 placeholder="الاسم بالعربية"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">كود الصنف</label>
+              <label htmlFor="item-code" className="block text-sm font-medium mb-2">كود الصنف</label>
               <Input
+                id="item-code"
                 value={newItem.code}
                 onChange={(e) => setNewItem({...newItem, code: e.target.value})}
                 placeholder="كود الصنف"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الفئة</label>
+              <label htmlFor="item-category" className="block text-sm font-medium mb-2">الفئة</label>
               <select
+                id="item-category"
                 value={newItem.category_id}
                 onChange={(e) => setNewItem({...newItem, category_id: e.target.value})}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background"
@@ -549,8 +557,9 @@ function ItemsManagement() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">المخزن الافتراضي *</label>
+              <label htmlFor="item-default-warehouse" className="block text-sm font-medium mb-2">المخزن الافتراضي *</label>
               <select
+                id="item-default-warehouse"
                 value={newItem.default_warehouse_id}
                 onChange={(e) => setNewItem({...newItem, default_warehouse_id: e.target.value})}
                 disabled={loadingItemWarehouses}
@@ -568,50 +577,56 @@ function ItemsManagement() {
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">وحدة القياس</label>
+              <label htmlFor="item-unit" className="block text-sm font-medium mb-2">وحدة القياس</label>
               <Input
+                id="item-unit"
                 value={newItem.unit}
                 onChange={(e) => setNewItem({...newItem, unit: e.target.value})}
                 placeholder="قطعة، كيلو، متر..."
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">تكلفة الشراء</label>
+              <label htmlFor="item-cost-price" className="block text-sm font-medium mb-2">تكلفة الشراء</label>
               <Input
+                id="item-cost-price"
                 type="number"
                 step="0.01"
                 value={newItem.cost_price}
-                onChange={(e) => setNewItem({...newItem, cost_price: parseFloat(e.target.value) || 0})}
+                onChange={(e) => setNewItem({...newItem, cost_price: Number.parseFloat(e.target.value) || 0})}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">سعر البيع</label>
+              <label htmlFor="item-selling-price" className="block text-sm font-medium mb-2">سعر البيع</label>
               <Input
+                id="item-selling-price"
                 type="number"
                 step="0.01"
                 value={newItem.selling_price}
-                onChange={(e) => setNewItem({...newItem, selling_price: parseFloat(e.target.value) || 0})}
+                onChange={(e) => setNewItem({...newItem, selling_price: Number.parseFloat(e.target.value) || 0})}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الكمية الحالية</label>
+              <label htmlFor="item-stock-quantity" className="block text-sm font-medium mb-2">الكمية الحالية</label>
               <Input
+                id="item-stock-quantity"
                 type="number"
                 value={newItem.stock_quantity}
                 onChange={(e) => setNewItem({...newItem, stock_quantity: Number.parseInt(e.target.value, 10) || 0})}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الحد الأدنى</label>
+              <label htmlFor="item-minimum-stock" className="block text-sm font-medium mb-2">الحد الأدنى</label>
               <Input
+                id="item-minimum-stock"
                 type="number"
                 value={newItem.minimum_stock}
                 onChange={(e) => setNewItem({...newItem, minimum_stock: Number.parseInt(e.target.value, 10) || 0})}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">طريقة التقييم</label>
+              <label htmlFor="item-valuation-method" className="block text-sm font-medium mb-2">طريقة التقييم</label>
               <select
+                id="item-valuation-method"
                 value={newItem.valuation_method || 'Weighted Average'}
                 onChange={(e) => setNewItem({...newItem, valuation_method: e.target.value})}
                 className="w-full h-10 px-3 rounded-md border border-input bg-background"
@@ -1579,10 +1594,11 @@ function StockAdjustments() {
             {/* Header Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 relative z-10">
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-date" className="block text-sm font-medium mb-1">
                   التاريخ *
                 </label>
                 <input
+                  id="adjustment-date"
                   type="date"
                   value={newAdjustment.adjustment_date}
                   onChange={(e) =>
@@ -1596,10 +1612,11 @@ function StockAdjustments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-warehouse" className="block text-sm font-medium mb-1">
                   المخزن *
                 </label>
                 <select
+                  id="adjustment-warehouse"
                   value={newAdjustment.warehouse_id}
                   onChange={(e) => {
                     const newWarehouseId = e.target.value
@@ -1631,7 +1648,7 @@ function StockAdjustments() {
               </div>
 
               <div className="relative">
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-type" className="block text-sm font-medium mb-1">
                   نوع التسوية *
                 </label>
                 <div className="type-dropdown-container">
@@ -1687,10 +1704,11 @@ function StockAdjustments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-reference" className="block text-sm font-medium mb-1">
                   رقم المرجع
                 </label>
                 <input
+                  id="adjustment-reference"
                   type="text"
                   value={newAdjustment.reference_number}
                   onChange={(e) =>
@@ -1708,10 +1726,11 @@ function StockAdjustments() {
             {/* GL Accounts Section */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 relative z-5 border-t pt-4">
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-increase-account" className="block text-sm font-medium mb-1">
                   حساب الزيادة في المخزون *
                 </label>
                 <select
+                  id="adjustment-increase-account"
                   value={newAdjustment.increase_account_id}
                   onChange={(e) =>
                     setNewAdjustment({
@@ -1737,10 +1756,11 @@ function StockAdjustments() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">
+                <label htmlFor="adjustment-decrease-account" className="block text-sm font-medium mb-1">
                   حساب النقص في المخزون *
                 </label>
                 <select
+                  id="adjustment-decrease-account"
                   value={newAdjustment.decrease_account_id}
                   onChange={(e) =>
                     setNewAdjustment({
@@ -1767,10 +1787,11 @@ function StockAdjustments() {
             </div>
 
             <div className="relative z-5">
-              <label className="block text-sm font-medium mb-1">
+              <label htmlFor="adjustment-reason" className="block text-sm font-medium mb-1">
                 السبب *
               </label>
               <textarea
+                id="adjustment-reason"
                 value={newAdjustment.reason}
                 onChange={(e) =>
                   setNewAdjustment({
@@ -1786,7 +1807,7 @@ function StockAdjustments() {
 
             {/* Product Selection */}
             <div className="relative z-20">
-              <label className="block text-sm font-medium mb-2">
+              <label htmlFor="adjustment-add-item" className="block text-sm font-medium mb-2">
                 إضافة منتج
               </label>
               
@@ -1905,7 +1926,7 @@ function StockAdjustments() {
                               handleItemChange(
                                 item.id,
                                 'new_qty',
-                                parseFloat(e.target.value) || 0
+                                Number.parseFloat(e.target.value) || 0
                               )
                             }
                             className="w-20 px-2 py-1 border rounded text-center"
@@ -2209,8 +2230,9 @@ function StockAdjustments() {
       <Card className="p-4">
         <div className="flex gap-4">
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">الحالة</label>
+            <label htmlFor="filter-status" className="block text-sm font-medium mb-1">الحالة</label>
             <select
+              id="filter-status"
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2222,8 +2244,9 @@ function StockAdjustments() {
             </select>
           </div>
           <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">النوع</label>
+            <label htmlFor="filter-type" className="block text-sm font-medium mb-1">النوع</label>
             <select
+              id="filter-type"
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
@@ -2572,16 +2595,18 @@ function CategoriesManagement() {
           <h3 className="font-semibold mb-4">إضافة فئة جديدة</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">اسم الفئة (English)</label>
+              <label htmlFor="category-name" className="block text-sm font-medium mb-2">اسم الفئة (English)</label>
               <Input
+                id="category-name"
                 value={newCategory.name}
                 onChange={(e) => setNewCategory({...newCategory, name: e.target.value})}
                 placeholder="Raw Materials, Finished Goods..."
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الاسم بالعربية</label>
+              <label htmlFor="category-name-ar" className="block text-sm font-medium mb-2">الاسم بالعربية</label>
               <Input
+                id="category-name-ar"
                 value={newCategory.name_ar}
                 onChange={(e) => setNewCategory({...newCategory, name_ar: e.target.value})}
                 placeholder="مواد خام، منتجات تامة..."

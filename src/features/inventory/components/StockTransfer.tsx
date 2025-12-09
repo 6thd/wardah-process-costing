@@ -775,7 +775,7 @@ export default function StockTransferManagement() {
                             max={item.available_qty}
                             value={item.quantity}
                             onChange={(e) =>
-                              handleItemChange(item.id, 'quantity', parseFloat(e.target.value) || 0)
+                              handleItemChange(item.id, 'quantity', Number.parseFloat(e.target.value) || 0)
                             }
                             className="w-32"
                           />

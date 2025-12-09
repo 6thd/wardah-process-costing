@@ -85,14 +85,14 @@ export const ValuationTesting: React.FC = () => {
     setLoading(true);
     
     try {
-      const qty = parseFloat(quantity);
-      const unitRate = parseFloat(rate);
+      const qty = Number.parseFloat(quantity);
+      const unitRate = Number.parseFloat(rate);
       
-      if (isNaN(qty) || qty <= 0) {
+      if (Number.isNaN(qty) || qty <= 0) {
         throw new Error('الكمية يجب أن تكون رقم موجب');
       }
       
-      if (transactionType === 'IN' && (isNaN(unitRate) || unitRate <= 0)) {
+      if (transactionType === 'IN' && (Number.isNaN(unitRate) || unitRate <= 0)) {
         throw new Error('سعر الوحدة يجب أن يكون رقم موجب');
       }
 
@@ -170,8 +170,8 @@ export const ValuationTesting: React.FC = () => {
       return;
     }
 
-    const qty = parseFloat(quantity);
-    if (isNaN(qty) || qty <= 0) {
+    const qty = Number.parseFloat(quantity);
+    if (Number.isNaN(qty) || qty <= 0) {
       alert('⚠️ الرجاء إدخال كمية صحيحة');
       return;
     }

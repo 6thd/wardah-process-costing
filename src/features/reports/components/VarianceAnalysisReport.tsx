@@ -134,19 +134,19 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
                   <TableRow key={index}>
                     <TableCell className="text-right">{variance.material_code}</TableCell>
                     <TableCell className="text-right">{variance.material_name}</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.standard_qty.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.actual_qty.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell className={`text-right ${parseFloat(variance.qty_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.qty_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className="text-right">{Number.parseFloat(variance.standard_qty.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell className="text-right">{Number.parseFloat(variance.actual_qty.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell className={`text-right ${Number.parseFloat(variance.qty_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.qty_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
-                    <TableCell className={`text-right ${parseFloat(variance.price_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.price_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className={`text-right ${Number.parseFloat(variance.price_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.price_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
-                    <TableCell className={`text-right ${parseFloat(variance.efficiency_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.efficiency_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className={`text-right ${Number.parseFloat(variance.efficiency_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.efficiency_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
-                    <TableCell className={`text-right font-bold ${parseFloat(variance.total_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.total_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className={`text-right font-bold ${Number.parseFloat(variance.total_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.total_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
                   </TableRow>
                 ))}
@@ -184,18 +184,18 @@ export const VarianceAnalysisReport: React.FC<VarianceReportProps> = ({
                 {laborVariances.map((variance, index) => (
                   <TableRow key={index}>
                     <TableCell className="text-right">{variance.work_center}</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.standard_hours.toString()).toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.actual_hours.toString()).toFixed(2)}</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.standard_rate.toString()).toFixed(2)} ر.س/ساعة</TableCell>
-                    <TableCell className="text-right">{parseFloat(variance.actual_rate.toString()).toFixed(2)} ر.س/ساعة</TableCell>
-                    <TableCell className={`text-right ${parseFloat(variance.rate_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.rate_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className="text-right">{Number.parseFloat(variance.standard_hours.toString()).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">{Number.parseFloat(variance.actual_hours.toString()).toFixed(2)}</TableCell>
+                    <TableCell className="text-right">{Number.parseFloat(variance.standard_rate.toString()).toFixed(2)} ر.س/ساعة</TableCell>
+                    <TableCell className="text-right">{Number.parseFloat(variance.actual_rate.toString()).toFixed(2)} ر.س/ساعة</TableCell>
+                    <TableCell className={`text-right ${Number.parseFloat(variance.rate_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.rate_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
-                    <TableCell className={`text-right ${parseFloat(variance.efficiency_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.efficiency_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className={`text-right ${Number.parseFloat(variance.efficiency_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.efficiency_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
-                    <TableCell className={`text-right font-bold ${parseFloat(variance.total_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
-                      {parseFloat(variance.total_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    <TableCell className={`text-right font-bold ${Number.parseFloat(variance.total_variance.toString()) >= 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      {Number.parseFloat(variance.total_variance.toString()).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
                   </TableRow>
                 ))}

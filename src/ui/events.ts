@@ -317,7 +317,7 @@ registerAction('mo-create', async (context: ActionContext): Promise<ActionResult
     const createMO = createSecureRPC('create_manufacturing_order')
     const result = await createMO({
       p_item_id: data.itemId,
-      p_quantity: parseFloat(data.quantity),
+      p_quantity: Number.parseFloat(data.quantity),
       p_start_date: data.startDate,
       p_due_date: data.dueDate
     })
@@ -344,8 +344,8 @@ registerAction('stage-save-labor', async (context: ActionContext): Promise<Actio
     const result = await applyLabor({
       p_mo_id: data.moId,
       p_stage_no: Number.parseInt(data.stageNo, 10),
-      p_hours: parseFloat(data.hours),
-      p_hourly_rate: parseFloat(data.hourlyRate),
+      p_hours: Number.parseFloat(data.hours),
+      p_hourly_rate: Number.parseFloat(data.hourlyRate),
       p_worker_name: data.workerName
     })
 
@@ -371,8 +371,8 @@ registerAction('stage-apply-oh', async (context: ActionContext): Promise<ActionR
     const result = await applyOverhead({
       p_mo_id: data.moId,
       p_stage_no: Number.parseInt(data.stageNo, 10),
-      p_base_qty: parseFloat(data.baseQty),
-      p_overhead_rate: parseFloat(data.overheadRate),
+      p_base_qty: Number.parseFloat(data.baseQty),
+      p_overhead_rate: Number.parseFloat(data.overheadRate),
       p_basis: data.basis || 'labor_hours'
     })
 
@@ -399,9 +399,9 @@ registerAction('stage-recalc', async (context: ActionContext): Promise<ActionRes
       p_mo_id: data.moId,
       p_stage_no: Number.parseInt(data.stageNo, 10),
       p_work_center_id: data.workCenterId,
-      p_good_qty: parseFloat(data.goodQty || 0),
-      p_scrap_qty: parseFloat(data.scrapQty || 0),
-      p_dm_cost: parseFloat(data.dmCost || 0)
+      p_good_qty: Number.parseFloat(data.goodQty || 0),
+      p_scrap_qty: Number.parseFloat(data.scrapQty || 0),
+      p_dm_cost: Number.parseFloat(data.dmCost || 0)
     })
 
     return {
@@ -425,8 +425,8 @@ registerAction('mo-finish', async (context: ActionContext): Promise<ActionResult
     const completeMO = createSecureRPC('complete_manufacturing_order')
     const result = await completeMO({
       p_mo_id: data.moId,
-      p_completed_qty: parseFloat(data.completedQty),
-      p_scrap_qty: parseFloat(data.scrapQty || 0)
+      p_completed_qty: Number.parseFloat(data.completedQty),
+      p_scrap_qty: Number.parseFloat(data.scrapQty || 0)
     })
 
     return {
@@ -454,8 +454,8 @@ registerAction('stock-move-in', async (context: ActionContext): Promise<ActionRe
     const updateAVCO = createSecureRPC('update_item_avco')
     const result = await updateAVCO({
       p_item_id: data.itemId,
-      p_quantity: parseFloat(data.quantity),
-      p_unit_cost: parseFloat(data.unitCost),
+      p_quantity: Number.parseFloat(data.quantity),
+      p_unit_cost: Number.parseFloat(data.unitCost),
       p_move_type: 'receipt',
       p_reference_type: data.referenceType,
       p_reference_number: data.referenceNumber

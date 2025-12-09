@@ -103,8 +103,8 @@ export function registerStageCostingActions() {
     if (!form) return
 
     const formData = new FormData(form)
-    const laborHours = parseFloat(formData.get('laborHours'))
-    const laborRate = parseFloat(formData.get('laborRate'))
+    const laborHours = Number.parseFloat(formData.get('laborHours'))
+    const laborRate = Number.parseFloat(formData.get('laborRate'))
 
     if (!laborHours || !laborRate) {
       toast.error('يجب إدخال ساعات العمل ومعدل الأجر')
@@ -168,9 +168,9 @@ export function registerStageCostingActions() {
     if (!form) return
 
     const formData = new FormData(form)
-    const overheadRate = parseFloat(formData.get('overheadRate'))
+    const overheadRate = Number.parseFloat(formData.get('overheadRate'))
 
-    if (isNaN(overheadRate) || overheadRate < 0) {
+    if (Number.isNaN(overheadRate) || overheadRate < 0) {
       toast.error('يجب إدخال معدل التكاليف غير المباشرة (قيمة صحيحة أكبر من أو تساوي الصفر)')
       return
     }
@@ -181,8 +181,8 @@ export function registerStageCostingActions() {
     element.textContent = 'جاري التطبيق...'
 
     try {
-      const laborHours = parseFloat(formData.get('laborHours'))
-      const laborRate = parseFloat(formData.get('laborRate'))
+      const laborHours = Number.parseFloat(formData.get('laborHours'))
+      const laborRate = Number.parseFloat(formData.get('laborRate'))
       const baseAmount = laborHours * laborRate
 
       // Get stageId or fallback to stageNumber for backward compatibility
@@ -226,9 +226,9 @@ export function registerStageCostingActions() {
     const formData = new FormData(form)
     const moId = formData.get('manufacturingOrderId')
     const workCenterId = formData.get('workCenterId')
-    const goodQuantity = parseFloat(formData.get('goodQuantity'))
+    const goodQuantity = Number.parseFloat(formData.get('goodQuantity'))
 
-    if (!moId || !workCenterId || isNaN(goodQuantity) || goodQuantity < 0) {
+    if (!moId || !workCenterId || Number.isNaN(goodQuantity) || goodQuantity < 0) {
       toast.error('يجب إدخال جميع البيانات المطلوبة (الكمية الجيدة يجب أن تكون قيمة صحيحة أكبر من أو تساوي الصفر)')
       return
     }
@@ -249,15 +249,15 @@ export function registerStageCostingActions() {
         stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
         workCenterId: workCenterId,
         goodQty: goodQuantity,
-        directMaterialCost: parseFloat(formData.get('directMaterialCost')) || 0,
+        directMaterialCost: Number.parseFloat(formData.get('directMaterialCost')) || 0,
         mode: 'actual',
-        scrapQty: parseFloat(formData.get('scrapQuantity')) || 0,
-        reworkQty: parseFloat(formData.get('reworkQuantity')) || 0,
+        scrapQty: Number.parseFloat(formData.get('scrapQuantity')) || 0,
+        reworkQty: Number.parseFloat(formData.get('reworkQuantity')) || 0,
         notes: formData.get('notes')
       })
 
       if (result.success) {
-        const efficiency = goodQuantity / (goodQuantity + (parseFloat(formData.get('scrapQuantity')) || 0) + (parseFloat(formData.get('reworkQuantity')) || 0)) * 100
+        const efficiency = goodQuantity / (goodQuantity + (Number.parseFloat(formData.get('scrapQuantity')) || 0) + (Number.parseFloat(formData.get('reworkQuantity')) || 0)) * 100
         
         // Get stage name if available
         const stageId = formData.get('stageId')

@@ -307,7 +307,7 @@ export function StandardCostsList() {
                             step="0.01"
                             min="0"
                             value={formData.material_cost_per_unit}
-                            onChange={(e) => handleInputChange('material_cost_per_unit', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => handleInputChange('material_cost_per_unit', Number.parseFloat(e.target.value) || 0)}
                           />
                         </div>
 
@@ -319,7 +319,7 @@ export function StandardCostsList() {
                             step="0.01"
                             min="0"
                             value={formData.labor_cost_per_unit}
-                            onChange={(e) => handleInputChange('labor_cost_per_unit', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => handleInputChange('labor_cost_per_unit', Number.parseFloat(e.target.value) || 0)}
                           />
                         </div>
 
@@ -331,7 +331,7 @@ export function StandardCostsList() {
                             step="0.01"
                             min="0"
                             value={formData.overhead_cost_per_unit}
-                            onChange={(e) => handleInputChange('overhead_cost_per_unit', parseFloat(e.target.value) || 0)}
+                            onChange={(e) => handleInputChange('overhead_cost_per_unit', Number.parseFloat(e.target.value) || 0)}
                           />
                         </div>
                       </div>

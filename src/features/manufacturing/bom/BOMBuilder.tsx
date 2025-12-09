@@ -330,7 +330,7 @@ export function BOMBuilder() {
                         <Input
                           type="number"
                           value={line.quantity}
-                          onChange={(e) => updateLine(line.tempId, 'quantity', parseFloat(e.target.value))}
+                          onChange={(e) => updateLine(line.tempId, 'quantity', Number.parseFloat(e.target.value))}
                           className="w-24"
                           step="0.01"
                         />
@@ -351,7 +351,7 @@ export function BOMBuilder() {
                         <Input
                           type="number"
                           value={line.scrap_factor}
-                          onChange={(e) => updateLine(line.tempId, 'scrap_factor', parseFloat(e.target.value))}
+                          onChange={(e) => updateLine(line.tempId, 'scrap_factor', Number.parseFloat(e.target.value))}
                           className="w-20"
                           min="0"
                           max="100"

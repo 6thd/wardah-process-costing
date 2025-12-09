@@ -175,7 +175,7 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
   }
 
   const handleQuantityChange = (index: number, value: string) => {
-    const qty = parseFloat(value) || 0
+    const qty = Number.parseFloat(value) || 0
     setDeliveryLines(lines =>
       lines.map((line, i) => {
         if (i === index) {

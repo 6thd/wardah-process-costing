@@ -497,7 +497,7 @@ export default function StorageLocationsManagement() {
                   onChange={(e) =>
                     setFormData({
                       ...formData,
-                      capacity: parseFloat(e.target.value) || undefined,
+                      capacity: Number.parseFloat(e.target.value) || undefined,
                     })
                   }
                   placeholder="100"

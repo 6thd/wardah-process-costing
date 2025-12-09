@@ -84,7 +84,7 @@ export function BOMSettings() {
             value={settings.bom_tree_cache_duration_hours}
             onChange={(e) => setSettings({
               ...settings,
-              bom_tree_cache_duration_hours: parseFloat(e.target.value) || 1
+              bom_tree_cache_duration_hours: Number.parseFloat(e.target.value) || 1
             })}
           />
           <p className="text-sm text-muted-foreground">

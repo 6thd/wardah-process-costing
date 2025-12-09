@@ -307,7 +307,7 @@ export const validateInput = {
   },
   
   number: (value: any): boolean => {
-    return !isNaN(Number(value)) && isFinite(Number(value))
+    return !Number.isNaN(Number(value)) && Number.isFinite(Number(value))
   },
   
   positiveNumber: (value: any): boolean => {
@@ -316,7 +316,7 @@ export const validateInput = {
   
   date: (value: string): boolean => {
     const date = new Date(value)
-    return !isNaN(date.getTime())
+    return !Number.isNaN(date.getTime())
   },
   
   code: (value: string): boolean => {

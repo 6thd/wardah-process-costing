@@ -408,7 +408,7 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
             type="number"
             step="0.01"
             value={formData.amount}
-            onChange={(e) => setFormData(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
+            onChange={(e) => setFormData(prev => ({ ...prev, amount: Number.parseFloat(e.target.value) || 0 }))}
             required
           />
         </div>
@@ -528,7 +528,7 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
                           type="number"
                           step="0.01"
                           value={selectedInvoices[invoice.id] || 0}
-                          onChange={(e) => updateInvoiceAllocation(invoice.id, parseFloat(e.target.value) || 0)}
+                          onChange={(e) => updateInvoiceAllocation(invoice.id, Number.parseFloat(e.target.value) || 0)}
                           max={invoice.outstanding_balance}
                         />
                       </TableCell>

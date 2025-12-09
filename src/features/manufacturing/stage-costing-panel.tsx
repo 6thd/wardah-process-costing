@@ -214,8 +214,9 @@ export default function StageCostingPanel() {
           {/* Manufacturing Order Selection */}
           <div className="grid md:grid-cols-4 gap-4 mb-6">
             <div>
-              <label className="block text-sm font-medium mb-2">أمر التصنيع</label>
+              <label htmlFor="manufacturingOrderId" className="block text-sm font-medium mb-2">أمر التصنيع</label>
               <select 
+                id="manufacturingOrderId"
                 name="manufacturingOrderId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.manufacturingOrderId}
@@ -232,8 +233,9 @@ export default function StageCostingPanel() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">المرحلة</label>
+              <label htmlFor="stageId" className="block text-sm font-medium mb-2">المرحلة</label>
               <select 
+                id="stageId"
                 name="stageId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.stageId}
@@ -253,8 +255,9 @@ export default function StageCostingPanel() {
             </div>
             
             <div>
-              <label className="block text-sm font-medium mb-2">مركز العمل</label>
+              <label htmlFor="workCenterId" className="block text-sm font-medium mb-2">مركز العمل</label>
               <select 
+                id="workCenterId"
                 name="workCenterId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.workCenterId}
@@ -292,8 +295,9 @@ export default function StageCostingPanel() {
             </h3>
             <div className="grid md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">الكمية الجيدة</label>
+                <label htmlFor="goodQuantity" className="block text-sm font-medium mb-2">الكمية الجيدة</label>
                 <Input 
+                  id="goodQuantity"
                   name="goodQuantity"
                   type="number"
                   min="0"
@@ -304,8 +308,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">الكمية المعيبة</label>
+                <label htmlFor="scrapQuantity" className="block text-sm font-medium mb-2">الكمية المعيبة</label>
                 <Input 
+                  id="scrapQuantity"
                   name="scrapQuantity"
                   type="number"
                   min="0"
@@ -316,8 +321,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">كمية إعادة التشغيل</label>
+                <label htmlFor="reworkQuantity" className="block text-sm font-medium mb-2">كمية إعادة التشغيل</label>
                 <Input 
+                  id="reworkQuantity"
                   name="reworkQuantity"
                   type="number"
                   min="0"
@@ -337,8 +343,9 @@ export default function StageCostingPanel() {
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">تكلفة المواد المباشرة (ريال)</label>
+                <label htmlFor="directMaterialCost" className="block text-sm font-medium mb-2">تكلفة المواد المباشرة (ريال)</label>
                 <Input 
+                  id="directMaterialCost"
                   name="directMaterialCost"
                   type="number"
                   min="0"
@@ -350,8 +357,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">ساعات العمل</label>
+                <label htmlFor="laborHours" className="block text-sm font-medium mb-2">ساعات العمل</label>
                 <Input 
+                  id="laborHours"
                   name="laborHours"
                   type="number"
                   min="0"
@@ -363,8 +371,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">معدل الأجر بالساعة (ريال)</label>
+                <label htmlFor="laborRate" className="block text-sm font-medium mb-2">معدل الأجر بالساعة (ريال)</label>
                 <Input 
+                  id="laborRate"
                   name="laborRate"
                   type="number"
                   min="0"
@@ -376,15 +385,16 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">معدل التكاليف غير المباشرة (%)</label>
+                <label htmlFor="overheadRate" className="block text-sm font-medium mb-2">معدل التكاليف غير المباشرة (%)</label>
                 <Input 
+                  id="overheadRate"
                   name="overheadRate"
                   type="number"
                   min="0"
                   max="100"
                   step="0.01"
                   value={formData.overheadRate * 100}
-                  onChange={(e) => handleInputChange('overheadRate', parseFloat(e.target.value) / 100)}
+                  onChange={(e) => handleInputChange('overheadRate', Number.parseFloat(e.target.value) / 100)}
                   className="wardah-glass-card"
                 />
               </div>
@@ -399,8 +409,9 @@ export default function StageCostingPanel() {
             </h3>
             <div className="grid md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">اسم الموظف</label>
+                <label htmlFor="employeeName" className="block text-sm font-medium mb-2">اسم الموظف</label>
                 <Input 
+                  id="employeeName"
                   name="employeeName"
                   value={formData.employeeName || ''}
                   onChange={(e) => handleInputChange('employeeName', e.target.value)}
@@ -410,8 +421,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">كود العملية</label>
+                <label htmlFor="operationCode" className="block text-sm font-medium mb-2">كود العملية</label>
                 <Input 
+                  id="operationCode"
                   name="operationCode"
                   value={formData.operationCode || ''}
                   onChange={(e) => handleInputChange('operationCode', e.target.value)}
@@ -421,8 +433,9 @@ export default function StageCostingPanel() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium mb-2">ملاحظات</label>
+                <label htmlFor="notes" className="block text-sm font-medium mb-2">ملاحظات</label>
                 <Input 
+                  id="notes"
                   name="notes"
                   value={formData.notes || ''}
                   onChange={(e) => handleInputChange('notes', e.target.value)}
