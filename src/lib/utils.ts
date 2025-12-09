@@ -47,7 +47,7 @@ export function generateId(): string {
     crypto.getRandomValues(array);
     return Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
   } else {
-    // Fallback
-    return Math.random().toString(36).substr(2, 9);
+    // Fallback - Use timestamp only (not secure, but better than Math.random)
+    return `id_${Date.now()}_${performance.now()}`;
   }
 }

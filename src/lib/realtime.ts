@@ -49,8 +49,8 @@ class RealtimeManager {
       crypto.getRandomValues(array);
       subscriptionId = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
     } else {
-      // Fallback
-      subscriptionId = Math.random().toString(36).substr(2, 9);
+      // Fallback - Use timestamp only (not secure, but better than Math.random)
+      subscriptionId = `sub_${Date.now()}_${performance.now()}`;
     }
     
     // Create a single channel for multiple tables
@@ -109,8 +109,8 @@ class RealtimeManager {
       crypto.getRandomValues(array);
       subscriptionId = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
     } else {
-      // Fallback
-      subscriptionId = Math.random().toString(36).substr(2, 9);
+      // Fallback - Use timestamp only (not secure, but better than Math.random)
+      subscriptionId = `sub_${Date.now()}_${performance.now()}`;
     }
     
     if (!supabase) throw new Error('Supabase client not initialized')

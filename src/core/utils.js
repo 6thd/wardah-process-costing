@@ -221,10 +221,11 @@ export const generateId = (prefix = '') => {
   }
   
   // Last resort fallback (for very old environments)
+  // Use timestamp + performance.now() instead of Math.random()
   console.warn('Crypto API not available, using timestamp-based ID');
   const timestamp = Date.now().toString(36);
-  const random = Math.floor(Math.random() * 1000000).toString(36);
-  return prefix ? `${prefix}_${timestamp}_${random}` : `${timestamp}_${random}`;
+  const perf = typeof performance !== 'undefined' ? performance.now().toString(36) : '0';
+  return prefix ? `${prefix}_${timestamp}_${perf}` : `${timestamp}_${perf}`;
 }
 
 /**

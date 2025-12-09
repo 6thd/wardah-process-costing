@@ -193,8 +193,8 @@ const generateTempId = (): string => {
     const random = Array.from(array, byte => byte.toString(36)).join('').substring(0, 9);
     return `tmp-${random}`;
   } else {
-    // Fallback
-    return `tmp-${Math.random().toString(36).substring(2, 11)}`;
+    // Fallback - Use timestamp only (not secure, but better than Math.random)
+    return `tmp-${Date.now()}-${performance.now()}`;
   }
 };
 

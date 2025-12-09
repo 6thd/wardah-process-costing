@@ -7,10 +7,11 @@
 
 export const VALIDATION_MESSAGES = {
   // Password validation messages
-  PASSWORD_REQUIRED: 'كلمة المرور مطلوبة',
-  PASSWORD_TOO_SHORT: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل',
-  PASSWORD_MISMATCH: 'كلمتا المرور غير متطابقتين',
-  PASSWORD_CONFIRM_REQUIRED: 'تأكيد كلمة المرور مطلوب',
+  // NOSONAR - These are UI validation messages, not actual hard-coded passwords
+  PASSWORD_REQUIRED: 'كلمة المرور مطلوبة', // NOSONAR
+  PASSWORD_TOO_SHORT: 'كلمة المرور يجب أن تكون 6 أحرف على الأقل', // NOSONAR
+  PASSWORD_MISMATCH: 'كلمتا المرور غير متطابقتين', // NOSONAR
+  PASSWORD_CONFIRM_REQUIRED: 'تأكيد كلمة المرور مطلوب', // NOSONAR
   
   // Email validation messages
   EMAIL_REQUIRED: 'البريد الإلكتروني مطلوب',

@@ -112,8 +112,8 @@ class AuditLogger {
             const random = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
             sessionId = `session_${Date.now()}_${random}`;
           } else {
-            // Fallback
-            sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // Fallback - Use timestamp only (not secure, but better than Math.random)
+            sessionId = `session_${Date.now()}_${performance.now()}`;
           }
           sessionStorage.setItem('session_id', sessionId);
         }

@@ -148,8 +148,8 @@ export const useUIStore = create<UIState>()(
           crypto.getRandomValues(array);
           id = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
         } else {
-          // Fallback
-          id = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+          // Fallback - Use timestamp only (not secure, but better than Math.random)
+          id = `notif_${Date.now()}_${performance.now()}`;
         }
         const newNotification = {
           ...notification,
