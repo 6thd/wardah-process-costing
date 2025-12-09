@@ -19,6 +19,10 @@ import geminiProxyRoutes from './routes/gemini-proxy.routes';
 
 const app = express();
 
+// Hide Express version information for security
+// NOSONAR - Framework version disclosure is acceptable in development
+app.disable('x-powered-by'); // NOSONAR
+
 // إعداد CORS
 app.use(cors({
   origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],

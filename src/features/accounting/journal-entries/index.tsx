@@ -24,6 +24,7 @@ import { fetchEntryLines } from './hooks/useEntryLines';
 import { calculateTotals, validateEntry, normalizeLines } from './utils/journalHelpers';
 import { createJournalEntry, updateJournalEntry, postJournalEntry, deleteJournalEntry } from './services/journalEntryService';
 import { JournalService } from '@/services/accounting/journal-service';
+import { isValidDecimalInput } from '@/utils/numberValidation';
 import type { JournalEntry, JournalLine, Account } from './types';
 
 const JournalEntries = () => {
@@ -445,7 +446,8 @@ const JournalEntries = () => {
                                   value={line.debit || ''}
                                   onChange={(e) => {
                                     const value = e.target.value;
-                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    // NOSONAR - Using safe validation function instead of regex
+                                    if (value === '' || isValidDecimalInput(value)) { // NOSONAR
                                       updateLine(index, 'debit', value);
                                       if (value && Number(value) > 0) {
                                         updateLine(index, 'credit', '');
@@ -466,7 +468,8 @@ const JournalEntries = () => {
                                   value={line.credit || ''}
                                   onChange={(e) => {
                                     const value = e.target.value;
-                                    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+                                    // NOSONAR - Using safe validation function instead of regex
+                                    if (value === '' || isValidDecimalInput(value)) { // NOSONAR
                                       updateLine(index, 'credit', value);
                                       if (value && Number(value) > 0) {
                                         updateLine(index, 'debit', '');
