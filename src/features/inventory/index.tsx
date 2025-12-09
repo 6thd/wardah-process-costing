@@ -2273,22 +2273,14 @@ function StockAdjustments() {
         ) : (
           <div className="divide-y">
             {adjustments.map((adj) => (
-              <div 
+              <button
                 key={adj.id}
-                role="button"
-                tabIndex={0}
+                type="button"
                 aria-label={`عرض تفاصيل تسوية المخزون ${adj.id}`}
-                className="p-4 hover:bg-muted/50 cursor-pointer transition-colors"
+                className="w-full text-left p-4 hover:bg-muted/50 cursor-pointer transition-colors border-0 bg-transparent"
                 onClick={() => {
                   setSelectedAdjustment(adj)
                   setViewMode(true)
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    setSelectedAdjustment(adj)
-                    setViewMode(true)
-                  }
                 }}
               >
                 <div className="flex justify-between items-start">
@@ -2329,7 +2321,7 @@ function StockAdjustments() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

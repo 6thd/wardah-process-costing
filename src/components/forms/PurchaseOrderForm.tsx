@@ -341,6 +341,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
         {open && filtered.length > 0 && createPortal(
           <div
             role="listbox"
+            tabIndex={0}
             style={{
               position: 'fixed',
               top: `${dropdownPosition.top}px`,
@@ -390,8 +391,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
         )}
 
         {open && filtered.length === 0 && term && createPortal(
-          <div
-            role="status"
+          <output
             aria-live="polite"
             style={{
               position: 'fixed',
@@ -400,11 +400,11 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
               width: `${dropdownPosition.width}px`,
               zIndex: 9999,
             }}
-            className="mt-1 bg-popover border rounded-md shadow-lg p-4 text-center text-sm text-muted-foreground"
+            className="mt-1 bg-popover border rounded-md shadow-lg p-4 text-center text-sm text-muted-foreground block"
             onMouseDown={(event) => event.preventDefault()}
           >
             لا توجد نتائج للبحث: "{term}"
-          </div>,
+          </output>,
           document.body
         )}
       </div>

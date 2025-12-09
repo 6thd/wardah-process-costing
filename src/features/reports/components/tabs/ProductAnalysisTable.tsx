@@ -16,7 +16,7 @@ export function ProductAnalysisTable({ productAnalysis, isRTL }: ProductAnalysis
             <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'اسم المنتج' : 'Product Name'}</th>
             <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الكمية المباعة' : 'Qty Sold'}</th>
             <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الإيرادات' : 'Revenue'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'COGS' : 'COGS'}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>COGS</th>
             <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الربح' : 'Profit'}</th>
             <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'هامش الربح %' : 'Profit Margin %'}</th>
           </tr>

@@ -429,13 +429,11 @@ export function Sidebar() {
 
       {/* Mobile Sidebar */}
       {sidebarOpen && (
-        <div 
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
           aria-label="إغلاق القائمة الجانبية"
-          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300"
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300 border-0 p-0 cursor-pointer"
           onClick={() => setSidebarOpen(false)}
-          onKeyDown={(e) => e.key === 'Enter' && setSidebarOpen(false)}
         >
           <aside
             className={cn(
@@ -547,7 +545,7 @@ export function Sidebar() {
               </nav>
             </ScrollArea>
           </aside>
-        </div>
+        </button>
       )}
     </>
   )
