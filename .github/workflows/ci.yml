@@ -33,6 +33,7 @@ jobs:
         run: npm run test:coverage
         
       - name: Upload coverage to SonarQube
+        if: ${{ secrets.SONAR_TOKEN != '' }}
         uses: sonarsource/sonarcloud-github-action@master
         with:
           projectBaseDir: .
