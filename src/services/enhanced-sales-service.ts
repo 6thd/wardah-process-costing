@@ -320,7 +320,7 @@ async function recordSalesInventoryMovement(
 
     // Calculate new stock (outgoing - no AVCO change)
     const newStock = currentStock - quantity;
-    const cogsAmount = quantity * currentCost;
+    // cogsAmount calculated but not used in this function - removed to fix SonarQube warning
 
     // Update item stock
     const { error: updateError } = await supabase
@@ -353,9 +353,9 @@ async function recordSalesInventoryMovement(
       if (moveError && moveError.code !== '42P01') { // 42P01 = table doesn't exist
         console.warn('Could not record stock move:', moveError);
       }
-    } catch (moveErr) {
+    } catch (error_) {
       // Ignore if stock_moves table doesn't exist
-      console.warn('Stock moves table not available');
+      console.warn('Stock moves table not available:', error_);
     }
 
     return { success: true };
@@ -681,6 +681,141 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
 // ===== DELIVERY NOTE FUNCTIONS =====
 
 /**
+ * Validate delivery note lines
+ */
+function validateDeliveryLines(lines: any[]): void {
+  if (!lines || lines.length === 0) {
+    throw new Error('Delivery note must have at least one line');
+  }
+}
+
+/**
+ * Validate invoice exists
+ */
+async function validateInvoiceExists(invoiceId: string): Promise<void> {
+  const { error: invoiceError } = await supabase
+    .from('sales_invoices')
+    .select('id')
+    .eq('id', invoiceId)
+    .single();
+
+  if (invoiceError) throw invoiceError;
+}
+
+/**
+ * Process a single delivery line
+ */
+async function processDeliveryLine(
+  line: any,
+  dnData: any,
+  tenantId: string,
+  deliveryNumber: string
+): Promise<number> {
+  // Get item with current AVCO
+  const { data: item, error: itemError } = await supabase
+    .from('items')
+    .select('stock_quantity, cost_price, name, name_ar')
+    .eq('id', line.item_id)
+    .single();
+
+  if (itemError) throw itemError;
+
+  // Validate stock
+  const availableStock = Number(item.stock_quantity || 0);
+  if (availableStock < line.delivered_quantity) {
+    throw new Error(`Insufficient stock for ${item.name_ar || item.name}. Available: ${availableStock}, Required: ${line.delivered_quantity}`);
+  }
+
+  // Calculate COGS using AVCO
+  const unitCostAtDelivery = Number(item.cost_price || 0);
+  const lineCOGS = line.delivered_quantity * unitCostAtDelivery;
+
+  // Create delivery line
+  const { error: lineError } = await supabase
+    .from('delivery_note_lines')
+    .insert({
+      tenant_id: tenantId,
+      delivery_id: dnData.id,
+      invoice_line_id: line.sales_invoice_line_id,
+      product_id: line.item_id,
+      quantity_delivered: line.delivered_quantity,
+      unit_cost_at_delivery: unitCostAtDelivery,
+      notes: line.notes
+    });
+
+  if (lineError) throw lineError;
+
+  // Deduct inventory
+  const inventoryResult = await recordSalesInventoryMovement(
+    line.item_id,
+    line.delivered_quantity,
+    unitCostAtDelivery,
+    'DELIVERY_NOTE',
+    dnData.id,
+    deliveryNumber
+  );
+
+  if (!inventoryResult.success) {
+    throw new Error(`Failed to deduct inventory for ${item.name_ar || item.name}: ${inventoryResult.error}`);
+  }
+
+  // Update invoice line delivered quantity
+  const { data: invoiceLine } = await supabase
+    .from('sales_invoice_lines')
+    .select('delivered_quantity')
+    .eq('id', line.sales_invoice_line_id)
+    .single();
+
+  const newDeliveredQty = (Number(invoiceLine?.delivered_quantity || 0)) + line.delivered_quantity;
+
+  await supabase
+    .from('sales_invoice_lines')
+    .update({ 
+      delivered_quantity: newDeliveredQty,
+      unit_cost_at_sale: unitCostAtDelivery
+    })
+    .eq('id', line.sales_invoice_line_id);
+
+  return lineCOGS;
+}
+
+/**
+ * Calculate and update invoice delivery status
+ */
+async function updateInvoiceDeliveryStatus(invoiceId: string): Promise<void> {
+  const { data: invoiceLines } = await supabase
+    .from('sales_invoice_lines')
+    .select('quantity, delivered_quantity')
+    .eq('sales_invoice_id', invoiceId);
+
+  let allDelivered = true;
+  let anyDelivered = false;
+
+  if (invoiceLines) {
+    for (const line of invoiceLines) {
+      const qty = Number(line.quantity || 0);
+      const delivered = Number(line.delivered_quantity || 0);
+      if (delivered < qty) allDelivered = false;
+      if (delivered > 0) anyDelivered = true;
+    }
+  }
+
+  let newDeliveryStatus: string;
+  if (allDelivered) {
+    newDeliveryStatus = 'fully_delivered';
+  } else if (anyDelivered) {
+    newDeliveryStatus = 'partially_delivered';
+  } else {
+    newDeliveryStatus = 'pending';
+  }
+
+  await supabase
+    .from('sales_invoices')
+    .update({ delivery_status: newDeliveryStatus })
+    .eq('id', invoiceId);
+}
+
+/**
  * Create Delivery Note (with inventory deduction and COGS entry)
  */
 export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: any; totalCOGS?: number; error?: any }> {
@@ -688,24 +823,12 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
 
-    // 1. Validate lines
-    if (!delivery.lines || delivery.lines.length === 0) {
-      throw new Error('Delivery note must have at least one line');
-    }
+    validateDeliveryLines(delivery.lines);
+    await validateInvoiceExists(delivery.sales_invoice_id);
 
-    // 2. Get invoice to validate
-    const { data: invoice, error: invoiceError } = await supabase
-      .from('sales_invoices')
-      .select('*')
-      .eq('id', delivery.sales_invoice_id)
-      .single();
-
-    if (invoiceError) throw invoiceError;
-
-    // 3. Generate delivery number
     const deliveryNumber = await generateDeliveryNumber();
 
-    // 5. Create delivery note
+    // Create delivery note
     const { data: dnData, error: dnError } = await supabase
       .from('delivery_notes')
       .insert({
@@ -724,106 +847,20 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
 
     if (dnError) throw dnError;
 
+    // Process each delivery line
     let totalCOGS = 0;
-
-    // 5. Process each delivery line
     for (const line of delivery.lines) {
-      // Get item with current AVCO
-      const { data: item, error: itemError } = await supabase
-        .from('items')
-        .select('stock_quantity, cost_price, name, name_ar')
-        .eq('id', line.item_id)
-        .single();
-
-      if (itemError) throw itemError;
-
-      // Validate stock
-      const availableStock = Number(item.stock_quantity || 0);
-      if (availableStock < line.delivered_quantity) {
-        throw new Error(`Insufficient stock for ${item.name_ar || item.name}. Available: ${availableStock}, Required: ${line.delivered_quantity}`);
-      }
-
-      // Calculate COGS using AVCO
-      const unitCostAtDelivery = Number(item.cost_price || 0);
-      const lineCOGS = line.delivered_quantity * unitCostAtDelivery;
+      const lineCOGS = await processDeliveryLine(line, dnData, tenantId, deliveryNumber);
       totalCOGS += lineCOGS;
-
-      // Create delivery line
-      const { error: lineError } = await supabase
-        .from('delivery_note_lines')
-        .insert({
-          tenant_id: tenantId,
-          delivery_id: dnData.id,
-          invoice_line_id: line.sales_invoice_line_id,
-          product_id: line.item_id,
-          quantity_delivered: line.delivered_quantity,
-          unit_cost_at_delivery: unitCostAtDelivery,
-          notes: line.notes
-        });
-
-      if (lineError) throw lineError;
-
-      // Deduct inventory
-      const inventoryResult = await recordSalesInventoryMovement(
-        line.item_id,
-        line.delivered_quantity,
-        unitCostAtDelivery,
-        'DELIVERY_NOTE',
-        dnData.id,
-        deliveryNumber
-      );
-
-      if (!inventoryResult.success) {
-        throw new Error(`Failed to deduct inventory for ${item.name_ar || item.name}: ${inventoryResult.error}`);
-      }
-
-      // Update invoice line delivered quantity
-      const { data: invoiceLine } = await supabase
-        .from('sales_invoice_lines')
-        .select('delivered_quantity')
-        .eq('id', line.sales_invoice_line_id)
-        .single();
-
-      const newDeliveredQty = (Number(invoiceLine?.delivered_quantity || 0)) + line.delivered_quantity;
-
-      await supabase
-        .from('sales_invoice_lines')
-        .update({ 
-          delivered_quantity: newDeliveredQty,
-          unit_cost_at_sale: unitCostAtDelivery // Store COGS cost
-        })
-        .eq('id', line.sales_invoice_line_id);
     }
 
-    // 6. Create COGS accounting entry
+    // Create COGS accounting entry
     await createCOGSAccountingEntry(dnData, totalCOGS, deliveryNumber);
 
-    // 7. Update invoice delivery status
-    const { data: invoiceLines } = await supabase
-      .from('sales_invoice_lines')
-      .select('quantity, delivered_quantity')
-      .eq('sales_invoice_id', delivery.sales_invoice_id);
+    // Update invoice delivery status
+    await updateInvoiceDeliveryStatus(delivery.sales_invoice_id);
 
-    let allDelivered = true;
-    let anyDelivered = false;
-
-    if (invoiceLines) {
-      for (const line of invoiceLines) {
-        const qty = Number(line.quantity || 0);
-        const delivered = Number(line.delivered_quantity || 0);
-        if (delivered < qty) allDelivered = false;
-        if (delivered > 0) anyDelivered = true;
-      }
-    }
-
-    const newDeliveryStatus = allDelivered ? 'fully_delivered' : (anyDelivered ? 'partially_delivered' : 'pending');
-
-    await supabase
-      .from('sales_invoices')
-      .update({ delivery_status: newDeliveryStatus })
-      .eq('id', delivery.sales_invoice_id);
-
-    // 8. Get full delivery note
+    // Get full delivery note
     const { data: fullDelivery, error: fetchError } = await supabase
       .from('delivery_notes')
       .select(`
@@ -962,9 +999,10 @@ export async function recordCustomerCollection(collection: Omit<CustomerCollecti
           reference_number: collection.reference_number,
           notes: collection.notes
         });
-    } catch (err) {
-      // Table might not exist, continue
-      console.warn('Customer collections table not available');
+    // NOSONAR - Intentional graceful degradation if table doesn't exist
+    } catch (error_) { // NOSONAR
+      // Table might not exist, continue gracefully
+      console.warn('Customer collections table not available:', error_);
     }
 
     // 6. Update invoice
@@ -1160,16 +1198,22 @@ export async function getAllSalesOrders(filters?: {
 }): Promise<{ success: boolean; data?: any[]; error?: any }> {
   try {
     const tenantId = await getEffectiveTenantId();
-    if (!tenantId) throw new Error('Tenant ID not found');
-
+    
+    // Try with relationship first
     let query = supabase
       .from('sales_orders')
       .select(`
         *,
         customer:customers(*)
-      `)
-      .eq('tenant_id', tenantId)
-      .order('so_date', { ascending: false });
+      `);
+
+    // Use org_id (most common in schema), not tenant_id
+    if (tenantId) {
+      query = query.eq('org_id', tenantId);
+    }
+
+    // Use so_date (actual column name in database)
+    query = query.order('so_date', { ascending: false });
 
     if (filters?.status) {
       query = query.eq('status', filters.status);
@@ -1184,9 +1228,67 @@ export async function getAllSalesOrders(filters?: {
       query = query.lte('so_date', filters.to_date);
     }
 
-    const { data, error } = await query;
+    let { data, error } = await query;
+
+    // If relationship fails, try without it
+    if (error && (error.message?.includes('Could not find a relationship') || error.message?.includes('relationship'))) {
+      console.warn('Relationship not found, fetching without customer join:', error.message);
+      
+      // Retry without customer relationship
+      query = supabase
+        .from('sales_orders')
+        .select('*');
+
+      // Use org_id, not tenant_id
+      if (tenantId) {
+        query = query.eq('org_id', tenantId);
+      }
+
+      // Use so_date (actual column name in database)
+      query = query.order('so_date', { ascending: false });
+
+      if (filters?.status) {
+        query = query.eq('status', filters.status);
+      }
+      if (filters?.customer_id) {
+        query = query.eq('customer_id', filters.customer_id);
+      }
+      if (filters?.from_date) {
+        query = query.gte('so_date', filters.from_date);
+      }
+      if (filters?.to_date) {
+        query = query.lte('so_date', filters.to_date);
+      }
+
+      const result = await query;
+      data = result.data;
+      error = result.error;
+    }
 
     if (error) throw error;
+
+    // If we have data but no customer info, try to fetch customers separately
+    if (data && data.length > 0 && !data[0].customer) {
+      const customerIds = [...new Set(data.map((order: any) => order.customer_id).filter(Boolean))];
+      if (customerIds.length > 0) {
+        try {
+          const { data: customers } = await supabase
+            .from('customers')
+            .select('*')
+            .in('id', customerIds);
+          
+          if (customers) {
+            const customerMap = new Map(customers.map((c: any) => [c.id, c]));
+            data = data.map((order: any) => ({
+              ...order,
+              customer: customerMap.get(order.customer_id) || null
+            }));
+          }
+        } catch (customerError) {
+          console.warn('Could not fetch customers separately:', customerError);
+        }
+      }
+    }
 
     return { success: true, data: data || [] };
   } catch (error: any) {
@@ -1278,7 +1380,7 @@ export async function getAllSalesInvoices(filters?: {
         }
         
         // If org_id doesn't exist, try tenant_id (fallback for other schemas)
-        if (error && (error.code === '42703' || (error.message && error.message.includes('org_id')))) {
+        if (error && (error.code === '42703' || error.message?.includes('org_id'))) {
           console.warn('org_id column not found in sales_invoices, trying tenant_id');
           
           // Build new query with tenant_id
@@ -1317,7 +1419,7 @@ export async function getAllSalesInvoices(filters?: {
           }
           
           // If tenant_id also fails, skip tenant filter
-          if (error && (error.code === '42703' || (error.message && error.message.includes('tenant_id')))) {
+          if (error && (error.code === '42703' || error.message?.includes('tenant_id'))) {
             console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
             // Query without tenant filter (use the base query we built earlier)
             const noTenantResult = await query;

@@ -30,3 +30,6 @@ pnpm-lock.yaml
 # Backup files
 *.backup
 *.bak
+
+# SQL query files (for database inspection, not production code)
+check_sales_orders.sql

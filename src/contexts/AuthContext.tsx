@@ -32,8 +32,10 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(() => 
-    safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
+  // NOSONAR - Lazy initializer is correct pattern for localStorage access
+  // eslint-disable-next-line sonarjs/prefer-immediate-return
+  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
+    () => safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID // NOSONAR
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
   
@@ -42,6 +44,9 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const lastLoadedUserIdRef = useRef<string | null>(null);
   const isSigningOutRef = useRef(false);
   const authStateChangeHandledRef = useRef<string | null>(null);
+  
+  // Cache for tenantId to avoid repeated getSession() calls
+  const tenantIdCacheRef = useRef<string | null>(null);
   
   // Load user's organizations
   const loadOrganizations = async (userId: string, force = false) => {
@@ -119,10 +124,23 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     const supabase = getSupabase();
     let mounted = true;
     
-    // Get initial session
+    // Get initial session (without strict timeout to avoid false errors)
     const initializeAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // Get session - allow it to take time but log if slow
+        const startTime = Date.now();
+        const sessionPromise = supabase.auth.getSession();
+        
+        // Log warning if it takes too long, but don't fail
+        const logSlowSession = () => {
+          const elapsed = Date.now() - startTime;
+          console.warn(`⚠️ Session loading is taking longer than expected (${elapsed}ms), continuing...`);
+        };
+        const warningTimeout = setTimeout(logSlowSession, 8000); // 8 seconds warning
+        
+        const { data: { session }, error } = await sessionPromise;
+        
+        clearTimeout(warningTimeout);
         
         if (!mounted) return;
         
@@ -133,13 +151,33 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Load organizations if user is authenticated
+        // Cache tenantId immediately from currentOrgId or default
+        if (currentOrgId) {
+          tenantIdCacheRef.current = currentOrgId;
+        } else {
+          tenantIdCacheRef.current = DEFAULT_ORG_ID;
+        }
+        
+        // Load organizations in parallel (don't wait for it to finish)
         if (session?.user) {
-          await loadOrganizations(session.user.id);
+          // Don't await - let it load in background
+          loadOrganizations(session.user.id).then(() => {
+            // Update cache after organizations are loaded
+            if (mounted && currentOrgId) {
+              tenantIdCacheRef.current = currentOrgId;
+            }
+          }).catch(err => {
+            console.warn('Failed to load organizations:', err);
+          });
+        }
+        
+        // Set loading to false immediately after session is loaded
+        if (mounted) {
+          setLoading(false);
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-      } finally {
+        // Set loading to false even on error
         if (mounted) {
           setLoading(false);
         }
@@ -271,6 +309,23 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     }
   }, [user]);
   
+  // Get effective tenant ID (cached from currentOrgId)
+  const getEffectiveTenantId = useCallback((): string | null => {
+    // Use cached currentOrgId first (fastest)
+    if (currentOrgId) {
+      tenantIdCacheRef.current = currentOrgId;
+      return currentOrgId;
+    }
+    
+    // Fallback to cached value
+    if (tenantIdCacheRef.current) {
+      return tenantIdCacheRef.current;
+    }
+    
+    // Fallback to default org ID
+    return DEFAULT_ORG_ID;
+  }, [currentOrgId]);
+  
   const value = useMemo(() => ({
     user,
     session,
@@ -282,7 +337,8 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
     refreshSession,
     setCurrentOrgId,
     refreshOrganizations,
-  }), [user, session, loading, currentOrgId, organizations, signOut, refreshSession, setCurrentOrgId, refreshOrganizations]);
+    getEffectiveTenantId,
+  }), [user, session, loading, currentOrgId, organizations, signOut, refreshSession, setCurrentOrgId, refreshOrganizations, getEffectiveTenantId]);
   
   return (
     <AuthContext.Provider value={value}>

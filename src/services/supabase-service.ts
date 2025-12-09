@@ -1,11 +1,22 @@
-import { getSupabase } from '../lib/supabase'
-import { getTenantId } from '../lib/supabase'
+import { getSupabase, getTenantId } from '../lib/supabase'
 import type {
   Item, Category, Supplier, Customer, ManufacturingOrder,
   ProcessCost, PurchaseOrder, SalesOrder,
   PurchaseOrderItem, SalesOrderItem
 } from '../lib/supabase'
 import { PerformanceMonitor } from '../lib/performance-monitor'
+
+// Type aliases for cleaner code
+type CategoryInput = Omit<Category, 'id' | 'created_at' | 'updated_at'>
+type ItemInput = Omit<Item, 'id' | 'created_at' | 'updated_at'>
+type SupplierInput = Omit<Supplier, 'id' | 'created_at' | 'updated_at'>
+type CustomerInput = Omit<Customer, 'id' | 'created_at' | 'updated_at'>
+type ManufacturingOrderInput = Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>
+type ProcessCostInput = Omit<ProcessCost, 'id' | 'created_at'>
+type PurchaseOrderInput = Omit<PurchaseOrder, 'id' | 'created_at' | 'updated_at'>
+type PurchaseOrderItemInput = Omit<PurchaseOrderItem, 'id' | 'purchase_order_id' | 'created_at'>
+type SalesOrderInput = Omit<SalesOrder, 'id' | 'created_at' | 'updated_at'>
+type SalesOrderItemInput = Omit<SalesOrderItem, 'id' | 'sales_order_id' | 'created_at'>
 
 // Get configuration dynamically
 const getConfig = async () => {
@@ -47,7 +58,7 @@ export const categoriesService = {
     return data
   },
 
-  create: async (category: Omit<Category, 'id' | 'created_at' | 'updated_at'>) => {
+  create: async (category: CategoryInput) => {
     const config = await getConfig()
     const tenantId = await getTenantId()
     const supabase = await getClient()
@@ -101,7 +112,7 @@ export const itemsService = {
     return data
   },
 
-  create: async (item: Omit<Item, 'id' | 'created_at' | 'updated_at'>) => {
+  create: async (item: ItemInput) => {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('products')
@@ -193,7 +204,7 @@ export const suppliersService = {
     return data
   },
 
-  create: async (supplier: Omit<Supplier, 'id' | 'created_at' | 'updated_at'>) => {
+  create: async (supplier: SupplierInput) => {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('vendors')
@@ -232,7 +243,7 @@ export const customersService = {
     return data
   },
 
-  create: async (customer: Omit<Customer, 'id' | 'created_at' | 'updated_at'>) => {
+  create: async (customer: CustomerInput) => {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('customers')
@@ -282,7 +293,7 @@ export const manufacturingService = {
             .select('*')
             .order('created_at', { ascending: false })
 
-          if (simpleError && simpleError.code === 'PGRST205') {
+          if (simpleError?.code === 'PGRST205') {
             return []
           }
 
@@ -294,10 +305,13 @@ export const manufacturingService = {
 
         // محاولة جلب بيانات إضافية بشكل منفصل إذا كانت موجودة ومطلوبة
         // Performance optimization: Only fetch related data if requested
-        if (includeItems && data && data.length > 0) {
+        if (includeItems && data?.length > 0) {
           // جلب بيانات المنتجات إذا كان item_id أو product_id موجود
           const itemIds = [...new Set(data
-            .map(order => (order as any).item_id || (order as any).product_id)
+            .map(order => {
+              const orderWithItem = order as { item_id?: string; product_id?: string }
+              return orderWithItem.item_id || orderWithItem.product_id
+            })
             .filter(Boolean))] // Remove duplicates
 
           if (itemIds.length > 0 && itemIds.length <= 50) { // Limit to 50 items to avoid slow queries
@@ -347,7 +361,7 @@ export const manufacturingService = {
 
         // Normalize status values from database to frontend format
         // Convert old format to new format if needed
-        if (data && Array.isArray(data)) {
+        if (Array.isArray(data)) {
           data.forEach((order: any) => {
             if (order.status === 'in_progress') {
               order.status = 'in-progress'
@@ -375,14 +389,14 @@ export const manufacturingService = {
               .select('*')
               .order('created_at', { ascending: false })
 
-            if (simpleError && simpleError.code === 'PGRST205') {
+            if (simpleError?.code === 'PGRST205') {
               return []
             }
 
             if (simpleError) throw simpleError
             
             // Normalize status values
-            if (data && Array.isArray(data)) {
+            if (Array.isArray(data)) {
               data.forEach((order: any) => {
                 if (order.status === 'in_progress') {
                   order.status = 'in-progress'
@@ -431,7 +445,7 @@ export const manufacturingService = {
           .eq('id', id)
           .single()
 
-        if (simpleError && simpleError.code === 'PGRST205') {
+        if (simpleError?.code === 'PGRST205') {
           return null
         }
 
@@ -443,7 +457,8 @@ export const manufacturingService = {
 
       // محاولة جلب بيانات إضافية بشكل منفصل
       if (data) {
-        const itemId = (data as any).item_id || (data as any).product_id
+        const dataWithItem = data as { item_id?: string; product_id?: string; item?: unknown }
+        const itemId = dataWithItem.item_id || dataWithItem.product_id
         if (itemId) {
           try {
             // محاولة products
@@ -454,7 +469,7 @@ export const manufacturingService = {
               .single()
 
             if (product) {
-              (data as any).item = product
+              dataWithItem.item = product
             } else {
               // محاولة items
               const { data: item } = await supabase
@@ -464,7 +479,7 @@ export const manufacturingService = {
                 .single()
 
               if (item) {
-                (data as any).item = item
+                dataWithItem.item = item
               }
             }
           } catch (e) {
@@ -491,7 +506,7 @@ export const manufacturingService = {
             .eq('id', id)
             .single()
 
-          if (simpleError && simpleError.code === 'PGRST205') {
+          if (simpleError?.code === 'PGRST205') {
             return null
           }
 
@@ -509,7 +524,7 @@ export const manufacturingService = {
   },
 
   create: async (
-    order: Omit<ManufacturingOrder, 'id' | 'created_at' | 'updated_at'>,
+    order: ManufacturingOrderInput,
     materials?: Array<{ item_id: string; quantity: number; unit_cost?: number }>
   ) => {
     const supabase = await getClient()
@@ -565,7 +580,7 @@ export const manufacturingService = {
       if (simpleError) throw simpleError
       
       // Reserve materials if order created successfully and materials provided
-      if (simpleData && materials && materials.length > 0) {
+      if (simpleData && materials?.length > 0) {
         try {
           await inventoryTransactionService.reserveMaterials(
             simpleData.id,
@@ -585,7 +600,8 @@ export const manufacturingService = {
       
       // Try to load product data separately if needed
       if (simpleData) {
-        const itemId = (simpleData as any).item_id || (simpleData as any).product_id
+        const dataWithItem = simpleData as { item_id?: string; product_id?: string; item?: unknown }
+        const itemId = dataWithItem.item_id || dataWithItem.product_id
         if (itemId) {
           try {
             const { data: product } = await supabase
@@ -595,7 +611,7 @@ export const manufacturingService = {
               .single()
 
             if (product) {
-              (simpleData as any).item = product
+              dataWithItem.item = product
             } else {
               const { data: item } = await supabase
                 .from('items')
@@ -604,7 +620,7 @@ export const manufacturingService = {
                 .single()
 
               if (item) {
-                (simpleData as any).item = item
+                dataWithItem.item = item
               }
             }
           } catch (e) {
@@ -620,7 +636,7 @@ export const manufacturingService = {
     if (error) throw error
     
     // Reserve materials if order created successfully and materials provided
-    if (data && materials && materials.length > 0) {
+    if (data && materials?.length > 0) {
       try {
         await inventoryTransactionService.reserveMaterials(
           data.id,
@@ -640,7 +656,8 @@ export const manufacturingService = {
     
     // Try to load product data separately if needed
     if (data) {
-      const itemId = (data as any).item_id || (data as any).product_id
+      const dataWithItem = data as { item_id?: string; product_id?: string; item?: unknown }
+      const itemId = dataWithItem.item_id || dataWithItem.product_id
       if (itemId) {
         try {
           const { data: product } = await supabase
@@ -650,7 +667,7 @@ export const manufacturingService = {
             .single()
 
           if (product) {
-            (data as any).item = product
+            dataWithItem.item = product
           } else {
             const { data: item } = await supabase
               .from('items')
@@ -659,7 +676,7 @@ export const manufacturingService = {
               .single()
 
             if (item) {
-              (data as any).item = item
+              dataWithItem.item = item
             }
           }
         } catch (e) {
@@ -693,14 +710,14 @@ export const manufacturingService = {
 
       // Only apply automatic date logic if dates weren't provided in updateData
       if (!providedUpdateData || (!providedUpdateData.start_date && !providedUpdateData.end_date)) {
-        if (status === 'completed' || dbStatus === 'completed' || (dbStatus as string) === 'done') {
+        if (status === 'completed' || dbStatus === 'completed' || String(dbStatus) === 'done') {
           // Only set end_date if not already provided
           if (!updateData.end_date) {
             updateData.end_date = new Date().toISOString()
           }
         }
         
-        if (status === 'in-progress' || dbStatus === 'in-progress' || (dbStatus as string) === 'in_progress') {
+        if (status === 'in-progress' || dbStatus === 'in-progress' || String(dbStatus) === 'in_progress') {
           // Set start_date if not already set and not provided
           if (!updateData.start_date) {
             const { data: currentOrder } = await supabase
@@ -726,10 +743,11 @@ export const manufacturingService = {
 
       // Normalize status value from database to frontend format
       if (data) {
-        if ((data as any).status === 'in_progress') {
-          (data as any).status = 'in-progress'
-        } else if ((data as any).status === 'done') {
-          (data as any).status = 'completed'
+        const dataWithStatus = data as { status?: string }
+        if (dataWithStatus.status === 'in_progress') {
+          dataWithStatus.status = 'in-progress'
+        } else if (dataWithStatus.status === 'done') {
+          dataWithStatus.status = 'completed'
         }
       }
 
@@ -749,7 +767,7 @@ export const manufacturingService = {
           .select('*')
           .single()
 
-        if (simpleError && simpleError.code === 'PGRST205') {
+        if (simpleError?.code === 'PGRST205') {
           throw new Error('manufacturing_orders table does not exist')
         }
 
@@ -761,7 +779,8 @@ export const manufacturingService = {
 
       // محاولة جلب بيانات المنتج بشكل منفصل
       if (data) {
-        const itemId = (data as any).item_id || (data as any).product_id
+        const dataWithItem = data as { item_id?: string; product_id?: string; item?: unknown }
+        const itemId = dataWithItem.item_id || dataWithItem.product_id
         if (itemId) {
           try {
             const { data: product } = await supabase
@@ -771,7 +790,7 @@ export const manufacturingService = {
               .single()
 
             if (product) {
-              (data as any).item = product
+              dataWithItem.item = product
             } else {
               const { data: item } = await supabase
                 .from('items')
@@ -780,7 +799,7 @@ export const manufacturingService = {
                 .single()
 
               if (item) {
-                (data as any).item = item
+                dataWithItem.item = item
               }
             }
           } catch (e) {
@@ -815,7 +834,7 @@ export const manufacturingService = {
             .select('*')
             .single()
 
-          if (simpleError && simpleError.code === 'PGRST205') {
+          if (simpleError?.code === 'PGRST205') {
             throw new Error('manufacturing_orders table does not exist')
           }
 
@@ -847,7 +866,7 @@ export const processCostService = {
     return data
   },
 
-  create: async (processCost: Omit<ProcessCost, 'id' | 'created_at'>) => {
+  create: async (processCost: ProcessCostInput) => {
     const supabase = await getClient()
     const total_cost = (processCost.material_cost || 0) + (processCost.labor_cost || 0) + (processCost.overhead_cost || 0);
     const { data, error } = await supabase
@@ -900,7 +919,7 @@ export const stockMovementsService = {
       .order('created_at', { ascending: false })
 
     // If there's an error related to the user not being found, try without user data
-    if (error && error.message.includes('404')) {
+    if (error?.message.includes('404')) {
       console.warn('User not found for stock movements, fetching without user data')
       const { data: fallbackData, error: fallbackError } = await supabase
         .from('stock_movements')
@@ -932,7 +951,7 @@ export const stockMovementsService = {
       .order('created_at', { ascending: false })
 
     // If there's an error related to the user not being found, try without user data
-    if (error && error.message.includes('404')) {
+    if (error?.message.includes('404')) {
       console.warn('User not found for stock movements, fetching without user data for item:', itemId)
       const { data: fallbackData, error: fallbackError } = await supabase
         .from('stock_movements')
@@ -972,7 +991,7 @@ export const purchaseOrdersService = {
     return data
   },
 
-  create: async (order: Omit<PurchaseOrder, 'id' | 'created_at' | 'updated_at'>, items: Omit<PurchaseOrderItem, 'id' | 'purchase_order_id' | 'created_at'>[]) => {
+  create: async (order: PurchaseOrderInput, items: PurchaseOrderItemInput[]) => {
     const supabase = await getClient()
     const { data: orderData, error: orderError } = await supabase
       .from('purchase_orders')
@@ -1023,7 +1042,7 @@ export const salesOrdersService = {
   getAll: async () => {
     const supabase = await getClient()
 
-    // First try sales_orders
+    // First try sales_orders with relationships
     let { data, error } = await supabase
       .from('sales_orders')
       .select(`
@@ -1037,21 +1056,81 @@ export const salesOrdersService = {
       `)
       .order('created_at', { ascending: false })
 
+    // If relationship error, try without relationships
+    if (error && (error.message?.includes('Could not find a relationship') || error.message?.includes('relationship'))) {
+      console.warn('Relationship not found, fetching without joins:', error.message)
+      
+      // Try without relationships
+      const { data: simpleData, error: simpleError } = await supabase
+        .from('sales_orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (simpleError) {
+        // If table doesn't exist, try sales_invoices instead
+        if (simpleError.code === 'PGRST205') {
+          console.warn('sales_orders table not found, trying sales_invoices instead')
+          const { data: invoicesData, error: invoicesError } = await supabase
+            .from('sales_invoices')
+            .select('*')
+            .order('invoice_date', { ascending: false })
+            .limit(100)
+
+          if (invoicesError) {
+            console.error('Error fetching sales_invoices:', invoicesError.message)
+            return []
+          }
+
+          // Map invoices to orders format for compatibility
+          return (invoicesData || []).map((inv: any) => ({
+            ...inv,
+            so_date: inv.invoice_date,
+            so_number: inv.invoice_number,
+            status: inv.payment_status || inv.delivery_status || 'draft'
+          }))
+        }
+        
+        console.error('Error fetching sales orders:', simpleError.message)
+        return []
+      }
+
+      // Try to fetch customers separately if we have customer_ids
+      if (simpleData && simpleData.length > 0) {
+        const customerIds = [...new Set(simpleData.map((order: any) => order.customer_id).filter(Boolean))];
+        if (customerIds.length > 0) {
+          try {
+            const { data: customers } = await supabase
+              .from('customers')
+              .select('*')
+              .in('id', customerIds);
+            
+            if (customers) {
+              const customerMap = new Map(customers.map((c: any) => [c.id, c]));
+              return simpleData.map((order: any) => ({
+                ...order,
+                customer: customerMap.get(order.customer_id) || null
+              }));
+            }
+          } catch (customerError) {
+            console.warn('Could not fetch customers separately:', customerError);
+          }
+        }
+      }
+
+      return simpleData || []
+    }
+
     // If table doesn't exist, try sales_invoices instead
-    if (error && error.code === 'PGRST205') {
+    if (error?.code === 'PGRST205') {
       console.warn('sales_orders table not found, trying sales_invoices instead')
       const { data: invoicesData, error: invoicesError } = await supabase
         .from('sales_invoices')
-        .select(`
-          *,
-          customer:customers(*)
-        `)
+        .select('*')
         .order('invoice_date', { ascending: false })
         .limit(100)
 
       if (invoicesError) {
         console.error('Error fetching sales_invoices:', invoicesError.message)
-        // Return empty array instead of throwing
         return []
       }
 
@@ -1093,7 +1172,7 @@ export const salesOrdersService = {
     return data || []
   },
 
-  create: async (order: Omit<SalesOrder, 'id' | 'created_at' | 'updated_at'>, items: Omit<SalesOrderItem, 'id' | 'sales_order_id' | 'created_at'>[]) => {
+  create: async (order: SalesOrderInput, items: SalesOrderItemInput[]) => {
     const supabase = await getClient()
     const { data: orderData, error: orderError } = await supabase
       .from('sales_orders')
@@ -1134,7 +1213,7 @@ export const salesOrdersService = {
       .single()
 
     // If there's an error related to the user not being found, try without user data
-    if (updateError && updateError.message.includes('404')) {
+    if (updateError?.message.includes('404')) {
       console.warn('User not found for sales order, updating without user data:', orderData.id)
       const { data: fallbackData, error: fallbackError } = await supabase
         .from('sales_orders')
@@ -1191,7 +1270,7 @@ export const newPurchaseOrdersService = {
           product:products(*)
         )
       `)
-      .order('order_date', { ascending: false })
+      .order('so_date', { ascending: false })
 
     if (error) throw error
     return data
@@ -1374,8 +1453,8 @@ export const trialBalanceService = {
         }
         
         console.warn('⚠️ View not available or empty, falling back to manual calculation')
-      } catch (viewErr) {
-        console.warn('⚠️ View query failed, falling back to manual calculation:', viewErr)
+      } catch (error_) {
+        console.warn('⚠️ View query failed, falling back to manual calculation:', error_)
       }
 
       // Fallback: Original logic (slower but reliable)
@@ -1451,7 +1530,7 @@ export const trialBalanceService = {
       // Group by account and calculate totals
       const accountTotals = new Map<string, { debit: number, credit: number, name: string, name_ar?: string }>()
 
-      lines.forEach((line: any) => {
+      for (const line of lines) {
         if (!accountTotals.has(line.account_code)) {
           const accountInfo = accountNamesMap.get(line.account_code)
           accountTotals.set(line.account_code, {
@@ -1462,10 +1541,11 @@ export const trialBalanceService = {
           })
         }
 
-        const account = accountTotals.get(line.account_code)!
+        const account = accountTotals.get(line.account_code)
+        if (!account) continue
         account.debit += line.debit_amount || 0
         account.credit += line.credit_amount || 0
-      })
+      }
 
       // Convert to array and sort by account code
       const trialBalance = Array.from(accountTotals.entries())
@@ -1635,7 +1715,6 @@ export const stageWipLogService = {
   }) => {
     return PerformanceMonitor.measure('Stage WIP Log List', async () => {
       try {
-        const config = await getConfig()
         const tenantId = await getTenantId()
         const supabase = await getClient()
 
@@ -1792,7 +1871,6 @@ export const standardCostsService = {
   }) => {
     return PerformanceMonitor.measure('Standard Costs List', async () => {
       try {
-        const config = await getConfig()
         const tenantId = await getTenantId()
         const supabase = await getClient()
 

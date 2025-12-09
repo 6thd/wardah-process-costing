@@ -8,14 +8,11 @@ import { Badge } from '@/components/ui/badge'
 import { 
   customersService, 
   salesOrdersService,
-  newSalesInvoicesService,
-  deliveryNotesService
+  newSalesInvoicesService
 } from '@/services/supabase-service'
 import {
   getAllSalesOrders,
-  getAllSalesInvoices,
-  getSalesInvoiceWithDetails,
-  calculateInvoiceProfit
+  getAllSalesInvoices
 } from '@/services/enhanced-sales-service'
 import { toast } from 'sonner'
 import type { Customer } from '@/lib/supabase'
@@ -23,20 +20,36 @@ import { SalesInvoiceForm } from '@/components/forms/SalesInvoiceForm'
 import { DeliveryNoteForm } from '@/components/forms/DeliveryNoteForm'
 import { CustomerReceipts } from './components/CustomerReceipts'
 
-export function SalesModule() {
-  return (
-    <Routes>
-      <Route path="/" element={<SalesOverview />} />
-      <Route path="/overview" element={<SalesOverview />} />
-      <Route path="/customers" element={<CustomersManagement />} />
-      <Route path="/orders" element={<SalesOrdersManagement />} />
-      <Route path="/invoices" element={<SalesOrdersManagement />} />
-      <Route path="/delivery" element={<DeliveryManagement />} />
-      <Route path="/collections" element={<CustomerReceipts />} />
-      <Route path="/receipts" element={<CustomerReceipts />} />
-      <Route path="*" element={<Navigate to="/sales/overview" replace />} />
-    </Routes>
-  )
+// Shared status badge function
+function getStatusBadge(status: string) {
+  const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+    'DRAFT': { label: 'مسودة', variant: 'outline' },
+    'CONFIRMED': { label: 'مؤكدة', variant: 'default' },
+    'DELIVERED': { label: 'مسلمة', variant: 'secondary' },
+    'PAID': { label: 'مدفوعة', variant: 'secondary' },
+    'CANCELLED': { label: 'ملغاة', variant: 'destructive' },
+    'draft': { label: 'مسودة', variant: 'outline' },
+    'sent': { label: 'مرسلة', variant: 'default' },
+    'paid': { label: 'مدفوعة', variant: 'secondary' },
+    'overdue': { label: 'متأخرة', variant: 'destructive' },
+    'cancelled': { label: 'ملغاة', variant: 'destructive' }
+  }
+  const config = statusMap[status] || { label: status, variant: 'outline' as const }
+  return <Badge variant={config.variant}>{config.label}</Badge>
+}
+
+// Helper function to get delivery status text
+function getDeliveryStatusText(status: string): string {
+  if (status === 'fully_delivered') return 'مسلمة';
+  if (status === 'partially_delivered') return 'جزئية';
+  return 'معلقة';
+}
+
+// Helper function to get payment status text
+function getPaymentStatusText(status: string): string {
+  if (status === 'paid') return 'مدفوعة';
+  if (status === 'partially_paid') return 'جزئية';
+  return 'غير مدفوعة';
 }
 
 function SalesOverview() {
@@ -45,51 +58,51 @@ function SalesOverview() {
   const [customers, setCustomers] = useState<Customer[]>([])
   const [orders, setOrders] = useState<any[]>([])
 
+  // Helper function to load customers
+  const loadCustomers = async () => {
+    try {
+      const customersData = await customersService.getAll().catch(() => [])
+      setCustomers(customersData || [])
+    } catch (error) {
+      console.warn('Error loading customers:', error)
+    }
+  }
+
+  // Helper function to load orders with fallback
+  const loadOrdersWithFallback = async () => {
+    try {
+      const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
+      const invoicesResult = await getAllSalesInvoices()
+      if (invoicesResult.success && invoicesResult.data) {
+        setOrders(invoicesResult.data || [])
+        return
+      }
+    } catch (invoiceError: any) {
+      console.warn('Error loading sales invoices, trying fallback:', invoiceError)
+    }
+    
+    // Fallback: try old service
+    try {
+      const ordersData = await salesOrdersService.getAll()
+      setOrders(ordersData || [])
+    } catch (ordersError: any) {
+      if (ordersError.code === 'PGRST205') {
+        console.warn('sales_orders table not found, using empty array')
+        setOrders([])
+      } else {
+        console.error('Error loading sales data:', ordersError)
+        toast.error(`خطأ في تحميل بيانات المبيعات: ${ordersError.message}`)
+      }
+    }
+  }
+
   useEffect(() => {
     const loadData = async () => {
       try {
-        // Try to get customers
-        const customersData = await customersService.getAll().catch(() => [])
-        setCustomers(customersData || [])
-        
-        // Try to get sales invoices instead of sales orders (since sales_orders table may not exist)
-        try {
-          const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
-          const invoicesResult = await getAllSalesInvoices()
-          if (invoicesResult.success && invoicesResult.data) {
-            setOrders(invoicesResult.data || [])
-          } else {
-            // Fallback: try old service but handle errors gracefully
-            try {
-              const ordersData = await salesOrdersService.getAll()
-              setOrders(ordersData || [])
-            } catch (ordersError: any) {
-              if (ordersError.code === 'PGRST205') {
-                // Table doesn't exist, use empty array
-                console.warn('sales_orders table not found, using empty array')
-                setOrders([])
-              } else {
-                throw ordersError
-              }
-            }
-          }
-        } catch (invoiceError: any) {
-          console.warn('Error loading sales invoices, trying fallback:', invoiceError)
-          // Fallback: try old service but handle errors gracefully
-          try {
-            const ordersData = await salesOrdersService.getAll()
-            setOrders(ordersData || [])
-          } catch (ordersError: any) {
-            if (ordersError.code === 'PGRST205') {
-              // Table doesn't exist, use empty array
-              console.warn('sales_orders table not found, using empty array')
-              setOrders([])
-            } else {
-              console.error('Error loading sales data:', ordersError)
-              toast.error(`خطأ في تحميل بيانات المبيعات: ${ordersError.message}`)
-            }
-          }
-        }
+        await Promise.all([
+          loadCustomers(),
+          loadOrdersWithFallback()
+        ])
       } catch (error: any) {
         console.error('Error loading sales data:', error)
         toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
@@ -259,48 +272,54 @@ function CustomersManagement() {
           <h3 className="font-semibold mb-4">إضافة عميل جديد</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">اسم العميل</label>
+              <label htmlFor="customer-name" className="block text-sm font-medium mb-2">اسم العميل</label>
               <Input
+                id="customer-name"
                 value={newCustomer.name}
                 onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
                 placeholder="اسم العميل"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الاسم بالعربية</label>
+              <label htmlFor="customer-name-ar" className="block text-sm font-medium mb-2">الاسم بالعربية</label>
               <Input
+                id="customer-name-ar"
                 value={newCustomer.name_ar}
                 onChange={(e) => setNewCustomer({...newCustomer, name_ar: e.target.value})}
                 placeholder="الاسم بالعربية"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">كود العميل</label>
+              <label htmlFor="customer-code" className="block text-sm font-medium mb-2">كود العميل</label>
               <Input
+                id="customer-code"
                 value={newCustomer.code}
                 onChange={(e) => setNewCustomer({...newCustomer, code: e.target.value})}
                 placeholder="كود العميل"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">شخص الاتصال</label>
+              <label htmlFor="customer-contact" className="block text-sm font-medium mb-2">شخص الاتصال</label>
               <Input
+                id="customer-contact"
                 value={newCustomer.contact_person}
                 onChange={(e) => setNewCustomer({...newCustomer, contact_person: e.target.value})}
                 placeholder="شخص الاتصال"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">رقم الهاتف</label>
+              <label htmlFor="customer-phone" className="block text-sm font-medium mb-2">رقم الهاتف</label>
               <Input
+                id="customer-phone"
                 value={newCustomer.phone}
                 onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
                 placeholder="رقم الهاتف"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">البريد الإلكتروني</label>
+              <label htmlFor="customer-email" className="block text-sm font-medium mb-2">البريد الإلكتروني</label>
               <Input
+                id="customer-email"
                 type="email"
                 value={newCustomer.email}
                 onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
@@ -308,8 +327,9 @@ function CustomersManagement() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">العنوان</label>
+              <label htmlFor="customer-address" className="block text-sm font-medium mb-2">العنوان</label>
               <Input
+                id="customer-address"
                 value={newCustomer.address}
                 onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
                 placeholder="العنوان"
@@ -356,40 +376,33 @@ function SalesOrdersManagement() {
   const { t } = useTranslation()
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [showAddForm, setShowAddForm] = useState(false)
 
   const loadOrders = async () => {
     setLoading(true)
     try {
-      // Try enhanced service first
-      const result = await getAllSalesInvoices()
+      // Try enhanced service first for sales orders
+      const result = await getAllSalesOrders()
       if (result.success && result.data) {
         setOrders(result.data)
       } else {
         // Fallback to old service
         try {
-          const newData = await newSalesInvoicesService.getAll()
-          setOrders(newData || [])
-        } catch (newError) {
-          console.warn('New system unavailable, fallback to old:', newError)
-          try {
-            const oldData = await salesOrdersService.getAll()
-            setOrders(oldData || [])
-          } catch (oldError: any) {
-            if (oldError.code === 'PGRST205') {
-              // Table doesn't exist, use empty array
-              console.warn('sales_orders table not found, using empty array')
-              setOrders([])
-            } else {
-              console.error('Error loading sales orders:', oldError)
-              toast.error(`خطأ في تحميل فواتير المبيعات: ${oldError.message}`)
-            }
+          const oldData = await salesOrdersService.getAll()
+          setOrders(oldData || [])
+        } catch (oldError: any) {
+          if (oldError.code === 'PGRST205') {
+            // Table doesn't exist, use empty array
+            console.warn('sales_orders table not found, using empty array')
+            setOrders([])
+          } else {
+            console.error('Error loading sales orders:', oldError)
+            toast.error(`خطأ في تحميل طلبات المبيعات: ${oldError.message}`)
           }
         }
       }
     } catch (error: any) {
       console.error('Error loading sales orders:', error)
-      toast.error(`خطأ في تحميل فواتير المبيعات: ${error.message}`)
+      toast.error(`خطأ في تحميل طلبات المبيعات: ${error.message}`)
     } finally {
       setLoading(false)
     }
@@ -399,22 +412,125 @@ function SalesOrdersManagement() {
     loadOrders()
   }, [])
 
-  const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-      'DRAFT': { label: 'مسودة', variant: 'outline' },
-      'CONFIRMED': { label: 'مؤكدة', variant: 'default' },
-      'DELIVERED': { label: 'مسلمة', variant: 'secondary' },
-      'PAID': { label: 'مدفوعة', variant: 'secondary' },
-      'CANCELLED': { label: 'ملغاة', variant: 'destructive' },
-      'draft': { label: 'مسودة', variant: 'outline' },
-      'sent': { label: 'مرسلة', variant: 'default' },
-      'paid': { label: 'مدفوعة', variant: 'secondary' },
-      'overdue': { label: 'متأخرة', variant: 'destructive' },
-      'cancelled': { label: 'ملغاة', variant: 'destructive' }
-    }
-    const config = statusMap[status] || { label: status, variant: 'outline' as const }
-    return <Badge variant={config.variant}>{config.label}</Badge>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
+        </div>
+      </div>
+    )
   }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold">طلبات المبيعات</h1>
+          <p className="text-muted-foreground">إدارة طلبات المبيعات</p>
+        </div>
+        <Button disabled>
+          + إضافة طلب مبيعات (قريباً)
+        </Button>
+      </div>
+
+      <div className="bg-card rounded-lg border">
+        <div className="p-4 border-b flex justify-between items-center">
+          <h3 className="font-semibold">قائمة طلبات المبيعات ({orders.length})</h3>
+          {orders.length === 0 && <Badge variant="outline">لا توجد بيانات</Badge>}
+        </div>
+        <div className="divide-y">
+          {orders.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              <p>لا توجد طلبات مبيعات مسجلة</p>
+              <p className="text-sm mt-2">البيانات موجودة في قاعدة البيانات</p>
+            </div>
+          ) : (
+            orders.map((order) => (
+              <div key={order.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{order.so_number || order.order_number || `SO-${order.id?.slice(0, 8)}`}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {order.customer?.name || 'عميل غير محدد'}
+                    </p>
+                    <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(order.order_date || order.so_date || order.created_at).toLocaleDateString('ar-SA')}</span>
+                      {order.delivery_date && (
+                        <span>🚚 التسليم: {new Date(order.delivery_date).toLocaleDateString('ar-SA')}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right ml-4">
+                    <div className="flex gap-2 mb-2">
+                      {getStatusBadge(order.status)}
+                    </div>
+                    <div className="font-bold text-lg mt-2 text-primary">
+                      {(order.total_amount || 0).toFixed(2)} ريال
+                    </div>
+                    {order.tax_amount > 0 && (
+                      <div className="text-xs text-muted-foreground">
+                        شامل ضريبة: {order.tax_amount.toFixed(2)} ريال
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SalesInvoicesManagement() {
+  const { t } = useTranslation()
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+
+  const loadInvoices = async () => {
+    setLoading(true)
+    try {
+      // Try enhanced service first
+      const result = await getAllSalesInvoices()
+      if (result.success && result.data) {
+        setInvoices(result.data)
+      } else {
+        // Fallback to old service
+        try {
+          const newData = await newSalesInvoicesService.getAll()
+          setInvoices(newData || [])
+        } catch (newError) {
+          console.warn('New system unavailable, fallback to old:', newError)
+          try {
+            const oldData = await salesOrdersService.getAll()
+            setInvoices(oldData || [])
+          } catch (oldError: any) {
+            if (oldError.code === 'PGRST205') {
+              // Table doesn't exist, use empty array
+              console.warn('sales_invoices table not found, using empty array')
+              setInvoices([])
+            } else {
+              console.error('Error loading sales invoices:', oldError)
+              toast.error(`خطأ في تحميل فواتير المبيعات: ${oldError.message}`)
+            }
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Error loading sales invoices:', error)
+      toast.error(`خطأ في تحميل فواتير المبيعات: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadInvoices()
+  }, [])
 
   if (loading) {
     return (
@@ -443,47 +559,47 @@ function SalesOrdersManagement() {
         open={showAddForm}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
-          loadOrders()
+          loadInvoices()
         }}
       />
 
       <div className="bg-card rounded-lg border">
         <div className="p-4 border-b flex justify-between items-center">
-          <h3 className="font-semibold">قائمة فواتير المبيعات ({orders.length})</h3>
-          {orders.length === 0 && <Badge variant="outline">لا توجد بيانات</Badge>}
+          <h3 className="font-semibold">قائمة فواتير المبيعات ({invoices.length})</h3>
+          {invoices.length === 0 && <Badge variant="outline">لا توجد بيانات</Badge>}
         </div>
         <div className="divide-y">
-          {orders.length === 0 ? (
+          {invoices.length === 0 ? (
             <div className="p-8 text-center text-muted-foreground">
               <p>لا توجد فواتير مبيعات مسجلة</p>
               <p className="text-sm mt-2">البيانات موجودة في قاعدة البيانات</p>
             </div>
           ) : (
-            orders.map((order) => (
-              <div key={order.id} className="p-4 hover:bg-accent/50 transition-colors">
+            invoices.map((invoice) => (
+              <div key={invoice.id} className="p-4 hover:bg-accent/50 transition-colors">
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
-                    <h4 className="font-medium text-lg">{order.invoice_number}</h4>
+                    <h4 className="font-medium text-lg">{invoice.invoice_number}</h4>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {order.customer?.name || 'عميل غير محدد'}
+                      {invoice.customer?.name || 'عميل غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(order.invoice_date).toLocaleDateString('ar-SA')}</span>
-                      {order.due_date && (
-                        <span>⏰ الاستحقاق: {new Date(order.due_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      {invoice.due_date && (
+                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('ar-SA')}</span>
                       )}
                     </div>
-                    {order.sales_invoice_lines && order.sales_invoice_lines.length > 0 && (
+                    {invoice.sales_invoice_lines && invoice.sales_invoice_lines.length > 0 && (
                       <div className="mt-3 text-sm">
-                        <p className="font-medium text-muted-foreground mb-1">المنتجات ({order.sales_invoice_lines.length}):</p>
+                        <p className="font-medium text-muted-foreground mb-1">المنتجات ({invoice.sales_invoice_lines.length}):</p>
                         <div className="flex flex-wrap gap-2">
-                          {order.sales_invoice_lines.slice(0, 3).map((line: any) => (
+                          {invoice.sales_invoice_lines.slice(0, 3).map((line: any) => (
                             <Badge key={line.id} variant="outline" className="text-xs">
                               {line.product?.product_name || line.product?.name} ({line.quantity} {line.unit})
                             </Badge>
                           ))}
-                          {order.sales_invoice_lines.length > 3 && (
-                            <Badge variant="outline" className="text-xs">+{order.sales_invoice_lines.length - 3} المزيد</Badge>
+                          {invoice.sales_invoice_lines.length > 3 && (
+                            <Badge variant="outline" className="text-xs">+{invoice.sales_invoice_lines.length - 3} المزيد</Badge>
                           )}
                         </div>
                       </div>
@@ -491,34 +607,32 @@ function SalesOrdersManagement() {
                   </div>
                   <div className="text-right ml-4">
                     <div className="flex gap-2 mb-2">
-                      {getStatusBadge(order.status)}
-                      {order.delivery_status && (
-                        <Badge variant={order.delivery_status === 'fully_delivered' ? 'secondary' : 'outline'}>
-                          {order.delivery_status === 'fully_delivered' ? 'مسلمة' : 
-                           order.delivery_status === 'partially_delivered' ? 'جزئية' : 'معلقة'}
+                      {getStatusBadge(invoice.status)}
+                      {invoice.delivery_status && (
+                        <Badge variant={invoice.delivery_status === 'fully_delivered' ? 'secondary' : 'outline'}>
+                          {getDeliveryStatusText(invoice.delivery_status)}
                         </Badge>
                       )}
-                      {order.payment_status && (
-                        <Badge variant={order.payment_status === 'paid' ? 'secondary' : 'outline'}>
-                          {order.payment_status === 'paid' ? 'مدفوعة' : 
-                           order.payment_status === 'partially_paid' ? 'جزئية' : 'غير مدفوعة'}
+                      {invoice.payment_status && (
+                        <Badge variant={invoice.payment_status === 'paid' ? 'secondary' : 'outline'}>
+                          {getPaymentStatusText(invoice.payment_status)}
                         </Badge>
                       )}
                     </div>
                     <div className="font-bold text-lg mt-2 text-primary">
-                      {(order.total_amount || 0).toFixed(2)} ريال
+                      {(invoice.total_amount || 0).toFixed(2)} ريال
                     </div>
-                    {order.tax_amount > 0 && (
+                    {invoice.tax_amount > 0 && (
                       <div className="text-xs text-muted-foreground">
-                        شامل ضريبة: {order.tax_amount.toFixed(2)} ريال
+                        شامل ضريبة: {invoice.tax_amount.toFixed(2)} ريال
                       </div>
                     )}
-                    {order.paid_amount > 0 && (
+                    {invoice.paid_amount > 0 && (
                       <div className="text-xs text-muted-foreground mt-1">
-                        مدفوع: {order.paid_amount.toFixed(2)} ريال
-                        {order.total_amount > order.paid_amount && (
+                        مدفوع: {invoice.paid_amount.toFixed(2)} ريال
+                        {invoice.total_amount > invoice.paid_amount && (
                           <span className="text-red-600">
-                            {' '}(متبقي: {((order.total_amount || 0) - (order.paid_amount || 0)).toFixed(2)})
+                            {' '}(متبقي: {((invoice.total_amount || 0) - (invoice.paid_amount || 0)).toFixed(2)})
                           </span>
                         )}
                       </div>
@@ -531,6 +645,22 @@ function SalesOrdersManagement() {
         </div>
       </div>
     </div>
+  )
+}
+
+export function SalesModule() {
+  return (
+    <Routes>
+      <Route path="/" element={<SalesOverview />} />
+      <Route path="/overview" element={<SalesOverview />} />
+      <Route path="/customers" element={<CustomersManagement />} />
+      <Route path="/orders" element={<SalesOrdersManagement />} />
+      <Route path="/invoices" element={<SalesInvoicesManagement />} />
+      <Route path="/delivery" element={<DeliveryManagement />} />
+      <Route path="/collections" element={<CustomerReceipts />} />
+      <Route path="/receipts" element={<CustomerReceipts />} />
+      <Route path="*" element={<Navigate to="/sales/overview" replace />} />
+    </Routes>
   )
 }
 
