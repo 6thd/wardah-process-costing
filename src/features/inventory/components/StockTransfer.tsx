@@ -868,7 +868,6 @@ export default function StockTransferManagement() {
                     setViewMode(true)
                   }
                 }}
-                }}
               >
                 <div className="flex justify-between items-start">
                   <div className="flex-1">
