@@ -220,48 +220,54 @@ function SuppliersManagement() {
           <h3 className="font-semibold mb-4">إضافة مورد جديد</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-2">اسم المورد</label>
+              <label htmlFor="supplier-name" className="block text-sm font-medium mb-2">اسم المورد</label>
               <Input
+                id="supplier-name"
                 value={newSupplier.name}
                 onChange={(e) => setNewSupplier({...newSupplier, name: e.target.value})}
                 placeholder="اسم المورد"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">الاسم بالعربية</label>
+              <label htmlFor="supplier-name-ar" className="block text-sm font-medium mb-2">الاسم بالعربية</label>
               <Input
+                id="supplier-name-ar"
                 value={newSupplier.name_ar}
                 onChange={(e) => setNewSupplier({...newSupplier, name_ar: e.target.value})}
                 placeholder="الاسم بالعربية"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">كود المورد</label>
+              <label htmlFor="supplier-code" className="block text-sm font-medium mb-2">كود المورد</label>
               <Input
+                id="supplier-code"
                 value={newSupplier.code}
                 onChange={(e) => setNewSupplier({...newSupplier, code: e.target.value})}
                 placeholder="كود المورد"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">شخص الاتصال</label>
+              <label htmlFor="supplier-contact-person" className="block text-sm font-medium mb-2">شخص الاتصال</label>
               <Input
+                id="supplier-contact-person"
                 value={newSupplier.contact_person}
                 onChange={(e) => setNewSupplier({...newSupplier, contact_person: e.target.value})}
                 placeholder="شخص الاتصال"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">رقم الهاتف</label>
+              <label htmlFor="supplier-phone" className="block text-sm font-medium mb-2">رقم الهاتف</label>
               <Input
+                id="supplier-phone"
                 value={newSupplier.phone}
                 onChange={(e) => setNewSupplier({...newSupplier, phone: e.target.value})}
                 placeholder="رقم الهاتف"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">البريد الإلكتروني</label>
+              <label htmlFor="supplier-email" className="block text-sm font-medium mb-2">البريد الإلكتروني</label>
               <Input
+                id="supplier-email"
                 type="email"
                 value={newSupplier.email}
                 onChange={(e) => setNewSupplier({...newSupplier, email: e.target.value})}
@@ -269,8 +275,9 @@ function SuppliersManagement() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-2">العنوان</label>
+              <label htmlFor="supplier-address" className="block text-sm font-medium mb-2">العنوان</label>
               <Input
+                id="supplier-address"
                 value={newSupplier.address}
                 onChange={(e) => setNewSupplier({...newSupplier, address: e.target.value})}
                 placeholder="العنوان"

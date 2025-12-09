@@ -383,8 +383,8 @@ export function VarianceAlerts() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
-              <label className="text-sm font-medium">Severity</label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <label htmlFor="severity-filter" className="text-sm font-medium">Severity</label>
+              <div id="severity-filter" className="flex flex-wrap gap-2 mt-2">
                 <Button
                   variant={severityFilter === 'ALL' ? 'default' : 'outline'}
                   size="sm"
@@ -421,8 +421,8 @@ export function VarianceAlerts() {
             </div>
             
             <div>
-              <label className="text-sm font-medium">Status</label>
-              <div className="flex flex-wrap gap-2 mt-2">
+              <label htmlFor="status-filter" className="text-sm font-medium">Status</label>
+              <div id="status-filter" className="flex flex-wrap gap-2 mt-2">
                 <Button
                   variant={statusFilter === 'ALL' ? 'default' : 'outline'}
                   size="sm"
@@ -459,9 +459,10 @@ export function VarianceAlerts() {
             </div>
             
             <div className="md:col-span-2">
-              <label className="text-sm font-medium">Search</label>
+              <label htmlFor="variance-search" className="text-sm font-medium">Search</label>
               <div className="mt-2">
                 <input
+                  id="variance-search"
                   type="text"
                   placeholder="Search by MO, item, or stage..."
                   className="w-full px-3 py-2 border rounded-md wardah-glass-card"

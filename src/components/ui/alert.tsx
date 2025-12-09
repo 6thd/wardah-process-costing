@@ -40,12 +40,14 @@ export interface AlertTitleProps extends React.HTMLAttributes<HTMLHeadingElement
 const AlertTitle = React.forwardRef<
   HTMLParagraphElement,
   AlertTitleProps
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <h5
     ref={ref}
     className={cn("mb-1 font-medium leading-none tracking-tight wardah-text-gradient-google", className)}
     {...props}
-  />
+  >
+    {children || '\u00A0'}
+  </h5>
 ))
 AlertTitle.displayName = "AlertTitle"
 

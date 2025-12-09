@@ -153,20 +153,11 @@ export async function convertValuationMethod(
   const currentValue = product.stock_quantity * product.cost_price;
   
   // Create new queue based on method
-  let newQueue: StockBatch[];
-  
-  if (newMethod === 'Weighted Average' || newMethod === 'Moving Average') {
-    // Single batch with average rate
-    newQueue = product.stock_quantity > 0 
-      ? [{ qty: product.stock_quantity, rate: product.cost_price }]
-      : [];
-  } else {
-    // FIFO/LIFO: Convert existing stock into a single batch
-    // Future incoming stock will create new batches
-    newQueue = product.stock_quantity > 0 
-      ? [{ qty: product.stock_quantity, rate: product.cost_price }]
-      : [];
-  }
+  // For all methods, convert existing stock into a single batch
+  // Future incoming stock will create new batches
+  const newQueue: StockBatch[] = product.stock_quantity > 0 
+    ? [{ qty: product.stock_quantity, rate: product.cost_price }]
+    : [];
 
   const updatedProduct: Product = {
     ...product,

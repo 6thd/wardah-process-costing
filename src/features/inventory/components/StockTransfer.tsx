@@ -853,10 +853,21 @@ export default function StockTransferManagement() {
             {transfers.map((transfer) => (
               <div
                 key={transfer.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`عرض تفاصيل نقل المخزون ${transfer.id}`}
                 className="border rounded-lg p-4 hover:bg-muted/30 transition-colors cursor-pointer"
                 onClick={() => {
                   setSelectedTransfer(transfer)
                   setViewMode(true)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setSelectedTransfer(transfer)
+                    setViewMode(true)
+                  }
+                }}
                 }}
               >
                 <div className="flex justify-between items-start">

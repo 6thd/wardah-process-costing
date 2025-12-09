@@ -430,8 +430,12 @@ export function Sidebar() {
       {/* Mobile Sidebar */}
       {sidebarOpen && (
         <div 
+          role="button"
+          tabIndex={0}
+          aria-label="إغلاق القائمة الجانبية"
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300"
           onClick={() => setSidebarOpen(false)}
+          onKeyDown={(e) => e.key === 'Enter' && setSidebarOpen(false)}
         >
           <aside
             className={cn(
@@ -453,6 +457,8 @@ export function Sidebar() {
                   return (
                     <div key={item.key} className="space-y-1">
                       <div
+                        role="menuitem"
+                        tabIndex={0}
                         className={cn(
                           "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group",
                           "hover:bg-accent/50 hover:shadow-sm",

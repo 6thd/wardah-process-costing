@@ -2274,11 +2274,21 @@ function StockAdjustments() {
           <div className="divide-y">
             {adjustments.map((adj) => (
               <div 
-                key={adj.id} 
+                key={adj.id}
+                role="button"
+                tabIndex={0}
+                aria-label={`عرض تفاصيل تسوية المخزون ${adj.id}`}
                 className="p-4 hover:bg-muted/50 cursor-pointer transition-colors"
                 onClick={() => {
                   setSelectedAdjustment(adj)
                   setViewMode(true)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setSelectedAdjustment(adj)
+                    setViewMode(true)
+                  }
                 }}
               >
                 <div className="flex justify-between items-start">

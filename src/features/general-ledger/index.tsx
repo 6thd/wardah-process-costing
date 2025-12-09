@@ -624,11 +624,11 @@ function ChartOfAccounts() {
                 <div className="flex gap-2">
                     <Button onClick={handleExportToExcel} variant="outline" size="sm">
                         <FileDown className="me-2 h-4 w-4"/>
-                        {isRTL ? 'Excel' : 'Excel'}
+                        Excel
                     </Button>
                     <Button onClick={handleExportToPdf} variant="outline" size="sm">
                         <FileDown className="me-2 h-4 w-4"/>
-                        {isRTL ? 'PDF' : 'PDF'}
+                        PDF
                     </Button>
                     <Button onClick={() => handleOpenModal('add')} size="sm">
                         <Plus className="me-2 h-4 w-4"/>

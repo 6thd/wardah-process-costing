@@ -340,6 +340,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
 
         {open && filtered.length > 0 && createPortal(
           <div
+            role="listbox"
             style={{
               position: 'fixed',
               top: `${dropdownPosition.top}px`,
@@ -390,6 +391,8 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
 
         {open && filtered.length === 0 && term && createPortal(
           <div
+            role="status"
+            aria-live="polite"
             style={{
               position: 'fixed',
               top: `${dropdownPosition.top}px`,

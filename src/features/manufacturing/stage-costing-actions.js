@@ -136,7 +136,7 @@ export function registerStageCostingActions() {
       const result = await ProcessCosting.applyLaborTime({
         moId: moId,
         stageId: stageId || null,  // New: Use stageId
-        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
+        stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,  // Old: Fallback
         workCenterId: formData.get('workCenterId'),
         laborHours: laborHours,  // Fixed: use laborHours instead of hours
         hourlyRate: laborRate,
@@ -192,7 +192,7 @@ export function registerStageCostingActions() {
       const result = await ProcessCosting.applyOverhead({
         moId: formData.get('manufacturingOrderId'),
         stageId: stageId || null,  // New: Use stageId
-        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
+        stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,  // Old: Fallback
         workCenterId: formData.get('workCenterId'),
         allocationBase: 'labor_cost',
         baseQty: baseAmount,
@@ -246,7 +246,7 @@ export function registerStageCostingActions() {
       const result = await ProcessCosting.upsertStageCost({
         moId: moId,
         stageId: stageId || null,  // New: Use stageId
-        stageNo: stageNumber ? parseInt(stageNumber) : null,  // Old: Fallback
+        stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,  // Old: Fallback
         workCenterId: workCenterId,
         goodQty: goodQuantity,
         directMaterialCost: Number.parseFloat(formData.get('directMaterialCost')) || 0,

@@ -142,12 +142,14 @@ AlertDialogFooter.displayName = "AlertDialogFooter"
 const AlertDialogTitle = React.forwardRef<
   HTMLHeadingElement,
   React.HTMLAttributes<HTMLHeadingElement>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <h2
     ref={ref}
     className={cn("text-lg font-semibold", className)}
     {...props}
-  />
+  >
+    {children || '\u00A0'}
+  </h2>
 ))
 AlertDialogTitle.displayName = "AlertDialogTitle"
 
