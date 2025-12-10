@@ -12,7 +12,15 @@ export default defineConfig({
       'src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
       'tests/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'
     ],
-    exclude: ['node_modules', 'dist', '.next'],
+        exclude: [
+          'node_modules',
+          '**/node_modules/**',
+          'dist',
+          '.next',
+          '**/proxy-service/node_modules/**',
+          '**/*.config.*',
+          '**/coverage/**'
+        ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],
