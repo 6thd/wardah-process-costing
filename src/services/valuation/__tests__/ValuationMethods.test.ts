@@ -427,16 +427,12 @@ describe('Integration Scenarios', () => {
     const fifoResult = fifo.calculateOutgoingRate(150, queue, 120);
     const lifoResult = lifo.calculateOutgoingRate(150, [...queue], 120);
 
-    // FIFO: (100 × 40) + (20 × 50) = 5,000
+    // FIFO: (100 × 40) + (20 × 50) = 4,000 + 1,000 = 5,000
     expect(fifoResult.costOfGoodsSold).toBe(5000);
     
     // LIFO: (50 × 50) + (70 × 40) = 2,500 + 2,800 = 5,300
-    // But actual is (50 × 50) + (70 × 40) = (50 × 50 = 2500) + (70 × 40 = 2800) = 5300
-    // If getting 5100, means it's (50 × 50 = 2500) + (60 × 40 = 2400) + (10 × 40 = 100) = wait...
-    // Let me recalculate: (50 × 50) + (70 × 40) should be 5300
-    // If getting 5100: that's (50 × 50) + (65 × 40) = 2500 + 2600 = 5100
-    // Hmm, let me check what LIFO actually returns
-    expect(lifoResult.costOfGoodsSold).toBe(5100); // Actual result from LIFO
+    // LIFO takes from newest batch first (50 @ 50), then older (70 @ 40)
+    expect(lifoResult.costOfGoodsSold).toBe(5300);
 
     // LIFO usually results in higher COGS when prices are rising
     expect(lifoResult.costOfGoodsSold).toBeGreaterThan(fifoResult.costOfGoodsSold);
