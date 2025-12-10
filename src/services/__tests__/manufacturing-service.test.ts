@@ -3,7 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError';
+
+// Create mock functions before mocking
+const mockCheckAvailability = vi.fn();
+const mockReserveMaterials = vi.fn();
 
 // Mock dependencies
 vi.mock('@/lib/supabase', () => ({
@@ -13,28 +16,30 @@ vi.mock('@/lib/supabase', () => ({
       getUser: vi.fn(),
     },
   },
-  getEffectiveTenantId: vi.fn(),
+  getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id')),
 }));
 
-vi.mock('./inventory-transaction-service', () => ({
+vi.mock('../inventory-transaction-service', () => ({
   inventoryTransactionService: {
-    checkAvailability: vi.fn(),
-    reserveMaterials: vi.fn(),
+    checkAvailability: mockCheckAvailability,
+    reserveMaterials: mockReserveMaterials,
   },
 }));
 
 describe('Manufacturing Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset mock implementations
+    mockCheckAvailability.mockResolvedValue([]);
+    mockReserveMaterials.mockResolvedValue([]);
   });
 
   describe('create() with materials', () => {
     it('should check availability before creating order', async () => {
       const { inventoryTransactionService } = await import('../inventory-transaction-service');
-      const { manufacturingService } = await import('../supabase-service');
 
       // Mock availability check - all available
-      vi.mocked(inventoryTransactionService.checkAvailability).mockResolvedValue([
+      mockCheckAvailability.mockResolvedValue([
         {
           item_id: 'item-1',
           required: 10,
@@ -45,42 +50,23 @@ describe('Manufacturing Service', () => {
         },
       ]);
 
-      const orderData = {
-        order_number: 'MO-001',
-        product_id: 'product-1',
-        quantity: 100,
-        status: 'draft',
-      };
-
-      // Mock order creation
-      const mockSupabase = {
-        from: vi.fn().mockReturnValue({
-          insert: vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({
-                data: { id: 'mo-1', ...orderData },
-                error: null,
-              }),
-            }),
-          }),
-        }),
-      };
-
       const materials = [
         { item_id: 'item-1', quantity: 10, unit_cost: 5 },
       ];
 
       // Should call checkAvailability
-      await inventoryTransactionService.checkAvailability(materials);
+      const availability = await inventoryTransactionService.checkAvailability(materials);
 
-      expect(inventoryTransactionService.checkAvailability).toHaveBeenCalled();
+      expect(mockCheckAvailability).toHaveBeenCalled();
+      expect(availability).toHaveLength(1);
+      expect(availability[0].sufficient).toBe(true);
     });
 
     it('should throw error when materials are insufficient', async () => {
       const { inventoryTransactionService } = await import('../inventory-transaction-service');
 
       // Mock availability check - insufficient
-      vi.mocked(inventoryTransactionService.checkAvailability).mockResolvedValue([
+      mockCheckAvailability.mockResolvedValue([
         {
           item_id: 'item-1',
           required: 100,
@@ -95,12 +81,7 @@ describe('Manufacturing Service', () => {
         { item_id: 'item-1', quantity: 100, unit_cost: 5 },
       ];
 
-      // Should throw InsufficientInventoryError
-      await expect(
-        inventoryTransactionService.checkAvailability(materials)
-      ).resolves.toBeDefined();
-
-      // The service should check and throw
+      // Should return insufficient availability
       const availability = await inventoryTransactionService.checkAvailability(materials);
       expect(availability[0].sufficient).toBe(false);
     });
@@ -109,7 +90,7 @@ describe('Manufacturing Service', () => {
       const { inventoryTransactionService } = await import('../inventory-transaction-service');
 
       // Mock successful reservation
-      vi.mocked(inventoryTransactionService.reserveMaterials).mockResolvedValue([
+      mockReserveMaterials.mockResolvedValue([
         {
           id: 'res-1',
           org_id: 'org-1',
@@ -137,4 +118,3 @@ describe('Manufacturing Service', () => {
     });
   });
 });
-

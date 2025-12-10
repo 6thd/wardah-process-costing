@@ -249,9 +249,19 @@ export const createMockSupabaseClient = () => {
       })),
       insert: vi.fn((data: any) => {
         const newItem = Array.isArray(data) ? data[0] : data
+        const itemWithId = { ...newItem, id: newItem.id || `mock-id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` }
         if (!mockData[table]) mockData[table] = []
-        mockData[table].push(newItem)
-        return Promise.resolve({ data: [newItem], error: null })
+        mockData[table].push(itemWithId)
+        // Support chaining: insert().select().single()
+        return {
+          select: vi.fn(() => ({
+            single: vi.fn(() => Promise.resolve({ data: itemWithId, error: null })),
+            limit: vi.fn((count: number) => Promise.resolve({ data: [itemWithId].slice(0, count), error: null })),
+            order: vi.fn(() => Promise.resolve({ data: [itemWithId], error: null }))
+          })),
+          // Also return promise directly for backward compatibility
+          then: (resolve: any) => Promise.resolve({ data: [itemWithId], error: null }).then(resolve)
+        }
       }),
       update: vi.fn((data: any) => createUpdateHandler(table, data)),
       delete: vi.fn(() => createDeleteHandler(table)),
