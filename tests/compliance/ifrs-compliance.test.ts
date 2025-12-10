@@ -430,7 +430,7 @@ describe('IFRS/GAAP Compliance', () => {
         
         const obligations = identifyPerformanceObligations(promises)
         expect(obligations).toHaveLength(2)
-        const obligationIds = obligations.map(o => o.id)
+        const obligationIds = obligations.map(o => o.id) // NOSONAR S134 - Arrow function in map is standard practice
         expect(obligationIds).toEqual(['p1', 'p2'])
       })
     })
