@@ -82,6 +82,51 @@ global.sessionStorage = sessionStorageMock as Storage
 // Mock fetch
 global.fetch = vi.fn()
 
+// Mock Supabase (can be overridden in individual tests)
+vi.mock('@/lib/supabase', async () => {
+  const actual = await vi.importActual('@/lib/supabase')
+  return {
+    ...actual,
+    getSupabase: vi.fn(),
+    getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id'))
+  }
+})
+
+// Mock Audit Logger (can be overridden in individual tests)
+vi.mock('@/lib/audit-logger', () => ({
+  logAuditEvent: vi.fn(),
+  getAuditLog: vi.fn(() => Promise.resolve([])),
+  getAuditRecord: vi.fn(() => Promise.resolve(null))
+}))
+
+// Global test helpers
+declare global {
+  var createTestUser: (overrides?: any) => any
+  var createTestGLEntry: (overrides?: any) => any
+}
+
+global.createTestUser = (overrides = {}) => ({
+  id: 'test-user-id',
+  email: 'test@example.com',
+  role: 'accountant',
+  tenantId: 'test-tenant-id',
+  ...overrides
+})
+
+global.createTestGLEntry = (overrides = {}) => ({
+  id: 'test-entry-id',
+  date: '2024-12-01',
+  reference: 'TEST-REF-001',
+  description: 'Test Entry',
+  lines: [
+    { account: '1000', debit: 100, credit: 0 },
+    { account: '4000', debit: 0, credit: 100 }
+  ],
+  status: 'DRAFT',
+  created_by: 'test-user-id',
+  ...overrides
+})
+
 // Mock console methods to reduce noise in tests
 const originalConsole = { ...console }
 global.console = {
