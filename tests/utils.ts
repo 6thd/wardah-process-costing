@@ -186,24 +186,21 @@ export const createMockSupabaseClient = () => {
   const mockData: Record<string, any[]> = {}
   
   // Helper functions to reduce nesting
+  const createQueryResult = (data: any[]) => ({
+    single: vi.fn(() => Promise.resolve({ data: data[0] || null, error: null })),
+    limit: vi.fn((count: number) => Promise.resolve({ data: data.slice(0, count), error: null })),
+    order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
+      Promise.resolve({ data, error: null })
+    )
+  })
+  
   const createEqHandler = (table: string, column: string, value: any) => {
     const filtered = (mockData[table] || []).filter((item: any) => item[column] === value)
-    return {
-      single: vi.fn(() => Promise.resolve({ 
-        data: filtered[0] || null, 
-        error: null 
-      })),
-      limit: vi.fn((count: number) => Promise.resolve({ 
-        data: filtered.slice(0, count), 
-        error: null 
-      })),
-      order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
-        Promise.resolve({ 
-          data: filtered, 
-          error: null 
-        })
-      )
-    }
+    return createQueryResult(filtered)
+  }
+  
+  const createNeqHandler = (table: string) => {
+    return createQueryResult(mockData[table] || [])
   }
   
   const createUpdateHandler = (table: string, data: any) => {
@@ -238,22 +235,7 @@ export const createMockSupabaseClient = () => {
     from: vi.fn((table: string) => ({
       select: vi.fn((columns = '*') => ({
         eq: vi.fn((column: string, value: any) => createEqHandler(table, column, value)),
-        neq: vi.fn((column: string, value: any) => ({
-          single: vi.fn(() => Promise.resolve({ 
-            data: mockData[table]?.[0] || null, 
-            error: null 
-          })),
-          limit: vi.fn((count: number) => Promise.resolve({ 
-            data: (mockData[table] || []).slice(0, count), 
-            error: null 
-          })),
-          order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
-            Promise.resolve({ 
-              data: mockData[table] || [], 
-              error: null 
-            })
-          )
-        })),
+        neq: vi.fn((_column: string, _value: any) => createNeqHandler(table)),
         limit: vi.fn((count: number) => Promise.resolve({ 
           data: (mockData[table] || []).slice(0, count), 
           error: null 
