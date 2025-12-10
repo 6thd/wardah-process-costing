@@ -55,7 +55,7 @@ const mockAuditLogs: AuditLogEntry[] = []
  */
 function createMockAuditLog(input: CreateAuditLogInput): AuditLogEntry {
   const entry: AuditLogEntry = {
-    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `audit-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // NOSONAR S2245 - Math.random is safe here for test ID generation
     action: input.action,
     entity_type: input.entity_type,
     entity_id: input.entity_id || '',
@@ -156,7 +156,7 @@ describe('Audit Trail', () => {
         user_id: 'user-1',
         tenant_id: 'tenant-1',
         metadata: {
-          ip_address: '192.168.1.1',
+          ip_address: '192.168.1.1', // NOSONAR S1313 - Hardcoded IP is safe here for test data
           user_agent: 'Mozilla/5.0'
         }
       })
@@ -171,7 +171,7 @@ describe('Audit Trail', () => {
       })
       
       expect(log.created_at).toBeDefined()
-      expect(log.ip_address).toBe('192.168.1.1')
+      expect(log.ip_address).toBe('192.168.1.1') // NOSONAR S1313 - Hardcoded IP is safe here for test assertion
     })
     
     it('should log all modifications with before/after values', async () => {
@@ -314,7 +314,7 @@ describe('Audit Trail', () => {
         user_id: 'user-1',
         tenant_id: 'tenant-1',
         metadata: {
-          ip_address: '192.168.1.100',
+          ip_address: '192.168.1.100', // NOSONAR S1313 - Hardcoded IP is safe here for test data
           user_agent: 'Mozilla/5.0'
         }
       })
@@ -325,7 +325,7 @@ describe('Audit Trail', () => {
       expect(audit?.who).toBe('user-1') // User ID
       expect(audit?.what).toBe('UPDATE') // Action
       expect(audit?.when).toBeInstanceOf(Date) // Timestamp
-      expect(audit?.where).toBe('192.168.1.100') // IP Address
+      expect(audit?.where).toBe('192.168.1.100') // NOSONAR S1313 - Hardcoded IP is safe here for test assertion
       expect(audit?.data).toMatchObject(changes)
     })
     
@@ -541,11 +541,11 @@ describe('Audit Trail', () => {
         entity_id: 'entry-1',
         new_data: {},
         metadata: {
-          ip_address: '192.168.1.50'
+          ip_address: '192.168.1.50' // NOSONAR S1313 - Hardcoded IP is safe here for test data
         }
       })
       
-      expect(log.ip_address).toBe('192.168.1.50')
+      expect(log.ip_address).toBe('192.168.1.50') // NOSONAR S1313 - Hardcoded IP is safe here for test assertion
     })
     
     it('should track user agent for all changes', () => {

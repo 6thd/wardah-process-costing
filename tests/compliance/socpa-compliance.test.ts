@@ -59,7 +59,7 @@ function generateInvoiceUUID(): string {
   const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
   
   return template.replace(/[xy]/g, (c) => { // NOSONAR S6653 - replaceAll cannot be used with callback function, regex with callback is required
-    const r = Math.trunc(Math.random() * 16)
+    const r = Math.trunc(Math.random() * 16) // NOSONAR S2245 - Math.random is safe here for UUID generation in test context
     const v = c === 'x' ? r : (r & 0x3 | 0x8)
     return chars[v]
   })
