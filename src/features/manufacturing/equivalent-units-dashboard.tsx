@@ -415,7 +415,7 @@ export function EquivalentUnitsDashboard() {
             <div className="text-2xl font-bold">
               {costPerEquivalentUnitData.length > 0 ? 
                 (costPerEquivalentUnitData.reduce((sum, item) => sum + item.costPerEquivalentUnitMaterial, 0) / costPerEquivalentUnitData.length).toFixed(2) : 
-                '0'} // NOSONAR - String value for display
+                '0'}{/* NOSONAR - String value for display */}
             </div>
             <p className="text-xs text-muted-foreground">
               Average across all stages

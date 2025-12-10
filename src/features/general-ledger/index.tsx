@@ -146,7 +146,6 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
   categoryFilter: string,
   showInactiveAccounts: boolean
 }) => {
-    const [isHovered, setIsHovered] = useState(false);
     const isExpanded = expandedNodes.has(account.code);
     const hasChildren = account.children && account.children.length > 0;
 
@@ -203,9 +202,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
     return (
         <div key={account.code}>
             <div
-                className={`flex justify-between items-center transition-all duration-150 group border-b border-border/40 ${
-                    isHovered ? 'bg-accent/50 shadow-sm' : ''
-                } ${
+                className={`flex justify-between items-center transition-all duration-150 group border-b border-border/40 hover:bg-accent/50 hover:shadow-sm ${
                     !account.is_active ? 'opacity-50' : ''
                 } ${
                     level === 0 ? 'font-semibold' : ''
@@ -216,8 +213,6 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                     paddingTop: '10px',
                     paddingBottom: '10px'
                 }}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
             >
                 <div className="flex items-center gap-3 flex-1">
                     <button

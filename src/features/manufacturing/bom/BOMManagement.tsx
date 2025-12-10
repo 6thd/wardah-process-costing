@@ -265,11 +265,14 @@ export function BOMManagement() {
                         {new Date(bom.effective_date).toLocaleDateString('ar-SA')}
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-center gap-2">
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleEdit(bom.id!)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleEdit(bom.id!);
+                            }}
                           >
                             <Edit className="w-4 h-4" />
                           </Button>

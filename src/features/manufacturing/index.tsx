@@ -754,7 +754,7 @@ function ManufacturingOrdersManagement() {
                     </TableCell>
                     <TableCell>{order.quantity ?? 0}</TableCell>
                     <TableCell>
-                      <div className="flex items-center gap-2" onMouseDown={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-2">
                         <Badge variant={getStatusBadgeVariant(order.status)}>
                           {getStatusLabel(order.status, isRTL)}
                         </Badge>
@@ -764,6 +764,11 @@ function ManufacturingOrdersManagement() {
                             handleStatusChange(order.id, value as ManufacturingOrder['status'])
                           }
                           disabled={updateOrderStatus.isPending}
+                          onOpenChange={(open) => {
+                            if (open) {
+                              // Prevent event propagation when select opens
+                            }
+                          }}
                         >
                           <SelectTrigger className="h-8 w-[140px]">
                             <SelectValue />
