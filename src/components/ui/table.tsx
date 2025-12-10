@@ -2,13 +2,12 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-// NOSONAR S5254 - Table component is a wrapper, actual thead/tbody are provided by TableHeader/TableBody components
 const Table = React.forwardRef<
   HTMLTableElement,
   React.HTMLAttributes<HTMLTableElement>
 >(({ className, ...props }, ref) => (
   <div className="relative w-full overflow-auto">
-    <table
+    <table // NOSONAR S5254 - Table component is a wrapper, actual thead/tbody are provided by TableHeader/TableBody components
       ref={ref}
       className={cn("w-full caption-bottom text-sm", className)}
       {...props}

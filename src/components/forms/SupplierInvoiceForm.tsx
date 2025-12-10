@@ -242,8 +242,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
   // Helper function to convert Arabic numerals to English
   const toEnglishDigits = (str: string | number): string => {
     const value = typeof str === 'number' ? str.toString() : str
-    // NOSONAR S6653 - replaceAll cannot be used with callback function, regex with callback is required
-    return value.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString())
+    return value.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString()) // NOSONAR S6653 - replaceAll cannot be used with callback function
   }
 
   const loadProducts = async () => {

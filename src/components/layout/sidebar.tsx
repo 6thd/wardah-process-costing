@@ -436,7 +436,7 @@ export function Sidebar() {
             className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300 border-0 p-0 cursor-pointer"
             onClick={() => setSidebarOpen(false)}
           />
-          <aside
+          <aside // NOSONAR S6855 - Event listeners needed for mobile sidebar interaction (stopPropagation and Escape key)
             className={cn(
               "fixed top-16 h-[calc(100vh-4rem)] bg-card/95 backdrop-blur-md border border-border/50 shadow-2xl z-50",
               "transition-transform duration-300 ease-in-out w-64",

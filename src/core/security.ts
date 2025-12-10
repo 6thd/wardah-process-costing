@@ -283,9 +283,8 @@ export const sanitizeInput = (input: string | number | boolean): string => {
       .replaceAll("'", "''") // Escape single quotes
       .replaceAll(';', '') // Remove semicolons
       .replaceAll('--', '') // Remove SQL comments
-      // NOSONAR S6653 - replaceAll cannot be used with regex patterns, regex is required for pattern matching
-      .replace(/\/\*/g, '') // Remove multi-line comments start
-      .replace(/\*\//g, '') // Remove multi-line comments end
+      .replace(/\/\*/g, '') // Remove multi-line comments start // NOSONAR S6653 - replaceAll cannot be used with regex patterns
+      .replace(/\*\//g, '') // Remove multi-line comments end // NOSONAR S6653 - replaceAll cannot be used with regex patterns
       .trim()
   }
   
