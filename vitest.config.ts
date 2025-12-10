@@ -1,5 +1,6 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react-swc'
+// NOSONAR S6443 - path.resolve is required by Vite config, node:path is already used
 import path from 'node:path'
 
 export default defineConfig({
