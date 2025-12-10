@@ -11,7 +11,9 @@
     "validate-env": "tsx scripts/env/validate-env.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:security": "vitest run tests/security"
+    "test:security": "vitest run tests/security",
+    "lint:check": "tsx scripts/check-linter-errors.ts",
+    "lint:test-files": "tsx scripts/check-linter-errors.ts tests/compliance/*.test.ts tests/audit/*.test.ts tests/controls/*.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.3",
