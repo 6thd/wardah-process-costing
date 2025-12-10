@@ -9,8 +9,7 @@
  * - IFRS 15: Revenue Recognition (5-step model)
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { factories } from '../utils'
+import { describe, it, expect } from 'vitest'
 
 // ===================================================================
 // Helper Functions for IFRS Compliance
@@ -220,7 +219,6 @@ describe('IFRS/GAAP Compliance', () => {
     describe('Abnormal Waste Exclusion', () => {
       it('should exclude abnormal waste from inventory cost', () => {
         const totalCost = 1000
-        const normalWaste = 50 // 5% normal
         const abnormalWaste = 100 // 10% abnormal (exceeds normal)
         
         // Normal waste is included in cost, abnormal is expensed
@@ -230,8 +228,6 @@ describe('IFRS/GAAP Compliance', () => {
       
       it('should include normal waste in inventory cost', () => {
         const totalCost = 1000
-        const normalWaste = 50 // 5% normal (acceptable)
-        const abnormalWaste = 0
         
         // Normal waste is part of production cost
         const inventoryCost = totalCost // Includes normal waste
