@@ -205,15 +205,15 @@ export const createMockSupabaseClient = () => {
               })
             )
           })),
-          single: vi.fn(() => Promise.resolve({ 
+          single: vi.fn(() => Promise.resolve({ // NOSONAR - Required for query builder pattern
             data: mockData[table]?.find((item: any) => item[column] === value) || null, 
             error: null 
           })),
-          limit: vi.fn((count: number) => Promise.resolve({ 
+          limit: vi.fn((count: number) => Promise.resolve({ // NOSONAR - Required for query builder pattern
             data: (mockData[table] || []).filter((item: any) => item[column] === value).slice(0, count), 
             error: null 
           })),
-          order: vi.fn((column: string, options?: { ascending?: boolean }) => 
+          order: vi.fn((column: string, options?: { ascending?: boolean }) => // NOSONAR - Required for query builder pattern
             Promise.resolve({ 
               data: (mockData[table] || []).filter((item: any) => item[column] === value), 
               error: null 
@@ -238,7 +238,7 @@ export const createMockSupabaseClient = () => {
         return Promise.resolve({ data: [newItem], error: null })
       }),
       update: vi.fn((data: any) => ({
-        eq: vi.fn((column: string, value: any) => {
+        eq: vi.fn((column: string, value: any) => { // NOSONAR - Required for query builder pattern
           if (!mockData[table]) mockData[table] = []
           const index = mockData[table].findIndex((item: any) => item[column] === value)
           if (index !== -1) {
@@ -249,7 +249,7 @@ export const createMockSupabaseClient = () => {
         })
       })),
       delete: vi.fn(() => ({
-        eq: vi.fn((column: string, value: any) => {
+        eq: vi.fn((column: string, value: any) => { // NOSONAR - Required for query builder pattern
           if (!mockData[table]) mockData[table] = []
           const index = mockData[table].findIndex((item: any) => item[column] === value)
           if (index !== -1) {
