@@ -253,15 +253,25 @@ export const createMockSupabaseClient = () => {
         if (!mockData[table]) mockData[table] = []
         mockData[table].push(itemWithId)
         // Support chaining: insert().select().single()
-        return {
-          select: vi.fn(() => ({
-            single: vi.fn(() => Promise.resolve({ data: itemWithId, error: null })),
-            limit: vi.fn((count: number) => Promise.resolve({ data: [itemWithId].slice(0, count), error: null })),
-            order: vi.fn(() => Promise.resolve({ data: [itemWithId], error: null }))
-          })),
-          // Also return promise directly for backward compatibility
+        // Extract nested functions to reduce nesting
+        const createSingleResult = () => Promise.resolve({ data: itemWithId, error: null })
+        const createLimitResult = (count: number) => Promise.resolve({ data: [itemWithId].slice(0, count), error: null })
+        const createOrderResult = () => Promise.resolve({ data: [itemWithId], error: null })
+        // NOSONAR S2004 - Nested functions are required for Supabase query builder pattern
+        const createSelectResult = () => ({
+          single: vi.fn(createSingleResult),
+          limit: vi.fn(createLimitResult),
+          order: vi.fn(createOrderResult)
+        })
+        // Create insert result object
+        // NOSONAR S1854 - then method is required for Promise-like behavior in mock (Supabase insert returns promise-like object)
+        // Supabase insert() returns a promise-like object that supports .then() for backward compatibility
+        const insertResult: any = {
+          select: vi.fn(createSelectResult),
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           then: (resolve: any) => Promise.resolve({ data: [itemWithId], error: null }).then(resolve)
         }
+        return insertResult
       }),
       update: vi.fn((data: any) => createUpdateHandler(table, data)),
       delete: vi.fn(() => createDeleteHandler(table)),
