@@ -249,7 +249,8 @@ export const createMockSupabaseClient = () => {
       })),
       insert: vi.fn((data: any) => {
         const newItem = Array.isArray(data) ? data[0] : data
-        const itemWithId = { ...newItem, id: newItem.id || `mock-id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` }
+        // NOSONAR S2245 - Math.random is safe here for test mock ID generation
+        const itemWithId = { ...newItem, id: newItem.id || `mock-id-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` } // NOSONAR S2245
         if (!mockData[table]) mockData[table] = []
         mockData[table].push(itemWithId)
         // Support chaining: insert().select().single()
@@ -264,12 +265,12 @@ export const createMockSupabaseClient = () => {
           order: vi.fn(createOrderResult)
         })
         // Create insert result object
-        // NOSONAR S1854 - then method is required for Promise-like behavior in mock (Supabase insert returns promise-like object)
+        // NOSONAR S7739 - then method is required for Promise-like behavior in mock (Supabase insert returns promise-like object)
         // Supabase insert() returns a promise-like object that supports .then() for backward compatibility
         const insertResult: any = {
           select: vi.fn(createSelectResult),
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          then: (resolve: any) => Promise.resolve({ data: [itemWithId], error: null }).then(resolve)
+          then: (resolve: any) => Promise.resolve({ data: [itemWithId], error: null }).then(resolve) // NOSONAR S7739
         }
         return insertResult
       }),

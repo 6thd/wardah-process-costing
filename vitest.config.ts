@@ -18,6 +18,7 @@ export default defineConfig({
           'dist',
           '.next',
           '**/proxy-service/node_modules/**',
+          '**/proxy-service/dist/**',
           '**/*.config.*',
           '**/coverage/**'
         ],

@@ -7,6 +7,26 @@ import { render } from '@testing-library/react'
 
 import { EquivalentUnitsDashboard } from '../equivalent-units-dashboard'
 
+// Set environment variables for Supabase
+process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'http://localhost:54321'
+process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'test-anon-key'
+
+// Mock Supabase
+vi.mock('@/lib/supabase', () => ({
+  supabase: {
+    from: vi.fn(() => ({
+      select: vi.fn().mockResolvedValue({ data: [], error: null }),
+      insert: vi.fn().mockResolvedValue({ data: [], error: null }),
+      update: vi.fn().mockResolvedValue({ data: [], error: null }),
+      delete: vi.fn().mockResolvedValue({ data: [], error: null }),
+    })),
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+    },
+  },
+  getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id')),
+}))
+
 // Mock the toast hook
 vi.mock('@/components/ui/use-toast', () => ({
   useToast: vi.fn().mockReturnValue({

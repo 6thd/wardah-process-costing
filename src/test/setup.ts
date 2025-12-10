@@ -82,11 +82,26 @@ global.sessionStorage = sessionStorageMock as Storage
 // Mock fetch
 global.fetch = vi.fn()
 
+// Set environment variables for Supabase
+process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'http://localhost:54321'
+process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'test-anon-key'
+
 // Mock Supabase (can be overridden in individual tests)
 vi.mock('@/lib/supabase', async () => {
   const actual = await vi.importActual('@/lib/supabase')
   return {
     ...actual,
+    supabase: {
+      from: vi.fn(() => ({
+        select: vi.fn().mockResolvedValue({ data: [], error: null }),
+        insert: vi.fn().mockResolvedValue({ data: [], error: null }),
+        update: vi.fn().mockResolvedValue({ data: [], error: null }),
+        delete: vi.fn().mockResolvedValue({ data: [], error: null }),
+      })),
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
+      },
+    },
     getSupabase: vi.fn(),
     getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id'))
   }
