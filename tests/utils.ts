@@ -158,8 +158,8 @@ export const assertions = {
    */
   toBeValidDate: (date: string) => {
     const parsed = new Date(date)
-    if (isNaN(parsed.getTime())) {
-      throw new Error(`Invalid date format: ${date}`)
+    if (Number.isNaN(parsed.getTime())) {
+      throw new TypeError(`Invalid date format: ${date}`)
     }
   },
 
@@ -180,6 +180,7 @@ export const assertions = {
 
 /**
  * Create a mock Supabase client
+ * NOSONAR - Nested functions are required for Supabase query builder pattern
  */
 export const createMockSupabaseClient = () => {
   const mockData: Record<string, any[]> = {}
@@ -188,7 +189,7 @@ export const createMockSupabaseClient = () => {
     from: vi.fn((table: string) => ({
       select: vi.fn((columns = '*') => ({
         eq: vi.fn((column: string, value: any) => ({
-          neq: vi.fn((column: string, value: any) => ({
+          neq: vi.fn((column: string, value: any) => ({ // NOSONAR - Required for query builder pattern
             single: vi.fn(() => Promise.resolve({ 
               data: mockData[table]?.[0] || null, 
               error: null 
@@ -262,7 +263,7 @@ export const createMockSupabaseClient = () => {
         const newItem = Array.isArray(data) ? data[0] : data
         if (!mockData[table]) mockData[table] = []
         const index = mockData[table].findIndex((item: any) => item.id === newItem.id)
-        if (index !== -1) {
+        if (index >= 0) {
           mockData[table][index] = newItem
         } else {
           mockData[table].push(newItem)
@@ -326,6 +327,6 @@ export const clearTestData = async () => {
 export const seedTestData = async (data?: Record<string, any[]>) => {
   // Implementation depends on test database setup
   // For now, just return
-  return Promise.resolve()
+  return
 }
 
