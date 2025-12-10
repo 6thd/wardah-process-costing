@@ -287,7 +287,7 @@ describe('Audit Trail', () => {
         user_id: 'user-1',
         tenant_id: 'tenant-1',
         metadata: {
-          ip_address: '192.168.1.1',
+          ip_address: '192.168.1.1', // NOSONAR S1313 - Hardcoded IP is safe here for test data
           reason: 'Financial review'
         }
       })
