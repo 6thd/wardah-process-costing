@@ -16,7 +16,7 @@ import { createMockSupabaseClient } from '../../../tests/utils';
 
 // Mock tenant-client
 vi.mock('@/lib/tenant-client', () => ({
-  getTenantClient: vi.fn(() => createMockSupabaseClient()),
+  getTenantClient: vi.fn(() => Promise.resolve(createMockSupabaseClient())),
 }));
 
 // Mock tenant-validator
@@ -31,10 +31,12 @@ describe('Multi-Tenant Security Integration', () => {
   describe('Tenant-Aware Query Builder', () => {
     it('should automatically filter by tenant', async () => {
       const { getTenantClient } = await import('@/lib/tenant-client');
-      const client = getTenantClient();
+      // getTenantClient may return a Promise, so await it
+      const client = await getTenantClient();
 
       // This should only return records for current tenant
-      const query = client.from('manufacturing_orders');
+      // client.from() may return a Promise, so await it
+      const query = await client.from('manufacturing_orders');
       const { data, error } = await query.select('*').limit(10);
 
       // Should not error (mock returns empty array)
@@ -51,7 +53,8 @@ describe('Multi-Tenant Security Integration', () => {
 
     it('should automatically add tenant ID to inserts', async () => {
       const { getTenantClient } = await import('@/lib/tenant-client');
-      const client = getTenantClient();
+      // getTenantClient may return a Promise, so await it
+      const client = await getTenantClient();
 
       // This is a test - in real scenario, we'd create and then delete
       // For now, just verify the client is tenant-aware
