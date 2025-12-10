@@ -180,42 +180,76 @@ export const assertions = {
 
 /**
  * Create a mock Supabase client
- * NOSONAR - Nested functions are required for Supabase query builder pattern
+ * NOSONAR S134 - Nested functions are required for Supabase query builder pattern
  */
 export const createMockSupabaseClient = () => {
   const mockData: Record<string, any[]> = {}
   
+  // Helper functions to reduce nesting
+  const createEqHandler = (table: string, column: string, value: any) => {
+    const filtered = (mockData[table] || []).filter((item: any) => item[column] === value)
+    return {
+      single: vi.fn(() => Promise.resolve({ 
+        data: filtered[0] || null, 
+        error: null 
+      })),
+      limit: vi.fn((count: number) => Promise.resolve({ 
+        data: filtered.slice(0, count), 
+        error: null 
+      })),
+      order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
+        Promise.resolve({ 
+          data: filtered, 
+          error: null 
+        })
+      )
+    }
+  }
+  
+  const createUpdateHandler = (table: string, data: any) => {
+    return {
+      eq: vi.fn((column: string, value: any) => {
+        if (!mockData[table]) mockData[table] = []
+        const index = mockData[table].findIndex((item: any) => item[column] === value)
+        if (index >= 0) {
+          mockData[table][index] = { ...mockData[table][index], ...data }
+          return Promise.resolve({ data: [mockData[table][index]], error: null })
+        }
+        return Promise.resolve({ data: [], error: null })
+      })
+    }
+  }
+  
+  const createDeleteHandler = (table: string) => {
+    return {
+      eq: vi.fn((column: string, value: any) => {
+        if (!mockData[table]) mockData[table] = []
+        const index = mockData[table].findIndex((item: any) => item[column] === value)
+        if (index >= 0) {
+          mockData[table].splice(index, 1)
+          return Promise.resolve({ data: [], error: null })
+        }
+        return Promise.resolve({ data: [], error: null })
+      })
+    }
+  }
+  
   return {
     from: vi.fn((table: string) => ({
       select: vi.fn((columns = '*') => ({
-        eq: vi.fn((column: string, value: any) => ({
-          neq: vi.fn((column: string, value: any) => ({ // NOSONAR - Required for query builder pattern
-            single: vi.fn(() => Promise.resolve({ 
-              data: mockData[table]?.[0] || null, 
-              error: null 
-            })),
-            limit: vi.fn((count: number) => Promise.resolve({ 
-              data: (mockData[table] || []).slice(0, count), 
-              error: null 
-            })),
-            order: vi.fn((column: string, options?: { ascending?: boolean }) => 
-              Promise.resolve({ 
-                data: mockData[table] || [], 
-                error: null 
-              })
-            )
-          })),
-          single: vi.fn(() => Promise.resolve({ // NOSONAR - Required for query builder pattern
-            data: mockData[table]?.find((item: any) => item[column] === value) || null, 
+        eq: vi.fn((column: string, value: any) => createEqHandler(table, column, value)),
+        neq: vi.fn((column: string, value: any) => ({
+          single: vi.fn(() => Promise.resolve({ 
+            data: mockData[table]?.[0] || null, 
             error: null 
           })),
-          limit: vi.fn((count: number) => Promise.resolve({ // NOSONAR - Required for query builder pattern
-            data: (mockData[table] || []).filter((item: any) => item[column] === value).slice(0, count), 
+          limit: vi.fn((count: number) => Promise.resolve({ 
+            data: (mockData[table] || []).slice(0, count), 
             error: null 
           })),
-          order: vi.fn((column: string, options?: { ascending?: boolean }) => // NOSONAR - Required for query builder pattern
+          order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
             Promise.resolve({ 
-              data: (mockData[table] || []).filter((item: any) => item[column] === value), 
+              data: mockData[table] || [], 
               error: null 
             })
           )
@@ -224,7 +258,7 @@ export const createMockSupabaseClient = () => {
           data: (mockData[table] || []).slice(0, count), 
           error: null 
         })),
-        order: vi.fn((column: string, options?: { ascending?: boolean }) => 
+        order: vi.fn((_column: string, _options?: { ascending?: boolean }) => 
           Promise.resolve({ 
             data: mockData[table] || [], 
             error: null 
@@ -237,30 +271,8 @@ export const createMockSupabaseClient = () => {
         mockData[table].push(newItem)
         return Promise.resolve({ data: [newItem], error: null })
       }),
-      update: vi.fn((data: any) => ({
-        // NOSONAR S134 - Nested functions required for Supabase query builder pattern
-        eq: vi.fn((column: string, value: any) => {
-          if (!mockData[table]) mockData[table] = []
-          const index = mockData[table].findIndex((item: any) => item[column] === value)
-          if (index !== -1) {
-            mockData[table][index] = { ...mockData[table][index], ...data }
-            return Promise.resolve({ data: [mockData[table][index]], error: null })
-          }
-          return Promise.resolve({ data: [], error: null })
-        })
-      })),
-      delete: vi.fn(() => ({
-        // NOSONAR S134 - Nested functions required for Supabase query builder pattern
-        eq: vi.fn((column: string, value: any) => {
-          if (!mockData[table]) mockData[table] = []
-          const index = mockData[table].findIndex((item: any) => item[column] === value)
-          if (index !== -1) {
-            mockData[table].splice(index, 1)
-            return Promise.resolve({ data: [], error: null })
-          }
-          return Promise.resolve({ data: [], error: null })
-        })
-      })),
+      update: vi.fn((data: any) => createUpdateHandler(table, data)),
+      delete: vi.fn(() => createDeleteHandler(table)),
       upsert: vi.fn((data: any) => {
         const newItem = Array.isArray(data) ? data[0] : data
         if (!mockData[table]) mockData[table] = []
