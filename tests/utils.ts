@@ -238,7 +238,8 @@ export const createMockSupabaseClient = () => {
         return Promise.resolve({ data: [newItem], error: null })
       }),
       update: vi.fn((data: any) => ({
-        eq: vi.fn((column: string, value: any) => { // NOSONAR - Required for query builder pattern
+        // NOSONAR S134 - Nested functions required for Supabase query builder pattern
+        eq: vi.fn((column: string, value: any) => {
           if (!mockData[table]) mockData[table] = []
           const index = mockData[table].findIndex((item: any) => item[column] === value)
           if (index !== -1) {
@@ -249,7 +250,8 @@ export const createMockSupabaseClient = () => {
         })
       })),
       delete: vi.fn(() => ({
-        eq: vi.fn((column: string, value: any) => { // NOSONAR - Required for query builder pattern
+        // NOSONAR S134 - Nested functions required for Supabase query builder pattern
+        eq: vi.fn((column: string, value: any) => {
           if (!mockData[table]) mockData[table] = []
           const index = mockData[table].findIndex((item: any) => item[column] === value)
           if (index !== -1) {
