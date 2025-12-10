@@ -52,7 +52,7 @@ async function createGLAccountHelper(input: {
 
   // Create account
   const account = {
-    id: `account-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `account-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // NOSONAR S2245 - Pseudorandom number generator is safe here for test ID generation
     is_active: input.is_active !== false,
     opening_balance: input.opening_balance || 0,
     opening_balance_type: input.opening_balance_type || 'DEBIT',
