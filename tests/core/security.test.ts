@@ -55,7 +55,7 @@ const validateInput = {
     // 2. No nested quantifiers in this pattern
     // 3. Test-only code, not production
     // TODO: Week 4 - Refactor to use safer validation (zod/yup or built-in HTML5 validation)
-    // Issue: Consider replacing regex with library-based validation for better security
+    // See: docs/technical-debt/NOSONAR-TRACKING.md for tracking
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // NOSONAR S5852
     return emailRegex.test(value)
   },
