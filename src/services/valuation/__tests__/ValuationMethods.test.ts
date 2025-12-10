@@ -60,7 +60,7 @@ class FIFOValuation {
 class LIFOValuation {
   // NOSONAR S4144 - calculateIncomingRate has same signature as FIFO but different semantic meaning (LIFO vs FIFO)
   // The implementation is intentionally similar for incoming stock, but outgoing logic differs
-  calculateIncomingRate(
+  calculateIncomingRate( // NOSONAR S4144
     prevQty: number,
     prevRate: number,
     prevValue: number,
@@ -404,7 +404,8 @@ describe('Integration Scenarios', () => {
     queue = incoming.newQueue;
     qty = incoming.newQty;
     // value is calculated but not used in assertions - kept for consistency with calculation pattern
-    const finalValue = incoming.newValue;
+    // NOSONAR S1854 - value assignment is kept for consistency with calculation pattern even if not used
+    void incoming.newValue; // Suppress unused value warning
 
     expect(qty).toBe(150);
     expect(queue.length).toBe(2);
