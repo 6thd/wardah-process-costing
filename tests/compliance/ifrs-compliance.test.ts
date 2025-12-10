@@ -430,7 +430,8 @@ describe('IFRS/GAAP Compliance', () => {
         
         const obligations = identifyPerformanceObligations(promises)
         expect(obligations).toHaveLength(2)
-        expect(obligations.map(o => o.id)).toEqual(['p1', 'p2'])
+        const obligationIds = obligations.map(o => o.id)
+        expect(obligationIds).toEqual(['p1', 'p2'])
       })
     })
     
