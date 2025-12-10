@@ -2064,6 +2064,7 @@ function StockAdjustments() {
                 <span>
                   {adjustmentTypes[selectedAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.icon}
                 </span>
+                {' '}
                 تفاصيل التسوية
               </h3>
               <Button variant="outline" onClick={() => {

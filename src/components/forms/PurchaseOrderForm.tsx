@@ -175,7 +175,9 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
 
       const tokens = trimmed
         .toLowerCase()
-        .replace(/[-–—]+/g, ' ')
+        .replaceAll('-', ' ')
+        .replaceAll('–', ' ')
+        .replaceAll('—', ' ')
         .split(/\s+/)
         .filter((token) => token && token !== '-')
 
@@ -401,7 +403,6 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
               zIndex: 9999,
             }}
             className="mt-1 bg-popover border rounded-md shadow-lg p-4 text-center text-sm text-muted-foreground block"
-            onMouseDown={(event) => event.preventDefault()}
           >
             لا توجد نتائج للبحث: "{term}"
           </output>,

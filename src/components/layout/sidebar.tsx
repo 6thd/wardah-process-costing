@@ -443,6 +443,11 @@ export function Sidebar() {
               isRTL ? "right-0" : "left-0"
             )}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation();
+              }
+            }}
           >
             <ScrollArea className="h-full">
               <nav className={cn("flex flex-col gap-1 p-3", getGlassClasses())}>
@@ -469,6 +474,16 @@ export function Sidebar() {
                             toggleExpanded(item.key)
                           } else {
                             handleItemClick()
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (hasSubItems) {
+                              toggleExpanded(item.key)
+                            } else {
+                              handleItemClick()
+                            }
                           }
                         }}
                       >

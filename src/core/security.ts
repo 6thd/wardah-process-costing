@@ -279,7 +279,7 @@ export const checkRateLimit = (operation: string, maxRequests: number = 100, win
 export const sanitizeInput = (input: string | number | boolean): string => {
   if (typeof input === 'string') {
     // Basic sanitization - in production use a proper library
-    // NOSONAR - Simple string replacements, no regex ReDoS risk
+    // NOSONAR - replaceAll cannot be used with regex patterns, regex is required for pattern matching
     return input
       .replace(/'/g, "''") // Escape single quotes // NOSONAR
       .replace(/;/g, '') // Remove semicolons // NOSONAR
