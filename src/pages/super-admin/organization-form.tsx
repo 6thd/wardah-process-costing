@@ -182,7 +182,7 @@ export function OrganizationForm() {
     if (!isEdit && !form.code) {
       const code = value
         .toUpperCase()
-        // NOSONAR - replaceAll cannot be used with regex patterns, regex is required for pattern matching
+        // NOSONAR S6653 - replaceAll cannot be used with regex patterns, regex is required for pattern matching
         .replace(/[^A-Z0-9]/g, '')
         .slice(0, 10);
       handleChange('code', code);

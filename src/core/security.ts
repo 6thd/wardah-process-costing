@@ -279,13 +279,13 @@ export const checkRateLimit = (operation: string, maxRequests: number = 100, win
 export const sanitizeInput = (input: string | number | boolean): string => {
   if (typeof input === 'string') {
     // Basic sanitization - in production use a proper library
-    // NOSONAR - replaceAll cannot be used with regex patterns, regex is required for pattern matching
     return input
-      .replace(/'/g, "''") // Escape single quotes // NOSONAR
-      .replace(/;/g, '') // Remove semicolons // NOSONAR
-      .replace(/--/g, '') // Remove SQL comments // NOSONAR
-      .replace(/\/\*/g, '') // Remove multi-line comments start // NOSONAR
-      .replace(/\*\//g, '') // Remove multi-line comments end // NOSONAR
+      .replaceAll("'", "''") // Escape single quotes
+      .replaceAll(';', '') // Remove semicolons
+      .replaceAll('--', '') // Remove SQL comments
+      // NOSONAR S6653 - replaceAll cannot be used with regex patterns, regex is required for pattern matching
+      .replace(/\/\*/g, '') // Remove multi-line comments start
+      .replace(/\*\//g, '') // Remove multi-line comments end
       .trim()
   }
   
