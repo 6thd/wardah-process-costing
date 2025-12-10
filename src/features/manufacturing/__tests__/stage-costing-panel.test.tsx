@@ -127,7 +127,7 @@ describe('StageCostingPanel', () => {
   it('should apply labor time when button is clicked', async () => {
     mockProcessCosting.applyLaborTime.mockResolvedValue({
       success: true,
-      data: { totalLaborCost: 150.50 }
+      data: { totalLaborCost: 150.5 } // NOSONAR S7748 - Decimal value required for test accuracy
     })
 
     render(<StageCostingPanel />)

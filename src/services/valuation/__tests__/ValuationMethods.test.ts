@@ -6,7 +6,7 @@
  * are not yet implemented. Once implemented, update imports to use actual classes.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // Mock types
 export interface StockBatch {
@@ -58,6 +58,8 @@ class FIFOValuation {
 }
 
 class LIFOValuation {
+  // NOSONAR S4144 - calculateIncomingRate has same signature as FIFO but different semantic meaning (LIFO vs FIFO)
+  // The implementation is intentionally similar for incoming stock, but outgoing logic differs
   calculateIncomingRate(
     prevQty: number,
     prevRate: number,
@@ -401,7 +403,8 @@ describe('Integration Scenarios', () => {
     incoming = fifo.calculateIncomingRate(qty, 0, value, queue, 50, 55);
     queue = incoming.newQueue;
     qty = incoming.newQty;
-    value = incoming.newValue;
+    // value is calculated but not used in assertions - kept for consistency with calculation pattern
+    const finalValue = incoming.newValue;
 
     expect(qty).toBe(150);
     expect(queue.length).toBe(2);

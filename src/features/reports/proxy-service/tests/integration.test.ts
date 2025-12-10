@@ -4,7 +4,6 @@
  */
 
 import { describe, it, expect, vi, beforeAll } from 'vitest';
-import axios from 'axios';
 
 // Mock env module
 vi.mock('../env', () => ({
@@ -29,18 +28,4 @@ describe('Proxy Service Integration Tests', () => {
     // Skip them in automated test runs
     expect(true).toBe(true);
   });
-
-  // Uncomment and run manually when proxy service is running:
-  /*
-  it('should test health endpoint', async () => {
-    const API_BASE_URL = `http://localhost:3001`;
-    try {
-      const response = await axios.get(`${API_BASE_URL}/api/test/health`);
-      expect(response.status).toBe(200);
-    } catch (error) {
-      // Service not running - skip test
-      expect(true).toBe(true);
-    }
-  });
-  */
 });
