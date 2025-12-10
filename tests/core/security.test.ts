@@ -50,8 +50,13 @@ const validateInput = {
   
   email: (value: string): boolean => {
     if (!value || value.length > 254) return false
-    // NOSONAR S5852 - Email regex is safe here: length is checked (max 254 chars), no nested quantifiers, used only in tests
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // NOSONAR
+    // NOSONAR S5852 - Email regex is safe here because:
+    // 1. Length is checked before regex (max 254 chars prevents ReDoS)
+    // 2. No nested quantifiers in this pattern
+    // 3. Test-only code, not production
+    // TODO: Week 4 - Refactor to use safer validation (zod/yup or built-in HTML5 validation)
+    // Issue: Consider replacing regex with library-based validation for better security
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // NOSONAR S5852
     return emailRegex.test(value)
   },
   
