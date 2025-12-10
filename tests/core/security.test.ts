@@ -54,7 +54,7 @@ const validateInput = {
     // 1. Length is checked before regex (max 254 chars prevents ReDoS)
     // 2. No nested quantifiers in this pattern
     // 3. Test-only code, not production
-    // TODO: Week 4 - Refactor to use safer validation (zod/yup or built-in HTML5 validation)
+    // TODO: Week 4 - Refactor to use safer validation (zod/yup or built-in HTML5 validation) // NOSONAR S1135 - Task tracked in docs/technical-debt/NOSONAR-TRACKING.md
     // See: docs/technical-debt/NOSONAR-TRACKING.md for tracking
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/ // NOSONAR S5852
     return emailRegex.test(value)
