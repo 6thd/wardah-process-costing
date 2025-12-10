@@ -140,34 +140,34 @@ describe('Performance Regression Tests', () => {
   });
 
   describe('Performance Report', () => {
+    // Helper function to find matching baseline (extracted to reduce nesting)
+    const findBaseline = (avgValue: number): number => {
+      return Object.values(PERFORMANCE_BASELINES).find(
+        b => Math.abs(avgValue - b) < b * 0.5
+      ) || 0;
+    };
+    
+    // Process each report entry (extracted to reduce nesting)
+    // NOSONAR S2004 - Nested function is necessary for code organization in test utilities
+    const processReportEntry = (label: string, stats: any) => {
+      // Extract numeric value from stats.avg (format: "123.45ms")
+      const avgValue = Number.parseFloat(stats.avg.replace('ms', ''))
+      const baseline = findBaseline(avgValue);
+      
+      const status = avgValue < baseline * TOLERANCE ? '✅' : '⚠️';
+      
+      console.log(`${status} ${label}:`);
+      console.log(`   Avg: ${stats.avg}`);
+      console.log(`   Min: ${stats.min}`);
+      console.log(`   Max: ${stats.max}`);
+      console.log(`   Count: ${stats.count}`);
+    };
+    
     it('should generate performance report', () => {
       const report = PerformanceMonitor.getReport();
       
       console.log('\n📊 Performance Report:');
       console.log('═══════════════════════════════════════');
-      
-      // Helper function to find matching baseline
-      const findBaseline = (avgValue: number): number => {
-        return Object.values(PERFORMANCE_BASELINES).find(
-          b => Math.abs(avgValue - b) < b * 0.5
-        ) || 0;
-      };
-      
-      // Process each report entry - extracted to reduce nesting
-      // NOSONAR S2004 - Nested function is necessary for code organization in test utilities
-      const processReportEntry = (label: string, stats: any) => {
-        // Extract numeric value from stats.avg (format: "123.45ms")
-        const avgValue = Number.parseFloat(stats.avg.replace('ms', ''))
-        const baseline = findBaseline(avgValue);
-        
-        const status = avgValue < baseline * TOLERANCE ? '✅' : '⚠️';
-        
-        console.log(`${status} ${label}:`);
-        console.log(`   Avg: ${stats.avg}`);
-        console.log(`   Min: ${stats.min}`);
-        console.log(`   Max: ${stats.max}`);
-        console.log(`   Count: ${stats.count}`);
-      };
       
       Object.entries(report).forEach(([label, stats]: [string, any]) => {
         processReportEntry(label, stats);
