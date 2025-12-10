@@ -686,7 +686,7 @@ function ItemsManagement() {
                 <Button 
                   variant="outline" 
                   size="sm"
-                  onClick={() => window.print()}
+                  onClick={() => globalThis.window.print()}
                 >
                   🖨️ طباعة
                 </Button>

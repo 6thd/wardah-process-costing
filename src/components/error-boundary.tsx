@@ -29,8 +29,8 @@ export class ErrorBoundary extends Component<Props, State> {
     ErrorHandler.handle(error)
     
     // Send to monitoring (if available)
-    if (typeof window !== 'undefined' && (window as any).Sentry) {
-      const Sentry = (window as any).Sentry
+    if (typeof globalThis.window !== 'undefined' && (globalThis.window as any).Sentry) {
+      const Sentry = (globalThis.window as any).Sentry
       Sentry.captureException(error, {
         contexts: {
           react: {
@@ -53,7 +53,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </p>
             <div className="space-y-3">
               <Button 
-                onClick={() => window.location.reload()}
+                onClick={() => globalThis.window.location.reload()}
                 className="w-full"
               >
                 تحديث الصفحة

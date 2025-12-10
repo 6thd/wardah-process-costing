@@ -294,7 +294,7 @@ const GeminiDashboard: React.FC = () => {
           <p>{error}</p>
           <button 
             className="retry-button"
-            onClick={() => window.location.reload()}
+            onClick={() => globalThis.window.location.reload()}
           >
             إعادة المحاولة
           </button>

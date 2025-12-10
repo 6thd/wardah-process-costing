@@ -55,7 +55,7 @@ export function EnhancedGeminiDashboard() {
             kpis,
             breakEven,
             profitLoss
-          }, window.location.origin);
+          }, globalThis.window.location.origin);
         }
 
         setMetrics({
@@ -97,7 +97,7 @@ export function EnhancedGeminiDashboard() {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Verify message is from same origin
-      if (event.origin !== window.location.origin) {
+      if (event.origin !== globalThis.window.location.origin) {
         console.warn('Ignoring message from unauthorized origin:', event.origin);
         return;
       }
@@ -107,8 +107,8 @@ export function EnhancedGeminiDashboard() {
       }
     };
 
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    globalThis.window.addEventListener('message', handleMessage);
+    return () => globalThis.window.removeEventListener('message', handleMessage);
   }, []);
 
   return (

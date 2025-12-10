@@ -74,7 +74,7 @@ export function OrganizationSelector() {
                   setCurrentOrgId(userOrg.org_id);
                   setOpen(false);
                   // Reload the page to apply new org context
-                  window.location.reload();
+                  globalThis.window.location.reload();
                 }}
                 className="cursor-pointer"
               >

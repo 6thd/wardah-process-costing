@@ -3,8 +3,8 @@ import { DashboardData, ChatMessage } from './types';
 
 // تهيئة الجسيمات
 export const initializeParticles = () => {
-  if (typeof window !== 'undefined' && (window as any).particlesJS) {
-    (window as any).particlesJS('particles-js', {
+  if (typeof globalThis.window !== 'undefined' && (globalThis.window as any).particlesJS) {
+    (globalThis.window as any).particlesJS('particles-js', {
       particles: {
         number: {
           value: 80,
