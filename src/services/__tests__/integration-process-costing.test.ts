@@ -24,35 +24,35 @@ vi.mock('@/lib/config', () => ({
   }))
 }))
 
-// Mock Supabase SECOND - Create a chainable builder pattern with ALL methods
+// Mock Supabase SECOND - Create REAL chainable mock using Proxy
 vi.mock('@/lib/supabase', () => {
-  // Create a function that returns a fully chainable mock supporting ALL Supabase methods
-  const createChainableMock = (): any => {
-    const chain: any = {
-      from: vi.fn(() => chain),
-      select: vi.fn(() => chain),
-      insert: vi.fn(() => chain),
-      update: vi.fn(() => chain),
-      upsert: vi.fn(() => chain),
-      delete: vi.fn(() => chain),
-      eq: vi.fn(() => chain),
-      neq: vi.fn(() => chain),
-      gt: vi.fn(() => chain),
-      gte: vi.fn(() => chain),
-      lt: vi.fn(() => chain),
-      lte: vi.fn(() => chain),
-      in: vi.fn(() => chain),
-      limit: vi.fn(() => chain),
-      order: vi.fn(() => chain),
-      range: vi.fn(() => chain),
-      single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-      maybeSingle: vi.fn(() => Promise.resolve({ data: null, error: null }))
+  // Use Proxy to create truly chainable mock that returns itself on every call
+  const mockChainHandler: ProxyHandler<any> = {
+    get(target, prop) {
+      // Terminal methods that return promises
+      if (prop === 'single') {
+        return vi.fn(() => Promise.resolve({ 
+          data: { id: 'mock-id', total_cost: 500, order_sequence: 10 }, 
+          error: null 
+        }))
+      }
+      if (prop === 'maybeSingle') {
+        return vi.fn(() => Promise.resolve({ data: [], error: null }))
+      }
+      
+      // All other methods return the proxy itself for chaining
+      if (typeof prop === 'string') {
+        return vi.fn(() => target)
+      }
+      
+      return undefined
     }
-    return chain
   }
   
+  const mockSupabaseProxy = new Proxy({}, mockChainHandler)
+  
   return {
-    supabase: createChainableMock()
+    supabase: mockSupabaseProxy
   }
 })
 
