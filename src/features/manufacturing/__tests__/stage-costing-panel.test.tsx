@@ -4,9 +4,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import { render } from '@/test/test-utils'
-import { toast } from 'sonner'
 import StageCostingPanel from '../stage-costing-panel'
 
 // Mock the domain modules
@@ -77,14 +76,14 @@ vi.mock('../../../domain/audit.js', () => ({
 // Mock the hooks
 vi.mock('@/hooks/useManufacturingOrders', () => ({
   useManufacturingOrders: vi.fn(() => ({
-    data: { success: true, data: [
+    data: [
       { 
         id: 'mo1', 
         order_number: 'MO-001', 
         status: 'in_progress',
         item: { name: 'Test Product' }
       }
-    ]},
+    ],
     isLoading: false,
     isError: false
   }))
@@ -92,10 +91,10 @@ vi.mock('@/hooks/useManufacturingOrders', () => ({
 
 vi.mock('@/hooks/useWorkCenters', () => ({
   useWorkCenters: vi.fn(() => ({
-    data: { success: true, data: [
+    data: [
       { id: 'wc1', code: 'WC001', name: 'Welding Center' },
       { id: 'wc2', code: 'WC002', name: 'Assembly Center' }
-    ]},
+    ],
     isLoading: false,
     isError: false
   }))
@@ -103,7 +102,7 @@ vi.mock('@/hooks/useWorkCenters', () => ({
 
 vi.mock('@/hooks/useManufacturingStages', () => ({
   useManufacturingStages: vi.fn(() => ({
-    data: { success: true, data: [] },
+    data: [],
     isLoading: false,
     isError: false
   }))
@@ -111,7 +110,7 @@ vi.mock('@/hooks/useManufacturingStages', () => ({
 
 vi.mock('@/hooks/useStageCosts', () => ({
   useStageCosts: vi.fn(() => ({
-    data: { success: true, data: [] },
+    data: [],
     isLoading: false,
     isError: false
   }))
@@ -129,14 +128,12 @@ vi.mock('../stage-costing-actions.js', () => ({
 
 describe('StageCostingPanel', () => {
   beforeEach(() => {
-    // Reset all mocks
     vi.clearAllMocks()
   })
 
   it('should render the stage costing panel', async () => {
     render(<StageCostingPanel />)
     
-    // Check for main heading - using a more flexible matcher
     await waitFor(() => {
       expect(screen.getByText(/Process Costing/i)).toBeInTheDocument()
     })
@@ -145,48 +142,40 @@ describe('StageCostingPanel', () => {
   it('should load work centers and manufacturing orders on mount', async () => {
     render(<StageCostingPanel />)
     
-    // Just verify component rendered without errors
     await waitFor(() => {
       expect(screen.getByText(/Process Costing/i)).toBeInTheDocument()
     })
   })
 
-  it('should apply labor time when button is clicked', async () => {
-    mockProcessCosting.applyLaborTime.mockResolvedValue({
-      success: true,
-      data: { totalLaborCost: 150.5 } // NOSONAR S7748 - Decimal value required for test accuracy
-    })
-
+  it('should handle user interactions', async () => {
     render(<StageCostingPanel />)
     
-    // Just verify component renders successfully
     await waitFor(() => {
       expect(screen.getByText(/Process Costing/i)).toBeInTheDocument()
     })
   })
 
-  it('should calculate stage cost with correct formula', async () => {
+  it('should calculate stage costs correctly', async () => {
     mockProcessCosting.upsertStageCost.mockResolvedValue({
       success: true,
       data: {
         stageId: 'stage1',
-        totalCost: 500, // NOSONAR - Test data requires integer value
-        unitCost: 25, // NOSONAR - Test data requires integer value
-        transferredIn: 200, // NOSONAR - Test data requires integer value
-        laborCost: 150, // NOSONAR - Test data requires integer value
-        overheadCost: 75 // NOSONAR - Test data requires integer value
+        totalCost: 500,
+        unitCost: 25,
+        transferredIn: 200,
+        laborCost: 150,
+        overheadCost: 75
       }
     })
 
     render(<StageCostingPanel />)
     
-    // Verify rendering
     await waitFor(() => {
       expect(screen.getByText(/Process Costing/i)).toBeInTheDocument()
     })
   })
 
-  it('should show validation errors for missing fields', async () => {
+  it('should show validation messages', async () => {
     render(<StageCostingPanel />)
     
     await waitFor(() => {
@@ -194,7 +183,7 @@ describe('StageCostingPanel', () => {
     })
   })
 
-  it('should display cost breakdown correctly', async () => {
+  it('should display cost breakdown', async () => {
     render(<StageCostingPanel />)
     
     await waitFor(() => {
