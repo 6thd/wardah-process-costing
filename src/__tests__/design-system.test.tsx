@@ -1,6 +1,6 @@
 // Test to verify Wardah UI Design System implementation across components
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '@/test/test-utils';
 import { describe, it, expect } from 'vitest';
 import { WardahThemeProvider } from '@/components/wardah-theme-provider';
 import { getGlassClasses, getGradientTextClasses } from '@/lib/wardah-ui-utils';

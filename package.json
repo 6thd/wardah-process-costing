@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit",
     "validate-env": "tsx scripts/env/validate-env.ts",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
+    "test:coverage": "vitest run --coverage --coverage.reportOnFailure",
     "test:security": "vitest run tests/security",
     "lint:check": "node --loader ts-node/esm scripts/check-linter-errors.ts",
     "lint:test-files": "node --loader ts-node/esm scripts/check-linter-errors.ts tests/compliance/*.test.ts tests/audit/*.test.ts tests/controls/*.test.ts"

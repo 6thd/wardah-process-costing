@@ -6,6 +6,22 @@
 import { beforeAll, afterEach, afterAll, vi } from 'vitest'
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom'
+import { QueryClient } from '@tanstack/react-query'
+
+// Create a new QueryClient for each test
+export function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: {
+        retry: false,
+        gcTime: 0,
+      },
+      mutations: {
+        retry: false,
+      },
+    },
+  })
+}
 
 // Mock IntersectionObserver
 global.IntersectionObserver = class IntersectionObserver {
@@ -101,6 +117,11 @@ vi.mock('@/lib/supabase', async () => {
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
       },
+      channel: vi.fn(() => ({
+        on: vi.fn().mockReturnThis(),
+        subscribe: vi.fn().mockResolvedValue({ status: 'subscribed' }),
+        unsubscribe: vi.fn().mockResolvedValue({ status: 'unsubscribed' }),
+      })),
     },
     getSupabase: vi.fn(),
     getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id'))

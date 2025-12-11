@@ -1,7 +1,7 @@
 // Floating Animation Tests
 // This file tests the implementation of the floating animation across components
 
-import { render, screen } from '@testing-library/react';
+import { render, screen } from '@/test/test-utils';
 import { describe, it, expect } from 'vitest';
 import { DesignSystemDemo } from '@/components/design-system-demo';
 

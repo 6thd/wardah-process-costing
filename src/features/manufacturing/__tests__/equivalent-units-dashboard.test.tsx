@@ -3,7 +3,7 @@
  */
 
 import { describe, it, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { render } from '@/test/test-utils'
 
 import { EquivalentUnitsDashboard } from '../equivalent-units-dashboard'
 

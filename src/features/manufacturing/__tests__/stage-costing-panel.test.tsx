@@ -4,7 +4,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { render } from '@/test/test-utils'
 import { toast } from 'sonner'
 import StageCostingPanel from '../stage-costing-panel'
 
@@ -30,7 +31,7 @@ const mockAudit = {
 process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'http://localhost:54321'
 process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'test-anon-key'
 
-// Mock Supabase
+// Mock Supabase with realtime channel support
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
@@ -42,6 +43,12 @@ vi.mock('@/lib/supabase', () => ({
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
     },
+    channel: vi.fn(() => ({
+      on: vi.fn().mockReturnThis(),
+      subscribe: vi.fn().mockResolvedValue({ status: 'subscribed' }),
+      unsubscribe: vi.fn().mockResolvedValue({ status: 'unsubscribed' }),
+    })),
+    removeChannel: vi.fn().mockResolvedValue({}),
   },
   getEffectiveTenantId: vi.fn(() => Promise.resolve('test-tenant-id')),
 }))
