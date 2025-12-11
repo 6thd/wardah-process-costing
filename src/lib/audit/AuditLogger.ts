@@ -41,7 +41,7 @@ class AuditLogger {
 
     // Get IP address, user agent, and session ID
     const ip_address = typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined'
-      ? await this.getClientIP() 
+      ? await this.getClientIP()
       : undefined;
     
     const user_agent = this.getUserAgent();
@@ -107,7 +107,7 @@ class AuditLogger {
           } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
             const array = new Uint8Array(9);
             crypto.getRandomValues(array);
-            const random = Array.from(array, byte => byte.toString(36)).join('').substr(0, 9);
+            const random = Array.from(array, byte => byte.toString(36)).join('').slice(0, 9);
             sessionId = `session_${Date.now()}_${random}`;
           } else {
             // Fallback - Use timestamp only (not secure, but better than Math.random)

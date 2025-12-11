@@ -1,18 +1,30 @@
-# 📊 خطة Test Coverage الشاملة - Wardah ERP (النسخة النهائية)
+# 📊 خطة Test Coverage الشاملة - Wardah ERP (تحديث ديسمبر 2025)
 
 ## 📋 ملخص تنفيذي
 
-**الهدف النهائي**: الوصول إلى **85%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
+**الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي**: 
+**الوضع الحالي** (تحديث: 11 ديسمبر 2025): 
 
-- Coverage: **0.0%** (مطلوب: ≥ 80.0%)
+- Coverage: **تم تفعيله - في انتظار نتائج SonarCloud** (مطلوب: ≥ 80.0%)
+- ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
+- ✅ Coverage Generation: **مكتمل** (717KB lcov report)
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: 19 ملف (أساسية فقط)
+- Existing Tests: **24 ملف** (296 test, 290 passing ✅)
+- Test Success Rate: **98%** (290/296)
+
+**آخر التحديثات**:
+- ✅ إنشاء `test-utils.tsx` مع QueryClientProvider wrapper
+- ✅ إصلاح Supabase mock لدعم realtime channels
+- ✅ تحديث 6 ملفات اختبار لاستخدام المرافق الجديدة
+- ✅ تفعيل `--coverage.reportOnFailure` لتوليد التقارير حتى مع فشل بعض الاختبارات
+- ⏳ 6 اختبارات متبقية بحاجة إصلاح في [`stage-costing-panel.test.tsx`](src/features/manufacturing/__tests__/stage-costing-panel.test.tsx )
+- ⏳ انتظار تحليل SonarCloud للـ coverage الجديد
 
 **المدة المتوقعة**: **5 أسابيع** (بدلاً من 4)
 
+- ✅ **Week 0**: Test Infrastructure Setup (مكتمل)
 - **Week 0.5**: Foundation & Compliance (5-6 أيام)
 - **Week 1-2**: Core + Business Logic
 - **Week 3**: Integration & Reports
@@ -22,6 +34,47 @@
 **الهدف المرن**: **75-85% Coverage** (Quality over Quantity)
 
 **الأولوية**: 🔴 **حرجة جداً**
+
+---
+
+## ✅ التقدم المحرز (Week 0 - مكتمل)
+
+### البنية التحتية المكتملة:
+
+1. **Test Utilities** ([`src/test/test-utils.tsx`](src/test/test-utils.tsx ))
+   - `renderWithProviders()` - wrapper مع QueryClientProvider
+   - `AllTheProviders` - component للـ testing context
+   - Re-export كل utilities من `@testing-library/react`
+
+2. **Enhanced Test Setup** ([`src/test/setup.ts`](src/test/setup.ts ))
+   - `createTestQueryClient()` - factory function للـ QueryClient
+   - Supabase mock محسّن مع دعم `.channel()` للـ realtime
+   - Global mocks: IntersectionObserver, ResizeObserver, matchMedia
+   - localStorage/sessionStorage mocks
+   - Console mocks لتقليل noise
+
+3. **Vitest Configuration** ([`vitest.config.ts`](vitest.config.ts ))
+   - Coverage provider: v8
+   - Reporters: text, json, html, lcov
+   - Coverage للكل: `all: true`
+   - استثناء: tests, config files, d.ts files
+   - `passWithNoTests: true`
+
+4. **Package Scripts** ([`package.json`](package.json ))
+   - `test:coverage` مع `--coverage.reportOnFailure`
+   - Coverage يتم توليده حتى مع فشل الاختبارات
+
+5. **GitHub Actions** ([`.github/workflows/sonarqube.yml`](.github/workflows/sonarqube.yml ))
+   - Workflow يشغّل coverage تلقائياً
+   - يرسل النتائج لـ SonarCloud
+
+### الاختبارات المصلحة:
+
+- ✅ [`src/App.test.tsx`](src/App.test.tsx )
+- ✅ [`src/__tests__/design-system.test.tsx`](src/__tests__/design-system.test.tsx )
+- ✅ [`src/__tests__/floating-animation.test.tsx`](src/__tests__/floating-animation.test.tsx )
+- ✅ [`src/features/manufacturing/__tests__/equivalent-units-dashboard.test.tsx`](src/features/manufacturing/__tests__/equivalent-units-dashboard.test.tsx )
+- ⏳ [`src/features/manufacturing/__tests__/stage-costing-panel.test.tsx`](src/features/manufacturing/__tests__/stage-costing-panel.test.tsx ) (6 tests بحاجة إصلاح)
 
 ---
 
