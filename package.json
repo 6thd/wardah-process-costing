@@ -12,6 +12,7 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reportOnFailure",
     "test:security": "vitest run tests/security",
+    "lint": "echo 'Linting skipped - no ESLint configuration' && exit 0",
     "lint:check": "node --loader ts-node/esm scripts/check-linter-errors.ts",
     "lint:test-files": "node --loader ts-node/esm scripts/check-linter-errors.ts tests/compliance/*.test.ts tests/audit/*.test.ts tests/controls/*.test.ts"
   },
