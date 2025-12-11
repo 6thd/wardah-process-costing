@@ -23,7 +23,6 @@ vi.mock('@/services/inventory-transaction-service', () => ({
 }));
 
 describe('Inventory Transactions Integration', () => {
-  const testOrgId = '00000000-0000-0000-0000-000000000001';
   let testItemId: string;
   let testMoId: string;
 

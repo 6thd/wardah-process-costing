@@ -5,14 +5,12 @@
  * Ensures all critical operations are logged for compliance and security.
  */
 
-import { supabase } from '../supabase';
-import { getEffectiveTenantId } from '../supabase';
+import { supabase, getEffectiveTenantId } from '../supabase';
 import type {
   AuditLogEntry,
   AuditLogFilter,
   AuditLogResult,
   CreateAuditLogInput,
-  AuditAction,
   AuditEntityType,
 } from './audit-types';
 
@@ -42,7 +40,7 @@ class AuditLogger {
     }
 
     // Get IP address, user agent, and session ID
-    const ip_address = typeof window !== 'undefined' 
+    const ip_address = typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined'
       ? await this.getClientIP() 
       : undefined;
     
@@ -64,7 +62,7 @@ class AuditLogger {
   private async getClientIP(): Promise<string | undefined> {
     try {
       // In browser context, try to get from request headers if available
-      if (typeof window !== 'undefined') {
+      if (typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined') {
         // For client-side, we can use a service or get from request context
         // In production with server-side rendering, this should come from request headers
         try {
@@ -86,8 +84,8 @@ class AuditLogger {
    * Get user agent from browser
    */
   private getUserAgent(): string | undefined {
-    if (typeof window !== 'undefined') {
-      return window.navigator.userAgent;
+    if (typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined') {
+      return globalThis.window.navigator.userAgent;
     }
     return undefined;
   }
@@ -98,10 +96,10 @@ class AuditLogger {
   private getSessionId(): string | undefined {
     // In a real implementation, this would come from session storage or cookies
     // For now, we'll use a simple approach
-    if (typeof window !== 'undefined') {
+    if (typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined') {
       try {
         // Try to get from sessionStorage or generate a session ID
-        let sessionId = sessionStorage.getItem('session_id');
+        let sessionId = globalThis.window.sessionStorage.getItem('session_id');
         if (!sessionId) {
           // Use crypto API for secure session ID
           if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -115,7 +113,7 @@ class AuditLogger {
             // Fallback - Use timestamp only (not secure, but better than Math.random)
             sessionId = `session_${Date.now()}_${performance.now()}`;
           }
-          sessionStorage.setItem('session_id', sessionId);
+            globalThis.window.sessionStorage.setItem('session_id', sessionId);
         }
         return sessionId;
       } catch {
