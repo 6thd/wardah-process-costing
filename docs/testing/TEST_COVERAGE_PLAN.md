@@ -4,23 +4,30 @@
 
 **الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي** (تحديث: 11 ديسمبر 2025): 
+**الوضع الحالي** (تحديث: 12 ديسمبر 2025): 
 
-- Coverage: **تم تفعيله - في انتظار نتائج SonarCloud** (مطلوب: ≥ 80.0%)
+- Coverage: **2.39%** (مطلوب: ≥ 80.0% للكود الجديد)
 - ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
-- ✅ Coverage Generation: **مكتمل** (717KB lcov report)
+- ✅ Coverage Generation: **مكتمل** (lcov reports)
+- ✅ **Integration Tests Strategy**: **بدأ التنفيذ** ✨
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: **24 ملف** (296 test, 290 passing ✅)
-- Test Success Rate: **98%** (290/296)
+- Existing Tests: **27 ملف** (407 test, 407 passing ✅)
+- Test Success Rate: **100%** (407/407)
 
 **آخر التحديثات**:
 - ✅ إنشاء `test-utils.tsx` مع QueryClientProvider wrapper
 - ✅ إصلاح Supabase mock لدعم realtime channels
 - ✅ تحديث 6 ملفات اختبار لاستخدام المرافق الجديدة
 - ✅ تفعيل `--coverage.reportOnFailure` لتوليد التقارير حتى مع فشل بعض الاختبارات
-- ⏳ 6 اختبارات متبقية بحاجة إصلاح في [`stage-costing-panel.test.tsx`](src/features/manufacturing/__tests__/stage-costing-panel.test.tsx )
-- ⏳ انتظار تحليل SonarCloud للـ coverage الجديد
+- ✅ إضافة اختبارات الامتثال: IAS 2 (23 tests), IAS 16 (29 tests), Audit Trail (21 tests), Internal Controls (28 tests)
+- ✅ تنظيف الملفات المكررة: حذف 29 اختبار قديم، الإبقاء على 365 اختبار
+- ✅ **تطبيق استراتيجية Integration Tests الجديدة** ✨
+  - إنشاء [`src/services/__tests__/integration-inventory.test.ts`](src/services/__tests__/integration-inventory.test.ts) (42 tests ✅)
+  - اختبار **الكود الحقيقي** من `src/core/utils.js` (بدلاً من mocks)
+  - تغطية: AVCO calculations, formatting, process costing, validations
+  - زيادة Coverage من 0% → **2.39%**
+- ✅ جميع الاختبارات ناجحة: **407/407 (100%)**
 
 **المدة المتوقعة**: **5 أسابيع** (بدلاً من 4)
 
@@ -349,6 +356,178 @@ describe('Internal Controls', () => {
 ```
 
 **Coverage المتوقع**: 12% (أساس قوي)
+
+---
+
+---
+
+## 🚀 استراتيجية Integration Tests الجديدة (ديسمبر 2025)
+
+### 📌 المشكلة التي تم اكتشافها
+
+بعد إضافة **101 اختبار امتثال** (IAS 2, IAS 16, Audit Trail, Internal Controls) وجدنا أن:
+- جميع الاختبارات ناجحة: ✅ 365/365 (100%)
+- لكن التغطية على SonarCloud: ❌ **1.64%** فقط!
+- **السبب**: الاختبارات كانت **Unit Tests** بمنطق داخلي - لم تختبر الكود الحقيقي في `src/`
+
+### 🎯 الحل: Integration Tests Strategy
+
+**الفكرة**: بدلاً من كتابة منطق العمل داخل الاختبارات، **نستورد الدوال الحقيقية** من الـ source code ونختبرها:
+
+```typescript
+// ❌ الطريقة القديمة (Unit Test بمنطق داخلي)
+describe('AVCO Calculation', () => {
+  function calculateAVCO(stock, value, qty, cost) {
+    // منطق الحساب هنا داخل الاختبار
+    return { ... }
+  }
+  
+  it('should calculate', () => {
+    expect(calculateAVCO(100, 5000, 50, 3000)).toEqual(...)
+  })
+})
+// النتيجة: الاختبار ينجح ✅ لكن Coverage = 0% ❌
+
+// ✅ الطريقة الجديدة (Integration Test)
+import { calculateAVCO } from '@/core/utils'  // ← استيراد الدالة الحقيقية
+
+describe('AVCO Calculation', () => {
+  it('should calculate', () => {
+    // اختبار الكود الحقيقي من src/core/utils.js
+    const result = calculateAVCO(100, 5000, 50, 3000)
+    expect(result.totalQuantity).toBe(150)
+    expect(result.newUnitCost).toBeCloseTo(53.33, 2)
+  })
+})
+// النتيجة: الاختبار ينجح ✅ و Coverage يزيد ✅
+```
+
+### 📂 الملف الأول: integration-inventory.test.ts
+
+**الموقع**: [`src/services/__tests__/integration-inventory.test.ts`](src/services/__tests__/integration-inventory.test.ts)
+
+**عدد الاختبارات**: **42 test** (كلها ناجحة ✅)
+
+**الملف المستهدف**: `src/core/utils.js` (339 lines)
+
+**فئات الاختبارات**:
+
+1. **AVCO Calculations** (8 tests):
+   - حساب التكلفة المتوسطة المرجحة بعد الشراء
+   - أول شراء مع مخزون صفر
+   - استلامات متعددة بأسعار مختلفة
+   - الحماية من القيم السلبية
+   - سيناريو الكمية الصفرية
+   - الأصناف عالية القيمة مع الدقة
+   - التحقق من الامتثال لـ IAS 2
+
+2. **Formatting Functions** (15 tests):
+   - `formatCurrency`: تنسيق الريال السعودي، null handling، الصفر، الدقة
+   - `formatNumber`: دقة محددة، الأرقام العربية
+   - `formatQuantity`: مع وحدة، بدون وحدة، null values
+   - `formatDate`: ISO strings، Date objects، null dates
+
+3. **Process Costing Calculations** (5 tests):
+   - جمع جميع مكونات التكلفة
+   - معالجة القيم الصفرية
+   - سيناريو الكل صفر
+   - حساب ائتمان النفايات
+   - حساب تكلفة الوحدة
+
+4. **Validation Functions** (6 tests):
+   - `validatePositiveNumber`: قبول الموجب، رفض السالب/NaN/null
+   - `validateRequired`: قبول غير الفارغ، رفض null/undefined/empty strings
+
+5. **Real-World Scenarios** (3 tests):
+   - حساب تكلفة المرحلة الكامل
+   - دورة المخزون الكاملة مع AVCO
+   - الامتثال لـ IAS 2 في بيئة الإنتاج
+
+6. **Edge Cases** (5 tests):
+   - أرقام كبيرة جداً
+   - كميات عشرية صغيرة
+   - الدقة الرياضية عبر عمليات متعددة
+
+### 📈 النتائج
+
+| Metric | قبل | بعد | التحسن |
+|--------|-----|-----|--------|
+| **Tests** | 365 | 407 | +42 |
+| **Pass Rate** | 100% | 100% | ✅ |
+| **Coverage** | 0% | 2.39% | +2.39% |
+| **Files Tested** | - | src/core/utils.js | +339 lines |
+
+### 🔜 الخطوات القادمة
+
+#### 1. Integration Tests للـ Inventory Service
+
+**الملف المستهدف**: `src/services/inventory-transaction-service.ts` (393 lines)
+
+**الاختبارات المخططة** (~30 tests):
+- `checkAvailability()` - فحص توفر المخزون
+- `reserveMaterials()` - حجز المواد
+- `consumeMaterials()` - استهلاك المواد
+- `releaseReservation()` - تحرير الحجز
+- Multi-warehouse scenarios
+- Batch/Serial tracking
+- Negative stock prevention
+
+**Coverage المتوقع**: +3-4%
+
+#### 2. Integration Tests للـ Valuation
+
+**الملف المستهدف**: `src/domain/inventory/valuation.ts` (273 lines)
+
+**الاختبارات المخططة** (~25 tests):
+- `processIncomingStock()` - معالجة المخزون الوارد
+- `processOutgoingStock()` - معالجة المخزون الصادر
+- ValuationFactory strategies (FIFO, LIFO, AVCO)
+- IAS 2 compliance scenarios
+- Cost flow assumptions
+
+**Coverage المتوقع**: +2-3%
+
+#### 3. Integration Tests للـ Manufacturing Service
+
+**الملف المستهدف**: `src/services/process-costing-service.ts` (407 lines)
+
+**الاختبارات المخططة** (~20 tests):
+- Stage cost calculations
+- WIP tracking
+- Equivalent units
+- Variance analysis
+- BOM costing
+
+**Coverage المتوقع**: +3-4%
+
+### 📊 التقدير المحدث للـ Coverage
+
+| Phase | Tests | Coverage Target | Cumulative |
+|-------|-------|----------------|------------|
+| ✅ **Utils (مكتمل)** | 42 | 2.39% | 2.39% |
+| **Inventory Service** | ~30 | +3-4% | ~6% |
+| **Valuation** | ~25 | +2-3% | ~9% |
+| **Manufacturing** | ~20 | +3-4% | ~13% |
+| **Accounting** | ~30 | +4-5% | ~18% |
+| **Sales & Purchasing** | ~40 | +5-6% | ~24% |
+| **Reports** | ~25 | +3-4% | ~28% |
+| **Components (UI)** | ~50 | +8-10% | ~38% |
+| **E2E Scenarios** | ~30 | +5-7% | ~45% |
+| **Total** | ~292 | **45%** | **45%** |
+
+**ملاحظة**: للوصول إلى **80%** نحتاج:
+- استكمال جميع Integration Tests للـ Services (45%)
+- إضافة Component Tests للـ UI (15-20%)
+- E2E Tests للسيناريوهات الكاملة (10-15%)
+- Total: **70-80%** coverage
+
+### 🎓 الدروس المستفادة
+
+1. **Unit Tests وحدها لا تكفي**: يجب اختبار الكود الحقيقي
+2. **Import Real Code**: استورد الدوال من `src/` بدلاً من إعادة كتابتها
+3. **Coverage = Execution**: التغطية تأتي من تنفيذ الكود الحقيقي
+4. **Mocks للأطراف الخارجية فقط**: Supabase, API calls - ليس للمنطق الداخلي
+5. **Test What You Ship**: اختبر الكود الذي سيُشحن للإنتاج
 
 ---
 
