@@ -255,7 +255,7 @@ export function getValuationMethodInfo(method: ValuationMethod): {
       name: 'Moving Average',
       nameAr: 'المتوسط المتحرك',
       description: 'Similar to weighted average, updates on each transaction',
-      descriptionAr: 'مشابه للمتوسط المرجح، يحدث مع كل حركة'
+      descriptionAr: 'مشابه للمتوسط المرجح، متحرك مع كل حركة'
     }
   };
 
