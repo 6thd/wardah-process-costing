@@ -108,12 +108,10 @@ describe('Integration: AVCO Calculations', () => {
     it('should handle zero quantity scenario', () => {
       const result = calculateAVCO(0, 0, 0, 0)
       
-      // When qty <= 0, function returns { newUnitCost: 0, newTotalValue: 0 }
-      // without totalQuantity property
+      // When qty <= 0, function returns all zeros including totalQuantity
+      expect(result.totalQuantity).toBe(0)
       expect(result.newTotalValue).toBe(0)
       expect(result.newUnitCost).toBe(0)
-      expect(result).toHaveProperty('newUnitCost')
-      expect(result).toHaveProperty('newTotalValue')
     })
     
     it('should maintain precision for high-value items', () => {

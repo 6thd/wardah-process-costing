@@ -147,7 +147,12 @@ export const calculateOverheadCost = (baseAmount, rate) => {
 /**
  * AVCO inventory calculation utilities
  */
-export const calculateAVCO = (currentStock, currentValue, incomingQty, incomingCost) => {
+export const calculateAVCO = (
+  currentStock: number, 
+  currentValue: number, 
+  incomingQty: number, 
+  incomingCost: number
+): { newUnitCost: number; newTotalValue: number; totalQuantity: number } => {
   if (currentStock < 0) currentStock = 0
   if (currentValue < 0) currentValue = 0
   
@@ -155,7 +160,7 @@ export const calculateAVCO = (currentStock, currentValue, incomingQty, incomingC
   const totalValue = currentValue + incomingCost
   
   if (totalQty <= 0) {
-    return { newUnitCost: 0, newTotalValue: 0 }
+    return { newUnitCost: 0, newTotalValue: 0, totalQuantity: 0 }
   }
   
   const newUnitCost = totalValue / totalQty
