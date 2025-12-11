@@ -4,30 +4,146 @@
 
 **الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي** (تحديث: 12 ديسمبر 2025): 
+**الوضع الحالي** (تحديث: 11 ديسمبر 2025 - 16:00): 
 
-- Coverage: **2.39%** (مطلوب: ≥ 80.0% للكود الجديد)
+- Coverage: **~4-5%** (متوقع بعد CI/CD) ⬆️ (كان 2.03%)
+- Coverage Target: **≥ 80.0%** للكود الجديد
 - ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
 - ✅ Coverage Generation: **مكتمل** (lcov reports)
-- ✅ **Integration Tests Strategy**: **بدأ التنفيذ** ✨
+- ✅ **Integration Tests Strategy**: **قيد التنفيذ النشط** 🚀
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: **27 ملف** (407 test, 407 passing ✅)
-- Test Success Rate: **100%** (407/407)
+- Existing Tests: **28 ملف** (444 tests, 444 passing ✅)
+- Test Success Rate: **100%** (444/444) ⬆️
 
-**آخر التحديثات**:
+**آخر التحديثات** (11 ديسمبر 2025):
 - ✅ إنشاء `test-utils.tsx` مع QueryClientProvider wrapper
 - ✅ إصلاح Supabase mock لدعم realtime channels
 - ✅ تحديث 6 ملفات اختبار لاستخدام المرافق الجديدة
 - ✅ تفعيل `--coverage.reportOnFailure` لتوليد التقارير حتى مع فشل بعض الاختبارات
 - ✅ إضافة اختبارات الامتثال: IAS 2 (23 tests), IAS 16 (29 tests), Audit Trail (21 tests), Internal Controls (28 tests)
 - ✅ تنظيف الملفات المكررة: حذف 29 اختبار قديم، الإبقاء على 365 اختبار
-- ✅ **تطبيق استراتيجية Integration Tests الجديدة** ✨
-  - إنشاء [`src/services/__tests__/integration-inventory.test.ts`](src/services/__tests__/integration-inventory.test.ts) (42 tests ✅)
-  - اختبار **الكود الحقيقي** من `src/core/utils.js` (بدلاً من mocks)
+- ✅ **استراتيجية Integration Tests الجديدة - Phase 1** ✨
+  - إنشاء [`integration-inventory.test.ts`](src/services/__tests__/integration-inventory.test.ts) (42 tests ✅)
+  - اختبار **الكود الحقيقي** من `src/core/utils.js`
   - تغطية: AVCO calculations, formatting, process costing, validations
-  - زيادة Coverage من 0% → **2.39%**
-- ✅ جميع الاختبارات ناجحة: **407/407 (100%)**
+  - زيادة Coverage: 0% → **2.03%**
+- ✅ **TypeScript Migration & Type Safety** 🔧
+  - تحويل `src/core/utils.js` → `src/core/utils.ts`
+  - إضافة explicit types لـ `calculateAVCO` function
+  - إصلاح CI/CD TypeScript compilation errors (TS2322)
+  - Coverage لـ `utils.ts`: **53.33%** ⬆️
+- ✅ **Integration Tests - Phase 2** 🎯
+  - إنشاء [`integration-inventory-transactions.test.ts`](src/services/__tests__/integration-inventory-transactions.test.ts) (37 tests ✅)
+  - اختبار **الكود الحقيقي** من `inventory-transaction-service.ts`
+  - تغطية: checkAvailability, getReservations, error handling
+  - Coverage لـ `inventory-transaction-service.ts`: **33.45%** (من 0%) 🚀
+- ✅ **جميع الاختبارات ناجحة: 444/444 (100%)**
+
+**الملفات المغطاة حالياً**:
+- `src/core/utils.ts`: **53.33%** coverage (339 lines)
+- `src/services/inventory-transaction-service.ts`: **33.45%** coverage (391 lines)
+- Total: **~730 lines** من الكود الحقيقي مغطى
+
+---
+
+## 🎯 الاستراتيجية الحالية: Integration Tests First
+
+### لماذا Integration Tests؟
+
+**المشكلة المكتشفة**:
+- كان عندنا 101 اختبار compliance (IAS 2, IAS 16, Audit Trail, Internal Controls)
+- Coverage كان **1.64%** فقط! ❌
+- السبب: الاختبارات كانت **unit tests بمنطق داخلي**، ما تختبر الكود الحقيقي في `src/`
+
+**الحل**:
+استراتيجية **Integration Tests** تستورد وتشغل الكود الحقيقي:
+
+```typescript
+// ❌ القديم - Unit test بدون coverage
+it('should calculate AVCO', () => {
+  // منطق الحساب مكتوب داخل الاختبار
+  const result = (100 + 50) / (10 + 5)
+  expect(result).toBe(10)
+})
+
+// ✅ الجديد - Integration test مع coverage
+import { calculateAVCO } from '@/core/utils'
+
+it('should calculate AVCO', () => {
+  // يشغل الكود الحقيقي
+  const result = calculateAVCO(10, 100, 5, 50)
+  expect(result.newUnitCost).toBe(10)
+})
+```
+
+### خطة التنفيذ (أسبوع 0.5):
+
+**المرحلة 1: Core Utils** ✅
+- [x] `src/core/utils.ts` (339 lines)
+  - 42 tests في `integration-inventory.test.ts`
+  - Coverage: **53.33%**
+  - الوقت: ~2 ساعات
+
+**المرحلة 2: Inventory Services** ✅ 
+- [x] `src/services/inventory-transaction-service.ts` (391 lines)
+  - 37 tests في `integration-inventory-transactions.test.ts`
+  - Coverage: **33.45%**
+  - الوقت: ~2 ساعات
+
+**المرحلة 3: Financial Services** ⏳ (التالي)
+- [ ] `src/domain/inventory/valuation.ts` (273 lines)
+  - Target: 30-40 tests
+  - Expected coverage: **~40%**
+  - الوقت المتوقع: ~2 ساعات
+  - الأولوية: 🔴 عالية (منطق IAS 2 compliance)
+
+**المرحلة 4: Manufacturing Services**
+- [ ] `src/services/process-costing-service.ts` (407 lines)
+  - Target: 35-45 tests
+  - Expected coverage: **~35%**
+  - الوقت المتوقع: ~2.5 ساعات
+
+**المرحلة 5: Additional Coverage**
+- [ ] `src/modules/inventory/StockLedgerService.ts` (548 lines)
+- [ ] `src/services/accounting-service.ts` (544 lines)
+- [ ] Component tests (إذا لزم الأمر)
+
+### الأدوات المستخدمة:
+
+1. **Vitest Mocking**:
+   ```typescript
+   vi.mock('@/lib/supabase', () => ({
+     supabase: { /* mocked methods */ },
+     getEffectiveTenantId: vi.fn(() => Promise.resolve('test-org-123'))
+   }))
+   ```
+
+2. **Import Real Code**:
+   ```typescript
+   import { inventoryTransactionService } from '../inventory-transaction-service'
+   ```
+
+3. **Test Real Methods**:
+   ```typescript
+   const results = await inventoryTransactionService.checkAvailability(requirements)
+   expect(results[0].available).toBe(150)
+   ```
+
+### النتائج المتوقعة:
+
+| Phase | Files | Lines | Tests | Coverage | Status |
+|-------|-------|-------|-------|----------|--------|
+| 1 | utils.ts | 339 | 42 | 53% | ✅ |
+| 2 | inventory-transaction | 391 | 37 | 33% | ✅ |
+| 3 | valuation | 273 | 35 | ~40% | ⏳ |
+| 4 | process-costing | 407 | 40 | ~35% | 📋 |
+| 5 | stock-ledger | 548 | 45 | ~30% | 📋 |
+| **Total** | **~2000** | **~200** | **~40%** | **Week 0.5** |
+
+**Target بعد Week 0.5**: Coverage من **~5%** → **15-20%**
+
+---
 
 **المدة المتوقعة**: **5 أسابيع** (بدلاً من 4)
 
@@ -1612,6 +1728,165 @@ vi.mock('axios'); // External API
 // ❌ Bad: Don't mock internal business logic
 // vi.mock('@/domain/process-costing'); // NO!
 ```
+
+---
+
+## 📚 Lessons Learned (11 ديسمبر 2025)
+
+### 1. TypeScript Compilation في CI/CD
+
+**المشكلة**:
+```
+Error TS2322: Property 'totalQuantity' is optional in type but required
+```
+
+**السبب**:
+```typescript
+// ❌ Inconsistent return type
+export const calculateAVCO = (currentStock, currentValue, incomingQty, incomingCost) => {
+  if (totalQty <= 0) {
+    return { newUnitCost: 0, newTotalValue: 0 }  // Missing totalQuantity!
+  }
+  return {
+    newUnitCost: Math.max(0, newUnitCost),
+    newTotalValue: Math.max(0, totalValue),
+    totalQuantity: totalQty  // Only here - makes it optional!
+  }
+}
+```
+
+**الحل**:
+```typescript
+// ✅ Explicit types + consistent return
+export const calculateAVCO = (
+  currentStock: number,
+  currentValue: number,
+  incomingQty: number,
+  incomingCost: number
+): { newUnitCost: number; newTotalValue: number; totalQuantity: number } => {
+  // ...
+  if (totalQty <= 0) {
+    return { newUnitCost: 0, newTotalValue: 0, totalQuantity: 0 }  // Fixed!
+  }
+  return {
+    newUnitCost: Math.max(0, newUnitCost),
+    newTotalValue: Math.max(0, totalValue),
+    totalQuantity: totalQty
+  }
+}
+```
+
+**الدرس**: دائماً استخدم explicit return types للـpublic functions!
+
+### 2. Vitest Mocking Hoisting Issue
+
+**المشكلة**:
+```typescript
+// ❌ Variables declared outside vi.mock()
+const mockRpc = vi.fn()
+vi.mock('@/lib/supabase', () => ({
+  supabase: { rpc: mockRpc }  // Error: Cannot access 'mockRpc' before initialization
+}))
+```
+
+**السبب**: `vi.mock()` يتم **hoisting** لأعلى الملف، والـvariables لم تُنشأ بعد
+
+**الحل**:
+```typescript
+// ✅ Use factory function
+vi.mock('@/lib/supabase', () => {
+  return {
+    supabase: {
+      rpc: vi.fn(),  // Create mocks inside factory
+      from: vi.fn(() => ({
+        select: vi.fn()
+      }))
+    }
+  }
+})
+```
+
+**الدرس**: استخدم factory functions في `vi.mock()`، لا تعتمد على external variables!
+
+### 3. Coverage لـ.js vs .ts Files
+
+**المشكلة**:
+- `utils.js` كان 0% coverage رغم وجود 42 test
+
+**السبب**:
+```typescript
+// vitest.config.ts
+coverage: {
+  include: ['src/**/*.{ts,tsx}']  // Excludes .js files!
+}
+```
+
+**الحل**:
+1. تحويل `utils.js` → `utils.ts`
+2. Coverage قفز من 0% → 53.33%
+
+**الدرس**: تأكد إن `vitest.config.ts` يشمل الملفات الصحيحة!
+
+### 4. Integration Tests vs Unit Tests للـCoverage
+
+**الاكتشاف المهم**:
+- 101 test (IAS 2, IAS 16, Audit, Controls) = **1.64% coverage** ❌
+- السبب: Tests كانت تختبر **منطق داخلي**، مش **الكود الحقيقي**
+
+**الحل**:
+```typescript
+// ❌ Unit test - No coverage
+it('should calculate AVCO', () => {
+  const totalQty = 10 + 5
+  const totalValue = 100 + 50
+  const avgCost = totalValue / totalQty
+  expect(avgCost).toBe(10)  // Logic inside test!
+})
+
+// ✅ Integration test - Real coverage
+import { calculateAVCO } from '@/core/utils'
+
+it('should calculate AVCO', () => {
+  const result = calculateAVCO(10, 100, 5, 50)  // Tests REAL code!
+  expect(result.newUnitCost).toBe(10)
+})
+```
+
+**النتائج**:
+- 42 integration tests → **53.33%** coverage لـutils.ts
+- 37 integration tests → **33.45%** coverage لـinventory-transaction-service.ts
+
+**الدرس الذهبي**: **Import and test REAL code**, not logic inside tests!
+
+### 5. Mock Chain Complexity
+
+**المشكلة**:
+```typescript
+// ❌ Complex mock chain - hard to maintain
+mockSelect.mockReturnValue({
+  eq: vi.fn().mockReturnValue({
+    eq: vi.fn().mockReturnValue({
+      eq: vi.fn().mockResolvedValue({ data: [], error: null })
+    })
+  })
+})
+```
+
+**الحل المحسّن**:
+```typescript
+// ✅ Use vi.mocked() for type safety
+import { supabase } from '@/lib/supabase'
+
+vi.mocked(supabase.from).mockReturnValue({
+  select: vi.fn().mockReturnValue({
+    eq: vi.fn().mockReturnValue({
+      eq: vi.fn().mockResolvedValue({ data: mockData, error: null })
+    })
+  })
+} as any)
+```
+
+**الدرس**: استخدم `vi.mocked()` للـtype safety وقلل الـchain complexity!
 
 ---
 
