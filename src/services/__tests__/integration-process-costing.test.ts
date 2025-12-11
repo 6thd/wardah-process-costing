@@ -24,20 +24,35 @@ vi.mock('@/lib/config', () => ({
   }))
 }))
 
-// Mock Supabase SECOND
+// Mock Supabase SECOND - Create a chainable builder pattern with ALL methods
 vi.mock('@/lib/supabase', () => {
-  const mockSupabaseInstance = {
-    from: vi.fn(function(this: any) { return this }),
-    select: vi.fn(function(this: any) { return this }),
-    insert: vi.fn(function(this: any) { return this }),
-    update: vi.fn(function(this: any) { return this }),
-    eq: vi.fn(function(this: any) { return this }),
-    single: vi.fn(() => Promise.resolve({ data: null, error: null })),
-    order: vi.fn(function(this: any) { return this })
+  // Create a function that returns a fully chainable mock supporting ALL Supabase methods
+  const createChainableMock = (): any => {
+    const chain: any = {
+      from: vi.fn(() => chain),
+      select: vi.fn(() => chain),
+      insert: vi.fn(() => chain),
+      update: vi.fn(() => chain),
+      upsert: vi.fn(() => chain),
+      delete: vi.fn(() => chain),
+      eq: vi.fn(() => chain),
+      neq: vi.fn(() => chain),
+      gt: vi.fn(() => chain),
+      gte: vi.fn(() => chain),
+      lt: vi.fn(() => chain),
+      lte: vi.fn(() => chain),
+      in: vi.fn(() => chain),
+      limit: vi.fn(() => chain),
+      order: vi.fn(() => chain),
+      range: vi.fn(() => chain),
+      single: vi.fn(() => Promise.resolve({ data: null, error: null })),
+      maybeSingle: vi.fn(() => Promise.resolve({ data: null, error: null }))
+    }
+    return chain
   }
   
   return {
-    supabase: mockSupabaseInstance
+    supabase: createChainableMock()
   }
 })
 
@@ -51,13 +66,42 @@ const mockSupabase = supabase as any
 describe('Integration: Process Costing Service', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    
+    // Reset all chain methods to return the mock itself for chaining
+    mockSupabase.from.mockReturnValue(mockSupabase)
+    mockSupabase.select.mockReturnValue(mockSupabase)
+    mockSupabase.insert.mockReturnValue(mockSupabase) // After insert, return chain for .select()
+    mockSupabase.update.mockReturnValue(mockSupabase)
+    mockSupabase.upsert.mockReturnValue(mockSupabase)
+    mockSupabase.delete.mockReturnValue(mockSupabase)
+    mockSupabase.eq.mockReturnValue(mockSupabase)
+    mockSupabase.neq.mockReturnValue(mockSupabase)
+    mockSupabase.gt.mockReturnValue(mockSupabase)
+    mockSupabase.gte.mockReturnValue(mockSupabase)
+    mockSupabase.lt.mockReturnValue(mockSupabase)
+    mockSupabase.lte.mockReturnValue(mockSupabase)
+    mockSupabase.in.mockReturnValue(mockSupabase)
+    mockSupabase.limit.mockReturnValue(mockSupabase)
+    mockSupabase.order.mockReturnValue(mockSupabase)
+    mockSupabase.range.mockReturnValue(mockSupabase)
+    
+    // Terminal methods that return promises with mock data
+    mockSupabase.single.mockResolvedValue({ 
+      data: { 
+        id: 'generated-id',
+        total_cost: 500,
+        order_sequence: 10
+      }, 
+      error: null 
+    })
+    mockSupabase.maybeSingle.mockResolvedValue({ data: [], error: null })
   })
 
   describe('Labor Time Application', () => {
     it('should calculate labor cost correctly', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         laborHours: 10,
         hourlyRate: 50,
         employeeName: 'Ahmed Ali',
@@ -87,14 +131,14 @@ describe('Integration: Process Costing Service', () => {
     it('should handle multiple labor entries for same stage', async () => {
       const params1: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         laborHours: 8,
         hourlyRate: 50
       }
 
       const params2: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         laborHours: 4,
         hourlyRate: 60
       }
@@ -120,7 +164,7 @@ describe('Integration: Process Costing Service', () => {
     it('should reject negative labor hours', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         laborHours: -5,
         hourlyRate: 50
       }
@@ -133,7 +177,7 @@ describe('Integration: Process Costing Service', () => {
     it('should reject zero or negative hourly rate', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         laborHours: 10,
         hourlyRate: 0
       }
@@ -161,7 +205,7 @@ describe('Integration: Process Costing Service', () => {
     it('should calculate overhead cost correctly', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         workCenterId: 'wc-001',
         baseQty: 100,
         overheadRate: 5,
@@ -202,7 +246,7 @@ describe('Integration: Process Costing Service', () => {
 
         const result = await processCostingService.applyOverhead({
           moId: 'mo-001',
-          stageId: 'stage-001',
+          stageNo: 10,
           baseQty: tc.baseQty,
           overheadRate: tc.rate,
           overheadType: tc.type
@@ -215,7 +259,7 @@ describe('Integration: Process Costing Service', () => {
     it('should handle fractional overhead rates', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         baseQty: 100,
         overheadRate: 2.75
       }
@@ -232,7 +276,7 @@ describe('Integration: Process Costing Service', () => {
     it('should reject negative base quantity', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         baseQty: -50,
         overheadRate: 5
       }
@@ -245,7 +289,7 @@ describe('Integration: Process Costing Service', () => {
     it('should validate required fields for overhead', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         baseQty: 100
         // Missing overheadRate
       }
@@ -260,7 +304,7 @@ describe('Integration: Process Costing Service', () => {
     it('should calculate total stage cost with all components', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         workCenterId: 'wc-001',
         goodQty: 100,
         directMaterialCost: 5000,
@@ -327,7 +371,7 @@ describe('Integration: Process Costing Service', () => {
 
         const result = await processCostingService.upsertStageCost({
           moId: 'mo-001',
-          stageId: 'stage-001',
+          stageNo: 10,
           goodQty: tc.goodQty,
           directMaterialCost: tc.totalCost
         })
@@ -339,7 +383,7 @@ describe('Integration: Process Costing Service', () => {
     it('should handle scrap and rework quantities', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 90,
         scrapQty: 5,
         reworkQty: 5,
@@ -370,7 +414,7 @@ describe('Integration: Process Costing Service', () => {
     it('should handle zero material cost (labor/overhead only)', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 100,
         directMaterialCost: 0
       }
@@ -406,7 +450,7 @@ describe('Integration: Process Costing Service', () => {
     it('should return zero unit cost for zero quantity', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 0,
         directMaterialCost: 5000
       }
@@ -431,7 +475,7 @@ describe('Integration: Process Costing Service', () => {
 
         const result = await processCostingService.upsertStageCost({
           moId: 'mo-001',
-          stageId: 'stage-001',
+          stageNo: 10,
           goodQty: 100,
           mode
         })
@@ -643,7 +687,7 @@ describe('Integration: Process Costing Service', () => {
     it('should handle very large quantities', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 1000000,
         directMaterialCost: 50000000
       }
@@ -666,7 +710,7 @@ describe('Integration: Process Costing Service', () => {
     it('should handle high-precision decimal costs', async () => {
       const params: ProcessCostingParams = {
         moId: 'mo-001',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 100,
         directMaterialCost: 1234.5678
       }
@@ -688,7 +732,7 @@ describe('Integration: Process Costing Service', () => {
     it('should validate moId is required', async () => {
       const params: ProcessCostingParams = {
         moId: '',
-        stageId: 'stage-001',
+        stageNo: 10,
         goodQty: 100
       }
 
