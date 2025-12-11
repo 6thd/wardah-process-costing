@@ -24,10 +24,10 @@ vi.mock('@/lib/supabase', () => {
               eq: vi.fn(() => ({
                 maybeSingle: vi.fn()
               })),
-              order: vi.fn(() => Promise.resolve({ data: [], error: null }))
+              order: vi.fn(() => Promise.resolve({ data: [], error: null, count: null, status: 200, statusText: 'OK' }))
             })),
             maybeSingle: vi.fn(),
-            order: vi.fn(() => Promise.resolve({ data: [], error: null }))
+            order: vi.fn(() => Promise.resolve({ data: [], error: null, count: null, status: 200, statusText: 'OK' }))
           })),
           maybeSingle: vi.fn()
         })),
@@ -80,7 +80,7 @@ describe('Integration: Real Inventory Transaction Service', () => {
   describe('checkAvailability - REAL Implementation', () => {
     it('should execute real checkAvailability function', async () => {
       // Setup mocks
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: 150, error: null })
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: 150, error: null, count: null, status: 200, statusText: 'OK' })
       
       vi.mocked(supabase.from).mockReturnValueOnce({
         select: vi.fn().mockReturnValue({
@@ -88,7 +88,10 @@ describe('Integration: Real Inventory Transaction Service', () => {
             eq: vi.fn().mockReturnValue({
               eq: vi.fn().mockResolvedValue({ 
                 data: [{ quantity_reserved: 100, quantity_consumed: 30, quantity_released: 10 }], 
-                error: null 
+                error: null,
+                count: null,
+                status: 200,
+                statusText: 'OK'
               })
             })
           })
@@ -99,7 +102,13 @@ describe('Integration: Real Inventory Transaction Service', () => {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              maybeSingle: vi.fn().mockResolvedValue({ data: { quantity: 200 }, error: null })
+              maybeSingle: vi.fn().mockResolvedValue({ 
+                data: { quantity: 200 }, 
+                error: null,
+                count: null,
+                status: 200,
+                statusText: 'OK'
+              })
             })
           })
         })
@@ -122,14 +131,14 @@ describe('Integration: Real Inventory Transaction Service', () => {
     })
 
     it('should handle zero available stock', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: 0, error: null })
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: 0, error: null, count: null, status: 200, statusText: 'OK' })
       
       vi.mocked(supabase.from).mockReturnValue({
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              eq: vi.fn().mockResolvedValue({ data: [], error: null }),
-              maybeSingle: vi.fn().mockResolvedValue({ data: { quantity: 0 }, error: null })
+              eq: vi.fn().mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' }),
+              maybeSingle: vi.fn().mockResolvedValue({ data: { quantity: 0 }, error: null, count: null, status: 200, statusText: 'OK' })
             })
           })
         })
@@ -148,7 +157,10 @@ describe('Integration: Real Inventory Transaction Service', () => {
     it('should handle RPC error gracefully', async () => {
       vi.mocked(supabase.rpc).mockResolvedValue({ 
         data: null, 
-        error: { message: 'Database error', code: 'DB_ERROR' } as any
+        error: { message: 'Database error', code: 'DB_ERROR' } as any,
+        count: null,
+        status: 500,
+        statusText: 'Internal Server Error'
       })
 
       const requirements: MaterialRequirement[] = [
@@ -180,7 +192,13 @@ describe('Integration: Real Inventory Transaction Service', () => {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: mockReservations, error: null })
+              order: vi.fn().mockResolvedValue({ 
+                data: mockReservations, 
+                error: null,
+                count: null,
+                status: 200,
+                statusText: 'OK'
+              })
             })
           })
         })
@@ -197,7 +215,13 @@ describe('Integration: Real Inventory Transaction Service', () => {
         select: vi.fn().mockReturnValue({
           eq: vi.fn().mockReturnValue({
             eq: vi.fn().mockReturnValue({
-              order: vi.fn().mockResolvedValue({ data: null, error: null })
+              order: vi.fn().mockResolvedValue({ 
+                data: null, 
+                error: null,
+                count: null,
+                status: 200,
+                statusText: 'OK'
+              })
             })
           })
         })
