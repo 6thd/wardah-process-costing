@@ -80,6 +80,7 @@
     "@vitest/coverage-v8": "^3.2.4",
     "autoprefixer": "^10.4.16",
     "eslint": "^8.53.0",
+    "jscpd": "^4.0.5",
     "jsdom": "^23.0.1",
     "postcss": "^8.4.31",
     "supabase": "^2.45.5",
