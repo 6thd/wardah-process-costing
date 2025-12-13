@@ -174,20 +174,44 @@ const scaled = qty.multiply(2);        // Quantity(200)
 
 ##  إحصائيات الاختبارات
 
-| الملف | الاختبارات |
-|-------|-----------|
-| cost-breakdown.test.ts | 17 |
-| process-stage.test.ts | 14 |
-| calculate-process-cost.test.ts | 6 |
-| **المجموع** | **37** |
+### Domain Tests (188 اختبار)
+
+| الملف | الاختبارات | الوصف |
+|-------|-----------|-------|
+| cost-breakdown.test.ts | 17 | تحليل التكاليف |
+| process-stage.test.ts | 14 | مراحل التصنيع |
+| calculate-process-cost.test.ts | 6 | حساب تكلفة العملية |
+| process-costing.test.ts | 11 | محاسبة تكاليف العمليات |
+| ias2-inventory-costing.test.ts | 23 | معيار IAS 2 للمخزون |
+| ias16-ppe.test.ts | 29 | معيار IAS 16 للأصول الثابتة |
+| audit-trail.test.ts | 21 | سجل المراجعة |
+| internal-controls.test.ts | 28 | الرقابة الداخلية |
+| integration-valuation.test.ts | 31 | طرق التقييم (FIFO, LIFO, AVCO) |
+| **المجموع** | **188** | ✅ جميعها ناجحة |
+
+### Integration Tests (217 اختبار)
+
+| الخدمة | الاختبارات | التغطية |
+|--------|-----------|---------|
+| utils.ts | 42 | 53% |
+| inventory-transaction-service.ts | 37 | 33% |
+| valuation.ts | 31 | 100% |
+| process-costing-service.ts | 36 | ~35% |
+| StockLedgerService.ts | 39 | ~30% |
+| accounting-service.ts | 32 | ~25% |
+| **المجموع** | **217** | ✅ |
+
+### إجمالي الاختبارات: **742** ✅
 
 ##  الخطوات التالية
 
-1. إضافة المزيد من Domain Entities (Inventory, Manufacturing)
-2. إنشاء Use Cases إضافية
-3. تطبيق Event Sourcing للـ Audit Trail
-4. إضافة CQRS Pattern
+1. ✅ ~~إضافة المزيد من Domain Entities (Inventory, Manufacturing)~~
+2. ✅ ~~إنشاء Use Cases إضافية~~
+3. ⏳ تطبيق Event Sourcing للـ Audit Trail
+4. ⏳ إضافة CQRS Pattern
+5. ⏳ إضافة اختبارات لـ accounting-service.ts
+6. ⏳ زيادة التغطية إلى 15-20%
 
 ---
 
-*آخر تحديث: 11 ديسمبر 2025*
+*آخر تحديث: 13 ديسمبر 2025*
