@@ -12,32 +12,41 @@
 
 ```
 src/
- domain/                      #  طبقة المجال (Pure Business Logic)
-    entities/                # كيانات المجال
-       CostBreakdown.ts     # تحليل التكاليف
-       ProcessStage.ts      # مراحل التصنيع
-       index.ts
-    interfaces/              # المنافذ (Ports)
-       IProcessCostingRepository.ts
-       index.ts
-    use-cases/               # حالات الاستخدام
-       CalculateProcessCost.ts
-       index.ts
-    value-objects/           # كائنات القيمة (Immutable)
-       Money.ts
-       Quantity.ts
-       HourlyRate.ts
-       index.ts
-    __tests__/               # اختبارات المجال
-        cost-breakdown.test.ts
-        process-stage.test.ts
-        calculate-process-cost.test.ts
- infrastructure/              #  طبقة البنية التحتية
-    repositories/            # تنفيذات Repository
-       SupabaseProcessCostingRepository.ts
-    di/                      # حاوية حقن التبعيات
-        container.ts
- services/                    # طبقة الخدمات
+├── domain/                      # 🏛️ طبقة المجال (Pure Business Logic)
+│   ├── entities/                # كيانات المجال
+│   │   ├── CostBreakdown.ts     # تحليل التكاليف ✅
+│   │   ├── ProcessStage.ts      # مراحل التصنيع ✅
+│   │   └── index.ts
+│   ├── interfaces/              # المنافذ (Ports)
+│   │   ├── IProcessCostingRepository.ts ✅
+│   │   └── index.ts
+│   ├── use-cases/               # حالات الاستخدام
+│   │   ├── CalculateProcessCost.ts ✅
+│   │   └── index.ts
+│   ├── value-objects/           # كائنات القيمة (Immutable)
+│   │   ├── Money.ts ✅
+│   │   ├── Quantity.ts ✅
+│   │   ├── HourlyRate.ts ✅
+│   │   └── index.ts
+│   ├── inventory/               # منطق المخزون
+│   │   └── valuation.ts ✅
+│   └── __tests__/               # اختبارات المجال (188 tests)
+│       ├── cost-breakdown.test.ts
+│       ├── process-stage.test.ts
+│       ├── calculate-process-cost.test.ts
+│       └── ...
+├── infrastructure/              # 🔧 طبقة البنية التحتية ✅ (جديد!)
+│   ├── repositories/            # تنفيذات Repository
+│   │   ├── SupabaseProcessCostingRepository.ts ✅
+│   │   └── __tests__/
+│   │       └── SupabaseProcessCostingRepository.test.ts ✅ (16 tests)
+│   └── di/                      # حاوية حقن التبعيات
+│       └── container.ts ✅
+├── services/                    # طبقة الخدمات
+│   └── __tests__/               # (217 tests)
+└── modules/                     # الوحدات
+    └── inventory/
+        └── __tests__/           # (39 tests)
 ```
 
 ##  المبادئ الأساسية
@@ -189,7 +198,7 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | integration-valuation.test.ts | 31 | طرق التقييم (FIFO, LIFO, AVCO) |
 | **المجموع** | **188** | ✅ جميعها ناجحة |
 
-### Integration Tests (217 اختبار)
+### Integration Tests (233 اختبار)
 
 | الخدمة | الاختبارات | التغطية |
 |--------|-----------|---------|
@@ -199,18 +208,20 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | process-costing-service.ts | 36 | ~35% |
 | StockLedgerService.ts | 39 | ~30% |
 | accounting-service.ts | 32 | ~25% |
-| **المجموع** | **217** | ✅ |
+| SupabaseProcessCostingRepository.ts | 16 | ~80% |
+| **المجموع** | **233** | ✅ |
 
-### إجمالي الاختبارات: **742** ✅
+### إجمالي الاختبارات: **758** ✅
 
 ##  الخطوات التالية
 
 1. ✅ ~~إضافة المزيد من Domain Entities (Inventory, Manufacturing)~~
 2. ✅ ~~إنشاء Use Cases إضافية~~
-3. ⏳ تطبيق Event Sourcing للـ Audit Trail
-4. ⏳ إضافة CQRS Pattern
-5. ⏳ إضافة اختبارات لـ accounting-service.ts
-6. ⏳ زيادة التغطية إلى 15-20%
+3. ✅ ~~تنفيذ طبقة Infrastructure (Repository + DI Container)~~ 🆕
+4. ⏳ تطبيق Event Sourcing للـ Audit Trail
+5. ⏳ إضافة CQRS Pattern
+6. ⏳ إضافة المزيد من Repositories (Inventory, Accounting)
+7. ⏳ زيادة التغطية إلى 15-20%
 
 ---
 
