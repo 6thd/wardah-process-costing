@@ -9,33 +9,101 @@ export interface Database {
       organizations: {
         Row: {
           id: string;
-          name: string;
           code: string;
-          address: string | null;
+          name: string;
+          name_ar: string | null;
+          name_en: string | null;
+          // البيانات الضريبية والتجارية
+          tax_number: string | null;
+          commercial_registration: string | null;
+          license_number: string | null;
+          // بيانات التواصل
           phone: string | null;
+          mobile: string | null;
           email: string | null;
+          website: string | null;
+          fax: string | null;
+          // العنوان
+          address: string | null;
+          city: string | null;
+          state: string | null;
+          country: string | null;
+          postal_code: string | null;
+          // الشعار والهوية البصرية
+          logo_url: string | null;
+          favicon_url: string | null;
+          primary_color: string | null;
+          secondary_color: string | null;
+          // إعدادات إضافية
+          currency: string | null;
+          timezone: string | null;
+          fiscal_year_start: number | null;
+          date_format: string | null;
+          settings: Record<string, unknown> | null;
           is_active: boolean;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
-          name: string;
           code: string;
-          address?: string | null;
+          name: string;
+          name_ar?: string | null;
+          name_en?: string | null;
+          tax_number?: string | null;
+          commercial_registration?: string | null;
+          license_number?: string | null;
           phone?: string | null;
+          mobile?: string | null;
           email?: string | null;
+          website?: string | null;
+          fax?: string | null;
+          address?: string | null;
+          city?: string | null;
+          state?: string | null;
+          country?: string | null;
+          postal_code?: string | null;
+          logo_url?: string | null;
+          favicon_url?: string | null;
+          primary_color?: string | null;
+          secondary_color?: string | null;
+          currency?: string | null;
+          timezone?: string | null;
+          fiscal_year_start?: number | null;
+          date_format?: string | null;
+          settings?: Record<string, unknown> | null;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
-          name?: string;
           code?: string;
-          address?: string | null;
+          name?: string;
+          name_ar?: string | null;
+          name_en?: string | null;
+          tax_number?: string | null;
+          commercial_registration?: string | null;
+          license_number?: string | null;
           phone?: string | null;
+          mobile?: string | null;
           email?: string | null;
+          website?: string | null;
+          fax?: string | null;
+          address?: string | null;
+          city?: string | null;
+          state?: string | null;
+          country?: string | null;
+          postal_code?: string | null;
+          logo_url?: string | null;
+          favicon_url?: string | null;
+          primary_color?: string | null;
+          secondary_color?: string | null;
+          currency?: string | null;
+          timezone?: string | null;
+          fiscal_year_start?: number | null;
+          date_format?: string | null;
+          settings?: Record<string, unknown> | null;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;

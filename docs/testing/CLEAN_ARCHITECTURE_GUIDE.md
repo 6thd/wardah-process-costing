@@ -19,8 +19,8 @@ src/
 │   │   └── index.ts
 │   ├── interfaces/              # المنافذ (Ports)
 │   │   ├── IProcessCostingRepository.ts ✅
-│   │   ├── IInventoryRepository.ts ✅ 🆕
-│   │   ├── IAccountingRepository.ts ✅ 🆕
+│   │   ├── IInventoryRepository.ts ✅
+│   │   ├── IAccountingRepository.ts ✅
 │   │   └── index.ts
 │   ├── use-cases/               # حالات الاستخدام
 │   │   ├── CalculateProcessCost.ts ✅
@@ -33,22 +33,25 @@ src/
 │   ├── inventory/               # منطق المخزون
 │   │   └── valuation.ts ✅
 │   └── __tests__/               # اختبارات المجال (188 tests)
-│       ├── cost-breakdown.test.ts
-│       ├── process-stage.test.ts
-│       ├── calculate-process-cost.test.ts
 │       └── ...
+├── application/                 # 📱 طبقة التطبيق ✅ 🆕
+│   ├── services/                # خدمات التطبيق
+│   │   ├── InventoryAppService.ts ✅ (23 tests)
+│   │   ├── AccountingAppService.ts ✅ (21 tests)
+│   │   └── index.ts
+│   └── hooks/                   # React Hooks
+│       ├── useInventory.ts ✅
+│       ├── useAccounting.ts ✅
+│       └── index.ts
 ├── infrastructure/              # 🔧 طبقة البنية التحتية ✅
 │   ├── repositories/            # تنفيذات Repository
-│   │   ├── SupabaseProcessCostingRepository.ts ✅
-│   │   ├── SupabaseInventoryRepository.ts ✅ 🆕
-│   │   ├── SupabaseAccountingRepository.ts ✅ 🆕
+│   │   ├── SupabaseProcessCostingRepository.ts ✅ (16 tests)
+│   │   ├── SupabaseInventoryRepository.ts ✅ (17 tests)
+│   │   ├── SupabaseAccountingRepository.ts ✅ (14 tests)
 │   │   └── __tests__/
-│   │       ├── SupabaseProcessCostingRepository.test.ts ✅ (16 tests)
-│   │       ├── SupabaseInventoryRepository.test.ts ✅ (17 tests) 🆕
-│   │       └── SupabaseAccountingRepository.test.ts ✅ (14 tests) 🆕
 │   └── di/                      # حاوية حقن التبعيات
 │       └── container.ts ✅
-├── services/                    # طبقة الخدمات
+├── services/                    # طبقة الخدمات (Legacy)
 │   └── __tests__/               # (217 tests)
 └── modules/                     # الوحدات
     └── inventory/
@@ -204,7 +207,24 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | integration-valuation.test.ts | 31 | طرق التقييم (FIFO, LIFO, AVCO) |
 | **المجموع** | **188** | ✅ جميعها ناجحة |
 
-### Integration Tests (280 اختبار) 🆕
+### Application Layer Tests (44 اختبار) 🆕
+
+| الخدمة | الاختبارات | التغطية |
+|--------|-----------|---------|
+| InventoryAppService.ts | 23 | ~95% |
+| AccountingAppService.ts | 21 | ~91% |
+| **المجموع** | **44** | ✅ |
+
+### Infrastructure Tests (47 اختبار)
+
+| الخدمة | الاختبارات | التغطية |
+|--------|-----------|---------|
+| SupabaseProcessCostingRepository.ts | 16 | 100% |
+| SupabaseInventoryRepository.ts | 17 | ~73% |
+| SupabaseAccountingRepository.ts | 14 | ~72% |
+| **المجموع** | **47** | ✅ |
+
+### Integration Tests (233 اختبار)
 
 | الخدمة | الاختبارات | التغطية |
 |--------|-----------|---------|
@@ -214,22 +234,20 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | process-costing-service.ts | 36 | ~35% |
 | StockLedgerService.ts | 39 | ~30% |
 | accounting-service.ts | 32 | ~25% |
-| SupabaseProcessCostingRepository.ts | 16 | 100% |
-| SupabaseInventoryRepository.ts | 17 | ~73% 🆕 |
-| SupabaseAccountingRepository.ts | 14 | ~72% 🆕 |
-| **المجموع** | **280** | ✅ |
+| **المجموع** | **233** | ✅ |
 
-### إجمالي الاختبارات: **789** ✅ 🆕
+### إجمالي الاختبارات: **833** ✅ 🆕
 
 ##  الخطوات التالية
 
 1. ✅ ~~إضافة المزيد من Domain Entities (Inventory, Manufacturing)~~
 2. ✅ ~~إنشاء Use Cases إضافية~~
 3. ✅ ~~تنفيذ طبقة Infrastructure (Repository + DI Container)~~
-4. ✅ ~~إضافة المزيد من Repositories (Inventory, Accounting)~~ 🆕
-5. ⏳ تطبيق Event Sourcing للـ Audit Trail
-6. ⏳ إضافة CQRS Pattern
-7. ⏳ زيادة التغطية إلى 15-20%
+4. ✅ ~~إضافة المزيد من Repositories (Inventory, Accounting)~~
+5. ✅ ~~إنشاء Application Layer مع React Hooks~~ 🆕
+6. ⏳ تطبيق Event Sourcing للـ Audit Trail
+7. ⏳ إضافة CQRS Pattern
+8. ⏳ زيادة التغطية إلى 15-20%
 
 ---
 
