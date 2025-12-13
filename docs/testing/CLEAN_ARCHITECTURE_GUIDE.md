@@ -19,6 +19,8 @@ src/
 │   │   └── index.ts
 │   ├── interfaces/              # المنافذ (Ports)
 │   │   ├── IProcessCostingRepository.ts ✅
+│   │   ├── IInventoryRepository.ts ✅ 🆕
+│   │   ├── IAccountingRepository.ts ✅ 🆕
 │   │   └── index.ts
 │   ├── use-cases/               # حالات الاستخدام
 │   │   ├── CalculateProcessCost.ts ✅
@@ -35,11 +37,15 @@ src/
 │       ├── process-stage.test.ts
 │       ├── calculate-process-cost.test.ts
 │       └── ...
-├── infrastructure/              # 🔧 طبقة البنية التحتية ✅ (جديد!)
+├── infrastructure/              # 🔧 طبقة البنية التحتية ✅
 │   ├── repositories/            # تنفيذات Repository
 │   │   ├── SupabaseProcessCostingRepository.ts ✅
+│   │   ├── SupabaseInventoryRepository.ts ✅ 🆕
+│   │   ├── SupabaseAccountingRepository.ts ✅ 🆕
 │   │   └── __tests__/
-│   │       └── SupabaseProcessCostingRepository.test.ts ✅ (16 tests)
+│   │       ├── SupabaseProcessCostingRepository.test.ts ✅ (16 tests)
+│   │       ├── SupabaseInventoryRepository.test.ts ✅ (17 tests) 🆕
+│   │       └── SupabaseAccountingRepository.test.ts ✅ (14 tests) 🆕
 │   └── di/                      # حاوية حقن التبعيات
 │       └── container.ts ✅
 ├── services/                    # طبقة الخدمات
@@ -198,7 +204,7 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | integration-valuation.test.ts | 31 | طرق التقييم (FIFO, LIFO, AVCO) |
 | **المجموع** | **188** | ✅ جميعها ناجحة |
 
-### Integration Tests (233 اختبار)
+### Integration Tests (280 اختبار) 🆕
 
 | الخدمة | الاختبارات | التغطية |
 |--------|-----------|---------|
@@ -208,21 +214,23 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | process-costing-service.ts | 36 | ~35% |
 | StockLedgerService.ts | 39 | ~30% |
 | accounting-service.ts | 32 | ~25% |
-| SupabaseProcessCostingRepository.ts | 16 | ~80% |
-| **المجموع** | **233** | ✅ |
+| SupabaseProcessCostingRepository.ts | 16 | 100% |
+| SupabaseInventoryRepository.ts | 17 | ~73% 🆕 |
+| SupabaseAccountingRepository.ts | 14 | ~72% 🆕 |
+| **المجموع** | **280** | ✅ |
 
-### إجمالي الاختبارات: **758** ✅
+### إجمالي الاختبارات: **789** ✅ 🆕
 
 ##  الخطوات التالية
 
 1. ✅ ~~إضافة المزيد من Domain Entities (Inventory, Manufacturing)~~
 2. ✅ ~~إنشاء Use Cases إضافية~~
-3. ✅ ~~تنفيذ طبقة Infrastructure (Repository + DI Container)~~ 🆕
-4. ⏳ تطبيق Event Sourcing للـ Audit Trail
-5. ⏳ إضافة CQRS Pattern
-6. ⏳ إضافة المزيد من Repositories (Inventory, Accounting)
+3. ✅ ~~تنفيذ طبقة Infrastructure (Repository + DI Container)~~
+4. ✅ ~~إضافة المزيد من Repositories (Inventory, Accounting)~~ 🆕
+5. ⏳ تطبيق Event Sourcing للـ Audit Trail
+6. ⏳ إضافة CQRS Pattern
 7. ⏳ زيادة التغطية إلى 15-20%
 
 ---
 
-*آخر تحديث: 13 ديسمبر 2025*
+*آخر تحديث: 24 يناير 2025*
