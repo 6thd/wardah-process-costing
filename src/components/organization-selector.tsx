@@ -19,6 +19,43 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
+// مكون عرض شعار المؤسسة
+function OrganizationLogo({ 
+  logoUrl, 
+  name, 
+  size = 'sm' 
+}: { 
+  logoUrl?: string | null; 
+  name: string; 
+  size?: 'sm' | 'md' | 'lg';
+}) {
+  const sizeClasses = {
+    sm: 'h-5 w-5',
+    md: 'h-8 w-8',
+    lg: 'h-10 w-10'
+  };
+
+  if (logoUrl) {
+    return (
+      <img 
+        src={logoUrl} 
+        alt={name}
+        className={cn(
+          sizeClasses[size],
+          "rounded object-contain"
+        )}
+        onError={(e) => {
+          // إذا فشل تحميل الصورة، أخفِها وسيظهر الـ fallback
+          (e.target as HTMLImageElement).style.display = 'none';
+        }}
+      />
+    );
+  }
+
+  // Fallback: أيقونة المبنى
+  return <Building2 className={cn(sizeClasses[size], "text-muted-foreground")} />;
+}
+
 export function OrganizationSelector() {
   const { organizations, currentOrgId, setCurrentOrgId } = useAuth();
   const [open, setOpen] = useState(false);
@@ -35,7 +72,11 @@ export function OrganizationSelector() {
   if (organizations.length === 1) {
     return (
       <div className="flex items-center gap-2 px-3 py-2 bg-muted rounded-md">
-        <Building2 className="h-4 w-4 text-muted-foreground" />
+        <OrganizationLogo 
+          logoUrl={currentOrg?.organization?.logo_url}
+          name={currentOrg?.organization?.name || 'منظمة'}
+          size="sm"
+        />
         <span className="text-sm font-medium">
           {currentOrg?.organization?.name_ar || currentOrg?.organization?.name || 'منظمة'}
         </span>
@@ -53,7 +94,11 @@ export function OrganizationSelector() {
           className="w-[250px] justify-between"
         >
           <div className="flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-muted-foreground" />
+            <OrganizationLogo 
+              logoUrl={currentOrg?.organization?.logo_url}
+              name={currentOrg?.organization?.name || 'اختر منظمة'}
+              size="sm"
+            />
             <span className="truncate">
               {currentOrg?.organization?.name_ar || currentOrg?.organization?.name || 'اختر منظمة'}
             </span>
@@ -78,13 +123,20 @@ export function OrganizationSelector() {
                 }}
                 className="cursor-pointer"
               >
-                <div className="flex flex-col flex-1 gap-1">
-                  <span className="font-medium">
-                    {userOrg.organization?.name_ar || userOrg.organization?.name}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {userOrg.organization?.code} • {userOrg.role}
-                  </span>
+                <div className="flex items-center gap-2 flex-1">
+                  <OrganizationLogo 
+                    logoUrl={userOrg.organization?.logo_url}
+                    name={userOrg.organization?.name || 'منظمة'}
+                    size="sm"
+                  />
+                  <div className="flex flex-col flex-1 gap-0.5">
+                    <span className="font-medium">
+                      {userOrg.organization?.name_ar || userOrg.organization?.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {userOrg.organization?.code} • {userOrg.role}
+                    </span>
+                  </div>
                 </div>
                 <Check
                   className={cn(
@@ -100,4 +152,3 @@ export function OrganizationSelector() {
     </Popover>
   );
 }
-

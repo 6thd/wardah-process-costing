@@ -8,10 +8,18 @@
 import type { IProcessCostingRepository } from '@/domain/interfaces/IProcessCostingRepository'
 import type { IInventoryRepository } from '@/domain/interfaces/IInventoryRepository'
 import type { IAccountingRepository } from '@/domain/interfaces/IAccountingRepository'
+import type { IInventoryValuationRepository } from '@/domain/interfaces/IInventoryValuationRepository'
+import type { IProcessCostingService } from '@/domain/interfaces/IProcessCostingService'
+import type { IValuationStrategyFactory } from '@/domain/interfaces/IValuationMethodStrategy'
 import { SupabaseProcessCostingRepository } from '@/infrastructure/repositories/SupabaseProcessCostingRepository'
 import { SupabaseInventoryRepository } from '@/infrastructure/repositories/SupabaseInventoryRepository'
 import { SupabaseAccountingRepository } from '@/infrastructure/repositories/SupabaseAccountingRepository'
+import { SupabaseInventoryValuationRepository } from '@/infrastructure/repositories/SupabaseInventoryValuationRepository'
 import { CalculateProcessCostUseCase } from '@/domain/use-cases/CalculateProcessCost'
+import { InventoryValuationAppService } from '@/application/services/InventoryValuationAppService'
+import { ProcessCostingAppService } from '@/application/services/ProcessCostingAppService'
+import { ValuationStrategyFactory } from '@/domain/valuation/ValuationStrategies'
+import { loadConfig } from '@/lib/config'
 
 /**
  * Container بسيط للـ Dependency Injection
@@ -83,12 +91,43 @@ container.registerFactory<IAccountingRepository>(
   () => new SupabaseAccountingRepository()
 )
 
+container.registerFactory<IInventoryValuationRepository>(
+  'IInventoryValuationRepository',
+  () => new SupabaseInventoryValuationRepository()
+)
+
 // Use Cases
 container.registerFactory<CalculateProcessCostUseCase>(
   'CalculateProcessCostUseCase',
   () => new CalculateProcessCostUseCase(
     container.resolve<IProcessCostingRepository>('IProcessCostingRepository')
   )
+)
+
+// Application Services
+container.registerFactory<InventoryValuationAppService>(
+  'InventoryValuationAppService',
+  () => new InventoryValuationAppService(
+    container.resolve<IInventoryValuationRepository>('IInventoryValuationRepository')
+  )
+)
+
+// Process Costing Application Service (Clean Architecture - Task arch-3)
+container.registerFactory<IProcessCostingService>(
+  'IProcessCostingService',
+  () => new ProcessCostingAppService(
+    new SupabaseProcessCostingRepository(),
+    async () => {
+      const config = await loadConfig()
+      return config.ORG_ID
+    }
+  )
+)
+
+// Valuation Strategy Factory (Clean Architecture - Task clean-2)
+container.registerFactory<IValuationStrategyFactory>(
+  'IValuationStrategyFactory',
+  () => new ValuationStrategyFactory()
 )
 
 // ===== Helper Functions =====
@@ -119,4 +158,32 @@ export function getInventoryRepository(): IInventoryRepository {
  */
 export function getAccountingRepository(): IAccountingRepository {
   return container.resolve<IAccountingRepository>('IAccountingRepository')
+}
+
+/**
+ * الحصول على Inventory Valuation Repository
+ */
+export function getInventoryValuationRepository(): IInventoryValuationRepository {
+  return container.resolve<IInventoryValuationRepository>('IInventoryValuationRepository')
+}
+
+/**
+ * الحصول على Inventory Valuation Service
+ */
+export function getInventoryValuationService(): InventoryValuationAppService {
+  return container.resolve<InventoryValuationAppService>('InventoryValuationAppService')
+}
+
+/**
+ * الحصول على Process Costing Service (Clean Architecture)
+ */
+export function getProcessCostingService(): IProcessCostingService {
+  return container.resolve<IProcessCostingService>('IProcessCostingService')
+}
+
+/**
+ * الحصول على Valuation Strategy Factory
+ */
+export function getValuationStrategyFactory(): IValuationStrategyFactory {
+  return container.resolve<IValuationStrategyFactory>('IValuationStrategyFactory')
 }
