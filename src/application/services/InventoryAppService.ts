@@ -425,3 +425,24 @@ export class InventoryAppService {
     }
   }
 }
+
+// ===== Singleton Instance =====
+
+let inventoryAppServiceInstance: InventoryAppService | null = null
+
+/**
+ * الحصول على instance من خدمة المخزون (Singleton)
+ */
+export function getInventoryAppService(): InventoryAppService {
+  if (!inventoryAppServiceInstance) {
+    inventoryAppServiceInstance = new InventoryAppService()
+  }
+  return inventoryAppServiceInstance
+}
+
+/**
+ * إعادة تعيين الـ singleton (مفيد للاختبارات)
+ */
+export function resetInventoryAppService(): void {
+  inventoryAppServiceInstance = null
+}

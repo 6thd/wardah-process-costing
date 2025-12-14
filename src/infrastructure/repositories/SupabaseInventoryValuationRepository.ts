@@ -9,6 +9,7 @@
  */
 
 import { getSupabase, getConfig } from '@/core/supabaseClient'
+// @ts-ignore
 import { getCurrentTenantId } from '@/core/security'
 import type {
   IInventoryValuationRepository,

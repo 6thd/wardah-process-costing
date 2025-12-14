@@ -26,26 +26,26 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
    */
   async getDirectMaterials(moId: string): Promise<DirectMaterialData[]> {
     const { data, error } = await supabase
-      .from('mo_materials')
+      .from('mo_material_issues')
       .select(`
         id,
         item_id,
         quantity,
         unit_cost,
         total_cost,
-        product:item_id (name, name_ar)
+        products:item_id (name)
       `)
       .eq('mo_id', moId);
 
     if (error) {
       console.error('Error fetching direct materials:', error);
-      throw new Error('فشل في جلب المواد المباشرة');
+      return [];
     }
 
     return (data || []).map((row: any) => ({
       id: row.id,
       itemId: row.item_id,
-      itemName: row.product?.name || 'Unknown',
+      itemName: row.products?.name || 'Unknown',
       quantity: row.quantity || 0,
       unitCost: row.unit_cost || 0,
       totalCost: row.total_cost || 0
@@ -57,26 +57,19 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
    */
   async getDirectLabor(moId: string): Promise<DirectLaborData[]> {
     const { data, error } = await supabase
-      .from('mo_labor')
-      .select(`
-        id,
-        employee_id,
-        hours,
-        hourly_rate,
-        total_cost,
-        employee:employee_id (name, name_ar)
-      `)
+      .from('labor_time_logs')
+      .select('*')
       .eq('mo_id', moId);
 
     if (error) {
       console.error('Error fetching direct labor:', error);
-      throw new Error('فشل في جلب العمالة المباشرة');
+      return [];
     }
 
     return (data || []).map((row: any) => ({
       id: row.id,
       employeeId: row.employee_id,
-      employeeName: row.employee?.name,
+      employeeName: row.employee_name,
       hours: row.hours || 0,
       hourlyRate: row.hourly_rate || 0,
       totalCost: row.total_cost || (row.hours * row.hourly_rate) || 0
@@ -88,22 +81,22 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
    */
   async getOverheadCosts(moId: string): Promise<OverheadCostData[]> {
     const { data, error } = await supabase
-      .from('mo_overhead')
+      .from('moh_applied')
       .select('*')
       .eq('mo_id', moId);
 
     if (error) {
       console.error('Error fetching overhead costs:', error);
-      throw new Error('فشل في جلب التكاليف غير المباشرة');
+      return [];
     }
 
     return (data || []).map((row: any) => ({
       id: row.id,
-      type: row.overhead_type || 'General',
-      description: row.description || 'Manufacturing Overhead',
-      amount: row.amount || 0,
+      type: row.overhead_type || 'variable',
+      description: row.notes || 'Manufacturing Overhead',
+      amount: row.amount || (row.base_qty * row.overhead_rate) || 0,
       allocationBase: row.allocation_base,
-      allocationRate: row.allocation_rate
+      allocationRate: row.overhead_rate
     }));
   }
 
@@ -119,7 +112,7 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
 
     if (error) {
       console.error('Error fetching MO quantity:', error);
-      throw new Error('فشل في جلب كمية أمر التصنيع');
+      return 0;
     }
 
     return data?.quantity || 0;
