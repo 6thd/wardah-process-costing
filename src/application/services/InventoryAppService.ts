@@ -22,8 +22,8 @@ import type {
 
 export interface ProductListFilters {
   search?: string
-  categoryId?: string
-  isActive?: boolean
+  category?: string
+  active?: boolean
   lowStock?: boolean
   page?: number
   pageSize?: number
@@ -40,10 +40,9 @@ export interface ProductListResult {
 export interface StockMovementFilters {
   productId?: string
   warehouseId?: string
-  binId?: string
-  movementType?: string
-  startDate?: Date
-  endDate?: Date
+  moveType?: 'IN' | 'OUT' | 'TRANSFER'
+  fromDate?: string
+  toDate?: string
   page?: number
   pageSize?: number
 }
@@ -69,8 +68,6 @@ export interface StockTransferInput {
   productId: string
   fromWarehouseId: string
   toWarehouseId: string
-  fromBinId?: string
-  toBinId?: string
   quantity: number
   reference?: string
   notes?: string
@@ -95,9 +92,9 @@ export class InventoryAppService {
    * الحصول على قائمة المنتجات مع الفلترة والترقيم
    */
   async getProducts(filters: ProductListFilters = {}): Promise<ProductListResult> {
-    const { page = 1, pageSize = 20, search, categoryId, isActive, lowStock } = filters
+    const { page = 1, pageSize = 20, search, category, active, lowStock } = filters
     
-    const allProducts = await this.repository.getProducts()
+    const allProducts = await this.repository.getProducts({ category, active })
     
     // تطبيق الفلاتر
     let filtered = allProducts
@@ -106,23 +103,15 @@ export class InventoryAppService {
       const searchLower = search.toLowerCase()
       filtered = filtered.filter(p => 
         p.name.toLowerCase().includes(searchLower) ||
-        p.sku.toLowerCase().includes(searchLower)
+        p.code.toLowerCase().includes(searchLower)
       )
-    }
-    
-    if (categoryId) {
-      filtered = filtered.filter(p => p.categoryId === categoryId)
-    }
-    
-    if (isActive !== undefined) {
-      filtered = filtered.filter(p => p.isActive === isActive)
     }
     
     if (lowStock) {
       filtered = filtered.filter(p => 
-        p.currentStock !== undefined && 
-        p.minStock !== undefined && 
-        p.currentStock <= p.minStock
+        p.stockQuantity !== undefined && 
+        p.minStockLevel !== undefined && 
+        p.stockQuantity <= p.minStockLevel
       )
     }
     
@@ -148,15 +137,17 @@ export class InventoryAppService {
   }
 
   /**
+   * الحصول على منتج بالكود
+   */
+  async getProductByCode(code: string): Promise<ProductData | null> {
+    return this.repository.getProductByCode(code)
+  }
+
+  /**
    * الحصول على المنتجات ذات المخزون المنخفض
    */
-  async getLowStockProducts(): Promise<ProductData[]> {
-    const products = await this.repository.getProducts()
-    return products.filter(p => 
-      p.currentStock !== undefined && 
-      p.minStock !== undefined && 
-      p.currentStock <= p.minStock
-    )
+  async getLowStockProducts(threshold?: number): Promise<ProductData[]> {
+    return this.repository.getLowStockItems(threshold)
   }
 
   /**
@@ -165,15 +156,16 @@ export class InventoryAppService {
   async updateProductStock(
     productId: string, 
     quantity: number, 
+    rate: number,
     operation: 'add' | 'subtract' | 'set'
-  ): Promise<ProductData> {
+  ): Promise<void> {
     const product = await this.repository.getProduct(productId)
     if (!product) {
       throw new Error(`المنتج غير موجود: ${productId}`)
     }
 
     let newQuantity: number
-    const currentStock = product.currentStock || 0
+    const currentStock = product.stockQuantity || 0
 
     switch (operation) {
       case 'add':
@@ -190,7 +182,8 @@ export class InventoryAppService {
         break
     }
 
-    return this.repository.updateProductStock(productId, newQuantity)
+    const newValue = newQuantity * rate
+    await this.repository.updateProductStock(productId, newQuantity, rate, newValue)
   }
 
   // ===== Stock Movements =====
@@ -198,100 +191,137 @@ export class InventoryAppService {
   /**
    * تسجيل حركة مخزون
    */
-  async recordMovement(movement: Omit<StockMovementData, 'id' | 'createdAt'>): Promise<StockMovementData> {
-    // التحقق من توفر المخزون للعمليات السالبة
-    if (movement.quantity < 0) {
-      const availability = await this.repository.checkAvailability(
-        movement.productId,
-        Math.abs(movement.quantity),
-        movement.warehouseId,
-        movement.binId
-      )
-      
-      if (!availability.isAvailable) {
+  async recordStockMovement(
+    movement: Omit<StockMovementData, 'id' | 'createdAt'>
+  ): Promise<StockMovementData> {
+    // التحقق من توفر المخزون للحركات الصادرة
+    if (movement.moveType === 'OUT' || movement.moveType === 'TRANSFER') {
+      const availability = await this.repository.checkAvailability([{
+        productId: movement.productId,
+        quantity: movement.quantity
+      }])
+
+      const result = availability[0]
+      if (!result?.isAvailable) {
         throw new Error(
-          `المخزون غير كافٍ. المتاح: ${availability.availableQuantity}, المطلوب: ${Math.abs(movement.quantity)}`
+          `المخزون غير كافٍ. المتاح: ${result?.availableQty || 0}, المطلوب: ${movement.quantity}`
         )
       }
     }
 
-    return this.repository.recordStockMovement(movement)
+    // تسجيل الحركة
+    return this.repository.recordStockMovement(movement as StockMovementData)
   }
 
   /**
-   * تعديل المخزون
+   * الحصول على حركات المخزون
+   */
+  async getStockMovements(
+    productId: string,
+    filters: Omit<StockMovementFilters, 'productId'> = {}
+  ): Promise<StockMovementResult> {
+    const { page = 1, pageSize = 20, ...options } = filters
+    
+    const movements = await this.repository.getStockMovements(productId, options)
+    
+    const total = movements.length
+    const start = (page - 1) * pageSize
+    const paginatedMovements = movements.slice(start, start + pageSize)
+    
+    return {
+      movements: paginatedMovements,
+      total,
+      page,
+      pageSize
+    }
+  }
+
+  /**
+   * تعديل المخزون (زيادة أو نقص)
    */
   async adjustStock(input: StockAdjustmentInput): Promise<StockMovementData> {
-    const movement: Omit<StockMovementData, 'id' | 'createdAt'> = {
+    const product = await this.repository.getProduct(input.productId)
+    if (!product) {
+      throw new Error(`المنتج غير موجود: ${input.productId}`)
+    }
+
+    const moveType = input.quantity >= 0 ? 'IN' : 'OUT'
+    const quantity = Math.abs(input.quantity)
+
+    return this.recordStockMovement({
       productId: input.productId,
       warehouseId: input.warehouseId,
       binId: input.binId,
-      quantity: input.quantity,
-      movementType: 'adjustment',
-      reference: input.reference || `ADJ-${Date.now()}`,
-      notes: `${input.reason}${input.notes ? ` - ${input.notes}` : ''}`
-    }
-
-    return this.recordMovement(movement)
+      moveType,
+      quantity,
+      rate: product.costPrice,
+      totalValue: quantity * product.costPrice,
+      referenceType: 'adjustment',
+      referenceId: input.reference || `ADJ-${Date.now()}`,
+      notes: `${input.reason}${input.notes ? ': ' + input.notes : ''}`
+    })
   }
 
   /**
    * نقل مخزون بين المستودعات
    */
-  async transferStock(input: StockTransferInput): Promise<{ out: StockMovementData; in: StockMovementData }> {
-    // التحقق من التوفر
-    const availability = await this.repository.checkAvailability(
-      input.productId,
-      input.quantity,
-      input.fromWarehouseId,
-      input.fromBinId
-    )
+  async transferStock(input: StockTransferInput): Promise<{ outMovement: StockMovementData; inMovement: StockMovementData }> {
+    const product = await this.repository.getProduct(input.productId)
+    if (!product) {
+      throw new Error(`المنتج غير موجود: ${input.productId}`)
+    }
 
-    if (!availability.isAvailable) {
+    // التحقق من توفر المخزون
+    const availability = await this.repository.checkAvailability([{
+      productId: input.productId,
+      quantity: input.quantity
+    }])
+    
+    const result = availability[0]
+    if (!result?.isAvailable) {
       throw new Error(
-        `المخزون غير كافٍ للنقل. المتاح: ${availability.availableQuantity}, المطلوب: ${input.quantity}`
+        `المخزون غير كافٍ للنقل. المتاح: ${result?.availableQty || 0}, المطلوب: ${input.quantity}`
       )
     }
 
     const reference = input.reference || `TRF-${Date.now()}`
 
-    // حركة خروج
-    const outMovement = await this.recordMovement({
+    // تسجيل حركة الخروج
+    const outMovement = await this.repository.recordStockMovement({
       productId: input.productId,
       warehouseId: input.fromWarehouseId,
-      binId: input.fromBinId,
-      quantity: -input.quantity,
-      movementType: 'transfer_out',
-      reference,
+      moveType: 'TRANSFER',
+      quantity: input.quantity,
+      rate: product.costPrice,
+      totalValue: input.quantity * product.costPrice,
+      referenceType: 'transfer_out',
+      referenceId: reference,
       notes: input.notes
     })
 
-    // حركة دخول
-    const inMovement = await this.recordMovement({
+    // تسجيل حركة الدخول
+    const inMovement = await this.repository.recordStockMovement({
       productId: input.productId,
       warehouseId: input.toWarehouseId,
-      binId: input.toBinId,
+      moveType: 'TRANSFER',
       quantity: input.quantity,
-      movementType: 'transfer_in',
-      reference,
+      rate: product.costPrice,
+      totalValue: input.quantity * product.costPrice,
+      referenceType: 'transfer_in',
+      referenceId: reference,
       notes: input.notes
     })
 
-    return { out: outMovement, in: inMovement }
+    return { outMovement, inMovement }
   }
 
-  // ===== Availability =====
+  // ===== Stock Balance =====
 
   /**
-   * التحقق من توفر المخزون
+   * الحصول على رصيد المخزون
    */
-  async checkAvailability(
-    productId: string,
-    quantity: number,
-    warehouseId?: string,
-    binId?: string
-  ): Promise<AvailabilityCheckResult> {
-    return this.repository.checkAvailability(productId, quantity, warehouseId, binId)
+  async getStockBalance(productId: string, warehouseId?: string): Promise<StockBalanceData> {
+    return this.repository.getStockBalance(productId, warehouseId)
   }
 
   /**
@@ -301,66 +331,117 @@ export class InventoryAppService {
     return this.repository.getTotalStockValue(warehouseId)
   }
 
+  /**
+   * التحقق من توفر المخزون
+   */
+  async checkAvailability(
+    requirements: Array<{ productId: string; quantity: number }>
+  ): Promise<AvailabilityCheckResult[]> {
+    return this.repository.checkAvailability(requirements)
+  }
+
   // ===== Bins =====
 
   /**
-   * الحصول على bin محدد
+   * الحصول على بيانات حاوية
    */
-  async getBin(binId: string): Promise<BinData | null> {
-    return this.repository.getBin(binId)
+  async getBin(productId: string, warehouseId: string): Promise<BinData | null> {
+    return this.repository.getBin(productId, warehouseId)
   }
 
   /**
-   * إنشاء bin جديد
+   * الحصول على حاويات منتج
    */
-  async createBin(bin: Omit<BinData, 'id'>): Promise<BinData> {
-    return this.repository.createBin(bin)
+  async getBinsByProduct(productId: string): Promise<BinData[]> {
+    return this.repository.getBinsByProduct(productId)
+  }
+
+  /**
+   * الحصول على حاويات مستودع
+   */
+  async getBinsByWarehouse(warehouseId: string): Promise<BinData[]> {
+    return this.repository.getBinsByWarehouse(warehouseId)
   }
 
   // ===== Reservations =====
 
   /**
-   * إنشاء حجز مخزون
+   * إنشاء حجز
    */
   async createReservation(
     productId: string,
     quantity: number,
-    reference: string,
-    expiresAt?: Date
+    referenceType: string,
+    referenceId: string
   ): Promise<string> {
-    // التحقق من التوفر
-    const availability = await this.checkAvailability(productId, quantity)
-    if (!availability.isAvailable) {
-      throw new Error('المخزون غير كافٍ للحجز')
+    // التحقق من توفر الكمية
+    const availability = await this.repository.checkAvailability([{
+      productId,
+      quantity
+    }])
+
+    const result = availability[0]
+    if (!result?.isAvailable) {
+      throw new Error(`الكمية غير متوفرة للحجز. المتاح: ${result?.availableQty || 0}`)
     }
 
-    return this.repository.createReservation(productId, quantity, reference, expiresAt)
+    return this.repository.createReservation(productId, quantity, referenceType, referenceId)
   }
 
   /**
-   * إلغاء حجز
+   * تحرير حجز
    */
-  async cancelReservation(reservationId: string): Promise<void> {
-    return this.repository.cancelReservation(reservationId)
+  async releaseReservation(reservationId: string): Promise<void> {
+    return this.repository.releaseReservation(reservationId)
+  }
+
+  /**
+   * الحصول على الحجوزات
+   */
+  async getReservations(productId: string): Promise<Array<{ id: string; quantity: number; referenceType: string; referenceId: string }>> {
+    return this.repository.getReservations(productId)
+  }
+
+  // ===== Dashboard Metrics =====
+
+  /**
+   * الحصول على إحصائيات المخزون للوحة التحكم
+   */
+  async getDashboardMetrics(): Promise<{
+    totalProducts: number
+    totalValue: number
+    lowStockCount: number
+    outOfStockCount: number
+  }> {
+    const products = await this.repository.getProducts()
+    const totalValue = await this.repository.getTotalStockValue()
+    const lowStockItems = await this.repository.getLowStockItems()
+    
+    return {
+      totalProducts: products.length,
+      totalValue,
+      lowStockCount: lowStockItems.length,
+      outOfStockCount: products.filter(p => p.stockQuantity === 0).length
+    }
   }
 }
 
-// ===== Singleton Instance =====
+// ===== Singleton Management =====
 
 let inventoryAppServiceInstance: InventoryAppService | null = null
 
 /**
- * الحصول على instance من خدمة المخزون
+ * الحصول على instance من InventoryAppService (Singleton)
  */
 export function getInventoryAppService(): InventoryAppService {
   if (!inventoryAppServiceInstance) {
-    inventoryAppServiceInstance = new InventoryAppService()
+    inventoryAppServiceInstance = new InventoryAppService(getInventoryRepository())
   }
   return inventoryAppServiceInstance
 }
 
 /**
- * إعادة تعيين الـ instance (للاختبارات)
+ * إعادة تعيين الـ singleton (للاختبارات)
  */
 export function resetInventoryAppService(): void {
   inventoryAppServiceInstance = null

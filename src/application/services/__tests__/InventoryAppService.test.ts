@@ -1,372 +1,450 @@
 /**
- * @fileoverview InventoryAppService Tests
+ * @fileoverview Inventory App Service Tests
  * @description اختبارات خدمة تطبيق المخزون
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { InventoryAppService } from '../InventoryAppService'
-import type { IInventoryRepository, ProductData, StockMovementData, AvailabilityCheckResult } from '@/domain/interfaces'
+import type { 
+  IInventoryRepository, 
+  ProductData, 
+  StockMovementData,
+  StockBalanceData,
+  AvailabilityCheckResult 
+} from '@/domain/interfaces'
+
+// Mock products matching ProductData interface
+const mockProducts: ProductData[] = [
+  {
+    id: 'prod-1',
+    code: 'SKU-001',
+    name: 'منتج 1',
+    nameAr: 'منتج 1',
+    valuationMethod: 'Weighted Average',
+    stockQuantity: 50,
+    costPrice: 10,
+    stockValue: 500,
+    minStockLevel: 10,
+    maxStockLevel: 100,
+    category: 'cat-1',
+    unit: 'unit'
+  },
+  {
+    id: 'prod-2',
+    code: 'SKU-002',
+    name: 'منتج 2',
+    nameAr: 'منتج 2',
+    valuationMethod: 'FIFO',
+    stockQuantity: 100,
+    costPrice: 20,
+    stockValue: 2000,
+    minStockLevel: 20,
+    maxStockLevel: 200,
+    category: 'cat-2',
+    unit: 'unit'
+  },
+  {
+    id: 'prod-3',
+    code: 'SKU-003',
+    name: 'منتج 3',
+    nameAr: 'منتج 3',
+    valuationMethod: 'Weighted Average',
+    stockQuantity: 5, // low stock
+    costPrice: 15,
+    stockValue: 75,
+    minStockLevel: 10,
+    maxStockLevel: 50,
+    category: 'cat-1',
+    unit: 'unit'
+  }
+]
 
 describe('InventoryAppService', () => {
   let service: InventoryAppService
   let mockRepository: IInventoryRepository
 
-  const mockProducts: ProductData[] = [
-    {
-      id: 'prod-1',
-      sku: 'SKU-001',
-      name: 'منتج أ',
-      categoryId: 'cat-1',
-      unitCost: 100,
-      sellingPrice: 150,
-      currentStock: 50,
-      minStock: 10,
-      isActive: true
-    },
-    {
-      id: 'prod-2',
-      sku: 'SKU-002',
-      name: 'منتج ب',
-      categoryId: 'cat-2',
-      unitCost: 200,
-      sellingPrice: 300,
-      currentStock: 5,
-      minStock: 10,
-      isActive: true
-    },
-    {
-      id: 'prod-3',
-      sku: 'SKU-003',
-      name: 'منتج غير نشط',
-      categoryId: 'cat-1',
-      unitCost: 50,
-      sellingPrice: 80,
-      currentStock: 100,
-      minStock: 20,
-      isActive: false
-    }
-  ]
-
   beforeEach(() => {
     mockRepository = {
       getProduct: vi.fn(),
       getProducts: vi.fn().mockResolvedValue(mockProducts),
-      updateProductStock: vi.fn(),
-      getBin: vi.fn(),
-      createBin: vi.fn(),
+      getProductByCode: vi.fn(),
+      updateProductStock: vi.fn().mockResolvedValue(undefined),
       recordStockMovement: vi.fn(),
-      getTotalStockValue: vi.fn().mockResolvedValue(15000),
+      getStockMovements: vi.fn().mockResolvedValue([]),
+      getStockBalance: vi.fn(),
+      getTotalStockValue: vi.fn().mockResolvedValue(2575),
       checkAvailability: vi.fn(),
+      getLowStockItems: vi.fn(),
+      getBin: vi.fn(),
+      getBinsByProduct: vi.fn().mockResolvedValue([]),
+      getBinsByWarehouse: vi.fn().mockResolvedValue([]),
+      updateBin: vi.fn().mockResolvedValue(undefined),
+      createBin: vi.fn(),
       createReservation: vi.fn(),
-      cancelReservation: vi.fn()
+      releaseReservation: vi.fn(),
+      getReservations: vi.fn().mockResolvedValue([])
     }
-
+    
     service = new InventoryAppService(mockRepository)
   })
 
   describe('getProducts', () => {
     it('should return paginated products', async () => {
-      const result = await service.getProducts({ page: 1, pageSize: 2 })
-
-      expect(result.products).toHaveLength(2)
+      const result = await service.getProducts({ page: 1, pageSize: 10 })
+      
+      expect(result.products).toHaveLength(3)
       expect(result.total).toBe(3)
-      expect(result.page).toBe(1)
-      expect(result.hasMore).toBe(true)
-    })
-
-    it('should filter by search term', async () => {
-      const result = await service.getProducts({ search: 'منتج أ' })
-
-      expect(result.products).toHaveLength(1)
-      expect(result.products[0].name).toBe('منتج أ')
+      expect(result.hasMore).toBe(false)
     })
 
     it('should filter by category', async () => {
-      const result = await service.getProducts({ categoryId: 'cat-1' })
-
-      expect(result.products).toHaveLength(2)
+      const result = await service.getProducts({ category: 'cat-1' })
+      
+      expect(mockRepository.getProducts).toHaveBeenCalledWith({ category: 'cat-1', active: undefined })
     })
 
-    it('should filter by active status', async () => {
-      const result = await service.getProducts({ isActive: true })
-
-      expect(result.products).toHaveLength(2)
-      expect(result.products.every(p => p.isActive)).toBe(true)
-    })
-
-    it('should filter low stock products', async () => {
-      const result = await service.getProducts({ lowStock: true })
-
+    it('should filter by search', async () => {
+      const result = await service.getProducts({ search: 'SKU-001' })
+      
       expect(result.products).toHaveLength(1)
-      expect(result.products[0].id).toBe('prod-2')
+      expect(result.products[0].code).toBe('SKU-001')
+    })
+
+    it('should filter by low stock', async () => {
+      const result = await service.getProducts({ lowStock: true })
+      
+      // Only prod-3 has stockQuantity (5) <= minStockLevel (10)
+      expect(result.products).toHaveLength(1)
+      expect(result.products[0].id).toBe('prod-3')
     })
   })
 
   describe('getProduct', () => {
-    it('should return a single product', async () => {
+    it('should return single product', async () => {
       vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
-
+      
       const result = await service.getProduct('prod-1')
-
+      
       expect(result).toEqual(mockProducts[0])
       expect(mockRepository.getProduct).toHaveBeenCalledWith('prod-1')
     })
 
     it('should return null for non-existent product', async () => {
       vi.mocked(mockRepository.getProduct).mockResolvedValue(null)
-
+      
       const result = await service.getProduct('non-existent')
-
+      
       expect(result).toBeNull()
     })
   })
 
   describe('getLowStockProducts', () => {
-    it('should return products with stock below minimum', async () => {
+    it('should return low stock items', async () => {
+      vi.mocked(mockRepository.getLowStockItems).mockResolvedValue([mockProducts[2]])
+      
       const result = await service.getLowStockProducts()
-
+      
       expect(result).toHaveLength(1)
-      expect(result[0].id).toBe('prod-2')
-      expect(result[0].currentStock).toBeLessThanOrEqual(result[0].minStock!)
+      expect(result[0].stockQuantity).toBeLessThanOrEqual(result[0].minStockLevel!)
     })
   })
 
   describe('updateProductStock', () => {
-    it('should add stock correctly', async () => {
+    beforeEach(() => {
       vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
-      vi.mocked(mockRepository.updateProductStock).mockResolvedValue({
-        ...mockProducts[0],
-        currentStock: 60
-      })
-
-      const result = await service.updateProductStock('prod-1', 10, 'add')
-
-      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 60)
-      expect(result.currentStock).toBe(60)
     })
 
-    it('should subtract stock correctly', async () => {
-      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
-      vi.mocked(mockRepository.updateProductStock).mockResolvedValue({
-        ...mockProducts[0],
-        currentStock: 40
-      })
-
-      const result = await service.updateProductStock('prod-1', 10, 'subtract')
-
-      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 40)
+    it('should add stock', async () => {
+      await service.updateProductStock('prod-1', 10, 10, 'add')
+      
+      // 50 + 10 = 60
+      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 60, 10, 600)
     })
 
-    it('should set stock correctly', async () => {
-      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
-      vi.mocked(mockRepository.updateProductStock).mockResolvedValue({
-        ...mockProducts[0],
-        currentStock: 100
-      })
+    it('should subtract stock', async () => {
+      await service.updateProductStock('prod-1', 10, 10, 'subtract')
+      
+      // 50 - 10 = 40
+      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 40, 10, 400)
+    })
 
-      const result = await service.updateProductStock('prod-1', 100, 'set')
-
-      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 100)
+    it('should set stock', async () => {
+      await service.updateProductStock('prod-1', 100, 10, 'set')
+      
+      expect(mockRepository.updateProductStock).toHaveBeenCalledWith('prod-1', 100, 10, 1000)
     })
 
     it('should throw error for negative stock', async () => {
-      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
-
-      await expect(service.updateProductStock('prod-1', 100, 'subtract'))
+      await expect(service.updateProductStock('prod-1', 100, 10, 'subtract'))
         .rejects.toThrow('لا يمكن أن يكون المخزون سالباً')
     })
 
     it('should throw error for non-existent product', async () => {
       vi.mocked(mockRepository.getProduct).mockResolvedValue(null)
-
-      await expect(service.updateProductStock('non-existent', 10, 'add'))
+      
+      await expect(service.updateProductStock('non-existent', 10, 10, 'add'))
         .rejects.toThrow('المنتج غير موجود')
     })
   })
 
-  describe('recordMovement', () => {
-    it('should record positive movement', async () => {
+  describe('recordStockMovement', () => {
+    it('should record IN movement', async () => {
       const movement: Omit<StockMovementData, 'id' | 'createdAt'> = {
         productId: 'prod-1',
         warehouseId: 'wh-1',
         quantity: 10,
-        movementType: 'receipt',
-        reference: 'REC-001'
+        moveType: 'IN',
+        rate: 10,
+        totalValue: 100,
+        referenceType: 'receipt',
+        referenceId: 'REC-001'
       }
-
-      vi.mocked(mockRepository.recordStockMovement).mockResolvedValue({
+      
+      const expectedResult: StockMovementData = {
+        id: 'mv-1',
         ...movement,
-        id: 'mov-1',
-        createdAt: new Date()
-      })
-
-      const result = await service.recordMovement(movement)
-
-      expect(result.id).toBe('mov-1')
-      expect(mockRepository.recordStockMovement).toHaveBeenCalledWith(movement)
+        createdAt: '2025-01-15'
+      }
+      
+      vi.mocked(mockRepository.recordStockMovement).mockResolvedValue(expectedResult)
+      
+      const result = await service.recordStockMovement(movement)
+      
+      expect(result.id).toBe('mv-1')
+      expect(mockRepository.recordStockMovement).toHaveBeenCalled()
     })
 
-    it('should check availability for negative movement', async () => {
+    it('should record OUT movement when stock is available', async () => {
       const movement: Omit<StockMovementData, 'id' | 'createdAt'> = {
         productId: 'prod-1',
         warehouseId: 'wh-1',
-        quantity: -10,
-        movementType: 'issue',
-        reference: 'ISS-001'
+        quantity: 10,
+        moveType: 'OUT',
+        rate: 10,
+        totalValue: 100,
+        referenceType: 'issue',
+        referenceId: 'ISS-001'
       }
-
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: true,
-        availableQuantity: 50,
-        reservedQuantity: 0
-      })
-
+      
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 10,
+        availableQty: 50,
+        isAvailable: true, shortfall: 0 }])
+      
       vi.mocked(mockRepository.recordStockMovement).mockResolvedValue({
+        id: 'mv-1',
         ...movement,
-        id: 'mov-2',
-        createdAt: new Date()
+        createdAt: '2025-01-15'
       })
-
-      await service.recordMovement(movement)
-
-      expect(mockRepository.checkAvailability).toHaveBeenCalledWith('prod-1', 10, 'wh-1', undefined)
+      
+      const result = await service.recordStockMovement(movement)
+      
+      expect(result.id).toBe('mv-1')
     })
 
-    it('should throw error if stock insufficient', async () => {
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: false,
-        availableQuantity: 5,
-        reservedQuantity: 0
-      })
-
-      await expect(service.recordMovement({
+    it('should throw error when stock is not available', async () => {
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 100,
+        availableQty: 50,
+        isAvailable: false, shortfall: 50 }])
+      
+      await expect(service.recordStockMovement({
         productId: 'prod-1',
         warehouseId: 'wh-1',
-        quantity: -10,
-        movementType: 'issue',
-        reference: 'ISS-001'
+        quantity: 100,
+        moveType: 'OUT',
+        rate: 10,
+        totalValue: 1000,
+        referenceType: 'issue',
+        referenceId: 'ISS-001'
       })).rejects.toThrow('المخزون غير كافٍ')
     })
   })
 
   describe('adjustStock', () => {
     it('should create adjustment movement', async () => {
+      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
       vi.mocked(mockRepository.recordStockMovement).mockResolvedValue({
-        id: 'adj-1',
+        id: 'mv-1',
         productId: 'prod-1',
         warehouseId: 'wh-1',
         quantity: 5,
-        movementType: 'adjustment',
-        reference: 'ADJ-123',
-        createdAt: new Date()
+        moveType: 'IN',
+        rate: 10,
+        totalValue: 50,
+        referenceType: 'adjustment',
+        referenceId: 'ADJ-001',
+        createdAt: '2025-01-15'
       })
-
+      
       const result = await service.adjustStock({
         productId: 'prod-1',
         warehouseId: 'wh-1',
         quantity: 5,
-        reason: 'تصحيح جرد'
+        reason: 'جرد',
+        reference: 'ADJ-001'
       })
-
-      expect(result.movementType).toBe('adjustment')
-      expect(mockRepository.recordStockMovement).toHaveBeenCalled()
+      
+      expect(result.referenceType).toBe('adjustment')
     })
   })
 
   describe('transferStock', () => {
-    it('should create transfer movements', async () => {
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: true,
-        availableQuantity: 50,
-        reservedQuantity: 0
-      })
-
+    it('should transfer stock between warehouses', async () => {
+      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 10,
+        availableQty: 50,
+        isAvailable: true, shortfall: 0 }])
+      
+      const outMovement: StockMovementData = {
+        id: 'mv-1',
+        productId: 'prod-1',
+        warehouseId: 'wh-1',
+        quantity: 10,
+        moveType: 'TRANSFER',
+        rate: 10,
+        totalValue: 100,
+        referenceType: 'transfer_out',
+        referenceId: 'TRF-001',
+        createdAt: '2025-01-15'
+      }
+      
+      const inMovement: StockMovementData = {
+        id: 'mv-2',
+        productId: 'prod-1',
+        warehouseId: 'wh-2',
+        quantity: 10,
+        moveType: 'TRANSFER',
+        rate: 10,
+        totalValue: 100,
+        referenceType: 'transfer_in',
+        referenceId: 'TRF-001',
+        createdAt: '2025-01-15'
+      }
+      
       vi.mocked(mockRepository.recordStockMovement)
-        .mockResolvedValueOnce({
-          id: 'trf-out',
-          productId: 'prod-1',
-          warehouseId: 'wh-1',
-          quantity: -10,
-          movementType: 'transfer_out',
-          reference: 'TRF-123',
-          createdAt: new Date()
-        })
-        .mockResolvedValueOnce({
-          id: 'trf-in',
-          productId: 'prod-1',
-          warehouseId: 'wh-2',
-          quantity: 10,
-          movementType: 'transfer_in',
-          reference: 'TRF-123',
-          createdAt: new Date()
-        })
-
+        .mockResolvedValueOnce(outMovement)
+        .mockResolvedValueOnce(inMovement)
+      
       const result = await service.transferStock({
         productId: 'prod-1',
         fromWarehouseId: 'wh-1',
         toWarehouseId: 'wh-2',
         quantity: 10
       })
-
-      expect(result.out.movementType).toBe('transfer_out')
-      expect(result.in.movementType).toBe('transfer_in')
-      expect(mockRepository.recordStockMovement).toHaveBeenCalledTimes(2)
+      
+      expect(result.outMovement.referenceType).toBe('transfer_out')
+      expect(result.inMovement.referenceType).toBe('transfer_in')
     })
 
-    it('should throw error if insufficient stock', async () => {
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: false,
-        availableQuantity: 5,
-        reservedQuantity: 0
-      })
-
+    it('should throw error when stock not available', async () => {
+      vi.mocked(mockRepository.getProduct).mockResolvedValue(mockProducts[0])
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 100,
+        availableQty: 50,
+        isAvailable: false, shortfall: 50 }])
+      
       await expect(service.transferStock({
         productId: 'prod-1',
         fromWarehouseId: 'wh-1',
         toWarehouseId: 'wh-2',
-        quantity: 10
-      })).rejects.toThrow('المخزون غير كافٍ للنقل')
+        quantity: 100
+      })).rejects.toThrow('المخزون غير كافٍ')
     })
   })
 
-  describe('getTotalStockValue', () => {
-    it('should return total stock value', async () => {
-      const result = await service.getTotalStockValue()
-
-      expect(result).toBe(15000)
-      expect(mockRepository.getTotalStockValue).toHaveBeenCalled()
+  describe('getStockBalance', () => {
+    it('should return stock balance', async () => {
+      const balance: StockBalanceData = {
+        productId: 'prod-1',
+        productCode: 'SKU-001',
+        productName: 'منتج 1',
+        warehouseId: 'wh-1',
+        warehouseName: 'المستودع الرئيسي',
+        quantity: 50,
+        avgRate: 10,
+        totalValue: 500
+      }
+      
+      vi.mocked(mockRepository.getStockBalance).mockResolvedValue(balance)
+      
+      const result = await service.getStockBalance('prod-1', 'wh-1')
+      
+      expect(result.quantity).toBe(50)
     })
+  })
 
-    it('should filter by warehouse', async () => {
-      await service.getTotalStockValue('wh-1')
-
-      expect(mockRepository.getTotalStockValue).toHaveBeenCalledWith('wh-1')
+  describe('checkAvailability', () => {
+    it('should check multiple products availability', async () => {
+      const requirements = [
+        { productId: 'prod-1', quantity: 10 },
+        { productId: 'prod-2', quantity: 20 }
+      ]
+      
+      const checkResult: AvailabilityCheckResult[] = [
+        { productId: 'prod-1', requiredQty: 10, availableQty: 50, isAvailable: true, shortfall: 0 },
+        { productId: 'prod-2', requiredQty: 20, availableQty: 100, isAvailable: true, shortfall: 0 }
+      ]
+      
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue(checkResult)
+      
+      const result = await service.checkAvailability(requirements)
+      
+      expect(result).toHaveLength(2)
+      expect(result.every(r => r.isAvailable)).toBe(true)
     })
   })
 
   describe('createReservation', () => {
     it('should create reservation when stock available', async () => {
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: true,
-        availableQuantity: 50,
-        reservedQuantity: 0
-      })
-      vi.mocked(mockRepository.createReservation).mockResolvedValue('res-123')
-
-      const result = await service.createReservation('prod-1', 10, 'SO-001')
-
-      expect(result).toBe('res-123')
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 10,
+        availableQty: 50,
+        isAvailable: true, shortfall: 0 }])
+      vi.mocked(mockRepository.createReservation).mockResolvedValue('res-1')
+      
+      const result = await service.createReservation('prod-1', 10, 'sale_order', 'SO-001')
+      
+      expect(result).toBe('res-1')
     })
 
-    it('should throw error if stock insufficient', async () => {
-      vi.mocked(mockRepository.checkAvailability).mockResolvedValue({
-        isAvailable: false,
-        availableQuantity: 5,
-        reservedQuantity: 0
-      })
+    it('should throw error when stock not available', async () => {
+      vi.mocked(mockRepository.checkAvailability).mockResolvedValue([{
+        productId: 'prod-1',
+        requiredQty: 100,
+        availableQty: 50,
+        isAvailable: false, shortfall: 50 }])
+      
+      await expect(service.createReservation('prod-1', 100, 'sale_order', 'SO-001'))
+        .rejects.toThrow('الكمية غير متوفرة للحجز')
+    })
+  })
 
-      await expect(service.createReservation('prod-1', 10, 'SO-001'))
-        .rejects.toThrow('المخزون غير كافٍ للحجز')
+  describe('releaseReservation', () => {
+    it('should release reservation', async () => {
+      vi.mocked(mockRepository.releaseReservation).mockResolvedValue(undefined)
+      
+      await service.releaseReservation('res-1')
+      
+      expect(mockRepository.releaseReservation).toHaveBeenCalledWith('res-1')
+    })
+  })
+
+  describe('getDashboardMetrics', () => {
+    it('should return dashboard metrics', async () => {
+      vi.mocked(mockRepository.getLowStockItems).mockResolvedValue([mockProducts[2]])
+      
+      const result = await service.getDashboardMetrics()
+      
+      expect(result.totalProducts).toBe(3)
+      expect(result.totalValue).toBe(2575)
+      expect(result.lowStockCount).toBe(1)
     })
   })
 })

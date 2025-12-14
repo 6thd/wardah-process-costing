@@ -1,12 +1,6 @@
 /**
  * @fileoverview useInventory Hook
  * @description React Hook للتعامل مع خدمة المخزون
- * 
- * استخدام:
- * ```tsx
- * const { products, loading, error, refetch } = useInventory()
- * const { transferStock, adjustStock, loading: actionLoading } = useInventoryActions()
- * ```
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -178,9 +172,9 @@ export function useLowStockProducts() {
 interface UseInventoryActionsReturn {
   adjustStock: (input: StockAdjustmentInput) => Promise<void>
   transferStock: (input: StockTransferInput) => Promise<void>
-  checkAvailability: (productId: string, quantity: number, warehouseId?: string) => Promise<AvailabilityCheckResult>
-  createReservation: (productId: string, quantity: number, reference: string) => Promise<string>
-  cancelReservation: (reservationId: string) => Promise<void>
+  checkAvailability: (requirements: Array<{ productId: string; quantity: number }>) => Promise<AvailabilityCheckResult[]>
+  createReservation: (productId: string, quantity: number, referenceType: string, referenceId: string) => Promise<string>
+  releaseReservation: (reservationId: string) => Promise<void>
   loading: boolean
   error: Error | null
 }
@@ -225,30 +219,29 @@ export function useInventoryActions(): UseInventoryActionsReturn {
   }, [service])
 
   const checkAvailability = useCallback(async (
-    productId: string, 
-    quantity: number, 
-    warehouseId?: string
+    requirements: Array<{ productId: string; quantity: number }>
   ) => {
-    return service.checkAvailability(productId, quantity, warehouseId)
+    return service.checkAvailability(requirements)
   }, [service])
 
   const createReservation = useCallback(async (
     productId: string, 
     quantity: number, 
-    reference: string
+    referenceType: string,
+    referenceId: string
   ) => {
     setLoading(true)
     try {
-      return await service.createReservation(productId, quantity, reference)
+      return await service.createReservation(productId, quantity, referenceType, referenceId)
     } finally {
       setLoading(false)
     }
   }, [service])
 
-  const cancelReservation = useCallback(async (reservationId: string) => {
+  const releaseReservation = useCallback(async (reservationId: string) => {
     setLoading(true)
     try {
-      await service.cancelReservation(reservationId)
+      await service.releaseReservation(reservationId)
     } finally {
       setLoading(false)
     }
@@ -259,7 +252,7 @@ export function useInventoryActions(): UseInventoryActionsReturn {
     transferStock,
     checkAvailability,
     createReservation,
-    cancelReservation,
+    releaseReservation,
     loading,
     error
   }

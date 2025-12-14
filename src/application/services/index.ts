@@ -5,9 +5,9 @@
 
 // Inventory
 export { 
-  InventoryAppService, 
+  InventoryAppService,
   getInventoryAppService,
-  resetInventoryAppService 
+  resetInventoryAppService
 } from './InventoryAppService'
 export type { 
   ProductListFilters, 
@@ -20,16 +20,21 @@ export type {
 
 // Accounting
 export { 
-  AccountingAppService, 
+  AccountingAppService,
   getAccountingAppService,
-  resetAccountingAppService 
+  resetAccountingAppService
 } from './AccountingAppService'
 export type { 
   AccountListFilters,
-  JournalEntryInput,
-  JournalEntryLineInput,
-  AccountStatementFilters,
-  AccountStatementResult,
-  FinancialReportOptions,
-  DashboardMetrics
+  AccountListResult,
+  JournalEntryFilters,
+  CreateJournalEntryInput
 } from './AccountingAppService'
+
+// Inventory Valuation
+export { 
+  InventoryValuationAppService,
+  getInventoryValuationService,
+  setInventoryValuationService,
+  resetInventoryValuationService
+} from './InventoryValuationAppService'
