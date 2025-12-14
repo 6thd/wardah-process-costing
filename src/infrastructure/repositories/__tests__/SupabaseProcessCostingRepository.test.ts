@@ -20,6 +20,11 @@ vi.mock('@/lib/supabase', () => ({
 // Import after mocks
 import { SupabaseProcessCostingRepository } from '../SupabaseProcessCostingRepository'
 import { supabase } from '@/lib/supabase'
+import type {
+  DirectMaterialData,
+  DirectLaborData,
+  OverheadCostData,
+} from '@/domain/interfaces/IProcessCostingRepository'
 
 describe('SupabaseProcessCostingRepository', () => {
   let repository: SupabaseProcessCostingRepository
@@ -45,7 +50,7 @@ describe('SupabaseProcessCostingRepository', () => {
           quantity: 100,
           unit_cost: 10,
           total_cost: 1000,
-          products: { name: 'Raw Material A' },
+          product: { name: 'Raw Material A', name_ar: 'مادة خام أ' },
         },
         {
           id: 'mat-002',
@@ -53,7 +58,7 @@ describe('SupabaseProcessCostingRepository', () => {
           quantity: 50,
           unit_cost: 20,
           total_cost: 1000,
-          products: { name: 'Raw Material B' },
+          product: { name: 'Raw Material B', name_ar: 'مادة خام ب' },
         },
       ]
 
@@ -76,7 +81,7 @@ describe('SupabaseProcessCostingRepository', () => {
         unitCost: 10,
         totalCost: 1000,
       })
-      expect(supabase.from).toHaveBeenCalledWith('mo_material_issues')
+      expect(supabase.from).toHaveBeenCalledWith('mo_materials')
     })
 
     it('should handle empty data', async () => {
@@ -93,7 +98,7 @@ describe('SupabaseProcessCostingRepository', () => {
       expect(result).toEqual([])
     })
 
-    it('should return empty array on database failure', async () => {
+    it('should throw error on database failure', async () => {
       const chainable: any = {
         then: (resolve: any) => Promise.resolve({ 
           data: null, 
@@ -105,8 +110,8 @@ describe('SupabaseProcessCostingRepository', () => {
 
       vi.mocked(supabase.from).mockReturnValue(chainable)
 
-      const result = await repository.getDirectMaterials('MO-001')
-      expect(result).toEqual([])
+      await expect(repository.getDirectMaterials('MO-001'))
+        .rejects.toThrow('فشل في جلب المواد المباشرة')
     })
 
     it('should handle null product name', async () => {
@@ -117,7 +122,7 @@ describe('SupabaseProcessCostingRepository', () => {
           quantity: 100,
           unit_cost: 10,
           total_cost: 1000,
-          products: null,
+          product: null,
         },
       ]
 
@@ -144,10 +149,10 @@ describe('SupabaseProcessCostingRepository', () => {
         {
           id: 'labor-001',
           employee_id: 'emp-001',
-          employee_name: 'John Doe',
           hours: 8,
           hourly_rate: 50,
           total_cost: 400,
+          employee: { name: 'John Doe', name_ar: 'جون دو' },
         },
       ]
 
@@ -170,7 +175,7 @@ describe('SupabaseProcessCostingRepository', () => {
         hourlyRate: 50,
         totalCost: 400,
       })
-      expect(supabase.from).toHaveBeenCalledWith('labor_time_logs')
+      expect(supabase.from).toHaveBeenCalledWith('mo_labor')
     })
 
     it('should handle null values', async () => {
@@ -178,10 +183,10 @@ describe('SupabaseProcessCostingRepository', () => {
         {
           id: 'labor-001',
           employee_id: null,
-          employee_name: undefined,
           hours: null,
           hourly_rate: null,
           total_cost: null,
+          employee: null,
         },
       ]
 
@@ -205,7 +210,7 @@ describe('SupabaseProcessCostingRepository', () => {
       })
     })
 
-    it('should return empty array on database failure', async () => {
+    it('should throw error on database failure', async () => {
       const chainable: any = {
         then: (resolve: any) => Promise.resolve({ 
           data: null, 
@@ -217,8 +222,8 @@ describe('SupabaseProcessCostingRepository', () => {
 
       vi.mocked(supabase.from).mockReturnValue(chainable)
 
-      const result = await repository.getDirectLabor('MO-001')
-      expect(result).toEqual([])
+      await expect(repository.getDirectLabor('MO-001'))
+        .rejects.toThrow('فشل في جلب العمالة المباشرة')
     })
   })
 
@@ -231,18 +236,18 @@ describe('SupabaseProcessCostingRepository', () => {
         {
           id: 'oh-001',
           overhead_type: 'Utilities',
-          notes: 'Electricity',
+          description: 'Electricity',
           amount: 500,
           allocation_base: 'Machine Hours',
-          overhead_rate: 10,
+          allocation_rate: 10,
         },
         {
           id: 'oh-002',
           overhead_type: 'Maintenance',
-          notes: 'Equipment maintenance',
+          description: 'Equipment maintenance',
           amount: 300,
           allocation_base: null,
-          overhead_rate: null,
+          allocation_rate: null,
         },
       ]
 
@@ -265,15 +270,15 @@ describe('SupabaseProcessCostingRepository', () => {
         allocationBase: 'Machine Hours',
         allocationRate: 10,
       })
-      expect(supabase.from).toHaveBeenCalledWith('moh_applied')
+      expect(supabase.from).toHaveBeenCalledWith('mo_overhead')
     })
 
-    it('should default type to variable when overhead_type is null', async () => {
+    it('should default type to General', async () => {
       const mockData = [
         {
           id: 'oh-001',
           overhead_type: null,
-          notes: 'General expense',
+          description: 'General expense',
           amount: 100,
         },
       ]
@@ -288,10 +293,10 @@ describe('SupabaseProcessCostingRepository', () => {
 
       const result = await repository.getOverheadCosts('MO-001')
 
-      expect(result[0].type).toBe('variable')
+      expect(result[0].type).toBe('General')
     })
 
-    it('should return empty array on database failure', async () => {
+    it('should throw error on database failure', async () => {
       const chainable: any = {
         then: (resolve: any) => Promise.resolve({ 
           data: null, 
@@ -303,8 +308,8 @@ describe('SupabaseProcessCostingRepository', () => {
 
       vi.mocked(supabase.from).mockReturnValue(chainable)
 
-      const result = await repository.getOverheadCosts('MO-001')
-      expect(result).toEqual([])
+      await expect(repository.getOverheadCosts('MO-001'))
+        .rejects.toThrow('فشل في جلب التكاليف غير المباشرة')
     })
   })
 
@@ -345,7 +350,7 @@ describe('SupabaseProcessCostingRepository', () => {
       expect(result).toBe(0)
     })
 
-    it('should return 0 on database failure', async () => {
+    it('should throw error on database failure', async () => {
       const chainable: any = {}
       chainable.select = vi.fn().mockReturnValue(chainable)
       chainable.eq = vi.fn().mockReturnValue(chainable)
@@ -356,8 +361,8 @@ describe('SupabaseProcessCostingRepository', () => {
 
       vi.mocked(supabase.from).mockReturnValue(chainable)
 
-      const result = await repository.getManufacturingOrderQuantity('MO-001')
-      expect(result).toBe(0)
+      await expect(repository.getManufacturingOrderQuantity('MO-001'))
+        .rejects.toThrow('فشل في جلب كمية أمر التصنيع')
     })
   })
 })
