@@ -95,7 +95,7 @@ export class AccountingAppService {
       filtered = filtered.filter(a => 
         a.accountName.toLowerCase().includes(searchLower) ||
         a.accountCode.toLowerCase().includes(searchLower) ||
-        (a.accountNameAr && a.accountNameAr.includes(search))
+        a.accountNameAr?.includes(search)
       )
     }
 
@@ -141,7 +141,7 @@ export class AccountingAppService {
     return allAccounts.filter(a =>
       a.accountName.toLowerCase().includes(queryLower) ||
       a.accountCode.toLowerCase().includes(queryLower) ||
-      (a.accountNameAr && a.accountNameAr.includes(query))
+      a.accountNameAr?.includes(query)
     )
   }
 

@@ -168,7 +168,7 @@ export class LoggingMiddleware implements CommandMiddleware {
  * Middleware للتحقق من الصلاحيات
  */
 export class AuthorizationMiddleware implements CommandMiddleware {
-  constructor(private checkPermission: (userId: string, commandType: string) => Promise<boolean>) {}
+  constructor(private readonly checkPermission: (userId: string, commandType: string) => Promise<boolean>) {}
 
   async before(command: ICommand<unknown>): Promise<CommandResult<unknown> | void> {
     if (!command.userId) {
