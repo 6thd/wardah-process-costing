@@ -186,10 +186,13 @@ export async function uploadOrganizationLogo(
     }
 
     // إنشاء اسم فريد للملف
+    // ⚠️ IMPORTANT: المسار يحتوي على org_id لعزل ملفات كل مؤسسة
+    // هذا يمنع التداخل بين المؤسسات في Multi-tenant
     const fileExt = file.name.split('.').pop();
     const fileName = `${orgId}/logo-${Date.now()}.${fileExt}`;
 
     // رفع الملف
+    // ملاحظة: RLS Policies في Storage Bucket تتحقق من صلاحية المستخدم
     const { error: uploadError } = await supabase.storage
       .from('organization-logos')
       .upload(fileName, file, {

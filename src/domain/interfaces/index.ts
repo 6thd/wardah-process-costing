@@ -12,7 +12,21 @@ export type {
   GLAccountData, 
   GLEntryData, 
   JournalEntryData, 
+  AccountBalanceData,
   TrialBalanceData, 
   IncomeStatementData, 
-  BalanceSheetData 
+  BalanceSheetData,
+  AccountStatementData 
 } from './IAccountingRepository';
+export type {
+  IInventoryValuationRepository,
+  InventoryMovementInput,
+  InventoryMovementResult,
+  InventoryLedgerEntry,
+  ItemValuationData,
+  StockBatch,
+  ProductBatch,
+  COGSSimulation,
+  ValuationByMethodSummary,
+  ValuationTotals
+} from './IInventoryValuationRepository';

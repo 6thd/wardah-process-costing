@@ -10,12 +10,13 @@ import {
   Plug, 
   Database,
 } from 'lucide-react'
+import { CompanySettings } from './CompanySettings'
 
 export function SettingsModule() {
   return (
     <Routes>
       <Route path="/" element={<SettingsOverview />} />
-      <Route path="/company" element={<CompanySettings />} />
+      <Route path="/company" element={<CompanySettingsPage />} />
       <Route path="/users" element={<UserManagement />} />
       <Route path="/permissions" element={<PermissionsManagement />} />
       <Route path="/system" element={<SystemSettings />} />
@@ -174,29 +175,9 @@ function SettingsOverview() {
   )
 }
 
-// Company Settings Component
-function CompanySettings() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">بيانات الشركة</h1>
-        <p className="text-muted-foreground mt-2">
-          إعدادات الشركة والمعلومات الأساسية
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - معلومات الشركة، عنوان المراسلة، الشعار والهوية
-        </p>
-      </div>
-    </div>
-  )
+// Company Settings Page - Uses the full CompanySettings component
+function CompanySettingsPage() {
+  return <CompanySettings />
 }
 
 // User Management Component - Redirect to Org Admin

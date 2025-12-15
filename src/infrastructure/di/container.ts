@@ -8,10 +8,13 @@
 import type { IProcessCostingRepository } from '@/domain/interfaces/IProcessCostingRepository'
 import type { IInventoryRepository } from '@/domain/interfaces/IInventoryRepository'
 import type { IAccountingRepository } from '@/domain/interfaces/IAccountingRepository'
+import type { IInventoryValuationRepository } from '@/domain/interfaces/IInventoryValuationRepository'
 import { SupabaseProcessCostingRepository } from '@/infrastructure/repositories/SupabaseProcessCostingRepository'
 import { SupabaseInventoryRepository } from '@/infrastructure/repositories/SupabaseInventoryRepository'
 import { SupabaseAccountingRepository } from '@/infrastructure/repositories/SupabaseAccountingRepository'
+import { SupabaseInventoryValuationRepository } from '@/infrastructure/repositories/SupabaseInventoryValuationRepository'
 import { CalculateProcessCostUseCase } from '@/domain/use-cases/CalculateProcessCost'
+import { InventoryValuationAppService } from '@/application/services/InventoryValuationAppService'
 
 /**
  * Container بسيط للـ Dependency Injection
@@ -83,11 +86,24 @@ container.registerFactory<IAccountingRepository>(
   () => new SupabaseAccountingRepository()
 )
 
+container.registerFactory<IInventoryValuationRepository>(
+  'IInventoryValuationRepository',
+  () => new SupabaseInventoryValuationRepository()
+)
+
 // Use Cases
 container.registerFactory<CalculateProcessCostUseCase>(
   'CalculateProcessCostUseCase',
   () => new CalculateProcessCostUseCase(
     container.resolve<IProcessCostingRepository>('IProcessCostingRepository')
+  )
+)
+
+// Application Services
+container.registerFactory<InventoryValuationAppService>(
+  'InventoryValuationAppService',
+  () => new InventoryValuationAppService(
+    container.resolve<IInventoryValuationRepository>('IInventoryValuationRepository')
   )
 )
 
@@ -119,4 +135,18 @@ export function getInventoryRepository(): IInventoryRepository {
  */
 export function getAccountingRepository(): IAccountingRepository {
   return container.resolve<IAccountingRepository>('IAccountingRepository')
+}
+
+/**
+ * الحصول على Inventory Valuation Repository
+ */
+export function getInventoryValuationRepository(): IInventoryValuationRepository {
+  return container.resolve<IInventoryValuationRepository>('IInventoryValuationRepository')
+}
+
+/**
+ * الحصول على Inventory Valuation Service
+ */
+export function getInventoryValuationService(): InventoryValuationAppService {
+  return container.resolve<InventoryValuationAppService>('InventoryValuationAppService')
 }

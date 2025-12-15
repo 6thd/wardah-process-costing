@@ -3,6 +3,7 @@
 -- التاريخ: 13 ديسمبر 2025
 -- Multi-tenant Support
 -- ===================================
+SET QUOTED_IDENTIFIER ON;
 
 BEGIN;
 
@@ -76,27 +77,27 @@ CREATE INDEX IF NOT EXISTS idx_organizations_name_ar ON organizations(name_ar) W
 
 CREATE OR REPLACE FUNCTION update_organization_profile(
     p_org_id UUID,
-    p_name VARCHAR DEFAULT NULL,
-    p_name_ar VARCHAR DEFAULT NULL,
-    p_name_en VARCHAR DEFAULT NULL,
-    p_tax_number VARCHAR DEFAULT NULL,
-    p_commercial_registration VARCHAR DEFAULT NULL,
-    p_license_number VARCHAR DEFAULT NULL,
-    p_phone VARCHAR DEFAULT NULL,
-    p_mobile VARCHAR DEFAULT NULL,
-    p_email VARCHAR DEFAULT NULL,
-    p_website VARCHAR DEFAULT NULL,
-    p_fax VARCHAR DEFAULT NULL,
+    p_name VARCHAR(255) DEFAULT NULL,
+    p_name_ar VARCHAR(255) DEFAULT NULL,
+    p_name_en VARCHAR(255) DEFAULT NULL,
+    p_tax_number VARCHAR(50) DEFAULT NULL,
+    p_commercial_registration VARCHAR(50) DEFAULT NULL,
+    p_license_number VARCHAR(50) DEFAULT NULL,
+    p_phone VARCHAR(20) DEFAULT NULL,
+    p_mobile VARCHAR(20) DEFAULT NULL,
+    p_email VARCHAR(255) DEFAULT NULL,
+    p_website VARCHAR(255) DEFAULT NULL,
+    p_fax VARCHAR(20) DEFAULT NULL,
     p_address TEXT DEFAULT NULL,
-    p_city VARCHAR DEFAULT NULL,
-    p_state VARCHAR DEFAULT NULL,
-    p_country VARCHAR DEFAULT NULL,
-    p_postal_code VARCHAR DEFAULT NULL,
+    p_city VARCHAR(100) DEFAULT NULL,
+    p_state VARCHAR(100) DEFAULT NULL,
+    p_country VARCHAR(100) DEFAULT NULL,
+    p_postal_code VARCHAR(20) DEFAULT NULL,
     p_logo_url TEXT DEFAULT NULL,
-    p_primary_color VARCHAR DEFAULT NULL,
-    p_secondary_color VARCHAR DEFAULT NULL,
-    p_currency VARCHAR DEFAULT NULL,
-    p_timezone VARCHAR DEFAULT NULL
+    p_primary_color VARCHAR(10) DEFAULT NULL,
+    p_secondary_color VARCHAR(10) DEFAULT NULL,
+    p_currency VARCHAR(3) DEFAULT NULL,
+    p_timezone VARCHAR(50) DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -104,25 +105,28 @@ SECURITY DEFINER
 AS $$
 DECLARE
     v_user_id UUID;
-    v_user_role VARCHAR;
+    v_user_role VARCHAR(50);
     v_result JSONB;
+    v_is_authorized BOOLEAN;
 BEGIN
     -- الحصول على المستخدم الحالي
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'غير مصرح');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
     END IF;
     
     -- التحقق من صلاحية المستخدم
     SELECT role INTO v_user_role
     FROM user_organizations
     WHERE user_id = v_user_id 
-    AND org_id = p_org_id 
-    AND is_active = true;
+      AND org_id = p_org_id 
+      AND is_active;
     
-    IF v_user_role IS NULL OR v_user_role NOT IN ('admin', 'manager') THEN
-        RETURN jsonb_build_object('success', false, 'error', 'ليس لديك صلاحية لتعديل بيانات المؤسسة');
+    v_is_authorized := v_user_role IS NOT NULL AND v_user_role IN ('admin', 'manager');
+    
+    IF NOT v_is_authorized THEN
+        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية لتعديل بيانات المؤسسة');
     END IF;
     
     -- تحديث البيانات
@@ -153,7 +157,7 @@ BEGIN
     
     -- إرجاع البيانات المحدثة
     SELECT jsonb_build_object(
-        'success', true,
+        'success', TRUE,
         'data', row_to_json(o.*)
     ) INTO v_result
     FROM organizations o
@@ -179,21 +183,22 @@ BEGIN
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'غير مصرح');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
     END IF;
     
     -- التحقق من أن المستخدم ينتمي للمؤسسة
+    -- ⚠️ FIX: Use EXISTS for better performance (stops at first match)
     IF NOT EXISTS (
         SELECT 1 FROM user_organizations 
         WHERE user_id = v_user_id 
-        AND org_id = p_org_id 
-        AND is_active = true
+          AND org_id = p_org_id 
+          AND is_active
     ) THEN
-        RETURN jsonb_build_object('success', false, 'error', 'ليس لديك صلاحية للوصول لهذه المؤسسة');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية للوصول لهذه المؤسسة');
     END IF;
     
     SELECT jsonb_build_object(
-        'success', true,
+        'success', TRUE,
         'data', jsonb_build_object(
             'id', o.id,
             'code', o.code,
@@ -230,7 +235,7 @@ BEGIN
     WHERE o.id = p_org_id;
     
     IF v_result IS NULL THEN
-        RETURN jsonb_build_object('success', false, 'error', 'المؤسسة غير موجودة');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'المؤسسة غير موجودة');
     END IF;
     
     RETURN v_result;
@@ -254,4 +259,3 @@ COMMIT;
 -- 3. أضف السياسات التالية:
 --    - SELECT: للجميع (public)
 --    - INSERT/UPDATE/DELETE: للمستخدمين المصرح لهم فقط
-
