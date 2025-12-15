@@ -883,7 +883,7 @@ export function CompanySettings() {
                       </Label>
                       <Select 
                         value={String(form.fiscal_year_start)} 
-                        onValueChange={(value) => handleInputChange('fiscal_year_start', parseInt(value))}
+                        onValueChange={(value) => handleInputChange('fiscal_year_start', Number.parseInt(value, 10))}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="اختر الشهر" />

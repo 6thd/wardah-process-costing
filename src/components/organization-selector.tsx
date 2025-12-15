@@ -24,11 +24,11 @@ function OrganizationLogo({
   logoUrl, 
   name, 
   size = 'sm' 
-}: { 
+}: Readonly<{ 
   logoUrl?: string | null; 
   name: string; 
   size?: 'sm' | 'md' | 'lg';
-}) {
+}>) {
   const sizeClasses = {
     sm: 'h-5 w-5',
     md: 'h-8 w-8',

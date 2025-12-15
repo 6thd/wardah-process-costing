@@ -118,16 +118,16 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
       filtered = filtered.filter(e => e.aggregateType === query.aggregateType)
     }
 
-    if (query.eventTypes && query.eventTypes.length > 0) {
-      filtered = filtered.filter(e => query.eventTypes!.includes(e.type))
+    if (query.eventTypes?.length) {
+      filtered = filtered.filter(e => query.eventTypes.includes(e.type))
     }
 
     if (query.startDate) {
-      filtered = filtered.filter(e => e.occurredAt >= query.startDate!)
+      filtered = filtered.filter(e => e.occurredAt >= query.startDate)
     }
 
     if (query.endDate) {
-      filtered = filtered.filter(e => e.occurredAt <= query.endDate!)
+      filtered = filtered.filter(e => e.occurredAt <= query.endDate)
     }
 
     if (query.userId) {
