@@ -25,20 +25,36 @@ class Container {
 
   /**
    * تسجيل singleton
+   * @param key - مفتاح الخدمة
+   * @param instance - Instance الخدمة
    */
   registerSingleton<T>(key: string, instance: T): void {
+    if (!key || typeof key !== 'string') {
+      throw new Error('Key must be a non-empty string')
+    }
     this.instances.set(key, instance)
   }
 
   /**
    * تسجيل factory
+   * @param key - مفتاح الخدمة
+   * @param factory - Factory function لإنشاء الـ instance
    */
   registerFactory<T>(key: string, factory: () => T): void {
+    if (!key || typeof key !== 'string') {
+      throw new Error('Key must be a non-empty string')
+    }
+    if (typeof factory !== 'function') {
+      throw new Error('Factory must be a function')
+    }
     this.factories.set(key, factory)
   }
 
   /**
    * الحصول على instance
+   * @param key - مفتاح الخدمة المطلوبة
+   * @returns Instance الخدمة
+   * @throws Error إذا لم تكن الخدمة مسجلة
    */
   resolve<T>(key: string): T {
     // أولاً نبحث في الـ singletons

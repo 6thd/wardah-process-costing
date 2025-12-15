@@ -505,7 +505,7 @@ export class SupabaseAccountingRepository implements IAccountingRepository {
     // 1. Creating closing entries
     // 2. Transferring income/expense to retained earnings
     // 3. Marking the period as closed
-    console.log(`Closing fiscal period ${year}-${period}`)
+    // TODO: Implement fiscal period closing logic
   }
 
   // ===== Private Mappers =====
