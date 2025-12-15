@@ -37,11 +37,24 @@ DROP POLICY IF EXISTS "Authenticated users can upload organization logos" ON sto
 DROP POLICY IF EXISTS "Users can update their organization logos" ON storage.objects;
 DROP POLICY IF EXISTS "Users can delete their organization logos" ON storage.objects;
 
+-- ثابت اسم الـ bucket (للتوثيق - السياسات تتطلب literal)
+-- NOTE: Policy definitions require literal strings, but we document the constant here
+-- BUCKET_ID = 'organization-logos'
+
+-- Helper function to check if bucket is organization-logos
+CREATE OR REPLACE FUNCTION storage.is_org_logos_bucket(p_bucket_id TEXT)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT p_bucket_id = 'organization-logos'
+$$;
+
 -- سياسة القراءة العامة (الجميع يمكنه رؤية الشعارات)
 CREATE POLICY "Public read access for organization logos"
 ON storage.objects
 FOR SELECT
-USING (bucket_id = 'organization-logos');
+USING (storage.is_org_logos_bucket(bucket_id));
 
 -- Helper function to check user organization access
 CREATE OR REPLACE FUNCTION storage.check_org_logo_access()
@@ -54,7 +67,7 @@ BEGIN
         SELECT org_id::TEXT 
         FROM user_organizations 
         WHERE user_id = auth.uid() 
-          AND is_active = TRUE
+          AND is_active
           AND role IN ('admin', 'manager')
     );
 END;
@@ -66,7 +79,7 @@ ON storage.objects
 FOR INSERT
 TO authenticated
 WITH CHECK (
-    bucket_id = 'organization-logos'
+    storage.is_org_logos_bucket(bucket_id)
     AND (storage.foldername(name))[1] = ANY(storage.check_org_logo_access())
 );
 
@@ -77,11 +90,11 @@ ON storage.objects
 FOR UPDATE
 TO authenticated
 USING (
-    bucket_id = 'organization-logos'
+    storage.is_org_logos_bucket(bucket_id)
     AND (storage.foldername(name))[1] = ANY(storage.check_org_logo_access())
 )
 WITH CHECK (
-    bucket_id = 'organization-logos'
+    storage.is_org_logos_bucket(bucket_id)
     AND (storage.foldername(name))[1] = ANY(storage.check_org_logo_access())
 );
 
@@ -91,11 +104,4 @@ ON storage.objects
 FOR DELETE
 TO authenticated
 USING (
-    bucket_id = 'organization-logos'
-    AND (storage.foldername(name))[1] = ANY(storage.check_org_logo_access())
-);
-
--- ===================================
--- تحقق من الإنشاء
--- ===================================
--- SELECT * FROM storage.buckets WHERE id = 'organization-logos';
+    storage.is_org_logos_bucket(bucket_id)

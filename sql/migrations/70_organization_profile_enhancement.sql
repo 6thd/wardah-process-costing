@@ -61,15 +61,20 @@ CREATE INDEX IF NOT EXISTS idx_organizations_name_ar ON organizations(name_ar) W
 -- 3. إنشاء Storage Bucket للشعارات
 -- ===================================
 
--- ملاحظة: يجب تنفيذ هذا من Supabase Dashboard أو عبر API
--- INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
--- VALUES (
---     'organization-logos',
---     'organization-logos',
---     true,
---     5242880, -- 5MB
---     ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
--- ) ON CONFLICT (id) DO NOTHING;
+-- NOTE: Storage bucket is created in migration 71_create_organization_logos_bucket.sql
+
+-- ===================================
+-- 3.5 دوال مساعدة للاستجابات المعيارية
+-- ===================================
+
+-- دالة إرجاع خطأ بشكل موحد
+CREATE OR REPLACE FUNCTION org_error_response(p_error_message TEXT)
+RETURNS JSONB
+LANGUAGE sql
+IMMUTABLE
+AS $$
+    SELECT jsonb_build_object('success', FALSE, 'error', p_error_message)
+$$;
 
 -- ===================================
 -- 4. دالة تحديث المؤسسة مع الصلاحيات
@@ -113,7 +118,7 @@ BEGIN
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
+        RETURN org_error_response('غير مصرح');
     END IF;
     
     -- التحقق من صلاحية المستخدم
@@ -126,7 +131,7 @@ BEGIN
     v_is_authorized := v_user_role IS NOT NULL AND v_user_role IN ('admin', 'manager');
     
     IF NOT v_is_authorized THEN
-        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية لتعديل بيانات المؤسسة');
+        RETURN org_error_response('ليس لديك صلاحية لتعديل بيانات المؤسسة');
     END IF;
     
     -- تحديث البيانات
@@ -183,7 +188,7 @@ BEGIN
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
+        RETURN org_error_response('غير مصرح');
     END IF;
     
     -- التحقق من أن المستخدم ينتمي للمؤسسة
@@ -194,7 +199,7 @@ BEGIN
           AND org_id = p_org_id 
           AND is_active
     ) THEN
-        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية للوصول لهذه المؤسسة');
+        RETURN org_error_response('ليس لديك صلاحية للوصول لهذه المؤسسة');
     END IF;
     
     SELECT jsonb_build_object(
@@ -235,7 +240,7 @@ BEGIN
     WHERE o.id = p_org_id;
     
     IF v_result IS NULL THEN
-        RETURN jsonb_build_object('success', FALSE, 'error', 'المؤسسة غير موجودة');
+        RETURN org_error_response('المؤسسة غير موجودة');
     END IF;
     
     RETURN v_result;

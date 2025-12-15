@@ -66,7 +66,7 @@ SELECT
     END AS upload_permission
 FROM user_organizations uo
 JOIN organizations o ON o.id = uo.org_id
-WHERE uo.is_active = TRUE
+WHERE uo.is_active
 ORDER BY uo.created_at DESC;
 
 -- 5. فحص صلاحية bucket
