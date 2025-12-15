@@ -104,12 +104,14 @@ export class QueryBus implements IQueryBus {
 
   /**
    * تخزين النتيجة في Cache
+   * ⚠️ FIX: Cache successful results even with falsy data (0, false, '')
    */
   private async saveToCache<TResult>(
     query: IQuery<TResult>,
     result: QueryResult<TResult>
   ): Promise<void> {
-    if (this.cache && result.success && result.data) {
+    // Use undefined check instead of truthy check to cache falsy values like 0, false, ''
+    if (this.cache && result.success && result.data !== undefined) {
       const cacheKey = this.generateCacheKey(query)
       await this.cache.set(cacheKey, result.data)
     }
@@ -148,16 +150,17 @@ export class QueryBus implements IQueryBus {
     const startTime = Date.now()
 
     try {
-      // التحقق من التخزين المؤقت
-      const cachedResult = await this.checkCache(query, startTime)
-      if (cachedResult) {
-        return cachedResult
-      }
-
-      // تنفيذ middlewares قبل الاستعلام
+      // ⚠️ SECURITY: Run middleware FIRST before cache check to ensure auth/validation
+      // This prevents bypassing authorization when returning cached results
       const beforeResult = await this.executeBeforeMiddlewares(query)
       if (beforeResult) {
         return beforeResult
+      }
+
+      // التحقق من التخزين المؤقت (بعد التحقق من الصلاحيات)
+      const cachedResult = await this.checkCache(query, startTime)
+      if (cachedResult) {
+        return cachedResult
       }
 
       // إنشاء المعالج وتنفيذ الاستعلام
@@ -270,9 +273,12 @@ export class InMemoryQueryCache implements QueryCache {
   }
 
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    // ⚠️ FIX: Use nullish coalescing (??) instead of || to handle ttl=0 correctly
+    // ttl=0 means immediate expiry, which should be respected
+    const actualTtl = ttl ?? this.defaultTtl
     this.cache.set(key, {
       value,
-      expiresAt: Date.now() + (ttl || this.defaultTtl)
+      expiresAt: Date.now() + actualTtl
     })
   }
 

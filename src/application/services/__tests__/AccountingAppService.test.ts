@@ -132,6 +132,7 @@ describe('AccountingAppService', () => {
     it('should filter by type', async () => {
       const result = await service.getAccounts({ type: 'Asset' })
       
+      expect(result).toBeDefined()
       expect(mockRepository.getAccounts).toHaveBeenCalledWith({ 
         type: 'Asset', 
         parentCode: undefined, 

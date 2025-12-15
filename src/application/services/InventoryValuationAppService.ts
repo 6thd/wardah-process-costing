@@ -226,20 +226,33 @@ export class InventoryValuationAppService {
   }
 }
 
-// Singleton instance (optional, can use DI Container instead)
+// ⚠️ NOTE: Service singleton management
+// For production use, prefer the DI Container (container.ts) which properly resolves services.
+// These functions are provided for testing and legacy compatibility only.
+
 let instance: InventoryValuationAppService | null = null
 
-export function getInventoryValuationService(): InventoryValuationAppService {
+/**
+ * Get singleton instance (for testing only - use DI Container in production)
+ * @deprecated Use container.resolve<InventoryValuationAppService>('InventoryValuationAppService') instead
+ */
+export function getInventoryValuationServiceInstance(): InventoryValuationAppService {
   if (!instance) {
-    throw new Error('InventoryValuationAppService not initialized. Call from DI Container.')
+    throw new Error('InventoryValuationAppService not initialized. Use DI Container or call setInventoryValuationService() first.')
   }
   return instance
 }
 
+/**
+ * Set singleton instance (for testing or manual initialization)
+ */
 export function setInventoryValuationService(service: InventoryValuationAppService): void {
   instance = service
 }
 
+/**
+ * Reset singleton instance (for testing cleanup)
+ */
 export function resetInventoryValuationService(): void {
   instance = null
 }

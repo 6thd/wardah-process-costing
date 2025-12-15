@@ -369,8 +369,10 @@ describe('Event Sourcing', () => {
         }, 4, { userId: 'user-1' })
       )
 
-      // الحصول على السجل الكامل
+      // الحصول على السجل الكامل - verify all events are stored
       const allEvents = eventStore.getAllEvents()
+      expect(allEvents.length).toBeGreaterThanOrEqual(4)
+      
       const stockMovements = await eventStore.getEventsByType(EventTypes.STOCK_MOVEMENT_CREATED)
 
       expect(stockMovements).toHaveLength(4)
