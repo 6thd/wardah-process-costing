@@ -30,7 +30,7 @@ class Container {
    */
   registerSingleton<T>(key: string, instance: T): void {
     if (!key || typeof key !== 'string') {
-      throw new Error('Key must be a non-empty string')
+      throw new TypeError('Key must be a non-empty string')
     }
     this.instances.set(key, instance)
   }
@@ -42,10 +42,10 @@ class Container {
    */
   registerFactory<T>(key: string, factory: () => T): void {
     if (!key || typeof key !== 'string') {
-      throw new Error('Key must be a non-empty string')
+      throw new TypeError('Key must be a non-empty string')
     }
     if (typeof factory !== 'function') {
-      throw new Error('Factory must be a function')
+      throw new TypeError('Factory must be a function')
     }
     this.factories.set(key, factory)
   }

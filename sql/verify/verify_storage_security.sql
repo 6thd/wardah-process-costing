@@ -28,8 +28,7 @@ SELECT
 FROM pg_policies
 WHERE tablename = 'objects'
   AND (
-    policyname LIKE '%organization%' 
-    OR policyname LIKE '%logo%'
+    policyname ~* 'organization|logo'
   );
 
 -- 3. عرض المؤسسات مع الشعارات

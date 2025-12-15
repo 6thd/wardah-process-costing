@@ -9,7 +9,7 @@
  * @pattern Facade Pattern
  */
 
-import type { IInventoryValuationRepository, InventoryMovementInput } from '@/domain/interfaces/IInventoryValuationRepository'
+import type { IInventoryValuationRepository } from '@/domain/interfaces/IInventoryValuationRepository'
 
 export class InventoryValuationAppService {
   constructor(private readonly repository: IInventoryValuationRepository) {}

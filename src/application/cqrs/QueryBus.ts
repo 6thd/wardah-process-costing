@@ -250,8 +250,8 @@ export interface QueryCache {
  * تنفيذ التخزين المؤقت في الذاكرة
  */
 export class InMemoryQueryCache implements QueryCache {
-  private cache: Map<string, { value: unknown; expiresAt: number }> = new Map()
-  private defaultTtl: number
+  private readonly cache: Map<string, { value: unknown; expiresAt: number }> = new Map()
+  private readonly defaultTtl: number
 
   constructor(defaultTtlMs: number = 60000) { // 1 minute default
     this.defaultTtl = defaultTtlMs
@@ -320,7 +320,7 @@ export class QueryLoggingMiddleware implements QueryMiddleware {
  * Middleware لمراقبة الأداء
  */
 export class PerformanceMiddleware implements QueryMiddleware {
-  private slowQueryThreshold: number
+  private readonly slowQueryThreshold: number
 
   constructor(slowQueryThresholdMs: number = 1000) {
     this.slowQueryThreshold = slowQueryThresholdMs

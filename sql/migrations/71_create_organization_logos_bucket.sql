@@ -91,4 +91,5 @@ USING (
 -- ===================================
 -- تحقق من الإنشاء
 -- ===================================
+-- Run this separately to verify:
 -- SELECT * FROM storage.buckets WHERE id = 'organization-logos';
