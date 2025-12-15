@@ -16,7 +16,7 @@ import type {
  * ناقل الاستعلامات - In-Memory Implementation
  */
 export class QueryBus implements IQueryBus {
-  private handlers: Map<string, QueryHandlerFactory<IQuery<unknown>, unknown>> = new Map()
+  private readonly handlers: Map<string, QueryHandlerFactory<IQuery<unknown>, unknown>> = new Map()
   private middlewares: QueryMiddleware[] = []
   private cache: QueryCache | null = null
 
@@ -58,6 +58,78 @@ export class QueryBus implements IQueryBus {
   }
 
   /**
+   * التحقق من التخزين المؤقت
+   */
+  private async checkCache<TResult>(
+    query: IQuery<TResult>,
+    startTime: number
+  ): Promise<QueryResult<TResult> | null> {
+    if (!this.cache) {
+      return null
+    }
+
+    const cacheKey = this.generateCacheKey(query)
+    const cached = await this.cache.get<TResult>(cacheKey)
+    
+    if (cached !== null) {
+      return {
+        success: true,
+        data: cached,
+        metadata: {
+          cached: true,
+          executionTime: Date.now() - startTime
+        }
+      }
+    }
+    
+    return null
+  }
+
+  /**
+   * تنفيذ middlewares قبل الاستعلام
+   */
+  private async executeBeforeMiddlewares<TResult>(
+    query: IQuery<TResult>
+  ): Promise<QueryResult<TResult> | null> {
+    for (const middleware of this.middlewares) {
+      if (middleware.before) {
+        const result = await middleware.before(query)
+        if (result && !result.success) {
+          return result as QueryResult<TResult>
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * تخزين النتيجة في Cache
+   */
+  private async saveToCache<TResult>(
+    query: IQuery<TResult>,
+    result: QueryResult<TResult>
+  ): Promise<void> {
+    if (this.cache && result.success && result.data) {
+      const cacheKey = this.generateCacheKey(query)
+      await this.cache.set(cacheKey, result.data)
+    }
+  }
+
+  /**
+   * تنفيذ middlewares بعد الاستعلام
+   */
+  private async executeAfterMiddlewares<TResult>(
+    query: IQuery<TResult>,
+    result: QueryResult<TResult>
+  ): Promise<void> {
+    for (const middleware of this.middlewares) {
+      if (middleware.after) {
+        await middleware.after(query, result)
+      }
+    }
+  }
+
+  /**
    * إرسال الاستعلام للتنفيذ
    */
   async dispatch<TResult>(query: IQuery<TResult>): Promise<QueryResult<TResult>> {
@@ -77,29 +149,15 @@ export class QueryBus implements IQueryBus {
 
     try {
       // التحقق من التخزين المؤقت
-      if (this.cache) {
-        const cacheKey = this.generateCacheKey(query)
-        const cached = await this.cache.get<TResult>(cacheKey)
-        if (cached !== null) {
-          return {
-            success: true,
-            data: cached,
-            metadata: {
-              cached: true,
-              executionTime: Date.now() - startTime
-            }
-          }
-        }
+      const cachedResult = await this.checkCache(query, startTime)
+      if (cachedResult) {
+        return cachedResult
       }
 
       // تنفيذ middlewares قبل الاستعلام
-      for (const middleware of this.middlewares) {
-        if (middleware.before) {
-          const result = await middleware.before(query)
-          if (result && !result.success) {
-            return result as QueryResult<TResult>
-          }
-        }
+      const beforeResult = await this.executeBeforeMiddlewares(query)
+      if (beforeResult) {
+        return beforeResult
       }
 
       // إنشاء المعالج وتنفيذ الاستعلام
@@ -107,10 +165,7 @@ export class QueryBus implements IQueryBus {
       const result = await handler.execute(query)
 
       // تخزين النتيجة في التخزين المؤقت
-      if (this.cache && result.success && result.data) {
-        const cacheKey = this.generateCacheKey(query)
-        await this.cache.set(cacheKey, result.data)
-      }
+      await this.saveToCache(query, result)
 
       // إضافة وقت التنفيذ
       if (result.success) {
@@ -122,11 +177,7 @@ export class QueryBus implements IQueryBus {
       }
 
       // تنفيذ middlewares بعد الاستعلام
-      for (const middleware of this.middlewares) {
-        if (middleware.after) {
-          await middleware.after(query, result)
-        }
-      }
+      await this.executeAfterMiddlewares(query, result)
 
       return result
     } catch (error) {

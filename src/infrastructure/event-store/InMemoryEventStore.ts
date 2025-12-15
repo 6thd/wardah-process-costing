@@ -17,10 +17,10 @@ import type { DomainEvent, AnyDomainEvent } from '@/domain/events'
 // ===== In-Memory Event Store =====
 
 export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventSubscriber {
-  private events: Map<string, AnyDomainEvent[]> = new Map()
+  private readonly events: Map<string, AnyDomainEvent[]> = new Map()
   private allEvents: AnyDomainEvent[] = []
-  private handlers: Map<string, Set<EventHandler>> = new Map()
-  private globalHandlers: Set<EventHandler> = new Set()
+  private readonly handlers: Map<string, Set<EventHandler>> = new Map()
+  private readonly globalHandlers: Set<EventHandler> = new Set()
 
   // ===== IEventStore Implementation =====
 

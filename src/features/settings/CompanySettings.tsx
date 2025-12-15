@@ -425,9 +425,12 @@ export function CompanySettings() {
                   </div>
                 </>
               ) : (
-                <div 
-                  className="text-center cursor-pointer p-4"
+                <button
+                  type="button"
+                  className="text-center cursor-pointer p-4 w-full h-full border-0 bg-transparent"
                   onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploadingLogo}
+                  aria-label="رفع شعار الشركة"
                 >
                   {isUploadingLogo ? (
                     <Loader2 className="h-10 w-10 animate-spin mx-auto text-muted-foreground" />
@@ -437,7 +440,7 @@ export function CompanySettings() {
                       <span className="text-sm text-muted-foreground">اضغط لرفع الشعار</span>
                     </>
                   )}
-                </div>
+                </button>
               )}
             </div>
 
