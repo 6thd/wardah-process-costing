@@ -501,11 +501,15 @@ export class SupabaseAccountingRepository implements IAccountingRepository {
   }
 
   async closeFiscalPeriod(year: number, period: number): Promise<void> {
-    // This would typically involve:
-    // 1. Creating closing entries
-    // 2. Transferring income/expense to retained earnings
-    // 3. Marking the period as closed
-    // TODO: Implement fiscal period closing logic
+    // Fiscal period closing would typically involve:
+    // 1. Creating closing entries for revenue/expense accounts
+    // 2. Transferring net income to retained earnings
+    // 3. Marking the period as closed in the database
+    // 
+    // For now, this is a placeholder as the full implementation
+    // requires additional database schema (fiscal_periods table)
+    // and business logic specific to each organization's needs.
+    console.log(`Closing fiscal period: ${year}-${period}`)
   }
 
   // ===== Private Mappers =====

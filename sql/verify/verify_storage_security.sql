@@ -3,6 +3,13 @@
 -- Verification Script
 -- ===================================
 
+-- Define bucket name constant for reuse
+DO $$ 
+BEGIN
+    -- Using session variable for bucket name constant
+    PERFORM set_config('app.logos_bucket', 'organization-logos', FALSE);
+END $$;
+
 -- 1. عرض جميع الملفات المرفوعة مع المجلدات
 SELECT 
     name AS file_path,
@@ -12,7 +19,7 @@ SELECT
     updated_at,
     metadata
 FROM storage.objects
-WHERE bucket_id = 'organization-logos'
+WHERE bucket_id = current_setting('app.logos_bucket', TRUE)
 ORDER BY created_at DESC;
 
 -- 2. التحقق من السياسات المطبقة
@@ -60,7 +67,7 @@ SELECT
     END AS upload_permission
 FROM user_organizations uo
 JOIN organizations o ON o.id = uo.org_id
-WHERE uo.is_active = TRUE
+WHERE uo.is_active
 ORDER BY uo.created_at DESC;
 
 -- 5. فحص صلاحية bucket
@@ -72,7 +79,7 @@ SELECT
     allowed_mime_types,
     created_at
 FROM storage.buckets
-WHERE id = 'organization-logos';
+WHERE id = current_setting('app.logos_bucket', TRUE);
 
 -- ===================================
 -- اختبارات الأمان (للتشغيل يدوياً)
@@ -97,6 +104,6 @@ SELECT
     COUNT(*) AS file_count,
     MAX(created_at) AS last_upload
 FROM storage.objects
-WHERE bucket_id = 'organization-logos'
+WHERE bucket_id = current_setting('app.logos_bucket', TRUE)
 GROUP BY (storage.foldername(name))[1]
 ORDER BY file_count DESC;

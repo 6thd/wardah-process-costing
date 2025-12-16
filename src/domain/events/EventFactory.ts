@@ -12,13 +12,20 @@ function generateUUID(): string {
   
   // Fallback using crypto.getRandomValues (cryptographically secure)
   if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const array = new Uint8Array(1)
-      crypto.getRandomValues(array)
-      const r = array[0] % 16
-      const v = c === 'x' ? r : (r & 0x3 | 0x8)
-      return v.toString(16)
-    })
+    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+    let result = ''
+    for (const c of template) {
+      if (c === 'x' || c === 'y') {
+        const array = new Uint8Array(1)
+        crypto.getRandomValues(array)
+        const r = array[0] % 16
+        const v = c === 'x' ? r : (r & 0x3 | 0x8)
+        result += v.toString(16)
+      } else {
+        result += c
+      }
+    }
+    return result
   }
   
   // If crypto is not available, throw an error

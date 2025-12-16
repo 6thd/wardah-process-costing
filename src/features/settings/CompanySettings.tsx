@@ -262,7 +262,9 @@ export function CompanySettings() {
       
       if (result.success) {
         toast.success('تم حفظ البيانات بنجاح');
-        setOriginalData(result.data!);
+        if (result.data) {
+          setOriginalData(result.data);
+        }
         setHasChanges(false);
       } else {
         toast.error(result.error || 'فشل حفظ البيانات');
@@ -284,7 +286,7 @@ export function CompanySettings() {
       const result = await uploadOrganizationLogo(file);
       
       if (result.success && result.url) {
-        setForm(prev => ({ ...prev, logo_url: result.url! }));
+        setForm(prev => ({ ...prev, logo_url: result.url }));
         toast.success('تم رفع الشعار بنجاح');
         // Reload to get updated data
         await loadOrganizationData();
@@ -886,7 +888,7 @@ export function CompanySettings() {
                       </Label>
                       <Select 
                         value={String(form.fiscal_year_start)} 
-                        onValueChange={(value) => handleInputChange('fiscal_year_start', parseInt(value))}
+                        onValueChange={(value) => handleInputChange('fiscal_year_start', Number.parseInt(value, 10))}
                       >
                         <SelectTrigger>
                           <SelectValue placeholder="اختر الشهر" />

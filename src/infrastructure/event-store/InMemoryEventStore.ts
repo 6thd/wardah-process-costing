@@ -120,15 +120,18 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
     }
 
     if (query.eventTypes && query.eventTypes.length > 0) {
-      filtered = filtered.filter(e => query.eventTypes!.includes(e.type))
+      const eventTypes = query.eventTypes
+      filtered = filtered.filter(e => eventTypes.includes(e.type))
     }
 
     if (query.startDate) {
-      filtered = filtered.filter(e => e.occurredAt >= query.startDate!)
+      const startDate = query.startDate
+      filtered = filtered.filter(e => e.occurredAt >= startDate)
     }
 
     if (query.endDate) {
-      filtered = filtered.filter(e => e.occurredAt <= query.endDate!)
+      const endDate = query.endDate
+      filtered = filtered.filter(e => e.occurredAt <= endDate)
     }
 
     if (query.userId) {
@@ -188,7 +191,10 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
     if (!this.handlers.has(eventType)) {
       this.handlers.set(eventType, new Set())
     }
-    this.handlers.get(eventType)!.add(handler as EventHandler)
+    const handlers = this.handlers.get(eventType)
+    if (handlers) {
+      handlers.add(handler as EventHandler)
+    }
   }
 
   unsubscribe(eventType: string, handler: EventHandler): void {
