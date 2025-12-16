@@ -34,7 +34,7 @@ export type {
 // Inventory Valuation
 export { 
   InventoryValuationAppService,
-  getInventoryValuationService,
+  getInventoryValuationServiceInstance,
   setInventoryValuationService,
   resetInventoryValuationService
 } from './InventoryValuationAppService'
