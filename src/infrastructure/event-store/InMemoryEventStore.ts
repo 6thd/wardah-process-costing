@@ -10,17 +10,18 @@ import type {
   EventSearchResult,
   IEventPublisher,
   IEventSubscriber,
-  EventHandler
+  EventHandler,
+  DomainEvent,
+  AnyDomainEvent
 } from '@/domain/events'
-import type { DomainEvent, AnyDomainEvent } from '@/domain/events'
 
 // ===== In-Memory Event Store =====
 
 export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventSubscriber {
-  private events: Map<string, AnyDomainEvent[]> = new Map()
+  private readonly events: Map<string, AnyDomainEvent[]> = new Map()
   private allEvents: AnyDomainEvent[] = []
-  private handlers: Map<string, Set<EventHandler>> = new Map()
-  private globalHandlers: Set<EventHandler> = new Set()
+  private readonly handlers: Map<string, Set<EventHandler>> = new Map()
+  private readonly globalHandlers: Set<EventHandler> = new Set()
 
   // ===== IEventStore Implementation =====
 
@@ -119,15 +120,18 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
     }
 
     if (query.eventTypes && query.eventTypes.length > 0) {
-      filtered = filtered.filter(e => query.eventTypes!.includes(e.type))
+      const eventTypes = query.eventTypes
+      filtered = filtered.filter(e => eventTypes.includes(e.type))
     }
 
     if (query.startDate) {
-      filtered = filtered.filter(e => e.occurredAt >= query.startDate!)
+      const startDate = query.startDate
+      filtered = filtered.filter(e => e.occurredAt >= startDate)
     }
 
     if (query.endDate) {
-      filtered = filtered.filter(e => e.occurredAt <= query.endDate!)
+      const endDate = query.endDate
+      filtered = filtered.filter(e => e.occurredAt <= endDate)
     }
 
     if (query.userId) {
@@ -187,7 +191,10 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
     if (!this.handlers.has(eventType)) {
       this.handlers.set(eventType, new Set())
     }
-    this.handlers.get(eventType)!.add(handler as EventHandler)
+    const handlers = this.handlers.get(eventType)
+    if (handlers) {
+      handlers.add(handler as EventHandler)
+    }
   }
 
   unsubscribe(eventType: string, handler: EventHandler): void {

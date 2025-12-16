@@ -31,7 +31,6 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
       .eq('mo_id', moId)
 
     if (error) {
-      console.error('Error fetching direct materials:', error)
       throw new Error(`فشل في جلب المواد المباشرة: ${error.message}`)
     }
 
@@ -62,7 +61,6 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
       .eq('mo_id', moId)
 
     if (error) {
-      console.error('Error fetching direct labor:', error)
       throw new Error(`فشل في جلب العمالة المباشرة: ${error.message}`)
     }
 
@@ -93,7 +91,6 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
       .eq('mo_id', moId)
 
     if (error) {
-      console.error('Error fetching overhead costs:', error)
       throw new Error(`فشل في جلب التكاليف غير المباشرة: ${error.message}`)
     }
 
@@ -118,7 +115,6 @@ export class SupabaseProcessCostingRepository implements IProcessCostingReposito
       .single()
 
     if (error) {
-      console.error('Error fetching MO quantity:', error)
       throw new Error(`فشل في جلب كمية أمر التصنيع: ${error.message}`)
     }
 

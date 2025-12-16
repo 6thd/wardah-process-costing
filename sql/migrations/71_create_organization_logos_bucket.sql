@@ -2,61 +2,45 @@
 -- إنشاء Storage Bucket لشعارات المؤسسات
 -- التاريخ: 13 ديسمبر 2025
 -- ===================================
-SET QUOTED_IDENTIFIER ON;
 
 -- ملاحظة مهمة:
 -- هذا السكريبت يجب تنفيذه في Supabase SQL Editor
 -- أو يمكنك إنشاء الـ Bucket من لوحة التحكم مباشرة
 
 -- ===================================
--- تعريف الثوابت (Constants)
+-- Constants
 -- ===================================
 DO $$
 DECLARE
-    -- Bucket Configuration
-    v_bucket_id CONSTANT TEXT := 'organization-logos';
-    v_max_file_size CONSTANT INTEGER := 5242880; -- 5MB
-    v_allowed_types CONSTANT TEXT[] := ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml', 'image/gif'];
+    BUCKET_NAME CONSTANT TEXT := 'organization-logos';
 BEGIN
-    -- 1. إنشاء الـ Bucket
+    -- Create bucket if not exists
     INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-    VALUES (v_bucket_id, v_bucket_id, TRUE, v_max_file_size, v_allowed_types)
+    VALUES (
+        BUCKET_NAME,
+        BUCKET_NAME,
+        TRUE,
+        5242880, -- 5MB
+        ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml', 'image/gif']
+    )
     ON CONFLICT (id) DO UPDATE SET
         public = TRUE,
-        file_size_limit = v_max_file_size,
-        allowed_mime_types = v_allowed_types;
+        file_size_limit = 5242880,
+        allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml', 'image/gif'];
 END $$;
 
 -- ===================================
--- 2. سياسات الوصول للـ Bucket
+-- Helper function to check bucket
 -- ===================================
-
--- حذف السياسات القديمة إن وجدت
-DROP POLICY IF EXISTS "Public read access for organization logos" ON storage.objects;
-DROP POLICY IF EXISTS "Authenticated users can upload organization logos" ON storage.objects;
-DROP POLICY IF EXISTS "Users can update their organization logos" ON storage.objects;
-DROP POLICY IF EXISTS "Users can delete their organization logos" ON storage.objects;
-
--- ثابت اسم الـ bucket (للتوثيق - السياسات تتطلب literal)
--- NOTE: Policy definitions require literal strings, but we document the constant here
--- BUCKET_ID = 'organization-logos'
-
--- Helper function to check if bucket is organization-logos
 CREATE OR REPLACE FUNCTION storage.is_org_logos_bucket(p_bucket_id TEXT)
 RETURNS BOOLEAN
 LANGUAGE sql
 IMMUTABLE
 AS $$
-    SELECT p_bucket_id = 'organization-logos'
+    SELECT p_bucket_id = 'organization-logos';
 $$;
 
--- سياسة القراءة العامة (الجميع يمكنه رؤية الشعارات)
-CREATE POLICY "Public read access for organization logos"
-ON storage.objects
-FOR SELECT
-USING (storage.is_org_logos_bucket(bucket_id));
-
--- Helper function to check user organization access
+-- Helper function to check user organization access for logos
 CREATE OR REPLACE FUNCTION storage.check_org_logo_access()
 RETURNS TEXT[]
 LANGUAGE plpgsql
@@ -73,6 +57,22 @@ BEGIN
 END;
 $$;
 
+-- ===================================
+-- 2. سياسات الوصول للـ Bucket
+-- ===================================
+
+-- حذف السياسات القديمة إن وجدت
+DROP POLICY IF EXISTS "Public read access for organization logos" ON storage.objects;
+DROP POLICY IF EXISTS "Authenticated users can upload organization logos" ON storage.objects;
+DROP POLICY IF EXISTS "Users can update their organization logos" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete their organization logos" ON storage.objects;
+
+-- سياسة القراءة العامة (الجميع يمكنه رؤية الشعارات)
+CREATE POLICY "Public read access for organization logos"
+ON storage.objects
+FOR SELECT
+USING (storage.is_org_logos_bucket(bucket_id));
+
 -- سياسة الرفع (المستخدمون المسجلون فقط يمكنهم رفع الشعارات)
 CREATE POLICY "Authenticated users can upload organization logos"
 ON storage.objects
@@ -84,7 +84,7 @@ WITH CHECK (
 );
 
 -- سياسة التحديث (المستخدمون المسجلون فقط يمكنهم تحديث الشعارات)
--- ⚠️ WITH CHECK clause added to prevent cross-tenant logo moves
+-- ⚠️ SECURITY: WITH CHECK clause prevents cross-tenant logo moves
 CREATE POLICY "Users can update their organization logos"
 ON storage.objects
 FOR UPDATE
@@ -105,3 +105,11 @@ FOR DELETE
 TO authenticated
 USING (
     storage.is_org_logos_bucket(bucket_id)
+    AND (storage.foldername(name))[1] = ANY(storage.check_org_logo_access())
+);
+
+-- ===================================
+-- تحقق من الإنشاء
+-- ===================================
+-- Run this separately to verify:
+-- SELECT * FROM storage.buckets WHERE id = 'organization-logos';

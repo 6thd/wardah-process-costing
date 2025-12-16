@@ -445,4 +445,3 @@ export function getInventoryValuationService(): InventoryValuationAppService {
 **التاريخ:** 13 ديسمبر 2025  
 **الفريق:** AI Assistant + User
 
-

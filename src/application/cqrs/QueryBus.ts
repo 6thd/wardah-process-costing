@@ -16,7 +16,7 @@ import type {
  * ناقل الاستعلامات - In-Memory Implementation
  */
 export class QueryBus implements IQueryBus {
-  private handlers: Map<string, QueryHandlerFactory<IQuery<unknown>, unknown>> = new Map()
+  private readonly handlers: Map<string, QueryHandlerFactory<IQuery<unknown>, unknown>> = new Map()
   private middlewares: QueryMiddleware[] = []
   private cache: QueryCache | null = null
 
@@ -58,6 +58,80 @@ export class QueryBus implements IQueryBus {
   }
 
   /**
+   * التحقق من التخزين المؤقت
+   */
+  private async checkCache<TResult>(
+    query: IQuery<TResult>,
+    startTime: number
+  ): Promise<QueryResult<TResult> | null> {
+    if (!this.cache) {
+      return null
+    }
+
+    const cacheKey = this.generateCacheKey(query)
+    const cached = await this.cache.get<TResult>(cacheKey)
+    
+    if (cached !== null) {
+      return {
+        success: true,
+        data: cached,
+        metadata: {
+          cached: true,
+          executionTime: Date.now() - startTime
+        }
+      }
+    }
+    
+    return null
+  }
+
+  /**
+   * تنفيذ middlewares قبل الاستعلام
+   */
+  private async executeBeforeMiddlewares<TResult>(
+    query: IQuery<TResult>
+  ): Promise<QueryResult<TResult> | null> {
+    for (const middleware of this.middlewares) {
+      if (middleware.before) {
+        const result = await middleware.before(query)
+        if (result && !result.success) {
+          return result as QueryResult<TResult>
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * تخزين النتيجة في Cache
+   * ⚠️ FIX: Cache successful results even with falsy data (0, false, '')
+   */
+  private async saveToCache<TResult>(
+    query: IQuery<TResult>,
+    result: QueryResult<TResult>
+  ): Promise<void> {
+    // Use undefined check instead of truthy check to cache falsy values like 0, false, ''
+    if (this.cache && result.success && result.data !== undefined) {
+      const cacheKey = this.generateCacheKey(query)
+      await this.cache.set(cacheKey, result.data)
+    }
+  }
+
+  /**
+   * تنفيذ middlewares بعد الاستعلام
+   */
+  private async executeAfterMiddlewares<TResult>(
+    query: IQuery<TResult>,
+    result: QueryResult<TResult>
+  ): Promise<void> {
+    for (const middleware of this.middlewares) {
+      if (middleware.after) {
+        await middleware.after(query, result)
+      }
+    }
+  }
+
+  /**
    * إرسال الاستعلام للتنفيذ
    */
   async dispatch<TResult>(query: IQuery<TResult>): Promise<QueryResult<TResult>> {
@@ -76,31 +150,17 @@ export class QueryBus implements IQueryBus {
     const startTime = Date.now()
 
     try {
-      // تنفيذ middlewares قبل الاستعلام (للتحقق من الصلاحيات أولاً)
-      // ⚠️ SECURITY: Middleware MUST run before cache check to ensure auth/validation
-      for (const middleware of this.middlewares) {
-        if (middleware.before) {
-          const result = await middleware.before(query)
-          if (result && !result.success) {
-            return result as QueryResult<TResult>
-          }
-        }
+      // ⚠️ SECURITY: Run middleware FIRST before cache check to ensure auth/validation
+      // This prevents bypassing authorization when returning cached results
+      const beforeResult = await this.executeBeforeMiddlewares(query)
+      if (beforeResult) {
+        return beforeResult
       }
 
       // التحقق من التخزين المؤقت (بعد التحقق من الصلاحيات)
-      if (this.cache) {
-        const cacheKey = this.generateCacheKey(query)
-        const cached = await this.cache.get<TResult>(cacheKey)
-        if (cached !== null) {
-          return {
-            success: true,
-            data: cached,
-            metadata: {
-              cached: true,
-              executionTime: Date.now() - startTime
-            }
-          }
-        }
+      const cachedResult = await this.checkCache(query, startTime)
+      if (cachedResult) {
+        return cachedResult
       }
 
       // إنشاء المعالج وتنفيذ الاستعلام
@@ -108,11 +168,7 @@ export class QueryBus implements IQueryBus {
       const result = await handler.execute(query)
 
       // تخزين النتيجة في التخزين المؤقت
-      // ⚠️ FIX: Cache successful results even with falsy data (0, false, '')
-      if (this.cache && result.success && result.data !== undefined) {
-        const cacheKey = this.generateCacheKey(query)
-        await this.cache.set(cacheKey, result.data)
-      }
+      await this.saveToCache(query, result)
 
       // إضافة وقت التنفيذ
       if (result.success) {
@@ -124,11 +180,7 @@ export class QueryBus implements IQueryBus {
       }
 
       // تنفيذ middlewares بعد الاستعلام
-      for (const middleware of this.middlewares) {
-        if (middleware.after) {
-          await middleware.after(query, result)
-        }
-      }
+      await this.executeAfterMiddlewares(query, result)
 
       return result
     } catch (error) {
@@ -201,8 +253,8 @@ export interface QueryCache {
  * تنفيذ التخزين المؤقت في الذاكرة
  */
 export class InMemoryQueryCache implements QueryCache {
-  private cache: Map<string, { value: unknown; expiresAt: number }> = new Map()
-  private defaultTtl: number
+  private readonly cache: Map<string, { value: unknown; expiresAt: number }> = new Map()
+  private readonly defaultTtl: number
 
   constructor(defaultTtlMs: number = 60000) { // 1 minute default
     this.defaultTtl = defaultTtlMs
@@ -221,8 +273,9 @@ export class InMemoryQueryCache implements QueryCache {
   }
 
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
-    // ⚠️ FIX: Use nullish coalescing to handle ttl=0 (immediate expiry) correctly
-    const actualTtl = ttl !== undefined ? ttl : this.defaultTtl
+    // ⚠️ FIX: Use nullish coalescing (??) instead of || to handle ttl=0 correctly
+    // ttl=0 means immediate expiry, which should be respected
+    const actualTtl = ttl ?? this.defaultTtl
     this.cache.set(key, {
       value,
       expiresAt: Date.now() + actualTtl
@@ -273,7 +326,7 @@ export class QueryLoggingMiddleware implements QueryMiddleware {
  * Middleware لمراقبة الأداء
  */
 export class PerformanceMiddleware implements QueryMiddleware {
-  private slowQueryThreshold: number
+  private readonly slowQueryThreshold: number
 
   constructor(slowQueryThresholdMs: number = 1000) {
     this.slowQueryThreshold = slowQueryThresholdMs

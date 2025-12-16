@@ -369,9 +369,10 @@ describe('Event Sourcing', () => {
         }, 4, { userId: 'user-1' })
       )
 
-      // الحصول على السجل الكامل
-      // Note: getAllEvents() is used to verify the audit trail functionality
-      expect(eventStore.getAllEvents().length).toBeGreaterThan(0)
+      // الحصول على السجل الكامل - verify all events are stored
+      const allEvents = eventStore.getAllEvents()
+      expect(allEvents.length).toBeGreaterThanOrEqual(4)
+      
       const stockMovements = await eventStore.getEventsByType(EventTypes.STOCK_MOVEMENT_CREATED)
 
       expect(stockMovements).toHaveLength(4)

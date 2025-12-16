@@ -3,23 +3,33 @@
  * @description مصنع لإنشاء الأحداث بشكل موحد
  */
 
-// Helper function to generate UUID without external dependency
+// Helper function to generate UUID using cryptographically secure random
 function generateUUID(): string {
   // Use crypto.randomUUID if available (modern browsers and Node.js 19+)
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID()
   }
-  // Fallback for older environments - using character-by-character replacement
-  let result = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
-  for (const c of ['x', 'y']) {
-    const pattern = new RegExp(c, 'g')
-    result = result.replaceAll(pattern, () => {
-      const r = Math.random() * 16 | 0
-      const v = c === 'x' ? r : (r & 0x3 | 0x8)
-      return v.toString(16)
-    })
+  
+  // Fallback using crypto.getRandomValues (cryptographically secure)
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
+    let result = ''
+    for (const c of template) {
+      if (c === 'x' || c === 'y') {
+        const array = new Uint8Array(1)
+        crypto.getRandomValues(array)
+        const r = array[0] % 16
+        const v = c === 'x' ? r : (r & 0x3 | 0x8)
+        result += v.toString(16)
+      } else {
+        result += c
+      }
+    }
+    return result
   }
-  return result
+  
+  // If crypto is not available, throw an error
+  throw new Error('Crypto API is not available. Cannot generate secure UUID.')
 }
 
 import { 

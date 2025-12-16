@@ -9,7 +9,12 @@
  */
 
 import { getSupabase, getConfig } from '@/core/supabaseClient'
-import { getCurrentTenantId } from '@/core/security'
+import { extractTenantFromJWT } from '@/core/security'
+
+// Helper function for tenant ID
+const getCurrentTenantId = async (): Promise<string | null> => {
+  return extractTenantFromJWT()
+}
 import type {
   IInventoryValuationRepository,
   InventoryMovementInput,
@@ -93,8 +98,6 @@ export class SupabaseInventoryValuationRepository implements IInventoryValuation
     // Calculate new values using valuation strategies
     if (qtyIn > 0) {
       // Incoming stock - use processIncomingStock
-      console.log(`📦 Recording incoming stock: ${qtyIn} @ ${unitCost}`)
-
       const result = await processIncomingStock(product, qtyIn, unitCost)
 
       newStock = result.newQty
@@ -102,17 +105,8 @@ export class SupabaseInventoryValuationRepository implements IInventoryValuation
       newValue = result.newValue
       newQueue = result.newQueue
       totalCost = qtyIn * unitCost
-
-      console.log(`✅ New stock state:`, {
-        qty: newStock,
-        rate: newUnitCost,
-        value: newValue,
-        batches: newQueue.length
-      })
     } else if (qtyOut > 0) {
       // Outgoing stock - use processOutgoingStock
-      console.log(`📤 Recording outgoing stock: ${qtyOut}`)
-
       if (currentStock < qtyOut) {
         throw new Error(
           `Insufficient stock. Available: ${currentStock}, Required: ${qtyOut}`
@@ -127,14 +121,6 @@ export class SupabaseInventoryValuationRepository implements IInventoryValuation
       newQueue = result.newQueue
       costOfGoodsSold = result.costOfGoodsSold || 0
       totalCost = -costOfGoodsSold // Negative for outgoing
-
-      console.log(`✅ Stock issued:`, {
-        quantity: qtyOut,
-        cogs: costOfGoodsSold,
-        remainingQty: newStock,
-        remainingValue: newValue,
-        remainingBatches: newQueue.length
-      })
     }
 
     // Calculate running values for ledger
@@ -358,5 +344,4 @@ export class SupabaseInventoryValuationRepository implements IInventoryValuation
     }
   }
 }
-
 

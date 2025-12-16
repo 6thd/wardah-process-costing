@@ -19,14 +19,13 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
-// Props interface for OrganizationLogo - marked as readonly for consistency
+// مكون عرض شعار المؤسسة
 interface OrganizationLogoProps {
-  readonly logoUrl?: string | null;
-  readonly name: string;
-  readonly size?: 'sm' | 'md' | 'lg';
+  readonly logoUrl?: string | null
+  readonly name: string
+  readonly size?: 'sm' | 'md' | 'lg'
 }
 
-// مكون عرض شعار المؤسسة
 function OrganizationLogo({ 
   logoUrl, 
   name, 

@@ -2,11 +2,13 @@
 -- التحقق من أمان Multi-Tenant للشعارات
 -- Verification Script
 -- ===================================
-SET QUOTED_IDENTIFIER ON;
 
--- Define constant for bucket name used throughout this script
--- This avoids duplication of the literal 'organization-logos'
-\set BUCKET_NAME 'organization-logos'
+-- Define bucket name constant for reuse
+DO $$ 
+BEGIN
+    -- Using session variable for bucket name constant
+    PERFORM set_config('app.logos_bucket', 'organization-logos', FALSE);
+END $$;
 
 -- 1. عرض جميع الملفات المرفوعة مع المجلدات
 SELECT 
@@ -17,7 +19,7 @@ SELECT
     updated_at,
     metadata
 FROM storage.objects
-WHERE bucket_id = :'BUCKET_NAME'
+WHERE bucket_id = current_setting('app.logos_bucket', TRUE)
 ORDER BY created_at DESC;
 
 -- 2. التحقق من السياسات المطبقة
@@ -33,8 +35,7 @@ SELECT
 FROM pg_policies
 WHERE tablename = 'objects'
   AND (
-    policyname LIKE '%organization%' 
-    OR policyname LIKE '%logo%'
+    policyname ~* 'organization|logo'
   );
 
 -- 3. عرض المؤسسات مع الشعارات
@@ -78,7 +79,7 @@ SELECT
     allowed_mime_types,
     created_at
 FROM storage.buckets
-WHERE id = :'BUCKET_NAME';
+WHERE id = current_setting('app.logos_bucket', TRUE);
 
 -- ===================================
 -- اختبارات الأمان (للتشغيل يدوياً)
@@ -87,13 +88,13 @@ WHERE id = :'BUCKET_NAME';
 -- Test 1: محاولة إدراج ملف في مجلد مؤسسة أخرى
 -- (يجب أن يفشل)
 -- INSERT INTO storage.objects (bucket_id, name, owner)
--- VALUES (:'BUCKET_NAME', 'OTHER_ORG_ID/test.png', auth.uid());
+-- VALUES ('organization-logos', 'OTHER_ORG_ID/test.png', auth.uid());
 -- Expected: Permission denied
 
 -- Test 2: محاولة حذف ملف مؤسسة أخرى
 -- (يجب أن يفشل)
 -- DELETE FROM storage.objects 
--- WHERE bucket_id = :'BUCKET_NAME' 
+-- WHERE bucket_id = 'organization-logos' 
 --   AND name LIKE 'OTHER_ORG_ID/%';
 -- Expected: 0 rows deleted (due to RLS)
 
@@ -103,6 +104,6 @@ SELECT
     COUNT(*) AS file_count,
     MAX(created_at) AS last_upload
 FROM storage.objects
-WHERE bucket_id = :'BUCKET_NAME'
+WHERE bucket_id = current_setting('app.logos_bucket', TRUE)
 GROUP BY (storage.foldername(name))[1]
 ORDER BY file_count DESC;

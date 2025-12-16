@@ -359,3 +359,24 @@ export class AccountingAppService {
     }
   }
 }
+
+// ===== Singleton Management =====
+
+let accountingAppServiceInstance: AccountingAppService | null = null
+
+/**
+ * الحصول على instance من AccountingAppService (Singleton)
+ */
+export function getAccountingAppService(): AccountingAppService {
+  if (!accountingAppServiceInstance) {
+    accountingAppServiceInstance = new AccountingAppService(getAccountingRepository())
+  }
+  return accountingAppServiceInstance
+}
+
+/**
+ * إعادة تعيين الـ singleton (للاختبارات)
+ */
+export function resetAccountingAppService(): void {
+  accountingAppServiceInstance = null
+}

@@ -9,7 +9,7 @@
  * @pattern Facade Pattern
  */
 
-import type { IInventoryValuationRepository, InventoryMovementInput } from '@/domain/interfaces/IInventoryValuationRepository'
+import type { IInventoryValuationRepository } from '@/domain/interfaces/IInventoryValuationRepository'
 
 export class InventoryValuationAppService {
   constructor(private readonly repository: IInventoryValuationRepository) {}
@@ -226,28 +226,34 @@ export class InventoryValuationAppService {
   }
 }
 
-// ⚠️ NOTE: For production use, prefer the DI Container version from 
-// '@/infrastructure/di/container' which auto-initializes properly.
-// These functions are kept for testing purposes only.
+// ⚠️ NOTE: Service singleton management
+// For production use, prefer the DI Container (container.ts) which properly resolves services.
+// These functions are provided for testing and legacy compatibility only.
 
-// Singleton instance (optional, for testing - prefer DI Container in production)
 let instance: InventoryValuationAppService | null = null
 
 /**
- * @deprecated Use getInventoryValuationService from '@/infrastructure/di/container' instead.
- * This version requires manual initialization and throws if not initialized.
+ * Get singleton instance (for testing only - use DI Container in production)
+ * @deprecated Use container.resolve<InventoryValuationAppService>('InventoryValuationAppService') instead
  */
 export function getInventoryValuationServiceInstance(): InventoryValuationAppService {
   if (!instance) {
-    throw new Error('InventoryValuationAppService not initialized. Use DI Container instead.')
+    throw new Error('InventoryValuationAppService not initialized. Use DI Container or call setInventoryValuationService() first.')
   }
   return instance
 }
 
+/**
+ * Set singleton instance (for testing or manual initialization)
+ */
 export function setInventoryValuationService(service: InventoryValuationAppService): void {
   instance = service
 }
 
+/**
+ * Reset singleton instance (for testing cleanup)
+ */
 export function resetInventoryValuationService(): void {
   instance = null
 }
+

@@ -3,9 +3,23 @@
 -- التاريخ: 13 ديسمبر 2025
 -- Multi-tenant Support
 -- ===================================
-SET QUOTED_IDENTIFIER ON;
 
 BEGIN;
+
+-- ===================================
+-- Constants for error messages
+-- ===================================
+DO $$
+BEGIN
+    -- Create helper function for error responses
+    CREATE OR REPLACE FUNCTION org_error_response(p_error_msg TEXT)
+    RETURNS JSONB
+    LANGUAGE sql
+    IMMUTABLE
+    AS $func$
+        SELECT jsonb_build_object('success', FALSE, 'error', p_error_msg);
+    $func$;
+END $$;
 
 -- ===================================
 -- 1. إضافة الحقول الجديدة لجدول المؤسسات
@@ -61,20 +75,15 @@ CREATE INDEX IF NOT EXISTS idx_organizations_name_ar ON organizations(name_ar) W
 -- 3. إنشاء Storage Bucket للشعارات
 -- ===================================
 
--- NOTE: Storage bucket is created in migration 71_create_organization_logos_bucket.sql
-
--- ===================================
--- 3.5 دوال مساعدة للاستجابات المعيارية
--- ===================================
-
--- دالة إرجاع خطأ بشكل موحد
-CREATE OR REPLACE FUNCTION org_error_response(p_error_message TEXT)
-RETURNS JSONB
-LANGUAGE sql
-IMMUTABLE
-AS $$
-    SELECT jsonb_build_object('success', FALSE, 'error', p_error_message)
-$$;
+-- ملاحظة: يجب تنفيذ هذا من Supabase Dashboard أو عبر API
+-- INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+-- VALUES (
+--     'organization-logos',
+--     'organization-logos',
+--     true,
+--     5242880, -- 5MB
+--     ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
+-- ) ON CONFLICT (id) DO NOTHING;
 
 -- ===================================
 -- 4. دالة تحديث المؤسسة مع الصلاحيات
@@ -121,6 +130,32 @@ BEGIN
         RETURN org_error_response('غير مصرح');
     END IF;
     
+    -- ⚠️ INPUT VALIDATION: Validate formats for security
+    -- Email format validation
+    IF p_email IS NOT NULL AND p_email <> '' AND p_email !~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
+        RETURN org_error_response('صيغة البريد الإلكتروني غير صحيحة');
+    END IF;
+
+    -- Website URL format validation
+    IF p_website IS NOT NULL AND p_website <> '' AND p_website !~* '^https?://[A-Za-z0-9.-]+(\:[0-9]+)?(/.*)?$' THEN
+        RETURN org_error_response('صيغة الموقع الإلكتروني غير صحيحة');
+    END IF;
+
+    -- Logo URL format validation
+    IF p_logo_url IS NOT NULL AND p_logo_url <> '' AND p_logo_url !~* '^https?://[A-Za-z0-9.-]+(\:[0-9]+)?(/.*)?$' THEN
+        RETURN org_error_response('صيغة رابط الشعار غير صحيحة');
+    END IF;
+
+    -- Primary color hex code validation
+    IF p_primary_color IS NOT NULL AND p_primary_color <> '' AND p_primary_color !~* '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' THEN
+        RETURN org_error_response('صيغة كود اللون الأساسي غير صحيحة');
+    END IF;
+
+    -- Secondary color hex code validation
+    IF p_secondary_color IS NOT NULL AND p_secondary_color <> '' AND p_secondary_color !~* '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' THEN
+        RETURN org_error_response('صيغة كود اللون الثانوي غير صحيحة');
+    END IF;
+
     -- التحقق من صلاحية المستخدم
     SELECT role INTO v_user_role
     FROM user_organizations
@@ -191,8 +226,8 @@ BEGIN
         RETURN org_error_response('غير مصرح');
     END IF;
     
-    -- التحقق من أن المستخدم ينتمي للمؤسسة
-    -- ⚠️ FIX: Use EXISTS for better performance (stops at first match)
+    -- ⚠️ PERFORMANCE: Use EXISTS for better performance (stops at first match)
+    -- EXISTS is more efficient than COUNT(*) as it short-circuits on first row found
     IF NOT EXISTS (
         SELECT 1 FROM user_organizations 
         WHERE user_id = v_user_id 
@@ -240,7 +275,7 @@ BEGIN
     WHERE o.id = p_org_id;
     
     IF v_result IS NULL THEN
-        RETURN org_error_response('المؤسسة غير موجودة');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'المؤسسة غير موجودة');
     END IF;
     
     RETURN v_result;
