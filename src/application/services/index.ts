@@ -14,8 +14,12 @@ export type {
   StockTransferInput
 } from './InventoryAppService'
 
-// Accounting Service
-export { AccountingAppService } from './AccountingAppService'
+// Accounting Service - export class and singleton from the service file
+export { 
+  AccountingAppService, 
+  getAccountingAppService, 
+  resetAccountingAppService 
+} from './AccountingAppService'
 export type { 
   AccountListFilters,
   AccountListResult,
@@ -42,19 +46,6 @@ export function getInventoryAppService() {
 }
 export function resetInventoryAppService() {
   inventoryServiceInstance = null
-}
-
-// Accounting singleton
-let accountingServiceInstance: InstanceType<typeof import('./AccountingAppService').AccountingAppService> | null = null
-export function getAccountingAppService() {
-  if (!accountingServiceInstance) {
-    const { AccountingAppService } = require('./AccountingAppService')
-    accountingServiceInstance = new AccountingAppService()
-  }
-  return accountingServiceInstance
-}
-export function resetAccountingAppService() {
-  accountingServiceInstance = null
 }
 
 // ===== Type aliases for backward compatibility =====

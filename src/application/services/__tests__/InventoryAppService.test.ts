@@ -98,7 +98,7 @@ describe('InventoryAppService', () => {
     })
 
     it('should filter by category', async () => {
-      const result = await service.getProducts({ category: 'cat-1' })
+      await service.getProducts({ category: 'cat-1' })
       
       expect(mockRepository.getProducts).toHaveBeenCalledWith({ category: 'cat-1', active: undefined })
     })

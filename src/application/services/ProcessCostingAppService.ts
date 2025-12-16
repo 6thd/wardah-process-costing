@@ -269,17 +269,19 @@ export class ProcessCostingAppService implements IProcessCostingService {
         targetStageNo = await this.repository.getStageNumber(stageId);
       }
 
-      // Get labor costs for this stage
-      let laborCost = 0;
-      if (targetStageNo) {
-        laborCost = await this.repository.getLaborCostsByStage(moId, targetStageNo);
+      // Validate stage number - required for proper cost tracking
+      if (!targetStageNo) {
+        return {
+          success: false,
+          error: 'stage_no is required. Please provide either stageNo or stageId.'
+        };
       }
 
+      // Get labor costs for this stage
+      const laborCost = await this.repository.getLaborCostsByStage(moId, targetStageNo);
+
       // Get overhead costs for this stage
-      let overheadCost = 0;
-      if (targetStageNo) {
-        overheadCost = await this.repository.getOverheadCostsByStage(moId, targetStageNo);
-      }
+      const overheadCost = await this.repository.getOverheadCostsByStage(moId, targetStageNo);
 
       // Calculate totals
       const materialCost = directMaterialCost || 0;
@@ -415,13 +417,15 @@ export class ProcessCostingAppService implements IProcessCostingService {
   }>> {
     try {
       // Get actual costs from domain repository
+      // Note: These are fetched for future standard cost comparison implementation
       const directMaterials = await this.repository.getDirectMaterials(moId);
       const directLabor = await this.repository.getDirectLabor(moId);
       const overheadCosts = await this.repository.getOverheadCosts(moId);
 
-      const actualMaterialCost = directMaterials.reduce((sum, dm) => sum + dm.totalCost, 0);
-      const actualLaborCost = directLabor.reduce((sum, dl) => sum + dl.totalCost, 0);
-      const actualOverheadCost = overheadCosts.reduce((sum, oc) => sum + oc.amount, 0);
+      // Calculate actual totals (will be used when standard costs are implemented)
+      const _actualMaterialCost = directMaterials.reduce((sum, dm) => sum + dm.totalCost, 0);
+      const _actualLaborCost = directLabor.reduce((sum, dl) => sum + dl.totalCost, 0);
+      const _actualOverheadCost = overheadCosts.reduce((sum, oc) => sum + oc.amount, 0);
 
       // TODO: Get standard costs from product master data
       // For now, return actual costs as "zero variance"

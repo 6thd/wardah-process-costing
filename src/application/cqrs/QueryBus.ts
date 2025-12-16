@@ -76,7 +76,18 @@ export class QueryBus implements IQueryBus {
     const startTime = Date.now()
 
     try {
-      // التحقق من التخزين المؤقت
+      // تنفيذ middlewares قبل الاستعلام (for access control, validation, etc.)
+      // SECURITY: Run middleware BEFORE cache check to prevent unauthorized cache access
+      for (const middleware of this.middlewares) {
+        if (middleware.before) {
+          const result = await middleware.before(query)
+          if (result && !result.success) {
+            return result as QueryResult<TResult>
+          }
+        }
+      }
+
+      // التحقق من التخزين المؤقت (after middleware validation passes)
       if (this.cache) {
         const cacheKey = this.generateCacheKey(query)
         const cached = await this.cache.get<TResult>(cacheKey)
@@ -92,22 +103,13 @@ export class QueryBus implements IQueryBus {
         }
       }
 
-      // تنفيذ middlewares قبل الاستعلام
-      for (const middleware of this.middlewares) {
-        if (middleware.before) {
-          const result = await middleware.before(query)
-          if (result && !result.success) {
-            return result as QueryResult<TResult>
-          }
-        }
-      }
-
       // إنشاء المعالج وتنفيذ الاستعلام
       const handler = handlerFactory() as IQueryHandler<IQuery<TResult>, TResult>
       const result = await handler.execute(query)
 
       // تخزين النتيجة في التخزين المؤقت
-      if (this.cache && result.success && result.data) {
+      // Note: Cache falsy values like 0, false, '' - only skip null/undefined
+      if (this.cache && result.success && result.data !== undefined && result.data !== null) {
         const cacheKey = this.generateCacheKey(query)
         await this.cache.set(cacheKey, result.data)
       }
@@ -219,9 +221,11 @@ export class InMemoryQueryCache implements QueryCache {
   }
 
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    // Use nullish coalescing to allow ttl=0 (expire immediately)
+    const effectiveTtl = ttl ?? this.defaultTtl;
     this.cache.set(key, {
       value,
-      expiresAt: Date.now() + (ttl || this.defaultTtl)
+      expiresAt: Date.now() + effectiveTtl
     })
   }
 

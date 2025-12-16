@@ -113,44 +113,6 @@ export interface DashboardMetrics {
   totalExpenses: number
 }
 
-export interface AccountStatementFilters {
-  accountCode: string
-  fromDate?: string
-  toDate?: string
-  page?: number
-  pageSize?: number
-}
-
-export interface AccountStatementResult {
-  entries: Array<{
-    date: string
-    description: string
-    debit: number
-    credit: number
-    balance: number
-  }>
-  openingBalance: number
-  closingBalance: number
-  totalDebit: number
-  totalCredit: number
-}
-
-export interface FinancialReportOptions {
-  fromDate: string
-  toDate: string
-  includeZeroBalances?: boolean
-  format?: 'detailed' | 'summary'
-}
-
-export interface DashboardMetrics {
-  totalAccounts: number
-  activeAccounts: number
-  totalAssets: number
-  totalLiabilities: number
-  totalRevenue: number
-  totalExpenses: number
-}
-
 // ===== Service =====
 
 /**
@@ -438,27 +400,6 @@ export class AccountingAppService {
       netProfit: incomeStatement.netIncome
     }
   }
-}
-
-// ===== Singleton Instance =====
-
-let accountingAppServiceInstance: AccountingAppService | null = null
-
-/**
- * الحصول على instance من خدمة المحاسبة (Singleton)
- */
-export function getAccountingAppService(): AccountingAppService {
-  if (!accountingAppServiceInstance) {
-    accountingAppServiceInstance = new AccountingAppService()
-  }
-  return accountingAppServiceInstance
-}
-
-/**
- * إعادة تعيين الـ singleton (مفيد للاختبارات)
- */
-export function resetAccountingAppService(): void {
-  accountingAppServiceInstance = null
 }
 
 // ===== Singleton Instance =====

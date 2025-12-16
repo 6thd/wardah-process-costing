@@ -370,7 +370,10 @@ describe('Event Sourcing', () => {
       )
 
       // الحصول على السجل الكامل
-      const allEvents = eventStore.getAllEvents()
+      // Verify eventStore has events (getAllEvents is tested elsewhere)
+      const _allEvents = eventStore.getAllEvents()
+      expect(_allEvents.length).toBeGreaterThanOrEqual(4)
+      
       const stockMovements = await eventStore.getEventsByType(EventTypes.STOCK_MOVEMENT_CREATED)
 
       expect(stockMovements).toHaveLength(4)

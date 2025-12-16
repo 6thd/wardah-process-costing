@@ -43,10 +43,12 @@ describe('OrganizationSelector', () => {
   it('shows dropdown and allows selection', () => {
     render(<OrganizationSelector />)
 
-    const trigger = screen.getByRole('button')
+    // The trigger is a combobox, not a regular button
+    const trigger = screen.getByRole('combobox')
     fireEvent.click(trigger)
 
-    expect(screen.getByText(/Org Two/)).toBeInTheDocument()
+    // The second organization displays Arabic name "المنظمة الثانية"
+    expect(screen.getByText(/المنظمة الثانية/)).toBeInTheDocument()
   })
 })
 
