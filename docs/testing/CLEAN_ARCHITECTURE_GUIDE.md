@@ -788,7 +788,18 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | InMemoryQueryCache | 5 | التخزين المؤقت |
 | **المجموع** | **28** | ✅ |
 
-### إجمالي الاختبارات: **880** ✅ 🆕
+### New Tests Added (17 ديسمبر 2025) 🆕
+
+| الملف | الاختبارات | التغطية |
+|-------|-----------|---------|
+| `src/core/__tests__/utils.test.ts` | 50 | Formatting + Validation |
+| `src/core/__tests__/security.test.ts` | 21 | JWT + UUID |
+| `src/lib/__tests__/tenant-validator.test.ts` | 17 | Multi-tenant |
+| `src/utils/__tests__/keyboardNav.test.ts` | 14 | **81.72%** |
+| `src/utils/__tests__/parseClipboard.test.ts` | 11 | **100%** |
+| **المجموع الجديد** | **113** | ✅ |
+
+### إجمالي الاختبارات: **1237** ✅ 🆕
 
 ##  الخطوات التالية
 
@@ -797,10 +808,14 @@ const scaled = qty.multiply(2);        // Quantity(200)
 3. ✅ ~~تنفيذ طبقة Infrastructure (Repository + DI Container)~~
 4. ✅ ~~إضافة المزيد من Repositories (Inventory, Accounting)~~
 5. ✅ ~~إنشاء Application Layer مع React Hooks~~
-6. ✅ ~~تطبيق Event Sourcing للـ Audit Trail~~ 🆕
-7. ✅ ~~إضافة CQRS Pattern~~ 🆕
-8. ⏳ زيادة التغطية إلى 15-20%
+6. ✅ ~~تطبيق Event Sourcing للـ Audit Trail~~
+7. ✅ ~~إضافة CQRS Pattern~~
+8. ✅ ~~إعداد ESLint مع TypeScript و React Hooks~~ 🆕
+9. ✅ ~~إضافة اختبارات Core Utils و Security~~ 🆕
+10. ⏳ زيادة التغطية إلى 15-20%
+11. ⏳ إضافة اختبارات Services (accounting, inventory, sales)
+12. ⏳ إضافة Component Tests
 
 ---
 
-*آخر تحديث: 24 يناير 2025*
+*آخر تحديث: 17 ديسمبر 2025*
