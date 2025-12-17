@@ -4,6 +4,13 @@
 -- ===================================
 
 -- 1. عرض جميع الملفات المرفوعة مع المجلدات
+DO $$
+DECLARE
+    logos_bucket CONSTANT VARCHAR := 'organization-logos';
+BEGIN
+    RAISE NOTICE 'Checking files in bucket: %', logos_bucket;
+END $$;
+
 SELECT 
     name AS file_path,
     (storage.foldername(name))[1] AS org_id_folder,
