@@ -8,9 +8,8 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { Plus, X, Trash2 } from 'lucide-react'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
-import { getSupabase } from '@/lib/supabase'
+import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
-import type { Item, Category } from '@/lib/supabase'
 
 export function InventoryModule() {
   return (

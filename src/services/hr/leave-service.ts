@@ -46,7 +46,7 @@ export async function applyApprovedLeaveToAttendance(leaveId: string) {
   const leaveType = Array.isArray(leave.leave_type) ? leave.leave_type[0] : leave.leave_type;
   const leaveCode: string = (leaveType?.code ?? '') || '';
   const normalized = leaveCode.toUpperCase();
-  let status = 'leave';
+  const status = 'leave';
   let reason = 'annual';
   if (normalized.includes('SICK')) {
     reason = 'sick';

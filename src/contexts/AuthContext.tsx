@@ -32,10 +32,9 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  // NOSONAR - Lazy initializer is correct pattern for localStorage access
-  // eslint-disable-next-line sonarjs/prefer-immediate-return
+  // Lazy initializer is correct pattern for localStorage access
   const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
-    () => safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID // NOSONAR
+    () => safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
   

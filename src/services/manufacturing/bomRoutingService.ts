@@ -3,8 +3,7 @@
  * خدمة إدارة عمليات التصنيع (Routing)
  */
 
-import { supabase } from '@/lib/supabase'
-import { getEffectiveTenantId } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 export interface BOMOperation {
   id?: string

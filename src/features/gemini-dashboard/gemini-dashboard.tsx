@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { geminiService } from '@/services/gemini-service'
 import { Button } from '@/components/ui/button'
 import { RefreshCw, AlertCircle } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
-import { cn } from '@/lib/utils'
+import { formatCurrency, cn } from '@/lib/utils'
 
 export function GeminiDashboard() {
   const { t, i18n } = useTranslation()

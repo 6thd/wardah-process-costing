@@ -1,10 +1,10 @@
 import type { ManufacturingOrder } from '@/lib/supabase';
-import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status';
 import {
   getStatusInfo,
   getValidNextStatuses,
   isValidStatusTransition,
-  prepareStatusChange
+  prepareStatusChange,
+  type ManufacturingOrderStatus
 } from '@/utils/manufacturing-order-status';
 
 export function getStatusLabel(status: ManufacturingOrder['status'], isRTL: boolean): string {

@@ -87,7 +87,7 @@ export class StockLedgerService {
     // Calculate new valuation rate
     let newRate: number
     let newValue: number
-    let stockQueue: Array<[number, number]> = prevBalance?.stock_queue || []
+    const stockQueue: Array<[number, number]> = prevBalance?.stock_queue || []
 
     if (entry.actual_qty > 0) {
       // INCOMING: Calculate weighted average

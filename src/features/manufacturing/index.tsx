@@ -64,8 +64,7 @@ import { BOMManagement, BOMBuilder } from './bom'
 import { ManufacturingStagesList } from './manufacturing-stages-list'
 import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
-import type { ManufacturingOrder } from '@/lib/supabase'
-import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
 import { useWorkCenters, useCreateWorkCenter, type WorkCenter } from '@/hooks/useWorkCenters'
 
 export function ManufacturingModule() {

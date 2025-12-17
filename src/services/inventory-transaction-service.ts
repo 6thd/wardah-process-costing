@@ -8,8 +8,7 @@
  * - Stock availability checks
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError';
 import { AppError } from '@/lib/errors/AppError';
 import { executeTransaction } from '@/lib/db-transaction';

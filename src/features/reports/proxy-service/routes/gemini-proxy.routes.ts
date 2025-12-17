@@ -5,8 +5,7 @@
 
 import { Router, Request, Response } from 'express';
 import { geminiFinancialService } from '@/services/gemini-financial-service';
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 const router = Router();
 

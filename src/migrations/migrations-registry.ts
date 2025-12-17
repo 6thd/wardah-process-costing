@@ -4,8 +4,7 @@
  * Register all data migrations here
  */
 
-import { migrationRunner } from './data-migration-runner';
-import type { DataMigration } from './data-migration-runner';
+import { migrationRunner, type DataMigration } from './data-migration-runner';
 
 /**
  * Example migration: Unify tenant_id to org_id

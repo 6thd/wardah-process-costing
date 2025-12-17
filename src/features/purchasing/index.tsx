@@ -10,9 +10,8 @@ import {
   purchaseOrdersService,
   newPurchaseOrdersService
 } from '@/services/supabase-service'
-import { supabase } from '@/lib/supabase'
+import { supabase, type Supplier, type PurchaseOrder } from '@/lib/supabase'
 import { toast } from 'sonner'
-import type { Supplier, PurchaseOrder } from '@/lib/supabase'
 import { PurchaseOrderForm } from '@/components/forms/PurchaseOrderForm'
 import { GoodsReceiptForm } from '@/components/forms/GoodsReceiptForm'
 import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'

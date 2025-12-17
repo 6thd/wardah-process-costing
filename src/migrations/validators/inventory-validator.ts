@@ -4,8 +4,7 @@
  * Validates inventory data integrity
  */
 
-import { supabase } from '@/lib/supabase';
-import { getEffectiveTenantId } from '@/lib/supabase';
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { AppError } from '@/lib/errors/AppError';
 
 /**

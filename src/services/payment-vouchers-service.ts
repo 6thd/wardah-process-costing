@@ -901,7 +901,7 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
     if (!tenantId) throw new Error('Tenant ID not found')
 
     // Try with full columns first
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from('gl_accounts')
       .select('id, code, name, name_ar, name_en, subtype')
       .eq('org_id', tenantId)

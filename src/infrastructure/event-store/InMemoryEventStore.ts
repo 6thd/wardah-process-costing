@@ -10,9 +10,10 @@ import type {
   EventSearchResult,
   IEventPublisher,
   IEventSubscriber,
-  EventHandler
+  EventHandler,
+  DomainEvent,
+  AnyDomainEvent
 } from '@/domain/events'
-import type { DomainEvent, AnyDomainEvent } from '@/domain/events'
 
 // ===== In-Memory Event Store =====
 

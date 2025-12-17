@@ -6,7 +6,7 @@ import { loadConfig } from './config';
 export type { User };
 
 // Singleton instance
-let supabaseInstance: SupabaseClient | null = null;
+const supabaseInstance: SupabaseClient | null = null;
 
 // --- BEGIN NEW TYPE DEFINITIONS ---
 

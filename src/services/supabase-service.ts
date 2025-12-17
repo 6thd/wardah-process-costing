@@ -1,8 +1,16 @@
-import { getSupabase, getTenantId } from '../lib/supabase'
-import type {
-  Item, Category, Supplier, Customer, ManufacturingOrder,
-  ProcessCost, PurchaseOrder, SalesOrder,
-  PurchaseOrderItem, SalesOrderItem
+import {
+  getSupabase,
+  getTenantId,
+  type Item,
+  type Category,
+  type Supplier,
+  type Customer,
+  type ManufacturingOrder,
+  type ProcessCost,
+  type PurchaseOrder,
+  type SalesOrder,
+  type PurchaseOrderItem,
+  type SalesOrderItem
 } from '../lib/supabase'
 import { PerformanceMonitor } from '../lib/performance-monitor'
 
@@ -1043,7 +1051,7 @@ export const salesOrdersService = {
     const supabase = await getClient()
 
     // First try sales_orders with relationships
-    let { data, error } = await supabase
+    const { data, error } = await supabase
       .from('sales_orders')
       .select(`
         *,
