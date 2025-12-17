@@ -1,0 +1,217 @@
+/**
+ * Wardah Design System - Base Styles
+ * ===================================
+ * Reset, Body, Typography, RTL, Scrollbar, Accessibility
+ */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  /* ========== Better Reset ========== */
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+  
+  /* ========== Smooth Scrolling ========== */
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+  
+  /* ========== Firefox Scrollbar Support ========== */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--muted));
+  }
+  
+  /* ========== Body Styles ========== */
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Cairo', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-relaxed);
+    letter-spacing: 0.01em;
+    /* Better font rendering */
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  
+  /* ========== Typography Scale ========== */
+  h1, .text-h1 {
+    font-size: var(--font-size-4xl);
+    line-height: var(--line-height-tight);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  
+  h2, .text-h2 {
+    font-size: var(--font-size-3xl);
+    line-height: var(--line-height-tight);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+  
+  h3, .text-h3 {
+    font-size: var(--font-size-2xl);
+    line-height: var(--line-height-tight);
+    font-weight: 600;
+  }
+  
+  h4, .text-h4 {
+    font-size: var(--font-size-xl);
+    line-height: var(--line-height-normal);
+    font-weight: 600;
+  }
+  
+  h5, .text-h5 {
+    font-size: var(--font-size-lg);
+    line-height: var(--line-height-normal);
+    font-weight: 600;
+  }
+  
+  h6, .text-h6 {
+    font-size: var(--font-size-base);
+    line-height: var(--line-height-normal);
+    font-weight: 600;
+  }
+  
+  /* ========== Text Selection ========== */
+  ::selection {
+    @apply bg-primary/20 text-foreground;
+  }
+  
+  /* ========== RTL Support ========== */
+  [dir="rtl"] {
+    text-align: right;
+  }
+  
+  [dir="ltr"] {
+    text-align: left;
+  }
+  
+  body.rtl {
+    direction: rtl;
+    text-align: right;
+  }
+  
+  body.ltr {
+    direction: ltr;
+    text-align: left;
+  }
+  
+  /* RTL adjustments for inputs */
+  [dir="rtl"] input[type="text"],
+  [dir="rtl"] input[type="email"],
+  [dir="rtl"] input[type="password"],
+  [dir="rtl"] textarea {
+    text-align: right;
+  }
+  
+  /* ========== Webkit Scrollbar (Chrome/Safari) ========== */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-muted;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-full;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/50;
+  }
+  
+  /* ========== Focus Styles ========== */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background;
+  }
+  
+  /* Table row focus for A11y */
+  .table-row:focus-within {
+    @apply bg-muted/50 outline-none;
+  }
+  
+  /* ========== Animations ========== */
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateX(var(--slide-offset));
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0);
+    }
+  }
+  
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  
+  .slide-in {
+    animation: slideIn 0.3s ease-out;
+  }
+  
+  .fade-in {
+    animation: fadeIn 0.2s ease-out;
+  }
+  
+  .scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+  
+  /* ========== Accessibility: Reduced Motion ========== */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  
+  /* ========== Print Styles ========== */
+  @media print {
+    body {
+      @apply bg-white text-black;
+    }
+    
+    .no-print {
+      display: none !important;
+    }
+    
+    .erp-card {
+      @apply shadow-none border;
+    }
+  }
+}
