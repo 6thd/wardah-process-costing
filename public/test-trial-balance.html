@@ -38,9 +38,26 @@
     <div id="results"></div>
 
     <script>
-        const supabaseUrl = 'https://oobdeuhczdjmlfjkvdel.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9vYmRldWhjemRqbWxmamt2ZGVsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzEzNTE1NjcsImV4cCI6MjA0NjkyNzU2N30.RwrRxCPzqQJkjDz_Sk5gww_Kw1r2uAaKzw-I58MR3Ww';
-        const supabase = window.supabase.createClient(supabaseUrl, supabaseKey);
+        // ⚠️ SECURITY: Load config from config.json - never hardcode credentials!
+        let supabase;
+        
+        async function initSupabase() {
+            try {
+                const response = await fetch('/config.json');
+                const config = await response.json();
+                
+                if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
+                    throw new Error('Missing Supabase configuration. Please update /config.json');
+                }
+                
+                supabase = window.supabase.createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY);
+                log('<p class="success">✅ تم تهيئة Supabase بنجاح</p>');
+                return true;
+            } catch (error) {
+                log(`<p class="error">❌ خطأ في التهيئة: ${error.message}</p>`);
+                return false;
+            }
+        }
 
         function log(html) {
             document.getElementById('results').innerHTML += html;
