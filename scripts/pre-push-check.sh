@@ -1,13 +1,14 @@
 #!/bin/bash
 # pre-push-check.sh - Run all quality checks before pushing
 
+set -e  # Exit on first error
+
 echo "🔍 Running code quality checks..."
 echo ""
 
 # 1. TypeScript Type Check
 echo "📘 TypeScript Type Check..."
-npm run type-check
-if [ $? -ne 0 ]; then
+if ! npm run type-check; then
   echo "❌ TypeScript check failed!"
   exit 1
 fi
@@ -16,8 +17,7 @@ echo ""
 
 # 2. ESLint
 echo "🔎 Running ESLint..."
-npm run lint -- --max-warnings 50
-if [ $? -ne 0 ]; then
+if ! npm run lint -- --max-warnings 50; then
   echo "❌ ESLint check failed! Too many warnings."
   exit 1
 fi
@@ -26,8 +26,7 @@ echo ""
 
 # 3. Tests
 echo "🧪 Running tests..."
-npm test
-if [ $? -ne 0 ]; then
+if ! npm test; then
   echo "❌ Tests failed!"
   exit 1
 fi
@@ -36,8 +35,7 @@ echo ""
 
 # 4. Build
 echo "🏗️ Building..."
-npm run build
-if [ $? -ne 0 ]; then
+if ! npm run build; then
   echo "❌ Build failed!"
   exit 1
 fi

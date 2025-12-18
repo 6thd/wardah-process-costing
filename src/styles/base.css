@@ -7,6 +7,9 @@
 @layer base {
   * {
     @apply border-border;
+    /* Firefox Scrollbar Support */
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--muted));
   }
   
   /* ========== Better Reset ========== */
@@ -27,11 +30,8 @@
     }
   }
   
-  /* ========== Firefox Scrollbar Support ========== */
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--muted-foreground) / 0.3) hsl(var(--muted));
-  }
+  /* ========== Firefox Scrollbar Support (applied via universal selector above) ========== */
+  /* scrollbar-width and scrollbar-color moved to the universal selector at line 8 */
   
   /* ========== Body Styles ========== */
   body {

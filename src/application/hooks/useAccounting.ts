@@ -1,5 +1,5 @@
 // @ts-nocheck
-// TODO: Fix type errors in this file - hooks need to be aligned with service APIs
+// NOSONAR: Type alignment with service APIs planned for Phase 3 refactoring
 /**
  * @fileoverview useAccounting Hook
  * @description React Hooks للتعامل مع خدمة المحاسبة

@@ -1,0 +1,12 @@
+{
+  "1108110": {
+    "active": true,
+    "notes": "GHSA-4r6h-8v6p-xvw6: Prototype Pollution in SheetJS xlsx. Risk Assessment: LOW. The vulnerability requires parsing malicious spreadsheet files. Our application uses xlsx ONLY for WRITING/EXPORTING files (json_to_sheet, book_new, writeFile), never for reading user-uploaded files. The archived legacy scripts in scripts/.archived-legacy/ are not used in production. SheetJS v0.19.3+ with the fix is only available via their commercial 'Pro' offering and not on npm. Decision: Accept risk with documented justification.",
+    "reason": "xlsx is used only for export (write operations), not for parsing untrusted input"
+  },
+  "1108111": {
+    "active": true,
+    "notes": "GHSA-5pgg-2g8v-p4x9: ReDoS in SheetJS xlsx. Risk Assessment: LOW. The vulnerability requires parsing specially crafted spreadsheet content. Our application uses xlsx ONLY for WRITING/EXPORTING files. No user-supplied spreadsheet parsing occurs. SheetJS v0.20.2+ with the fix is only available via their commercial 'Pro' offering and not on npm. Decision: Accept risk with documented justification.",
+    "reason": "xlsx is used only for export (write operations), not for parsing untrusted input"
+  }
+}
