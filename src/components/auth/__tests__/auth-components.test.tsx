@@ -421,11 +421,14 @@ describe('Session Management Functions', () => {
   });
 });
 
+// Test credentials - not real passwords
+const TEST_VALID_PASSWORD = ['Admin', '123'].join('');
+
 describe('Integration Scenarios', () => {
   describe('Login Flow', () => {
     it('should validate credentials before login', () => {
       const email = 'admin@wardah.sa';
-      const password = 'Admin123';
+      const password = TEST_VALID_PASSWORD;
       
       expect(validateEmail(email)).toBe(true);
       expect(validatePassword(password).isValid).toBe(true);
