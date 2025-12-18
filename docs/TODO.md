@@ -55,6 +55,19 @@
   - [x] GL entry generation and validation
   - [x] Gross profit margin calculations
 
+- [x] `src/services/__tests__/purchasing-service.test.ts` - 48 tests
+  - [x] Purchase order calculations
+  - [x] Goods receipt validation
+  - [x] Supplier invoice and payment status
+  - [x] GL entry generation for purchases
+
+- [x] `src/services/__tests__/warehouse-service.test.ts` - 73 tests
+  - [x] Warehouse data validation
+  - [x] Storage locations and bins
+  - [x] Capacity utilization calculations
+  - [x] Stock status monitoring
+  - [x] GL account mapping validation
+
 ### UI Component Tests ✅ (18 ديسمبر 2025 - مساءً)
 - [x] `src/components/ui/__tests__/button.test.tsx` - 30 tests
 - [x] `src/components/ui/__tests__/card.test.tsx` - 35 tests
@@ -81,20 +94,20 @@
 
 ### 🔴 أولوية عالية (Week 1-2)
 
-#### Services Tests
+#### Services Tests ✅
 - [x] ~~`src/services/accounting-service.ts`~~ ✅ مكتمل
 - [x] ~~`src/services/inventory-transaction-service.ts`~~ ✅ مكتمل
 - [x] ~~`src/services/sales-service.ts`~~ ✅ مكتمل
 
-- [ ] `src/services/purchasing-service.ts` (~300 lines)
-  - [ ] إنشاء `purchasing-service.test.ts`
-  - [ ] اختبار createPurchaseOrder
-  - [ ] اختبار receiving
-  - [ ] Coverage المتوقع: +2-3%
+- [x] ~~`src/services/purchasing-service.ts`~~ ✅ مكتمل (48 tests)
+  - [x] إنشاء `purchasing-service.test.ts`
+  - [x] اختبار createPurchaseOrder
+  - [x] اختبار receiving
+  - [x] Coverage: +2%
 
-- [ ] `src/services/warehouse-service.ts`
-  - [ ] إنشاء `warehouse-service.test.ts`
-  - [ ] Coverage المتوقع: +1-2%
+- [x] ~~`src/services/warehouse-service.ts`~~ ✅ مكتمل (73 tests)
+  - [x] إنشاء `warehouse-service.test.ts`
+  - [x] Coverage: +2%
 
 ### 🟡 أولوية متوسطة (Week 3-4)
 
@@ -151,13 +164,13 @@
 | Integration Tests (Phase 1-5) | ✅ مكتمل | 235 | ~8% |
 | ESLint & Quality | ✅ مكتمل | - | - |
 | Unit Tests (Core) | ✅ مكتمل | 113 | +3% |
-| Services Tests | ✅ مكتمل | 131 | +5% |
+| Services Tests | ✅ مكتمل | 252 | +8% |
 | Component Tests | ✅ مكتمل | 209 | +7% |
 | E2E Tests | ✅ مكتمل | 93 | Ready |
 | Architecture | ✅ مكتمل | - | 95% |
 
-**الإجمالي الحالي**: 1577 unit test ✅ + 93 E2E test (5 files)
-**التغطية الحالية**: ~18-20% (تقديري)
+**الإجمالي الحالي**: 1698 unit test ✅ + 93 E2E test (5 files)
+**التغطية الحالية**: ~22-24% (تقديري)
 **الهدف**: 80%+
 
 ---
@@ -169,9 +182,11 @@
 3. ~~**إنشاء اختبارات لـ `sales-service.ts`**~~ ✅ مكتمل
 4. ~~**اختبارات UI Components الأساسية**~~ ✅ مكتمل (209 tests)
 5. ~~**E2E Tests الشاملة**~~ ✅ مكتمل (5 files, 93 tests)
-6. **إنشاء اختبارات لـ `purchasing-service.ts`** - القادم
-7. **دمج PR إلى main branch**
-8. **تحسين Coverage إلى 25%+**
+6. ~~**إنشاء اختبارات لـ `purchasing-service.ts`**~~ ✅ مكتمل (48 tests)
+7. ~~**إنشاء اختبارات لـ `warehouse-service.ts`**~~ ✅ مكتمل (73 tests)
+8. **اختبارات Auth Components** - القادم
+9. **دمج PR إلى main branch**
+10. **تحسين Coverage إلى 30%+**
 
 ---
 
@@ -192,7 +207,8 @@
 | 18 ديسمبر 2025 | Services Integration Tests | 131 |
 | 18 ديسمبر 2025 (مساءً) | UI Component Tests | 209 |
 | 18 ديسمبر 2025 (مساءً) | E2E Tests (4 ملفات جديدة) | 93 |
+| 18 ديسمبر 2025 (ليلاً) | purchasing + warehouse tests | 121 |
 
 ---
 
-*آخر تحديث: 18 ديسمبر 2025 (مساءً)*
+*آخر تحديث: 18 ديسمبر 2025 (ليلاً)*
