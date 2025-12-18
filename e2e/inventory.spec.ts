@@ -246,7 +246,7 @@ test.describe('Inventory Management E2E', () => {
       await page.click('[data-testid="warehouse-stock-tab"]')
       
       // Select a warehouse
-      await page.click('[data-testid="warehouse-row"]').first()
+      await page.locator('[data-testid="warehouse-row"]').first().click()
       
       // Verify stock levels are shown
       await expect(page.locator('[data-testid="warehouse-stock-table"]')).toBeVisible()
