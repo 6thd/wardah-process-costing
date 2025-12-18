@@ -320,8 +320,30 @@ const result = fifoStrategy.calculateOutgoingRate(qty, queue, outgoingQty)
 
 ---
 
+## 📅 **تحديث 18 ديسمبر 2025 - اختبارات Services Layer**
+
+### **الإنجازات الجديدة:**
+
+تم إضافة **131 اختبار جديد** لتغطية Services Layer:
+
+| الملف | الاختبارات | التغطية | الوظائف المختبرة |
+|-------|------------|---------|------------------|
+| `accounting-service.test.ts` | 39 | ~40% | validateJournalBalance, calculateBalance, groupEntriesByReference, calculateRunningBalance, categorizeAccounts, calculateTrialBalanceTotals |
+| `inventory-transaction-service.test.ts` | 41 | ~45% | checkItemAvailability, calculateTotalReserved, validateConsumption, calculateFifoCost, calculateWeightedAverageCost |
+| `sales-service.test.ts` | 51 | ~50% | calculateLineTotal, calculateLineTax, calculateCOGS, determineDeliveryStatus, determinePaymentStatus, generateSalesGLEntries, generateCOGSGLEntries |
+
+### **إجمالي الاختبارات:**
+- **Before**: 1237 tests
+- **After**: 1368 tests (+131)
+- **Success Rate**: 100% ✅
+
+### **Coverage المتوقعة:**
+- **SonarCloud**: ~13-15% (كانت 10.8%)
+
+---
+
 **الحمد لله على التوفيق!** 🎉
 
-**Status:** ✅ Phase 2 Complete  
-**Date:** 14 ديسمبر 2025
+**Status:** ✅ Phase 2 Complete + Services Tests  
+**Last Update:** 18 ديسمبر 2025
 
