@@ -1,6 +1,6 @@
 # 📋 قائمة المهام المتبقية - Wardah ERP Test Coverage
 
-> آخر تحديث: 17 ديسمبر 2025
+> آخر تحديث: 18 ديسمبر 2025
 
 ---
 
@@ -33,6 +33,28 @@
 - [x] `src/utils/__tests__/keyboardNav.test.ts` - 14 tests (81.72% coverage)
 - [x] `src/utils/__tests__/parseClipboard.test.ts` - 11 tests (100% coverage)
 
+### Services Integration Tests ✅ (18 ديسمبر 2025)
+- [x] `src/services/__tests__/accounting-service.test.ts` - 39 tests
+  - [x] Journal entry balance validation
+  - [x] Account balance calculations
+  - [x] Trial balance and financial statements
+  - [x] Running balance and account categorization
+  - [x] Edge cases (decimals, large numbers)
+  
+- [x] `src/services/__tests__/inventory-transaction-service.test.ts` - 41 tests
+  - [x] Stock availability calculations
+  - [x] Material reservation logic
+  - [x] Consumption validation
+  - [x] FIFO and weighted average costing
+  - [x] Reservation expiry handling
+  
+- [x] `src/services/__tests__/sales-service.test.ts` - 51 tests
+  - [x] Invoice calculations (subtotal, tax, discounts)
+  - [x] COGS calculations
+  - [x] Delivery and payment status management
+  - [x] GL entry generation and validation
+  - [x] Gross profit margin calculations
+
 ---
 
 ## ⏳ المهام المتبقية
@@ -40,32 +62,19 @@
 ### 🔴 أولوية عالية (Week 1-2)
 
 #### Services Tests
-- [ ] `src/services/accounting-service.ts` (~544 lines)
-  - [ ] إنشاء `integration-accounting-service.test.ts`
-  - [ ] اختبار createJournalEntry
-  - [ ] اختبار getTrialBalance
-  - [ ] اختبار postEntry
-  - [ ] اختبار reverseEntry
-  - [ ] Coverage المتوقع: +4-5%
-
-- [ ] `src/services/inventory-service.ts` (~350 lines)
-  - [ ] إنشاء `integration-inventory-service.test.ts`
-  - [ ] اختبار getStockLevels
-  - [ ] اختبار updateStock
-  - [ ] اختبار transferStock
-  - [ ] Coverage المتوقع: +3-4%
-
-- [ ] `src/services/sales-service.ts` (~300 lines)
-  - [ ] إنشاء `integration-sales-service.test.ts`
-  - [ ] اختبار createSalesOrder
-  - [ ] اختبار invoicing
-  - [ ] Coverage المتوقع: +2-3%
+- [x] ~~`src/services/accounting-service.ts`~~ ✅ مكتمل
+- [x] ~~`src/services/inventory-transaction-service.ts`~~ ✅ مكتمل
+- [x] ~~`src/services/sales-service.ts`~~ ✅ مكتمل
 
 - [ ] `src/services/purchasing-service.ts` (~300 lines)
-  - [ ] إنشاء `integration-purchasing-service.test.ts`
+  - [ ] إنشاء `purchasing-service.test.ts`
   - [ ] اختبار createPurchaseOrder
   - [ ] اختبار receiving
   - [ ] Coverage المتوقع: +2-3%
+
+- [ ] `src/services/warehouse-service.ts`
+  - [ ] إنشاء `warehouse-service.test.ts`
+  - [ ] Coverage المتوقع: +1-2%
 
 ### 🟡 أولوية متوسطة (Week 3-4)
 
@@ -113,23 +122,25 @@
 | Integration Tests (Phase 1-5) | ✅ مكتمل | 235 | ~8% |
 | ESLint & Quality | ✅ مكتمل | - | - |
 | Unit Tests (Core) | ✅ مكتمل | 113 | +3% |
-| Services Tests | ⏳ متبقي | ~120 | +12% |
+| Services Tests | ✅ مكتمل | 131 | +5% |
 | Component Tests | ⏳ متبقي | ~50 | +10% |
 | E2E Tests | ⏳ متبقي | ~30 | +5% |
 | Architecture | ⏳ متبقي | ~10 | - |
 
-**الإجمالي الحالي**: 1237 اختبار ✅
-**التغطية الحالية**: ~10.8%
+**الإجمالي الحالي**: 1368 اختبار ✅ (+131 جديد)
+**التغطية الحالية**: ~13-15% (تقديري)
 **الهدف**: 80%+
 
 ---
 
 ## 🎯 الأولويات للأسبوع القادم
 
-1. **إنشاء اختبارات لـ `accounting-service.ts`** - أعلى قيمة coverage
-2. **إنشاء اختبارات لـ `inventory-service.ts`**
-3. **مراجعة وإصلاح أي failing tests**
-4. **دمج PR إلى main branch**
+1. ~~**إنشاء اختبارات لـ `accounting-service.ts`**~~ ✅ مكتمل
+2. ~~**إنشاء اختبارات لـ `inventory-transaction-service.ts`**~~ ✅ مكتمل
+3. ~~**إنشاء اختبارات لـ `sales-service.ts`**~~ ✅ مكتمل
+4. **إنشاء اختبارات لـ `purchasing-service.ts`** - القادم
+5. **اختبارات Components الأساسية**
+6. **دمج PR إلى main branch**
 
 ---
 
@@ -142,4 +153,13 @@
 
 ---
 
-*آخر تحديث: 17 ديسمبر 2025*
+## 📈 سجل التحديثات
+
+| التاريخ | التحديث | الاختبارات المضافة |
+|---------|---------|-------------------|
+| 17 ديسمبر 2025 | Unit Tests للـ Core utilities | 113 |
+| 18 ديسمبر 2025 | Services Integration Tests | 131 |
+
+---
+
+*آخر تحديث: 18 ديسمبر 2025*
