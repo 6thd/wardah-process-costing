@@ -57,11 +57,22 @@ WITH CHECK (
 );
 
 -- سياسة التحديث (المستخدمون المسجلون فقط يمكنهم تحديث الشعارات)
+-- WITH CHECK يمنع تغيير المسار إلى مجلد tenant آخر
 CREATE POLICY "Users can update their organization logos"
 ON storage.objects
 FOR UPDATE
 TO authenticated
 USING (
+    bucket_id = 'organization-logos'
+    AND (storage.foldername(name))[1] IN (
+        SELECT org_id::TEXT 
+        FROM user_organizations 
+        WHERE user_id = auth.uid() 
+          AND is_active = TRUE
+          AND role IN ('admin', 'manager')
+    )
+)
+WITH CHECK (
     bucket_id = 'organization-logos'
     AND (storage.foldername(name))[1] IN (
         SELECT org_id::TEXT 

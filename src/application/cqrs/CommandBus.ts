@@ -16,7 +16,7 @@ import type {
  * ناقل الأوامر - In-Memory Implementation
  */
 export class CommandBus implements ICommandBus {
-  private handlers: Map<string, CommandHandlerFactory<ICommand<unknown>, unknown>> = new Map()
+  private readonly handlers: Map<string, CommandHandlerFactory<ICommand<unknown>, unknown>> = new Map()
   private middlewares: CommandMiddleware[] = []
 
   /**
@@ -50,6 +50,57 @@ export class CommandBus implements ICommandBus {
   }
 
   /**
+   * تنفيذ middlewares قبل الأمر
+   */
+  private async executeBeforeMiddlewares<TResult>(
+    command: ICommand<TResult>
+  ): Promise<CommandResult<TResult> | null> {
+    for (const middleware of this.middlewares) {
+      if (middleware.before) {
+        const result = await middleware.before(command)
+        if (result && !result.success) {
+          return result as CommandResult<TResult>
+        }
+      }
+    }
+    return null
+  }
+
+  /**
+   * تنفيذ middlewares بعد الأمر
+   */
+  private async executeAfterMiddlewares<TResult>(
+    command: ICommand<TResult>,
+    result: CommandResult<TResult>
+  ): Promise<void> {
+    for (const middleware of this.middlewares) {
+      if (middleware.after) {
+        await middleware.after(command, result)
+      }
+    }
+  }
+
+  /**
+   * تنفيذ middlewares عند الخطأ
+   * Note: Middleware errors are caught to prevent masking the original command error
+   */
+  private async executeErrorMiddlewares<TResult>(
+    command: ICommand<TResult>,
+    error: CommandError
+  ): Promise<void> {
+    for (const middleware of this.middlewares) {
+      if (middleware.onError) {
+        try {
+          await middleware.onError(command, error)
+        } catch (middlewareError) {
+          // Log middleware error but don't mask the original command error
+          console.error('Error middleware failed:', middlewareError)
+        }
+      }
+    }
+  }
+
+  /**
    * إرسال الأمر للتنفيذ
    */
   async dispatch<TResult>(command: ICommand<TResult>): Promise<CommandResult<TResult>> {
@@ -67,24 +118,22 @@ export class CommandBus implements ICommandBus {
 
     try {
       // تنفيذ middlewares قبل الأمر
-      for (const middleware of this.middlewares) {
-        if (middleware.before) {
-          const result = await middleware.before(command)
-          if (result && !result.success) {
-            return result as CommandResult<TResult>
-          }
-        }
+      const beforeResult = await this.executeBeforeMiddlewares(command)
+      if (beforeResult) {
+        return beforeResult
       }
 
       // إنشاء المعالج وتنفيذ الأمر
       const handler = handlerFactory() as ICommandHandler<ICommand<TResult>, TResult>
       const result = await handler.execute(command)
 
-      // تنفيذ middlewares بعد الأمر
-      for (const middleware of this.middlewares) {
-        if (middleware.after) {
-          await middleware.after(command, result)
-        }
+      // تنفيذ middlewares بعد الأمر - wrapped in try-catch to not mask successful results
+      // Commands may have side effects (DB writes), so we return the result even if after-middleware fails
+      try {
+        await this.executeAfterMiddlewares(command, result)
+      } catch (afterMiddlewareError) {
+        console.error('After-middleware error (command succeeded):', afterMiddlewareError)
+        // Still return the successful result - don't mask it with middleware error
       }
 
       return result
@@ -96,11 +145,7 @@ export class CommandBus implements ICommandBus {
       }
 
       // تنفيذ middlewares عند الخطأ
-      for (const middleware of this.middlewares) {
-        if (middleware.onError) {
-          await middleware.onError(command, commandError)
-        }
-      }
+      await this.executeErrorMiddlewares(command, commandError)
 
       return {
         success: false,
@@ -168,7 +213,7 @@ export class LoggingMiddleware implements CommandMiddleware {
  * Middleware للتحقق من الصلاحيات
  */
 export class AuthorizationMiddleware implements CommandMiddleware {
-  constructor(private checkPermission: (userId: string, commandType: string) => Promise<boolean>) {}
+  constructor(private readonly checkPermission: (userId: string, commandType: string) => Promise<boolean>) {}
 
   async before(command: ICommand<unknown>): Promise<CommandResult<unknown> | void> {
     if (!command.userId) {
@@ -198,7 +243,7 @@ export class AuthorizationMiddleware implements CommandMiddleware {
  * Middleware للتحقق من صحة البيانات
  */
 export class ValidationMiddleware implements CommandMiddleware {
-  private validators: Map<string, (command: ICommand<unknown>) => ValidationResult> = new Map()
+  private readonly validators: Map<string, (command: ICommand<unknown>) => ValidationResult> = new Map()
 
   registerValidator(
     commandType: string, 

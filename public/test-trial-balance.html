@@ -280,8 +280,11 @@
         }
 
         // Auto-run on load
-        window.addEventListener('load', () => {
-            setTimeout(testAll, 500);
+        window.addEventListener('load', async () => {
+            const initialized = await initSupabase();
+            if (initialized) {
+                setTimeout(testAll, 500);
+            }
         });
     </script>
 </body>

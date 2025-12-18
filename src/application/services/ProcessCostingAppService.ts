@@ -158,10 +158,19 @@ export class ProcessCostingAppService implements IProcessCostingService {
         notes
       });
 
+      // Check if database insert succeeded
+      if (!result?.id) {
+        console.error('Failed to insert labor time log - no ID returned');
+        return {
+          success: false,
+          error: 'Failed to save labor time record to database'
+        };
+      }
+
       return {
         success: true,
         data: {
-          id: result?.id || 'temp-id',
+          id: result.id,
           totalLaborCost,
           hours: laborHours,
           hourlyRate
@@ -230,10 +239,19 @@ export class ProcessCostingAppService implements IProcessCostingService {
         notes
       });
 
+      // Check if database insert succeeded
+      if (!result?.id) {
+        console.error('Failed to insert overhead record - no ID returned');
+        return {
+          success: false,
+          error: 'Failed to save overhead record to database'
+        };
+      }
+
       return {
         success: true,
         data: {
-          id: result?.id || 'temp-id',
+          id: result.id,
           overheadAmount,
           baseQty,
           rate: overheadRate
@@ -253,8 +271,8 @@ export class ProcessCostingAppService implements IProcessCostingService {
     try {
       const { moId, stageId, stageNo, workCenterId, goodQty, scrapQty, directMaterialCost, mode } = params;
 
-      // Validation
-      if (!moId || (!stageId && !stageNo) || !goodQty) {
+      // Validation - allow goodQty = 0 for 100% scrap scenarios
+      if (!moId || (!stageId && !stageNo) || goodQty === undefined || goodQty === null) {
         return {
           success: false,
           error: 'Missing required parameters: moId, stageId/stageNo, goodQty'

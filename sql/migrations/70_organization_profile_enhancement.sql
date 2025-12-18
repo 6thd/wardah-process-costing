@@ -27,17 +27,12 @@ ADD COLUMN IF NOT EXISTS website VARCHAR(255),
 ADD COLUMN IF NOT EXISTS fax VARCHAR(20);
 
 -- إضافة حقول العنوان
-DO $$
-DECLARE
-    default_country CONSTANT VARCHAR := 'Saudi Arabia';
-BEGIN
-    ALTER TABLE organizations 
-    ADD COLUMN IF NOT EXISTS address TEXT,
-    ADD COLUMN IF NOT EXISTS city VARCHAR(100),
-    ADD COLUMN IF NOT EXISTS state VARCHAR(100),
-    ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT default_country,
-    ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20);
-END $$;
+ALTER TABLE organizations 
+ADD COLUMN IF NOT EXISTS address TEXT,
+ADD COLUMN IF NOT EXISTS city VARCHAR(100),
+ADD COLUMN IF NOT EXISTS state VARCHAR(100),
+ADD COLUMN IF NOT EXISTS country VARCHAR(100) DEFAULT 'Saudi Arabia',
+ADD COLUMN IF NOT EXISTS postal_code VARCHAR(20);
 
 -- إضافة حقول الشعار والهوية
 ALTER TABLE organizations 
