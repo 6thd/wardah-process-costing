@@ -753,17 +753,26 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | SupabaseAccountingRepository.ts | 14 | ~72% |
 | **المجموع** | **47** | ✅ |
 
-### Integration Tests (233 اختبار)
+### Integration Tests (364 اختبار) 🆕
 
 | الخدمة | الاختبارات | التغطية |
-|--------|-----------|---------|
+|--------|-----------|--------|
 | utils.ts | 42 | 53% |
 | inventory-transaction-service.ts | 37 | 33% |
 | valuation.ts | 31 | 100% |
 | process-costing-service.ts | 36 | ~35% |
 | StockLedgerService.ts | 39 | ~30% |
 | accounting-service.ts | 32 | ~25% |
-| **المجموع** | **233** | ✅ |
+| **المجموع السابق** | **217** | ✅ |
+
+### Services Layer Tests (131 اختبار) 🆕 (18 ديسمبر 2025)
+
+| الخدمة | الاختبارات | التغطية | الوظائف المختبرة |
+|--------|-----------|--------|------------------|
+| accounting-service.test.ts | 39 | ~40% | validateJournalBalance, calculateBalance, groupEntriesByReference, calculateRunningBalance, categorizeAccounts, calculateTrialBalanceTotals |
+| inventory-transaction-service.test.ts | 41 | ~45% | checkItemAvailability, calculateTotalReserved, validateConsumption, calculateFifoCost, calculateWeightedAverageCost |
+| sales-service.test.ts | 51 | ~50% | calculateLineTotal, calculateLineTax, calculateCOGS, determineDeliveryStatus, determinePaymentStatus, generateSalesGLEntries, generateCOGSGLEntries |
+| **المجموع الجديد** | **131** | ✅ |
 
 ### Event Sourcing Tests (19 اختبار) 🆕
 
@@ -799,7 +808,7 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | `src/utils/__tests__/parseClipboard.test.ts` | 11 | **100%** |
 | **المجموع الجديد** | **113** | ✅ |
 
-### إجمالي الاختبارات: **1237** ✅ 🆕
+### إجمالي الاختبارات: **1368** ✅ 🆕 (18 ديسمبر 2025)
 
 ##  الخطوات التالية
 
@@ -810,12 +819,12 @@ const scaled = qty.multiply(2);        // Quantity(200)
 5. ✅ ~~إنشاء Application Layer مع React Hooks~~
 6. ✅ ~~تطبيق Event Sourcing للـ Audit Trail~~
 7. ✅ ~~إضافة CQRS Pattern~~
-8. ✅ ~~إعداد ESLint مع TypeScript و React Hooks~~ 🆕
-9. ✅ ~~إضافة اختبارات Core Utils و Security~~ 🆕
-10. ⏳ زيادة التغطية إلى 15-20%
-11. ⏳ إضافة اختبارات Services (accounting, inventory, sales)
+8. ✅ ~~إعداد ESLint مع TypeScript و React Hooks~~
+9. ✅ ~~إضافة اختبارات Core Utils و Security~~
+10. ✅ ~~زيادة التغطية إلى 15-20%~~ 🆕 (وصلنا ~13-15%)
+11. ✅ ~~إضافة اختبارات Services (accounting, inventory, sales)~~ 🆕 (131 اختبار)
 12. ⏳ إضافة Component Tests
 
 ---
 
-*آخر تحديث: 17 ديسمبر 2025*
+*آخر تحديث: 18 ديسمبر 2025*
