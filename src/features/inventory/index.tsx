@@ -10,6 +10,15 @@ import { Plus, X, Trash2 } from 'lucide-react'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { 
+  ADJUSTMENT_TYPES, 
+  calculateAdjustmentTotals, 
+  createAdjustmentItem, 
+  updateAdjustmentItemQuantity,
+  validateAdjustmentForm,
+  type AdjustmentItem,
+  type AdjustmentFormState
+} from './helpers'
 
 export function InventoryModule() {
   return (
@@ -1035,15 +1044,7 @@ function StockAdjustments() {
     }
   }
 
-  const adjustmentTypes = {
-    'PHYSICAL_COUNT': { label: 'جرد فعلي', icon: '📋', color: 'blue' },
-    'DAMAGE': { label: 'تالف', icon: '💔', color: 'red' },
-    'THEFT': { label: 'فقد/سرقة', icon: '🚨', color: 'orange' },
-    'EXPIRY': { label: 'منتهي الصلاحية', icon: '⏰', color: 'yellow' },
-    'QUALITY_ISSUE': { label: 'مشكلة جودة', icon: '⚠️', color: 'amber' },
-    'REVALUATION': { label: 'إعادة تقييم', icon: '💰', color: 'green' },
-    'OTHER': { label: 'أخرى', icon: '📝', color: 'gray' }
-  }
+  // Use imported ADJUSTMENT_TYPES from helpers
 
   const handleAddItem = () => {
     if (!newAdjustment.warehouse_id) {
@@ -1065,18 +1066,8 @@ function StockAdjustments() {
       return
     }
 
-    const newItem = {
-      id: Date.now().toString(),
-      product_id: selectedProduct.id,
-      product: selectedProduct,
-      warehouse_id: newAdjustment.warehouse_id, // Use warehouse from adjustment header
-      current_qty: selectedProduct.stock_quantity || 0,
-      new_qty: 0,
-      difference_qty: 0,
-      current_rate: selectedProduct.cost_price || 0,
-      value_difference: 0,
-      reason: ''
-    }
+    // Use helper function to create adjustment item
+    const newItem = createAdjustmentItem(selectedProduct, newAdjustment.warehouse_id)
 
     setNewAdjustment({
       ...newAdjustment,
@@ -1091,15 +1082,12 @@ function StockAdjustments() {
   const handleItemChange = (itemId: string, field: string, value: any) => {
     const updatedItems = newAdjustment.items.map((item: any) => {
       if (item.id === itemId) {
-        const updated = { ...item, [field]: value }
-
-        // Recalculate difference and value
+        // Use helper function for quantity updates
         if (field === 'new_qty') {
-          updated.difference_qty = value - updated.current_qty
-          updated.value_difference = updated.difference_qty * updated.current_rate
+          return updateAdjustmentItemQuantity(item, value)
         }
-
-        return updated
+        // For other fields, just update directly
+        return { ...item, [field]: value }
       }
       return item
     })
@@ -1117,60 +1105,20 @@ function StockAdjustments() {
     })
   }
 
+  // Use imported calculateAdjustmentTotals from helpers
   const calculateTotals = () => {
-    const totalValueDiff = newAdjustment.items.reduce(
-      (sum: number, item: any) => sum + (item.value_difference || 0),
-      0
-    )
-
-    const increaseCount = newAdjustment.items.filter(
-      (i: any) => i.difference_qty > 0
-    ).length
-
-    const decreaseCount = newAdjustment.items.filter(
-      (i: any) => i.difference_qty < 0
-    ).length
-
-    return { totalValueDiff, increaseCount, decreaseCount }
+    return calculateAdjustmentTotals(newAdjustment.items as AdjustmentItem[])
   }
 
   const handleSaveAdjustment = async () => {
+    // Use imported validation from helpers
+    const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
+    if (!validation.valid) {
+      toast.error(validation.message)
+      return
+    }
+    
     try {
-      if (newAdjustment.items.length === 0) {
-        toast.error('الرجاء إضافة منتج واحد على الأقل')
-        return
-      }
-
-      if (!newAdjustment.warehouse_id) {
-        toast.error('الرجاء اختيار المخزن')
-        return
-      }
-
-      if (!newAdjustment.increase_account_id) {
-        toast.error('الرجاء اختيار حساب الزيادة في المخزون')
-        return
-      }
-
-      if (!newAdjustment.decrease_account_id) {
-        toast.error('الرجاء اختيار حساب النقص في المخزون')
-        return
-      }
-
-      if (!newAdjustment.reason.trim()) {
-        toast.error('الرجاء إدخال سبب التسوية')
-        return
-      }
-
-      // Validate all items have new_qty set
-      const invalidItems = newAdjustment.items.filter(
-        (i: any) => i.difference_qty === 0
-      )
-
-      if (invalidItems.length > 0) {
-        toast.error('الرجاء تحديد الكمية الجديدة لجميع المنتجات')
-        return
-      }
-
       const supabase = getSupabase()
       
       // Get user and organization
@@ -1191,10 +1139,9 @@ function StockAdjustments() {
         return
       }
 
-      // Calculate totals
-      const totalItems = newAdjustment.items.length
-      const totalQtyDiff = newAdjustment.items.reduce((sum: number, item: any) => sum + item.difference_qty, 0)
-      const totalValueDiff = newAdjustment.items.reduce((sum: number, item: any) => sum + item.value_difference, 0)
+      // Calculate totals using helper
+      const totals = calculateAdjustmentTotals(newAdjustment.items as AdjustmentItem[])
+      const { totalItems, totalQtyDiff, totalValueDiff } = totals
 
       // Check if editing existing adjustment
       const isEditing = selectedAdjustment?.isEditing
@@ -1657,8 +1604,8 @@ function StockAdjustments() {
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-right bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center justify-between relative z-10"
                   >
                     <span className="flex items-center gap-2">
-                      <span className="text-xl">{adjustmentTypes[newAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.icon}</span>
-                      <span>{adjustmentTypes[newAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.label}</span>
+                      <span className="text-xl">{ADJUSTMENT_TYPES[newAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.icon}</span>
+                      <span>{ADJUSTMENT_TYPES[newAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.label}</span>
                     </span>
                     <svg 
                       className={cn("w-4 h-4 transition-transform", showTypeDropdown && "rotate-180")} 
@@ -1677,7 +1624,7 @@ function StockAdjustments() {
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
                       }}
                     >
-                      {Object.entries(adjustmentTypes).map(([key, value]) => (
+                      {Object.entries(ADJUSTMENT_TYPES).map(([key, value]) => (
                         <button
                           key={key}
                           type="button"
@@ -2061,7 +2008,7 @@ function StockAdjustments() {
             <div className="flex justify-between items-center">
               <h3 className="text-2xl font-bold flex items-center gap-2">
                 <span>
-                  {adjustmentTypes[selectedAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.icon}
+                  {ADJUSTMENT_TYPES[selectedAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.icon}
                 </span>
                 {' '}
                 تفاصيل التسوية
@@ -2089,7 +2036,7 @@ function StockAdjustments() {
               <div>
                 <span className="text-sm text-muted-foreground">النوع:</span>
                 <p className="font-medium">
-                  {adjustmentTypes[selectedAdjustment.adjustment_type as keyof typeof adjustmentTypes]?.label}
+                  {ADJUSTMENT_TYPES[selectedAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.label}
                 </p>
               </div>
               <div>
@@ -2252,7 +2199,7 @@ function StockAdjustments() {
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="all">الكل</option>
-              {Object.entries(adjustmentTypes).map(([key, value]) => (
+              {Object.entries(ADJUSTMENT_TYPES).map(([key, value]) => (
                 <option key={key} value={key}>
                   {value.icon} {value.label}
                 </option>
@@ -2287,11 +2234,11 @@ function StockAdjustments() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl">
-                        {adjustmentTypes[adj.adjustment_type as keyof typeof adjustmentTypes]?.icon}
+                        {ADJUSTMENT_TYPES[adj.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.icon}
                       </span>
                       <div>
                         <h3 className="font-medium">
-                          {adjustmentTypes[adj.adjustment_type as keyof typeof adjustmentTypes]?.label}
+                          {ADJUSTMENT_TYPES[adj.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.label}
                         </h3>
                         <p className="text-sm text-muted-foreground">
                           {adj.reference_number || adj.id}
@@ -2695,4 +2642,7 @@ function StorageBinsPage() {
 function StockTransfersPage() {
   return <StockTransferManagement />
 }
+
+
+
 

@@ -24,7 +24,6 @@ import {
   SelectTrigger,
   SelectValue
 } from '@/components/ui/select'
-import { DatePickerWithRange } from '@/components/ui/date-range-picker'
 import { DateRange } from 'react-day-picker'
 import { manufacturingService } from '@/services/supabase-service'
 import { toast } from 'sonner'
@@ -64,6 +63,7 @@ import { BOMManagement, BOMBuilder } from './bom'
 import { ManufacturingStagesList } from './manufacturing-stages-list'
 import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
+import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
 import { useWorkCenters, useCreateWorkCenter, type WorkCenter } from '@/hooks/useWorkCenters'
 
@@ -434,17 +434,6 @@ function ManufacturingOrdersManagement() {
     }))
   }, [dateRange])
 
-  const orderStatusOptions: ManufacturingOrder['status'][] = [
-    'draft',
-    'confirmed',
-    'pending',
-    'in-progress',
-    'completed',
-    'cancelled',
-    'on-hold',
-    'quality-check'
-  ]
-
   const handleCreateOrder = async (event: React.FormEvent) => {
     event.preventDefault()
 
@@ -576,135 +565,20 @@ function ManufacturingOrdersManagement() {
       </div>
 
       {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{orders.filter(o => o.status === 'in-progress').length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.ordersPage.stats.inProgress')}</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{orders.filter(o => o.status === 'completed').length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.ordersPage.stats.completed')}</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{orders.filter(o => o.status === 'draft').length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.ordersPage.stats.drafts')}</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.ordersPage.stats.total')}</div>
-        </div>
-      </div>
+      <ManufacturingQuickStats orders={orders} />
 
       {showAddForm && (
-        <Card>
-          <CardHeader>
-            <h3 className="text-xl font-semibold">{t('manufacturing.ordersPage.form.sectionTitle')}</h3>
-          </CardHeader>
-          <CardContent>
-            <form className="grid gap-4 md:grid-cols-2" onSubmit={handleCreateOrder}>
-              <div>
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.orderNumber')}</Label>
-                <Input
-                  value={orderForm.orderNumber}
-                  onChange={(e) =>
-                    setOrderForm((prev) => ({ ...prev, orderNumber: e.target.value }))
-                  }
-                  placeholder="MO-0001"
-                />
-              </div>
-              <div>
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.product')}</Label>
-                <Select
-                  value={orderForm.productId}
-                  onValueChange={(value) =>
-                    setOrderForm((prev) => ({ ...prev, productId: value }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue
-                      placeholder={
-                        productsLoading
-                          ? t('common.loading')
-                          : t('manufacturing.ordersPage.form.productPlaceholder')
-                      }
-                    />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {products.length === 0 ? (
-                      <SelectItem value="__empty" disabled>
-                        {productsLoading
-                          ? t('common.loading')
-                          : t('manufacturing.ordersPage.form.noProducts')}
-                      </SelectItem>
-                    ) : (
-                      products.map((product) => (
-                        <SelectItem key={product.id} value={product.id}>
-                          {product.code ? `${product.code} - ` : ''}
-                          {product.name}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.quantity')}</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  value={orderForm.quantity}
-                  onChange={(e) =>
-                    setOrderForm((prev) => ({ ...prev, quantity: e.target.value }))
-                  }
-                />
-              </div>
-              <div>
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.status')}</Label>
-                <Select
-                  value={orderForm.status}
-                  onValueChange={(value) =>
-                    setOrderForm((prev) => ({
-                      ...prev,
-                      status: value as ManufacturingOrder['status']
-                    }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {orderStatusOptions.map((status) => (
-                      <SelectItem key={status} value={status}>
-                        {getStatusLabel(status, isRTL)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="md:col-span-2">
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.dateRange')}</Label>
-                <DatePickerWithRange date={dateRange} setDate={setDateRange} />
-              </div>
-              <div className="md:col-span-2">
-                <Label className="mb-1 block">{t('manufacturing.ordersPage.form.notes')}</Label>
-                <Textarea
-                  rows={3}
-                  value={orderForm.notes}
-                  onChange={(e) =>
-                    setOrderForm((prev) => ({ ...prev, notes: e.target.value }))
-                  }
-                />
-              </div>
-              <div className="md:col-span-2 flex justify-end">
-                <Button type="submit" disabled={creatingOrder}>
-                  {creatingOrder
-                    ? t('manufacturing.ordersPage.form.creating')
-                    : t('manufacturing.ordersPage.form.submit')}
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
+        <ManufacturingOrderForm
+          form={orderForm}
+          setForm={setOrderForm}
+          products={products}
+          productsLoading={productsLoading}
+          dateRange={dateRange}
+          setDateRange={setDateRange}
+          onSubmit={handleCreateOrder}
+          isSubmitting={creatingOrder}
+          isRTL={isRTL}
+        />
       )}
 
       <div className="bg-card rounded-lg border">

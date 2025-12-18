@@ -111,6 +111,38 @@ const initialFormState: FormState = {
   date_format: 'DD/MM/YYYY'
 };
 
+/**
+ * Maps organization profile data to form state with defaults
+ * Extracted to reduce complexity in loadOrganizationData
+ */
+function mapOrganizationToFormState(data: OrganizationProfile): FormState {
+  return {
+    name: data.name || '',
+    name_ar: data.name_ar || '',
+    name_en: data.name_en || '',
+    tax_number: data.tax_number || '',
+    commercial_registration: data.commercial_registration || '',
+    license_number: data.license_number || '',
+    phone: data.phone || '',
+    mobile: data.mobile || '',
+    email: data.email || '',
+    website: data.website || '',
+    fax: data.fax || '',
+    address: data.address || '',
+    city: data.city || '',
+    state: data.state || '',
+    country: data.country || initialFormState.country,
+    postal_code: data.postal_code || '',
+    logo_url: data.logo_url || '',
+    primary_color: data.primary_color || initialFormState.primary_color,
+    secondary_color: data.secondary_color || initialFormState.secondary_color,
+    currency: data.currency || initialFormState.currency,
+    timezone: data.timezone || initialFormState.timezone,
+    fiscal_year_start: data.fiscal_year_start || initialFormState.fiscal_year_start,
+    date_format: data.date_format || initialFormState.date_format
+  };
+}
+
 // ===================================
 // Constants
 // ===================================
@@ -201,33 +233,8 @@ export function CompanySettings() {
       const result = await getOrganizationProfile();
       
       if (result.success && result.data) {
-        const data = result.data;
-        setOriginalData(data);
-        setForm({
-          name: data.name || '',
-          name_ar: data.name_ar || '',
-          name_en: data.name_en || '',
-          tax_number: data.tax_number || '',
-          commercial_registration: data.commercial_registration || '',
-          license_number: data.license_number || '',
-          phone: data.phone || '',
-          mobile: data.mobile || '',
-          email: data.email || '',
-          website: data.website || '',
-          fax: data.fax || '',
-          address: data.address || '',
-          city: data.city || '',
-          state: data.state || '',
-          country: data.country || 'المملكة العربية السعودية',
-          postal_code: data.postal_code || '',
-          logo_url: data.logo_url || '',
-          primary_color: data.primary_color || '#1e40af',
-          secondary_color: data.secondary_color || '#3b82f6',
-          currency: data.currency || 'SAR',
-          timezone: data.timezone || 'Asia/Riyadh',
-          fiscal_year_start: data.fiscal_year_start || 1,
-          date_format: data.date_format || 'DD/MM/YYYY'
-        });
+        setOriginalData(result.data);
+        setForm(mapOrganizationToFormState(result.data));
       } else {
         toast.error(result.error || 'فشل تحميل بيانات الشركة');
       }
