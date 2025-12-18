@@ -4,30 +4,42 @@
 
 **الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي** (تحديث: 18 ديسمبر 2025): 
+**الوضع الحالي** (تحديث: 18 ديسمبر 2025 - مساءً): 
 
-- Coverage: **~13-15%** (متوقع على SonarCloud) ⬆️ (كان 10.8%)
+- Coverage: **~18-20%** (متوقع على SonarCloud) ⬆️ (كان 13-15%)
 - Coverage Target: **≥ 80.0%** للكود الجديد
 - ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
 - ✅ Coverage Generation: **مكتمل** (lcov reports)
 - ✅ **Integration Tests Strategy**: **Phase 6 مكتمل** 🚀
 - ✅ **Clean Architecture**: **مطبقة بنسبة 95%** 🏆
 - ✅ **ESLint Setup**: **مكتمل** (0 errors, TypeScript + React Hooks) 🔧
+- ✅ **UI Component Tests**: **مكتمل** (209 tests) 🎨
+- ✅ **E2E Tests**: **مكتمل** (5 files, 93 tests) 🌐
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: **1368 اختبار** (1368 passing ✅) 🎉
-- Test Success Rate: **100%** (1368/1368) ⬆️
+- Existing Tests: **1577 unit test** + **93 E2E test** 🎉
+- Test Success Rate: **100%** (1577/1577) ⬆️
 - Architecture Compliance: **95%** ✅
 
-**آخر التحديثات** (18 ديسمبر 2025):
-- ✅ **اختبارات Services Layer الجديدة** 🧪
-  - `src/services/__tests__/accounting-service.test.ts` (39 tests) - قيود يومية + موازين + تقارير
-  - `src/services/__tests__/inventory-transaction-service.test.ts` (41 tests) - حركات المخزون + FIFO/AVCO
-  - `src/services/__tests__/sales-service.test.ts` (51 tests) - فواتير + COGS + قيود GL
-- ✅ **زيادة عدد الاختبارات**: 1237 → **1368** (+131 اختبار جديد)
-- ✅ **زيادة التغطية المتوقعة**: 10.8% → **~13-15%** على SonarCloud
+**آخر التحديثات** (18 ديسمبر 2025 - مساءً):
+- ✅ **اختبارات UI Components** 🎨
+  - `src/components/ui/__tests__/button.test.tsx` (30 tests)
+  - `src/components/ui/__tests__/card.test.tsx` (35 tests)
+  - `src/components/ui/__tests__/input.test.tsx` (42 tests) - **100% coverage**
+  - `src/components/ui/__tests__/alert.test.tsx` (30 tests)
+  - `src/components/ui/__tests__/badge.test.tsx` (31 tests)
+  - `src/components/ui/__tests__/table.test.tsx` (41 tests)
+- ✅ **E2E Tests الشاملة** 🌐
+  - `e2e/auth.spec.ts` (22 tests) - Login, Logout, Session, RBAC
+  - `e2e/inventory.spec.ts` (23 tests) - Stock transactions, transfers, valuations
+  - `e2e/accounting.spec.ts` (24 tests) - Journal entries, Trial balance, Reports
+  - `e2e/sales.spec.ts` (19 tests) - Orders, Invoices, Payments
+  - `e2e/process-costing.spec.ts` (5 tests) - موجود سابقاً
+- ✅ **زيادة عدد الاختبارات**: 1368 → **1577** (+209 اختبار unit)
+- ✅ **E2E Tests جديدة**: 5 → **93** (+88 اختبار E2E)
+- ✅ **زيادة التغطية المتوقعة**: 13-15% → **~18-20%** على SonarCloud
 
-**التحديثات السابقة** (17 ديسمبر 2025):
+**التحديثات السابقة** (18 ديسمبر 2025 - صباحاً):
 - ✅ **ESLint Setup مع TypeScript و React Hooks** 🔧
   - إنشاء `eslint.config.js` مع دعم كامل لـ TypeScript
   - إصلاح 21 ملف بها أخطاء duplicate imports

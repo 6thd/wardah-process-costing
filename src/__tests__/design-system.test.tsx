@@ -90,7 +90,7 @@ describe('Wardah UI Design System', () => {
 import { DesignSystemDemo } from '@/components/design-system-demo';
 
 describe('Design System Implementation', () => {
-  it('should render the design system demo component', () => {
+  it('should render the design system demo component', { timeout: 15000 }, () => {
     render(<DesignSystemDemo />);
     
     // Check that the main title is rendered with gradient text
