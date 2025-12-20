@@ -4,27 +4,38 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { CommandBus, CommandMiddleware } from '../CommandBus';
-import { QueryBus, QueryMiddleware } from '../QueryBus';
-import type { ICommand, IQuery, CommandResult, QueryResult } from '../types';
+import { QueryBus } from '../QueryBus';
+import type { ICommand, IQuery } from '../types';
+
+// Extended command interface for testing with payload
+interface TestCommand<T> extends ICommand<T> {
+  payload: Record<string, unknown>;
+}
+
+// Extended query interface for testing with payload
+interface TestQuery<T> extends IQuery<T> {
+  payload: Record<string, unknown>;
+  correlationId?: string;
+}
 
 // Helper to create a command
-function createCommand<T>(commandType: string, payload: Record<string, unknown> = {}): ICommand<T> {
+function createCommand<T>(commandType: string, payload: Record<string, unknown> = {}): TestCommand<T> {
   return {
     commandType,
     payload,
     timestamp: new Date(),
     correlationId: 'test-corr-id'
-  } as ICommand<T>;
+  };
 }
 
 // Helper to create a query
-function createQuery<T>(queryType: string, payload: Record<string, unknown> = {}): IQuery<T> {
+function createQuery<T>(queryType: string, payload: Record<string, unknown> = {}): TestQuery<T> {
   return {
     queryType,
     payload,
     timestamp: new Date(),
     correlationId: 'test-corr-id'
-  } as IQuery<T>;
+  };
 }
 
 describe('CommandBus', () => {
@@ -308,8 +319,8 @@ describe('CQRS Integration', () => {
     const items: { id: string; name: string }[] = [];
     
     commandBus.register('CREATE_ITEM', () => ({
-      execute: async (cmd: ICommand<{ id: string }>) => {
-        const newItem = { id: cmd.payload.id || 'new-1', name: cmd.payload.name };
+      execute: async (cmd: TestCommand<{ id: string }>) => {
+        const newItem = { id: cmd.payload.id as string || 'new-1', name: cmd.payload.name as string };
         items.push(newItem);
         return { success: true, data: newItem };
       }

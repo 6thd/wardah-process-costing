@@ -20,6 +20,7 @@ const createMockRepository = (): IProcessCostingRepositoryExtended => ({
   getDirectMaterials: vi.fn(),
   getDirectLabor: vi.fn(),
   getOverheadCosts: vi.fn(),
+  getManufacturingOrderQuantity: vi.fn(),
 });
 
 describe('ProcessCostingAppService', () => {
@@ -266,14 +267,15 @@ describe('ProcessCostingAppService', () => {
       vi.mocked(mockRepository.getOverheadCostsByStage).mockResolvedValue(200);
       vi.mocked(mockRepository.upsertStageCostRecord).mockResolvedValue({
         id: 'cost-1',
-        stageNo: 1,
-        goodQty: 100,
-        scrapQty: 5,
-        materialCost: 1000,
-        laborCost: 400,
-        overheadCost: 200,
-        totalCost: 1600,
-        unitCost: 15.24, // 1600 / 105
+        manufacturing_order_id: 'mo-1',
+        stage_number: 1,
+        good_quantity: 100,
+        scrap_quantity: 5,
+        material_cost: 1000,
+        labor_cost: 400,
+        overhead_cost: 200,
+        total_cost: 1600,
+        unit_cost: 15.24, // 1600 / 105
         status: 'completed'
       });
 
@@ -283,11 +285,11 @@ describe('ProcessCostingAppService', () => {
         workCenterId: 'wc-1',
         goodQty: 100,
         scrapQty: 5,
-        materialCost: 1000
+        directMaterialCost: 1000
       });
 
       expect(result.success).toBe(true);
-      expect(result.data?.totalCost).toBe(1600);
+      expect(result.data?.total_cost).toBe(1600);
     });
 
     it('should return error when goodQty is undefined', async () => {
