@@ -105,6 +105,36 @@ wardah-process-costing/
 
 ---
 
+## 🧪 Testing
+
+```bash
+# Run all tests
+npm run test
+
+# Run with coverage
+npm run test:coverage
+
+# Run specific tests
+npm run test -- --filter="process-costing"
+```
+
+| Metric | Value |
+|--------|-------|
+| **Total Tests** | 1862 |
+| **Test Files** | 85 |
+| **Status** | ✅ All Passing |
+
+**Key Test Areas:**
+- Process Costing Service (29 tests)
+- Organization & Multi-Tenant (21 tests)
+- RBAC Permissions (16 tests)
+- Stock Adjustments (20 tests)
+- UI Components (200+ tests)
+
+**See [Testing Strategy](./docs/testing-strategy.md) for details**
+
+---
+
 ## 🎯 Performance
 
 | Module | Load Time | Status |
