@@ -3,32 +3,33 @@
 /**
  * @fileoverview useAccounting Hook
  * @description React Hooks للتعامل مع خدمة المحاسبة
- * 
- * استخدام:
- * ```tsx
- * const { accounts, loading } = useChartOfAccounts()
- * const { trialBalance, loading } = useTrialBalance(startDate, endDate)
- * const { metrics, loading } = useDashboardMetrics()
- * ```
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { 
   getAccountingAppService,
   type AccountListFilters,
-  type JournalEntryInput,
-  type AccountStatementFilters,
-  type AccountStatementResult,
-  type FinancialReportOptions,
-  type DashboardMetrics
+  type CreateJournalEntryInput
 } from '@/application/services'
 import type { 
   GLAccountData, 
   TrialBalanceData, 
   IncomeStatementData, 
   BalanceSheetData,
-  JournalEntryData 
+  GLEntryData,
+  AccountStatementData
 } from '@/domain/interfaces'
+
+// ===== Types =====
+
+export interface DashboardMetrics {
+  totalAccounts: number
+  activeAccounts: number
+  totalAssets: number
+  totalLiabilities: number
+  totalRevenue: number
+  totalExpenses: number
+}
 
 // ===== useChartOfAccounts Hook =====
 
@@ -64,8 +65,8 @@ export function useChartOfAccounts(options: UseChartOfAccountsOptions = {}): Use
     setError(null)
     
     try {
-      const result = await service.getChartOfAccounts(filters)
-      setAccounts(result)
+      const result = await service.getAccounts(filters)
+      setAccounts(result.accounts)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
     } finally {
@@ -98,7 +99,7 @@ interface UseAccountReturn {
 /**
  * Hook للحصول على حساب واحد
  */
-export function useAccount(accountId: string | null): UseAccountReturn {
+export function useAccount(accountCode: string | null): UseAccountReturn {
   const [account, setAccount] = useState<GLAccountData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -106,7 +107,7 @@ export function useAccount(accountId: string | null): UseAccountReturn {
   const service = useMemo(() => getAccountingAppService(), [])
 
   const fetchAccount = useCallback(async () => {
-    if (!accountId) {
+    if (!accountCode) {
       setAccount(null)
       return
     }
@@ -115,14 +116,14 @@ export function useAccount(accountId: string | null): UseAccountReturn {
     setError(null)
     
     try {
-      const result = await service.getAccount(accountId)
+      const result = await service.getAccount(accountCode)
       setAccount(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
     } finally {
       setLoading(false)
     }
-  }, [service, accountId])
+  }, [service, accountCode])
 
   useEffect(() => {
     fetchAccount()
@@ -133,8 +134,14 @@ export function useAccount(accountId: string | null): UseAccountReturn {
 
 // ===== useAccountStatement Hook =====
 
+interface AccountStatementFilters {
+  accountCode: string
+  fromDate: string
+  toDate: string
+}
+
 interface UseAccountStatementReturn {
-  statement: AccountStatementResult | null
+  statement: AccountStatementData | null
   loading: boolean
   error: Error | null
   refetch: () => Promise<void>
@@ -146,7 +153,7 @@ interface UseAccountStatementReturn {
 export function useAccountStatement(
   filters: AccountStatementFilters | null
 ): UseAccountStatementReturn {
-  const [statement, setStatement] = useState<AccountStatementResult | null>(null)
+  const [statement, setStatement] = useState<AccountStatementData | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
@@ -162,7 +169,10 @@ export function useAccountStatement(
     setError(null)
     
     try {
-      const result = await service.getAccountStatement(filters)
+      const result = await service.getAccountStatement(
+        filters.accountCode,
+        { fromDate: filters.fromDate, toDate: filters.toDate }
+      )
       setStatement(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
@@ -210,7 +220,10 @@ export function useTrialBalance(
     setError(null)
     
     try {
-      const result = await service.getTrialBalance({ startDate, endDate })
+      const result = await service.getTrialBalance(
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      )
       setTrialBalance(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
@@ -258,7 +271,10 @@ export function useIncomeStatement(
     setError(null)
     
     try {
-      const result = await service.getIncomeStatement({ startDate, endDate })
+      const result = await service.getIncomeStatement(
+        startDate.toISOString().split('T')[0],
+        endDate.toISOString().split('T')[0]
+      )
       setIncomeStatement(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
@@ -303,7 +319,9 @@ export function useBalanceSheet(asOfDate: Date | null): UseBalanceSheetReturn {
     setError(null)
     
     try {
-      const result = await service.getBalanceSheet(asOfDate)
+      const result = await service.getBalanceSheet(
+        asOfDate.toISOString().split('T')[0]
+      )
       setBalanceSheet(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
@@ -321,8 +339,18 @@ export function useBalanceSheet(asOfDate: Date | null): UseBalanceSheetReturn {
 
 // ===== useGeneralJournal Hook =====
 
+export interface JournalEntryGroup {
+  transactionDate: string
+  referenceType: string
+  referenceId: string
+  description: string
+  entries: GLEntryData[]
+  totalDebit: number
+  totalCredit: number
+}
+
 interface UseGeneralJournalReturn {
-  entries: JournalEntryData[]
+  entries: JournalEntryGroup[]
   loading: boolean
   error: Error | null
   refetch: () => Promise<void>
@@ -335,7 +363,7 @@ export function useGeneralJournal(
   startDate: Date | null, 
   endDate: Date | null
 ): UseGeneralJournalReturn {
-  const [entries, setEntries] = useState<JournalEntryData[]>([])
+  const [entries, setEntries] = useState<JournalEntryGroup[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
@@ -351,7 +379,10 @@ export function useGeneralJournal(
     setError(null)
     
     try {
-      const result = await service.getGeneralJournal(startDate, endDate)
+      const result = await service.getGeneralJournal({
+        fromDate: startDate.toISOString().split('T')[0],
+        toDate: endDate.toISOString().split('T')[0]
+      })
       setEntries(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
@@ -379,7 +410,7 @@ interface UseDashboardMetricsReturn {
 /**
  * Hook للحصول على مؤشرات لوحة التحكم المالية
  */
-export function useDashboardMetrics(asOfDate: Date = new Date()): UseDashboardMetricsReturn {
+export function useDashboardMetrics(): UseDashboardMetricsReturn {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<Error | null>(null)
@@ -391,14 +422,14 @@ export function useDashboardMetrics(asOfDate: Date = new Date()): UseDashboardMe
     setError(null)
     
     try {
-      const result = await service.getDashboardMetrics(asOfDate)
+      const result = await service.getDashboardMetrics()
       setMetrics(result)
     } catch (err) {
       setError(err instanceof Error ? err : new Error('حدث خطأ غير متوقع'))
     } finally {
       setLoading(false)
     }
-  }, [service, asOfDate])
+  }, [service])
 
   useEffect(() => {
     fetchMetrics()
@@ -410,7 +441,7 @@ export function useDashboardMetrics(asOfDate: Date = new Date()): UseDashboardMe
 // ===== useJournalEntryActions Hook =====
 
 interface UseJournalEntryActionsReturn {
-  createEntry: (input: JournalEntryInput) => Promise<JournalEntryData>
+  createEntry: (input: CreateJournalEntryInput) => Promise<{ success: boolean; data?: GLEntryData[]; error?: string }>
   createAccount: (account: Omit<GLAccountData, 'id'>) => Promise<GLAccountData>
   loading: boolean
   error: Error | null
@@ -425,7 +456,7 @@ export function useJournalEntryActions(): UseJournalEntryActionsReturn {
 
   const service = useMemo(() => getAccountingAppService(), [])
 
-  const createEntry = useCallback(async (input: JournalEntryInput) => {
+  const createEntry = useCallback(async (input: CreateJournalEntryInput) => {
     setLoading(true)
     setError(null)
     

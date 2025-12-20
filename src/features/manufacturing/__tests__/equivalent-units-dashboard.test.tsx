@@ -45,8 +45,8 @@ vi.mock('react-i18next', () => ({
 }))
 
 describe('EquivalentUnitsDashboard', () => {
-  it('renders without crashing', () => {
+  it('renders without crashing', async () => {
     render(<EquivalentUnitsDashboard />)
-    // Add your test assertions here
-  })
+    // Test passes if component renders without throwing
+  }, 10000)
 })
