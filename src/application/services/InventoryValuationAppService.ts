@@ -9,7 +9,7 @@
  * @pattern Facade Pattern
  */
 
-import type { IInventoryValuationRepository } from '@/domain/interfaces/IInventoryValuationRepository'
+import type { IInventoryValuationRepository, InventoryMovementInput } from '@/domain/interfaces/IInventoryValuationRepository'
 
 export class InventoryValuationAppService {
   constructor(private readonly repository: IInventoryValuationRepository) {}
@@ -226,33 +226,20 @@ export class InventoryValuationAppService {
   }
 }
 
-// ⚠️ NOTE: Service singleton management
-// For production use, prefer the DI Container (container.ts) which properly resolves services.
-// These functions are provided for testing and legacy compatibility only.
-
+// Singleton instance (optional, can use DI Container instead)
 let instance: InventoryValuationAppService | null = null
 
-/**
- * Get singleton instance (for testing only - use DI Container in production)
- * @deprecated Use container.resolve<InventoryValuationAppService>('InventoryValuationAppService') instead
- */
-export function getInventoryValuationServiceInstance(): InventoryValuationAppService {
+export function getInventoryValuationService(): InventoryValuationAppService {
   if (!instance) {
-    throw new Error('InventoryValuationAppService not initialized. Use DI Container or call setInventoryValuationService() first.')
+    throw new Error('InventoryValuationAppService not initialized. Call from DI Container.')
   }
   return instance
 }
 
-/**
- * Set singleton instance (for testing or manual initialization)
- */
 export function setInventoryValuationService(service: InventoryValuationAppService): void {
   instance = service
 }
 
-/**
- * Reset singleton instance (for testing cleanup)
- */
 export function resetInventoryValuationService(): void {
   instance = null
 }

@@ -82,6 +82,7 @@ export class CommandBus implements ICommandBus {
 
   /**
    * تنفيذ middlewares عند الخطأ
+   * Note: Middleware errors are caught to prevent masking the original command error
    */
   private async executeErrorMiddlewares<TResult>(
     command: ICommand<TResult>,
@@ -89,7 +90,12 @@ export class CommandBus implements ICommandBus {
   ): Promise<void> {
     for (const middleware of this.middlewares) {
       if (middleware.onError) {
-        await middleware.onError(command, error)
+        try {
+          await middleware.onError(command, error)
+        } catch (middlewareError) {
+          // Log middleware error but don't mask the original command error
+          console.error('Error middleware failed:', middlewareError)
+        }
       }
     }
   }
@@ -121,8 +127,14 @@ export class CommandBus implements ICommandBus {
       const handler = handlerFactory() as ICommandHandler<ICommand<TResult>, TResult>
       const result = await handler.execute(command)
 
-      // تنفيذ middlewares بعد الأمر
-      await this.executeAfterMiddlewares(command, result)
+      // تنفيذ middlewares بعد الأمر - wrapped in try-catch to not mask successful results
+      // Commands may have side effects (DB writes), so we return the result even if after-middleware fails
+      try {
+        await this.executeAfterMiddlewares(command, result)
+      } catch (afterMiddlewareError) {
+        console.error('After-middleware error (command succeeded):', afterMiddlewareError)
+        // Still return the successful result - don't mask it with middleware error
+      }
 
       return result
     } catch (error) {

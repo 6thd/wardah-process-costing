@@ -64,6 +64,55 @@ export interface CreateJournalEntryInput {
   }>
 }
 
+// Alias for backward compatibility
+export type JournalEntryInput = CreateJournalEntryInput
+
+export interface JournalEntryLineInput {
+  accountCode: string
+  accountName: string
+  debit: number
+  credit: number
+  description?: string
+}
+
+export interface AccountStatementFilters {
+  accountCode: string
+  fromDate?: string
+  toDate?: string
+  page?: number
+  pageSize?: number
+}
+
+export interface AccountStatementResult {
+  entries: Array<{
+    date: string
+    description: string
+    debit: number
+    credit: number
+    balance: number
+  }>
+  openingBalance: number
+  closingBalance: number
+  totalDebit: number
+  totalCredit: number
+}
+
+export interface FinancialReportOptions {
+  fromDate: string
+  toDate: string
+  includeZeroBalances?: boolean
+  format?: 'detailed' | 'summary'
+}
+
+export interface DashboardMetrics {
+  totalAccounts: number
+  activeAccounts: number
+  totalAssets: number
+  totalLiabilities: number
+  totalRevenue: number
+  totalExpenses: number
+}
+
 // ===== Service =====
 
 /**
@@ -95,7 +144,7 @@ export class AccountingAppService {
       filtered = filtered.filter(a => 
         a.accountName.toLowerCase().includes(searchLower) ||
         a.accountCode.toLowerCase().includes(searchLower) ||
-        a.accountNameAr?.includes(search)
+        (a.accountNameAr?.includes(search))
       )
     }
 
@@ -141,7 +190,7 @@ export class AccountingAppService {
     return allAccounts.filter(a =>
       a.accountName.toLowerCase().includes(queryLower) ||
       a.accountCode.toLowerCase().includes(queryLower) ||
-      a.accountNameAr?.includes(query)
+      (a.accountNameAr?.includes(query))
     )
   }
 
@@ -316,14 +365,7 @@ export class AccountingAppService {
   /**
    * الحصول على إحصائيات المحاسبة للوحة التحكم
    */
-  async getDashboardMetrics(): Promise<{
-    totalAccounts: number
-    activeAccounts: number
-    totalAssets: number
-    totalLiabilities: number
-    totalRevenue: number
-    totalExpenses: number
-  }> {
+  async getDashboardMetrics(): Promise<DashboardMetrics> {
     const accounts = await this.repository.getAccounts()
     const today = new Date().toISOString().split('T')[0]
     const balanceSheet = await this.repository.getBalanceSheet(today)
@@ -360,22 +402,22 @@ export class AccountingAppService {
   }
 }
 
-// ===== Singleton Management =====
+// ===== Singleton Instance =====
 
 let accountingAppServiceInstance: AccountingAppService | null = null
 
 /**
- * الحصول على instance من AccountingAppService (Singleton)
+ * الحصول على instance من خدمة المحاسبة (Singleton)
  */
 export function getAccountingAppService(): AccountingAppService {
   if (!accountingAppServiceInstance) {
-    accountingAppServiceInstance = new AccountingAppService(getAccountingRepository())
+    accountingAppServiceInstance = new AccountingAppService()
   }
   return accountingAppServiceInstance
 }
 
 /**
- * إعادة تعيين الـ singleton (للاختبارات)
+ * إعادة تعيين الـ singleton (مفيد للاختبارات)
  */
 export function resetAccountingAppService(): void {
   accountingAppServiceInstance = null

@@ -9,25 +9,18 @@ function generateUUID(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID()
   }
-  
+
   // Fallback using crypto.getRandomValues (cryptographically secure)
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
-    const template = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'
-    let result = ''
-    for (const c of template) {
-      if (c === 'x' || c === 'y') {
-        const array = new Uint8Array(1)
-        crypto.getRandomValues(array)
-        const r = array[0] % 16
-        const v = c === 'x' ? r : (r & 0x3 | 0x8)
-        result += v.toString(16)
-      } else {
-        result += c
-      }
-    }
-    return result
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replaceAll(/[xy]/g, (c) => {
+      const array = new Uint8Array(1)
+      crypto.getRandomValues(array)
+      const r = array[0] % 16
+      const v = c === 'x' ? r : (r & 0x3 | 0x8)
+      return v.toString(16)
+    })
   }
-  
+
   // If crypto is not available, throw an error
   throw new Error('Crypto API is not available. Cannot generate secure UUID.')
 }

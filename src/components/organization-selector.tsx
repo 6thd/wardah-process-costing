@@ -20,17 +20,15 @@ import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 
 // مكون عرض شعار المؤسسة
-interface OrganizationLogoProps {
-  readonly logoUrl?: string | null
-  readonly name: string
-  readonly size?: 'sm' | 'md' | 'lg'
-}
-
 function OrganizationLogo({ 
   logoUrl, 
   name, 
   size = 'sm' 
-}: OrganizationLogoProps) {
+}: Readonly<{ 
+  logoUrl?: string | null; 
+  name: string; 
+  size?: 'sm' | 'md' | 'lg';
+}>) {
   const sizeClasses = {
     sm: 'h-5 w-5',
     md: 'h-8 w-8',

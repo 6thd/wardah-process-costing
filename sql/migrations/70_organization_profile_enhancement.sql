@@ -7,21 +7,6 @@
 BEGIN;
 
 -- ===================================
--- Constants for error messages
--- ===================================
-DO $$
-BEGIN
-    -- Create helper function for error responses
-    CREATE OR REPLACE FUNCTION org_error_response(p_error_msg TEXT)
-    RETURNS JSONB
-    LANGUAGE sql
-    IMMUTABLE
-    AS $func$
-        SELECT jsonb_build_object('success', FALSE, 'error', p_error_msg);
-    $func$;
-END $$;
-
--- ===================================
 -- 1. إضافة الحقول الجديدة لجدول المؤسسات
 -- ===================================
 
@@ -127,35 +112,9 @@ BEGIN
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN org_error_response('غير مصرح');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
     END IF;
     
-    -- ⚠️ INPUT VALIDATION: Validate formats for security
-    -- Email format validation
-    IF p_email IS NOT NULL AND p_email <> '' AND p_email !~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$' THEN
-        RETURN org_error_response('صيغة البريد الإلكتروني غير صحيحة');
-    END IF;
-
-    -- Website URL format validation
-    IF p_website IS NOT NULL AND p_website <> '' AND p_website !~* '^https?://[A-Za-z0-9.-]+(\:[0-9]+)?(/.*)?$' THEN
-        RETURN org_error_response('صيغة الموقع الإلكتروني غير صحيحة');
-    END IF;
-
-    -- Logo URL format validation
-    IF p_logo_url IS NOT NULL AND p_logo_url <> '' AND p_logo_url !~* '^https?://[A-Za-z0-9.-]+(\:[0-9]+)?(/.*)?$' THEN
-        RETURN org_error_response('صيغة رابط الشعار غير صحيحة');
-    END IF;
-
-    -- Primary color hex code validation
-    IF p_primary_color IS NOT NULL AND p_primary_color <> '' AND p_primary_color !~* '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' THEN
-        RETURN org_error_response('صيغة كود اللون الأساسي غير صحيحة');
-    END IF;
-
-    -- Secondary color hex code validation
-    IF p_secondary_color IS NOT NULL AND p_secondary_color <> '' AND p_secondary_color !~* '^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$' THEN
-        RETURN org_error_response('صيغة كود اللون الثانوي غير صحيحة');
-    END IF;
-
     -- التحقق من صلاحية المستخدم
     SELECT role INTO v_user_role
     FROM user_organizations
@@ -166,7 +125,7 @@ BEGIN
     v_is_authorized := v_user_role IS NOT NULL AND v_user_role IN ('admin', 'manager');
     
     IF NOT v_is_authorized THEN
-        RETURN org_error_response('ليس لديك صلاحية لتعديل بيانات المؤسسة');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية لتعديل بيانات المؤسسة');
     END IF;
     
     -- تحديث البيانات
@@ -219,22 +178,24 @@ AS $$
 DECLARE
     v_user_id UUID;
     v_result JSONB;
+    v_has_access INTEGER;
 BEGIN
     v_user_id := auth.uid();
     
     IF v_user_id IS NULL THEN
-        RETURN org_error_response('غير مصرح');
+        RETURN jsonb_build_object('success', FALSE, 'error', 'غير مصرح');
     END IF;
     
-    -- ⚠️ PERFORMANCE: Use EXISTS for better performance (stops at first match)
-    -- EXISTS is more efficient than COUNT(*) as it short-circuits on first row found
-    IF NOT EXISTS (
-        SELECT 1 FROM user_organizations 
-        WHERE user_id = v_user_id 
-          AND org_id = p_org_id 
-          AND is_active
-    ) THEN
-        RETURN org_error_response('ليس لديك صلاحية للوصول لهذه المؤسسة');
+    -- التحقق من أن المستخدم ينتمي للمؤسسة باستخدام COUNT بدلاً من EXISTS
+    SELECT COUNT(*) INTO v_has_access
+    FROM user_organizations 
+    WHERE user_id = v_user_id 
+      AND org_id = p_org_id 
+      AND is_active
+    LIMIT 1;
+    
+    IF v_has_access = 0 THEN
+        RETURN jsonb_build_object('success', FALSE, 'error', 'ليس لديك صلاحية للوصول لهذه المؤسسة');
     END IF;
     
     SELECT jsonb_build_object(

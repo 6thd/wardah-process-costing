@@ -18,10 +18,10 @@ import type {
 // ===== In-Memory Event Store =====
 
 export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventSubscriber {
-  private readonly events: Map<string, AnyDomainEvent[]> = new Map()
+  private events: Map<string, AnyDomainEvent[]> = new Map()
   private allEvents: AnyDomainEvent[] = []
-  private readonly handlers: Map<string, Set<EventHandler>> = new Map()
-  private readonly globalHandlers: Set<EventHandler> = new Set()
+  private handlers: Map<string, Set<EventHandler>> = new Map()
+  private globalHandlers: Set<EventHandler> = new Set()
 
   // ===== IEventStore Implementation =====
 
@@ -119,19 +119,16 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
       filtered = filtered.filter(e => e.aggregateType === query.aggregateType)
     }
 
-    if (query.eventTypes && query.eventTypes.length > 0) {
-      const eventTypes = query.eventTypes
-      filtered = filtered.filter(e => eventTypes.includes(e.type))
+    if (query.eventTypes?.length) {
+      filtered = filtered.filter(e => query.eventTypes.includes(e.type))
     }
 
     if (query.startDate) {
-      const startDate = query.startDate
-      filtered = filtered.filter(e => e.occurredAt >= startDate)
+      filtered = filtered.filter(e => e.occurredAt >= query.startDate)
     }
 
     if (query.endDate) {
-      const endDate = query.endDate
-      filtered = filtered.filter(e => e.occurredAt <= endDate)
+      filtered = filtered.filter(e => e.occurredAt <= query.endDate)
     }
 
     if (query.userId) {
@@ -191,10 +188,7 @@ export class InMemoryEventStore implements IEventStore, IEventPublisher, IEventS
     if (!this.handlers.has(eventType)) {
       this.handlers.set(eventType, new Set())
     }
-    const handlers = this.handlers.get(eventType)
-    if (handlers) {
-      handlers.add(handler as EventHandler)
-    }
+    this.handlers.get(eventType)!.add(handler as EventHandler)
   }
 
   unsubscribe(eventType: string, handler: EventHandler): void {

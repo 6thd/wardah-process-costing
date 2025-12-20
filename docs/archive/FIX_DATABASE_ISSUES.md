@@ -143,10 +143,12 @@ SELECT * FROM gl_accounts LIMIT 10;
 
 Make sure your `public/config.json` file has the correct settings:
 
+> ⚠️ **SECURITY NOTE**: Never commit actual keys. Get them from Supabase Dashboard.
+
 ```json
 {
-  "SUPABASE_URL": "https://rytzljjlthouptdqeuxh.supabase.co",
-  "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJ5dHpsampsdGhvdXB0ZHFldXhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTc4Mzc1NTYsImV4cCI6MjA3MzQxMzU1Nn0.5VAgxgoiWIkA05WYVnTDJ0wUOTkWxAo0a0VY6-J7DoY",
+  "SUPABASE_URL": "<YOUR_SUPABASE_PROJECT_URL>",
+  "SUPABASE_ANON_KEY": "<YOUR_SUPABASE_ANON_KEY>",
   "TABLE_NAMES": {
     "work_centers": "work_centers",
     "stage_costs": "stage_costs",

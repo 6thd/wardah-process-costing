@@ -35,9 +35,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getPayrollRuns } from '@/services/hr/hr-service';
-import { calculatePayrollPreview, processPayrollRun } from '@/services/hr/payroll-engine';
+import { calculatePayrollPreview, processPayrollRun, type PayrollPreviewEmployee } from '@/services/hr/payroll-engine';
 import { STATUS_BADGES } from '../types';
-import type { PayrollPreviewEmployee } from '@/services/hr/payroll-engine';
 import {
     DollarSign, Users, TrendingUp, AlertCircle, Download, 
     Lock, Unlock, FileText, Calculator, CheckCircle, XCircle,

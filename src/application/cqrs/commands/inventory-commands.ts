@@ -3,7 +3,7 @@
  * @description أوامر المخزون (CQRS Commands)
  */
 
-import type { ICommand } from '../types'
+import type { ICommand, CommandResult, CommandError } from '../types'
 
 // ===== Command Types =====
 

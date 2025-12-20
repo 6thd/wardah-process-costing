@@ -73,7 +73,7 @@ export interface UserRole {
 // Cache للصلاحيات
 // =====================================
 
-let permissionsCache: Map<string, Set<string>> = new Map();
+const permissionsCache: Map<string, Set<string>> = new Map();
 let cacheExpiry: number = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 دقائق
 

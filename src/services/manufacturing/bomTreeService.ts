@@ -3,8 +3,7 @@
  * خدمة عرض شجرة BOM متعددة المستويات
  */
 
-import { supabase } from '@/lib/supabase'
-import { getEffectiveTenantId } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 export interface BOMTreeNode {
   id: string

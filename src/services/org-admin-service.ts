@@ -190,7 +190,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
 
     // محاولة جلب الأدوار (اختياري - قد لا يوجد الجدول)
     const userIds = (data || []).map(u => u.user_id);
-    let rolesMap = new Map<string, OrgRole[]>();
+    const rolesMap = new Map<string, OrgRole[]>();
     
     if (userIds.length > 0) {
       try {
@@ -706,7 +706,7 @@ export async function createRoleFromTemplate(
     if (permissionKeys.length > 0) {
       // Build query for permissions
       // For patterns with %, we use ilike; for exact matches, we use eq
-      let query = supabase.from('permissions').select('id, permission_key');
+      const query = supabase.from('permissions').select('id, permission_key');
       
       // We need to handle wildcards - for now, fetch all and filter in JS
       const { data: allPermissions } = await query;

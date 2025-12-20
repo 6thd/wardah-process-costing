@@ -1,0 +1,262 @@
+/**
+ * Wardah Design System - Components
+ * ==================================
+ * ERP Components: Cards, Buttons, Inputs, Tables, Status Badges
+ */
+
+@layer components {
+  /* ========== ERP Card Component ========== */
+  .erp-card {
+    @apply bg-card text-card-foreground rounded-lg border shadow-sm;
+    transition: box-shadow var(--transition-base);
+  }
+  
+  .erp-card:hover {
+    box-shadow: var(--shadow-md);
+  }
+  
+  .erp-card--elevated {
+    box-shadow: var(--shadow-lg);
+  }
+  
+  .erp-card--flat {
+    @apply shadow-none;
+  }
+  
+  .erp-card--interactive {
+    @apply cursor-pointer;
+  }
+  
+  .erp-card--interactive:hover {
+    @apply border-primary/50;
+  }
+  
+  /* ========== ERP Button Component ========== */
+  .erp-button {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50;
+    height: var(--control-height);
+    transition: all var(--transition-fast);
+  }
+  
+  /* Button Variants */
+  .erp-button--primary {
+    @apply bg-primary text-primary-foreground;
+  }
+  
+  .erp-button--primary:hover {
+    background: hsl(var(--primary-hover));
+  }
+  
+  .erp-button--secondary {
+    @apply bg-secondary text-secondary-foreground hover:bg-secondary/80;
+  }
+  
+  .erp-button--destructive {
+    @apply bg-destructive text-destructive-foreground hover:bg-destructive/90;
+  }
+  
+  .erp-button--success {
+    @apply bg-success text-success-foreground hover:bg-success/90;
+  }
+  
+  .erp-button--outline {
+    @apply border border-input bg-background hover:bg-accent hover:text-accent-foreground;
+  }
+  
+  .erp-button--ghost {
+    @apply hover:bg-accent hover:text-accent-foreground;
+  }
+  
+  .erp-button--link {
+    @apply text-primary underline-offset-4 hover:underline;
+  }
+  
+  /* Button Sizes */
+  .erp-button--sm {
+    height: var(--control-height-sm);
+    font-size: var(--font-size-sm);
+    @apply px-3;
+  }
+  
+  .erp-button--lg {
+    height: var(--control-height-lg);
+    font-size: var(--font-size-lg);
+    @apply px-6;
+  }
+  
+  .erp-button--icon {
+    @apply p-0;
+    width: var(--control-height);
+    height: var(--control-height);
+  }
+  
+  .erp-button--icon.erp-button--sm {
+    width: var(--control-height-sm);
+    height: var(--control-height-sm);
+  }
+  
+  .erp-button--icon.erp-button--lg {
+    width: var(--control-height-lg);
+    height: var(--control-height-lg);
+  }
+  
+  /* ========== ERP Input Component ========== */
+  .erp-input {
+    @apply flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    height: var(--control-height);
+    transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+  
+  .erp-input--sm {
+    height: var(--control-height-sm);
+    font-size: var(--font-size-sm);
+    @apply px-2;
+  }
+  
+  .erp-input--lg {
+    height: var(--control-height-lg);
+    font-size: var(--font-size-lg);
+    @apply px-4;
+  }
+  
+  .erp-input--error {
+    @apply border-destructive focus-visible:ring-destructive;
+  }
+  
+  .erp-input--success {
+    @apply border-success focus-visible:ring-success;
+  }
+  
+  /* ========== ERP Textarea ========== */
+  .erp-textarea {
+    @apply erp-input;
+    height: auto;
+    min-height: 80px;
+    resize: vertical;
+  }
+  
+  /* ========== Status Badges (BEM-style) ========== */
+  .status {
+    @apply inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium border;
+  }
+  
+  .status--success {
+    @apply bg-success/10 text-success border-success/20;
+  }
+  
+  .status--warning {
+    @apply bg-warning/10 text-warning border-warning/20;
+  }
+  
+  .status--error {
+    @apply bg-destructive/10 text-destructive border-destructive/20;
+  }
+  
+  .status--info {
+    @apply bg-info/10 text-info border-info/20;
+  }
+  
+  .status--neutral {
+    @apply bg-muted text-muted-foreground border-border;
+  }
+  
+  .status--primary {
+    @apply bg-primary/10 text-primary border-primary/20;
+  }
+  
+  /* Status Badge Sizes */
+  .status--sm {
+    @apply text-[10px] px-2 py-0;
+  }
+  
+  .status--lg {
+    @apply text-sm px-3 py-1;
+  }
+  
+  /* Legacy support */
+  .status-badge { @apply status; }
+  .status-success { @apply status--success; }
+  .status-warning { @apply status--warning; }
+  .status-error { @apply status--error; }
+  .status-info { @apply status--info; }
+  
+  /* ========== ERP Table Styles ========== */
+  .erp-table {
+    @apply w-full caption-bottom text-sm;
+  }
+  
+  .erp-table th {
+    @apply h-10 px-2 text-start align-middle font-medium text-muted-foreground;
+  }
+  
+  .erp-table td {
+    @apply p-2 align-middle;
+  }
+  
+  .erp-table tr {
+    @apply border-b transition-colors hover:bg-muted/50;
+  }
+  
+  .erp-table--striped tr:nth-child(even) {
+    @apply bg-muted/30;
+  }
+  
+  .erp-table--compact th,
+  .erp-table--compact td {
+    @apply px-1 py-1;
+  }
+  
+  /* ========== Loading States ========== */
+  .skeleton {
+    @apply animate-pulse rounded-md bg-muted;
+  }
+  
+  .skeleton--text {
+    @apply h-4 w-full;
+  }
+  
+  .skeleton--avatar {
+    @apply h-10 w-10 rounded-full;
+  }
+  
+  .skeleton--button {
+    @apply h-10 w-24;
+  }
+  
+  .loading-spinner {
+    @apply animate-spin rounded-full border-2 border-current border-t-transparent;
+  }
+  
+  .loading-spinner--sm {
+    @apply h-4 w-4;
+  }
+  
+  .loading-spinner--md {
+    @apply h-6 w-6;
+  }
+  
+  .loading-spinner--lg {
+    @apply h-8 w-8;
+  }
+  
+  /* ========== Alert/Notification Styles ========== */
+  .erp-alert {
+    @apply relative w-full rounded-lg border p-4;
+  }
+  
+  .erp-alert--success {
+    @apply bg-success/10 border-success/20 text-success;
+  }
+  
+  .erp-alert--warning {
+    @apply bg-warning/10 border-warning/20 text-warning;
+  }
+  
+  .erp-alert--error {
+    @apply bg-destructive/10 border-destructive/20 text-destructive;
+  }
+  
+  .erp-alert--info {
+    @apply bg-info/10 border-info/20 text-info;
+  }
+}

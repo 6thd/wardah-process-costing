@@ -15,16 +15,18 @@ The production app on Vercel is missing Supabase environment variables, causing 
 #### Variable 1: VITE_SUPABASE_URL
 ```
 Name: VITE_SUPABASE_URL
-Value: https://uutfztmqvajmsxnrqeiv.supabase.co
+Value: <YOUR_SUPABASE_PROJECT_URL>
 Environments: ✓ Production ✓ Preview ✓ Development
 ```
 
 #### Variable 2: VITE_SUPABASE_ANON_KEY
 ```
 Name: VITE_SUPABASE_ANON_KEY
-Value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c
+Value: <YOUR_SUPABASE_ANON_KEY>
 Environments: ✓ Production ✓ Preview ✓ Development
 ```
+
+> ⚠️ **SECURITY NOTE**: Get your actual keys from Supabase Dashboard → Settings → API
 
 5. Click **Save**
 6. Go to **Deployments** → Select latest deployment → Click **Redeploy**
@@ -47,10 +49,10 @@ vercel link
 
 # Add environment variables
 vercel env add VITE_SUPABASE_URL production
-# Paste: https://uutfztmqvajmsxnrqeiv.supabase.co
+# Paste your Supabase URL from dashboard
 
 vercel env add VITE_SUPABASE_ANON_KEY production
-# Paste: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV1dGZ6dG1xdmFqbXN4bnJxZWl2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwOTkzODAsImV4cCI6MjA3MjY3NTM4MH0.1HmcLbScl7oIwICL4WXq3_6WuDDE_1gwsz2eoRlAV7c
+# Paste your anon key from Supabase Dashboard → Settings → API
 
 # Also add for preview and development
 vercel env add VITE_SUPABASE_URL preview
