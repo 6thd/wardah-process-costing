@@ -3,8 +3,7 @@
  * Extracted to reduce complexity in AccountingOverview component
  */
 
-import { FileText, Scale, Receipt, BookOpen, CheckCircle2, BarChart3 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { FileText, Scale, Receipt, BookOpen, CheckCircle2, BarChart3, type LucideIcon } from 'lucide-react';
 
 export interface AccountingModule {
   titleAr: string;
