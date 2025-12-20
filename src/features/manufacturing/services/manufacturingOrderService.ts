@@ -73,7 +73,7 @@ export async function updateOrderStatus(
 export async function getOrderDetails(orderId: string): Promise<ManufacturingOrder | null> {
   try {
     const order = await manufacturingService.getById(orderId);
-    return order as ManufacturingOrder | null;
+    return order as unknown as ManufacturingOrder | null;
   } catch (error: any) {
     console.error('Error loading order details:', error);
     throw error;

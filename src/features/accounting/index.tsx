@@ -1,8 +1,10 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { lazy, Suspense } from 'react';
 import { accountingModules, getLocalizedModule } from './config/modules';
 import { ModuleCard, QuickStats } from './components';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 
 // Lazy load components
 const JournalEntries = lazy(() => import('./journal-entries').then(m => ({ default: m.default })));
