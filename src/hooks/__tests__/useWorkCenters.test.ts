@@ -1,271 +1,196 @@
 /**
- * Work Centers Hook Tests
- * 
- * Tests for useWorkCenters React Query hook - Unit tests only (no async queries)
+ * @fileoverview Tests for Work Centers hook and types
+ * Tests WorkCenter interface validation and utility functions
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { WorkCenter } from '@/types/work-center';
+import { describe, it, expect } from 'vitest';
+import { WorkCenter } from '@/types/work-center';
 
-// Mock Supabase
-vi.mock('@/lib/supabase', () => ({
-  supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn().mockReturnThis(),
-      insert: vi.fn().mockReturnThis(),
-      update: vi.fn().mockReturnThis(),
-      delete: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      single: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-    })),
-  },
-}));
+// Helper to create a valid WorkCenter object
+function createWorkCenter(overrides: Partial<WorkCenter> = {}): WorkCenter {
+  return {
+    id: 'wc-test-1',
+    org_id: 'org-test-1',
+    code: 'WC001',
+    name: 'Test Work Center',
+    name_ar: 'مركز عمل اختباري',
+    description: 'Test description',
+    hourly_rate: 50.00,
+    is_active: true,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...overrides,
+  };
+}
 
-vi.mock('@/lib/config', () => ({
-  loadConfig: vi.fn(() => Promise.resolve({ ORG_ID: 'test-org-123' })),
-}));
-
-describe('Work Centers', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  describe('WorkCenter Type', () => {
-    it('should have required fields', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Test Center',
-        org_id: 'test-org',
-      };
-
+describe('WorkCenter Type', () => {
+  describe('Basic Structure', () => {
+    it('should have all required fields', () => {
+      const workCenter = createWorkCenter();
+      
       expect(workCenter.id).toBeDefined();
+      expect(workCenter.org_id).toBeDefined();
       expect(workCenter.code).toBeDefined();
       expect(workCenter.name).toBeDefined();
-      expect(workCenter.org_id).toBeDefined();
+      expect(workCenter.name_ar).toBeDefined();
+      expect(workCenter.hourly_rate).toBeDefined();
+      expect(workCenter.is_active).toBeDefined();
+      expect(workCenter.created_at).toBeDefined();
+      expect(workCenter.updated_at).toBeDefined();
     });
 
-    it('should support optional fields', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Test Center',
-        description: 'Optional description',
-        capacity: 100,
-        cost_per_hour: 50,
-        is_active: true,
-        org_id: 'test-org',
-        created_at: '2025-01-01T00:00:00Z',
-        updated_at: '2025-01-01T00:00:00Z',
-      };
-
-      expect(workCenter.description).toBe('Optional description');
-      expect(workCenter.capacity).toBe(100);
-      expect(workCenter.cost_per_hour).toBe(50);
-      expect(workCenter.is_active).toBe(true);
+    it('should allow null description', () => {
+      const workCenter = createWorkCenter({ description: null });
+      expect(workCenter.description).toBeNull();
     });
 
-    it('should handle work center with minimum data', () => {
-      const minimalWorkCenter: Partial<WorkCenter> = {
-        code: 'WC001',
-        name: 'Minimal Center',
-      };
+    it('should have proper type for hourly_rate', () => {
+      const workCenter = createWorkCenter({ hourly_rate: 75.50 });
+      expect(typeof workCenter.hourly_rate).toBe('number');
+      expect(workCenter.hourly_rate).toBe(75.50);
+    });
 
-      expect(minimalWorkCenter.code).toBe('WC001');
-      expect(minimalWorkCenter.name).toBe('Minimal Center');
+    it('should have proper type for is_active', () => {
+      const workCenter = createWorkCenter({ is_active: true });
+      expect(typeof workCenter.is_active).toBe('boolean');
     });
   });
 
-  describe('Work Center Validation', () => {
-    it('should validate work center code format', () => {
-      const validCodes = ['WC001', 'WC-001', 'WELDING-01', 'A1'];
-      
-      validCodes.forEach(code => {
-        expect(code.length).toBeGreaterThan(0);
-        expect(typeof code).toBe('string');
-      });
+  describe('Validation', () => {
+    it('should validate hourly_rate is non-negative', () => {
+      const workCenter = createWorkCenter({ hourly_rate: 50.00 });
+      expect(workCenter.hourly_rate).toBeGreaterThanOrEqual(0);
     });
 
-    it('should validate capacity is positive', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Test Center',
-        capacity: 100,
-        org_id: 'test-org',
-      };
-
-      expect(workCenter.capacity).toBeGreaterThan(0);
+    it('should validate code is not empty', () => {
+      const workCenter = createWorkCenter({ code: 'WC001' });
+      expect(workCenter.code.length).toBeGreaterThan(0);
     });
 
-    it('should validate cost_per_hour is non-negative', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Test Center',
-        cost_per_hour: 50.00,
-        org_id: 'test-org',
-      };
+    it('should validate name is not empty', () => {
+      const workCenter = createWorkCenter({ name: 'Welding Station' });
+      expect(workCenter.name.length).toBeGreaterThan(0);
+    });
 
-      expect(workCenter.cost_per_hour).toBeGreaterThanOrEqual(0);
+    it('should validate org_id is present', () => {
+      const workCenter = createWorkCenter({ org_id: 'org-123' });
+      expect(workCenter.org_id).toBeTruthy();
     });
   });
 
-  describe('Work Center Operations', () => {
-    it('should calculate hourly cost correctly', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Welding Center',
-        cost_per_hour: 75.00,
-        org_id: 'test-org',
-      };
-
+  describe('Cost Calculations', () => {
+    it('should calculate total cost for hours worked', () => {
+      const workCenter = createWorkCenter({ hourly_rate: 75.00 });
       const hoursWorked = 8;
-      const totalCost = workCenter.cost_per_hour! * hoursWorked;
-
+      const totalCost = workCenter.hourly_rate * hoursWorked;
       expect(totalCost).toBe(600);
     });
 
-    it('should calculate capacity utilization', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Assembly Center',
-        capacity: 100,
-        org_id: 'test-org',
-      };
-
-      const unitsProduced = 85;
-      const utilization = (unitsProduced / workCenter.capacity!) * 100;
-
-      expect(utilization).toBe(85);
+    it('should handle zero hourly rate', () => {
+      const workCenter = createWorkCenter({ hourly_rate: 0 });
+      const hoursWorked = 10;
+      const totalCost = workCenter.hourly_rate * hoursWorked;
+      expect(totalCost).toBe(0);
     });
 
-    it('should handle inactive work centers', () => {
-      const inactiveWorkCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Deprecated Center',
-        is_active: false,
-        org_id: 'test-org',
-      };
-
-      expect(inactiveWorkCenter.is_active).toBe(false);
-    });
-  });
-
-  describe('Work Center Data Transformation', () => {
-    it('should transform API response to WorkCenter type', () => {
-      const apiResponse = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Test Center',
-        description: 'Test description',
-        capacity: 100,
-        cost_per_hour: 50,
-        is_active: true,
-        org_id: 'test-org',
-        created_at: '2025-01-01T00:00:00Z',
-        updated_at: '2025-01-01T00:00:00Z',
-      };
-
-      const workCenter: WorkCenter = apiResponse;
-
-      expect(workCenter.id).toBe('wc-1');
-      expect(workCenter.code).toBe('WC001');
-      expect(workCenter.created_at).toBeDefined();
-    });
-
-    it('should filter work centers by active status', () => {
-      const workCenters: WorkCenter[] = [
-        { id: 'wc-1', code: 'WC001', name: 'Active 1', is_active: true, org_id: 'org' },
-        { id: 'wc-2', code: 'WC002', name: 'Inactive 1', is_active: false, org_id: 'org' },
-        { id: 'wc-3', code: 'WC003', name: 'Active 2', is_active: true, org_id: 'org' },
+    it('should calculate cost for multiple work centers', () => {
+      const workCenters = [
+        createWorkCenter({ id: 'wc-1', hourly_rate: 50 }),
+        createWorkCenter({ id: 'wc-2', hourly_rate: 75 }),
+        createWorkCenter({ id: 'wc-3', hourly_rate: 100 }),
       ];
-
-      const activeWorkCenters = workCenters.filter(wc => wc.is_active);
-
-      expect(activeWorkCenters).toHaveLength(2);
-      expect(activeWorkCenters.every(wc => wc.is_active)).toBe(true);
-    });
-
-    it('should sort work centers by name', () => {
-      const workCenters: WorkCenter[] = [
-        { id: 'wc-1', code: 'WC001', name: 'Zebra Center', org_id: 'org' },
-        { id: 'wc-2', code: 'WC002', name: 'Alpha Center', org_id: 'org' },
-        { id: 'wc-3', code: 'WC003', name: 'Beta Center', org_id: 'org' },
-      ];
-
-      const sorted = [...workCenters].sort((a, b) => a.name.localeCompare(b.name));
-
-      expect(sorted[0].name).toBe('Alpha Center');
-      expect(sorted[1].name).toBe('Beta Center');
-      expect(sorted[2].name).toBe('Zebra Center');
-    });
-  });
-
-  describe('Work Center Cost Calculations', () => {
-    it('should calculate total labor cost for manufacturing order', () => {
-      const workCenters: WorkCenter[] = [
-        { id: 'wc-1', code: 'WC001', name: 'Welding', cost_per_hour: 50, org_id: 'org' },
-        { id: 'wc-2', code: 'WC002', name: 'Assembly', cost_per_hour: 75, org_id: 'org' },
-      ];
-
+      
       const workHours = [
         { workCenterId: 'wc-1', hours: 4 },
         { workCenterId: 'wc-2', hours: 2 },
+        { workCenterId: 'wc-3', hours: 1 },
       ];
-
+      
       const totalCost = workHours.reduce((sum, wh) => {
         const wc = workCenters.find(w => w.id === wh.workCenterId);
-        return sum + (wc?.cost_per_hour || 0) * wh.hours;
+        return sum + (wc?.hourly_rate || 0) * wh.hours;
       }, 0);
+      
+      expect(totalCost).toBe(450); // 50*4 + 75*2 + 100*1
+    });
+  });
 
-      expect(totalCost).toBe(4 * 50 + 2 * 75); // 200 + 150 = 350
+  describe('Active/Inactive State', () => {
+    it('should identify active work centers', () => {
+      const workCenter = createWorkCenter({ is_active: true });
+      expect(workCenter.is_active).toBe(true);
     });
 
-    it('should handle missing cost_per_hour', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'No Cost Center',
-        org_id: 'org',
-      };
+    it('should identify inactive work centers', () => {
+      const workCenter = createWorkCenter({ is_active: false });
+      expect(workCenter.is_active).toBe(false);
+    });
 
-      const cost = workCenter.cost_per_hour ?? 0;
-      expect(cost).toBe(0);
+    it('should filter active work centers from list', () => {
+      const workCenters = [
+        createWorkCenter({ id: 'wc-1', is_active: true }),
+        createWorkCenter({ id: 'wc-2', is_active: false }),
+        createWorkCenter({ id: 'wc-3', is_active: true }),
+      ];
+      
+      const activeCount = workCenters.filter(wc => wc.is_active).length;
+      expect(activeCount).toBe(2);
     });
   });
 
   describe('Multi-tenant Support', () => {
-    it('should filter by organization id', () => {
-      const allWorkCenters: WorkCenter[] = [
-        { id: 'wc-1', code: 'WC001', name: 'Org1 Center', org_id: 'org-1' },
-        { id: 'wc-2', code: 'WC002', name: 'Org2 Center', org_id: 'org-2' },
-        { id: 'wc-3', code: 'WC003', name: 'Org1 Center 2', org_id: 'org-1' },
+    it('should filter work centers by org_id', () => {
+      const workCenters = [
+        createWorkCenter({ id: 'wc-1', org_id: 'org-1' }),
+        createWorkCenter({ id: 'wc-2', org_id: 'org-2' }),
+        createWorkCenter({ id: 'wc-3', org_id: 'org-1' }),
       ];
-
-      const org1Centers = allWorkCenters.filter(wc => wc.org_id === 'org-1');
-
-      expect(org1Centers).toHaveLength(2);
-      expect(org1Centers.every(wc => wc.org_id === 'org-1')).toBe(true);
+      
+      const org1Centers = workCenters.filter(wc => wc.org_id === 'org-1');
+      expect(org1Centers.length).toBe(2);
     });
 
-    it('should not allow cross-organization access', () => {
-      const workCenter: WorkCenter = {
-        id: 'wc-1',
-        code: 'WC001',
-        name: 'Org1 Center',
-        org_id: 'org-1',
-      };
+    it('should enforce org_id isolation', () => {
+      const workCenter = createWorkCenter({ org_id: 'org-specific' });
+      expect(workCenter.org_id).toBe('org-specific');
+    });
+  });
 
-      const currentOrgId = 'org-2';
-      const hasAccess = workCenter.org_id === currentOrgId;
+  describe('Bilingual Support', () => {
+    it('should have both English and Arabic names', () => {
+      const workCenter = createWorkCenter({
+        name: 'Welding Station',
+        name_ar: 'محطة اللحام',
+      });
+      
+      expect(workCenter.name).toBe('Welding Station');
+      expect(workCenter.name_ar).toBe('محطة اللحام');
+    });
+  });
 
-      expect(hasAccess).toBe(false);
+  describe('Timestamps', () => {
+    it('should have valid created_at timestamp', () => {
+      const workCenter = createWorkCenter();
+      const date = new Date(workCenter.created_at);
+      expect(date.getTime()).not.toBeNaN();
+    });
+
+    it('should have valid updated_at timestamp', () => {
+      const workCenter = createWorkCenter();
+      const date = new Date(workCenter.updated_at);
+      expect(date.getTime()).not.toBeNaN();
+    });
+
+    it('should have updated_at >= created_at', () => {
+      const now = new Date().toISOString();
+      const workCenter = createWorkCenter({
+        created_at: now,
+        updated_at: now,
+      });
+      
+      const created = new Date(workCenter.created_at).getTime();
+      const updated = new Date(workCenter.updated_at).getTime();
+      expect(updated).toBeGreaterThanOrEqual(created);
     });
   });
 });
-

@@ -177,19 +177,19 @@ describe('Manufacturing Order Service', () => {
     const mockUpdateData = { completed_at: new Date().toISOString() };
 
     it('should update status successfully', async () => {
-      mockUpdateStatus.mockResolvedValue({ id: 'order-1', status: 'in_progress' });
+      mockUpdateStatus.mockResolvedValue({ id: 'order-1', status: 'in-progress' });
 
       const result = await updateOrderStatus(
         'order-1',
-        'in_progress',
+        'in-progress',
         { value: 'draft' } as any,
-        { value: 'in_progress' } as any,
+        { value: 'in-progress' } as any,
         mockUpdateData,
         false
       );
 
       expect(result).toBe(true);
-      expect(mockUpdateStatus).toHaveBeenCalledWith('order-1', 'in_progress', mockUpdateData);
+      expect(mockUpdateStatus).toHaveBeenCalledWith('order-1', 'in-progress', mockUpdateData);
     });
 
     it('should return true when status is same (no change needed)', async () => {
