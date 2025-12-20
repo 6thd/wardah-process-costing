@@ -1,6 +1,6 @@
 # 📋 قائمة المهام المتبقية - Wardah ERP Test Coverage
 
-> آخر تحديث: 18 ديسمبر 2025 (مساءً)
+> آخر تحديث: 20 ديسمبر 2025
 
 ---
 
@@ -33,40 +33,34 @@
 - [x] `src/utils/__tests__/keyboardNav.test.ts` - 14 tests (81.72% coverage)
 - [x] `src/utils/__tests__/parseClipboard.test.ts` - 11 tests (100% coverage)
 
-### Services Integration Tests ✅ (18 ديسمبر 2025)
+### Services Integration Tests ✅ (18-20 ديسمبر 2025)
 - [x] `src/services/__tests__/accounting-service.test.ts` - 39 tests
-  - [x] Journal entry balance validation
-  - [x] Account balance calculations
-  - [x] Trial balance and financial statements
-  - [x] Running balance and account categorization
-  - [x] Edge cases (decimals, large numbers)
-  
 - [x] `src/services/__tests__/inventory-transaction-service.test.ts` - 41 tests
-  - [x] Stock availability calculations
-  - [x] Material reservation logic
-  - [x] Consumption validation
-  - [x] FIFO and weighted average costing
-  - [x] Reservation expiry handling
-  
 - [x] `src/services/__tests__/sales-service.test.ts` - 51 tests
-  - [x] Invoice calculations (subtotal, tax, discounts)
-  - [x] COGS calculations
-  - [x] Delivery and payment status management
-  - [x] GL entry generation and validation
-  - [x] Gross profit margin calculations
-
 - [x] `src/services/__tests__/purchasing-service.test.ts` - 48 tests
-  - [x] Purchase order calculations
-  - [x] Goods receipt validation
-  - [x] Supplier invoice and payment status
-  - [x] GL entry generation for purchases
-
 - [x] `src/services/__tests__/warehouse-service.test.ts` - 73 tests
-  - [x] Warehouse data validation
-  - [x] Storage locations and bins
-  - [x] Capacity utilization calculations
-  - [x] Stock status monitoring
-  - [x] GL account mapping validation
+
+### Core Services Tests ✅ (20 ديسمبر 2025) 🆕
+- [x] `src/services/__tests__/process-costing-service.test.ts` - 29 tests
+  - [x] Labor time application
+  - [x] Overhead calculations
+  - [x] Stage cost upsert
+  - [x] AVCO methodology
+- [x] `src/services/__tests__/organization-service.test.ts` - 21 tests
+  - [x] Multi-tenant operations
+  - [x] User organizations
+  - [x] Access control
+- [x] `src/services/__tests__/rbac-service.test.ts` - 16 tests
+  - [x] Modules and permissions
+  - [x] Organization roles
+  - [x] Permission checking
+- [x] `src/services/__tests__/stock-adjustment-service.test.ts` - 20 tests
+  - [x] Physical count
+  - [x] Damage and theft
+  - [x] Accounting integration
+- [x] `src/hooks/__tests__/usePermissions.test.ts` - 16 tests
+  - [x] Permission cache
+  - [x] Role-based scenarios
 
 ### UI Component Tests ✅ (18 ديسمبر 2025 - مساءً)
 - [x] `src/components/ui/__tests__/button.test.tsx` - 30 tests
@@ -184,9 +178,10 @@
 5. ~~**E2E Tests الشاملة**~~ ✅ مكتمل (5 files, 93 tests)
 6. ~~**إنشاء اختبارات لـ `purchasing-service.ts`**~~ ✅ مكتمل (48 tests)
 7. ~~**إنشاء اختبارات لـ `warehouse-service.ts`**~~ ✅ مكتمل (73 tests)
-8. **اختبارات Auth Components** - القادم
-9. **دمج PR إلى main branch**
-10. **تحسين Coverage إلى 30%+**
+8. ~~**اختبارات Core Services**~~ ✅ مكتمل (102 tests) 🆕
+9. **اختبارات Auth Components** - القادم
+10. **دمج PR إلى main branch**
+11. **تحسين Coverage إلى 30%+**
 
 ---
 
@@ -208,7 +203,8 @@
 | 18 ديسمبر 2025 (مساءً) | UI Component Tests | 209 |
 | 18 ديسمبر 2025 (مساءً) | E2E Tests (4 ملفات جديدة) | 93 |
 | 18 ديسمبر 2025 (ليلاً) | purchasing + warehouse tests | 121 |
+| **20 ديسمبر 2025** | **Core Services Tests** | **102** 🆕 |
 
 ---
 
-*آخر تحديث: 18 ديسمبر 2025 (ليلاً)*
+*آخر تحديث: 20 ديسمبر 2025*

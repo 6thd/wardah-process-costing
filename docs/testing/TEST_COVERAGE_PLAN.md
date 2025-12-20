@@ -4,24 +4,39 @@
 
 **الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي** (تحديث: 18 ديسمبر 2025 - مساءً): 
+**الوضع الحالي** (تحديث: 20 ديسمبر 2025): 
 
-- Coverage: **~18-20%** (متوقع على SonarCloud) ⬆️ (كان 13-15%)
+- Coverage: **~22-25%** (متوقع على SonarCloud) ⬆️ (كان 18-20%)
 - Coverage Target: **≥ 80.0%** للكود الجديد
 - ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
 - ✅ Coverage Generation: **مكتمل** (lcov reports)
-- ✅ **Integration Tests Strategy**: **Phase 6 مكتمل** 🚀
+- ✅ **Integration Tests Strategy**: **Phase 7 مكتمل** 🚀
 - ✅ **Clean Architecture**: **مطبقة بنسبة 95%** 🏆
 - ✅ **ESLint Setup**: **مكتمل** (0 errors, TypeScript + React Hooks) 🔧
 - ✅ **UI Component Tests**: **مكتمل** (209 tests) 🎨
 - ✅ **E2E Tests**: **مكتمل** (5 files, 93 tests) 🌐
+- ✅ **Core Services Tests**: **مكتمل** (102 tests جديدة) 🆕
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: **1577 unit test** + **93 E2E test** 🎉
-- Test Success Rate: **100%** (1577/1577) ⬆️
+- Existing Tests: **1862 unit test** + **93 E2E test** 🎉
+- Test Success Rate: **100%** (1862/1862) ⬆️
 - Architecture Compliance: **95%** ✅
 
-**آخر التحديثات** (18 ديسمبر 2025 - مساءً):
+**آخر التحديثات** (20 ديسمبر 2025): 🆕
+- ✅ **Core Services Tests** 🧪
+  - `src/services/__tests__/process-costing-service.test.ts` (29 tests) - Labor, Overhead, Stage Costs
+  - `src/services/__tests__/organization-service.test.ts` (21 tests) - Multi-tenant
+  - `src/services/__tests__/rbac-service.test.ts` (16 tests) - Roles, Permissions
+  - `src/services/__tests__/stock-adjustment-service.test.ts` (20 tests) - Physical Count
+  - `src/hooks/__tests__/usePermissions.test.ts` (16 tests) - Permission Hook
+- ✅ **إصلاحات Build وTypeScript**:
+  - إصلاح missing imports في AccountingOverview
+  - إصلاح type casting في manufacturingOrderService
+  - إصلاح duplicate imports في modules.ts
+- ✅ **زيادة عدد الاختبارات**: 1760 → **1862** (+102 اختبار unit)
+- ✅ **زيادة التغطية المتوقعة**: 18-20% → **~22-25%** على SonarCloud
+
+**التحديثات السابقة** (18 ديسمبر 2025 - مساءً):
 - ✅ **اختبارات UI Components** 🎨
   - `src/components/ui/__tests__/button.test.tsx` (30 tests)
   - `src/components/ui/__tests__/card.test.tsx` (35 tests)
