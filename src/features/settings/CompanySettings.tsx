@@ -434,7 +434,15 @@ export function CompanySettings() {
               ) : (
                 <div 
                   className="text-center cursor-pointer p-4"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => fileInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }
+                  }}
                 >
                   {isUploadingLogo ? (
                     <Loader2 className="h-10 w-10 animate-spin mx-auto text-muted-foreground" />

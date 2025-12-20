@@ -86,7 +86,18 @@ function PostingPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Card className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate('/accounting/journal-entries')}>
+            <Card 
+              className="hover:shadow-md transition-shadow cursor-pointer" 
+              role="button"
+              tabIndex={0}
+              onClick={() => navigate('/accounting/journal-entries')}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  navigate('/accounting/journal-entries');
+                }
+              }}
+            >
               <CardHeader>
                 <CardTitle className="text-lg">{isRTL ? 'قيود اليومية' : 'Journal Entries'}</CardTitle>
                 <CardDescription>
