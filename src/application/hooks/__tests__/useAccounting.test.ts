@@ -116,12 +116,12 @@ describe('useAccounting Hooks', () => {
     it('should apply initial filters', async () => {
       mockGetAccounts.mockResolvedValue({ accounts: [] });
 
-      renderHook(() => useChartOfAccounts({ type: 'expense', isActive: true }));
+      renderHook(() => useChartOfAccounts({ type: 'expense', active: true }));
 
       await waitFor(() => {
         expect(mockGetAccounts).toHaveBeenCalledWith({
           type: 'expense',
-          isActive: true,
+          active: true,
         });
       });
     });

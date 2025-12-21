@@ -494,100 +494,88 @@ describe('Enhanced Sales Service', () => {
 
   describe('Payment Status', () => {
     it('should determine unpaid status', () => {
-      const totalAmount = 1000;
-      const paidAmount = 0;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 0;
       
-      let status: string;
-      if (paidAmount === 0) {
-        status = 'unpaid';
-      } else if (paidAmount < totalAmount) {
-        status = 'partially_paid';
-      } else {
-        status = 'paid';
-      }
+      const getPaymentStatus = (total: number, paid: number): string => {
+        if (paid === 0) return 'unpaid';
+        if (paid < total) return 'partially_paid';
+        return 'paid';
+      };
       
+      const status = getPaymentStatus(totalAmount, paidAmount);
       expect(status).toBe('unpaid');
     });
 
     it('should determine partially paid status', () => {
-      const totalAmount = 1000;
-      const paidAmount = 500;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 500;
       
-      let status: string;
-      if (paidAmount === 0) {
-        status = 'unpaid';
-      } else if (paidAmount < totalAmount) {
-        status = 'partially_paid';
-      } else {
-        status = 'paid';
-      }
+      const getPaymentStatus = (total: number, paid: number): string => {
+        if (paid === 0) return 'unpaid';
+        if (paid < total) return 'partially_paid';
+        return 'paid';
+      };
       
+      const status = getPaymentStatus(totalAmount, paidAmount);
       expect(status).toBe('partially_paid');
     });
 
     it('should determine paid status', () => {
-      const totalAmount = 1000;
-      const paidAmount = 1000;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 1000;
       
-      let status: string;
-      if (paidAmount === 0) {
-        status = 'unpaid';
-      } else if (paidAmount < totalAmount) {
-        status = 'partially_paid';
-      } else {
-        status = 'paid';
-      }
+      const getPaymentStatus = (total: number, paid: number): string => {
+        if (paid === 0) return 'unpaid';
+        if (paid < total) return 'partially_paid';
+        return 'paid';
+      };
       
+      const status = getPaymentStatus(totalAmount, paidAmount);
       expect(status).toBe('paid');
     });
   });
 
   describe('Delivery Status', () => {
     it('should determine pending delivery', () => {
-      const totalQty = 100;
-      const deliveredQty = 0;
+      const totalQty: number = 100;
+      const deliveredQty: number = 0;
       
-      let status: string;
-      if (deliveredQty === 0) {
-        status = 'pending';
-      } else if (deliveredQty < totalQty) {
-        status = 'partially_delivered';
-      } else {
-        status = 'fully_delivered';
-      }
+      const getDeliveryStatus = (total: number, delivered: number): string => {
+        if (delivered === 0) return 'pending';
+        if (delivered < total) return 'partially_delivered';
+        return 'fully_delivered';
+      };
       
+      const status = getDeliveryStatus(totalQty, deliveredQty);
       expect(status).toBe('pending');
     });
 
     it('should determine partial delivery', () => {
-      const totalQty = 100;
-      const deliveredQty = 50;
+      const totalQty: number = 100;
+      const deliveredQty: number = 50;
       
-      let status: string;
-      if (deliveredQty === 0) {
-        status = 'pending';
-      } else if (deliveredQty < totalQty) {
-        status = 'partially_delivered';
-      } else {
-        status = 'fully_delivered';
-      }
+      const getDeliveryStatus = (total: number, delivered: number): string => {
+        if (delivered === 0) return 'pending';
+        if (delivered < total) return 'partially_delivered';
+        return 'fully_delivered';
+      };
       
+      const status = getDeliveryStatus(totalQty, deliveredQty);
       expect(status).toBe('partially_delivered');
     });
 
     it('should determine full delivery', () => {
-      const totalQty = 100;
-      const deliveredQty = 100;
+      const totalQty: number = 100;
+      const deliveredQty: number = 100;
       
-      let status: string;
-      if (deliveredQty === 0) {
-        status = 'pending';
-      } else if (deliveredQty < totalQty) {
-        status = 'partially_delivered';
-      } else {
-        status = 'fully_delivered';
-      }
+      const getDeliveryStatus = (total: number, delivered: number): string => {
+        if (delivered === 0) return 'pending';
+        if (delivered < total) return 'partially_delivered';
+        return 'fully_delivered';
+      };
       
+      const status = getDeliveryStatus(totalQty, deliveredQty);
       expect(status).toBe('fully_delivered');
     });
   });
