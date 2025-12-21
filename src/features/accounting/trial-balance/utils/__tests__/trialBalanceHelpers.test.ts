@@ -9,7 +9,6 @@ import type { TrialBalanceRow } from '../../types';
 describe('trialBalanceHelpers', () => {
   const mockBalances: TrialBalanceRow[] = [
     {
-      account_id: '1',
       account_code: '1001',
       account_name: 'Cash',
       account_name_ar: 'نقدية',
@@ -22,7 +21,6 @@ describe('trialBalanceHelpers', () => {
       closing_credit: 0
     },
     {
-      account_id: '2',
       account_code: '2001',
       account_name: 'Accounts Payable',
       account_name_ar: 'ذمم دائنة',
@@ -35,7 +33,6 @@ describe('trialBalanceHelpers', () => {
       closing_credit: 700
     },
     {
-      account_id: '3',
       account_code: '4001',
       account_name: 'Sales Revenue',
       account_name_ar: 'إيرادات المبيعات',

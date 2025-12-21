@@ -8,9 +8,9 @@ import type { Account, JournalLine } from '../../types';
 
 describe('journalHelpers', () => {
   const mockAccounts: Account[] = [
-    { id: 'acc-1', code: '1001', name: 'Cash', name_ar: 'نقدية', type: 'asset' },
-    { id: 'acc-2', code: '2001', name: 'Accounts Payable', name_ar: 'ذمم دائنة', type: 'liability' },
-    { id: 'acc-3', code: '4001', name: 'Sales Revenue', name_ar: 'إيرادات المبيعات', type: 'revenue' },
+    { id: 'acc-1', code: '1001', name: 'Cash', name_ar: 'نقدية', is_active: true },
+    { id: 'acc-2', code: '2001', name: 'Accounts Payable', name_ar: 'ذمم دائنة', is_active: true },
+    { id: 'acc-3', code: '4001', name: 'Sales Revenue', name_ar: 'إيرادات المبيعات', is_active: true },
   ];
 
   describe('normalizeLines', () => {
