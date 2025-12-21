@@ -50,15 +50,14 @@ vi.mock('../../lib/supabase', () => ({
   },
 }));
 
-// Import after mocking
+// Import functions and types after mocking
 import {
   createSalesInvoice,
   getSalesInvoiceWithDetails,
   deliverGoods,
-  getDeliveryNoteWithDetails,
   recordCustomerCollection,
-  getSalesInvoices,
-  getSalesOrderDashboard,
+  getAllSalesInvoices,
+  getAllDeliveryNotes,
   type SalesInvoice,
   type SalesInvoiceLine,
   type DeliveryNote,
@@ -300,14 +299,14 @@ describe('Sales Service', () => {
 
     it('should create correct GL entry for cash collection', async () => {
       // Cash collection uses account 1110
-      const paymentMethod = 'cash';
+      const paymentMethod: string = 'cash';
       const accountCode = paymentMethod === 'cash' ? '1110' : '1111';
 
       expect(accountCode).toBe('1110');
     });
 
     it('should create correct GL entry for bank collection', async () => {
-      const paymentMethod = 'bank';
+      const paymentMethod: string = 'bank';
       const accountCode = paymentMethod === 'cash' ? '1110' : '1111';
 
       expect(accountCode).toBe('1111');
@@ -415,31 +414,37 @@ describe('Sales Service', () => {
 
   describe('Payment Status Updates', () => {
     it('should calculate correct payment status - unpaid', () => {
-      const totalAmount = 1000;
-      const paidAmount = 0;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 0;
 
-      const status = paidAmount === 0 ? 'unpaid' : 
-                     paidAmount >= totalAmount ? 'paid' : 'partially_paid';
+      let status: string;
+      if (paidAmount === 0) status = 'unpaid';
+      else if (paidAmount >= totalAmount) status = 'paid';
+      else status = 'partially_paid';
 
       expect(status).toBe('unpaid');
     });
 
     it('should calculate correct payment status - partially_paid', () => {
-      const totalAmount = 1000;
-      const paidAmount = 500;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 500;
 
-      const status = paidAmount === 0 ? 'unpaid' : 
-                     paidAmount >= totalAmount ? 'paid' : 'partially_paid';
+      let status: string;
+      if (paidAmount === 0) status = 'unpaid';
+      else if (paidAmount >= totalAmount) status = 'paid';
+      else status = 'partially_paid';
 
       expect(status).toBe('partially_paid');
     });
 
     it('should calculate correct payment status - paid', () => {
-      const totalAmount = 1000;
-      const paidAmount = 1000;
+      const totalAmount: number = 1000;
+      const paidAmount: number = 1000;
 
-      const status = paidAmount === 0 ? 'unpaid' : 
-                     paidAmount >= totalAmount ? 'paid' : 'partially_paid';
+      let status: string;
+      if (paidAmount === 0) status = 'unpaid';
+      else if (paidAmount >= totalAmount) status = 'paid';
+      else status = 'partially_paid';
 
       expect(status).toBe('paid');
     });

@@ -87,7 +87,7 @@ describe('Payment Vouchers Service', () => {
     });
 
     it('should identify bank transfer payment', () => {
-      const method: PaymentMethod = 'bank_transfer';
+      const method: string = 'bank_transfer';
       const accountCode = method === 'cash' ? '1110' : '1111';
       expect(accountCode).toBe('1111');
     });

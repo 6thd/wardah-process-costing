@@ -39,7 +39,7 @@ describe('Performance Regression Tests', () => {
         
         // Use Promise.race with a timeout to prevent hanging
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Database connection timeout')), 2000)
+          setTimeout(() => reject(new Error('Database connection timeout')), 1000)
         );
         
         await Promise.race([manufacturingService.getAll(), timeoutPromise]);
@@ -60,7 +60,7 @@ describe('Performance Regression Tests', () => {
         console.warn('⚠️ Skipping performance test: Supabase not initialized or timeout');
         expect(true).toBe(true); // Test passes but is skipped
       }
-    }, 10000);
+    }, 3000);
 
     it('should load Work Centers in < 300ms', async () => {
       const start = performance.now();

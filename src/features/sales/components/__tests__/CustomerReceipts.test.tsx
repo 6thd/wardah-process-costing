@@ -279,7 +279,7 @@ describe('CustomerReceipts Component Logic', () => {
     });
 
     it('should detect LTR for English', () => {
-      const language = 'en';
+      const language: string = 'en';
       const isRTL = language === 'ar';
       expect(isRTL).toBe(false);
     });
