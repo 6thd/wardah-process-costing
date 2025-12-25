@@ -121,7 +121,7 @@ describe('Payment Vouchers Service', () => {
 
     it('should increment sequence number', () => {
       const lastNumber = 'CR-202512-00005';
-      const lastSeq = parseInt(lastNumber.split('-')[2] || '0', 10);
+      const lastSeq = Number.parseInt(lastNumber.split('-')[2] || '0', 10);
       const nextSeq = lastSeq + 1;
       const nextNumber = `CR-202512-${String(nextSeq).padStart(5, '0')}`;
 

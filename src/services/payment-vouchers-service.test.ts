@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Mock supabase + tenant resolver
+// NOSONAR - Mock setup requires deep nesting for Supabase query builder chain
 vi.mock('@/lib/supabase', () => {
   return {
     getEffectiveTenantId: vi.fn(),
