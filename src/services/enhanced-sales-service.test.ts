@@ -134,6 +134,8 @@ describe('enhanced-sales-service createSalesOrder', () => {
       {
         customer_id: 'cust-1',
         order_date: '2025-01-15',
+        status: 'draft',
+        subtotal: 1000,
         total_amount: 1000,
         tax_amount: 0
       },
@@ -171,12 +173,15 @@ describe('enhanced-sales-service createSalesOrder', () => {
       {
         customer_id: 'cust-1',
         order_date: '2025-01-15',
+        status: 'draft',
+        subtotal: 1000,
         total_amount: 1000,
         tax_amount: 0
       },
       [
         {
           item_id: 'item-1',
+          line_number: 1,
           quantity: 10,
           unit_price: 100,
           total_price: 1000
@@ -250,12 +255,15 @@ describe('enhanced-sales-service createSalesOrder', () => {
       {
         customer_id: 'cust-1',
         order_date: '2025-01-15',
+        status: 'draft',
+        subtotal: 200,
         total_amount: 200, // Would exceed limit (400 + 200 > 500)
         tax_amount: 0
       },
       [
         {
           item_id: 'item-1',
+          line_number: 1,
           quantity: 1,
           unit_price: 200,
           total_price: 200

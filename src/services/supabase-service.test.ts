@@ -17,9 +17,55 @@ vi.mock('./manufacturing', () => {
 })
 
 // Mock fetch for getConfig
-global.fetch = vi.fn()
+globalThis.fetch = vi.fn()
 
 type GetSupabaseMock = ReturnType<typeof vi.fn>
+
+// Helper function moved to outer scope for SonarQube compliance
+function setupSupabaseForUpdateStock(initialStock: number) {
+  const fromProductsSelect = {
+    select: vi.fn(() => ({
+      eq: vi.fn(() => ({
+        single: vi.fn().mockResolvedValue({ data: { stock_quantity: initialStock } })
+      }))
+    }))
+  }
+
+  const productsUpdatePayloads: any[] = []
+  const fromProductsUpdate = {
+    update: vi.fn((payload: any) => {
+      productsUpdatePayloads.push(payload)
+      return {
+        eq: vi.fn().mockResolvedValue({ error: null })
+      }
+    })
+  }
+
+  const stockMovementInserts: any[] = []
+  const fromStockMovements = {
+    insert: vi.fn((payload: any) => {
+      stockMovementInserts.push(payload)
+      return Promise.resolve({ error: null })
+    })
+  }
+
+  const supabaseClient = {
+    from: vi.fn((table: string) => {
+      if (table === 'products') {
+        // `updateStock` calls products twice: first select(), then update()
+        // We return an object that supports both entrypoints.
+        return {
+          ...fromProductsSelect,
+          ...fromProductsUpdate
+        }
+      }
+      if (table === 'stock_movements') return fromStockMovements
+      throw new Error(`Unexpected table: ${table}`)
+    })
+  }
+
+  return { supabaseClient, productsUpdatePayloads, stockMovementInserts }
+}
 
 describe('supabase-service itemsService.updateStock', () => {
   beforeEach(() => {
@@ -31,51 +77,6 @@ describe('supabase-service itemsService.updateStock', () => {
   afterEach(() => {
     vi.useRealTimers()
   })
-
-  function setupSupabaseForUpdateStock(initialStock: number) {
-    const fromProductsSelect = {
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          single: vi.fn().mockResolvedValue({ data: { stock_quantity: initialStock } })
-        }))
-      }))
-    }
-
-    const productsUpdatePayloads: any[] = []
-    const fromProductsUpdate = {
-      update: vi.fn((payload: any) => {
-        productsUpdatePayloads.push(payload)
-        return {
-          eq: vi.fn().mockResolvedValue({ error: null })
-        }
-      })
-    }
-
-    const stockMovementInserts: any[] = []
-    const fromStockMovements = {
-      insert: vi.fn((payload: any) => {
-        stockMovementInserts.push(payload)
-        return Promise.resolve({ error: null })
-      })
-    }
-
-    const supabaseClient = {
-      from: vi.fn((table: string) => {
-        if (table === 'products') {
-          // `updateStock` calls products twice: first select(), then update()
-          // We return an object that supports both entrypoints.
-          return {
-            ...fromProductsSelect,
-            ...fromProductsUpdate
-          }
-        }
-        if (table === 'stock_movements') return fromStockMovements
-        throw new Error(`Unexpected table: ${table}`)
-      })
-    }
-
-    return { supabaseClient, productsUpdatePayloads, stockMovementInserts }
-  }
 
   it('increases stock for movementType=in and records movement', async () => {
     const { getSupabase } = await import('../lib/supabase')
@@ -201,7 +202,16 @@ describe('supabase-service itemsService CRUD', () => {
     const { getSupabase } = await import('../lib/supabase')
     const { itemsService } = await import('./supabase-service')
 
-    const newItem = { name: 'New Item', code: 'NI001' }
+    const newItem = {
+      name: 'New Item',
+      code: 'NI001',
+      stock_quantity: 0,
+      cost_price: 0,
+      unit: 'pcs',
+      price: 0,
+      category_id: null,
+      minimum_stock: 0
+    }
     const createdItem = { id: '1', ...newItem }
     const singleMock = vi.fn().mockResolvedValue({ data: createdItem, error: null })
     const selectMock = vi.fn(() => ({ single: singleMock }))
@@ -295,7 +305,7 @@ describe('supabase-service categoriesService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     // Mock fetch for getConfig
-    ;(global.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ;(globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
       ok: true,
       json: async () => ({ TABLE_NAMES: { categories: 'categories' } })
     })

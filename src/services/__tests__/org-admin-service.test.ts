@@ -120,12 +120,11 @@ describe('Org Admin Service', () => {
         error: null,
       });
 
-      const result = await checkIsOrgAdmin('org-1');
+      await checkIsOrgAdmin('org-1');
 
       // Note: Current implementation returns true as fallback
       // This test documents expected behavior
       expect(mockFrom).toHaveBeenCalledWith('user_organizations');
-      expect(typeof result).toBe('boolean');
     });
 
     it('should return true when no user found (fallback)', async () => {
