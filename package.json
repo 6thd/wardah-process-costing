@@ -11,6 +11,7 @@
     "validate-env": "tsx scripts/env/validate-env.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reportOnFailure",
+    "coverage:ensure": "node scripts/ensure-coverage.cjs",
     "test:security": "vitest run tests/security",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

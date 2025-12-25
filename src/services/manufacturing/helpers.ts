@@ -104,7 +104,8 @@ export async function loadRelatedItemData(
 /**
  * Check if error is a table not found error
  */
-export function isTableNotFoundError(error: { code?: string; message?: string }): boolean {
+export function isTableNotFoundError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
   return error.code === 'PGRST205' || 
          error.message?.includes('Could not find the table') || 
          false;
@@ -113,7 +114,8 @@ export function isTableNotFoundError(error: { code?: string; message?: string })
 /**
  * Check if error is a relationship not found error
  */
-export function isRelationshipNotFoundError(error: { code?: string; message?: string }): boolean {
+export function isRelationshipNotFoundError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
   return error.code === 'PGRST200' || 
          error.message?.includes('Could not find a relationship') || 
          false;

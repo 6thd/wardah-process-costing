@@ -288,7 +288,6 @@ describe('Sales Reports Service', () => {
 
   describe('Tenant Fallback Logic', () => {
     it('should try org_id first', () => {
-      const tenantId = 'tenant-1';
       const columnName = 'org_id';
       expect(columnName).toBe('org_id');
     });

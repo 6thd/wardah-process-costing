@@ -212,6 +212,14 @@ async function generateDeliveryNumber(): Promise<string> {
   }
 }
 
+// Expose selected internals for unit tests without expanding the app API surface.
+// (Name is intentionally "internal-looking" to discourage app usage.)
+export const __testables = {
+  generateSalesOrderNumber,
+  generateInvoiceNumber,
+  generateDeliveryNumber
+};
+
 /**
  * Check customer credit limit
  */

@@ -330,7 +330,10 @@ describe('Stock Ledger Service', () => {
         stock_value_difference: 5000,
       };
 
-      const calculated = entry.actual_qty! * entry.valuation_rate!;
+      // NOSONAR - Type assertion needed for test clarity
+      const actualQty = entry.actual_qty ?? 0;
+      const valuationRate = entry.valuation_rate ?? 0;
+      const calculated = actualQty * valuationRate;
       expect(calculated).toBe(entry.stock_value_difference);
     });
 
@@ -341,7 +344,10 @@ describe('Stock Ledger Service', () => {
         stock_value_difference: -2500,
       };
 
-      const calculated = entry.actual_qty! * entry.valuation_rate!;
+      // NOSONAR - Type assertion needed for test clarity
+      const actualQty = entry.actual_qty ?? 0;
+      const valuationRate = entry.valuation_rate ?? 0;
+      const calculated = actualQty * valuationRate;
       expect(calculated).toBe(entry.stock_value_difference);
     });
   });

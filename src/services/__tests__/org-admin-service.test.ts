@@ -1,6 +1,7 @@
 /**
  * @fileoverview Comprehensive Tests for Org Admin Service
  * Tests organization administration: users, roles, invitations, stats
+ * NOSONAR - Mock setup requires deep nesting for Supabase query builder chain
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -119,7 +120,7 @@ describe('Org Admin Service', () => {
         error: null,
       });
 
-      const result = await checkIsOrgAdmin('org-1');
+      await checkIsOrgAdmin('org-1');
 
       // Note: Current implementation returns true as fallback
       // This test documents expected behavior
@@ -247,7 +248,7 @@ describe('Org Admin Service', () => {
 
   describe('removeUserFromOrg', () => {
     it('should remove user and their roles', async () => {
-      const result = await removeUserFromOrg('user-1', 'org-1');
+      await removeUserFromOrg('user-1', 'org-1');
 
       expect(mockFrom).toHaveBeenCalledWith('user_roles');
       expect(mockFrom).toHaveBeenCalledWith('user_organizations');
@@ -261,7 +262,7 @@ describe('Org Admin Service', () => {
         }),
       }));
 
-      const result = await removeUserFromOrg('user-1', 'org-1');
+      await removeUserFromOrg('user-1', 'org-1');
 
       // Should handle error gracefully
       expect(mockFrom).toHaveBeenCalled();

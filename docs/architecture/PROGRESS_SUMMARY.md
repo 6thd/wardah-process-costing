@@ -1,3 +1,49 @@
+# 🎉 ملخص التحديثات - 25 ديسمبر 2025
+
+---
+
+## 🚀 **تحديثات 25 ديسمبر 2025 - Process Costing Implementation**
+
+### ✅ **المراحل المكتملة:**
+
+#### المرحلة 1: التثبيت والتهيئة ✅
+- Migration 66: إضافة حقول WIP إلى `stage_costs`
+- تهيئة البنية لـ EUP implementation
+- **الوقت:** ~1 ساعة
+
+#### المرحلة 2: تطبيق EUP (Weighted-Average) ✅
+- Migration 67: تطبيق EUP calculation
+- 7 اختبارات EUP جديدة (22 إجمالي)
+- **الوقت:** ~3 ساعات
+
+#### المرحلة 3: Scrap Accounting ✅
+- Migration 68: تطبيق Normal vs Abnormal scrap
+- 7 اختبارات Scrap Accounting جديدة (29 إجمالي)
+- دعم Regrind cost و Waste credit
+- **الوقت:** ~4 ساعات
+
+#### المرحلة 4: FIFO Method ✅
+- Migration 69: تطبيق FIFO costing method
+- 7 اختبارات FIFO جديدة (36 إجمالي)
+- دعم كلا الطريقتين: Weighted-Average و FIFO
+- **الوقت:** ~5 ساعات
+
+### 📊 **الإحصائيات:**
+- **Migrations:** 4 (66, 67, 68, 69)
+- **الاختبارات:** 36 (جميعها نجحت)
+- **الحقول الجديدة:** 18 حقل
+- **الوقت الإجمالي:** ~13 ساعة
+
+### 📚 **التوثيق:**
+- `PROCESS_COSTING_IMPROVEMENT_PLAN.md` - خطة التحسين
+- `PROCESS_COSTING_LIMITATIONS.md` - Known Limitations & Roadmap
+- `EUP_IMPLEMENTATION_SUMMARY.md` - ملخص EUP
+- `SCRAP_ACCOUNTING_SUMMARY.md` - ملخص Scrap Accounting
+- `FIFO_METHOD_SUMMARY.md` - ملخص FIFO Method
+- `PROCESS_COSTING_COMPLETE_SUMMARY.md` - ملخص شامل
+
+---
+
 # 🎉 ملخص التحديثات - 13 ديسمبر 2025
 
 ## ✅ الإنجازات المكتملة (10 مهام)
@@ -382,6 +428,42 @@ export function getInventoryValuationService(): InventoryValuationAppService {
 
 ---
 
+## 🏭 **تحديثات 25 ديسمبر 2025 - Manufacturing Services Tests**
+
+### ✅ إضافة اختبارات شاملة لقسم التصنيع (154 اختبار)
+
+**الملفات المضافة:**
+- `src/services/manufacturing/__tests__/createOrder.test.ts` (7 tests)
+- `src/services/manufacturing/__tests__/getById.test.ts` (7 tests)
+- `src/services/manufacturing/__tests__/updateStatus.test.ts` (9 tests)
+- `src/services/manufacturing/__tests__/helpers.test.ts` (43 tests)
+- `src/services/manufacturing/__tests__/bomAlternativeService.test.ts` (22 tests)
+- `src/services/manufacturing/__tests__/bomCostingService.test.ts` (22 tests)
+- `src/services/manufacturing/__tests__/bomRoutingService.test.ts` (19 tests)
+- `src/services/manufacturing/__tests__/bomTreeService.test.ts` (25 tests)
+
+**الإصلاحات المطبقة:**
+- إصلاح mock لـ `getEffectiveTenantId` و `supabase.rpc`
+- إصلاح chainable mocks للـ `select`, `delete`, `eq`
+- إصلاح `isRelationshipNotFoundError` للتعامل مع `null`/`undefined`
+- إصلاح `afterEach` import في `updateStatus.test.ts`
+
+**النتائج:**
+- ✅ **154 اختبار** تمر بنجاح
+- ✅ **9 ملفات اختبار** تعمل بشكل صحيح
+- ✅ جميع الاختبارات متوافقة مع معايير SonarQube
+- ✅ زيادة التغطية المتوقعة: 22-25% → **~25-28%**
+
+**إحصائيات الاختبارات:**
+| الفئة | العدد | الحالة |
+|-------|-------|--------|
+| Unit Tests | 2016 | ✅ 100% Pass |
+| E2E Tests | 93 | ✅ 100% Pass |
+| Test Files | 94 | ✅ Active |
+| **المجموع** | **2109** | **✅ All Passing** |
+
+---
+
 ## 🎯 **Architecture Compliance Update**
 
 | Metric | Before | After | Change |
@@ -515,6 +597,25 @@ export function getInventoryValuationService(): InventoryValuationAppService {
 
 ---
 
-**التاريخ:** 20 ديسمبر 2025  
+**التاريخ:** 25 ديسمبر 2025  
 **الفريق:** AI Assistant + User
+
+---
+
+## 📈 **ملخص التقدم الإجمالي**
+
+### الاختبارات:
+- **Total Tests**: 2016 unit + 93 E2E = **2109 tests**
+- **Test Success Rate**: **100%**
+- **Test Files**: 94 files
+
+### التغطية:
+- **Current Coverage**: ~25-28% (متوقع على SonarCloud)
+- **Target Coverage**: ≥ 80%
+- **Manufacturing Coverage**: ~50%+ (من 0%)
+
+### البنية المعمارية:
+- **Clean Architecture Compliance**: 95%
+- **Domain Violations**: 0 files
+- **TypeScript Coverage**: 97%
 

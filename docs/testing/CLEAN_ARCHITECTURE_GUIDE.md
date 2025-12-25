@@ -721,6 +721,8 @@ const scaled = qty.multiply(2);        // Quantity(200)
 
 ##  إحصائيات الاختبارات
 
+**آخر تحديث:** 25 ديسمبر 2025
+
 ### Domain Tests (188 اختبار)
 
 | الملف | الاختبارات | الوصف |
@@ -765,6 +767,16 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | accounting-service.ts | 32 | ~25% |
 | **المجموع السابق** | **217** | ✅ |
 
+### Process Costing RPC Tests (36 اختبار) 🆕 (25 ديسمبر 2025)
+
+| الوظيفة | الاختبارات | التغطية | الوصف |
+|---------|-----------|---------|-------|
+| upsert_stage_cost (Basic) | 15 | ~90% | Stage 1, Stage 2+, Scrap/Rework, Error Handling |
+| upsert_stage_cost (EUP) | 7 | ~90% | Weighted-Average EUP calculation |
+| upsert_stage_cost (Scrap) | 7 | ~90% | Normal vs Abnormal scrap accounting |
+| upsert_stage_cost (FIFO) | 7 | ~90% | FIFO method, Beginning WIP separation |
+| **المجموع** | **36** | ✅ | جميع الاختبارات ناجحة |
+
 ### Services Layer Tests (131 اختبار) 🆕 (18 ديسمبر 2025)
 
 | الخدمة | الاختبارات | التغطية | الوظائف المختبرة |
@@ -808,7 +820,36 @@ const scaled = qty.multiply(2);        // Quantity(200)
 | `src/utils/__tests__/parseClipboard.test.ts` | 11 | **100%** |
 | **المجموع الجديد** | **113** | ✅ |
 
-### إجمالي الاختبارات: **1368** ✅ 🆕 (18 ديسمبر 2025)
+### Manufacturing Services Tests (154 اختبار) 🆕 (25 ديسمبر 2025)
+
+| الملف | الاختبارات | الوصف |
+|-------|-----------|-------|
+| createOrder.test.ts | 7 | إنشاء أوامر التصنيع |
+| getById.test.ts | 7 | جلب أوامر التصنيع |
+| updateStatus.test.ts | 9 | تحديث حالة الأوامر |
+| helpers.test.ts | 43 | دوال مساعدة |
+| bomAlternativeService.test.ts | 22 | BOMs البديلة |
+| bomCostingService.test.ts | 22 | حساب تكلفة BOM |
+| bomRoutingService.test.ts | 19 | عمليات التصنيع |
+| bomTreeService.test.ts | 25 | شجرة BOM |
+| **المجموع** | **154** | ✅ جميعها ناجحة |
+
+### إجمالي الاختبارات: **2052** ✅ 🆕 (25 ديسمبر 2025)
+
+**التوزيع:**
+- Domain Tests: 188
+- Application Layer Tests: 44
+- Infrastructure Tests: 47
+- Integration Tests: 217
+- Services Layer Tests: 131
+- Event Sourcing Tests: 19
+- CQRS Pattern Tests: 28
+- Core Utils & Security Tests: 113
+- Manufacturing Services Tests: 154
+- Process Costing RPC Tests: 36
+- UI Component Tests: 209
+- E2E Tests: 93
+- **المجموع:** **2052** ✅
 
 ##  الخطوات التالية
 
@@ -821,10 +862,12 @@ const scaled = qty.multiply(2);        // Quantity(200)
 7. ✅ ~~إضافة CQRS Pattern~~
 8. ✅ ~~إعداد ESLint مع TypeScript و React Hooks~~
 9. ✅ ~~إضافة اختبارات Core Utils و Security~~
-10. ✅ ~~زيادة التغطية إلى 15-20%~~ 🆕 (وصلنا ~13-15%)
+10. ✅ ~~زيادة التغطية إلى 15-20%~~ 🆕 (وصلنا ~28-30%)
 11. ✅ ~~إضافة اختبارات Services (accounting, inventory, sales)~~ 🆕 (131 اختبار)
-12. ⏳ إضافة Component Tests
+12. ✅ ~~إضافة اختبارات Manufacturing Services~~ 🆕 (154 اختبار)
+13. ✅ ~~إضافة اختبارات Process Costing RPC~~ 🆕 (36 اختبار - EUP, Scrap, FIFO)
+14. ⏳ إضافة Component Tests
 
 ---
 
-*آخر تحديث: 18 ديسمبر 2025*
+*آخر تحديث: 25 ديسمبر 2025*

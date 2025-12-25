@@ -197,6 +197,7 @@ export function Sidebar() {
         { key: 'financial', href: '/reports/financial', label: t('navigation.financial') },
         { key: 'inventory', href: '/reports/inventory', label: t('navigation.inventory') },
         { key: 'manufacturing', href: '/reports/manufacturing', label: t('navigation.manufacturing') },
+        { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', label: isRTL ? 'لوحة تكاليف المراحل' : 'Process Costing Dashboard' },
         { key: 'sales', href: '/reports/sales', label: t('navigation.sales') },
         { key: 'purchasing', href: '/reports/purchasing', label: t('navigation.purchasing') },
         { key: 'analytics', href: '/reports/analytics', label: t('navigation.analytics') },
