@@ -3,7 +3,7 @@
  * Tests purchase orders, goods receipts, and supplier invoices logic
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 // ============================================================
 // TYPES (copied from purchasing-service.ts for testing)
@@ -677,8 +677,13 @@ describe('Purchasing Service', () => {
 
         const entries = generatePurchaseGLEntries(invoice);
 
-        const totalDebits = entries.reduce((sum, e) => sum + e.debit, 0);
-        const totalCredits = entries.reduce((sum, e) => sum + e.credit, 0);
+        // Calculate totals
+        let totalDebits = 0;
+        let totalCredits = 0;
+        for (const e of entries) {
+          totalDebits += e.debit;
+          totalCredits += e.credit;
+        }
 
         expect(totalDebits).toBe(totalCredits);
         expect(totalDebits).toBe(2300);
@@ -705,8 +710,13 @@ describe('Purchasing Service', () => {
       it('should have balanced payment entries', () => {
         const entries = generatePaymentGLEntries('INV-001', 1500, '2025-01-20');
 
-        const totalDebits = entries.reduce((sum, e) => sum + e.debit, 0);
-        const totalCredits = entries.reduce((sum, e) => sum + e.credit, 0);
+        // Calculate totals
+        let totalDebits = 0;
+        let totalCredits = 0;
+        for (const e of entries) {
+          totalDebits += e.debit;
+          totalCredits += e.credit;
+        }
 
         expect(totalDebits).toBe(totalCredits);
         expect(totalDebits).toBe(1500);

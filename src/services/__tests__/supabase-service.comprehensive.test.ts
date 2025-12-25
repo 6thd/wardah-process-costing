@@ -1,6 +1,7 @@
 /**
  * @fileoverview Comprehensive Tests for Supabase Service
  * Tests manufacturing, stock, and core database operations
+ * NOSONAR - Mock setup requires deep nesting for Supabase query builder chain
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -142,8 +143,6 @@ describe('Supabase Service', () => {
 
     describe('update', () => {
       it('should update manufacturing order status', async () => {
-        const updates = { status: 'completed' };
-
         const result = await Promise.resolve({
           data: { id: 'mo-1', status: 'completed' },
           error: null,
