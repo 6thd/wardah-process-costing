@@ -17,6 +17,7 @@ import {
   Brain
 } from 'lucide-react'
 import { ProcessCostingReport } from './process-costing-report'
+import { ProcessCostingDashboard } from './components/ProcessCostingDashboard'
 import { ReportsDashboard } from './components/ReportsDashboard'
 import GeminiDashboard from './components/GeminiDashboard'
 import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
@@ -30,6 +31,7 @@ export function ReportsModule() {
       <Route path="/inventory" element={<InventoryReports />} />
       <Route path="/manufacturing" element={<ManufacturingReports />} />
       <Route path="/process-costing" element={<ProcessCostingReportPage />} />
+      <Route path="/process-costing-dashboard" element={<ProcessCostingDashboardPage />} />
       <Route path="/sales" element={<SalesReports />} />
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
@@ -72,6 +74,15 @@ function ReportsOverview() {
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
       reports: ['تكاليف الإنتاج', 'كفاءة العمليات', 'تحليل المراحل']
+    },
+    {
+      title: 'لوحة تكاليف المراحل',
+      description: 'تحليل شامل لتكاليف المراحل مع EUP و Scrap',
+      icon: Calculator,
+      href: '/reports/process-costing-dashboard',
+      color: 'text-indigo-600',
+      bgColor: 'bg-indigo-50',
+      reports: ['حساب EUP', 'تحليل الهالك', 'مقارنة FIFO', 'تفصيل المراحل', 'تقييم WIP']
     },
     {
       title: 'تقارير المبيعات',
@@ -311,6 +322,10 @@ function ProcessCostingReportPage() {
       <ProcessCostingReport />
     </div>
   )
+}
+
+function ProcessCostingDashboardPage() {
+  return <ProcessCostingDashboard />
 }
 
 // Sales Reports Component - Now uses the comprehensive SalesReportsComponent
