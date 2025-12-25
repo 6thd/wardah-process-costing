@@ -13,7 +13,7 @@ import {
   isTableNotFoundError,
   isRelationshipNotFoundError,
   calculateTotalCost
-} from '@/services/manufacturing/helpers';
+} from '../helpers';
 
 // ===================== normalizeStatus =====================
 

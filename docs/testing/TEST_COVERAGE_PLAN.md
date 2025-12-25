@@ -4,9 +4,9 @@
 
 **الهدف النهائي**: الوصول إلى **80%+ Test Coverage** مع تغطية كاملة للامتثال المحاسبي والرقابة الداخلية
 
-**الوضع الحالي** (تحديث: 20 ديسمبر 2025): 
+**الوضع الحالي** (تحديث: 25 ديسمبر 2025): 
 
-- Coverage: **~22-25%** (متوقع على SonarCloud) ⬆️ (كان 18-20%)
+- Coverage: **~25-28%** (متوقع على SonarCloud) ⬆️ (كان 22-25%)
 - Coverage Target: **≥ 80.0%** للكود الجديد
 - ✅ Test Infrastructure: **مكتمل** (QueryClientProvider + test-utils)
 - ✅ Coverage Generation: **مكتمل** (lcov reports)
@@ -16,13 +16,39 @@
 - ✅ **UI Component Tests**: **مكتمل** (209 tests) 🎨
 - ✅ **E2E Tests**: **مكتمل** (5 files, 93 tests) 🌐
 - ✅ **Core Services Tests**: **مكتمل** (102 tests جديدة) 🆕
+- ✅ **Manufacturing Services Tests**: **مكتمل** (154 tests جديدة) 🏭
 - Lines of Code: **94k**
 - Test Framework: ✅ Vitest + Playwright (جاهز)
-- Existing Tests: **1862 unit test** + **93 E2E test** 🎉
-- Test Success Rate: **100%** (1862/1862) ⬆️
+- Existing Tests: **2052 unit test** + **93 E2E test** 🎉
+- Test Success Rate: **100%** (2052/2052) ⬆️
 - Architecture Compliance: **95%** ✅
 
-**آخر التحديثات** (20 ديسمبر 2025): 🆕
+**آخر التحديثات** (25 ديسمبر 2025): 🆕
+- ✅ **Process Costing RPC Tests** 💰
+  - `src/services/__tests__/process-costing-rpc.test.ts` (36 tests) - EUP, Scrap Accounting, FIFO
+  - تغطية شاملة لـ `upsert_stage_cost` function
+  - اختبارات EUP (Weighted-Average method)
+  - اختبارات Scrap Accounting (Normal vs Abnormal)
+  - اختبارات FIFO Method (Beginning WIP separation)
+- ✅ **Manufacturing Services Tests** 🏭
+  - `src/services/manufacturing/__tests__/createOrder.test.ts` (7 tests) - Order Creation
+  - `src/services/manufacturing/__tests__/getById.test.ts` (7 tests) - Order Retrieval
+  - `src/services/manufacturing/__tests__/updateStatus.test.ts` (9 tests) - Status Updates
+  - `src/services/manufacturing/__tests__/helpers.test.ts` (43 tests) - Helper Functions
+  - `src/services/manufacturing/__tests__/bomAlternativeService.test.ts` (22 tests) - BOM Alternatives
+  - `src/services/manufacturing/__tests__/bomCostingService.test.ts` (22 tests) - BOM Costing
+  - `src/services/manufacturing/__tests__/bomRoutingService.test.ts` (19 tests) - BOM Routing
+  - `src/services/manufacturing/__tests__/bomTreeService.test.ts` (25 tests) - BOM Tree
+- ✅ **إصلاحات Manufacturing Tests**:
+  - إصلاح mock لـ `getEffectiveTenantId` و `supabase.rpc`
+  - إصلاح chainable mocks للـ `select`, `delete`, `eq`
+  - إصلاح `isRelationshipNotFoundError` للتعامل مع `null`/`undefined`
+  - إصلاح `afterEach` import في `updateStatus.test.ts`
+- ✅ **زيادة عدد الاختبارات**: 2016 → **2052** (+36 اختبار Process Costing RPC)
+- ✅ **زيادة التغطية المتوقعة**: 25-28% → **~28-30%** على SonarCloud
+- ✅ **Process Costing Implementation**: EUP + Scrap Accounting + FIFO مكتمل
+
+**التحديثات السابقة** (20 ديسمبر 2025): 🆕
 - ✅ **Core Services Tests** 🧪
   - `src/services/__tests__/process-costing-service.test.ts` (29 tests) - Labor, Overhead, Stage Costs
   - `src/services/__tests__/organization-service.test.ts` (21 tests) - Multi-tenant
@@ -258,8 +284,9 @@ const data = await queryBus.execute(
 | **Event Sourcing** | 19 | 100% | ✅ كامل |
 | **Integration Tests** | 233 | متفاوت | ⏳ قيد التحسين |
 | **Services Layer Tests** | 131 | ~45% | ✅ جديد (18 ديسمبر) |
+| **Manufacturing Services Tests** | 154 | ~50%+ | ✅ جديد (25 ديسمبر) |
 | **Legacy Services** | 321 | ~40% | ⏳ قيد الترحيل |
-| **إجمالي Architecture Tests** | **1011** | **~85%** | ✅ **ممتاز** |
+| **إجمالي Architecture Tests** | **1165** | **~85%** | ✅ **ممتاز** |
 
 ---
 
@@ -469,6 +496,21 @@ it('should calculate AVCO', () => {
     * generateSalesGLEntries (accounts receivable)
     * generateCOGSGLEntries (cost of sales entries)
 
+- [x] `src/services/manufacturing/` (8 files)
+  - 154 tests في `manufacturing/__tests__/` ✅
+  - Coverage: **~50%+**
+  - الوقت الفعلي: ~4 ساعات
+  - Status: ✅ **مكتمل!**
+  - **Files Tested**:
+    * createOrder.test.ts (7 tests) - Order Creation
+    * getById.test.ts (7 tests) - Order Retrieval
+    * updateStatus.test.ts (9 tests) - Status Updates
+    * helpers.test.ts (43 tests) - Helper Functions
+    * bomAlternativeService.test.ts (22 tests) - BOM Alternatives
+    * bomCostingService.test.ts (22 tests) - BOM Costing
+    * bomRoutingService.test.ts (19 tests) - BOM Routing
+    * bomTreeService.test.ts (25 tests) - BOM Tree
+
 - [ ] Component tests (إذا لزم الأمر)
 
 ### الأدوات المستخدمة:
@@ -507,12 +549,14 @@ it('should calculate AVCO', () => {
 | **Total (حالياً)** | **3525** | **316** | **~13-15%** | **~17 ساعة** |
 | **Target** | **~4000** | **~350** | **20-25%** | **Week 0.5** |
 
-**Progress Update (18 ديسمبر 2025)**:
-- ✅ **Phase 1-6 مكتمل**: 316 tests, 3525 lines covered
+**Progress Update (25 ديسمبر 2025)**:
+- ✅ **Phase 1-7 مكتمل**: 470 tests, ~5525 lines covered
+- ✅ **Manufacturing Services**: 154 tests جديدة
+- ✅ **Process Costing RPC**: 36 tests جديدة (EUP, Scrap Accounting, FIFO)
 - ⏳ **Next**: Component tests (إذا لزم الأمر)
-- 📈 **Current Coverage**: ~13-15% (Target: 20-25% في نهاية Week 0.5)
-- ⏱️ **Time Spent**: ~17 hours (6 phases)
-- 🎉 **Total Tests**: 1368 tests passing!
+- 📈 **Current Coverage**: ~28-30% (Target: 20-25% في نهاية Week 0.5) ✅ **تم تجاوز الهدف!**
+- ⏱️ **Time Spent**: ~34 hours (7 phases + Process Costing)
+- 🎉 **Total Tests**: 2052 tests passing!
 
 ---
 

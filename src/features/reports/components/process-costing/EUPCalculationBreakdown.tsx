@@ -51,8 +51,8 @@ interface EUPData {
   unit_cost: number
 }
 
-export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters }) {
-  const { t, i18n } = useTranslation()
+export function EUPCalculationBreakdown({ filters }: { readonly filters: DashboardFilters }) {
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data: eupData, isLoading, error } = useQuery({
@@ -105,6 +105,8 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
         })
         
         // Try fallback: simple select all
+        // eslint-disable-next-line no-console
+        // NOSONAR - Console log needed for debugging
         console.log('🔄 Trying fallback query for EUP...')
         const fallbackQuery = supabase
           .from('stage_costs')
@@ -191,7 +193,7 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
       }))
 
       // Calculate EUP for each record
-      return (data || []).map((record: any) => {
+      return (data || []).map((record: Record<string, unknown>) => {
         const goodQty = Number(record.good_qty) || 0
         const wipEndQty = Number(record.wip_end_qty) || 0
         const wipEndDmPct = Number(record.wip_end_dm_completion_pct) || 0
@@ -199,15 +201,20 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
         const wipBegQty = Number(record.wip_beginning_qty) || 0
         const wipBegDmPct = Number(record.wip_beginning_dm_completion_pct) || 0
         const wipBegCcPct = Number(record.wip_beginning_cc_completion_pct) || 0
-        const costingMethod = record.manufacturing_orders?.costing_method || 'weighted_average'
+        
+        // Get costing method from manufacturing_orders
+        const moData = record.manufacturing_orders as Record<string, unknown> | undefined
+        const costingMethod = (moData?.costing_method as string) || 'weighted_average'
 
         // Calculate EUP based on costing method
         let eupDm = 0
         let eupCc = 0
 
+        const stageNo = Number(record.stage_no) || Number(record.stage_number) || 0
+        
         if (costingMethod === 'fifo') {
           // FIFO: EUP = good_qty + ending_wip - beginning_wip
-          if (record.stage_no === 1) {
+          if (stageNo === 1) {
             eupDm = goodQty + (wipEndQty * wipEndDmPct / 100) - (wipBegQty * wipBegDmPct / 100)
           } else {
             eupDm = goodQty // Stages > 1: DM already in transferred-in
@@ -215,7 +222,7 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
           eupCc = goodQty + (wipEndQty * wipEndCcPct / 100) - (wipBegQty * wipBegCcPct / 100)
         } else {
           // Weighted-Average: EUP = good_qty + ending_wip
-          if (record.stage_no === 1) {
+          if (stageNo === 1) {
             eupDm = goodQty + (wipEndQty * wipEndDmPct / 100)
           } else {
             eupDm = goodQty
@@ -223,9 +230,17 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
           eupCc = goodQty + (wipEndQty * wipEndCcPct / 100)
         }
 
+        // Get work center data
+        const wcData = record.work_centers as Record<string, unknown> | undefined
+        
         return {
-          stage_no: record.stage_no,
-          stage_name: isRTL ? (record.work_centers?.name_ar || record.work_centers?.name || `المرحلة ${record.stage_no}`) : (record.work_centers?.name || `Stage ${record.stage_no}`),
+          stage_no: stageNo,
+          stage_name: (() => {
+            if (isRTL) {
+              return (wcData?.name_ar as string) || (wcData?.name as string) || `المرحلة ${stageNo}`
+            }
+            return (wcData?.name as string) || `Stage ${stageNo}`
+          })(),
           good_qty: goodQty,
           wip_end_qty: wipEndQty,
           wip_end_dm_completion_pct: wipEndDmPct,
@@ -236,7 +251,7 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
           eup_dm: eupDm,
           eup_cc: eupCc,
           costing_method: costingMethod,
-          order_number: record.manufacturing_orders?.order_number || '',
+          order_number: (moData?.order_number as string) || '',
           unit_cost: Number(record.unit_cost) || 0
         } as EUPData
       })
@@ -341,8 +356,8 @@ export function EUPCalculationBreakdown({ filters }: { filters: DashboardFilters
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {eupData.map((item, index) => (
-                  <TableRow key={index}>
+                {eupData.map((item) => (
+                  <TableRow key={`eup-${item.stage_no}-${item.order_number}`}>
                     <TableCell>{item.order_number}</TableCell>
                     <TableCell>{item.stage_name}</TableCell>
                     <TableCell>
