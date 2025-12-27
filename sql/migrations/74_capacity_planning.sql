@@ -239,7 +239,7 @@ BEGIN
             CREATE POLICY "%s_select_policy" ON %I
                 FOR SELECT USING (
                     org_id IN (
-                        SELECT organization_id FROM user_organizations 
+                        SELECT org_id FROM user_organizations 
                         WHERE user_id = auth.uid()
                     )
                 );
@@ -248,7 +248,7 @@ BEGIN
             CREATE POLICY "%s_insert_policy" ON %I
                 FOR INSERT WITH CHECK (
                     org_id IN (
-                        SELECT organization_id FROM user_organizations 
+                        SELECT org_id FROM user_organizations 
                         WHERE user_id = auth.uid()
                     )
                 );
@@ -257,7 +257,7 @@ BEGIN
             CREATE POLICY "%s_update_policy" ON %I
                 FOR UPDATE USING (
                     org_id IN (
-                        SELECT organization_id FROM user_organizations 
+                        SELECT org_id FROM user_organizations 
                         WHERE user_id = auth.uid()
                     )
                 );
@@ -266,7 +266,7 @@ BEGIN
             CREATE POLICY "%s_delete_policy" ON %I
                 FOR DELETE USING (
                     org_id IN (
-                        SELECT organization_id FROM user_organizations 
+                        SELECT org_id FROM user_organizations 
                         WHERE user_id = auth.uid()
                     )
                 );

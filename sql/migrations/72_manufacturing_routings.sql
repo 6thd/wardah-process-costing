@@ -188,7 +188,7 @@ DROP POLICY IF EXISTS "routings_select_policy" ON routings;
 CREATE POLICY "routings_select_policy" ON routings
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -197,7 +197,7 @@ DROP POLICY IF EXISTS "routings_insert_policy" ON routings;
 CREATE POLICY "routings_insert_policy" ON routings
     FOR INSERT WITH CHECK (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -206,7 +206,7 @@ DROP POLICY IF EXISTS "routings_update_policy" ON routings;
 CREATE POLICY "routings_update_policy" ON routings
     FOR UPDATE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -215,7 +215,7 @@ DROP POLICY IF EXISTS "routings_delete_policy" ON routings;
 CREATE POLICY "routings_delete_policy" ON routings
     FOR DELETE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -225,7 +225,7 @@ DROP POLICY IF EXISTS "routing_operations_select_policy" ON routing_operations;
 CREATE POLICY "routing_operations_select_policy" ON routing_operations
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -234,7 +234,7 @@ DROP POLICY IF EXISTS "routing_operations_insert_policy" ON routing_operations;
 CREATE POLICY "routing_operations_insert_policy" ON routing_operations
     FOR INSERT WITH CHECK (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -243,7 +243,7 @@ DROP POLICY IF EXISTS "routing_operations_update_policy" ON routing_operations;
 CREATE POLICY "routing_operations_update_policy" ON routing_operations
     FOR UPDATE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -252,7 +252,7 @@ DROP POLICY IF EXISTS "routing_operations_delete_policy" ON routing_operations;
 CREATE POLICY "routing_operations_delete_policy" ON routing_operations
     FOR DELETE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -262,7 +262,7 @@ DROP POLICY IF EXISTS "operation_resources_select_policy" ON operation_resources
 CREATE POLICY "operation_resources_select_policy" ON operation_resources
     FOR SELECT USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -271,7 +271,7 @@ DROP POLICY IF EXISTS "operation_resources_insert_policy" ON operation_resources
 CREATE POLICY "operation_resources_insert_policy" ON operation_resources
     FOR INSERT WITH CHECK (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -280,7 +280,7 @@ DROP POLICY IF EXISTS "operation_resources_update_policy" ON operation_resources
 CREATE POLICY "operation_resources_update_policy" ON operation_resources
     FOR UPDATE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
@@ -289,7 +289,7 @@ DROP POLICY IF EXISTS "operation_resources_delete_policy" ON operation_resources
 CREATE POLICY "operation_resources_delete_policy" ON operation_resources
     FOR DELETE USING (
         org_id IN (
-            SELECT organization_id FROM user_organizations 
+            SELECT org_id FROM user_organizations 
             WHERE user_id = auth.uid()
         )
     );
