@@ -90,6 +90,9 @@ export function Sidebar() {
       subItems: [
         { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
         { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
+        { key: 'mes', href: '/manufacturing/mes', label: isRTL ? 'تنفيذ التصنيع (MES)' : 'MES Dashboard' },
+        { key: 'routing', href: '/manufacturing/routing', label: isRTL ? 'مسارات التصنيع' : 'Routings' },
+        { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },

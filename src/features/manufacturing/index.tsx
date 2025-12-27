@@ -65,6 +65,10 @@ import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
 import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
+// New modules
+import { RoutingManagement } from './routing/RoutingManagement'
+import { WorkCenterDashboard } from './mes/WorkCenterDashboard'
+import { CapacityDashboard } from './capacity/CapacityDashboard'
 
 // Extended types for order with related data
 interface ManufacturingOrderWithItem extends ManufacturingOrder {
@@ -92,6 +96,9 @@ export function ManufacturingModule() {
       <Route index element={<ManufacturingOverview />} />
       <Route path="overview" element={<ManufacturingOverview />} />
       <Route path="orders" element={<ManufacturingOrdersManagement />} />
+      <Route path="mes" element={<WorkCenterDashboard />} />
+      <Route path="routing/*" element={<RoutingManagement />} />
+      <Route path="capacity" element={<CapacityDashboard />} />
       <Route path="process-costing" element={<ProcessCostingPage />} />
       <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
       <Route path="variance-alerts" element={<VarianceAlertsPage />} />

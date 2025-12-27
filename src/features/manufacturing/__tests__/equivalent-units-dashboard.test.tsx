@@ -4,10 +4,8 @@
 
 import { describe, it, vi } from 'vitest'
 import { render } from '@/test/test-utils'
-
 import { EquivalentUnitsDashboard } from '../equivalent-units-dashboard'
 
-// Set environment variables for Supabase
 process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'http://localhost:54321'
 process.env.VITE_SUPABASE_ANON_KEY = process.env.VITE_SUPABASE_ANON_KEY || 'test-anon-key'
 
