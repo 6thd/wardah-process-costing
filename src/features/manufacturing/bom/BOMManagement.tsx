@@ -215,21 +215,28 @@ export function BOMManagement() {
       {/* BOMs Table */}
       <Card className="wardah-glass-card">
         <CardContent className="p-0">
-          {isLoading ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">جاري التحميل...</p>
-            </div>
-          ) : filteredBOMs?.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">لا توجد قوائم مواد</p>
-              <Button
-                className="mt-4"
-                onClick={() => navigate('/manufacturing/bom/new')}
-              >
-                إنشاء قائمة جديدة
-              </Button>
-            </div>
-          ) : (
+          {(() => {
+            if (isLoading) {
+              return (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">جاري التحميل...</p>
+                </div>
+              )
+            }
+            if (filteredBOMs?.length === 0) {
+              return (
+                <div className="text-center py-12">
+                  <p className="text-muted-foreground">لا توجد قوائم مواد</p>
+                  <Button
+                    className="mt-4"
+                    onClick={() => navigate('/manufacturing/bom/new')}
+                  >
+                    إنشاء قائمة جديدة
+                  </Button>
+                </div>
+              )
+            }
+            return (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-muted/50">
@@ -271,7 +278,7 @@ export function BOMManagement() {
                             variant="ghost"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleEdit(bom.id!);
+                              bom.id && handleEdit(bom.id);
                             }}
                           >
                             <Edit className="w-4 h-4" />
@@ -281,7 +288,7 @@ export function BOMManagement() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleApprove(bom.id!)}
+                              onClick={() => bom.id && handleApprove(bom.id)}
                               className="text-green-600"
                             >
                               <CheckCircle className="w-4 h-4" />
@@ -291,7 +298,7 @@ export function BOMManagement() {
                           <Button
                             size="sm"
                             variant="ghost"
-                            onClick={() => handleCopy(bom.id!, bom.bom_number)}
+                            onClick={() => bom.id && handleCopy(bom.id, bom.bom_number)}
                           >
                             <Copy className="w-4 h-4" />
                           </Button>
@@ -300,7 +307,7 @@ export function BOMManagement() {
                             <Button
                               size="sm"
                               variant="ghost"
-                              onClick={() => handleDelete(bom.id!)}
+                              onClick={() => bom.id && handleDelete(bom.id)}
                               className="text-red-600"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -313,7 +320,8 @@ export function BOMManagement() {
                 </tbody>
               </table>
             </div>
-          )}
+            )
+          })()}
         </CardContent>
       </Card>
     </div>

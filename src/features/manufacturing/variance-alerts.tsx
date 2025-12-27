@@ -155,10 +155,12 @@ export function VarianceAlerts() {
         // In a real implementation:
         // return await equivalentUnitsService.getVarianceAlerts()
         return mockVarianceAlerts
-      } catch (error) {
+      } catch (error: unknown) {
+        const err = error as { message?: string }
+        console.error('Error loading variance alerts:', err.message || error)
         toast({
           title: "Error loading variance alerts",
-          description: "Failed to load variance alerts. Showing mock data.",
+          description: err.message || "Failed to load variance alerts. Showing mock data.",
           variant: "destructive"
         })
         return mockVarianceAlerts
@@ -204,10 +206,12 @@ export function VarianceAlerts() {
       })
       
       queryClient.invalidateQueries({ queryKey: ['variance-alerts'] })
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as { message?: string }
+      console.error('Error acknowledging alert:', err.message || error)
       toast({
         title: "Error",
-        description: "Failed to acknowledge alert",
+        description: err.message || "Failed to acknowledge alert",
         variant: "destructive"
       })
     }
@@ -224,10 +228,12 @@ export function VarianceAlerts() {
       })
       
       queryClient.invalidateQueries({ queryKey: ['variance-alerts'] })
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as { message?: string }
+      console.error('Error resolving alert:', err.message || error)
       toast({
         title: "Error",
-        description: "Failed to resolve alert",
+        description: err.message || "Failed to resolve alert",
         variant: "destructive"
       })
     }
@@ -244,10 +250,12 @@ export function VarianceAlerts() {
       })
       
       queryClient.invalidateQueries({ queryKey: ['variance-alerts'] })
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error as { message?: string }
+      console.error('Error snoozing alert:', err.message || error)
       toast({
         title: "Error",
-        description: "Failed to snooze alert",
+        description: err.message || "Failed to snooze alert",
         variant: "destructive"
       })
     }
@@ -484,20 +492,27 @@ export function VarianceAlerts() {
           <CardTitle className="wardah-text-gradient-google">Variance Alerts</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
-            <div className="flex justify-center items-center h-32">
-              <RefreshCw className="h-6 w-6 animate-spin" />
-              <span className="ml-2">Loading alerts...</span>
-            </div>
-          ) : filteredAlerts.length === 0 ? (
-            <div className="text-center py-8">
-              <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
-              <h3 className="mt-2 text-lg font-medium">No alerts found</h3>
-              <p className="mt-1 text-muted-foreground">
-                No variance alerts match your current filters.
-              </p>
-            </div>
-          ) : (
+          {(() => {
+            if (isLoading) {
+              return (
+                <div className="flex justify-center items-center h-32">
+                  <RefreshCw className="h-6 w-6 animate-spin" />
+                  <span className="ml-2">Loading alerts...</span>
+                </div>
+              )
+            }
+            if (filteredAlerts.length === 0) {
+              return (
+                <div className="text-center py-8">
+                  <CheckCircle className="mx-auto h-12 w-12 text-green-500" />
+                  <h3 className="mt-2 text-lg font-medium">No alerts found</h3>
+                  <p className="mt-1 text-muted-foreground">
+                    No variance alerts match your current filters.
+                  </p>
+                </div>
+              )
+            }
+            return (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -532,7 +547,10 @@ export function VarianceAlerts() {
                       <div className={alert.totalVariance > 0 ? "text-red-500" : "text-green-500"}>
                         {alert.totalVariance > 0 ? '+' : ''}{alert.totalVariance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </div>
-                      <div className={`text-xs ${Math.abs(alert.totalVariancePercent) > 5 ? (alert.totalVariance > 0 ? "text-red-500" : "text-green-500") : "text-muted-foreground"}`}>
+                      <div className={(() => {
+                        if (Math.abs(alert.totalVariancePercent) <= 5) return "text-xs text-muted-foreground"
+                        return alert.totalVariance > 0 ? "text-xs text-red-500" : "text-xs text-green-500"
+                      })()}>
                         {alert.totalVariance > 0 ? '+' : ''}{alert.totalVariancePercent.toFixed(2)}%
                       </div>
                     </TableCell>
@@ -574,7 +592,8 @@ export function VarianceAlerts() {
                 ))}
               </TableBody>
             </Table>
-          )}
+            )
+          })()}
         </CardContent>
       </Card>
       
