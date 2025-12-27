@@ -29,5 +29,5 @@ exports.logger.info('تم تهيئة نظام التسجيل', {
     level: config_1.environment.logging.level,
     environment: config_1.environment.nodeEnv
 });
-environment: config_1.environment.nodeEnv;
+config_1.environment.nodeEnv;
 ;
