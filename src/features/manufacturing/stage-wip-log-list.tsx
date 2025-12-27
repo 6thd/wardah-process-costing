@@ -46,6 +46,9 @@ interface ManufacturingStage {
   id: string
   name?: string
   name_ar?: string
+  code?: string
+  is_active?: boolean
+  order_sequence?: number
 }
 
 interface WipLog {
@@ -214,7 +217,7 @@ export function StageWipLogList() {
                     })
                     .map((stage) => (
                       <SelectItem key={stage.id} value={stage.id}>
-                        {stage.code} - {stage.name_ar || stage.name}
+                        {stage.code || stage.id} - {stage.name_ar || stage.name}
                       </SelectItem>
                     ))}
                 </SelectContent>
