@@ -65,6 +65,25 @@ import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
 import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
+
+// Extended types for order with related data
+interface ManufacturingOrderWithItem extends ManufacturingOrder {
+  item?: {
+    name?: string
+    code?: string
+    product_name?: string
+  }
+  start_date?: string | null
+  due_date?: string | null
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+interface StatusUpdateData extends Record<string, unknown> {
+  quantity?: number
+  start_date?: string | null
+  due_date?: string | null
+}
 import { useWorkCenters, useCreateWorkCenter, type WorkCenter } from '@/hooks/useWorkCenters'
 
 export function ManufacturingModule() {
@@ -214,9 +233,10 @@ function ManufacturingOverview() {
       try {
         const data = await manufacturingService.getAll()
         setOrders(data || [])
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Handle missing table gracefully
-        if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+        const err = error as { code?: string; message?: string }
+        if (err.code === 'PGRST205' || err.message?.includes('Could not find the table')) {
           console.warn('manufacturing_orders table not found, using empty array')
           setOrders([])
         } else {
@@ -228,7 +248,7 @@ function ManufacturingOverview() {
       }
     }
     loadOrders()
-  }, [])
+  }, [t])
 
   const activeOrders = orders.filter(order => isActiveOrder(order.status as ManufacturingOrderStatus))
   const completedOrders = orders.filter(order => isCompletedOrder(order.status as ManufacturingOrderStatus))
@@ -458,7 +478,7 @@ function ManufacturingOrdersManagement() {
   }
 
   const updateOrderStatus = useMutation({
-    mutationFn: async ({ id, status, updateData }: { id: string; status: ManufacturingOrder['status']; updateData?: any }) => {
+    mutationFn: async ({ id, status, updateData }: { id: string; status: ManufacturingOrder['status']; updateData?: StatusUpdateData }) => {
       return await manufacturingService.updateStatus(id, status, updateData)
     },
     onSuccess: () => {
@@ -484,14 +504,15 @@ function ManufacturingOrdersManagement() {
         return
       }
 
+      const orderWithDates = currentOrder as ManufacturingOrderWithItem
       const statusUpdate = prepareStatusUpdate(
         orderId,
         currentStatus,
         targetStatus,
         {
           quantity: currentOrder.quantity,
-          start_date: (currentOrder as any).start_date,
-          due_date: (currentOrder as any).due_date
+          start_date: orderWithDates.start_date ?? null,
+          due_date: orderWithDates.due_date ?? null
         }
       )
 
@@ -503,13 +524,14 @@ function ManufacturingOrdersManagement() {
       await updateOrderStatus.mutateAsync({ 
         id: orderId, 
         status: targetStatus, 
-        updateData: statusUpdate.updateData 
+        updateData: statusUpdate.updateData as StatusUpdateData
       })
 
       toast.success(isRTL ? statusUpdate.messageAr : statusUpdate.message || 'Status updated')
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string }
       console.error('Error changing status:', error)
-      toast.error(error.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'))
+      toast.error(err.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'))
     }
   }
 
@@ -523,9 +545,10 @@ function ManufacturingOrdersManagement() {
       } else {
         toast.error(t('manufacturing.ordersPage.orderNotFound') || 'Order not found')
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string }
       console.error('Error loading order details:', error)
-      toast.error(error.message || t('manufacturing.ordersPage.loadError'))
+      toast.error(err.message || t('manufacturing.ordersPage.loadError'))
     } finally {
       setLoadingOrderDetails(false)
     }
@@ -623,7 +646,10 @@ function ManufacturingOrdersManagement() {
                       </div>
                     </TableCell>
                     <TableCell>
-                      {((order as any).item?.name || (order as any).item?.product_name) ?? '—'}
+                      {(() => {
+                        const orderWithItem = order as ManufacturingOrderWithItem
+                        return orderWithItem.item?.name || orderWithItem.item?.product_name || '—'
+                      })()}
                     </TableCell>
                     <TableCell>{order.quantity ?? 0}</TableCell>
                     <TableCell>
@@ -675,8 +701,8 @@ function ManufacturingOrdersManagement() {
                         </Select>
                       </div>
                     </TableCell>
-                    <TableCell>{formatDate((order as any).start_date)}</TableCell>
-                    <TableCell>{formatDate((order as any).due_date)}</TableCell>
+                    <TableCell>{formatDate((order as ManufacturingOrderWithItem).start_date)}</TableCell>
+                    <TableCell>{formatDate((order as ManufacturingOrderWithItem).due_date)}</TableCell>
                     <TableCell className="text-right">{order.notes || '—'}</TableCell>
                   </TableRow>
                 ))
@@ -698,12 +724,19 @@ function ManufacturingOrdersManagement() {
             </DialogDescription>
           </DialogHeader>
 
-          {loadingOrderDetails ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-            </div>
-          ) : selectedOrder ? (
-            <div className="space-y-6">
+          {(() => {
+            if (loadingOrderDetails) {
+              return (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              )
+            }
+            if (!selectedOrder) {
+              return null
+            }
+            return (
+              <div className="space-y-6">
               {/* Basic Information */}
               <Card>
                 <CardHeader>
@@ -725,7 +758,10 @@ function ManufacturingOrdersManagement() {
                   <div>
                     <Label>{isRTL ? 'المنتج' : 'Product'}</Label>
                     <p className="font-medium">
-                      {((selectedOrder as any).item?.name || (selectedOrder as any).item?.code) ?? '—'}
+                      {(() => {
+                        const orderWithItem = selectedOrder as ManufacturingOrderWithItem
+                        return orderWithItem.item?.name || orderWithItem.item?.code || '—'
+                      })()}
                     </p>
                   </div>
                   <div>
@@ -734,22 +770,22 @@ function ManufacturingOrdersManagement() {
                   </div>
                   <div>
                     <Label>{isRTL ? 'تاريخ البدء المخطط' : 'Planned Start Date'}</Label>
-                    <p className="font-medium">{formatDate((selectedOrder as any).start_date) || '—'}</p>
+                    <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).start_date) || '—'}</p>
                   </div>
                   <div>
                     <Label>{isRTL ? 'تاريخ الانتهاء المخطط' : 'Planned End Date'}</Label>
-                    <p className="font-medium">{formatDate((selectedOrder as any).due_date) || '—'}</p>
+                    <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).due_date) || '—'}</p>
                   </div>
-                  {(selectedOrder as any).created_at && (
+                  {(selectedOrder as ManufacturingOrderWithItem).created_at && (
                     <div>
                       <Label>{isRTL ? 'تاريخ الإنشاء' : 'Created At'}</Label>
-                      <p className="font-medium">{formatDate((selectedOrder as any).created_at)}</p>
+                      <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).created_at)}</p>
                     </div>
                   )}
-                  {(selectedOrder as any).updated_at && (
+                  {(selectedOrder as ManufacturingOrderWithItem).updated_at && (
                     <div>
                       <Label>{isRTL ? 'آخر تحديث' : 'Last Updated'}</Label>
-                      <p className="font-medium">{formatDate((selectedOrder as any).updated_at)}</p>
+                      <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).updated_at)}</p>
                     </div>
                   )}
                 </CardContent>
@@ -768,29 +804,29 @@ function ManufacturingOrdersManagement() {
               )}
 
               {/* Product Details */}
-              {(selectedOrder as any).item && (
-                <Card>
-                  <CardHeader>
-                    <h3 className="text-lg font-semibold">{isRTL ? 'تفاصيل المنتج' : 'Product Details'}</h3>
-                  </CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label>{isRTL ? 'رمز المنتج' : 'Product Code'}</Label>
-                      <p className="font-medium">{(selectedOrder as any).item?.code || '—'}</p>
-                    </div>
-                    <div>
-                      <Label>{isRTL ? 'اسم المنتج' : 'Product Name'}</Label>
-                      <p className="font-medium">{(selectedOrder as any).item?.name || '—'}</p>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              {isRTL ? 'لا توجد تفاصيل' : 'No details available'}
-            </div>
-          )}
+              {(() => {
+                const orderWithItem = selectedOrder as ManufacturingOrderWithItem
+                return orderWithItem.item ? (
+                  <Card>
+                    <CardHeader>
+                      <h3 className="text-lg font-semibold">{isRTL ? 'تفاصيل المنتج' : 'Product Details'}</h3>
+                    </CardHeader>
+                    <CardContent className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label>{isRTL ? 'رمز المنتج' : 'Product Code'}</Label>
+                        <p className="font-medium">{orderWithItem.item?.code || '—'}</p>
+                      </div>
+                      <div>
+                        <Label>{isRTL ? 'اسم المنتج' : 'Product Name'}</Label>
+                        <p className="font-medium">{orderWithItem.item?.name || '—'}</p>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : null
+              })()}
+              </div>
+            )
+          })()}
         </DialogContent>
       </Dialog>
     </div>
@@ -927,16 +963,23 @@ function WorkCentersManagement() {
             <h3 className="text-xl font-semibold">{t('manufacturing.workCenters.list.title')}</h3>
           </CardHeader>
           <CardContent>
-            {isLoading ? (
-              <div className="text-center text-muted-foreground py-10">
-                {t('manufacturing.workCenters.list.loading')}
-              </div>
-            ) : workCenters.length === 0 ? (
-              <div className="text-center text-muted-foreground py-10">
-                {t('manufacturing.workCenters.list.empty')}
-              </div>
-            ) : (
-              <div className="space-y-4">
+            {(() => {
+              if (isLoading) {
+                return (
+                  <div className="text-center text-muted-foreground py-10">
+                    {t('manufacturing.workCenters.list.loading')}
+                  </div>
+                )
+              }
+              if (workCenters.length === 0) {
+                return (
+                  <div className="text-center text-muted-foreground py-10">
+                    {t('manufacturing.workCenters.list.empty')}
+                  </div>
+                )
+              }
+              return (
+                <div className="space-y-4">
                 {workCenters.map((wc) => (
                   <div
                     key={wc.id}
@@ -977,8 +1020,9 @@ function WorkCentersManagement() {
                     </div>
                   </div>
                 ))}
-              </div>
-            )}
+                </div>
+              )
+            })()}
           </CardContent>
         </Card>
 

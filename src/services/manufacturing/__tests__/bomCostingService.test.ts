@@ -32,7 +32,7 @@ describe('bomCostingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEffectiveTenantId).mockResolvedValue(testOrgId);
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ material_cost: 100, labor_cost: 50, overhead_cost: 25, total_cost: 175, unit_cost: 175 }], error: null });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: [{ material_cost: 100, labor_cost: 50, overhead_cost: 25, total_cost: 175, unit_cost: 175 }], error: null, count: null, status: 200, statusText: 'OK' });
     
     // Reset all mock implementations
     Object.keys(mockSupabaseQuery).forEach(key => {
@@ -50,7 +50,10 @@ describe('bomCostingService', () => {
           total_cost: 175,
           unit_cost: 175
         }],
-        error: null
+        error: null,
+        count: null,
+        status: 200,
+        statusText: 'OK'
       });
 
       const result = await bomCostingService.calculateStandardCost('bom-1', 1);
@@ -85,7 +88,7 @@ describe('bomCostingService', () => {
     });
 
     it('should return zero values when RPC returns empty', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomCostingService.calculateStandardCost('bom-1');
 
@@ -95,8 +98,8 @@ describe('bomCostingService', () => {
     });
 
     it('should handle RPC errors', async () => {
-      const rpcError = { code: 'PGRST116', message: 'RPC failed' };
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: rpcError });
+      const rpcError = { code: 'PGRST116', message: 'RPC failed', details: '', hint: '', name: 'PostgrestError' };
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: rpcError, count: null, status: 400, statusText: 'Bad Request' });
 
       await expect(bomCostingService.calculateStandardCost('bom-1')).rejects.toEqual(rpcError);
     });
@@ -121,7 +124,7 @@ describe('bomCostingService', () => {
         },
       ];
 
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockComparison, error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockComparison, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomCostingService.compareCosts('bom-1', 1);
 
@@ -137,7 +140,7 @@ describe('bomCostingService', () => {
     });
 
     it('should return empty array when no comparison data', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomCostingService.compareCosts('bom-1');
 

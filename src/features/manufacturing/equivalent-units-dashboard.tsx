@@ -114,10 +114,12 @@ export function EquivalentUnitsDashboard() {
       try {
         // In a real implementation:
         return await equivalentUnitsService.getVarianceAlerts('MEDIUM')
-      } catch (error) {
+      } catch (error: unknown) {
+        const err = error as { message?: string }
+        console.error('Error loading variance alerts:', err.message || error)
         toast({
           title: "Error loading variance alerts",
-          description: "Failed to load variance alerts.",
+          description: err.message || "Failed to load variance alerts.",
           variant: "destructive"
         })
         // Return empty array instead of mock data to avoid confusion
@@ -257,10 +259,11 @@ export function EquivalentUnitsDashboard() {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {varianceAlerts.map((alert, index) => {
+          {varianceAlerts.map((alert) => {
             const mo = mos?.find(m => m.id === alert.moId)
+            const alertKey = `${alert.moId}-${alert.stageNo}-${alert.varianceDate}`
             return (
-              <TableRow key={index}>
+              <TableRow key={alertKey}>
                 <TableCell>{mo?.orderNumber || alert.moId}</TableCell>
                 <TableCell>Stage {alert.stageNo}</TableCell>
                 <TableCell>{alert.varianceDate}</TableCell>
@@ -278,10 +281,11 @@ export function EquivalentUnitsDashboard() {
                 </TableCell>
                 <TableCell>
                   <Badge 
-                    variant={
-                      alert.varianceSeverity === 'HIGH' ? 'destructive' : 
-                      alert.varianceSeverity === 'MEDIUM' ? 'default' : 'secondary'
-                    }
+                    variant={(() => {
+                      if (alert.varianceSeverity === 'HIGH') return 'destructive'
+                      if (alert.varianceSeverity === 'MEDIUM') return 'default'
+                      return 'secondary'
+                    })()}
                   >
                     {alert.varianceSeverity}
                   </Badge>
@@ -347,9 +351,10 @@ export function EquivalentUnitsDashboard() {
             dataKey="value"
             label={(props: any) => `${props.name}: ${(props.percent * 100).toFixed(0)}%`}
           >
-            {aggregatedData.map((_entry, index) => (
-              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-            ))}
+            {aggregatedData.map((entry, index) => {
+              const cellKey = entry.name || `cell-${index}`
+              return <Cell key={cellKey} fill={COLORS[index % COLORS.length]} />
+            })}
           </Pie>
           <Tooltip formatter={(value) => [`$${value}`, 'Cost']} />
           <Legend />
@@ -455,7 +460,7 @@ export function EquivalentUnitsDashboard() {
                   <SelectValue placeholder="Select MO" />
                 </SelectTrigger>
                 <SelectContent>
-                  {mos && mos.map((mo) => (
+                  {mos?.map((mo) => (
                     <SelectItem key={mo.id} value={mo.id}>
                       {mo.orderNumber} - {mo.itemName}
                     </SelectItem>

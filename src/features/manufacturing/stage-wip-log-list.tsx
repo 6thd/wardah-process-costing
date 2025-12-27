@@ -31,17 +31,43 @@ import {
   Edit, 
   Trash2, 
   RefreshCw, 
-  FileText,
-  TrendingUp,
   Factory
 } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import { stageWipLogService } from '@/services/supabase-service'
 import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 
+interface ManufacturingOrder {
+  id: string
+  order_number?: string
+}
+
+interface ManufacturingStage {
+  id: string
+  name?: string
+  name_ar?: string
+}
+
+interface WipLog {
+  id: string
+  mo_id?: string
+  stage_id?: string
+  period_start?: string
+  period_end?: string
+  units_beginning_wip?: number
+  units_started?: number
+  units_completed?: number
+  units_ending_wip?: number
+  cost_material?: number
+  cost_labor?: number
+  cost_overhead?: number
+  total_cost?: number
+  eu_material?: number
+  eu_conversion?: number
+  is_posted?: boolean
+}
+
 export function StageWipLogList() {
-  const { t } = useTranslation()
   const queryClient = useQueryClient()
   
   const [filters, setFilters] = useState({
@@ -55,24 +81,28 @@ export function StageWipLogList() {
   const { data: manufacturingOrdersData } = useManufacturingOrders()
   const { data: stagesData } = useManufacturingStages()
   
-  // Type assertions
-  const manufacturingOrders = (manufacturingOrdersData || []) as any[]
-  const stages = (stagesData || []) as any[]
+  // Type assertions - needed because hooks return unknown types
+  const manufacturingOrders: ManufacturingOrder[] = Array.isArray(manufacturingOrdersData) 
+    ? (manufacturingOrdersData as unknown as ManufacturingOrder[])
+    : []
+  const stages: ManufacturingStage[] = Array.isArray(stagesData)
+    ? (stagesData as unknown as ManufacturingStage[])
+    : []
 
   // Load WIP logs
-  const { data: wipLogsData, isLoading, isError, refetch } = useQuery({
+  const { data: wipLogsData, isLoading, isError, refetch } = useQuery<WipLog[]>({
     queryKey: ['stage-wip-log', filters],
     queryFn: async () => {
-      const filtersToUse: any = {}
+      const filtersToUse: Record<string, string> = {}
       if (filters.moId && filters.moId !== 'all') filtersToUse.moId = filters.moId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
       
-      return stageWipLogService.getAll(filtersToUse)
+      return stageWipLogService.getAll(filtersToUse) as Promise<WipLog[]>
     },
     enabled: true
   })
   
-  const wipLogs = (wipLogsData || []) as any[]
+  const wipLogs = (wipLogsData || []) as WipLog[]
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -83,8 +113,9 @@ export function StageWipLogList() {
       queryClient.invalidateQueries({ queryKey: ['stage-wip-log'] })
       toast.success('تم حذف سجل WIP بنجاح')
     },
-    onError: (error: any) => {
-      toast.error(`خطأ في حذف السجل: ${error.message}`)
+    onError: (error: unknown) => {
+      const err = error as { message?: string }
+      toast.error(`خطأ في حذف السجل: ${err.message || 'حدث خطأ غير متوقع'}`)
     }
   })
 
@@ -112,6 +143,7 @@ export function StageWipLogList() {
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   تتبع ومراقبة العمل قيد التنفيذ لكل مرحلة تصنيع
+                  {/* Note: Create/Edit dialogs will be implemented in future updates */}
                 </p>
               </div>
             </div>
@@ -128,7 +160,7 @@ export function StageWipLogList() {
               <Button
                 size="sm"
                 onClick={() => {
-                  // TODO: Open create dialog
+                  // Note: Create dialog will be implemented in future updates
                   toast.info('إنشاء سجل WIP جديد - قيد التطوير')
                 }}
               >
@@ -153,7 +185,7 @@ export function StageWipLogList() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">جميع الأوامر</SelectItem>
-                  {manufacturingOrders.map((mo: any) => (
+                  {manufacturingOrders.map((mo) => (
                     <SelectItem key={mo.id} value={mo.id}>
                       {mo.order_number || mo.id}
                     </SelectItem>
@@ -174,9 +206,13 @@ export function StageWipLogList() {
                 <SelectContent>
                   <SelectItem value="all">جميع المراحل</SelectItem>
                   {stages
-                    .filter((stage: any) => stage.is_active)
-                    .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
-                    .map((stage: any) => (
+                    .filter((stage) => (stage as { is_active?: boolean }).is_active)
+                    .sort((a, b) => {
+                      const aSeq = (a as { order_sequence?: number }).order_sequence || 0
+                      const bSeq = (b as { order_sequence?: number }).order_sequence || 0
+                      return aSeq - bSeq
+                    })
+                    .map((stage) => (
                       <SelectItem key={stage.id} value={stage.id}>
                         {stage.code} - {stage.name_ar || stage.name}
                       </SelectItem>
@@ -253,9 +289,9 @@ export function StageWipLogList() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    wipLogs.map((log: any) => {
-                      const stage = stages.find((s: any) => s.id === log.stage_id)
-                      const mo = manufacturingOrders.find((m: any) => m.id === log.mo_id)
+                    wipLogs.map((log) => {
+                      const stage = stages.find((s) => s.id === log.stage_id)
+                      const mo = manufacturingOrders.find((m) => m.id === log.mo_id)
                       
                       return (
                         <TableRow key={log.id}>
@@ -302,7 +338,7 @@ export function StageWipLogList() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
-                                  // TODO: Open edit dialog
+                                  // Note: Edit dialog will be implemented in future updates
                                   toast.info('تعديل سجل WIP - قيد التطوير')
                                 }}
                               >

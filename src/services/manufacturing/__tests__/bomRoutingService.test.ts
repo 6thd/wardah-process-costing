@@ -32,7 +32,7 @@ describe('bomRoutingService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEffectiveTenantId).mockResolvedValue(testOrgId);
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
     
     // Reset all mock implementations
     Object.keys(mockSupabaseQuery).forEach(key => {
@@ -58,7 +58,7 @@ describe('bomRoutingService', () => {
         },
       ];
 
-      mockSupabaseQuery.order.mockResolvedValue({ data: mockOperations, error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: mockOperations, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.getOperations('bom-1');
 
@@ -73,7 +73,7 @@ describe('bomRoutingService', () => {
     });
 
     it('should return empty array when no operations found', async () => {
-      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.getOperations('bom-1');
 
@@ -96,7 +96,7 @@ describe('bomRoutingService', () => {
         org_id: testOrgId,
       };
 
-      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'op-1' }, error: null });
+      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'op-1' }, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.addOperation(newOperation);
 
@@ -131,7 +131,7 @@ describe('bomRoutingService', () => {
         run_time_minutes: 8,
       };
 
-      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomRoutingService.updateOperation('op-1', updates);
 
@@ -151,7 +151,7 @@ describe('bomRoutingService', () => {
 
   describe('deleteOperation', () => {
     it('should delete operation successfully', async () => {
-      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomRoutingService.deleteOperation('op-1');
 
@@ -181,7 +181,7 @@ describe('bomRoutingService', () => {
         },
       ];
 
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockCosts, error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockCosts, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.calculateRoutingCost('bom-1', 10);
 
@@ -190,7 +190,7 @@ describe('bomRoutingService', () => {
     });
 
     it('should use default quantity of 1', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomRoutingService.calculateRoutingCost('bom-1');
 
@@ -208,7 +208,7 @@ describe('bomRoutingService', () => {
 
   describe('calculateTotalRoutingCost', () => {
     it('should calculate total routing cost successfully', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: 500, error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: 500, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.calculateTotalRoutingCost('bom-1', 10);
 
@@ -216,7 +216,7 @@ describe('bomRoutingService', () => {
     });
 
     it('should return 0 when RPC returns null', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.calculateTotalRoutingCost('bom-1');
 
@@ -252,7 +252,7 @@ describe('bomRoutingService', () => {
     });
 
     it('should return empty array when no materials found', async () => {
-      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomRoutingService.getOperationMaterials('op-1');
 

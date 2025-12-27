@@ -55,8 +55,7 @@ describe('payment-vouchers-service', () => {
         customer_id: 'cust-1',
         receipt_date: '2025-01-15',
         amount: 0,
-        payment_method: 'cash',
-        status: 'draft'
+        payment_method: 'cash'
       })
 
       expect(result.success).toBe(false)
@@ -86,7 +85,6 @@ describe('payment-vouchers-service', () => {
         receipt_date: '2025-01-15',
         amount: 1000,
         payment_method: 'cash',
-        status: 'draft',
         lines: [
           {
             invoice_id: 'inv-1',
@@ -157,7 +155,6 @@ describe('payment-vouchers-service', () => {
         receipt_date: '2025-01-15',
         amount: 800,
         payment_method: 'cash',
-        status: 'draft',
         lines: [
           {
             invoice_id: 'inv-1',
@@ -222,8 +219,7 @@ describe('payment-vouchers-service', () => {
         customer_id: 'cust-1',
         receipt_date: '2025-01-15',
         amount: 1000,
-        payment_method: 'cash',
-        status: 'draft'
+        payment_method: 'cash'
       })
 
       expect(result.success).toBe(true)
@@ -278,8 +274,7 @@ describe('payment-vouchers-service', () => {
         customer_id: 'cust-1',
         receipt_date: '2025-01-15',
         amount: 1000,
-        payment_method: 'cash',
-        status: 'draft'
+        payment_method: 'cash'
       })
 
       expect(result.success).toBe(true)

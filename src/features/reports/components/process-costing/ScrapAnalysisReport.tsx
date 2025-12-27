@@ -57,9 +57,9 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
-  const { data: scrapData, isLoading, error } = useQuery({
+  const { data: scrapData, isLoading, error } = useQuery<ScrapData[]>({
     queryKey: ['scrap-analysis-report', filters],
-    queryFn: async () => {
+    queryFn: async (): Promise<ScrapData[]> => {
       if (!supabase) throw new Error('Supabase client not initialized')
 
       let query = supabase
@@ -120,17 +120,31 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
         })
         
         if (filtered.length === 0) {
-          return []
+          return [] as ScrapData[]
         }
         
-        // Process fallback data
-        const processedData = filtered.map((sc: Record<string, unknown>) => ({
-          ...sc,
-          manufacturing_orders: {},
-          work_centers: {}
+        // Process fallback data - transform to ScrapData format
+        const processedData: ScrapData[] = filtered.map((sc: Record<string, unknown>) => ({
+          stage_no: Number(sc.stage_no || sc.stage_number || 0),
+          stage_name: isRTL ? `المرحلة ${sc.stage_no || sc.stage_number || 0}` : `Stage ${sc.stage_no || sc.stage_number || 0}`,
+          good_qty: Number(sc.good_qty) || 0,
+          scrap_qty: Number(sc.scrap_qty) || 0,
+          normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
+          abnormal_scrap_qty: Number(sc.abnormal_scrap_qty) || 0,
+          normal_scrap_cost: Number(sc.normal_scrap_cost) || 0,
+          abnormal_scrap_cost: Number(sc.abnormal_scrap_cost) || 0,
+          regrind_cost: Number(sc.regrind_cost) || 0,
+          waste_credit_amount: Number(sc.waste_credit_amount) || 0,
+          normal_scrap_rate: 0,
+          order_number: '',
+          unit_cost: Number(sc.unit_cost) || 0
         }))
         
         return processedData
+      }
+      
+      if (!stageCostsData || stageCostsData.length === 0) {
+        return [] as ScrapData[]
       }
       
       // Fetch work centers separately - support both column names
@@ -174,21 +188,31 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
         work_centers: wcData[(sc.wc_id || sc.work_center_id) as string]
       }))
 
-      return (data || []).map((record: any) => ({
-        stage_no: record.stage_no,
-        stage_name: isRTL ? (record.work_centers?.name_ar || record.work_centers?.name || `المرحلة ${record.stage_no}`) : (record.work_centers?.name || `Stage ${record.stage_no}`),
-        good_qty: Number(record.good_qty) || 0,
-        scrap_qty: Number(record.scrap_qty) || 0,
-        normal_scrap_qty: Number(record.normal_scrap_qty) || 0,
-        abnormal_scrap_qty: Number(record.abnormal_scrap_qty) || 0,
-        normal_scrap_cost: Number(record.normal_scrap_cost) || 0,
-        abnormal_scrap_cost: Number(record.abnormal_scrap_cost) || 0,
-        regrind_cost: Number(record.regrind_cost) || 0,
-        waste_credit_amount: Number(record.waste_credit_amount) || 0,
-        normal_scrap_rate: Number(record.work_centers?.normal_scrap_rate) || 0,
-        order_number: record.manufacturing_orders?.order_number || '',
-        unit_cost: Number(record.unit_cost) || 0
-      })) as ScrapData[]
+      const result: ScrapData[] = (data || []).map((record: Record<string, unknown>) => {
+        const stageNo = Number(record.stage_no || record.stage_number || 0)
+        const workCenters = record.work_centers as { name?: string; name_ar?: string; normal_scrap_rate?: number } | undefined
+        const manufacturingOrders = record.manufacturing_orders as { order_number?: string } | undefined
+        
+        return {
+          stage_no: stageNo,
+          stage_name: isRTL 
+            ? (workCenters?.name_ar || workCenters?.name || `المرحلة ${stageNo}`) 
+            : (workCenters?.name || `Stage ${stageNo}`),
+          good_qty: Number(record.good_qty) || 0,
+          scrap_qty: Number(record.scrap_qty) || 0,
+          normal_scrap_qty: Number(record.normal_scrap_qty) || 0,
+          abnormal_scrap_qty: Number(record.abnormal_scrap_qty) || 0,
+          normal_scrap_cost: Number(record.normal_scrap_cost) || 0,
+          abnormal_scrap_cost: Number(record.abnormal_scrap_cost) || 0,
+          regrind_cost: Number(record.regrind_cost) || 0,
+          waste_credit_amount: Number(record.waste_credit_amount) || 0,
+          normal_scrap_rate: Number(workCenters?.normal_scrap_rate) || 0,
+          order_number: manufacturingOrders?.order_number || '',
+          unit_cost: Number(record.unit_cost) || 0
+        }
+      })
+      
+      return result
     }
   })
 

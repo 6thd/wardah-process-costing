@@ -35,7 +35,7 @@ describe('bomAlternativeService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEffectiveTenantId).mockResolvedValue(testOrgId);
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-1', error: null });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-1', error: null, count: null, status: 200, statusText: 'OK' });
     
     // Reset all mock implementations
     Object.keys(mockSupabaseQuery).forEach(key => {
@@ -66,7 +66,7 @@ describe('bomAlternativeService', () => {
         },
       ];
 
-      mockSupabaseQuery.order.mockResolvedValue({ data: mockAlternatives, error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: mockAlternatives, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.getAlternatives('bom-1');
 
@@ -82,7 +82,7 @@ describe('bomAlternativeService', () => {
     });
 
     it('should return empty array when no alternatives found', async () => {
-      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.getAlternatives('bom-1');
 
@@ -108,7 +108,7 @@ describe('bomAlternativeService', () => {
         org_id: testOrgId,
       };
 
-      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'alt-1' }, error: null });
+      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'alt-1' }, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.addAlternative(newAlternative);
 
@@ -155,7 +155,7 @@ describe('bomAlternativeService', () => {
         is_default: true,
       };
 
-      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomAlternativeService.updateAlternative('alt-1', updates);
 
@@ -175,7 +175,7 @@ describe('bomAlternativeService', () => {
 
   describe('deleteAlternative', () => {
     it('should delete alternative successfully', async () => {
-      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomAlternativeService.deleteAlternative('alt-1');
 
@@ -193,7 +193,7 @@ describe('bomAlternativeService', () => {
 
   describe('selectOptimalBOM', () => {
     it('should select optimal BOM using RPC', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-2', error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-2', error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.selectOptimalBOM('item-1', 100);
 
@@ -207,7 +207,7 @@ describe('bomAlternativeService', () => {
 
     it('should use provided order date', async () => {
       const orderDate = '2025-01-15';
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-2', error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: 'bom-2', error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomAlternativeService.selectOptimalBOM('item-1', 100, orderDate);
 
@@ -223,8 +223,8 @@ describe('bomAlternativeService', () => {
     });
 
     it('should handle RPC errors', async () => {
-      const rpcError = { code: 'PGRST116', message: 'RPC failed' };
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: rpcError });
+      const rpcError = { code: 'PGRST116', message: 'RPC failed', details: '', hint: '', name: 'PostgrestError' };
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: null, error: rpcError, count: null, status: 400, statusText: 'Bad Request' });
 
       await expect(bomAlternativeService.selectOptimalBOM('item-1', 100)).rejects.toEqual(rpcError);
     });
@@ -244,7 +244,7 @@ describe('bomAlternativeService', () => {
         },
       ];
 
-      mockSupabaseQuery.order.mockResolvedValue({ data: mockRules, error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: mockRules, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.getSelectionRules();
 
@@ -259,7 +259,7 @@ describe('bomAlternativeService', () => {
     });
 
     it('should return empty array when no rules found', async () => {
-      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null });
+      mockSupabaseQuery.order.mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.getSelectionRules();
 
@@ -272,13 +272,13 @@ describe('bomAlternativeService', () => {
       const newRule = {
         org_id: testOrgId,
         rule_name: 'Quantity-based selection',
-        rule_type: 'QUANTITY',
+        rule_type: 'QUANTITY' as const,
         condition_json: { min_quantity: 100 },
         priority: 1,
         is_active: true,
       };
 
-      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'rule-1' }, error: null });
+      mockSupabaseQuery.single.mockResolvedValue({ data: { id: 'rule-1' }, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomAlternativeService.addSelectionRule(newRule);
 
@@ -292,7 +292,7 @@ describe('bomAlternativeService', () => {
       const newRule = {
         org_id: testOrgId,
         rule_name: 'Test rule',
-        rule_type: 'QUANTITY',
+        rule_type: 'QUANTITY' as const,
         condition_json: {},
         priority: 1,
         is_active: true,
@@ -309,7 +309,7 @@ describe('bomAlternativeService', () => {
         is_active: false,
       };
 
-      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.eq.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomAlternativeService.updateSelectionRule('rule-1', updates);
 

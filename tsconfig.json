@@ -34,7 +34,10 @@
     "src/services/stock-adjustment-service.ts",
     "src/services/valuation/**/*",
     "src/domain/**/*",
-    "src/utils/**/*"
+    "src/utils/**/*",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/**/*"
   ],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

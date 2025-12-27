@@ -9,11 +9,11 @@ interface Product {
 
 export function useManufacturingProducts() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setProductsLoading] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const loadProducts = async () => {
     try {
-      setProductsLoading(true);
+      setLoading(true);
       const orgId = await getEffectiveTenantId();
 
       const mapProducts = (data: any[] | null | undefined): Product[] =>
@@ -56,14 +56,17 @@ export function useManufacturingProducts() {
       try {
         const { data, error } = await buildProductQuery();
         if (error && (error.code === 'PGRST205' || error.message?.includes('relation'))) {
+          // Table doesn't exist, try items table
           productData = null;
         } else if (error) {
           throw error;
         } else {
           productData = data || null;
         }
-      } catch (error: any) {
-        if (error.code === 'PGRST205') {
+      } catch (error: unknown) {
+        const err = error as { code?: string }
+        if (err.code === 'PGRST205') {
+          // Table doesn't exist, try items table
           productData = null;
         } else {
           throw error;
@@ -75,15 +78,15 @@ export function useManufacturingProducts() {
         if (itemsError && itemsError.code !== 'PGRST205') {
           throw itemsError;
         }
-        productData = itemsData || [];
+        productData = itemsData || null;
       }
 
       setProducts(mapProducts(productData));
     } catch (error) {
       console.warn('Could not load products for manufacturing orders form', error);
       setProducts([]);
-    } finally {
-      setProductsLoading(false);
+      } finally {
+      setLoading(false);
     }
   };
 

@@ -30,7 +30,7 @@ describe('bomTreeService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEffectiveTenantId).mockResolvedValue(testOrgId);
-    vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+    vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
     
     // Reset all mock implementations
     Object.keys(mockSupabaseQuery).forEach(key => {
@@ -89,7 +89,7 @@ describe('bomTreeService', () => {
         },
       ];
 
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockNodes, error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: mockNodes, error: null, count: null, status: 200, statusText: 'OK' });
 
       const result = await bomTreeService.buildBOMTree('bom-1', 1, false);
 
@@ -100,7 +100,7 @@ describe('bomTreeService', () => {
     });
 
     it('should use default quantity of 1', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomTreeService.buildBOMTree('bom-1');
 
@@ -110,7 +110,7 @@ describe('bomTreeService', () => {
     });
 
     it('should use forceRebuild parameter', async () => {
-      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null });
+      vi.mocked(supabase.rpc).mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomTreeService.buildBOMTree('bom-1', 1, true);
 
@@ -509,7 +509,7 @@ describe('bomTreeService', () => {
       ];
 
       const selectChain = {
-        eq: vi.fn().mockResolvedValue({ data: mockSettings, error: null }),
+        eq: vi.fn().mockResolvedValue({ data: mockSettings, error: null, count: null, status: 200, statusText: 'OK' }),
       };
       mockSupabaseQuery.select = vi.fn(() => selectChain);
 
@@ -522,7 +522,7 @@ describe('bomTreeService', () => {
 
     it('should use default values when settings not found', async () => {
       const selectChain = {
-        eq: vi.fn().mockResolvedValue({ data: [], error: null }),
+        eq: vi.fn().mockResolvedValue({ data: [], error: null, count: null, status: 200, statusText: 'OK' }),
       };
       mockSupabaseQuery.select = vi.fn(() => selectChain);
 
@@ -547,7 +547,7 @@ describe('bomTreeService', () => {
         bom_max_levels: 15,
       };
 
-      mockSupabaseQuery.upsert.mockResolvedValue({ data: null, error: null });
+      mockSupabaseQuery.upsert.mockResolvedValue({ data: null, error: null, count: null, status: 200, statusText: 'OK' });
 
       await bomTreeService.updateBOMSettings(updates, 'user-1');
 

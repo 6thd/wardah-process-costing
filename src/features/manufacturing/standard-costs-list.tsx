@@ -42,13 +42,51 @@ import {
   RefreshCw, 
   DollarSign
 } from 'lucide-react'
-import { useTranslation } from 'react-i18next'
 import { standardCostsService } from '@/services/supabase-service'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { supabase } from '@/lib/supabase'
 
+interface Product {
+  id: string
+  code?: string
+  name?: string
+  name_ar?: string
+}
+
+interface StandardCost {
+  id: string
+  product_id?: string
+  stage_id?: string
+  material_cost_per_unit?: number
+  labor_cost_per_unit?: number
+  overhead_cost_per_unit?: number
+  effective_from?: string
+  effective_to?: string | null
+  is_active?: boolean
+  notes?: string
+  product?: Product
+  stage?: { id: string; name?: string; name_ar?: string }
+}
+
+interface StandardCostFormData {
+  product_id: string
+  stage_id: string
+  material_cost_per_unit: number
+  labor_cost_per_unit: number
+  overhead_cost_per_unit: number
+  effective_from: string
+  effective_to: string
+  is_active: boolean
+  notes: string
+}
+
+interface StandardCostFilters {
+  productId?: string
+  stageId?: string
+  isActive?: boolean
+}
+
 export function StandardCostsList() {
-  const { t } = useTranslation()
   const queryClient = useQueryClient()
   
   const [filters, setFilters] = useState({
@@ -58,8 +96,8 @@ export function StandardCostsList() {
   })
 
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [editingCost, setEditingCost] = useState<any>(null)
-  const [formData, setFormData] = useState({
+  const [editingCost, setEditingCost] = useState<StandardCost | null>(null)
+  const [formData, setFormData] = useState<StandardCostFormData>({
     product_id: '',
     stage_id: '',
     material_cost_per_unit: 0,
@@ -73,7 +111,7 @@ export function StandardCostsList() {
 
   // Load related data
   const { data: stages = [] } = useManufacturingStages()
-  const [products, setProducts] = useState<any[]>([])
+  const [products, setProducts] = useState<Product[]>([])
 
   // Load products
   React.useEffect(() => {
@@ -87,30 +125,31 @@ export function StandardCostsList() {
 
         if (error) throw error
         setProducts(data || [])
-      } catch (error: any) {
-        console.error('Error loading products:', error)
+      } catch (error: unknown) {
+        const err = error as { message?: string }
+        console.error('Error loading products:', err.message || error)
       }
     }
     loadProducts()
   }, [])
 
   // Load standard costs
-  const { data: standardCosts = [], isLoading, isError, refetch } = useQuery({
+  const { data: standardCosts = [], isLoading, isError, refetch } = useQuery<StandardCost[]>({
     queryKey: ['standard-costs', filters],
     queryFn: async () => {
-      const filtersToUse: any = {}
+      const filtersToUse: StandardCostFilters = {}
       if (filters.productId && filters.productId !== 'all') filtersToUse.productId = filters.productId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
       if (filters.isActive !== undefined) filtersToUse.isActive = filters.isActive
       
-      return standardCostsService.getAll(filtersToUse)
+      return standardCostsService.getAll(filtersToUse) as Promise<StandardCost[]>
     },
     enabled: true
   })
 
   // Create/Update mutation
   const saveMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: Partial<StandardCostFormData>) => {
       if (editingCost) {
         return standardCostsService.update(editingCost.id, data)
       } else {
@@ -123,8 +162,9 @@ export function StandardCostsList() {
       setIsDialogOpen(false)
       resetForm()
     },
-    onError: (error: any) => {
-      toast.error(`خطأ: ${error.message}`)
+    onError: (error: unknown) => {
+      const err = error as { message?: string }
+      toast.error(`خطأ: ${err.message || 'حدث خطأ غير متوقع'}`)
     }
   })
 
@@ -138,16 +178,17 @@ export function StandardCostsList() {
       queryClient.invalidateQueries({ queryKey: ['standard-costs'] })
       toast.success('تم حذف التكلفة القياسية بنجاح')
     },
-    onError: (error: any) => {
-      toast.error(`خطأ في حذف التكلفة: ${error.message}`)
+    onError: (error: unknown) => {
+      const err = error as { message?: string }
+      toast.error(`خطأ في حذف التكلفة: ${err.message || 'حدث خطأ غير متوقع'}`)
     }
   })
 
-  const handleInputChange = (field: string, value: any) => {
+  const handleInputChange = (field: keyof StandardCostFormData, value: string | number | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
 
-  const handleEdit = (cost: any) => {
+  const handleEdit = (cost: StandardCost) => {
     setEditingCost(cost)
     setFormData({
       product_id: cost.product_id || '',
@@ -262,7 +303,7 @@ export function StandardCostsList() {
                               <SelectValue placeholder="اختر المنتج" />
                             </SelectTrigger>
                             <SelectContent>
-                              {products.map((product: any) => (
+                              {products.map((product) => (
                                 <SelectItem key={product.id} value={product.id}>
                                   {product.code} - {product.name_ar || product.name}
                                 </SelectItem>
@@ -283,9 +324,13 @@ export function StandardCostsList() {
                             </SelectTrigger>
                             <SelectContent>
                               {stages
-                                .filter((stage: any) => stage.is_active)
-                                .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
-                                .map((stage: any) => (
+                                .filter((stage) => (stage as { is_active?: boolean }).is_active)
+                                .sort((a, b) => {
+                                  const aSeq = (a as { order_sequence?: number }).order_sequence || 0
+                                  const bSeq = (b as { order_sequence?: number }).order_sequence || 0
+                                  return aSeq - bSeq
+                                })
+                                .map((stage) => (
                                   <SelectItem key={stage.id} value={stage.id}>
                                     {stage.code} - {stage.name_ar || stage.name}
                                   </SelectItem>
@@ -418,7 +463,7 @@ export function StandardCostsList() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">جميع المنتجات</SelectItem>
-                  {products.map((product: any) => (
+                  {products.map((product) => (
                     <SelectItem key={product.id} value={product.id}>
                       {product.code} - {product.name_ar || product.name}
                     </SelectItem>
@@ -439,9 +484,13 @@ export function StandardCostsList() {
                 <SelectContent>
                   <SelectItem value="all">جميع المراحل</SelectItem>
                   {stages
-                    .filter((stage: any) => stage.is_active)
-                    .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
-                    .map((stage: any) => (
+                    .filter((stage) => (stage as { is_active?: boolean }).is_active)
+                    .sort((a, b) => {
+                      const aSeq = (a as { order_sequence?: number }).order_sequence || 0
+                      const bSeq = (b as { order_sequence?: number }).order_sequence || 0
+                      return aSeq - bSeq
+                    })
+                    .map((stage) => (
                       <SelectItem key={stage.id} value={stage.id}>
                         {stage.code} - {stage.name_ar || stage.name}
                       </SelectItem>
@@ -515,9 +564,9 @@ export function StandardCostsList() {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    standardCosts.map((cost: any) => {
-                      const stage = stages.find((s: any) => s.id === cost.stage_id)
-                      const product = products.find((p: any) => p.id === cost.product_id)
+                    standardCosts.map((cost) => {
+                      const stage = stages.find((s) => (s as { id?: string }).id === cost.stage_id)
+                      const product = products.find((p) => p.id === cost.product_id)
                       const totalCost = (cost.material_cost_per_unit || 0) + 
                                        (cost.labor_cost_per_unit || 0) + 
                                        (cost.overhead_cost_per_unit || 0)

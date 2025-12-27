@@ -22,7 +22,6 @@ interface BOMLineInput extends Omit<BOMLine, 'id' | 'bom_id' | 'org_id'> {
 export function BOMBuilder() {
   const { bomId } = useParams<{ bomId: string }>()
   const navigate = useNavigate()
-  const { user } = useAuthStore()
   const [orgId, setOrgId] = useState<string>('')
 
   useEffect(() => {
