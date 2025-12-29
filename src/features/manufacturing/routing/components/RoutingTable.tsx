@@ -4,7 +4,6 @@
  */
 
 import React from 'react'
-import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -25,6 +24,7 @@ interface RoutingTableProps {
   onDelete: (id: string) => void
   onCopy: (id: string, code: string) => void
   onApprove: (id: string) => void
+  onView?: (id: string) => void
   getStatusBadge: (status: string, isActive: boolean) => React.ReactNode
 }
 
@@ -35,6 +35,7 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
   onDelete,
   onCopy,
   onApprove,
+  onView,
   getStatusBadge
 }) => {
   return (
@@ -54,9 +55,7 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
           <TableRow
             key={routing.id}
             className="cursor-pointer hover:bg-muted/50"
-            onClick={() => {
-              // Handle view navigation if needed
-            }}
+            onClick={() => onView?.(routing.id)}
           >
             <TableCell className="font-medium">{routing.routing_code}</TableCell>
             <TableCell>

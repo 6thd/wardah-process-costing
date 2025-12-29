@@ -191,93 +191,18 @@ export function RoutingManagement() {
                 </Button>
               </div>
             ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{isRTL ? 'رمز المسار' : 'Routing Code'}</TableHead>
-                  <TableHead>{isRTL ? 'الاسم' : 'Name'}</TableHead>
-                  <TableHead>{isRTL ? 'الإصدار' : 'Version'}</TableHead>
-                  <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
-                  <TableHead>{isRTL ? 'تاريخ الفعالية' : 'Effective Date'}</TableHead>
-                  <TableHead className="text-center">{isRTL ? 'الإجراءات' : 'Actions'}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredRoutings?.map((routing: Routing) => (
-                  <TableRow
-                    key={routing.id}
-                    className="cursor-pointer hover:bg-muted/50"
-                    onClick={() => handleView(routing.id)}
-                  >
-                    <TableCell className="font-medium">{routing.routing_code}</TableCell>
-                    <TableCell>
-                      {isRTL ? (routing.routing_name_ar || routing.routing_name) : routing.routing_name}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">v{routing.version}</Badge>
-                    </TableCell>
-                    <TableCell>{getStatusBadge(routing.status, routing.is_active)}</TableCell>
-                    <TableCell>
-                      {new Date(routing.effective_date).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center justify-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleEdit(routing.id)
-                          }}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
-                        
-                        {routing.status === 'DRAFT' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleApprove(routing.id)
-                            }}
-                            className="text-green-600"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                          </Button>
-                        )}
-                        
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleCopy(routing.id, routing.routing_code)
-                          }}
-                        >
-                          <Copy className="w-4 h-4" />
-                        </Button>
-                        
-                        {routing.status === 'DRAFT' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleDelete(routing.id)
-                            }}
-                            className="text-red-600"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+            <RoutingTable
+              routings={filteredRoutings || []}
+              isRTL={isRTL}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+              onCopy={handleCopy}
+              onApprove={handleApprove}
+              onView={handleView}
+              getStatusBadge={getStatusBadge}
+            />
+            )
+          })()}
         </CardContent>
       </Card>
     </div>
