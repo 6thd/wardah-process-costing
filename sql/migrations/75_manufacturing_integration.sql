@@ -391,34 +391,34 @@ WITH daily_data AS (
     GROUP BY wo.org_id, wo.work_center_id, wc.capacity_hours_per_day, DATE_TRUNC('day', wo.actual_end_date)
 )
 SELECT 
-    org_id,
-    work_center_id,
+    dd.org_id,
+    dd.work_center_id,
     wc.name as work_center_name,
-    production_date,
-    available_time,
-    operating_time,
-    downtime,
-    total_produced,
-    good_quantity,
+    dd.production_date,
+    dd.available_time,
+    dd.operating_time,
+    dd.downtime,
+    dd.total_produced,
+    dd.good_quantity,
     -- التوافر (Availability)
-    ROUND(((operating_time) / NULLIF(available_time, 0) * 100)::NUMERIC, 2) as availability_pct,
+    ROUND(((dd.operating_time) / NULLIF(dd.available_time, 0) * 100)::NUMERIC, 2) as availability_pct,
     -- الأداء (Performance)
     ROUND((CASE 
-        WHEN operating_time > 0 AND ideal_cycle_time > 0
-        THEN (total_produced * ideal_cycle_time) / operating_time * 100
+        WHEN dd.operating_time > 0 AND dd.ideal_cycle_time > 0
+        THEN (dd.total_produced * dd.ideal_cycle_time) / dd.operating_time * 100
         ELSE 100 
     END)::NUMERIC, 2) as performance_pct,
     -- الجودة (Quality)
     ROUND((CASE 
-        WHEN total_produced > 0 
-        THEN good_quantity / total_produced * 100
+        WHEN dd.total_produced > 0 
+        THEN dd.good_quantity / dd.total_produced * 100
         ELSE 100 
     END)::NUMERIC, 2) as quality_pct,
     -- OEE
     ROUND((
-        (operating_time / NULLIF(available_time, 0)) *
-        (CASE WHEN operating_time > 0 AND ideal_cycle_time > 0 THEN (total_produced * ideal_cycle_time) / operating_time ELSE 1 END) *
-        (CASE WHEN total_produced > 0 THEN good_quantity / total_produced ELSE 1 END) * 100
+        (dd.operating_time / NULLIF(dd.available_time, 0)) *
+        (CASE WHEN dd.operating_time > 0 AND dd.ideal_cycle_time > 0 THEN (dd.total_produced * dd.ideal_cycle_time) / dd.operating_time ELSE 1 END) *
+        (CASE WHEN dd.total_produced > 0 THEN dd.good_quantity / dd.total_produced ELSE 1 END) * 100
     )::NUMERIC, 2) as oee_pct
 FROM daily_data dd
 JOIN work_centers wc ON dd.work_center_id = wc.id;
