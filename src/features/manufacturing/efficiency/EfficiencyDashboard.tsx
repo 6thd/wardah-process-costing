@@ -562,41 +562,11 @@ export const EfficiencyDashboard: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingMaterials ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        {isRTL ? 'جاري التحميل...' : 'Loading...'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (!materialConsumption || materialConsumption.length === 0) ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    materialConsumption?.map((row) => (
-                      <TableRow key={`${row.work_order_number}-${row.item_code}-${row.consumption_date}`}>
-                        <TableCell className="font-mono">{row.work_order_number}</TableCell>
-                        <TableCell>{row.item_name}</TableCell>
-                        <TableCell className="text-center">{row.planned_quantity?.toLocaleString()}</TableCell>
-                        <TableCell className="text-center">{row.consumed_quantity?.toLocaleString()}</TableCell>
-                        <TableCell className="text-center">
-                          {(() => {
-                            const variancePct = row.variance_pct || 0
-                            const varianceVariant = variancePct <= 5 ? 'default' : 'destructive'
-                            const varianceSign = variancePct > 0 ? '+' : ''
-                            return (
-                              <Badge variant={varianceVariant}>
-                                {varianceSign}{row.variance_pct?.toFixed(1)}%
-                              </Badge>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-center">{row.total_cost?.toLocaleString()} SAR</TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  <MaterialConsumptionTable
+                    data={materialConsumption}
+                    isLoading={loadingMaterials}
+                    isRTL={isRTL}
+                  />
                 </TableBody>
               </Table>
             </CardContent>

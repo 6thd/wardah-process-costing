@@ -4,7 +4,6 @@
  */
 
 import React from 'react'
-import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
 import {
   Table,
@@ -321,18 +320,26 @@ export const MaterialConsumptionTable: React.FC<MaterialConsumptionTableProps> =
 
   return (
     <>
-      {data.map((row) => (
-        <TableRow key={`${row.work_order_number}-${row.item_code}-${row.consumption_date}`}>
-          <TableCell>{format(new Date(row.consumption_date), 'yyyy-MM-dd')}</TableCell>
-          <TableCell className="font-mono">{row.work_order_number}</TableCell>
-          <TableCell>{row.item_code}</TableCell>
-          <TableCell className="text-center">{row.quantity_consumed?.toLocaleString()}</TableCell>
-          <TableCell className="text-center">{row.unit_cost?.toLocaleString()} SAR</TableCell>
-          <TableCell className="text-center font-bold">
-            {((row.quantity_consumed || 0) * (row.unit_cost || 0)).toLocaleString()} SAR
-          </TableCell>
-        </TableRow>
-      ))}
+      {data.map((row) => {
+        const variancePct = row.variance_pct || 0
+        const varianceVariant = variancePct <= 5 ? 'default' : 'destructive'
+        const varianceSign = variancePct > 0 ? '+' : ''
+        
+        return (
+          <TableRow key={`${row.work_order_number}-${row.item_code}-${row.consumption_date}`}>
+            <TableCell className="font-mono">{row.work_order_number}</TableCell>
+            <TableCell>{row.item_name}</TableCell>
+            <TableCell className="text-center">{row.planned_quantity?.toLocaleString()}</TableCell>
+            <TableCell className="text-center">{row.consumed_quantity?.toLocaleString()}</TableCell>
+            <TableCell className="text-center">
+              <Badge variant={varianceVariant}>
+                {varianceSign}{row.variance_pct?.toFixed(1)}%
+              </Badge>
+            </TableCell>
+            <TableCell className="text-center">{row.total_cost?.toLocaleString()} SAR</TableCell>
+          </TableRow>
+        )
+      })}
     </>
   )
 }
