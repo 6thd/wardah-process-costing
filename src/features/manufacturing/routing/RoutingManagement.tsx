@@ -10,14 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -39,6 +31,8 @@ import { useRoutings, useDeleteRouting, useApproveRouting, useCopyRouting } from
 import { useAuthStore } from '@/store/auth-store'
 import { getEffectiveTenantId } from '@/lib/supabase'
 import { Routing } from '@/services/manufacturing/routingService'
+import { RoutingTable } from './components/RoutingTable'
+import { RoutingStats } from './components/RoutingStats'
 
 export function RoutingManagement() {
   const navigate = useNavigate()
@@ -141,69 +135,7 @@ export function RoutingManagement() {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card className="wardah-glass-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="p-2 bg-blue-100 rounded-lg dark:bg-blue-900">
-                <Route className="w-6 h-6 text-blue-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي المسارات' : 'Total Routings'}</p>
-                <p className="text-2xl font-bold">{routings?.length || 0}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="wardah-glass-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="p-2 bg-green-100 rounded-lg dark:bg-green-900">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'معتمدة' : 'Approved'}</p>
-                <p className="text-2xl font-bold">
-                  {routings?.filter((r: Routing) => r.status === 'APPROVED').length || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="wardah-glass-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="p-2 bg-yellow-100 rounded-lg dark:bg-yellow-900">
-                <Edit className="w-6 h-6 text-yellow-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'مسودات' : 'Drafts'}</p>
-                <p className="text-2xl font-bold">
-                  {routings?.filter((r: Routing) => r.status === 'DRAFT').length || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="wardah-glass-card">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-4">
-              <div className="p-2 bg-purple-100 rounded-lg dark:bg-purple-900">
-                <Settings className="w-6 h-6 text-purple-600" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'نشطة' : 'Active'}</p>
-                <p className="text-2xl font-bold">
-                  {routings?.filter((r: Routing) => r.is_active).length || 0}
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <RoutingStats routings={routings} isRTL={isRTL} />
 
       {/* Filters */}
       <Card className="wardah-glass-card">
