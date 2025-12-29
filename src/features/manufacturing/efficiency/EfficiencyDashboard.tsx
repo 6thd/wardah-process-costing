@@ -3,7 +3,7 @@
  * عرض تقارير OEE وكفاءة العمالة وتباين التكاليف
  */
 
-import React, { useState, useMemo } from 'react'
+import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { format, subDays } from 'date-fns'
 import {
@@ -304,7 +304,7 @@ export const EfficiencyDashboard: React.FC = () => {
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid grid-cols-5 w-full max-w-2xl">
           <TabsTrigger value="overview">{isRTL ? 'نظرة عامة' : 'Overview'}</TabsTrigger>
-          <TabsTrigger value="oee">{isRTL ? 'OEE' : 'OEE'}</TabsTrigger>
+          <TabsTrigger value="oee">OEE</TabsTrigger>
           <TabsTrigger value="labor">{isRTL ? 'العمالة' : 'Labor'}</TabsTrigger>
           <TabsTrigger value="variance">{isRTL ? 'التباين' : 'Variance'}</TabsTrigger>
           <TabsTrigger value="materials">{isRTL ? 'المواد' : 'Materials'}</TabsTrigger>
@@ -442,7 +442,7 @@ export const EfficiencyDashboard: React.FC = () => {
                         {isRTL ? 'جاري التحميل...' : 'Loading...'}
                       </TableCell>
                     </TableRow>
-                  ) : wcEfficiency?.length === 0 ? (
+                  ) : (!wcEfficiency || wcEfficiency.length === 0) ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
@@ -495,7 +495,7 @@ export const EfficiencyDashboard: React.FC = () => {
                     <TableHead className="text-center">{isRTL ? 'التوافر' : 'Availability'}</TableHead>
                     <TableHead className="text-center">{isRTL ? 'الأداء' : 'Performance'}</TableHead>
                     <TableHead className="text-center">{isRTL ? 'الجودة' : 'Quality'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'OEE' : 'OEE'}</TableHead>
+                    <TableHead className="text-center">OEE</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -505,7 +505,7 @@ export const EfficiencyDashboard: React.FC = () => {
                         {isRTL ? 'جاري التحميل...' : 'Loading...'}
                       </TableCell>
                     </TableRow>
-                  ) : oeeData?.length === 0 ? (
+                  ) : (!oeeData || oeeData.length === 0) ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
@@ -577,7 +577,7 @@ export const EfficiencyDashboard: React.FC = () => {
                         {isRTL ? 'جاري التحميل...' : 'Loading...'}
                       </TableCell>
                     </TableRow>
-                  ) : laborEfficiency?.length === 0 ? (
+                  ) : (!laborEfficiency || laborEfficiency.length === 0) ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
@@ -647,7 +647,7 @@ export const EfficiencyDashboard: React.FC = () => {
                         {isRTL ? 'جاري التحميل...' : 'Loading...'}
                       </TableCell>
                     </TableRow>
-                  ) : costVariances?.length === 0 ? (
+                  ) : (!costVariances || costVariances.length === 0) ? (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                         {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
@@ -707,7 +707,7 @@ export const EfficiencyDashboard: React.FC = () => {
                         {isRTL ? 'جاري التحميل...' : 'Loading...'}
                       </TableCell>
                     </TableRow>
-                  ) : materialConsumption?.length === 0 ? (
+                  ) : (!materialConsumption || materialConsumption.length === 0) ? (
                     <TableRow>
                       <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                         {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
