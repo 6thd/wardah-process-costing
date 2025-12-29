@@ -256,7 +256,7 @@ export function BOMManagement() {
                     <tr
                       key={bom.id}
                       className="border-t hover:bg-muted/30 cursor-pointer"
-                      onClick={() => handleView(bom.id!)}
+                      onClick={() => bom.id && handleView(bom.id)}
                     >
                       <td className="p-4 font-medium">{bom.bom_number}</td>
                       <td className="p-4">{bom.item_code || '-'}</td>

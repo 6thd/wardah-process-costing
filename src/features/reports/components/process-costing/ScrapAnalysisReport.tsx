@@ -477,9 +477,10 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {pieData.map((entry) => (
-                    <Cell key={`cell-${entry.name}`} fill={COLORS[pieData.indexOf(entry) % COLORS.length]} />
-                  ))}
+                  {pieData.map((entry, idx) => {
+                    const colorIndex = idx % COLORS.length
+                    return <Cell key={`cell-${entry.name}-${idx}`} fill={COLORS[colorIndex]} />
+                  })}
                 </Pie>
                 <Tooltip />
                 <Legend />
