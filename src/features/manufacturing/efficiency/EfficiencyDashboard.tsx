@@ -5,21 +5,16 @@
 
 import React, { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { format, subDays, startOfMonth, endOfMonth } from 'date-fns'
-import { ar, enUS } from 'date-fns/locale'
+import { format, subDays } from 'date-fns'
 import {
   Activity,
   TrendingUp,
   TrendingDown,
-  Clock,
-  Target,
   AlertTriangle,
   CheckCircle,
   Factory,
   Gauge,
-  Boxes,
   CircleDollarSign,
-  ChevronDown,
   RefreshCcw,
   Download
 } from 'lucide-react'
@@ -39,7 +34,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Progress } from '@/components/ui/progress'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
 
@@ -145,9 +139,8 @@ const OEEGauge: React.FC<{
 // =====================================================
 
 export const EfficiencyDashboard: React.FC = () => {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const dateLocale = isRTL ? ar : enUS
 
   // State
   const [dateRange, setDateRange] = useState<DateRange>({
@@ -158,10 +151,10 @@ export const EfficiencyDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview')
 
   // Queries
-  const { data: dashboardStats, isLoading: loadingStats, refetch: refetchStats } = useDashboardStats()
+  const { data: dashboardStats, refetch: refetchStats, isError: statsError } = useDashboardStats()
   const { data: workCenters } = useWorkCenters()
   
-  const { data: laborEfficiency, isLoading: loadingLabor } = useLaborEfficiencyReport({
+  const { data: laborEfficiency, isLoading: loadingLabor, isError: laborError } = useLaborEfficiencyReport({
     workCenterId: selectedWorkCenter || undefined,
     fromDate: dateRange.from,
     toDate: dateRange.to
@@ -193,17 +186,6 @@ export const EfficiencyDashboard: React.FC = () => {
     fromDate: dateRange.from,
     toDate: dateRange.to
   })
-
-  // Calculated stats
-  const avgEfficiency = useMemo(() => {
-    if (!laborEfficiency?.length) return 0
-    return laborEfficiency.reduce((sum, r) => sum + (r.overall_efficiency_pct || 0), 0) / laborEfficiency.length
-  }, [laborEfficiency])
-
-  const avgScrapRate = useMemo(() => {
-    if (!laborEfficiency?.length) return 0
-    return laborEfficiency.reduce((sum, r) => sum + (r.scrap_rate_pct || 0), 0) / laborEfficiency.length
-  }, [laborEfficiency])
 
   return (
     <div className={cn('space-y-6 p-6', isRTL && 'rtl')}>
@@ -467,8 +449,8 @@ export const EfficiencyDashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    wcEfficiency?.map((wc, index) => (
-                      <TableRow key={index}>
+                    wcEfficiency?.map((wc) => (
+                      <TableRow key={`${wc.work_center_id}-${wc.production_date}`}>
                         <TableCell className="font-medium">
                           {isRTL ? wc.work_center_name_ar || wc.work_center_name : wc.work_center_name}
                         </TableCell>
@@ -530,8 +512,8 @@ export const EfficiencyDashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    oeeData?.map((row, index) => (
-                      <TableRow key={index}>
+                    oeeData?.map((row) => (
+                      <TableRow key={`${row.work_center_id}-${row.production_date}`}>
                         <TableCell>{format(new Date(row.production_date), 'yyyy-MM-dd')}</TableCell>
                         <TableCell>{row.work_center_name}</TableCell>
                         <TableCell className="text-center">
@@ -550,11 +532,16 @@ export const EfficiencyDashboard: React.FC = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={row.oee_pct >= 85 ? 'default' : 'secondary'} className={cn(
-                            row.oee_pct >= 85 && 'bg-green-500'
-                          )}>
-                            {row.oee_pct?.toFixed(1)}%
-                          </Badge>
+                          {(() => {
+                            const isWorldClass = row.oee_pct >= 85
+                            return (
+                              <Badge variant={isWorldClass ? 'default' : 'secondary'} className={cn(
+                                isWorldClass && 'bg-green-500'
+                              )}>
+                                {row.oee_pct?.toFixed(1)}%
+                              </Badge>
+                            )
+                          })()}
                         </TableCell>
                       </TableRow>
                     ))
@@ -597,8 +584,8 @@ export const EfficiencyDashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    laborEfficiency?.map((row, index) => (
-                      <TableRow key={index}>
+                    laborEfficiency?.map((row) => (
+                      <TableRow key={`${row.work_order_number}-${row.actual_end_date || ''}`}>
                         <TableCell className="font-mono">{row.work_order_number}</TableCell>
                         <TableCell>{row.operation_name}</TableCell>
                         <TableCell className="text-center">
@@ -608,14 +595,24 @@ export const EfficiencyDashboard: React.FC = () => {
                           {((row.actual_setup_time || 0) + (row.actual_run_time || 0)).toFixed(0)} min
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={row.overall_efficiency_pct >= 100 ? 'default' : 'destructive'}>
-                            {row.overall_efficiency_pct?.toFixed(1)}%
-                          </Badge>
+                          {(() => {
+                            const efficiencyVariant = row.overall_efficiency_pct >= 100 ? 'default' : 'destructive'
+                            return (
+                              <Badge variant={efficiencyVariant}>
+                                {row.overall_efficiency_pct?.toFixed(1)}%
+                              </Badge>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={row.scrap_rate_pct <= 1 ? 'default' : 'destructive'}>
-                            {row.scrap_rate_pct?.toFixed(2)}%
-                          </Badge>
+                          {(() => {
+                            const scrapVariant = row.scrap_rate_pct <= 1 ? 'default' : 'destructive'
+                            return (
+                              <Badge variant={scrapVariant}>
+                                {row.scrap_rate_pct?.toFixed(2)}%
+                              </Badge>
+                            )
+                          })()}
                         </TableCell>
                       </TableRow>
                     ))
@@ -657,18 +654,19 @@ export const EfficiencyDashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    costVariances?.map((row, index) => {
+                    costVariances?.map((row) => {
                       const totalPlanned = (row.planned_labor_cost || 0) + (row.planned_overhead_cost || 0)
                       const totalActual = (row.actual_labor_cost || 0) + (row.actual_overhead_cost || 0)
                       const totalVariance = (row.labor_variance || 0) + (row.overhead_variance || 0)
+                      const badgeVariant = totalVariance <= 0 ? 'default' : 'destructive'
                       return (
-                        <TableRow key={index}>
+                        <TableRow key={`${row.work_order_number}-${row.actual_end_date || ''}`}>
                           <TableCell className="font-mono">{row.work_order_number}</TableCell>
                           <TableCell>{row.operation_name}</TableCell>
                           <TableCell className="text-center">{totalPlanned.toLocaleString()} SAR</TableCell>
                           <TableCell className="text-center">{totalActual.toLocaleString()} SAR</TableCell>
                           <TableCell className="text-center">
-                            <Badge variant={totalVariance <= 0 ? 'default' : 'destructive'} className={cn(
+                            <Badge variant={badgeVariant} className={cn(
                               totalVariance < 0 && 'bg-green-500'
                             )}>
                               {totalVariance > 0 ? '+' : ''}{totalVariance.toLocaleString()} SAR
@@ -716,16 +714,23 @@ export const EfficiencyDashboard: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    materialConsumption?.map((row, index) => (
-                      <TableRow key={index}>
+                    materialConsumption?.map((row) => (
+                      <TableRow key={`${row.work_order_number}-${row.item_code}-${row.consumption_date}`}>
                         <TableCell className="font-mono">{row.work_order_number}</TableCell>
                         <TableCell>{row.item_name}</TableCell>
                         <TableCell className="text-center">{row.planned_quantity?.toLocaleString()}</TableCell>
                         <TableCell className="text-center">{row.consumed_quantity?.toLocaleString()}</TableCell>
                         <TableCell className="text-center">
-                          <Badge variant={(row.variance_pct || 0) <= 5 ? 'default' : 'destructive'}>
-                            {row.variance_pct > 0 ? '+' : ''}{row.variance_pct?.toFixed(1)}%
-                          </Badge>
+                          {(() => {
+                            const variancePct = row.variance_pct || 0
+                            const varianceVariant = variancePct <= 5 ? 'default' : 'destructive'
+                            const varianceSign = variancePct > 0 ? '+' : ''
+                            return (
+                              <Badge variant={varianceVariant}>
+                                {varianceSign}{row.variance_pct?.toFixed(1)}%
+                              </Badge>
+                            )
+                          })()}
                         </TableCell>
                         <TableCell className="text-center">{row.total_cost?.toLocaleString()} SAR</TableCell>
                       </TableRow>

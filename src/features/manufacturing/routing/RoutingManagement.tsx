@@ -31,8 +31,6 @@ import {
   Trash2,
   Copy,
   CheckCircle,
-  Clock,
-  Calculator,
   RefreshCw,
   Route,
   Settings,
@@ -44,7 +42,7 @@ import { Routing } from '@/services/manufacturing/routingService'
 
 export function RoutingManagement() {
   const navigate = useNavigate()
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAuthStore()
   const [orgId, setOrgId] = useState<string>('')

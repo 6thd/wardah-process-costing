@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Save, X, Search } from 'lucide-react'
 import { useBOM, useCreateBOM, useUpdateBOM } from '@/hooks/manufacturing/useBOM'
 import { BOMLine } from '@/services/manufacturing/bomService'
-import { useAuthStore } from '@/store/auth-store'
 
 interface BOMLineInput extends Omit<BOMLine, 'id' | 'bom_id' | 'org_id'> {
   tempId: string

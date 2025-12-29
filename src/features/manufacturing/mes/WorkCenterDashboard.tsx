@@ -10,14 +10,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -38,12 +30,10 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Play,
   Pause,
-  Square,
   RefreshCw,
   CheckCircle,
   AlertTriangle,
   Clock,
-  Users,
   Package,
   Activity,
   Wrench,
