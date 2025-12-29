@@ -259,10 +259,6 @@ function ManufacturingOverview() {
     loadOrders()
   }, [t])
 
-  const activeOrders = orders.filter(order => isActiveOrder(order.status as ManufacturingOrderStatus))
-  const completedOrders = orders.filter(order => isCompletedOrder(order.status as ManufacturingOrderStatus))
-  const pendingOrders = orders.filter(order => isPendingOrder(order.status as ManufacturingOrderStatus))
-
   return (
     <div className="space-y-6">
       <div className={cn(isRTL ? "text-right" : "text-left")}>
@@ -273,157 +269,13 @@ function ManufacturingOverview() {
       </div>
 
       {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
-          <div className="text-2xl font-bold text-blue-600">{activeOrders.length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.overviewPage.metrics.active')}</div>
-        </div>
-        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
-          <div className="text-2xl font-bold text-green-600">{completedOrders.length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.overviewPage.metrics.completed')}</div>
-        </div>
-        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
-          <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.overviewPage.metrics.pending')}</div>
-        </div>
-        <div className="wardah-glass-card wardah-glass-card-hover wardah-animation-float p-4">
-          <div className="text-2xl font-bold text-purple-600">85.6%</div>
-          <div className="text-sm text-muted-foreground">{t('manufacturing.overviewPage.metrics.efficiency')}</div>
-        </div>
-      </div>
+      <ManufacturingMetrics orders={orders} isRTL={isRTL} t={t} />
 
       {/* Manufacturing Functions Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <Link to="/manufacturing/orders" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <Factory className="h-6 w-6 text-primary" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.orders.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.orders.description')}
-          </p>
-          <div className="flex items-center gap-2 mt-3">
-            <Badge variant="secondary">
-              {t('manufacturing.overviewPage.cards.orders.activeBadge', { count: activeOrders.length })}
-            </Badge>
-            <Badge variant="outline">
-              {t('manufacturing.overviewPage.cards.orders.totalBadge', { count: orders.length })}
-            </Badge>
-          </div>
-        </Link>
-
-        <Link to="/manufacturing/process-costing" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <BarChart3 className="h-6 w-6 text-success" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.processCosting.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.processCosting.description')}
-          </p>
-          <Badge variant="default" className="mt-3">
-            {t('manufacturing.overviewPage.cards.processCosting.badge')}
-          </Badge>
-        </Link>
-
-        <Link to="/manufacturing/workcenters" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <Settings className="h-6 w-6 text-info" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.workCenters.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.workCenters.description')}
-          </p>
-        </Link>
-
-        <Link to="/manufacturing/bom" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <Package className="h-6 w-6 text-warning" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.bom.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.bom.description')}
-          </p>
-        </Link>
-
-        <Link to="/manufacturing/quality" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <CheckCircle className="h-6 w-6 text-success" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.quality.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.quality.description')}
-          </p>
-        </Link>
-
-        <div className="wardah-glass-card wardah-glass-card-hover p-6">
-          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
-            <Users className="h-6 w-6 text-secondary" />
-            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
-              {t('manufacturing.overviewPage.cards.labor.title')}
-            </h3>
-          </div>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            {t('manufacturing.overviewPage.cards.labor.description')}
-          </p>
-          <Badge variant="outline" className="mt-3">
-            {t('manufacturing.overviewPage.cards.labor.badge')}
-          </Badge>
-        </div>
-      </div>
+      <ManufacturingCards orders={orders} isRTL={isRTL} t={t} />
 
       {/* Recent Manufacturing Orders */}
-      {!loading && (
-        <div className="wardah-glass-card">
-          <div className="p-4 border-b flex justify-between items-center">
-            <h3 className="font-semibold wardah-text-gradient-google">
-              {t('manufacturing.overviewPage.latestOrders.title')}
-            </h3>
-            <Link to="/manufacturing/orders">
-              <Button variant="outline" size="sm">
-                {t('manufacturing.overviewPage.latestOrders.viewAll')}
-              </Button>
-            </Link>
-          </div>
-          <div className="divide-y">
-            {orders.slice(0, 5).map((order) => (
-              <div key={order.id} className="p-4 flex justify-between items-center">
-                <div>
-                  <h4 className="font-medium">{order.order_number}</h4>
-                  <p className="text-sm text-muted-foreground">{order.product_name}</p>
-                </div>
-                <div className="text-right flex items-center gap-2">
-                  <Badge
-                    variant={(() => {
-                      if (order.status === 'completed') return 'default';
-                      if (order.status === 'in-progress') return 'secondary';
-                      return 'outline';
-                    })()}
-                  >
-                    {(() => {
-                      if (order.status === 'completed') return t('manufacturing.overviewPage.latestOrders.status.completed');
-                      if (order.status === 'in-progress') return t('manufacturing.overviewPage.latestOrders.status.inProgress');
-                      return t('manufacturing.overviewPage.latestOrders.status.pending');
-                    })()}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">
-                    {t('manufacturing.overviewPage.latestOrders.unitsLabel', { count: order.quantity })}
-                  </span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <RecentOrders orders={orders} loading={loading} isRTL={isRTL} t={t} />
     </div>
   )
 }
