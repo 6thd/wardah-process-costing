@@ -21,8 +21,8 @@ interface DashboardFilters {
   costingMethod?: 'weighted_average' | 'fifo' | 'all'
 }
 
-export function WIPValuationReport({ filters }: { filters: DashboardFilters }) {
-  const { t, i18n } = useTranslation()
+export function WIPValuationReport({ filters }: { readonly filters: DashboardFilters }) {
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data: wipData, isLoading, error } = useQuery({
@@ -186,8 +186,8 @@ export function WIPValuationReport({ filters }: { filters: DashboardFilters }) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {wipRecords.map((item: any, index: number) => (
-                      <TableRow key={index}>
+                    {wipRecords.map((item: any) => (
+                      <TableRow key={`${item.order_number || ''}-${item.stage_name || ''}-${item.wip_end_qty || 0}`}>
                         <TableCell>{item.order_number}</TableCell>
                         <TableCell>{item.stage_name}</TableCell>
                         <TableCell className="text-right font-mono">{item.wip_end_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>

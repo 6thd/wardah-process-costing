@@ -194,15 +194,25 @@ export const bomTreeService = {
     const orgId = await getEffectiveTenantId()
     if (!orgId) throw new Error('Organization ID not found')
 
-    const updates = Object.entries(settings).map(([key, value]) => ({
-      org_id: orgId,
-      setting_key: key,
-      setting_value: String(value),
-      setting_type: typeof value === 'number' ? 'number' : 
-                   typeof value === 'boolean' ? 'boolean' : 'string',
-      updated_by: userId,
-      updated_at: new Date().toISOString()
-    }))
+    const updates = Object.entries(settings).map(([key, value]) => {
+      let settingType: 'number' | 'boolean' | 'string'
+      if (typeof value === 'number') {
+        settingType = 'number'
+      } else if (typeof value === 'boolean') {
+        settingType = 'boolean'
+      } else {
+        settingType = 'string'
+      }
+      
+      return {
+        org_id: orgId,
+        setting_key: key,
+        setting_value: String(value),
+        setting_type: settingType,
+        updated_by: userId,
+        updated_at: new Date().toISOString()
+      }
+    })
 
     for (const update of updates) {
       const { error } = await supabase
