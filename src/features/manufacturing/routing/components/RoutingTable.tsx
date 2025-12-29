@@ -41,60 +41,85 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{isRTL ? 'كود المسار' : 'Routing Code'}</TableHead>
-          <TableHead>{isRTL ? 'اسم المسار' : 'Routing Name'}</TableHead>
+          <TableHead>{isRTL ? 'رمز المسار' : 'Routing Code'}</TableHead>
+          <TableHead>{isRTL ? 'الاسم' : 'Name'}</TableHead>
           <TableHead>{isRTL ? 'الإصدار' : 'Version'}</TableHead>
           <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
-          <TableHead>{isRTL ? 'نشط' : 'Active'}</TableHead>
-          <TableHead className="text-right">{isRTL ? 'الإجراءات' : 'Actions'}</TableHead>
+          <TableHead>{isRTL ? 'تاريخ الفعالية' : 'Effective Date'}</TableHead>
+          <TableHead className="text-center">{isRTL ? 'الإجراءات' : 'Actions'}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {routings.map((routing) => (
-          <TableRow key={routing.id}>
-            <TableCell className="font-mono">{routing.routing_code}</TableCell>
+          <TableRow
+            key={routing.id}
+            className="cursor-pointer hover:bg-muted/50"
+            onClick={() => {
+              // Handle view navigation if needed
+            }}
+          >
+            <TableCell className="font-medium">{routing.routing_code}</TableCell>
             <TableCell>
-              {isRTL ? routing.routing_name_ar || routing.routing_name : routing.routing_name}
+              {isRTL ? (routing.routing_name_ar || routing.routing_name) : routing.routing_name}
             </TableCell>
-            <TableCell>{routing.version}</TableCell>
+            <TableCell>
+              <Badge variant="outline">v{routing.version}</Badge>
+            </TableCell>
             <TableCell>{getStatusBadge(routing.status, routing.is_active)}</TableCell>
             <TableCell>
-              <Badge variant={routing.is_active ? 'default' : 'secondary'}>
-                {routing.is_active ? (isRTL ? 'نعم' : 'Yes') : (isRTL ? 'لا' : 'No')}
-              </Badge>
+              {new Date(routing.effective_date).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}
             </TableCell>
-            <TableCell className="text-right">
-              <div className="flex justify-end gap-2">
+            <TableCell>
+              <div className="flex items-center justify-center gap-2">
                 <Button
-                  variant="ghost"
                   size="sm"
-                  onClick={() => onEdit(routing.id)}
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onEdit(routing.id)
+                  }}
                 >
                   <Edit className="w-4 h-4" />
                 </Button>
+                
                 {routing.status === 'DRAFT' && (
                   <Button
-                    variant="ghost"
                     size="sm"
-                    onClick={() => onApprove(routing.id)}
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onApprove(routing.id)
+                    }}
+                    className="text-green-600"
                   >
                     <CheckCircle className="w-4 h-4" />
                   </Button>
                 )}
+                
                 <Button
-                  variant="ghost"
                   size="sm"
-                  onClick={() => onCopy(routing.id, routing.routing_code)}
+                  variant="ghost"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCopy(routing.id, routing.routing_code)
+                  }}
                 >
                   <Copy className="w-4 h-4" />
                 </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onDelete(routing.id)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
+                
+                {routing.status === 'DRAFT' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDelete(routing.id)
+                    }}
+                    className="text-red-600"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                )}
               </div>
             </TableCell>
           </TableRow>
