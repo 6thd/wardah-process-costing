@@ -52,7 +52,7 @@ interface ScrapData {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042']
 
-export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) {
+export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFilters }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
