@@ -67,7 +67,7 @@ export function RoutingManagement() {
     const matchesSearch = 
       routing.routing_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       routing.routing_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (routing.routing_name_ar && routing.routing_name_ar.includes(searchTerm))
+      routing.routing_name_ar?.includes(searchTerm)
     
     const matchesStatus = statusFilter === 'ALL' || routing.status === statusFilter
     
@@ -244,7 +244,7 @@ export function RoutingManagement() {
               <RefreshCw className="w-6 h-6 animate-spin" />
               <span className="ml-2">{isRTL ? 'جاري التحميل...' : 'Loading...'}</span>
             </div>
-          ) : filteredRoutings?.length === 0 ? (
+          ) : (!filteredRoutings || filteredRoutings.length === 0) ? (
             <div className="text-center py-12">
               <Route className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد مسارات' : 'No routings found'}</h3>

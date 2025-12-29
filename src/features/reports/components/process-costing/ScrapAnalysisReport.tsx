@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Scissors, AlertTriangle, CheckCircle, Info } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -54,7 +53,7 @@ interface ScrapData {
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042']
 
 export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data: scrapData, isLoading, error } = useQuery<ScrapData[]>({
@@ -65,17 +64,6 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
       let query = supabase
         .from('stage_costs')
         .select('*')
-      
-      const { data: stageCostsData, error: queryError } = await query
-      
-      // Sort manually if order() fails
-      if (stageCostsData && !queryError) {
-        stageCostsData.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-          const aStage = Number(a.stage_no || a.stage_number || 0)
-          const bStage = Number(b.stage_no || b.stage_number || 0)
-          return aStage - bStage
-        })
-      }
 
       if (filters.manufacturingOrderId) {
         query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
@@ -91,6 +79,17 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
 
       if (filters.stageNo) {
         query = query.eq('stage_no', filters.stageNo)
+      }
+      
+      const { data: stageCostsData, error: queryError } = await query
+      
+      // Sort manually if order() fails
+      if (stageCostsData && !queryError) {
+        stageCostsData.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+          const aStage = Number(a.stage_no || a.stage_number || 0)
+          const bStage = Number(b.stage_no || b.stage_number || 0)
+          return aStage - bStage
+        })
       }
 
       if (queryError) {
@@ -399,8 +398,8 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {scrapData.map((item, index) => (
-                  <TableRow key={index}>
+                {scrapData.map((item) => (
+                  <TableRow key={`${item.order_number}-${item.stage_no}-${item.stage_name}`}>
                     <TableCell>{item.order_number}</TableCell>
                     <TableCell>{item.stage_name}</TableCell>
                     <TableCell className="text-right font-mono">
@@ -478,8 +477,8 @@ export function ScrapAnalysisReport({ filters }: { filters: DashboardFilters }) 
                   fill="#8884d8"
                   dataKey="value"
                 >
-                  {pieData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  {pieData.map((entry) => (
+                    <Cell key={`cell-${entry.name}`} fill={COLORS[pieData.indexOf(entry) % COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />

@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { capacityService, ProductionSchedule, ScheduleDetail } from '@/services/manufacturing/capacityService'
+import { capacityService, ProductionSchedule, ScheduleDetail, WorkCenterLoad, BottleneckAnalysis, CapacitySummary } from '@/services/manufacturing/capacityService'
 import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys

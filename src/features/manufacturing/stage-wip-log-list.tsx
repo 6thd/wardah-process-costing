@@ -105,7 +105,7 @@ export function StageWipLogList() {
     enabled: true
   })
   
-  const wipLogs = (wipLogsData || []) as WipLog[]
+  const wipLogs: WipLog[] = wipLogsData || []
 
   // Delete mutation
   const deleteMutation = useMutation({

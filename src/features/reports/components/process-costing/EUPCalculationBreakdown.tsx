@@ -105,9 +105,6 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         })
         
         // Try fallback: simple select all
-        // eslint-disable-next-line no-console
-        // NOSONAR - Console log needed for debugging
-        console.log('🔄 Trying fallback query for EUP...')
         const fallbackQuery = supabase
           .from('stage_costs')
           .select('*')

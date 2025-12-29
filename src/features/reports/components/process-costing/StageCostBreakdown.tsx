@@ -45,6 +45,10 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
       let query = supabase
         .from('stage_costs')
         .select('*')
+
+      if (filters.manufacturingOrderId) {
+        query = query.eq('mo_id', filters.manufacturingOrderId)
+      }
       
       const { data: stageCostsData, error: queryError } = await query
       
@@ -55,10 +59,6 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
           const bStage = Number(b.stage_no || b.stage_number || 0)
           return aStage - bStage
         })
-      }
-
-      if (filters.manufacturingOrderId) {
-        query = query.eq('mo_id', filters.manufacturingOrderId)
       }
 
       if (queryError) {

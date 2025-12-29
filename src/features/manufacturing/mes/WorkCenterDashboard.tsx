@@ -47,7 +47,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 
 export function WorkCenterDashboard() {
-  const { t, i18n } = useTranslation()
+  const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   
   const [selectedWorkCenter, setSelectedWorkCenter] = useState<string>('')
@@ -291,7 +291,7 @@ export function WorkCenterDashboard() {
             <div className="flex justify-center items-center h-32">
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
-          ) : workOrders?.length === 0 ? (
+          ) : (!workOrders || workOrders.length === 0) ? (
             <div className="text-center py-12">
               <Factory className="mx-auto h-12 w-12 text-muted-foreground" />
               <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد أوامر عمل' : 'No Work Orders'}</h3>

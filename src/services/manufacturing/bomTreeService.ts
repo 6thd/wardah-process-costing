@@ -69,7 +69,8 @@ export const bomTreeService = {
 
     // بناء الشجرة
     nodes.forEach(node => {
-      const treeNode = nodeMap.get(node.id)!
+      const treeNode = nodeMap.get(node.id)
+      if (!treeNode) continue
       if (node.parent_id) {
         const parent = nodeMap.get(node.parent_id)
         if (parent) {
