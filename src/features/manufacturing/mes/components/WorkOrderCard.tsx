@@ -7,6 +7,7 @@ import React from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Timer } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import {
   Play,
@@ -39,7 +40,8 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
   onResume,
   onComplete,
   getStatusBadge,
-  getProgressPercentage
+  getProgressPercentage,
+  isPending
 }) => {
   const progress = getProgressPercentage(workOrder)
   const canStartSetup = workOrder.status === 'READY' || workOrder.status === 'PENDING'
@@ -53,36 +55,34 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           {/* Work Order Info */}
           <div className="flex-1">
-            <div className="flex items-center gap-3 mb-2">
-              <h3 className="font-semibold text-lg">{workOrder.work_order_number}</h3>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="font-bold text-lg">{workOrder.work_order_number}</span>
               {getStatusBadge(workOrder.status)}
+              <Badge variant="outline">#{workOrder.operation_sequence}</Badge>
             </div>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">{isRTL ? 'الكمية المخططة:' : 'Planned Qty:'}</span>
-                <span className="ml-2 font-medium">{workOrder.planned_quantity}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{isRTL ? 'المكتملة:' : 'Completed:'}</span>
-                <span className="ml-2 font-medium">{workOrder.completed_quantity}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{isRTL ? 'الخردة:' : 'Scrapped:'}</span>
-                <span className="ml-2 font-medium text-red-600">{workOrder.scrapped_quantity}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground">{isRTL ? 'المتبقي:' : 'Remaining:'}</span>
-                <span className="ml-2 font-medium">
-                  {workOrder.planned_quantity - workOrder.completed_quantity - workOrder.scrapped_quantity}
-                </span>
-              </div>
-            </div>
+            <p className="text-muted-foreground">
+              {isRTL ? workOrder.operation_name_ar || workOrder.operation_name : workOrder.operation_name}
+            </p>
+            
+            {/* Progress */}
             <div className="mt-3">
-              <div className="flex justify-between text-xs mb-1">
+              <div className="flex justify-between text-sm mb-1">
                 <span>{isRTL ? 'التقدم' : 'Progress'}</span>
-                <span>{progress}%</span>
+                <span>{workOrder.completed_quantity} / {workOrder.planned_quantity}</span>
               </div>
-              <Progress value={progress} />
+              <Progress value={progress} className="h-2" />
+            </div>
+
+            {/* Times */}
+            <div className="flex gap-4 mt-3 text-sm text-muted-foreground">
+              <div className="flex items-center gap-1">
+                <Timer className="w-4 h-4" />
+                <span>{isRTL ? 'إعداد:' : 'Setup:'} {workOrder.actual_setup_time || 0}/{workOrder.planned_setup_time} {isRTL ? 'د' : 'min'}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="w-4 h-4" />
+                <span>{isRTL ? 'تشغيل:' : 'Run:'} {workOrder.actual_run_time || 0}/{workOrder.planned_run_time} {isRTL ? 'د' : 'min'}</span>
+              </div>
             </div>
           </div>
 
@@ -90,51 +90,51 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
           <div className="flex flex-wrap gap-2">
             {canStartSetup && (
               <Button
-                size="sm"
-                variant="outline"
                 onClick={() => onStartSetup(workOrder)}
+                disabled={isPending?.start}
+                className="bg-blue-500 hover:bg-blue-600"
               >
-                <Clock className="w-4 h-4 mr-2" />
+                <Play className="w-4 h-4 mr-2" />
                 {isRTL ? 'بدء الإعداد' : 'Start Setup'}
               </Button>
             )}
             {canStartProduction && (
-              <Button
-                size="sm"
-                onClick={() => onStartProduction(workOrder)}
-              >
-                <Play className="w-4 h-4 mr-2" />
-                {isRTL ? 'بدء الإنتاج' : 'Start Production'}
-              </Button>
-            )}
-            {canPause && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => onPause(workOrder)}
-              >
-                <Pause className="w-4 h-4 mr-2" />
-                {isRTL ? 'إيقاف' : 'Pause'}
-              </Button>
+              <>
+                <Button
+                  onClick={() => onStartProduction(workOrder)}
+                  disabled={isPending?.start}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  <Play className="w-4 h-4 mr-2" />
+                  {isRTL ? 'بدء الإنتاج' : 'Start Production'}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => onPause(workOrder)}
+                  disabled={isPending?.pause}
+                >
+                  <Pause className="w-4 h-4 mr-2" />
+                  {isRTL ? 'إيقاف' : 'Pause'}
+                </Button>
+                <Button
+                  onClick={() => onComplete(workOrder)}
+                  className="bg-purple-500 hover:bg-purple-600"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  {isRTL ? 'تسجيل إنتاج' : 'Report Output'}
+                </Button>
+              </>
             )}
             {canResume && (
               <Button
-                size="sm"
                 onClick={() => onResume(workOrder)}
+                disabled={isPending?.resume}
+                className="bg-green-500 hover:bg-green-600"
               >
                 <Play className="w-4 h-4 mr-2" />
                 {isRTL ? 'استئناف' : 'Resume'}
               </Button>
             )}
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => onComplete(workOrder)}
-              disabled={workOrder.status === 'COMPLETED'}
-            >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              {isRTL ? 'إكمال' : 'Complete'}
-            </Button>
           </div>
         </div>
       </CardContent>
