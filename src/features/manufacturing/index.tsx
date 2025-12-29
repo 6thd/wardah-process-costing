@@ -69,6 +69,7 @@ import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/s
 import { RoutingManagement } from './routing/RoutingManagement'
 import { WorkCenterDashboard } from './mes/WorkCenterDashboard'
 import { CapacityDashboard } from './capacity/CapacityDashboard'
+import { EfficiencyDashboard } from './efficiency/EfficiencyDashboard'
 
 // Extended types for order with related data
 interface ManufacturingOrderWithItem extends ManufacturingOrder {
@@ -99,6 +100,7 @@ export function ManufacturingModule() {
       <Route path="mes" element={<WorkCenterDashboard />} />
       <Route path="routing/*" element={<RoutingManagement />} />
       <Route path="capacity" element={<CapacityDashboard />} />
+      <Route path="efficiency" element={<EfficiencyDashboard />} />
       <Route path="process-costing" element={<ProcessCostingPage />} />
       <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
       <Route path="variance-alerts" element={<VarianceAlertsPage />} />

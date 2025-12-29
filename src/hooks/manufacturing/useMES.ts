@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { mesService, WorkOrder, WorkOrderStatus, OperationEventType, LaborTimeTracking, QualityInspection, MaterialConsumption, MachineDowntime } from '@/services/manufacturing/mesService'
-import { useToast } from '@/hooks/use-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys
 export const mesKeys = {
@@ -558,6 +558,24 @@ export function useResolveMachineDown() {
         description: error.message || 'فشل في إنهاء التوقف',
         variant: 'destructive',
       })
+    },
+  })
+}
+
+// =====================================================
+// Work Centers Query
+// =====================================================
+
+/**
+ * Hook للحصول على مراكز العمل
+ */
+export function useWorkCenters() {
+  return useQuery({
+    queryKey: ['work-centers'],
+    queryFn: async () => {
+      const { data, error } = await mesService.getWorkCenters()
+      if (error) throw error
+      return data || []
     },
   })
 }

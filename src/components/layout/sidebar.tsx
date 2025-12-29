@@ -93,6 +93,7 @@ export function Sidebar() {
         { key: 'mes', href: '/manufacturing/mes', label: isRTL ? 'تنفيذ التصنيع (MES)' : 'MES Dashboard' },
         { key: 'routing', href: '/manufacturing/routing', label: isRTL ? 'مسارات التصنيع' : 'Routings' },
         { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
+        { key: 'efficiency', href: '/manufacturing/efficiency', label: isRTL ? 'الكفاءة والأداء' : 'Efficiency & OEE' },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },

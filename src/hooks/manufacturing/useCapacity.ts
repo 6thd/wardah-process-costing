@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { capacityService, WorkCenterLoad, ProductionSchedule, ScheduleDetail, BottleneckAnalysis, CapacitySummary } from '@/services/manufacturing/capacityService'
-import { useToast } from '@/hooks/use-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys
 export const capacityKeys = {

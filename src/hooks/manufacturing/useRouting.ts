@@ -4,7 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { routingService, Routing, RoutingOperation, RoutingFormData, OperationFormData } from '@/services/manufacturing/routingService'
-import { useToast } from '@/hooks/use-toast'
+import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys
 export const routingKeys = {

@@ -884,6 +884,23 @@ export async function getWorkCenterSummary(workCenterId: string): Promise<{
 }
 
 // =====================================================
+// Work Centers
+// =====================================================
+
+/**
+ * الحصول على مراكز العمل
+ */
+export async function getWorkCenters() {
+  const orgId = await getEffectiveTenantId()
+  
+  return supabase
+    .from('work_centers')
+    .select('*')
+    .eq('org_id', orgId)
+    .order('name')
+}
+
+// =====================================================
 // Export default service object
 // =====================================================
 
@@ -927,7 +944,10 @@ export const mesService = {
   getActiveOperatorSession,
   
   // Analytics
-  getWorkCenterSummary
+  getWorkCenterSummary,
+  
+  // Work Centers
+  getWorkCenters
 }
 
 export default mesService
