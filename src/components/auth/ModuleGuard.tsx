@@ -34,8 +34,8 @@ interface ModuleGuardProps {
 // =====================================
 
 function AccessDeniedPage() {
-  const { t, i18n } = useTranslation();
-  const isRTL = i18n.language === 'ar';
+  const { i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
@@ -61,13 +61,13 @@ function AccessDeniedPage() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Button
             variant="outline"
-            onClick={() => window.history.back()}
+            onClick={() => globalThis.history.back()}
           >
             <Lock className="w-4 h-4 mr-2" />
             {isRTL ? 'العودة' : 'Go Back'}
           </Button>
           <Button
-            onClick={() => window.location.href = '/dashboard'}
+            onClick={() => { globalThis.location.href = '/dashboard'; }}
           >
             {isRTL ? 'الصفحة الرئيسية' : 'Go to Dashboard'}
           </Button>
@@ -101,11 +101,14 @@ function LoadingState() {
 // ModuleGuard Component
 // =====================================
 
-export function ModuleGuard({
-  children,
-  moduleCode,
-  action = 'view',
-  requireOrgAdmin = false,
+interface ModuleGuardProps {
+  readonly children: React.ReactNode
+  readonly moduleCode: string
+  readonly action?: string
+  readonly requireOrgAdmin?: boolean
+}
+
+export function ModuleGuard({ children, moduleCode, action = 'view', requireOrgAdmin = false }: ModuleGuardProps) {
   requireSuperAdmin = false,
   redirectTo,
   showAccessDenied = true,

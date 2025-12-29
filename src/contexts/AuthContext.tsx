@@ -33,7 +33,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   // Lazy initializer is correct pattern for localStorage access
-  const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
+  const [currentOrgId, setCurrentOrgId] = useState<string | null>(
     () => safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
@@ -83,7 +83,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         // استخدام القيمة الافتراضية من localStorage أو config
         const storedOrg = safeLocalStorage.getItem('current_org_id');
         if (!storedOrg) {
-          setCurrentOrgIdState(DEFAULT_ORG_ID);
+          setCurrentOrgId(DEFAULT_ORG_ID);
           safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
         }
         return;
@@ -95,15 +95,15 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       // Set current org from localStorage or first available or config default
       const storedOrgId = safeLocalStorage.getItem('current_org_id');
       if (storedOrgId && data?.find((uo: any) => uo.org_id === storedOrgId)) {
-        setCurrentOrgIdState(storedOrgId);
+        setCurrentOrgId(storedOrgId);
       } else if (data && data.length > 0) {
         const firstOrgId = data[0].org_id;
-        setCurrentOrgIdState(firstOrgId);
+        setCurrentOrgId(firstOrgId);
         safeLocalStorage.setItem('current_org_id', firstOrgId);
       } else {
         // No organizations found, use config default
         console.log('⚠️ No organizations found, using default:', DEFAULT_ORG_ID);
-        setCurrentOrgIdState(DEFAULT_ORG_ID);
+        setCurrentOrgId(DEFAULT_ORG_ID);
         safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
       }
     } catch (error) {
@@ -111,7 +111,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       // Fallback to stored or default org_id
       const storedOrg = safeLocalStorage.getItem('current_org_id');
       if (!storedOrg) {
-        setCurrentOrgIdState(DEFAULT_ORG_ID);
+        setCurrentOrgId(DEFAULT_ORG_ID);
         safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
       }
     } finally {
@@ -224,7 +224,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         // Clear organizations on sign out
         if (event === 'SIGNED_OUT') {
           setOrganizations([]);
-          setCurrentOrgIdState(null);
+          setCurrentOrgId(null);
           safeLocalStorage.removeItem('current_org_id');
           lastLoadedUserIdRef.current = null;
         }
@@ -256,7 +256,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
       setUser(null);
       setSession(null);
       setOrganizations([]);
-      setCurrentOrgIdState(null);
+      setCurrentOrgId(null);
       safeLocalStorage.removeItem('current_org_id');
       lastLoadedUserIdRef.current = null;
       
@@ -298,7 +298,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   }, []);
 
   const setCurrentOrgId = useCallback((orgId: string) => {
-    setCurrentOrgIdState(orgId);
+    setCurrentOrgId(orgId);
     safeLocalStorage.setItem('current_org_id', orgId);
   }, []);
 

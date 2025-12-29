@@ -37,6 +37,14 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
+  // Helper function to get stage name
+  const getStageName = (item: StageCostRecord): string => {
+    if (isRTL) {
+      return item.work_centers?.name_ar || item.work_centers?.name || `المرحلة ${item.stage_no}`
+    }
+    return item.work_centers?.name || `Stage ${item.stage_no}`
+  }
+
   const { data: stageData, isLoading, error } = useQuery({
     queryKey: ['stage-cost-breakdown', filters],
     queryFn: async () => {
@@ -176,7 +184,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
                 {stageData?.map((item: StageCostRecord) => (
                   <TableRow key={`${item.manufacturing_orders?.order_number || ''}-${item.stage_no}`}>
                     <TableCell>{item.manufacturing_orders?.order_number}</TableCell>
-                    <TableCell>{isRTL ? (item.work_centers?.name_ar || item.work_centers?.name || `المرحلة ${item.stage_no}`) : (item.work_centers?.name || `Stage ${item.stage_no}`)}</TableCell>
+                    <TableCell>{getStageName(item)}</TableCell>
                     <TableCell className="text-right font-mono">{Number(item.good_qty || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                     <TableCell className="text-right font-mono">{Number(item.dm_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                     <TableCell className="text-right font-mono">{Number(item.dl_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>

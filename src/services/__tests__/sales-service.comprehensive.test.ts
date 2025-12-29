@@ -354,12 +354,8 @@ describe('Sales Service', () => {
   });
 
   describe('Delivery Status Updates', () => {
-    it('should set status to pending when nothing delivered', () => {
-      const lines = [
-        { quantity: 10, delivered_quantity: 0 },
-        { quantity: 5, delivered_quantity: 0 },
-      ];
-
+    // Helper function to calculate delivery status
+    const calculateDeliveryStatus = (lines: Array<{ quantity: number; delivered_quantity?: number }>): string => {
       let allDelivered = true;
       let anyDelivered = false;
 
@@ -368,7 +364,22 @@ describe('Sales Service', () => {
         if ((line.delivered_quantity || 0) > 0) anyDelivered = true;
       }
 
-      const status = allDelivered ? 'fully_delivered' : (anyDelivered ? 'partially_delivered' : 'pending');
+      if (allDelivered) {
+        return 'fully_delivered';
+      }
+      if (anyDelivered) {
+        return 'partially_delivered';
+      }
+      return 'pending';
+    };
+
+    it('should set status to pending when nothing delivered', () => {
+      const lines = [
+        { quantity: 10, delivered_quantity: 0 },
+        { quantity: 5, delivered_quantity: 0 },
+      ];
+
+      const status = calculateDeliveryStatus(lines);
 
       expect(status).toBe('pending');
     });
@@ -379,15 +390,7 @@ describe('Sales Service', () => {
         { quantity: 5, delivered_quantity: 0 },
       ];
 
-      let allDelivered = true;
-      let anyDelivered = false;
-
-      for (const line of lines) {
-        if ((line.delivered_quantity || 0) < line.quantity) allDelivered = false;
-        if ((line.delivered_quantity || 0) > 0) anyDelivered = true;
-      }
-
-      const status = allDelivered ? 'fully_delivered' : (anyDelivered ? 'partially_delivered' : 'pending');
+      const status = calculateDeliveryStatus(lines);
 
       expect(status).toBe('partially_delivered');
     });
@@ -398,15 +401,7 @@ describe('Sales Service', () => {
         { quantity: 5, delivered_quantity: 5 },
       ];
 
-      let allDelivered = true;
-      let anyDelivered = false;
-
-      for (const line of lines) {
-        if ((line.delivered_quantity || 0) < line.quantity) allDelivered = false;
-        if ((line.delivered_quantity || 0) > 0) anyDelivered = true;
-      }
-
-      const status = allDelivered ? 'fully_delivered' : (anyDelivered ? 'partially_delivered' : 'pending');
+      const status = calculateDeliveryStatus(lines);
 
       expect(status).toBe('fully_delivered');
     });

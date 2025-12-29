@@ -84,11 +84,12 @@ export function BOMCostAnalysis({ bomId, quantity = 1 }: BOMCostAnalysisProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading && (
             <div className="flex items-center justify-center py-8">
               <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : standardCost ? (
+          )}
+          {!loading && standardCost && (
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               <div className="space-y-1">
                 <Label className="text-sm text-muted-foreground">تكلفة المواد</Label>
@@ -121,7 +122,8 @@ export function BOMCostAnalysis({ bomId, quantity = 1 }: BOMCostAnalysisProps) {
                 </div>
               </div>
             </div>
-          ) : (
+          )}
+          {!loading && !standardCost && (
             <div className="text-center py-8 text-muted-foreground">
               لا توجد بيانات
             </div>

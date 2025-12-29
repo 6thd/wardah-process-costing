@@ -70,11 +70,15 @@ export const bomTreeService = {
     // بناء الشجرة
     nodes.forEach(node => {
       const treeNode = nodeMap.get(node.id)
-      if (!treeNode) continue
+      if (!treeNode) {
+        return
+      }
       if (node.parent_id) {
         const parent = nodeMap.get(node.parent_id)
         if (parent) {
-          if (!parent.children) parent.children = []
+          if (!parent.children) {
+            parent.children = []
+          }
           parent.children.push(treeNode)
         }
       } else {
@@ -194,15 +198,19 @@ export const bomTreeService = {
     const orgId = await getEffectiveTenantId()
     if (!orgId) throw new Error('Organization ID not found')
 
-    const updates = Object.entries(settings).map(([key, value]) => {
-      let settingType: 'number' | 'boolean' | 'string'
+    // Helper function to determine setting type
+    const getSettingType = (value: unknown): 'number' | 'boolean' | 'string' => {
       if (typeof value === 'number') {
-        settingType = 'number'
-      } else if (typeof value === 'boolean') {
-        settingType = 'boolean'
-      } else {
-        settingType = 'string'
+        return 'number'
       }
+      if (typeof value === 'boolean') {
+        return 'boolean'
+      }
+      return 'string'
+    }
+
+    const updates = Object.entries(settings).map(([key, value]) => {
+      const settingType = getSettingType(value)
       
       return {
         org_id: orgId,

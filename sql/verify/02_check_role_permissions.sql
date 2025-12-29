@@ -11,7 +11,7 @@ SELECT
 FROM roles r
 LEFT JOIN role_permissions rp ON r.id = rp.role_id
 GROUP BY r.id, r.name, r.name_ar, r.org_id
-ORDER BY r.org_id, r.name;
+ORDER BY r.org_id ASC, r.name ASC;
 
 -- 2.2: تفاصيل الصلاحيات لكل دور
 SELECT 
@@ -23,6 +23,6 @@ FROM role_permissions rp
 JOIN roles r ON rp.role_id = r.id
 JOIN permissions p ON rp.permission_id = p.id
 JOIN modules m ON p.module_id = m.id
-ORDER BY r.name_ar, m.display_order, p.resource
+ORDER BY r.name_ar ASC, m.display_order ASC, p.resource ASC
 LIMIT 100;
 

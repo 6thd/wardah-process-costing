@@ -52,6 +52,144 @@ interface ScrapData {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042']
 
+// Helper functions to reduce cognitive complexity
+const buildStageCostsQuery = (filters: DashboardFilters) => {
+  if (!supabase) throw new Error('Supabase client not initialized')
+  
+  let query = supabase.from('stage_costs').select('*')
+  
+  if (filters.manufacturingOrderId) {
+    query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
+  }
+  if (filters.dateFrom) {
+    query = query.gte('created_at', filters.dateFrom)
+  }
+  if (filters.dateTo) {
+    query = query.lte('created_at', filters.dateTo)
+  }
+  if (filters.stageNo) {
+    query = query.eq('stage_no', filters.stageNo)
+  }
+  
+  return query
+}
+
+const sortStageCostsData = (data: Record<string, unknown>[] | null) => {
+  if (!data) return
+  data.sort((a, b) => {
+    const aStage = Number(a.stage_no || a.stage_number || 0)
+    const bStage = Number(b.stage_no || b.stage_number || 0)
+    return aStage - bStage
+  })
+}
+
+const processFallbackData = async (filters: DashboardFilters, isRTL: boolean): Promise<ScrapData[]> => {
+  if (!supabase) throw new Error('Supabase client not initialized')
+  
+  const { data: fallbackData, error: fallbackError } = await supabase
+    .from('stage_costs')
+    .select('*')
+    .limit(100)
+  
+  if (fallbackError) {
+    throw new Error(`Failed to fetch scrap data: ${fallbackError.message}`)
+  }
+  
+  const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
+    if (!filters.manufacturingOrderId) return true
+    return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
+  })
+  
+  if (filtered.length === 0) {
+    return []
+  }
+  
+  return filtered.map((sc: Record<string, unknown>) => ({
+    stage_no: Number(sc.stage_no || sc.stage_number || 0),
+    stage_name: isRTL ? `المرحلة ${sc.stage_no || sc.stage_number || 0}` : `Stage ${sc.stage_no || sc.stage_number || 0}`,
+    good_qty: Number(sc.good_qty) || 0,
+    scrap_qty: Number(sc.scrap_qty) || 0,
+    normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
+    abnormal_scrap_qty: Number(sc.abnormal_scrap_qty) || 0,
+    normal_scrap_cost: Number(sc.normal_scrap_cost) || 0,
+    abnormal_scrap_cost: Number(sc.abnormal_scrap_cost) || 0,
+    regrind_cost: Number(sc.regrind_cost) || 0,
+    waste_credit_amount: Number(sc.waste_credit_amount) || 0,
+    normal_scrap_rate: 0,
+    order_number: '',
+    unit_cost: Number(sc.unit_cost) || 0
+  }))
+}
+
+const fetchWorkCenters = async (wcIds: string[]) => {
+  if (!supabase || wcIds.length === 0) return {}
+  
+  const { data: wcs, error: wcError } = await supabase
+    .from('work_centers')
+    .select('id, name, name_ar, normal_scrap_rate')
+    .in('id', wcIds)
+  
+  if (wcError || !wcs) return {}
+  
+  const wcData: Record<string, { id: string; name?: string; name_ar?: string; normal_scrap_rate?: number }> = {}
+  wcs.forEach((wc) => {
+    wcData[wc.id] = wc
+  })
+  
+  return wcData
+}
+
+const fetchManufacturingOrders = async (moIds: string[]) => {
+  if (!supabase || moIds.length === 0) return {}
+  
+  const { data: mos, error: moError } = await supabase
+    .from('manufacturing_orders')
+    .select('id, order_number')
+    .in('id', moIds)
+  
+  if (moError || !mos) return {}
+  
+  const moData: Record<string, { id: string; order_number?: string }> = {}
+  mos.forEach((mo) => {
+    moData[mo.id] = mo
+  })
+  
+  return moData
+}
+
+const transformToScrapData = (
+  stageCostsData: Record<string, unknown>[],
+  wcData: Record<string, { id: string; name?: string; name_ar?: string; normal_scrap_rate?: number }>,
+  moData: Record<string, { id: string; order_number?: string }>,
+  isRTL: boolean
+): ScrapData[] => {
+  return stageCostsData.map((sc: Record<string, unknown>) => {
+    const stageNo = Number(sc.stage_no || sc.stage_number || 0)
+    const wcId = (sc.wc_id || sc.work_center_id) as string
+    const moId = (sc.manufacturing_order_id || sc.mo_id) as string
+    const workCenters = wcData[wcId]
+    const manufacturingOrders = moData[moId]
+    
+    return {
+      stage_no: stageNo,
+      stage_name: isRTL 
+        ? (workCenters?.name_ar || workCenters?.name || `المرحلة ${stageNo}`) 
+        : (workCenters?.name || `Stage ${stageNo}`),
+      good_qty: Number(sc.good_qty) || 0,
+      scrap_qty: Number(sc.scrap_qty) || 0,
+      normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
+      abnormal_scrap_qty: Number(sc.abnormal_scrap_qty) || 0,
+      normal_scrap_cost: Number(sc.normal_scrap_cost) || 0,
+      abnormal_scrap_cost: Number(sc.abnormal_scrap_cost) || 0,
+      regrind_cost: Number(sc.regrind_cost) || 0,
+      waste_credit_amount: Number(sc.waste_credit_amount) || 0,
+      normal_scrap_rate: Number(workCenters?.normal_scrap_rate) || 0,
+      order_number: manufacturingOrders?.order_number || '',
+      unit_cost: Number(sc.unit_cost) || 0
+    }
+  })
+}
+
 export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFilters }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -59,38 +197,10 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
   const { data: scrapData, isLoading, error } = useQuery<ScrapData[]>({
     queryKey: ['scrap-analysis-report', filters],
     queryFn: async (): Promise<ScrapData[]> => {
-      if (!supabase) throw new Error('Supabase client not initialized')
-
-      let query = supabase
-        .from('stage_costs')
-        .select('*')
-
-      if (filters.manufacturingOrderId) {
-        query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
-      }
-
-      if (filters.dateFrom) {
-        query = query.gte('created_at', filters.dateFrom)
-      }
-
-      if (filters.dateTo) {
-        query = query.lte('created_at', filters.dateTo)
-      }
-
-      if (filters.stageNo) {
-        query = query.eq('stage_no', filters.stageNo)
-      }
-      
+      const query = buildStageCostsQuery(filters)
       const { data: stageCostsData, error: queryError } = await query
       
-      // Sort manually if order() fails
-      if (stageCostsData && !queryError) {
-        stageCostsData.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-          const aStage = Number(a.stage_no || a.stage_number || 0)
-          const bStage = Number(b.stage_no || b.stage_number || 0)
-          return aStage - bStage
-        })
-      }
+      sortStageCostsData(stageCostsData)
 
       if (queryError) {
         console.error('❌ Scrap Analysis Query Error:', {
@@ -98,120 +208,22 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           code: queryError.code,
           details: queryError.details
         })
-        
-        // Try fallback
-        const fallbackQuery = supabase
-          .from('stage_costs')
-          .select('*')
-          .limit(100)
-        
-        // Don't add filter - fetch all and filter in memory
-        const { data: fallbackData, error: fallbackError } = await fallbackQuery
-        
-        if (fallbackError) {
-          throw new Error(`Failed to fetch scrap data: ${queryError.message}`)
-        }
-        
-        // Filter by manufacturing_order_id or mo_id in memory
-        const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
-          if (!filters.manufacturingOrderId) return true
-          return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
-        })
-        
-        if (filtered.length === 0) {
-          return [] as ScrapData[]
-        }
-        
-        // Process fallback data - transform to ScrapData format
-        const processedData: ScrapData[] = filtered.map((sc: Record<string, unknown>) => ({
-          stage_no: Number(sc.stage_no || sc.stage_number || 0),
-          stage_name: isRTL ? `المرحلة ${sc.stage_no || sc.stage_number || 0}` : `Stage ${sc.stage_no || sc.stage_number || 0}`,
-          good_qty: Number(sc.good_qty) || 0,
-          scrap_qty: Number(sc.scrap_qty) || 0,
-          normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
-          abnormal_scrap_qty: Number(sc.abnormal_scrap_qty) || 0,
-          normal_scrap_cost: Number(sc.normal_scrap_cost) || 0,
-          abnormal_scrap_cost: Number(sc.abnormal_scrap_cost) || 0,
-          regrind_cost: Number(sc.regrind_cost) || 0,
-          waste_credit_amount: Number(sc.waste_credit_amount) || 0,
-          normal_scrap_rate: 0,
-          order_number: '',
-          unit_cost: Number(sc.unit_cost) || 0
-        }))
-        
-        return processedData
+        return processFallbackData(filters, isRTL)
       }
       
       if (!stageCostsData || stageCostsData.length === 0) {
-        return [] as ScrapData[]
+        return []
       }
       
-      // Fetch work centers separately - support both column names
-      const wcIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.wc_id || sc.work_center_id).filter(Boolean))]
+      const wcIds = [...new Set(stageCostsData.map((sc) => sc.wc_id || sc.work_center_id).filter(Boolean) as string[])]
+      const moIds = [...new Set(stageCostsData.map((sc) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean) as string[])]
       
-      const wcData: Record<string, { id: string; name?: string; name_ar?: string; normal_scrap_rate?: number }> = {}
-      if (wcIds.length > 0) {
-        const { data: wcs, error: wcError } = await supabase
-          .from('work_centers')
-          .select('id, name, name_ar, normal_scrap_rate')
-          .in('id', wcIds)
-        
-        if (!wcError && wcs) {
-          wcs.forEach((wc: { id: string; name?: string; name_ar?: string; normal_scrap_rate?: number }) => {
-            wcData[wc.id] = wc
-          })
-        }
-      }
+      const [wcData, moData] = await Promise.all([
+        fetchWorkCenters(wcIds),
+        fetchManufacturingOrders(moIds)
+      ])
       
-      // Fetch manufacturing orders separately - support both column names
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
-      
-      const moData: Record<string, { id: string; order_number?: string }> = {}
-      if (moIds.length > 0) {
-        const { data: mos, error: moError } = await supabase
-          .from('manufacturing_orders')
-          .select('id, order_number')
-          .in('id', moIds)
-        
-        if (!moError && mos) {
-          mos.forEach((mo: { id: string; order_number?: string }) => {
-            moData[mo.id] = mo
-          })
-        }
-      }
-      
-      // Join data - support both column names
-      const data = (stageCostsData || []).map((sc: Record<string, unknown>) => ({
-        ...sc,
-        manufacturing_orders: moData[(sc.manufacturing_order_id || sc.mo_id) as string],
-        work_centers: wcData[(sc.wc_id || sc.work_center_id) as string]
-      }))
-
-      const result: ScrapData[] = (data || []).map((record: Record<string, unknown>) => {
-        const stageNo = Number(record.stage_no || record.stage_number || 0)
-        const workCenters = record.work_centers as { name?: string; name_ar?: string; normal_scrap_rate?: number } | undefined
-        const manufacturingOrders = record.manufacturing_orders as { order_number?: string } | undefined
-        
-        return {
-          stage_no: stageNo,
-          stage_name: isRTL 
-            ? (workCenters?.name_ar || workCenters?.name || `المرحلة ${stageNo}`) 
-            : (workCenters?.name || `Stage ${stageNo}`),
-          good_qty: Number(record.good_qty) || 0,
-          scrap_qty: Number(record.scrap_qty) || 0,
-          normal_scrap_qty: Number(record.normal_scrap_qty) || 0,
-          abnormal_scrap_qty: Number(record.abnormal_scrap_qty) || 0,
-          normal_scrap_cost: Number(record.normal_scrap_cost) || 0,
-          abnormal_scrap_cost: Number(record.abnormal_scrap_cost) || 0,
-          regrind_cost: Number(record.regrind_cost) || 0,
-          waste_credit_amount: Number(record.waste_credit_amount) || 0,
-          normal_scrap_rate: Number(workCenters?.normal_scrap_rate) || 0,
-          order_number: manufacturingOrders?.order_number || '',
-          unit_cost: Number(record.unit_cost) || 0
-        }
-      })
-      
-      return result
+      return transformToScrapData(stageCostsData, wcData, moData, isRTL)
     }
   })
 

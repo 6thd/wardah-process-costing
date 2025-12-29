@@ -4,8 +4,6 @@
  */
 
 import React from 'react'
-import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
 import type { ManufacturingOrder } from '@/lib/supabase'
 import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status'
 import { isActiveOrder, isCompletedOrder, isPendingOrder } from '@/utils/manufacturing-order-status'

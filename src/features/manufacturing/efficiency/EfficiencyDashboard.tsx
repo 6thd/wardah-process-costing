@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { subDays } from 'date-fns'
+import { format, subDays } from 'date-fns'
 import {
   Activity,
   TrendingUp,
@@ -29,7 +29,6 @@ import { Label } from '@/components/ui/label'
 import {
   Table,
   TableBody,
-  TableCell,
   TableHead,
   TableHeader,
   TableRow,
@@ -139,6 +138,30 @@ const OEEGauge: React.FC<{
       </div>
     </div>
   )
+}
+
+// =====================================================
+// Helper Functions
+// =====================================================
+
+const getEfficiencyTrend = (efficiency: number | undefined, target: number): 'up' | 'down' => {
+  return (efficiency || 0) >= target ? 'up' : 'down'
+}
+
+const getEfficiencyTrendValue = (efficiency: number | undefined, target: number): string => {
+  return (efficiency || 0) >= target ? 'On Target' : 'Below Target'
+}
+
+const getOEEStatus = (oee: number | undefined, target: number): string => {
+  return (oee || 0) >= target ? 'World Class' : ''
+}
+
+const getScrapTrend = (scrapRate: number | undefined, threshold: number): 'up' | 'down' => {
+  return (scrapRate || 0) <= threshold ? 'up' : 'down'
+}
+
+const getVarianceColor = (variance: number | undefined): string => {
+  return (variance || 0) < 0 ? 'text-green-600' : 'text-red-600'
 }
 
 // =====================================================
@@ -284,21 +307,21 @@ export const EfficiencyDashboard: React.FC = () => {
           title={isRTL ? 'كفاءة اليوم' : "Today's Efficiency"}
           value={`${dashboardStats?.today_efficiency?.toFixed(1) || 0}%`}
           icon={<Activity className="h-5 w-5 text-primary" />}
-          trend={dashboardStats?.today_efficiency >= 100 ? 'up' : 'down'}
-          trendValue={dashboardStats?.today_efficiency >= 100 ? 'On Target' : 'Below Target'}
+          trend={getEfficiencyTrend(dashboardStats?.today_efficiency, 100)}
+          trendValue={getEfficiencyTrendValue(dashboardStats?.today_efficiency, 100)}
         />
         <StatCard
           title={isRTL ? 'OEE اليوم' : "Today's OEE"}
           value={`${dashboardStats?.today_oee?.toFixed(1) || 0}%`}
           icon={<Gauge className="h-5 w-5 text-primary" />}
-          trend={dashboardStats?.today_oee >= 85 ? 'up' : 'down'}
-          description={dashboardStats?.today_oee >= 85 ? 'World Class' : ''}
+          trend={getEfficiencyTrend(dashboardStats?.today_oee, 85)}
+          description={getOEEStatus(dashboardStats?.today_oee, 85)}
         />
         <StatCard
           title={isRTL ? 'نسبة الخردة' : 'Scrap Rate'}
           value={`${dashboardStats?.today_scrap_rate?.toFixed(2) || 0}%`}
           icon={<AlertTriangle className="h-5 w-5 text-yellow-500" />}
-          trend={dashboardStats?.today_scrap_rate <= 1 ? 'up' : 'down'}
+          trend={getScrapTrend(dashboardStats?.today_scrap_rate, 1)}
         />
         <StatCard
           title={isRTL ? 'أوامر العمل النشطة' : 'Active Work Orders'}
@@ -383,7 +406,7 @@ export const EfficiencyDashboard: React.FC = () => {
                     </div>
                     <div className={cn(
                       'text-xl font-bold',
-                      (totalVariances?.total_labor_variance || 0) < 0 ? 'text-green-600' : 'text-red-600'
+                      getVarianceColor(totalVariances?.total_labor_variance)
                     )}>
                       {(totalVariances?.total_labor_variance || 0).toLocaleString()} SAR
                     </div>
@@ -394,7 +417,7 @@ export const EfficiencyDashboard: React.FC = () => {
                     </div>
                     <div className={cn(
                       'text-xl font-bold',
-                      (totalVariances?.total_overhead_variance || 0) < 0 ? 'text-green-600' : 'text-red-600'
+                      getVarianceColor(totalVariances?.total_overhead_variance)
                     )}>
                       {(totalVariances?.total_overhead_variance || 0).toLocaleString()} SAR
                     </div>
@@ -406,7 +429,7 @@ export const EfficiencyDashboard: React.FC = () => {
                   </div>
                   <div className={cn(
                     'text-2xl font-bold',
-                    (totalVariances?.total_variance || 0) < 0 ? 'text-green-600' : 'text-red-600'
+                    getVarianceColor(totalVariances?.total_variance)
                   )}>
                     {(totalVariances?.total_variance || 0).toLocaleString()} SAR
                   </div>

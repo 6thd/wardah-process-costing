@@ -30,7 +30,7 @@ describe('Money Value Object', () => {
     });
 
     it('should throw for NaN', () => {
-      expect(() => Money.of(NaN)).toThrow('Money amount must be a finite number');
+      expect(() => Money.of(Number.NaN)).toThrow('Money amount must be a finite number');
     });
   });
 

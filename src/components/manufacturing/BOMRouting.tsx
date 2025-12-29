@@ -68,13 +68,15 @@ export function BOMRouting({ bomId, quantity = 1 }: BOMRoutingProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loading && (
             <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div>
-          ) : operations.length === 0 ? (
+          )}
+          {!loading && operations.length === 0 && (
             <div className="text-center py-8 text-muted-foreground">
               لا توجد عمليات
             </div>
-          ) : (
+          )}
+          {!loading && operations.length > 0 && (
             <Table>
               <TableHeader>
                 <TableRow>

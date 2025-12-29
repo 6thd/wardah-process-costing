@@ -47,10 +47,10 @@ export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
         </p>
         <div className="flex items-center gap-2 mt-3">
           <Badge variant="secondary">
-            {t('manufacturing.overviewPage.cards.orders.activeBadge', { count: activeOrders.length })}
+            {t('manufacturing.overviewPage.cards.orders.activeBadge').replace('{count}', activeOrders.length.toString())}
           </Badge>
           <Badge variant="outline">
-            {t('manufacturing.overviewPage.cards.orders.totalBadge', { count: orders.length })}
+            {t('manufacturing.overviewPage.cards.orders.totalBadge').replace('{count}', orders.length.toString())}
           </Badge>
         </div>
       </Link>

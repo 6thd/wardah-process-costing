@@ -46,6 +46,17 @@ export function ReportsModule() {
 function ReportsOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+
+  // Helper function to get badge variant based on status
+  const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' => {
+    if (status === 'مكتمل') {
+      return 'default'
+    }
+    if (status === 'جاري') {
+      return 'secondary'
+    }
+    return 'destructive'
+  }
   
   const reportCategories = [
     {
@@ -213,7 +224,7 @@ function ReportsOverview() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant={report.status === 'مكتمل' ? 'default' : report.status === 'جاري' ? 'secondary' : 'destructive'}>
+                <Badge variant={getStatusVariant(report.status)}>
                   {report.status}
                 </Badge>
                 <Button variant="ghost" size="sm">

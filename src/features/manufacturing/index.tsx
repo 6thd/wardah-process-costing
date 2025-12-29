@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -32,12 +32,6 @@ import { useManufacturingProducts } from './hooks/useManufacturingProducts'
 import { createManufacturingOrder, getOrderDetails } from './services/manufacturingOrderService'
 import { getStatusLabel, getStatusBadgeVariant, getStatusOptions, validateStatusTransition, prepareStatusUpdate } from './utils/statusHelpers'
 import {
-  Factory,
-  Settings,
-  Package,
-  Users,
-  BarChart3,
-  CheckCircle,
   Plus,
   Eye
 } from 'lucide-react'
@@ -51,9 +45,6 @@ import {
 import {
   getStatusInfo,
   isValidStatusTransition,
-  isActiveOrder,
-  isCompletedOrder,
-  isPendingOrder,
   type ManufacturingOrderStatus
 } from '@/utils/manufacturing-order-status'
 import StageCostingPanel from './stage-costing-panel.tsx'
@@ -65,6 +56,9 @@ import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
 import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
+import { ManufacturingMetrics } from './components/ManufacturingMetrics'
+import { ManufacturingCards } from './components/ManufacturingCards'
+import { RecentOrders } from './components/RecentOrders'
 // New modules
 import { RoutingManagement } from './routing/RoutingManagement'
 import { WorkCenterDashboard } from './mes/WorkCenterDashboard'

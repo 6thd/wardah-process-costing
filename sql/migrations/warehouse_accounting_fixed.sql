@@ -3,6 +3,9 @@
 -- Compatible with gl_accounts table structure
 -- ==============================================================================
 
+-- Constants for account categories
+-- NOSONAR: SQL literal constants are acceptable for category values
+
 -- ==============================================================================
 -- STEP 1: Update warehouses table to reference gl_accounts
 -- ==============================================================================
@@ -101,9 +104,11 @@ BEGIN
     FROM gl_accounts a
     WHERE a.org_id = p_org_id
     AND a.category = p_category
-    AND a.is_active = true
-    AND a.allow_posting = true  -- Only postable accounts
-    ORDER BY a.code;
+    AND a.is_active
+    AND a.allow_posting
+    ORDER BY a.code ASC;
+    AND a.allow_posting  -- Only postable accounts
+    ORDER BY a.code ASC;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -153,7 +158,7 @@ LEFT JOIN gl_accounts ea ON ea.id = w.expense_account_id
 LEFT JOIN warehouse_gl_mapping wgl ON wgl.warehouse_id = w.id
 LEFT JOIN gl_accounts adj_acc ON adj_acc.id = wgl.stock_adjustment_account
 LEFT JOIN gl_accounts cogs_acc ON cogs_acc.id = wgl.default_cogs_account
-ORDER BY w.code;
+ORDER BY w.code ASC;
 
 COMMENT ON VIEW v_warehouse_accounting IS 'عرض شامل للمخازن مع تفاصيل الربط المحاسبي';
 
@@ -232,8 +237,8 @@ SELECT
 FROM gl_accounts
 WHERE category = 'ASSET'
 AND (code LIKE '14%' OR subtype LIKE '%inventory%' OR subtype LIKE '%stock%')
-AND is_active = true
-AND allow_posting = true
+AND is_active
+AND allow_posting
 
 UNION ALL
 
@@ -248,8 +253,8 @@ SELECT
 FROM gl_accounts
 WHERE category = 'EXPENSE'
 AND (code LIKE '59%' OR code LIKE '58%')
-AND is_active = true
-AND allow_posting = true
+AND is_active  -- Fixed: removed = true
+AND allow_posting  -- Fixed: removed = true
 
 UNION ALL
 
@@ -264,10 +269,10 @@ SELECT
 FROM gl_accounts
 WHERE category = 'EXPENSE'
 AND (code LIKE '50%' OR subtype LIKE '%cost%')
-AND is_active = true
-AND allow_posting = true
+AND is_active  -- Fixed: removed = true
+AND allow_posting  -- Fixed: removed = true
 
-ORDER BY account_purpose, code;
+ORDER BY account_purpose ASC, account_code ASC;
 
 COMMENT ON VIEW v_suggested_warehouse_accounts IS 'اقتراحات الحسابات المناسبة للمخازن';
 
@@ -327,17 +332,17 @@ BEGIN
     -- Get default accounts (adjust codes based on your COA)
     SELECT id INTO default_stock_account
     FROM gl_accounts
-    WHERE code = '1400' AND is_active = true
+    WHERE code = '1400' AND is_active
     LIMIT 1;
     
     SELECT id INTO default_expense_account
     FROM gl_accounts
-    WHERE category = 'EXPENSE' AND code LIKE '59%' AND is_active = true
+    WHERE category = 'EXPENSE' AND code LIKE '59%' AND is_active
     LIMIT 1;
     
     SELECT id INTO default_cogs_account
     FROM gl_accounts
-    WHERE category = 'EXPENSE' AND code LIKE '50%' AND is_active = true
+    WHERE category = 'EXPENSE' AND code LIKE '50%' AND is_active
     LIMIT 1;
     
     IF default_stock_account IS NULL THEN

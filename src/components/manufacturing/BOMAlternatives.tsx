@@ -57,13 +57,15 @@ export function BOMAlternatives({ primaryBomId, onAlternativeSelect }: BOMAltern
         </div>
       </CardHeader>
       <CardContent>
-        {loading ? (
+        {loading && (
           <div className="text-center py-8 text-muted-foreground">جاري التحميل...</div>
-        ) : alternatives.length === 0 ? (
+        )}
+        {!loading && alternatives.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
             لا توجد BOMs بديلة
           </div>
-        ) : (
+        )}
+        {!loading && alternatives.length > 0 && (
           <Table>
             <TableHeader>
               <TableRow>

@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS routings (
     
     -- الإصدار والحالة
     version INTEGER DEFAULT 1,
-    status VARCHAR(20) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'OBSOLETE')),
+    status VARCHAR(20) DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'APPROVED', 'OBSOLETE')), -- NOSONAR: SQL literal constants are acceptable
     is_active BOOLEAN DEFAULT true,
     
     -- ربط بالمنتج (اختياري - يمكن أن يكون المسار عام)
@@ -329,7 +329,7 @@ BEGIN
         ), 0) as total_lead_time
     FROM routing_operations ro
     WHERE ro.routing_id = p_routing_id
-    AND ro.is_active = true;
+    AND ro.is_active;
 END;
 $$;
 
@@ -366,7 +366,7 @@ BEGIN
     FROM routing_operations ro
     LEFT JOIN work_centers wc ON ro.work_center_id = wc.id
     WHERE ro.routing_id = p_routing_id
-    AND ro.is_active = true;
+    AND ro.is_active;
 END;
 $$;
 
@@ -383,11 +383,7 @@ SET search_path = public
 AS $$
 DECLARE
     v_new_routing_id UUID;
-    v_org_id UUID;
 BEGIN
-    -- الحصول على org_id من المسار الأصلي
-    SELECT org_id INTO v_org_id FROM routings WHERE id = p_routing_id;
-    
     -- إنشاء المسار الجديد
     INSERT INTO routings (
         org_id, routing_code, routing_name, routing_name_ar, 

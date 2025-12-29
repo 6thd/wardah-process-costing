@@ -14,7 +14,7 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
+  SelectValue
 } from '@/components/ui/select'
 import {
   Dialog,
@@ -22,7 +22,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
-  DialogTitle,
+  DialogTitle
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -34,12 +34,9 @@ import {
   CheckCircle,
   AlertTriangle,
   Clock,
-  Package,
-  Activity,
   Wrench,
   Factory,
-  Timer,
-  TrendingUp,
+  Timer
 } from 'lucide-react'
 import { useWorkOrders, useStartOperation, useCompleteOperation, usePauseWorkOrder, useResumeWorkOrder, useWorkCenterSummary } from '@/hooks/manufacturing/useMES'
 import { WorkOrder } from '@/services/manufacturing/mesService'
@@ -47,6 +44,7 @@ import { useQuery } from '@tanstack/react-query'
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { WorkOrderCard } from './components/WorkOrderCard'
 import { WorkCenterSummary } from './components/WorkCenterSummary'
+import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
 
 export function WorkCenterDashboard() {
   const { i18n } = useTranslation()
@@ -224,13 +222,7 @@ export function WorkCenterDashboard() {
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
           ) : (!workOrders || workOrders.length === 0) ? (
-            <div className="text-center py-12">
-              <Factory className="mx-auto h-12 w-12 text-muted-foreground" />
-              <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد أوامر عمل' : 'No Work Orders'}</h3>
-              <p className="mt-1 text-muted-foreground">
-                {isRTL ? 'لا توجد أوامر عمل نشطة لمركز العمل هذا' : 'No active work orders for this work center'}
-              </p>
-            </div>
+            <WorkOrdersEmptyState isRTL={isRTL} />
           ) : (
             <div className="space-y-4">
               {(workOrders || []).map((wo: WorkOrder) => (

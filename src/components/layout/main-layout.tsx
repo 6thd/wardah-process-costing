@@ -7,7 +7,7 @@ import { useUIStore } from '@/store/ui-store'
 import { cn } from '@/lib/utils'
 
 interface MainLayoutProps {
-  children: ReactNode
+  readonly children: ReactNode
 }
 
 export function MainLayout({ children }: MainLayoutProps) {
@@ -15,6 +15,12 @@ export function MainLayout({ children }: MainLayoutProps) {
   const { i18n } = useTranslation()
   const { sidebarCollapsed, sidebarOpen } = useUIStore()
   const isRTL = i18n.language === 'ar'
+
+  // Helper function to get sidebar margin class
+  const getSidebarMarginClass = (collapsed: boolean, rtl: boolean): string => {
+    if (collapsed) return "lg:mx-0"
+    return rtl ? "lg:mr-64" : "lg:ml-64"
+  }
 
   // Update document direction when language changes
   useEffect(() => {
@@ -45,14 +51,10 @@ export function MainLayout({ children }: MainLayoutProps) {
         
         {/* Main Content */}
         <main 
-          className={cn(
+            className={cn(
             "flex-1 transition-all duration-300",
             "pt-16", // Account for fixed header
-            sidebarCollapsed 
-              ? "lg:mx-0" 
-              : isRTL 
-                ? "lg:mr-64" 
-                : "lg:ml-64"
+            getSidebarMarginClass(sidebarCollapsed, isRTL)
           )}
         >
           <div className={cn(

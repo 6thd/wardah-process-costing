@@ -235,13 +235,11 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
               <Label htmlFor="purchaseOrder">أمر الشراء *</Label>
               <Select value={selectedPO} onValueChange={setSelectedPO} disabled={loadingPOs}>
                 <SelectTrigger id="purchaseOrder">
-                  <SelectValue placeholder={
-                    loadingPOs 
-                      ? 'جاري التحميل...' 
-                      : purchaseOrders.length === 0 
-                        ? 'لا توجد أوامر شراء متاحة' 
-                        : 'اختر أمر الشراء'
-                  } />
+                  <SelectValue placeholder={(() => {
+                    if (loadingPOs) return 'جاري التحميل...';
+                    if (purchaseOrders.length === 0) return 'لا توجد أوامر شراء متاحة';
+                    return 'اختر أمر الشراء';
+                  })()} />
                 </SelectTrigger>
                 <SelectContent>
                   {purchaseOrders.length === 0 ? (

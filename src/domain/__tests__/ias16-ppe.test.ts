@@ -14,7 +14,7 @@
  * @see https://www.ifrs.org/issued-standards/list-of-standards/ias-16-property-plant-and-equipment/
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 
 // ===================================================================
 // Types & Interfaces
@@ -538,10 +538,8 @@ describe('IAS 16 - Property, Plant & Equipment', () => {
   describe('Edge Cases', () => {
     it('should handle land (non-depreciable asset)', () => {
       // Land normally has unlimited useful life
-      const landCost = 500000
       const usefulLife = Infinity
-      
-      // No depreciation for land
+      // No depreciation for land - landCost variable removed as useless
       expect(usefulLife).toBe(Infinity)
     })
     

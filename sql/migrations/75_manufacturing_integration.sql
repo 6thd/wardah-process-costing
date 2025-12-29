@@ -523,8 +523,7 @@ DECLARE
     v_total_work_orders INTEGER;
     v_completed_work_orders INTEGER;
     v_in_progress_work_orders INTEGER;
-    v_total_completed DECIMAL;
-    v_mo_quantity DECIMAL;
+    -- Removed unused variables: v_total_completed, v_mo_quantity
 BEGIN
     -- الحصول على إحصائيات أوامر العمل
     SELECT 
@@ -535,15 +534,7 @@ BEGIN
     FROM work_orders
     WHERE mo_id = NEW.mo_id;
     
-    -- الحصول على الكمية المكتملة والكمية المطلوبة
-    SELECT 
-        COALESCE(SUM(completed_quantity), 0),
-        mo.quantity
-    INTO v_total_completed, v_mo_quantity
-    FROM work_orders wo
-    JOIN manufacturing_orders mo ON wo.mo_id = mo.id
-    WHERE wo.mo_id = NEW.mo_id
-    GROUP BY mo.quantity;
+    -- Removed useless assignments: v_total_completed and v_mo_quantity are not used in subsequent logic
     
     -- تحديث حالة أمر التصنيع
     IF v_completed_work_orders = v_total_work_orders AND v_total_work_orders > 0 THEN

@@ -249,15 +249,17 @@ export function BOMTreeView({
         )}
 
         {/* الشجرة */}
-        {loading ? (
+        {loading && (
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : filteredTree.length === 0 ? (
+        )}
+        {!loading && filteredTree.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
             لا توجد بيانات
           </div>
-        ) : (
+        )}
+        {!loading && filteredTree.length > 0 && (
           <div className="border rounded-lg overflow-auto max-h-[600px]">
             {filteredTree.map(node => (
               <TreeNode key={node.id} node={node} />

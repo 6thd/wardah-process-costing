@@ -2,8 +2,9 @@
  * Equivalent Units Dashboard Tests
  */
 
+import React from 'react'
 import { describe, it, vi } from 'vitest'
-import { render } from '@/test/test-utils'
+import { render } from '../../../test/test-utils'
 import { EquivalentUnitsDashboard } from '../equivalent-units-dashboard'
 
 process.env.VITE_SUPABASE_URL = process.env.VITE_SUPABASE_URL || 'http://localhost:54321'

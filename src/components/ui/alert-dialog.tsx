@@ -23,13 +23,15 @@ const AlertDialog = ({ open = false, onOpenChange, children }: AlertDialogProps)
     setInternalOpen(open)
   }, [open])
 
-  const setOpen = (newOpen: boolean) => {
+  const setOpen = React.useCallback((newOpen: boolean) => {
     setInternalOpen(newOpen)
     onOpenChange?.(newOpen)
-  }
+  }, [onOpenChange])
+
+  const contextValue = React.useMemo(() => ({ open: internalOpen, setOpen }), [internalOpen, setOpen])
 
   return (
-    <AlertDialogContext.Provider value={{ open: internalOpen, setOpen }}>
+    <AlertDialogContext.Provider value={contextValue}>
       {children}
     </AlertDialogContext.Provider>
   )
@@ -88,7 +90,7 @@ const AlertDialogContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, children, ...props }, ref) => {
-  const { open, setOpen } = React.useContext(AlertDialogContext)
+  const { open } = React.useContext(AlertDialogContext)
 
   if (!open) return null
 

@@ -47,6 +47,18 @@ const MODULE_CODES = {
   SUPER_ADMIN: 'super_admin',
 } as const;
 
+// Helper functions to reduce cognitive complexity
+const shouldShowNavigationItem = (
+  item: { key: string; requireSuperAdmin?: boolean; requireOrgAdmin?: boolean },
+  isOrgAdmin: boolean,
+  isSuperAdmin: boolean
+): boolean => {
+  if (item.key === 'dashboard') return true
+  if (item.requireSuperAdmin) return isSuperAdmin
+  if (item.requireOrgAdmin) return isOrgAdmin || isSuperAdmin
+  return true
+}
+
 export function Sidebar() {
   const { t, i18n } = useTranslation()
   const location = useLocation()
@@ -54,7 +66,7 @@ export function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   
   // 🔐 استخدام صلاحيات المستخدم
-  const { hasPermission, isOrgAdmin, isSuperAdmin, loading: permissionsLoading } = usePermissions()
+  const { isOrgAdmin, isSuperAdmin } = usePermissions()
 
   const isRTL = i18n.language === 'ar'
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
@@ -253,28 +265,11 @@ export function Sidebar() {
   ]
 
   // 🔐 فلترة العناصر بناءً على الصلاحيات
-  // ملاحظة: للتبسيط حالياً - نعرض جميع العناصر ونترك الحماية على مستوى Routes
-  // سيتم تحسين هذا لاحقاً مع تحسين نظام الصلاحيات
   const navigationItems = useMemo(() => {
-    return allNavigationItems.filter(item => {
-      // Dashboard متاح للجميع
-      if (item.key === 'dashboard') return true;
-      
-      // Super Admin فقط - يظهر إذا كان المستخدم super admin
-      if (item.requireSuperAdmin) {
-        return isSuperAdmin;
-      }
-      
-      // Org Admin فقط - يظهر إذا كان المستخدم org admin أو super admin
-      if (item.requireOrgAdmin) {
-        return isOrgAdmin || isSuperAdmin;
-      }
-      
-      // باقي الموديولات - متاحة لجميع المستخدمين المصادقين
-      // الحماية الفعلية تكون على مستوى الـ Routes
-      return true;
-    });
-  }, [isOrgAdmin, isSuperAdmin]);
+    return allNavigationItems.filter(item => 
+      shouldShowNavigationItem(item, isOrgAdmin, isSuperAdmin)
+    )
+  }, [isOrgAdmin, isSuperAdmin])
 
   const handleItemClick = () => {
     // Close mobile sidebar when item is clicked

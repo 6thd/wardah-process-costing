@@ -7,14 +7,12 @@ import React from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Timer } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import {
   Play,
   Pause,
   CheckCircle,
   Clock,
-  Package,
   Timer,
 } from 'lucide-react'
 import type { WorkOrder } from '@/services/manufacturing/mesService'
@@ -29,6 +27,11 @@ interface WorkOrderCardProps {
   onComplete: (workOrder: WorkOrder) => void
   getStatusBadge: (status: string) => React.ReactNode
   getProgressPercentage: (workOrder: WorkOrder) => number
+  isPending?: {
+    start?: boolean
+    pause?: boolean
+    resume?: boolean
+  }
 }
 
 export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({

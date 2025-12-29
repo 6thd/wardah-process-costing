@@ -52,11 +52,11 @@ export function ThemeProvider({
     root.classList.add(theme)
   }, [theme])
 
-  const value = {
+  const value = React.useMemo(() => ({
     theme,
-    setTheme: (theme: Theme) => {
-      safeLocalStorage.setItem(storageKey, theme);
-      setTheme(theme)
+    setTheme: (newTheme: Theme) => {
+      safeLocalStorage.setItem(storageKey, newTheme);
+      setTheme(newTheme)
     },
   }
 

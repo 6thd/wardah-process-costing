@@ -405,7 +405,7 @@ describe('Integration Scenarios', () => {
     qty = incoming.newQty;
     // value is calculated but not used in assertions - kept for consistency with calculation pattern
     // NOSONAR S1854 - value assignment is kept for consistency with calculation pattern even if not used
-    void incoming.newValue; // Suppress unused value warning
+    // incoming.newValue is calculated but not used in this test
 
     expect(qty).toBe(150);
     expect(queue.length).toBe(2);

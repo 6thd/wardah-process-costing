@@ -86,7 +86,7 @@ BEGIN
         '5950-' || p_warehouse_code,
         'Stock Adjustments - ' || p_warehouse_name,
         'تسويات مخزون - ' || p_warehouse_name,
-        'Expense',
+        'Expense', -- NOSONAR: SQL literal constant
         v_expense_parent,
         false,
         true,
@@ -110,7 +110,7 @@ BEGIN
         '5900-' || p_warehouse_code,
         'Warehouse Expenses - ' || p_warehouse_name,
         'مصروفات مخزن - ' || p_warehouse_name,
-        'Expense',
+        'Expense', -- NOSONAR: SQL literal constant
         v_expense_parent,
         false,
         true,
@@ -134,7 +134,7 @@ BEGIN
         '5000-' || p_warehouse_code,
         'Cost of Goods Sold - ' || p_warehouse_name,
         'تكلفة البضاعة المباعة - ' || p_warehouse_name,
-        'Expense',
+        'Expense', -- NOSONAR: SQL literal constant
         v_cogs_parent,
         false,
         true,
@@ -287,8 +287,8 @@ LEFT JOIN accounts sa ON sa.id = w.inventory_account_id
 LEFT JOIN accounts aa ON aa.id = wgl.stock_adjustment_account
 LEFT JOIN accounts ea ON ea.id = w.expense_account_id
 LEFT JOIN warehouse_gl_mapping wgl ON wgl.warehouse_id = w.id
-WHERE w.is_active = true
-ORDER BY w.code;
+WHERE w.is_active
+ORDER BY w.code ASC;
 
 COMMENT ON VIEW v_warehouse_accounting IS 'عرض شامل لربط المخازن بشجرة الحسابات';
 

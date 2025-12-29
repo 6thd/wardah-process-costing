@@ -17,7 +17,7 @@ SELECT
 FROM information_schema.triggers 
 WHERE trigger_schema = 'public'
 AND trigger_name LIKE 'audit_%'
-ORDER BY event_object_table;
+ORDER BY event_object_table ASC;
 
 -- =====================================
 -- 2. التحقق من الموديولات
@@ -33,7 +33,7 @@ SELECT
     display_order,
     is_active
 FROM modules
-ORDER BY display_order;
+ORDER BY display_order ASC;
 
 -- =====================================
 -- 3. التحقق من الصلاحيات
@@ -50,7 +50,7 @@ SELECT
     p.resource_ar
 FROM permissions p
 JOIN modules m ON p.module_id = m.id
-ORDER BY m.display_order, p.resource, p.action
+ORDER BY m.display_order ASC, p.resource ASC, p.action ASC
 LIMIT 50;
 
 -- =====================================
@@ -67,7 +67,7 @@ SELECT
     array_length(permission_keys, 1) as permissions_count,
     is_active
 FROM role_templates
-ORDER BY category, name;
+ORDER BY category ASC, name ASC;
 
 -- =====================================
 -- 5. التحقق من الأدوار المنشأة
@@ -84,7 +84,7 @@ SELECT
     r.is_active,
     (SELECT COUNT(*) FROM role_permissions rp WHERE rp.role_id = r.id) as permissions_count
 FROM roles r
-ORDER BY r.org_id, r.name;
+ORDER BY r.org_id ASC, r.name ASC;
 
 -- =====================================
 -- 6. التحقق من ربط الصلاحيات بالأدوار
@@ -102,7 +102,7 @@ FROM role_permissions rp
 JOIN roles r ON rp.role_id = r.id
 JOIN permissions p ON rp.permission_id = p.id
 JOIN modules m ON p.module_id = m.id
-ORDER BY r.name, m.name, p.action
+ORDER BY r.name ASC, m.name ASC, p.action ASC
 LIMIT 50;
 
 -- =====================================
@@ -149,7 +149,7 @@ SELECT
     is_nullable
 FROM information_schema.columns
 WHERE table_name = 'audit_logs'
-ORDER BY ordinal_position;
+ORDER BY ordinal_position ASC;
 
 -- =====================================
 -- 10. التحقق من الـ Functions
@@ -163,5 +163,5 @@ SELECT
 FROM information_schema.routines
 WHERE routine_schema = 'public'
 AND (routine_name LIKE '%activity%' OR routine_name LIKE '%audit%' OR routine_name LIKE '%log%')
-ORDER BY routine_name;
+ORDER BY routine_name ASC;
 

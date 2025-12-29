@@ -104,10 +104,21 @@ export function ProtectedComponent({
     return <Skeleton className="h-8 w-full bg-slate-800" />;
   }
 
+  // Helper function to get fallback content
+  const getFallbackContent = () => {
+    if (hide) {
+      return null;
+    }
+    if (fallback) {
+      return <>{fallback}</>;
+    }
+    return null;
+  };
+
   // Check admin permissions
   const hasAdminAccess = checkAdminPermissions(requireSuperAdmin, requireOrgAdmin, isSuperAdmin, isOrgAdmin);
   if (!hasAdminAccess) {
-    return hide ? null : (fallback ? <>{fallback}</> : null);
+    return getFallbackContent();
   }
 
   // Check module permissions
@@ -122,7 +133,7 @@ export function ProtectedComponent({
   );
 
   if (!hasModuleAccess) {
-    return hide ? null : (fallback ? <>{fallback}</> : null);
+    return getFallbackContent();
   }
 
   return <>{children}</>;

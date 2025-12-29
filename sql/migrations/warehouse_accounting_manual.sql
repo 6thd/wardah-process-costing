@@ -31,9 +31,9 @@ BEGIN
     FROM accounts a
     WHERE a.tenant_id = p_org_id
     AND a.account_type = p_account_type
-    AND a.is_active = true
-    AND a.is_group = false  -- Only leaf accounts
-    ORDER BY a.account_code;
+    AND a.is_active
+    AND NOT a.is_group  -- Only leaf accounts
+    ORDER BY a.account_code ASC;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -81,7 +81,7 @@ LEFT JOIN accounts ea ON ea.id = w.expense_account_id
 LEFT JOIN warehouse_gl_mapping wgl ON wgl.warehouse_id = w.id
 LEFT JOIN accounts adj_acc ON adj_acc.id = wgl.stock_adjustment_account
 LEFT JOIN accounts cogs_acc ON cogs_acc.id = wgl.default_cogs_account
-ORDER BY w.code;
+ORDER BY w.code ASC;
 
 COMMENT ON VIEW v_warehouse_accounting IS 'عرض شامل للمخازن مع تفاصيل الربط المحاسبي';
 
@@ -157,8 +157,8 @@ SELECT
 FROM accounts
 WHERE account_type = 'Asset'
 AND account_code LIKE '14%'  -- Inventory accounts
-AND is_active = true
-AND is_group = false
+AND is_active
+AND NOT is_group
 
 UNION ALL
 
@@ -172,8 +172,8 @@ SELECT
 FROM accounts
 WHERE account_type = 'Expense'
 AND (account_code LIKE '59%' OR account_code LIKE '58%')  -- Expense accounts
-AND is_active = true
-AND is_group = false
+AND is_active
+AND NOT is_group
 
 UNION ALL
 
@@ -187,10 +187,10 @@ SELECT
 FROM accounts
 WHERE account_type = 'Expense'
 AND account_code LIKE '50%'  -- Cost of Goods Sold
-AND is_active = true
-AND is_group = false
+AND is_active
+AND NOT is_group
 
-ORDER BY account_purpose, account_code;
+ORDER BY account_purpose ASC, account_code ASC;
 
 COMMENT ON VIEW v_suggested_warehouse_accounts IS 'اقتراحات الحسابات المناسبة للمخازن حسب النوع';
 
@@ -248,17 +248,17 @@ BEGIN
     -- Get default accounts
     SELECT id INTO default_stock_account
     FROM accounts
-    WHERE account_code = '1400' AND is_active = true
+    WHERE account_code = '1400' AND is_active
     LIMIT 1;
     
     SELECT id INTO default_expense_account
     FROM accounts
-    WHERE account_code = '5950' AND is_active = true
+    WHERE account_code = '5950' AND is_active
     LIMIT 1;
     
     SELECT id INTO default_cogs_account
     FROM accounts
-    WHERE account_code = '5000' AND is_active = true
+    WHERE account_code = '5000' AND is_active
     LIMIT 1;
     
     -- Update warehouses without accounts

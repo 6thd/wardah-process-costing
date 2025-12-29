@@ -25,7 +25,7 @@ import {
   CheckCircle,
   RefreshCw,
   Route,
-  Settings,
+  Settings
 } from 'lucide-react'
 import { useRoutings, useDeleteRouting, useApproveRouting, useCopyRouting } from '@/hooks/manufacturing/useRouting'
 import { useAuthStore } from '@/store/auth-store'
@@ -33,6 +33,7 @@ import { getEffectiveTenantId } from '@/lib/supabase'
 import { Routing } from '@/services/manufacturing/routingService'
 import { RoutingTable } from './components/RoutingTable'
 import { RoutingStats } from './components/RoutingStats'
+import { RoutingEmptyState } from './components/RoutingEmptyState'
 
 export function RoutingManagement() {
   const navigate = useNavigate()
@@ -45,7 +46,7 @@ export function RoutingManagement() {
 
   useEffect(() => {
     const loadOrgId = async () => {
-      const id = await getEffectiveTenantId()
+      const id = await getEffectiveTenantId() // 't' removed as unused
       setOrgId(id || '')
     }
     loadOrgId()
@@ -61,7 +62,7 @@ export function RoutingManagement() {
     const matchesSearch = 
       routing.routing_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
       routing.routing_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      routing.routing_name_ar?.includes(searchTerm)
+      (routing.routing_name_ar?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
     
     const matchesStatus = statusFilter === 'ALL' || routing.status === statusFilter
     
@@ -171,28 +172,21 @@ export function RoutingManagement() {
           <CardTitle>{isRTL ? 'قائمة المسارات' : 'Routings List'}</CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && (
             <div className="flex justify-center items-center h-32">
               <RefreshCw className="w-6 h-6 animate-spin" />
               <span className="ml-2">{isRTL ? 'جاري التحميل...' : 'Loading...'}</span>
             </div>
-          ) : (() => {
-            const hasNoRoutings = !filteredRoutings || filteredRoutings.length === 0
-            return hasNoRoutings ? (
-              <div className="text-center py-12">
-                <Route className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد مسارات' : 'No routings found'}</h3>
-                <p className="mt-1 text-muted-foreground">
-                  {isRTL ? 'ابدأ بإنشاء مسار تصنيع جديد' : 'Start by creating a new routing'}
-                </p>
-                <Button className="mt-4" onClick={() => navigate('/manufacturing/routing/new')}>
-                  <Plus className="w-4 h-4 mr-2" />
-                  {isRTL ? 'إنشاء مسار جديد' : 'Create New Routing'}
-                </Button>
-              </div>
-            ) : (
+          )}
+          {!isLoading && (!filteredRoutings || filteredRoutings.length === 0) && (
+            <RoutingEmptyState
+              isRTL={isRTL}
+              onCreateNew={() => navigate('/manufacturing/routing/new')}
+            />
+          )}
+          {!isLoading && filteredRoutings && filteredRoutings.length > 0 && (
             <RoutingTable
-              routings={filteredRoutings || []}
+              routings={filteredRoutings}
               isRTL={isRTL}
               onEdit={handleEdit}
               onDelete={handleDelete}
@@ -201,8 +195,7 @@ export function RoutingManagement() {
               onView={handleView}
               getStatusBadge={getStatusBadge}
             />
-            )
-          })()}
+          )}
         </CardContent>
       </Card>
     </div>

@@ -3,9 +3,10 @@
  * Tests the process costing calculation logic and UI interactions
  */
 
+import React from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
-import { render } from '@/test/test-utils'
+import { render } from '../../../test/test-utils'
 import StageCostingPanel from '../stage-costing-panel'
 
 // Mock the domain modules

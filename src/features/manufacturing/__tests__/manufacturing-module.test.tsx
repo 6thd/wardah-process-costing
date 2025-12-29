@@ -424,20 +424,21 @@ describe('Manufacturing Module', () => {
         { name: 'Overhead', amount: 0 },
       ];
 
-      const classified = variances.map((v) => {
-        let type: 'favorable' | 'unfavorable' | 'neutral'
-        if (v.amount < 0) {
-          type = 'favorable'
-        } else if (v.amount > 0) {
-          type = 'unfavorable'
-        } else {
-          type = 'neutral'
+      // Helper function to classify variance type
+      const classifyVariance = (amount: number): 'favorable' | 'unfavorable' | 'neutral' => {
+        if (amount < 0) {
+          return 'favorable'
         }
-        return {
-          ...v,
-          type
+        if (amount > 0) {
+          return 'unfavorable'
         }
-      });
+        return 'neutral'
+      }
+
+      const classified = variances.map((v) => ({
+        ...v,
+        type: classifyVariance(v.amount)
+      }));
 
       expect(classified[0].type).toBe('favorable');
       expect(classified[1].type).toBe('unfavorable');

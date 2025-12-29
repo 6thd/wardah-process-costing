@@ -115,14 +115,14 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       const url = await resolveAttachmentUrl(attachment);
       const response = await fetch(url);
       const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
+      const blobUrl = globalThis.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = blobUrl;
       link.download = attachment.file_name;
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+      link.remove(); // Fixed: prefer childNode.remove() over parentNode.removeChild()
+      globalThis.URL.revokeObjectURL(blobUrl);
     } catch (error) {
       console.error('Download failed:', error);
       // Fallback to opening in new tab

@@ -277,7 +277,7 @@ SELECT
 FROM warehouses w
 CROSS JOIN products p
 LEFT JOIN stock_ledger_entries sle ON sle.warehouse_id = w.id AND sle.product_id = p.id AND NOT sle.is_cancelled
-WHERE w.is_active = true
+WHERE w.is_active
 GROUP BY w.id, w.code, w.name, w.warehouse_type, p.id, p.name, p.code
 HAVING COALESCE(SUM(sle.actual_qty), 0) != 0;
 
@@ -303,8 +303,8 @@ SELECT
         2
     ) as utilization_percentage
 FROM warehouses w
-LEFT JOIN storage_bins sb ON sb.warehouse_id = w.id AND sb.is_active = true
-WHERE w.is_active = true
+LEFT JOIN storage_bins sb ON sb.warehouse_id = w.id AND sb.is_active
+WHERE w.is_active
 GROUP BY w.id, w.code, w.name, w.warehouse_type, w.total_capacity, w.capacity_unit;
 
 COMMENT ON VIEW v_warehouse_utilization IS 'استخدام وسعة المخازن';

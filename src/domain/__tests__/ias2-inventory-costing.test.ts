@@ -10,8 +10,8 @@
  * Reference: IAS 2 Paragraphs 21-37
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
-import { calculateAVCO } from '@/core/utils';
+import { describe, it, expect } from 'vitest';
+import { calculateAVCO } from '../../core/utils';
 
 describe('IAS 2 - Inventory Costing Compliance', () => {
   
@@ -308,7 +308,7 @@ describe('IAS 2 - Inventory Costing Compliance', () => {
     });
 
     it('should maintain precision with decimal costs', () => {
-      const result = calculateAVCO(100, 1234.56, 50, 678.90);
+      const result = calculateAVCO(100, 1234.56, 50, 678.9);
       
       expect(result.totalQuantity).toBe(150);
       expect(result.newTotalValue).toBeCloseTo(1913.46, 2);

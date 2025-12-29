@@ -71,7 +71,7 @@ export const RecentOrders: React.FC<RecentOrdersProps> = ({
                 {getStatusText(order.status)}
               </Badge>
               <span className="text-sm text-muted-foreground">
-                {t('manufacturing.overviewPage.latestOrders.unitsLabel', { count: order.quantity })}
+                {t('manufacturing.overviewPage.latestOrders.unitsLabel').replace('{count}', order.quantity.toString())}
               </span>
             </div>
           </div>

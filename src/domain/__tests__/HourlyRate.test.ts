@@ -24,8 +24,23 @@ describe('HourlyRate Value Object', () => {
     });
 
     it('should allow decimal rates', () => {
-      const rate = HourlyRate.of(25.50, 'SAR');
-      expect(rate.rate.amount).toBe(25.50);
+      const rate = HourlyRate.of(25.5, 'SAR');
+      expect(rate.rate.amount).toBe(25.5);
+    });
+
+    it('should handle integer rates', () => {
+      const rate = HourlyRate.of(40, 'SAR');
+      expect(rate.rate.amount).toBe(40);
+    });
+
+    it('should handle integer rates', () => {
+      const rate = HourlyRate.of(40, 'SAR');
+      expect(rate.rate.amount).toBe(40);
+    });
+
+    it('should handle zero fraction rates', () => {
+      const rate = HourlyRate.of(40, 'SAR');
+      expect(rate.rate.amount).toBe(40);
     });
   });
 
@@ -109,9 +124,7 @@ describe('HourlyRate Value Object', () => {
   describe('real-world scenarios', () => {
     it('should calculate full workday cost', () => {
       const rate = HourlyRate.of(45, 'SAR');
-      const fullDayCost = rate.calculateCost(8);
-      
-      expect(fullDayCost.amount).toBe(360);
+      expect(rate.calculateCost(8).amount).toBe(360);
     });
 
     it('should calculate overtime cost (1.5x)', () => {
@@ -126,7 +139,12 @@ describe('HourlyRate Value Object', () => {
     });
 
     it('should handle shift differential rates', () => {
-      const dayRate = HourlyRate.of(40, 'SAR');
+      const nightRate = HourlyRate.of(48, 'SAR'); // 20% differential
+      
+      expect(nightRate.rate.amount).toBe(48);
+    });
+
+    it('should handle shift differential rates', () => {
       const nightRate = HourlyRate.of(48, 'SAR'); // 20% differential
       
       expect(nightRate.rate.amount).toBe(48);

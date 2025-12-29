@@ -25,20 +25,26 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
+  // Helper function to get stage name
+  const getStageName = (item: any): string => {
+    if (isRTL) {
+      return item.work_centers?.name_ar || item.work_centers?.name || `المرحلة ${item.stage_no}`
+    }
+    return item.work_centers?.name || `Stage ${item.stage_no}`
+  }
+
   const { data: wipData, isLoading, error } = useQuery({
     queryKey: ['wip-valuation-report', filters],
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
 
-      let query = supabase
+      const baseQuery = supabase
         .from('stage_costs')
         .select('*')
 
-      if (filters.manufacturingOrderId) {
-        query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
-      }
-      
-      const { data: stageCostsData, error: queryError } = await query
+      const { data: stageCostsData, error: queryError } = filters.manufacturingOrderId
+        ? await baseQuery.eq('manufacturing_order_id', filters.manufacturingOrderId)
+        : await baseQuery
       
       // Sort manually if order() fails
       if (stageCostsData && !queryError) {
@@ -143,7 +149,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
     
     return {
       order_number: item.manufacturing_orders?.order_number || '',
-      stage_name: isRTL ? (item.work_centers?.name_ar || item.work_centers?.name || `المرحلة ${item.stage_no}`) : (item.work_centers?.name || `Stage ${item.stage_no}`),
+      stage_name: getStageName(item),
       wip_end_qty: wipEndQty,
       wip_end_dm_pct: Number(item.wip_end_dm_completion_pct) || 0,
       wip_end_cc_pct: Number(item.wip_end_cc_completion_pct) || 0,
