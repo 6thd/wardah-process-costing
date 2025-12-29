@@ -151,8 +151,8 @@ export async function getLaborEfficiencyReport(filters?: {
   
   const { data, error } = await query.order('actual_end_date', { ascending: false })
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_labor_efficiency not found. Please run migration 75_manufacturing_integration.sql')
     return []
   }
@@ -188,8 +188,8 @@ export async function getWorkCenterEfficiencySummary(filters?: {
   
   const { data, error } = await query.order('production_date', { ascending: false })
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_work_center_efficiency_summary not found. Please run migration 75_manufacturing_integration.sql')
     return []
   }
@@ -251,8 +251,8 @@ export async function getCostVarianceReport(filters?: {
   
   const { data, error } = await query.order('actual_end_date', { ascending: false })
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_cost_variance_report not found. Please run migration 75_manufacturing_integration.sql')
     return []
   }
@@ -283,8 +283,8 @@ export async function getTotalVariances(
     .gte('actual_end_date', startDate)
     .lte('actual_end_date', endDate)
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_cost_variance_report not found. Please run migration 75_manufacturing_integration.sql')
     return {
       total_labor_variance: 0,
@@ -356,8 +356,8 @@ export async function getMaterialConsumptionReport(filters?: {
   
   const { data, error } = await query.order('consumption_date', { ascending: false })
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_material_consumption_report not found. Please run migration 75_manufacturing_integration.sql')
     return []
   }
@@ -452,8 +452,8 @@ export async function getOEEReport(filters?: {
   
   const { data, error } = await query.order('production_date', { ascending: false })
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (error && error.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (error && (error.code === 'PGRST116' || error.message?.includes('404') || error.message?.includes('not found'))) {
     console.warn('View v_oee_report not found. Please run migration 75_manufacturing_integration.sql')
     return []
   }
@@ -622,8 +622,8 @@ export async function getDashboardStats(): Promise<{
     .eq('org_id', orgId)
     .eq('production_date', today)
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (efficiencyError && efficiencyError.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (efficiencyError && (efficiencyError.code === 'PGRST116' || efficiencyError.message?.includes('404') || efficiencyError.message?.includes('not found'))) {
     console.warn('View v_work_center_efficiency_summary not found. Please run migration 75_manufacturing_integration.sql')
   }
   
@@ -638,8 +638,8 @@ export async function getDashboardStats(): Promise<{
     .eq('org_id', orgId)
     .eq('production_date', today)
   
-  // معالجة خطأ 404 (View غير موجود)
-  if (oeeError && oeeError.code === 'PGRST116') {
+  // معالجة خطأ 404 (View غير موجود) - Supabase يعيد 404 أو PGRST116
+  if (oeeError && (oeeError.code === 'PGRST116' || oeeError.message?.includes('404') || oeeError.message?.includes('not found'))) {
     console.warn('View v_oee_report not found. Please run migration 75_manufacturing_integration.sql')
   }
   
