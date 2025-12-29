@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { format, subDays } from 'date-fns'
+import { subDays } from 'date-fns'
 import {
   Activity,
   TrendingUp,
@@ -48,6 +48,13 @@ import {
   useMaterialConsumptionReport
 } from '@/hooks/manufacturing/useEfficiency'
 import { useWorkCenters } from '@/hooks/manufacturing/useMES'
+import {
+  WorkCenterEfficiencyTable,
+  OEETable,
+  LaborEfficiencyTable,
+  CostVarianceTable,
+  MaterialConsumptionTable
+} from './components/EfficiencyTables'
 
 // =====================================================
 // Types
@@ -436,44 +443,11 @@ export const EfficiencyDashboard: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingWcEfficiency ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        {isRTL ? 'جاري التحميل...' : 'Loading...'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (!wcEfficiency || wcEfficiency.length === 0) ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    wcEfficiency?.map((wc) => (
-                      <TableRow key={`${wc.work_center_id}-${wc.production_date}`}>
-                        <TableCell className="font-medium">
-                          {isRTL ? wc.work_center_name_ar || wc.work_center_name : wc.work_center_name}
-                        </TableCell>
-                        <TableCell className="text-center">{wc.completed_operations}</TableCell>
-                        <TableCell className="text-center">{wc.total_produced?.toLocaleString()}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={wc.avg_setup_efficiency >= 100 ? 'default' : 'destructive'}>
-                            {wc.avg_setup_efficiency?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={wc.avg_run_efficiency >= 100 ? 'default' : 'destructive'}>
-                            {wc.avg_run_efficiency?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={wc.avg_overall_efficiency >= 100 ? 'default' : 'secondary'}>
-                            {wc.avg_overall_efficiency?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  <WorkCenterEfficiencyTable
+                    data={wcEfficiency}
+                    isLoading={loadingWcEfficiency}
+                    isRTL={isRTL}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
@@ -499,53 +473,11 @@ export const EfficiencyDashboard: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingOEE ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        {isRTL ? 'جاري التحميل...' : 'Loading...'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (!oeeData || oeeData.length === 0) ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    oeeData?.map((row) => (
-                      <TableRow key={`${row.work_center_id}-${row.production_date}`}>
-                        <TableCell>{format(new Date(row.production_date), 'yyyy-MM-dd')}</TableCell>
-                        <TableCell>{row.work_center_name}</TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={row.availability_pct >= 90 ? 'default' : 'destructive'}>
-                            {row.availability_pct?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={row.performance_pct >= 95 ? 'default' : 'destructive'}>
-                            {row.performance_pct?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Badge variant={row.quality_pct >= 99 ? 'default' : 'destructive'}>
-                            {row.quality_pct?.toFixed(1)}%
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {(() => {
-                            const isWorldClass = row.oee_pct >= 85
-                            return (
-                              <Badge variant={isWorldClass ? 'default' : 'secondary'} className={cn(
-                                isWorldClass && 'bg-green-500'
-                              )}>
-                                {row.oee_pct?.toFixed(1)}%
-                              </Badge>
-                            )
-                          })()}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  <OEETable
+                    data={oeeData}
+                    isLoading={loadingOEE}
+                    isRTL={isRTL}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
@@ -571,52 +503,11 @@ export const EfficiencyDashboard: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingLabor ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
-                        {isRTL ? 'جاري التحميل...' : 'Loading...'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (!laborEfficiency || laborEfficiency.length === 0) ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                        {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    laborEfficiency?.map((row) => (
-                      <TableRow key={`${row.work_order_number}-${row.actual_end_date || ''}`}>
-                        <TableCell className="font-mono">{row.work_order_number}</TableCell>
-                        <TableCell>{row.operation_name}</TableCell>
-                        <TableCell className="text-center">
-                          {((row.planned_setup_time || 0) + (row.planned_run_time || 0)).toFixed(0)} min
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {((row.actual_setup_time || 0) + (row.actual_run_time || 0)).toFixed(0)} min
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {(() => {
-                            const efficiencyVariant = row.overall_efficiency_pct >= 100 ? 'default' : 'destructive'
-                            return (
-                              <Badge variant={efficiencyVariant}>
-                                {row.overall_efficiency_pct?.toFixed(1)}%
-                              </Badge>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {(() => {
-                            const scrapVariant = row.scrap_rate_pct <= 1 ? 'default' : 'destructive'
-                            return (
-                              <Badge variant={scrapVariant}>
-                                {row.scrap_rate_pct?.toFixed(2)}%
-                              </Badge>
-                            )
-                          })()}
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
+                  <LaborEfficiencyTable
+                    data={laborEfficiency}
+                    isLoading={loadingLabor}
+                    isRTL={isRTL}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
@@ -641,41 +532,11 @@ export const EfficiencyDashboard: React.FC = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {loadingVariances ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8">
-                        {isRTL ? 'جاري التحميل...' : 'Loading...'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (!costVariances || costVariances.length === 0) ? (
-                    <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                        {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    costVariances?.map((row) => {
-                      const totalPlanned = (row.planned_labor_cost || 0) + (row.planned_overhead_cost || 0)
-                      const totalActual = (row.actual_labor_cost || 0) + (row.actual_overhead_cost || 0)
-                      const totalVariance = (row.labor_variance || 0) + (row.overhead_variance || 0)
-                      const badgeVariant = totalVariance <= 0 ? 'default' : 'destructive'
-                      return (
-                        <TableRow key={`${row.work_order_number}-${row.actual_end_date || ''}`}>
-                          <TableCell className="font-mono">{row.work_order_number}</TableCell>
-                          <TableCell>{row.operation_name}</TableCell>
-                          <TableCell className="text-center">{totalPlanned.toLocaleString()} SAR</TableCell>
-                          <TableCell className="text-center">{totalActual.toLocaleString()} SAR</TableCell>
-                          <TableCell className="text-center">
-                            <Badge variant={badgeVariant} className={cn(
-                              totalVariance < 0 && 'bg-green-500'
-                            )}>
-                              {totalVariance > 0 ? '+' : ''}{totalVariance.toLocaleString()} SAR
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    })
-                  )}
+                  <CostVarianceTable
+                    data={costVariances}
+                    isLoading={loadingVariances}
+                    isRTL={isRTL}
+                  />
                 </TableBody>
               </Table>
             </CardContent>
