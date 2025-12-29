@@ -301,7 +301,7 @@ export function WorkCenterDashboard() {
             </div>
           ) : (
             <div className="space-y-4">
-              {workOrders?.map((wo: WorkOrder) => (
+              {(workOrders || []).map((wo: WorkOrder) => (
                 <Card key={wo.id} className="border-2">
                   <CardContent className="p-4">
                     <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">

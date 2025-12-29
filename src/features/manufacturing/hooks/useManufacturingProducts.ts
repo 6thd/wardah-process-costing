@@ -56,7 +56,7 @@ export function useManufacturingProducts() {
       try {
         const { data, error } = await buildProductQuery();
         if (error && (error.code === 'PGRST205' || error.message?.includes('relation'))) {
-          // Table doesn't exist, try items table - productData already null
+          // Table doesn't exist, try items table - productData already null, no assignment needed
         } else if (error) {
           throw error;
         } else {
@@ -67,7 +67,7 @@ export function useManufacturingProducts() {
         if (err.code !== 'PGRST205') {
           throw error;
         }
-        // Table doesn't exist, try items table - productData already null
+        // Table doesn't exist, try items table - productData already null, no assignment needed
       }
 
       if (!productData || productData.length === 0) {

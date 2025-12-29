@@ -93,8 +93,8 @@ describe('Manufacturing Module', () => {
         { id: '4', status: 'planned' },
       ];
 
-      const activeStatuses = ['in_progress', 'planned'];
-      const activeOrders = orders.filter((o) => activeStatuses.includes(o.status));
+      const activeStatuses = new Set(['in_progress', 'planned']);
+      const activeOrders = orders.filter((o) => activeStatuses.has(o.status));
 
       expect(activeOrders).toHaveLength(2);
     });
@@ -424,10 +424,20 @@ describe('Manufacturing Module', () => {
         { name: 'Overhead', amount: 0 },
       ];
 
-      const classified = variances.map((v) => ({
-        ...v,
-        type: v.amount < 0 ? 'favorable' : v.amount > 0 ? 'unfavorable' : 'neutral',
-      }));
+      const classified = variances.map((v) => {
+        let type: 'favorable' | 'unfavorable' | 'neutral'
+        if (v.amount < 0) {
+          type = 'favorable'
+        } else if (v.amount > 0) {
+          type = 'unfavorable'
+        } else {
+          type = 'neutral'
+        }
+        return {
+          ...v,
+          type
+        }
+      });
 
       expect(classified[0].type).toBe('favorable');
       expect(classified[1].type).toBe('unfavorable');
