@@ -249,12 +249,12 @@ export const EfficiencyDashboard: React.FC = () => {
             </div>
             <div className="space-y-2">
               <Label>{isRTL ? 'مركز العمل' : 'Work Center'}</Label>
-              <Select value={selectedWorkCenter} onValueChange={setSelectedWorkCenter}>
+              <Select value={selectedWorkCenter || 'all'} onValueChange={(value) => setSelectedWorkCenter(value === 'all' ? '' : value)}>
                 <SelectTrigger>
                   <SelectValue placeholder={isRTL ? 'جميع مراكز العمل' : 'All Work Centers'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">{isRTL ? 'جميع مراكز العمل' : 'All Work Centers'}</SelectItem>
+                  <SelectItem value="all">{isRTL ? 'جميع مراكز العمل' : 'All Work Centers'}</SelectItem>
                   {workCenters?.map(wc => (
                     <SelectItem key={wc.id} value={wc.id}>
                       {isRTL ? wc.name_ar || wc.name : wc.name}
