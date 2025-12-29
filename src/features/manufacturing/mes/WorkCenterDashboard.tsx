@@ -234,100 +234,23 @@ export function WorkCenterDashboard() {
           ) : (
             <div className="space-y-4">
               {(workOrders || []).map((wo: WorkOrder) => (
-                <Card key={wo.id} className="border-2">
-                  <CardContent className="p-4">
-                    <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-                      {/* Work Order Info */}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="font-bold text-lg">{wo.work_order_number}</span>
-                          {getStatusBadge(wo.status)}
-                          <Badge variant="outline">#{wo.operation_sequence}</Badge>
-                        </div>
-                        <p className="text-muted-foreground">
-                          {isRTL ? wo.operation_name_ar || wo.operation_name : wo.operation_name}
-                        </p>
-                        
-                        {/* Progress */}
-                        <div className="mt-3">
-                          <div className="flex justify-between text-sm mb-1">
-                            <span>{isRTL ? 'التقدم' : 'Progress'}</span>
-                            <span>{wo.completed_quantity} / {wo.planned_quantity}</span>
-                          </div>
-                          <Progress value={getProgressPercentage(wo)} className="h-2" />
-                        </div>
-
-                        {/* Times */}
-                        <div className="flex gap-4 mt-3 text-sm text-muted-foreground">
-                          <div className="flex items-center gap-1">
-                            <Timer className="w-4 h-4" />
-                            <span>{isRTL ? 'إعداد:' : 'Setup:'} {wo.actual_setup_time || 0}/{wo.planned_setup_time} {isRTL ? 'د' : 'min'}</span>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Clock className="w-4 h-4" />
-                            <span>{isRTL ? 'تشغيل:' : 'Run:'} {wo.actual_run_time || 0}/{wo.planned_run_time} {isRTL ? 'د' : 'min'}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex flex-wrap gap-2">
-                        {(wo.status === 'PENDING' || wo.status === 'READY') && (
-                          <Button
-                            onClick={() => handleStartSetup(wo)}
-                            disabled={startOperation.isPending}
-                            className="bg-blue-500 hover:bg-blue-600"
-                          >
-                            <Play className="w-4 h-4 mr-2" />
-                            {isRTL ? 'بدء الإعداد' : 'Start Setup'}
-                          </Button>
-                        )}
-
-                        {wo.status === 'IN_SETUP' && (
-                          <Button
-                            onClick={() => handleStartProduction(wo)}
-                            disabled={startOperation.isPending}
-                            className="bg-green-500 hover:bg-green-600"
-                          >
-                            <Play className="w-4 h-4 mr-2" />
-                            {isRTL ? 'بدء الإنتاج' : 'Start Production'}
-                          </Button>
-                        )}
-
-                        {wo.status === 'IN_PROGRESS' && (
-                          <>
-                            <Button
-                              variant="outline"
-                              onClick={() => handlePause(wo)}
-                              disabled={pauseWorkOrder.isPending}
-                            >
-                              <Pause className="w-4 h-4 mr-2" />
-                              {isRTL ? 'إيقاف' : 'Pause'}
-                            </Button>
-                            <Button
-                              onClick={() => openCompleteDialog(wo)}
-                              className="bg-purple-500 hover:bg-purple-600"
-                            >
-                              <CheckCircle className="w-4 h-4 mr-2" />
-                              {isRTL ? 'تسجيل إنتاج' : 'Report Output'}
-                            </Button>
-                          </>
-                        )}
-
-                        {wo.status === 'ON_HOLD' && (
-                          <Button
-                            onClick={() => handleResume(wo)}
-                            disabled={resumeWorkOrder.isPending}
-                            className="bg-green-500 hover:bg-green-600"
-                          >
-                            <Play className="w-4 h-4 mr-2" />
-                            {isRTL ? 'استئناف' : 'Resume'}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                <WorkOrderCard
+                  key={wo.id}
+                  workOrder={wo}
+                  isRTL={isRTL}
+                  onStartSetup={handleStartSetup}
+                  onStartProduction={handleStartProduction}
+                  onPause={handlePause}
+                  onResume={handleResume}
+                  onComplete={openCompleteDialog}
+                  getStatusBadge={getStatusBadge}
+                  getProgressPercentage={getProgressPercentage}
+                  isPending={{
+                    start: startOperation.isPending,
+                    pause: pauseWorkOrder.isPending,
+                    resume: resumeWorkOrder.isPending
+                  }}
+                />
               ))}
             </div>
           )}
