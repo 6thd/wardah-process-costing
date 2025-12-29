@@ -40,6 +40,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Progress } from '@/components/ui/progress'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { cn } from '@/lib/utils'
 
 import {
@@ -226,6 +227,27 @@ export const EfficiencyDashboard: React.FC = () => {
           </Button>
         </div>
       </div>
+
+      {/* Migration Warning */}
+      {(laborError || statsError) && (
+        <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
+          <AlertTriangle className="h-4 w-4 text-yellow-600" />
+          <AlertTitle className="text-yellow-800 dark:text-yellow-200">
+            {isRTL ? 'تحذير: Views غير موجودة' : 'Warning: Views Not Found'}
+          </AlertTitle>
+          <AlertDescription className="text-yellow-700 dark:text-yellow-300">
+            {isRTL ? (
+              <>
+                يرجى تنفيذ ملف SQL Migration <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900 rounded">75_manufacturing_integration.sql</code> على Supabase لإنشاء الـ Views المطلوبة لتقارير الكفاءة.
+              </>
+            ) : (
+              <>
+                Please run SQL Migration file <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900 rounded">75_manufacturing_integration.sql</code> on Supabase to create the required Views for efficiency reports.
+              </>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Filters */}
       <Card>

@@ -151,6 +151,12 @@ export async function getLaborEfficiencyReport(filters?: {
   
   const { data, error } = await query.order('actual_end_date', { ascending: false })
   
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_labor_efficiency not found. Please run migration 75_manufacturing_integration.sql')
+    return []
+  }
+  
   if (error) throw error
   return data || []
 }
@@ -181,6 +187,12 @@ export async function getWorkCenterEfficiencySummary(filters?: {
   }
   
   const { data, error } = await query.order('production_date', { ascending: false })
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_work_center_efficiency_summary not found. Please run migration 75_manufacturing_integration.sql')
+    return []
+  }
   
   if (error) throw error
   return data || []
@@ -239,6 +251,12 @@ export async function getCostVarianceReport(filters?: {
   
   const { data, error } = await query.order('actual_end_date', { ascending: false })
   
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_cost_variance_report not found. Please run migration 75_manufacturing_integration.sql')
+    return []
+  }
+  
   if (error) throw error
   return data || []
 }
@@ -264,6 +282,18 @@ export async function getTotalVariances(
     .eq('org_id', orgId)
     .gte('actual_end_date', startDate)
     .lte('actual_end_date', endDate)
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_cost_variance_report not found. Please run migration 75_manufacturing_integration.sql')
+    return {
+      total_labor_variance: 0,
+      total_overhead_variance: 0,
+      total_variance: 0,
+      favorable_count: 0,
+      unfavorable_count: 0
+    }
+  }
   
   if (error) throw error
   
@@ -325,6 +355,12 @@ export async function getMaterialConsumptionReport(filters?: {
   }
   
   const { data, error } = await query.order('consumption_date', { ascending: false })
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_material_consumption_report not found. Please run migration 75_manufacturing_integration.sql')
+    return []
+  }
   
   if (error) throw error
   return data || []
@@ -415,6 +451,12 @@ export async function getOEEReport(filters?: {
   }
   
   const { data, error } = await query.order('production_date', { ascending: false })
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (error && error.code === 'PGRST116') {
+    console.warn('View v_oee_report not found. Please run migration 75_manufacturing_integration.sql')
+    return []
+  }
   
   if (error) throw error
   return data || []
@@ -574,22 +616,32 @@ export async function getDashboardStats(): Promise<{
   const weekStartStr = weekStart.toISOString().split('T')[0]
   
   // Today's efficiency
-  const { data: todayEfficiency } = await supabase
+  const { data: todayEfficiency, error: efficiencyError } = await supabase
     .from('v_work_center_efficiency_summary')
     .select('avg_overall_efficiency')
     .eq('org_id', orgId)
     .eq('production_date', today)
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (efficiencyError && efficiencyError.code === 'PGRST116') {
+    console.warn('View v_work_center_efficiency_summary not found. Please run migration 75_manufacturing_integration.sql')
+  }
   
   const avgTodayEfficiency = todayEfficiency?.length 
     ? todayEfficiency.reduce((sum, r) => sum + (r.avg_overall_efficiency || 0), 0) / todayEfficiency.length
     : 0
   
   // Today's OEE
-  const { data: todayOEE } = await supabase
+  const { data: todayOEE, error: oeeError } = await supabase
     .from('v_oee_report')
     .select('oee_pct')
     .eq('org_id', orgId)
     .eq('production_date', today)
+  
+  // معالجة خطأ 404 (View غير موجود)
+  if (oeeError && oeeError.code === 'PGRST116') {
+    console.warn('View v_oee_report not found. Please run migration 75_manufacturing_integration.sql')
+  }
   
   const avgTodayOEE = todayOEE?.length
     ? todayOEE.reduce((sum, r) => sum + (r.oee_pct || 0), 0) / todayOEE.length
