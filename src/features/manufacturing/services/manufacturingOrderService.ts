@@ -1,7 +1,6 @@
 import { manufacturingService } from '@/services/supabase-service';
 import { getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase';
 import { toast } from 'sonner';
-;
 import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status';
 
 interface CreateOrderData {
