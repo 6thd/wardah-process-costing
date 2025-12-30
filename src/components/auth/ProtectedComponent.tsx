@@ -105,14 +105,11 @@ export function ProtectedComponent({
   }
 
   // Helper function to get fallback content
-  const getFallbackContent = () => {
+  const getFallbackContent = (): ReactNode | null => {
     if (hide) {
       return null;
     }
-    if (fallback) {
-      return <>{fallback}</>;
-    }
-    return null;
+    return fallback ? <>{fallback}</> : null;
   };
 
   // Check admin permissions

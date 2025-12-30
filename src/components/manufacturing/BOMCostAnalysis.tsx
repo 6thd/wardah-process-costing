@@ -151,8 +151,8 @@ export function BOMCostAnalysis({ bomId, quantity = 1 }: BOMCostAnalysisProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {comparison.map((item, index) => (
-                  <TableRow key={index}>
+                {comparison.map((item) => (
+                  <TableRow key={item.cost_type}>
                     <TableCell className="font-medium">{item.cost_type}</TableCell>
                     <TableCell>{item.standard_cost.toFixed(2)} ريال</TableCell>
                     <TableCell>{item.actual_cost.toFixed(2)} ريال</TableCell>

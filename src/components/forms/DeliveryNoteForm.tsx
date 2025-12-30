@@ -359,7 +359,6 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
                   mode="single"
                   selected={deliveryDate}
                   onSelect={(date) => date && setDeliveryDate(date)}
-                  initialFocus
                 />
               </PopoverContent>
             </Popover>

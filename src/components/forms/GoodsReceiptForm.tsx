@@ -235,11 +235,13 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
               <Label htmlFor="purchaseOrder">أمر الشراء *</Label>
               <Select value={selectedPO} onValueChange={setSelectedPO} disabled={loadingPOs}>
                 <SelectTrigger id="purchaseOrder">
-                  <SelectValue placeholder={(() => {
-                    if (loadingPOs) return 'جاري التحميل...';
-                    if (purchaseOrders.length === 0) return 'لا توجد أوامر شراء متاحة';
-                    return 'اختر أمر الشراء';
-                  })()} />
+                  <SelectValue placeholder={
+                    loadingPOs 
+                      ? 'جاري التحميل...' 
+                      : purchaseOrders.length === 0 
+                        ? 'لا توجد أوامر شراء متاحة' 
+                        : 'اختر أمر الشراء'
+                  } />
                 </SelectTrigger>
                 <SelectContent>
                   {purchaseOrders.length === 0 ? (
@@ -315,7 +317,6 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                     mode="single"
                     selected={receiptDate}
                     onSelect={(date) => date && setReceiptDate(date)}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -384,10 +385,11 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((line, index) => {
+                      {lines.map((line) => {
                         const remaining = getRemainingQuantity(line)
+                        const lineKey = `${line.po_line_id}-${line.product_id}`
                         return (
-                          <tr key={index} className="border-t">
+                          <tr key={lineKey} className="border-t">
                             <td className="p-2 text-center">
                               <Checkbox
                                 checked={line.is_selected}

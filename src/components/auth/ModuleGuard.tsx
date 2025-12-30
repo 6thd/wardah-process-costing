@@ -14,19 +14,19 @@ import { useTranslation } from 'react-i18next';
 // =====================================
 
 interface ModuleGuardProps {
-  children: ReactNode;
+  readonly children: ReactNode;
   /** كود الموديول */
-  moduleCode?: string;
+  readonly moduleCode?: string;
   /** الإجراء المطلوب */
-  action?: string;
+  readonly action?: string;
   /** يتطلب Org Admin */
-  requireOrgAdmin?: boolean;
+  readonly requireOrgAdmin?: boolean;
   /** يتطلب Super Admin */
-  requireSuperAdmin?: boolean;
+  readonly requireSuperAdmin?: boolean;
   /** إعادة التوجيه إلى مسار معين عند عدم الصلاحية */
-  redirectTo?: string;
+  readonly redirectTo?: string;
   /** عرض رسالة بدلاً من إعادة التوجيه */
-  showAccessDenied?: boolean;
+  readonly showAccessDenied?: boolean;
 }
 
 // =====================================
@@ -101,14 +101,11 @@ function LoadingState() {
 // ModuleGuard Component
 // =====================================
 
-interface ModuleGuardProps {
-  readonly children: React.ReactNode
-  readonly moduleCode: string
-  readonly action?: string
-  readonly requireOrgAdmin?: boolean
-}
-
-export function ModuleGuard({ children, moduleCode, action = 'view', requireOrgAdmin = false }: ModuleGuardProps) {
+export function ModuleGuard({ 
+  children, 
+  moduleCode, 
+  action = 'view', 
+  requireOrgAdmin = false,
   requireSuperAdmin = false,
   redirectTo,
   showAccessDenied = true,
