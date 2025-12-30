@@ -896,7 +896,7 @@ export default function StockTransferManagement() {
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}

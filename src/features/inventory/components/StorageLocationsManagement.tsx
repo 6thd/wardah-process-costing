@@ -328,98 +328,99 @@ export default function StorageLocationsManagement() {
                 );
               }
               return (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>الكود</TableHead>
-                    <TableHead>الاسم</TableHead>
-                    <TableHead>النوع</TableHead>
-                    <TableHead>الميزات</TableHead>
-                    <TableHead>السعة</TableHead>
-                    <TableHead>الحالة</TableHead>
-                    <TableHead className="text-left">الإجراءات</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {locations.map((location) => (
-                    <TableRow key={location.id}>
-                      <TableCell className="font-mono text-sm">
-                        {location.code}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{location.name}</div>
-                          {location.name_ar && (
-                            <div className="text-sm text-muted-foreground">
-                              {location.name_ar}
-                            </div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">
-                          {getLocationTypeLabel(location.location_type || 'ZONE')}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {location.temperature_controlled && (
-                            <Badge variant="secondary" className="text-xs">
-                              <Thermometer className="h-3 w-3 mr-1" />
-                              تبريد
-                            </Badge>
-                          )}
-                          {location.is_pickable && (
-                            <Badge variant="secondary" className="text-xs">
-                              صرف
-                            </Badge>
-                          )}
-                          {location.is_receivable && (
-                            <Badge variant="secondary" className="text-xs">
-                              استلام
-                            </Badge>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {location.capacity ? (
-                          <span className="text-sm">
-                            {location.capacity} {location.capacity_unit || ''}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-muted-foreground">-</span>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {location.is_active ? (
-                          <Badge variant="default">نشط</Badge>
-                        ) : (
-                          <Badge variant="secondary">غير نشط</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-left">
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenDialog(location)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(location.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>الكود</TableHead>
+                      <TableHead>الاسم</TableHead>
+                      <TableHead>النوع</TableHead>
+                      <TableHead>الميزات</TableHead>
+                      <TableHead>السعة</TableHead>
+                      <TableHead>الحالة</TableHead>
+                      <TableHead className="text-left">الإجراءات</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            )}
+                  </TableHeader>
+                  <TableBody>
+                    {locations.map((location) => (
+                      <TableRow key={location.id}>
+                        <TableCell className="font-mono text-sm">
+                          {location.code}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{location.name}</div>
+                            {location.name_ar && (
+                              <div className="text-sm text-muted-foreground">
+                                {location.name_ar}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {getLocationTypeLabel(location.location_type || 'ZONE')}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {location.temperature_controlled && (
+                              <Badge variant="secondary" className="text-xs">
+                                <Thermometer className="h-3 w-3 mr-1" />
+                                تبريد
+                              </Badge>
+                            )}
+                            {location.is_pickable && (
+                              <Badge variant="secondary" className="text-xs">
+                                صرف
+                              </Badge>
+                            )}
+                            {location.is_receivable && (
+                              <Badge variant="secondary" className="text-xs">
+                                استلام
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {location.capacity ? (
+                            <span className="text-sm">
+                              {location.capacity} {location.capacity_unit || ''}
+                            </span>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          {location.is_active ? (
+                            <Badge variant="default">نشط</Badge>
+                          ) : (
+                            <Badge variant="secondary">غير نشط</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-left">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenDialog(location)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(location.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
