@@ -2,7 +2,7 @@
 // بسم الله الرحمن الرحيم
 // Hook للتحقق من صلاحيات المستخدم
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSupabase } from '@/lib/supabase';
 import { safeLocalStorage } from '@/lib/safe-storage';

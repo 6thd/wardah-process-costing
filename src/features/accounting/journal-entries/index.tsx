@@ -51,7 +51,7 @@ const JournalEntries = () => {
   });
 
   const { journals, accounts } = useJournalData(isRTL);
-  const { entries, loading: entriesLoading, fetchEntries } = useJournalEntries({ 
+  const { entries, loading, fetchEntries } = useJournalEntries({ 
     statusFilter, 
     dateFilter, 
     journals 

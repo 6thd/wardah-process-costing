@@ -3,7 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { efficiencyService, LaborEfficiency, WorkCenterEfficiencySummary, CostVariance, MaterialConsumptionReport, OEEReport, EfficiencySummary, OEESummary } from '@/services/manufacturing/efficiencyService'
+import { efficiencyService } from '@/services/manufacturing/efficiencyService'
 import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys
