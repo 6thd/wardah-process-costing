@@ -385,7 +385,7 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                       </tr>
                     </thead>
                     <tbody>
-                      {lines.map((line) => {
+                      {lines.map((line, lineIndex) => {
                         const remaining = getRemainingQuantity(line)
                         const lineKey = `${line.po_line_id}-${line.product_id}`
                         return (
@@ -395,7 +395,7 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                                 checked={line.is_selected}
                                 disabled={remaining <= 0}
                                 onCheckedChange={(checked) => 
-                                  updateLine(index, 'is_selected', !!checked)
+                                  updateLine(lineIndex, 'is_selected', !!checked)
                                 }
                               />
                             </td>

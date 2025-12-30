@@ -37,7 +37,7 @@ const JournalEntries = () => {
   const [batchPostDialogOpen, setBatchPostDialogOpen] = useState(false);
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [formLoading, setFormLoading] = useState(false); // Renamed to avoid conflict with loading from useJournalEntries
 
   // Form state
   const [formData, setFormData] = useState({
@@ -92,13 +92,13 @@ const JournalEntries = () => {
 
   const handleSubmit = async () => {
     try {
-      setLoading(true);
+      setFormLoading(true);
       const { totalDebit, totalCredit } = calculateTotals(formData.lines);
       
       const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
       if (!validation.valid) {
         alert(validation.message);
-        setLoading(false);
+        setFormLoading(false);
         return;
       }
 
@@ -133,7 +133,7 @@ const JournalEntries = () => {
       console.error('❌ Error saving entry:', error);
       toast.error(error?.message || (isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry'));
     } finally {
-      setLoading(false);
+      setFormLoading(false);
     }
   };
 
@@ -142,12 +142,12 @@ const JournalEntries = () => {
       return;
     }
 
-    setLoading(true);
+    setFormLoading(true);
     const success = await postJournalEntry(entry, isRTL);
     if (success) {
       fetchEntries();
     }
-    setLoading(false);
+    setFormLoading(false);
   };
 
   const handleDelete = async (entry: JournalEntry) => {
@@ -160,12 +160,12 @@ const JournalEntries = () => {
       return;
     }
 
-    setLoading(true);
+    setFormLoading(true);
     const success = await deleteJournalEntry(entry, isRTL);
     if (success) {
       fetchEntries();
     }
-    setLoading(false);
+    setFormLoading(false);
   };
 
   const handleEdit = async (entry: JournalEntry) => {
@@ -175,7 +175,7 @@ const JournalEntries = () => {
     }
 
     try {
-      setLoading(true);
+      setFormLoading(true);
       let lines = await fetchEntryLines(entry.id, accounts);
 
       if (!lines || lines.length === 0) {
@@ -211,7 +211,7 @@ const JournalEntries = () => {
       console.error('Error loading entry for edit:', error);
       toast.error(error.message || (isRTL ? 'تعذر تحميل بيانات القيد' : 'Failed to load entry details'));
     } finally {
-      setLoading(false);
+      setFormLoading(false);
     }
   };
 
