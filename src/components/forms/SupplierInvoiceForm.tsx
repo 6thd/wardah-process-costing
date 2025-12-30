@@ -75,7 +75,6 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
   const [loading, setLoading] = useState(false)
   const [loadingVendors, setLoadingVendors] = useState(true)
   const [loadingPOs, setLoadingPOs] = useState(false)
-  const [loadingProducts, setLoadingProducts] = useState(false)
   const [createMode, setCreateMode] = useState<'with-po' | 'without-po'>('with-po')
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [selectedVendorId, setSelectedVendorId] = useState('')
@@ -246,15 +245,12 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
   }
 
   const loadProducts = async () => {
-    setLoadingProducts(true)
     try {
       const filteredProducts = await loadPurchasableProducts()
       setAvailableProducts(filteredProducts)
     } catch (error) {
       console.error('Error loading products:', error)
       toast.error('خطأ في تحميل المنتجات')
-    } finally {
-      setLoadingProducts(false)
     }
   }
 

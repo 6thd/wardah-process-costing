@@ -333,15 +333,15 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 bg-gray-100 p-4 overflow-auto flex items-center justify-center">
-            {previewType?.startsWith('image/') ? (
+            {previewType?.startsWith('image/') && previewUrl ? (
               <img 
-                src={previewUrl!} 
+                src={previewUrl} 
                 alt={previewName || 'Preview'} 
                 className="max-w-full max-h-full object-contain shadow-lg rounded-md" 
               />
-            ) : previewType === 'application/pdf' ? (
+            ) : previewType === 'application/pdf' && previewUrl ? (
               <iframe 
-                src={previewUrl!} 
+                src={previewUrl} 
                 className="w-full h-full rounded-md shadow-lg" 
                 title="PDF Preview"
               />
@@ -359,9 +359,9 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                       <table className="min-w-full border-collapse border border-gray-300">
                         <thead>
                           <tr className="bg-gray-100">
-                            {csvData[0]?.map((header, idx) => (
+                            {csvData[0]?.map((header) => (
                               <th
-                                key={idx}
+                                key={`header-${header}`}
                                 className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700"
                               >
                                 {header}
@@ -370,18 +370,21 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                           </tr>
                         </thead>
                         <tbody>
-                          {csvData.slice(1).map((row, rowIdx) => (
-                            <tr key={rowIdx} className="hover:bg-gray-50">
-                              {row.map((cell, cellIdx) => (
-                                <td
-                                  key={cellIdx}
-                                  className="border border-gray-300 px-4 py-2 text-sm text-gray-600"
-                                >
-                                  {cell}
-                                </td>
-                              ))}
-                            </tr>
-                          ))}
+                          {csvData.slice(1).map((row) => {
+                            const rowKey = row.join('-')
+                            return (
+                              <tr key={rowKey} className="hover:bg-gray-50">
+                                {row.map((cell) => (
+                                  <td
+                                    key={`${rowKey}-${cell}`}
+                                    className="border border-gray-300 px-4 py-2 text-sm text-gray-600"
+                                  >
+                                    {cell}
+                                  </td>
+                                ))}
+                              </tr>
+                            )
+                          })}
                         </tbody>
                       </table>
                     </div>
@@ -392,10 +395,10 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                   </div>
                 )}
               </div>
-            ) : previewType?.startsWith('text/') ? (
+            ) : previewType?.startsWith('text/') && previewUrl ? (
               <div className="w-full h-full bg-white rounded-md shadow-lg p-6 overflow-auto">
                 <iframe 
-                  src={previewUrl!} 
+                  src={previewUrl} 
                   className="w-full h-full border-0" 
                   title="Text Preview"
                   style={{ minHeight: '500px' }}

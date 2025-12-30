@@ -93,22 +93,30 @@ export const WIPReport: React.FC<WIPReportProps> = ({ dateRange }) => {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {wipRecords.map((record, index) => (
-                <TableRow key={index}>
-                  <TableCell className="text-right">{record.order_number}</TableCell>
-                  <TableCell className="text-right">{record.product_name}</TableCell>
-                  <TableCell className="text-right">
-                    <span className={`px-2 py-1 rounded-full text-xs ${
-                      record.status === 'in_progress' 
-                        ? 'bg-yellow-100 text-yellow-800' 
-                        : record.status === 'completed' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                    }`}>
-                      {record.status === 'in_progress' ? 'قيد التنفيذ' : 
-                       record.status === 'completed' ? 'مكتمل' : record.status}
-                    </span>
-                  </TableCell>
+              {wipRecords.map((record) => {
+                const recordKey = `${record.order_number || ''}-${record.product_name || ''}-${record.status || ''}`
+                
+                const getStatusClass = () => {
+                  if (record.status === 'in_progress') return 'bg-yellow-100 text-yellow-800'
+                  if (record.status === 'completed') return 'bg-green-100 text-green-800'
+                  return 'bg-gray-100 text-gray-800'
+                }
+                
+                const getStatusText = () => {
+                  if (record.status === 'in_progress') return 'قيد التنفيذ'
+                  if (record.status === 'completed') return 'مكتمل'
+                  return record.status || ''
+                }
+                
+                return (
+                  <TableRow key={recordKey}>
+                    <TableCell className="text-right">{record.order_number}</TableCell>
+                    <TableCell className="text-right">{record.product_name}</TableCell>
+                    <TableCell className="text-right">
+                      <span className={`px-2 py-1 rounded-full text-xs ${getStatusClass()}`}>
+                        {getStatusText()}
+                      </span>
+                    </TableCell>
                   <TableCell className="text-right">{record.qty_planned.toLocaleString()}</TableCell>
                   <TableCell className="text-right">{record.qty_produced.toLocaleString()}</TableCell>
                   <TableCell className="text-right">{record.materials_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
@@ -116,8 +124,9 @@ export const WIPReport: React.FC<WIPReportProps> = ({ dateRange }) => {
                   <TableCell className="text-right">{record.overhead_applied.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                   <TableCell className="text-right font-bold">{record.total_wip_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                   <TableCell className="text-right">{record.current_unit_cost.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                </TableRow>
-              ))}
+                  </TableRow>
+                )
+              })}
             </TableBody>
           </Table>
         ) : (

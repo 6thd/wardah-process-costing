@@ -53,11 +53,14 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
         <h3>Gemini AI المساعد</h3>
       </div>
       <div className="chat-messages">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`message ${msg.sender}`}>
-            {msg.text}
-          </div>
-        ))}
+        {messages.map((msg) => {
+          const msgKey = `${msg.sender}-${msg.text?.slice(0, 20)}-${Date.now()}`
+          return (
+            <div key={msgKey} className={`message ${msg.sender}`}>
+              {msg.text}
+            </div>
+          )
+        })}
       </div>
       <div className="chat-input">
         <input
