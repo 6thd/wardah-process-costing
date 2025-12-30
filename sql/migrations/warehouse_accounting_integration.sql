@@ -22,6 +22,7 @@ RETURNS TABLE (
     cogs_account_id UUID
 ) AS $$
 DECLARE
+    -- Variables
     v_stock_account UUID;
     v_adjustment_account UUID;
     v_expense_account UUID;
@@ -29,23 +30,42 @@ DECLARE
     v_stock_parent UUID;
     v_expense_parent UUID;
     v_cogs_parent UUID;
+    -- Constants to reduce duplicated literals
+    C_ASSET_TYPE CONSTANT VARCHAR := 'Asset';
+    C_EXPENSE_TYPE CONSTANT VARCHAR := 'Expense';
+    C_STOCK_CODE_PREFIX CONSTANT VARCHAR := '1400-';
+    C_ADJUSTMENT_CODE_PREFIX CONSTANT VARCHAR := '5950-';
+    C_EXPENSE_CODE_PREFIX CONSTANT VARCHAR := '5900-';
+    C_COGS_CODE_PREFIX CONSTANT VARCHAR := '5000-';
+    C_INVENTORY_PREFIX_EN CONSTANT VARCHAR := 'Inventory - ';
+    C_INVENTORY_PREFIX_AR CONSTANT VARCHAR := 'مخزون - ';
+    C_ADJUSTMENT_PREFIX_EN CONSTANT VARCHAR := 'Stock Adjustments - ';
+    C_ADJUSTMENT_PREFIX_AR CONSTANT VARCHAR := 'تسويات مخزون - ';
+    C_EXPENSE_PREFIX_EN CONSTANT VARCHAR := 'Warehouse Expenses - ';
+    C_EXPENSE_PREFIX_AR CONSTANT VARCHAR := 'مصروفات مخزن - ';
+    C_COGS_PREFIX_EN CONSTANT VARCHAR := 'Cost of Goods Sold - ';
+    C_COGS_PREFIX_AR CONSTANT VARCHAR := 'تكلفة البضاعة المباعة - ';
+    C_STOCK_PARENT_CODE CONSTANT VARCHAR := '1400';
+    C_EXPENSE_PARENT_CODE CONSTANT VARCHAR := '5950';
+    C_COGS_PARENT_CODE CONSTANT VARCHAR := '5000';
+    C_IS_GROUP_FALSE CONSTANT BOOLEAN := false;
+    C_IS_ACTIVE_TRUE CONSTANT BOOLEAN := true;
 BEGIN
     -- Get parent accounts
     SELECT id INTO v_stock_parent 
     FROM accounts 
-    WHERE account_code = '1400' AND tenant_id = p_org_id
+    WHERE account_code = C_STOCK_PARENT_CODE AND tenant_id = p_org_id
     LIMIT 1;
     
     SELECT id INTO v_expense_parent 
     FROM accounts 
-    WHERE account_code = '5950' AND tenant_id = p_org_id
+    WHERE account_code = C_EXPENSE_PARENT_CODE AND tenant_id = p_org_id
     LIMIT 1;
     
     SELECT id INTO v_cogs_parent 
     FROM accounts 
-    WHERE account_code = '5000' AND tenant_id = p_org_id
+    WHERE account_code = C_COGS_PARENT_CODE AND tenant_id = p_org_id
     LIMIT 1;
-    
     -- Create Stock Account (1400-XX)
     INSERT INTO accounts (
         tenant_id,
@@ -59,13 +79,13 @@ BEGIN
         created_at
     ) VALUES (
         p_org_id,
-        '1400-' || p_warehouse_code,
-        'Inventory - ' || p_warehouse_name,
-        'مخزون - ' || p_warehouse_name,
-        'Asset',
+        C_STOCK_CODE_PREFIX || p_warehouse_code,
+        C_INVENTORY_PREFIX_EN || p_warehouse_name,
+        C_INVENTORY_PREFIX_AR || p_warehouse_name,
+        C_ASSET_TYPE,
         v_stock_parent,
-        false,
-        true,
+        C_IS_GROUP_FALSE,
+        C_IS_ACTIVE_TRUE,
         CURRENT_TIMESTAMP
     )
     RETURNING id INTO v_stock_account;
@@ -83,13 +103,13 @@ BEGIN
         created_at
     ) VALUES (
         p_org_id,
-        '5950-' || p_warehouse_code,
-        'Stock Adjustments - ' || p_warehouse_name,
-        'تسويات مخزون - ' || p_warehouse_name,
-        'Expense', -- NOSONAR: SQL literal constant
+        C_ADJUSTMENT_CODE_PREFIX || p_warehouse_code,
+        C_ADJUSTMENT_PREFIX_EN || p_warehouse_name,
+        C_ADJUSTMENT_PREFIX_AR || p_warehouse_name,
+        C_EXPENSE_TYPE,
         v_expense_parent,
-        false,
-        true,
+        C_IS_GROUP_FALSE,
+        C_IS_ACTIVE_TRUE,
         CURRENT_TIMESTAMP
     )
     RETURNING id INTO v_adjustment_account;
@@ -107,13 +127,13 @@ BEGIN
         created_at
     ) VALUES (
         p_org_id,
-        '5900-' || p_warehouse_code,
-        'Warehouse Expenses - ' || p_warehouse_name,
-        'مصروفات مخزن - ' || p_warehouse_name,
-        'Expense', -- NOSONAR: SQL literal constant
+        C_EXPENSE_CODE_PREFIX || p_warehouse_code,
+        C_EXPENSE_PREFIX_EN || p_warehouse_name,
+        C_EXPENSE_PREFIX_AR || p_warehouse_name,
+        C_EXPENSE_TYPE,
         v_expense_parent,
-        false,
-        true,
+        C_IS_GROUP_FALSE,
+        C_IS_ACTIVE_TRUE,
         CURRENT_TIMESTAMP
     )
     RETURNING id INTO v_expense_account;
@@ -131,13 +151,13 @@ BEGIN
         created_at
     ) VALUES (
         p_org_id,
-        '5000-' || p_warehouse_code,
-        'Cost of Goods Sold - ' || p_warehouse_name,
-        'تكلفة البضاعة المباعة - ' || p_warehouse_name,
-        'Expense', -- NOSONAR: SQL literal constant
+        C_COGS_CODE_PREFIX || p_warehouse_code,
+        C_COGS_PREFIX_EN || p_warehouse_name,
+        C_COGS_PREFIX_AR || p_warehouse_name,
+        C_EXPENSE_TYPE,
         v_cogs_parent,
-        false,
-        true,
+        C_IS_GROUP_FALSE,
+        C_IS_ACTIVE_TRUE,
         CURRENT_TIMESTAMP
     )
     RETURNING id INTO v_cogs_account;

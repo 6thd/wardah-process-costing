@@ -33,6 +33,75 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
     return item.work_centers?.name || `Stage ${item.stage_no}`
   }
 
+  // Helper functions to reduce cognitive complexity
+  const sortStageCosts = (data: Record<string, unknown>[]) => {
+    return data.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+      const aStage = Number(a.stage_no || a.stage_number || 0)
+      const bStage = Number(b.stage_no || b.stage_number || 0)
+      return aStage - bStage
+    })
+  }
+
+  const fetchWorkCenters = async (wcIds: string[]) => {
+    const wcData: Record<string, { id: string; name?: string; name_ar?: string }> = {}
+    if (wcIds.length > 0) {
+      const { data: wcs, error: wcError } = await supabase
+        .from('work_centers')
+        .select('id, name, name_ar')
+        .in('id', wcIds)
+      
+      if (!wcError && wcs) {
+        wcs.forEach((wc: { id: string; name?: string; name_ar?: string }) => {
+          wcData[wc.id] = wc
+        })
+      }
+    }
+    return wcData
+  }
+
+  const fetchManufacturingOrders = async (moIds: string[]) => {
+    const moData: Record<string, { order_number?: string }> = {}
+    if (moIds.length > 0) {
+      const { data: mos, error: moError } = await supabase
+        .from('manufacturing_orders')
+        .select('id, order_number')
+        .in('id', moIds)
+      
+      if (!moError && mos) {
+        mos.forEach((mo: { id: string; order_number?: string }) => {
+          moData[mo.id] = mo
+        })
+      }
+    }
+    return moData
+  }
+
+  const handleQueryError = async (queryError: any) => {
+    console.error('❌ WIP Valuation Query Error:', queryError)
+    
+    const fallbackQuery = supabase
+      .from('stage_costs')
+      .select('*')
+      .limit(100)
+    
+    const { data: fallbackData, error: fallbackError } = await fallbackQuery
+    
+    if (fallbackError) {
+      throw new Error(`Failed to fetch WIP data: ${queryError.message}`)
+    }
+    
+    const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
+      if (!filters.manufacturingOrderId) return true
+      return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
+    })
+    
+    return filtered.map((sc: Record<string, unknown>) => ({
+      ...sc,
+      manufacturing_orders: {},
+      work_centers: {}
+    }))
+  }
+
   const { data: wipData, isLoading, error } = useQuery({
     queryKey: ['wip-valuation-report', filters],
     queryFn: async () => {
@@ -46,79 +115,20 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
         ? await baseQuery.eq('manufacturing_order_id', filters.manufacturingOrderId)
         : await baseQuery
       
-      // Sort manually if order() fails
       if (stageCostsData && !queryError) {
-        stageCostsData.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
-          const aStage = Number(a.stage_no || a.stage_number || 0)
-          const bStage = Number(b.stage_no || b.stage_number || 0)
-          return aStage - bStage
-        })
+        sortStageCosts(stageCostsData)
       }
 
       if (queryError) {
-        console.error('❌ WIP Valuation Query Error:', queryError)
-        
-        // Try fallback
-        const fallbackQuery = supabase
-          .from('stage_costs')
-          .select('*')
-          .limit(100)
-        
-        // Don't add filter - fetch all and filter in memory
-        const { data: fallbackData, error: fallbackError } = await fallbackQuery
-        
-        if (fallbackError) {
-          throw new Error(`Failed to fetch WIP data: ${queryError.message}`)
-        }
-        
-        // Filter by manufacturing_order_id or mo_id in memory
-        const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
-          if (!filters.manufacturingOrderId) return true
-          return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
-        })
-        
-        return filtered.map((sc: Record<string, unknown>) => ({
-          ...sc,
-          manufacturing_orders: {},
-          work_centers: {}
-        }))
+        return handleQueryError(queryError)
       }
       
-      // Fetch work centers separately - support both column names
-      const wcIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.wc_id || sc.work_center_id).filter(Boolean))]
+      const wcIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.wc_id || sc.work_center_id).filter(Boolean))] as string[]
+      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))] as string[]
       
-      const wcData: Record<string, { id: string; name?: string; name_ar?: string }> = {}
-      if (wcIds.length > 0) {
-        const { data: wcs, error: wcError } = await supabase
-          .from('work_centers')
-          .select('id, name, name_ar')
-          .in('id', wcIds)
-        
-        if (!wcError && wcs) {
-          wcs.forEach((wc: { id: string; name?: string; name_ar?: string }) => {
-            wcData[wc.id] = wc
-          })
-        }
-      }
+      const wcData = await fetchWorkCenters(wcIds)
+      const moData = await fetchManufacturingOrders(moIds)
       
-      // Fetch manufacturing orders separately - support both column names
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
-      
-      const moData: Record<string, { order_number?: string }> = {}
-      if (moIds.length > 0) {
-        const { data: mos, error: moError } = await supabase
-          .from('manufacturing_orders')
-          .select('id, order_number')
-          .in('id', moIds)
-        
-        if (!moError && mos) {
-          mos.forEach((mo: { id: string; order_number?: string }) => {
-            moData[mo.id] = mo
-          })
-        }
-      }
-      
-      // Join data - support both column names
       return (stageCostsData || []).map((sc: Record<string, unknown>) => ({
         ...sc,
         manufacturing_orders: moData[(sc.manufacturing_order_id || sc.mo_id) as string],

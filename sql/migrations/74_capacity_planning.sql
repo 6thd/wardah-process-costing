@@ -361,6 +361,9 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+    C_STATUS_PLANNED CONSTANT VARCHAR := 'PLANNED';
+    C_PERCENTAGE_MULTIPLIER CONSTANT NUMERIC := 100;
+    C_DECIMAL_PLACES CONSTANT INTEGER := 2;
     v_org_id UUID;
     v_capacity RECORD;
     v_load RECORD;
@@ -385,10 +388,10 @@ BEGIN
         v_capacity.total_available_hours, v_load.total_planned_hours,
         CASE 
             WHEN v_capacity.total_available_hours > 0 
-            THEN ROUND((v_load.total_planned_hours / v_capacity.total_available_hours * 100)::NUMERIC, 2)
+            THEN ROUND((v_load.total_planned_hours / v_capacity.total_available_hours * C_PERCENTAGE_MULTIPLIER)::NUMERIC, C_DECIMAL_PLACES)
             ELSE 0 
         END,
-        v_load.total_work_orders, 'PLANNED', NOW()
+        v_load.total_work_orders, C_STATUS_PLANNED, NOW()
     )
     ON CONFLICT (work_center_id, period_start, period_end) 
     DO UPDATE SET

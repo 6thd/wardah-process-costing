@@ -140,23 +140,30 @@ export function WorkCenterDashboard() {
     }
   }
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'PENDING':
-        return <Badge variant="secondary">{isRTL ? 'في الانتظار' : 'Pending'}</Badge>
-      case 'READY':
-        return <Badge className="bg-blue-500">{isRTL ? 'جاهز' : 'Ready'}</Badge>
-      case 'IN_SETUP':
-        return <Badge className="bg-yellow-500">{isRTL ? 'إعداد' : 'Setup'}</Badge>
-      case 'IN_PROGRESS':
-        return <Badge className="bg-green-500">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</Badge>
-      case 'ON_HOLD':
-        return <Badge className="bg-orange-500">{isRTL ? 'معلق' : 'On Hold'}</Badge>
-      case 'COMPLETED':
-        return <Badge className="bg-purple-500">{isRTL ? 'مكتمل' : 'Completed'}</Badge>
-      default:
-        return <Badge>{status}</Badge>
+  // Helper function to reduce cognitive complexity
+  const getStatusConfig = (status: string) => {
+    const statusMap: Record<string, { variant?: string; className?: string; label: { ar: string; en: string } }> = {
+      'PENDING': { variant: 'secondary', label: { ar: 'في الانتظار', en: 'Pending' } },
+      'READY': { className: 'bg-blue-500', label: { ar: 'جاهز', en: 'Ready' } },
+      'IN_SETUP': { className: 'bg-yellow-500', label: { ar: 'إعداد', en: 'Setup' } },
+      'IN_PROGRESS': { className: 'bg-green-500', label: { ar: 'قيد التنفيذ', en: 'In Progress' } },
+      'ON_HOLD': { className: 'bg-orange-500', label: { ar: 'معلق', en: 'On Hold' } },
+      'COMPLETED': { className: 'bg-purple-500', label: { ar: 'مكتمل', en: 'Completed' } }
     }
+    return statusMap[status] || { label: { ar: status, en: status } }
+  }
+
+  const getStatusBadge = (status: string) => {
+    const config = getStatusConfig(status)
+    const label = isRTL ? config.label.ar : config.label.en
+    
+    if (config.variant) {
+      return <Badge variant={config.variant as any}>{label}</Badge>
+    }
+    if (config.className) {
+      return <Badge className={config.className}>{label}</Badge>
+    }
+    return <Badge>{label}</Badge>
   }
 
   const getProgressPercentage = (workOrder: WorkOrder) => {

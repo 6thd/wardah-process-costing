@@ -11,32 +11,39 @@
 -- ==============================================================================
 
 DO $$ 
+DECLARE
+    -- Constants to reduce duplicated literals
+    C_WAREHOUSES_TABLE CONSTANT VARCHAR := 'warehouses';
+    C_INVENTORY_ACCOUNT_PATTERN CONSTANT VARCHAR := '%warehouses_inventory_account%';
+    C_EXPENSE_ACCOUNT_PATTERN CONSTANT VARCHAR := '%warehouses_expense_account%';
+    C_INVENTORY_ACCOUNT_COLUMN CONSTANT VARCHAR := 'inventory_account_id';
+    C_EXPENSE_ACCOUNT_COLUMN CONSTANT VARCHAR := 'expense_account_id';
 BEGIN
     -- Check if inventory_account_id references correct table
     IF EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name LIKE '%warehouses_inventory_account%'
-        AND table_name = 'warehouses'
+        WHERE constraint_name LIKE C_INVENTORY_ACCOUNT_PATTERN
+        AND table_name = C_WAREHOUSES_TABLE
     ) THEN
         ALTER TABLE warehouses DROP CONSTRAINT IF EXISTS warehouses_inventory_account_id_fkey;
     END IF;
 
     IF EXISTS (
         SELECT 1 FROM information_schema.table_constraints 
-        WHERE constraint_name LIKE '%warehouses_expense_account%'
-        AND table_name = 'warehouses'
+        WHERE constraint_name LIKE C_EXPENSE_ACCOUNT_PATTERN
+        AND table_name = C_WAREHOUSES_TABLE
     ) THEN
         ALTER TABLE warehouses DROP CONSTRAINT IF EXISTS warehouses_expense_account_id_fkey;
     END IF;
 
     -- Add correct foreign keys
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'warehouses' AND column_name = 'inventory_account_id') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = C_WAREHOUSES_TABLE AND column_name = C_INVENTORY_ACCOUNT_COLUMN) THEN
         ALTER TABLE warehouses 
         ADD CONSTRAINT warehouses_inventory_account_id_fkey 
         FOREIGN KEY (inventory_account_id) REFERENCES gl_accounts(id);
     END IF;
 
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'warehouses' AND column_name = 'expense_account_id') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = C_WAREHOUSES_TABLE AND column_name = C_EXPENSE_ACCOUNT_COLUMN) THEN
         ALTER TABLE warehouses 
         ADD CONSTRAINT warehouses_expense_account_id_fkey 
         FOREIGN KEY (expense_account_id) REFERENCES gl_accounts(id);
@@ -106,8 +113,6 @@ BEGIN
     AND a.category = p_category
     AND a.is_active
     AND a.allow_posting
-    ORDER BY a.code ASC;
-    AND a.allow_posting  -- Only postable accounts
     ORDER BY a.code ASC;
 END;
 $$ LANGUAGE plpgsql;
@@ -226,17 +231,32 @@ COMMENT ON FUNCTION update_warehouse_gl_mapping IS 'تحديث ربط المخز
 -- ==============================================================================
 
 CREATE OR REPLACE VIEW v_suggested_warehouse_accounts AS
+WITH account_constants AS (
+    SELECT 
+        'ASSET'::VARCHAR AS C_ASSET_CATEGORY,
+        'EXPENSE'::VARCHAR AS C_EXPENSE_CATEGORY,
+        '14%'::VARCHAR AS C_STOCK_CODE_PATTERN,
+        '59%'::VARCHAR AS C_EXPENSE_CODE_PATTERN_59,
+        '58%'::VARCHAR AS C_EXPENSE_CODE_PATTERN_58,
+        '50%'::VARCHAR AS C_COGS_CODE_PATTERN,
+        '%inventory%'::VARCHAR AS C_INVENTORY_SUBTYPE_PATTERN,
+        '%stock%'::VARCHAR AS C_STOCK_SUBTYPE_PATTERN,
+        '%cost%'::VARCHAR AS C_COST_SUBTYPE_PATTERN,
+        'stock_account'::VARCHAR AS C_STOCK_PURPOSE,
+        'expense_account'::VARCHAR AS C_EXPENSE_PURPOSE,
+        'cogs_account'::VARCHAR AS C_COGS_PURPOSE
+)
 SELECT 
     org_id,
-    'stock_account' as account_purpose,
+    C_STOCK_PURPOSE as account_purpose,
     id as account_id,
     code,
     name,
     category,
     subtype
-FROM gl_accounts
-WHERE category = 'ASSET'
-AND (code LIKE '14%' OR subtype LIKE '%inventory%' OR subtype LIKE '%stock%')
+FROM gl_accounts, account_constants
+WHERE category = C_ASSET_CATEGORY
+AND (code LIKE C_STOCK_CODE_PATTERN OR subtype LIKE C_INVENTORY_SUBTYPE_PATTERN OR subtype LIKE C_STOCK_SUBTYPE_PATTERN)
 AND is_active
 AND allow_posting
 
@@ -244,35 +264,35 @@ UNION ALL
 
 SELECT 
     org_id,
-    'expense_account' as account_purpose,
+    C_EXPENSE_PURPOSE as account_purpose,
     id as account_id,
     code,
     name,
     category,
     subtype
-FROM gl_accounts
-WHERE category = 'EXPENSE'
-AND (code LIKE '59%' OR code LIKE '58%')
-AND is_active  -- Fixed: removed = true
-AND allow_posting  -- Fixed: removed = true
+FROM gl_accounts, account_constants
+WHERE category = C_EXPENSE_CATEGORY
+AND (code LIKE C_EXPENSE_CODE_PATTERN_59 OR code LIKE C_EXPENSE_CODE_PATTERN_58)
+AND is_active
+AND allow_posting
 
 UNION ALL
 
 SELECT 
     org_id,
-    'cogs_account' as account_purpose,
+    C_COGS_PURPOSE as account_purpose,
     id as account_id,
     code,
     name,
     category,
     subtype
-FROM gl_accounts
-WHERE category = 'EXPENSE'
-AND (code LIKE '50%' OR subtype LIKE '%cost%')
-AND is_active  -- Fixed: removed = true
-AND allow_posting  -- Fixed: removed = true
+FROM gl_accounts, account_constants
+WHERE category = C_EXPENSE_CATEGORY
+AND (code LIKE C_COGS_CODE_PATTERN OR subtype LIKE C_COST_SUBTYPE_PATTERN)
+AND is_active
+AND allow_posting
 
-ORDER BY account_purpose ASC, account_code ASC;
+ORDER BY account_purpose ASC, code ASC;
 
 COMMENT ON VIEW v_suggested_warehouse_accounts IS 'اقتراحات الحسابات المناسبة للمخازن';
 
@@ -289,6 +309,11 @@ RETURNS TABLE (
     error_message TEXT
 ) AS $$
 DECLARE
+    C_ASSET_CATEGORY CONSTANT VARCHAR := 'ASSET';
+    C_EXPENSE_CATEGORY CONSTANT VARCHAR := 'EXPENSE';
+    C_VALID_MESSAGE CONSTANT TEXT := 'الحسابات صحيحة';
+    C_STOCK_ERROR_MESSAGE CONSTANT TEXT := 'حساب المخزون يجب أن يكون من فئة الأصول (ASSET)';
+    C_EXPENSE_ERROR_MESSAGE CONSTANT TEXT := 'حساب المصروفات يجب أن يكون من فئة المصروفات (EXPENSE)';
     v_stock_category TEXT;
     v_expense_category TEXT;
 BEGIN
@@ -297,8 +322,8 @@ BEGIN
     FROM gl_accounts
     WHERE id = p_stock_account;
     
-    IF v_stock_category != 'ASSET' THEN
-        RETURN QUERY SELECT FALSE, 'حساب المخزون يجب أن يكون من فئة الأصول (ASSET)'::TEXT;
+    IF v_stock_category != C_ASSET_CATEGORY THEN
+        RETURN QUERY SELECT FALSE, C_STOCK_ERROR_MESSAGE;
         RETURN;
     END IF;
     
@@ -307,12 +332,12 @@ BEGIN
     FROM gl_accounts
     WHERE id = p_expense_account;
     
-    IF v_expense_category != 'EXPENSE' THEN
-        RETURN QUERY SELECT FALSE, 'حساب المصروفات يجب أن يكون من فئة المصروفات (EXPENSE)'::TEXT;
+    IF v_expense_category != C_EXPENSE_CATEGORY THEN
+        RETURN QUERY SELECT FALSE, C_EXPENSE_ERROR_MESSAGE;
         RETURN;
     END IF;
     
-    RETURN QUERY SELECT TRUE, 'الحسابات صحيحة'::TEXT;
+    RETURN QUERY SELECT TRUE, C_VALID_MESSAGE;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -324,6 +349,11 @@ COMMENT ON FUNCTION validate_warehouse_accounts IS 'التحقق من صحة ا�
 
 DO $$
 DECLARE
+    -- Constants to reduce duplicated literals
+    C_EXPENSE_CATEGORY CONSTANT VARCHAR := 'EXPENSE';
+    C_STOCK_CODE CONSTANT VARCHAR := '1400';
+    C_EXPENSE_CODE_PATTERN CONSTANT VARCHAR := '59%';
+    C_COGS_CODE_PATTERN CONSTANT VARCHAR := '50%';
     warehouse_rec RECORD;
     default_stock_account UUID;
     default_expense_account UUID;
@@ -332,17 +362,17 @@ BEGIN
     -- Get default accounts (adjust codes based on your COA)
     SELECT id INTO default_stock_account
     FROM gl_accounts
-    WHERE code = '1400' AND is_active
+    WHERE code = C_STOCK_CODE AND is_active
     LIMIT 1;
     
     SELECT id INTO default_expense_account
     FROM gl_accounts
-    WHERE category = 'EXPENSE' AND code LIKE '59%' AND is_active
+    WHERE category = C_EXPENSE_CATEGORY AND code LIKE C_EXPENSE_CODE_PATTERN AND is_active
     LIMIT 1;
     
     SELECT id INTO default_cogs_account
     FROM gl_accounts
-    WHERE category = 'EXPENSE' AND code LIKE '50%' AND is_active
+    WHERE category = C_EXPENSE_CATEGORY AND code LIKE C_COGS_CODE_PATTERN AND is_active
     LIMIT 1;
     
     IF default_stock_account IS NULL THEN

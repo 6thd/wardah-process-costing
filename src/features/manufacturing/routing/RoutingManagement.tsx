@@ -57,16 +57,21 @@ export function RoutingManagement() {
   const approveRouting = useApproveRouting()
   const copyRouting = useCopyRouting(orgId || undefined)
 
+  // Helper functions to reduce cognitive complexity
+  const matchesSearchTerm = (routing: Routing, term: string): boolean => {
+    const lowerTerm = term.toLowerCase()
+    return routing.routing_code.toLowerCase().includes(lowerTerm) ||
+      routing.routing_name.toLowerCase().includes(lowerTerm) ||
+      (routing.routing_name_ar?.toLowerCase().includes(lowerTerm) ?? false)
+  }
+
+  const matchesStatusFilter = (routing: Routing): boolean => {
+    return statusFilter === 'ALL' || routing.status === statusFilter
+  }
+
   // Filter routings
   const filteredRoutings = routings?.filter((routing: Routing) => {
-    const matchesSearch = 
-      routing.routing_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      routing.routing_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (routing.routing_name_ar?.toLowerCase().includes(searchTerm.toLowerCase()) ?? false)
-    
-    const matchesStatus = statusFilter === 'ALL' || routing.status === statusFilter
-    
-    return matchesSearch && matchesStatus
+    return matchesSearchTerm(routing, searchTerm) && matchesStatusFilter(routing)
   })
 
   const handleEdit = (id: string) => {
