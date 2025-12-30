@@ -321,7 +321,7 @@ export function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   
       // 🔐 استخدام صلاحيات المستخدم
-      const { isOrgAdmin, isSuperAdmin } = usePermissions() // Removed useless assignments: hasPermission, permissionsLoading
+      const { isOrgAdmin, isSuperAdmin } = usePermissions()
 
   const isRTL = i18n.language === 'ar'
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
