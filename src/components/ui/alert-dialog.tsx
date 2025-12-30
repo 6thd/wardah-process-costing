@@ -28,7 +28,7 @@ const AlertDialog = ({ open = false, onOpenChange, children }: AlertDialogProps)
     onOpenChange?.(newOpen)
   }, [onOpenChange])
 
-  const contextValue = React.useMemo(() => ({ open: internalOpen, setOpen: handleSetOpen }), [internalOpen, handleSetOpen])
+  const contextValue = React.useMemo(() => ({ open: internalOpen, setOpen: handleSetOpen }), [internalOpen, handleSetOpen]) // Fixed useMemo warning
 
   return (
     <AlertDialogContext.Provider value={contextValue}>
@@ -90,7 +90,7 @@ const AlertDialogContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, children, ...props }, ref) => {
-  const { open, setOpen } = React.useContext(AlertDialogContext)
+  const { open } = React.useContext(AlertDialogContext) // Removed useless assignment to setOpen
 
   if (!open) return null
 

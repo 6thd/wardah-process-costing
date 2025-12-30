@@ -6,6 +6,7 @@
 import React from 'react'
 import { Button } from '@/components/ui/button'
 import { Route, Plus } from 'lucide-react'
+// Removed unused import: useNavigate
 
 interface RoutingEmptyStateProps {
   isRTL: boolean

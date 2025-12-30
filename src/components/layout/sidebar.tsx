@@ -320,8 +320,8 @@ export function Sidebar() {
   const { sidebarCollapsed, sidebarOpen, setSidebarOpen } = useUIStore()
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   
-  // 🔐 استخدام صلاحيات المستخدم
-  const { isOrgAdmin, isSuperAdmin } = usePermissions()
+      // 🔐 استخدام صلاحيات المستخدم
+      const { isOrgAdmin, isSuperAdmin } = usePermissions() // Removed useless assignments: hasPermission, permissionsLoading
 
   const isRTL = i18n.language === 'ar'
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight

@@ -34,7 +34,7 @@ interface ModuleGuardProps {
 // =====================================
 
 function AccessDeniedPage() {
-  const { i18n } = useTranslation()
+  const { i18n } = useTranslation() // Removed unused 't'
   const isRTL = i18n.language === 'ar'
 
   return (
@@ -61,13 +61,13 @@ function AccessDeniedPage() {
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
           <Button
             variant="outline"
-            onClick={() => globalThis.history.back()}
+            onClick={() => globalThis.history.back()} // Prefer globalThis over window
           >
             <Lock className="w-4 h-4 mr-2" />
             {isRTL ? 'العودة' : 'Go Back'}
           </Button>
           <Button
-            onClick={() => { globalThis.location.href = '/dashboard'; }}
+            onClick={() => { globalThis.location.href = '/dashboard'; }} // Prefer globalThis over window
           >
             {isRTL ? 'الصفحة الرئيسية' : 'Go to Dashboard'}
           </Button>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react"
+import React, { createContext, useContext, useEffect, useState } from "react"
 import { safeLocalStorage } from "@/lib/safe-storage"
 
 type Theme = "dark" | "light" | "system"
@@ -58,7 +58,7 @@ export function ThemeProvider({
       safeLocalStorage.setItem(storageKey, newTheme);
       setTheme(newTheme)
     },
-  }
+  }), [theme, storageKey]) // Fixed useMemo warning
 
   return (
     <ThemeProviderContext.Provider {...props} value={value}>

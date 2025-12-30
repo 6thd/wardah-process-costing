@@ -7,12 +7,12 @@
 import { useCallback } from 'react';
 import { auditLogger } from '../lib/audit/AuditLogger';
 import type {
-  AuditAction,
   AuditEntityType,
   CreateAuditLogInput,
   AuditLogFilter,
   AuditLogResult,
 } from '../lib/audit/audit-types';
+// Removed unused import: AuditAction
 
 /**
  * Hook for audit logging

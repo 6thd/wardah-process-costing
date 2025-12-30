@@ -46,7 +46,7 @@ export function RoutingManagement() {
 
   useEffect(() => {
     const loadOrgId = async () => {
-      const id = await getEffectiveTenantId() // 't' removed as unused
+      const id = await getEffectiveTenantId()
       setOrgId(id || '')
     }
     loadOrgId()

@@ -7,6 +7,7 @@ import React from 'react'
 import type { ManufacturingOrder } from '@/lib/supabase'
 import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status'
 import { isActiveOrder, isCompletedOrder, isPendingOrder } from '@/utils/manufacturing-order-status'
+// Removed unused imports: Badge, cn
 
 interface ManufacturingMetricsProps {
   orders: ManufacturingOrder[]
