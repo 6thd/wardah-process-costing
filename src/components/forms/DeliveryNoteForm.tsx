@@ -403,7 +403,7 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
                       return (
                         <tr
                           key={line.invoice_line_id}
-                          className={!canDeliver ? 'bg-muted/50' : ''}
+                          className={canDeliver ? '' : 'bg-muted/50'}
                         >
                           <td className="p-2 text-center">
                             <Checkbox

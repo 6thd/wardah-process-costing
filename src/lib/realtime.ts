@@ -33,7 +33,7 @@ interface RealtimeSubscription {
 }
 
 class RealtimeManager {
-  private subscriptions: Map<string, RealtimeSubscription> = new Map()
+  private readonly subscriptions: Map<string, RealtimeSubscription> = new Map()
   private isConnected = false
 
   /**
@@ -233,8 +233,8 @@ setInterval(() => {
 }, 2000)
 
 // Cleanup on page unload
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
+if (typeof globalThis.window !== 'undefined') {
+  globalThis.window.addEventListener('beforeunload', () => {
     realtimeManager.unsubscribeAll()
   })
 }

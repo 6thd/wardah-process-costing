@@ -31,7 +31,7 @@ export const safeLocalStorage = {
         return null;
       }
       return localStorage.getItem(key);
-    } catch (error) {
+    } catch {
       // Silently fail - don't log warnings for expected cases
       return null;
     }

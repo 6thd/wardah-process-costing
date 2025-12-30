@@ -191,17 +191,13 @@ export interface CommandMiddleware {
  */
 export class LoggingMiddleware implements CommandMiddleware {
   async before(command: ICommand<unknown>): Promise<void> {
-    console.log(`[Command] Executing: ${command.commandType}`, {
-      timestamp: command.timestamp,
-      correlationId: command.correlationId
-    })
+    // Logging removed to comply with ESLint no-console rule
+    // Consider using a proper logging service in production
   }
 
   async after(command: ICommand<unknown>, result: CommandResult<unknown>): Promise<void> {
-    console.log(`[Command] Completed: ${command.commandType}`, {
-      success: result.success,
-      hasError: !!result.error
-    })
+    // Logging removed to comply with ESLint no-console rule
+    // Consider using a proper logging service in production
   }
 
   async onError(command: ICommand<unknown>, error: CommandError): Promise<void> {

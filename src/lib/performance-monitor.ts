@@ -3,7 +3,7 @@
  * Used to measure and log execution times for critical operations.
  */
 export class PerformanceMonitor {
-  static measurements: Map<string, number[]> = new Map();
+  static readonly measurements: Map<string, number[]> = new Map();
   
   /**
    * Measure the execution time of an asynchronous function.
@@ -38,7 +38,7 @@ export class PerformanceMonitor {
         min: Math.min(...times).toFixed(2) + 'ms',
         max: Math.max(...times).toFixed(2) + 'ms',
         count: times.length,
-        last: times[times.length - 1].toFixed(2) + 'ms'
+        last: times.at(-1)?.toFixed(2) + 'ms' || '0ms'
       };
     });
     return report;

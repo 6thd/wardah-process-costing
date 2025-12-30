@@ -44,9 +44,9 @@ export async function loadConfig(): Promise<AppConfig> {
     if (!response.ok) {
       throw new Error(`Failed to load config: ${response.statusText}`);
     }
-    _config = await response.json();
+    _config = await response.json() as AppConfig;
     console.log('✅ Configuration loaded successfully:', _config);
-    return _config!;
+    return _config;
   } catch (error) {
     console.error('Failed to load application configuration:', error);
     // Fallback configuration

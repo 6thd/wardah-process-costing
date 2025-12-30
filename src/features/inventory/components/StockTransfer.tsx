@@ -11,9 +11,9 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { getSupabase } from '@/lib/supabase'
 import { itemsService } from '@/services/supabase-service'
-import { cn } from '@/lib/utils'
 
 interface StockTransferItem {
   id: string
@@ -38,8 +38,6 @@ export default function StockTransferManagement() {
   const [transfers, setTransfers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
-  const [viewMode, setViewMode] = useState(false)
-  const [selectedTransfer, setSelectedTransfer] = useState<any>(null)
 
   // Warehouses
   const [warehouses, setWarehouses] = useState<any[]>([])
@@ -410,43 +408,40 @@ export default function StockTransferManagement() {
 
         const valuationRate = bin?.valuation_rate || 0
 
-        // OUT from source warehouse
-        stockLedgerEntries.push({
+        const postingTime = new Date().toTimeString().split(' ')[0];
+        const commonFields = {
           org_id: userOrg.org_id,
           posting_date: transfer.transfer_date,
-          posting_time: new Date().toTimeString().split(' ')[0],
+          posting_time: postingTime,
           voucher_type: 'Stock Transfer',
           voucher_id: transferId,
           voucher_number: transfer.reference_number,
           product_id: item.product_id,
+          is_cancelled: false,
+          created_by: user.id
+        };
+
+        // OUT from source warehouse and IN to destination warehouse
+        const outEntry = {
+          ...commonFields,
           warehouse_id: transfer.from_warehouse_id,
           actual_qty: -item.quantity, // Negative for OUT
           incoming_rate: 0,
           outgoing_rate: valuationRate,
           valuation_rate: valuationRate,
-          stock_value_difference: -item.quantity * valuationRate,
-          is_cancelled: false,
-          created_by: user.id
-        })
-
-        // IN to destination warehouse
-        stockLedgerEntries.push({
-          org_id: userOrg.org_id,
-          posting_date: transfer.transfer_date,
-          posting_time: new Date().toTimeString().split(' ')[0],
-          voucher_type: 'Stock Transfer',
-          voucher_id: transferId,
-          voucher_number: transfer.reference_number,
-          product_id: item.product_id,
+          stock_value_difference: -item.quantity * valuationRate
+        };
+        const inEntry = {
+          ...commonFields,
           warehouse_id: transfer.to_warehouse_id,
           actual_qty: item.quantity, // Positive for IN
           incoming_rate: valuationRate,
           outgoing_rate: 0,
           valuation_rate: valuationRate,
-          stock_value_difference: item.quantity * valuationRate,
-          is_cancelled: false,
-          created_by: user.id
-        })
+          stock_value_difference: item.quantity * valuationRate
+        };
+        // eslint-disable-next-line sonarjs/prefer-array-methods
+        stockLedgerEntries.push(outEntry, inEntry)
       }
 
       const { error: ledgerError } = await supabase
@@ -472,8 +467,6 @@ export default function StockTransferManagement() {
 
       toast.success('✅ تم تأكيد التحويل وتحديث المخزون بنجاح')
       
-      setViewMode(false)
-      setSelectedTransfer(null)
       loadTransfers()
 
     } catch (error: any) {
@@ -851,21 +844,19 @@ export default function StockTransferManagement() {
         ) : (
           <div className="space-y-4">
             {transfers.map((transfer) => (
-              <div
+              <button
                 key={transfer.id}
-                role="button"
-                tabIndex={0}
+                type="button"
                 aria-label={`عرض تفاصيل نقل المخزون ${transfer.id}`}
-                className="border rounded-lg p-4 hover:bg-muted/30 transition-colors cursor-pointer"
+                className="w-full text-left border rounded-lg p-4 hover:bg-muted/30 transition-colors"
                 onClick={() => {
-                  setSelectedTransfer(transfer)
-                  setViewMode(true)
+                  // View transfer details
                 }}
+                // eslint-disable-next-line jsx-a11y/no-static-element-interactions
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault()
-                    setSelectedTransfer(transfer)
-                    setViewMode(true)
+                    // View transfer details
                   }
                 }}
               >

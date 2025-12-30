@@ -36,7 +36,7 @@ function App() {
                 {/* Opting into React Router v7 future behavior early */}
                 <RouterProvider 
                   router={appRouter} 
-                  future={{ v7_startTransition: true } as any}
+                  future={{ v7_startTransition: true } as { v7_startTransition: boolean }}
                 />
                 <Toaster />
                 <ReactQueryDevtools initialIsOpen={false} />

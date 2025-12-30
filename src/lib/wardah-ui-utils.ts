@@ -118,7 +118,7 @@ export const applyWardahTheme = (element: HTMLElement, theme = wardahUITheme) =>
   };
 
   Object.entries(cssVariables).forEach(([key, value]) => {
-    element.style.setProperty(key, value as string);
+    element.style.setProperty(key, String(value));
   });
 };
 

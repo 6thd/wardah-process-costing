@@ -7,6 +7,7 @@ interface ProfitabilityTablesProps {
   readonly isRTL: boolean;
 }
 
+// eslint-disable-next-line complexity
 export function ProfitabilityTables({ profitability, isRTL }: ProfitabilityTablesProps) {
   return (
     <>

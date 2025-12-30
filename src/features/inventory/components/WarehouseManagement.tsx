@@ -133,9 +133,11 @@ export default function WarehouseManagement() {
 
       handleCloseDialog();
       loadWarehouses();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error saving warehouse:', error);
-      toast.error(error.message || 'فشل حفظ المخزن');
+      const errorMessage = error instanceof Error ? error.message : 'فشل حفظ المخزن';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -151,12 +153,133 @@ export default function WarehouseManagement() {
       await warehouseService.deleteWarehouse(id);
       toast.success('تم حذف المخزن بنجاح');
       loadWarehouses();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error deleting warehouse:', error);
-      toast.error(error.message || 'فشل حذف المخزن');
+      const errorMessage = error instanceof Error ? error.message : 'فشل حذف المخزن';
+      toast.error(errorMessage);
     } finally {
       setLoading(false);
     }
+  };
+
+  const renderWarehouseContent = () => {
+    if (loading && !showDialog) {
+      return (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-muted-foreground">جاري التحميل...</div>
+        </div>
+      );
+    }
+    if (warehouses.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center p-8 text-center">
+          <Warehouse className="h-12 w-12 text-muted-foreground mb-4" />
+          <p className="text-muted-foreground">لا توجد مخازن مسجلة</p>
+          <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            إضافة أول مخزن
+          </Button>
+        </div>
+      );
+    }
+    return (
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>الكود</TableHead>
+            <TableHead>الاسم</TableHead>
+            <TableHead>النوع</TableHead>
+            <TableHead>حساب المخزون</TableHead>
+            <TableHead>حساب المصروفات</TableHead>
+            <TableHead>الحالة</TableHead>
+            <TableHead className="text-left">الإجراءات</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {warehouses.map((warehouse) => (
+            <TableRow key={warehouse.id}>
+              <TableCell className="font-mono text-sm">
+                {warehouse.code}
+              </TableCell>
+              <TableCell>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <div className="font-medium flex items-center gap-2">
+                      {warehouse.name}
+                      {(!warehouse.inventory_account_id || !warehouse.expense_account_id) && (
+                        <AlertCircle className="h-4 w-4 text-amber-500" />
+                      )}
+                    </div>
+                    {warehouse.name_ar && (
+                      <div className="text-sm text-muted-foreground">
+                        {warehouse.name_ar}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline">
+                  {getWarehouseTypeLabel(warehouse.warehouse_type)}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                {warehouse.inventory_account_id ? (
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-green-500" />
+                    <span className="text-sm">مرتبط</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span className="text-sm text-amber-600">غير مرتبط</span>
+                  </div>
+                )}
+              </TableCell>
+              <TableCell>
+                {warehouse.expense_account_id ? (
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-green-500" />
+                    <span className="text-sm">مرتبط</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-amber-500" />
+                    <span className="text-sm text-amber-600">غير مرتبط</span>
+                  </div>
+                )}
+              </TableCell>
+              <TableCell>
+                {warehouse.is_active ? (
+                  <Badge variant="default">نشط</Badge>
+                ) : (
+                  <Badge variant="secondary">غير نشط</Badge>
+                )}
+              </TableCell>
+              <TableCell className="text-left">
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleOpenDialog(warehouse)}
+                  >
+                    <Edit className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDelete(warehouse.id)}
+                  >
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    );
   };
 
   const getWarehouseTypeLabel = (type: string) => {
@@ -188,7 +311,7 @@ export default function WarehouseManagement() {
       </div>
 
       {/* Warning for unlinked warehouses */}
-      {warehouses.filter(w => !w.inventory_account_id || !w.expense_account_id).length > 0 && (
+      {warehouses.some(w => !w.inventory_account_id || !w.expense_account_id) && (
         <div className="rounded-lg border-2 border-amber-300 bg-amber-50 dark:bg-amber-900/20 p-4">
           <div className="flex items-start gap-3">
             <div className="flex-shrink-0">
@@ -236,116 +359,7 @@ export default function WarehouseManagement() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {loading && !showDialog ? (
-            <div className="flex items-center justify-center p-8">
-              <div className="text-muted-foreground">جاري التحميل...</div>
-            </div>
-          ) : warehouses.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-8 text-center">
-              <Warehouse className="h-12 w-12 text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">لا توجد مخازن مسجلة</p>
-              <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
-                <Plus className="mr-2 h-4 w-4" />
-                إضافة أول مخزن
-              </Button>
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>الكود</TableHead>
-                  <TableHead>الاسم</TableHead>
-                  <TableHead>النوع</TableHead>
-                  <TableHead>حساب المخزون</TableHead>
-                  <TableHead>حساب المصروفات</TableHead>
-                  <TableHead>الحالة</TableHead>
-                  <TableHead className="text-left">الإجراءات</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {warehouses.map((warehouse) => (
-                  <TableRow key={warehouse.id}>
-                    <TableCell className="font-mono text-sm">
-                      {warehouse.code}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div>
-                          <div className="font-medium flex items-center gap-2">
-                            {warehouse.name}
-                            {(!warehouse.inventory_account_id || !warehouse.expense_account_id) && (
-                              <AlertCircle className="h-4 w-4 text-amber-500" />
-                            )}
-                          </div>
-                          {warehouse.name_ar && (
-                            <div className="text-sm text-muted-foreground">
-                              {warehouse.name_ar}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {getWarehouseTypeLabel(warehouse.warehouse_type)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {warehouse.inventory_account_id ? (
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-green-500" />
-                          <span className="text-sm">مرتبط</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-amber-500" />
-                          <span className="text-sm text-amber-600">غير مرتبط</span>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {warehouse.expense_account_id ? (
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-green-500" />
-                          <span className="text-sm">مرتبط</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full bg-amber-500" />
-                          <span className="text-sm text-amber-600">غير مرتبط</span>
-                        </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {warehouse.is_active ? (
-                        <Badge variant="default">نشط</Badge>
-                      ) : (
-                        <Badge variant="secondary">غير نشط</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-left">
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenDialog(warehouse)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleDelete(warehouse.id)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
+          {renderWarehouseContent()}
         </CardContent>
       </Card>
 
@@ -664,7 +678,10 @@ export default function WarehouseManagement() {
               إلغاء
             </Button>
             <Button onClick={handleSave} disabled={loading}>
-              {loading ? 'جاري الحفظ...' : editingWarehouse ? 'تحديث' : 'إنشاء'}
+              {(() => {
+                if (loading) return 'جاري الحفظ...';
+                return editingWarehouse ? 'تحديث' : 'إنشاء';
+              })()}
             </Button>
           </DialogFooter>
         </DialogContent>

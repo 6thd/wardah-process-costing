@@ -23,8 +23,8 @@ interface CacheConfig {
 // =====================================
 
 class CacheManager {
-  private prefix = 'wardah_cache_';
-  private defaultTTL = 24 * 60 * 60 * 1000; // 24 hours default
+  private readonly prefix = 'wardah_cache_';
+  private readonly defaultTTL = 24 * 60 * 60 * 1000; // 24 hours default
 
   /**
    * Set cache item
@@ -106,20 +106,20 @@ class CacheManager {
   clear(config: CacheConfig = {}): boolean {
     try {
       const storage = config.useSessionStorage ? safeSessionStorage : safeLocalStorage;
-      const nativeStorage = config.useSessionStorage ? window.sessionStorage : window.localStorage;
+      const nativeStorage = config.useSessionStorage ? globalThis.sessionStorage : globalThis.localStorage;
       
       // Get all keys with prefix
       const keys: string[] = [];
       try {
         for (let i = 0; i < nativeStorage.length; i++) {
           const key = nativeStorage.key(i);
-          if (key && key.startsWith(this.prefix)) {
+          if (key?.startsWith(this.prefix)) {
             keys.push(key);
           }
         }
       } catch (e) {
         // If we can't iterate, try to clear common cache keys
-        console.warn('Could not iterate storage, clearing known cache keys');
+        console.warn('Could not iterate storage, clearing known cache keys', e);
       }
 
       // Remove all cache keys
@@ -147,9 +147,10 @@ class CacheManager {
         return null;
       }
 
-      const cacheItem: CacheItem<any> = JSON.parse(item);
+      const cacheItem: CacheItem<unknown> = JSON.parse(item);
       return Date.now() - cacheItem.timestamp;
     } catch (error) {
+      console.error(`Error getting cache age for key "${key}":`, error);
       return null;
     }
   }
@@ -205,7 +206,7 @@ export const cacheManager = new CacheManager();
 /**
  * Cache user organizations
  */
-export function cacheUserOrganizations(userId: string, organizations: any[]): boolean {
+export function cacheUserOrganizations(userId: string, organizations: unknown[]): boolean {
   return cacheManager.set(
     `${CACHE_KEYS.USER_ORGANIZATIONS}_${userId}`,
     organizations,
@@ -216,14 +217,14 @@ export function cacheUserOrganizations(userId: string, organizations: any[]): bo
 /**
  * Get cached user organizations
  */
-export function getCachedUserOrganizations(userId: string): any[] | null {
-  return cacheManager.get(`${CACHE_KEYS.USER_ORGANIZATIONS}_${userId}`);
+export function getCachedUserOrganizations(userId: string): unknown[] | null {
+  return cacheManager.get<unknown[]>(`${CACHE_KEYS.USER_ORGANIZATIONS}_${userId}`);
 }
 
 /**
  * Cache app config
  */
-export function cacheAppConfig(config: any): boolean {
+export function cacheAppConfig(config: Record<string, unknown>): boolean {
   return cacheManager.set(
     CACHE_KEYS.APP_CONFIG,
     config,
@@ -234,14 +235,14 @@ export function cacheAppConfig(config: any): boolean {
 /**
  * Get cached app config
  */
-export function getCachedAppConfig(): any | null {
-  return cacheManager.get(CACHE_KEYS.APP_CONFIG);
+export function getCachedAppConfig(): Record<string, unknown> | null {
+  return cacheManager.get<Record<string, unknown>>(CACHE_KEYS.APP_CONFIG);
 }
 
 /**
  * Cache GL accounts
  */
-export function cacheGLAccounts(orgId: string, accounts: any[]): boolean {
+export function cacheGLAccounts(orgId: string, accounts: unknown[]): boolean {
   return cacheManager.set(
     `${CACHE_KEYS.GL_ACCOUNTS}_${orgId}`,
     accounts,
@@ -252,8 +253,8 @@ export function cacheGLAccounts(orgId: string, accounts: any[]): boolean {
 /**
  * Get cached GL accounts
  */
-export function getCachedGLAccounts(orgId: string): any[] | null {
-  return cacheManager.get(`${CACHE_KEYS.GL_ACCOUNTS}_${orgId}`);
+export function getCachedGLAccounts(orgId: string): unknown[] | null {
+  return cacheManager.get<unknown[]>(`${CACHE_KEYS.GL_ACCOUNTS}_${orgId}`);
 }
 
 export default cacheManager;

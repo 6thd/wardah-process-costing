@@ -39,8 +39,8 @@ class PerformanceMonitoringService {
       console.warn(`Slow operation: ${metric.name} took ${metric.duration}ms`, metric.metadata);
       
       // Send to monitoring if available
-      if (typeof window !== 'undefined' && (window as any).Sentry) {
-        (window as any).Sentry.captureMessage(
+      if (typeof globalThis.window !== 'undefined' && (globalThis.window as { Sentry?: { captureMessage: (message: string, level: string) => void } }).Sentry) {
+        (globalThis.window as { Sentry: { captureMessage: (message: string, level: string) => void } }).Sentry.captureMessage(
           `Slow operation: ${metric.name}`,
           'warning'
         );
@@ -94,11 +94,13 @@ class PerformanceMonitoringService {
     let filtered = [...this.metrics];
 
     if (filter?.name) {
-      filtered = filtered.filter(m => m.name.includes(filter.name!));
+      const name = filter.name;
+      filtered = filtered.filter(m => m.name.includes(name));
     }
 
     if (filter?.minDuration) {
-      filtered = filtered.filter(m => m.duration >= filter.minDuration!);
+      const minDuration = filter.minDuration;
+      filtered = filtered.filter(m => m.duration >= minDuration);
     }
 
     return filtered;
@@ -151,8 +153,10 @@ export const performanceMonitoring = new PerformanceMonitoringService();
 // Integrate with existing PerformanceMonitor
 if (typeof PerformanceMonitor !== 'undefined') {
   // Wrap PerformanceMonitor.measure to also track in our service
-  const originalMeasure = PerformanceMonitor.measure;
-  PerformanceMonitor.measure = async function<T>(
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const originalMeasure = (PerformanceMonitor as { measure: <T>(name: string, fn: () => Promise<T>) => Promise<T> }).measure;
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  (PerformanceMonitor as { measure: <T>(name: string, fn: () => Promise<T>) => Promise<T> }).measure = async function<T>(
     name: string,
     fn: () => Promise<T>
   ): Promise<T> {

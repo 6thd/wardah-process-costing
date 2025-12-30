@@ -18,7 +18,7 @@ export function registerServiceWorker(scriptPath: string, scope?: string): Promi
     }
 
     // Check if we're in a secure context (HTTPS or localhost)
-    if (!window.isSecureContext) {
+    if (!globalThis.window?.isSecureContext) {
       console.warn('Service Workers require a secure context (HTTPS or localhost)');
       resolve(null);
       return;

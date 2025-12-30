@@ -39,11 +39,12 @@ interface Product {
   cost_price?: number | null
 }
 
-const getProductDisplayName = (product: Product) =>
-  product.name_ar?.trim() ||
-  product.name?.trim() ||
-  product.name_en?.trim() ||
-  product.code
+const getProductDisplayName = (product: Product) => {
+  if (product.name_ar?.trim()) return product.name_ar.trim()
+  if (product.name?.trim()) return product.name.trim()
+  if (product.name_en?.trim()) return product.name_en.trim()
+  return product.code
+}
 
 interface PurchaseOrderLine {
   id?: string
@@ -246,12 +247,12 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
       updatePosition()
 
       // Update on scroll or resize
-      window.addEventListener('scroll', updatePosition, true)
-      window.addEventListener('resize', updatePosition)
+      globalThis.addEventListener('scroll', updatePosition, true)
+      globalThis.addEventListener('resize', updatePosition)
 
       return () => {
-        window.removeEventListener('scroll', updatePosition, true)
-        window.removeEventListener('resize', updatePosition)
+        globalThis.removeEventListener('scroll', updatePosition, true)
+        globalThis.removeEventListener('resize', updatePosition)
       }
     }, [open])
 
@@ -343,6 +344,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
         {open && filtered.length > 0 && createPortal(
           <div
             role="listbox"
+            aria-label="Product search results"
             tabIndex={0}
             style={{
               position: 'fixed',
@@ -863,7 +865,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                         ? `${selectedProduct.code} - ${getProductDisplayName(selectedProduct)}`
                         : line.product_code || ''
 
-                      const lineKey = line.id || `${line.product_id}-${index}`
+                      const lineKey = line.id || `${line.product_id}-${line.line_number || Date.now()}`
                       return (
                         <tr key={lineKey} className="border-t hover:bg-muted/50">
                           <td className="p-2">

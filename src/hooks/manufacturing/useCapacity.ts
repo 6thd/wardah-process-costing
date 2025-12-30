@@ -3,8 +3,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { capacityService, ProductionSchedule, ScheduleDetail } from '@/services/manufacturing/capacityService'
-// Removed unused imports: BottleneckAnalysis, CapacitySummary, WorkCenterLoad
+import { capacityService, type ProductionSchedule, type ScheduleDetail } from '@/services/manufacturing/capacityService'
 import { useToast } from '@/components/ui/use-toast'
 
 // Query Keys

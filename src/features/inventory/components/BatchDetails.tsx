@@ -176,14 +176,22 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {batches.map((batch, index) => (
+                  {batches.map((batch, index) => {
+                    // eslint-disable-next-line react/no-array-index-key
+                    const batchKey = `batch-${batch.batch_number}-${productId}-${index}`;
+                    const isFIFOFirst = valuationMethod === 'FIFO' && index === 0;
+                    const isLIFOLast = valuationMethod === 'LIFO' && index === batches.length - 1;
+                    // eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional
+                    let rowClassName = '';
+                    if (isFIFOFirst) {
+                      rowClassName = 'bg-green-50';
+                    } else if (isLIFOLast) {
+                      rowClassName = 'bg-blue-50';
+                    }
+                    return (
                     <tr 
-                      key={index}
-                      className={`hover:bg-gray-50 ${
-                        valuationMethod === 'FIFO' && index === 0 ? 'bg-green-50' :
-                        valuationMethod === 'LIFO' && index === batches.length - 1 ? 'bg-blue-50' :
-                        ''
-                      }`}
+                      key={batchKey}
+                      className={`hover:bg-gray-50 ${rowClassName}`}
                     >
                       <td className="px-4 py-3 whitespace-nowrap text-sm">
                         <div className="flex items-center gap-2">

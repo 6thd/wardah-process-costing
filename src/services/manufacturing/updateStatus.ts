@@ -77,8 +77,57 @@ async function handleRelationshipError(
 }
 
 /**
+ * Handle update error and retry
+ */
+async function handleUpdateError(
+  getClient: () => Promise<SupabaseClient>,
+  id: string,
+  status: string,
+  error: unknown
+): Promise<Record<string, unknown> | null> {
+  if (isTableNotFoundError(error)) {
+    throw new Error('manufacturing_orders table does not exist');
+  }
+
+  if (isRelationshipNotFoundError(error)) {
+    const supabase = await getClient();
+    const updateData: Record<string, unknown> = {
+      status,
+      updated_at: new Date().toISOString()
+    };
+
+    if (status === 'completed') {
+      updateData.end_date = new Date().toISOString();
+    }
+
+    return performSimpleUpdate(supabase, 'manufacturing_orders', id, updateData);
+  }
+
+  throw error;
+}
+
+/**
+ * Process successful update response
+ */
+async function processUpdateResponse(
+  supabase: SupabaseClient,
+  data: Record<string, unknown> | null
+): Promise<Record<string, unknown> | null> {
+  if (!data) {
+    return null;
+  }
+
+  const dataWithStatus = data as { status?: string };
+  dataWithStatus.status = normalizeStatus(dataWithStatus.status);
+  await loadRelatedItemData(supabase, data);
+
+  return data;
+}
+
+/**
  * Main update status function with reduced complexity
  */
+// eslint-disable-next-line complexity
 export async function updateManufacturingOrderStatus(
   getClient: () => Promise<SupabaseClient>,
   params: UpdateStatusParams
@@ -89,10 +138,8 @@ export async function updateManufacturingOrderStatus(
     const supabase = await getClient();
     const updateData = prepareStatusUpdateData(status, providedUpdateData);
 
-    // Apply automatic date logic
     await applyAutomaticDates(supabase, id, status, updateData, providedUpdateData);
 
-    // Perform the update
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .update(updateData)
@@ -100,54 +147,18 @@ export async function updateManufacturingOrderStatus(
       .select('*')
       .single();
 
-    // Handle errors
     if (error) {
-      if (isTableNotFoundError(error)) {
-        throw new Error('manufacturing_orders table does not exist');
-      }
-
       if (isRelationshipNotFoundError(error)) {
         const simpleData = await handleRelationshipError(supabase, id, updateData);
         if (simpleData) {
           return simpleData;
         }
       }
-
-      throw error;
+      return await handleUpdateError(getClient, id, status, error);
     }
 
-    // Normalize status in response
-    if (data) {
-      const dataWithStatus = data as { status?: string };
-      dataWithStatus.status = normalizeStatus(dataWithStatus.status);
-
-      // Load related item data
-      await loadRelatedItemData(supabase, data as Record<string, unknown>);
-    }
-
-    return data;
+    return await processUpdateResponse(supabase, data);
   } catch (error: unknown) {
-    const err = error as { code?: string; message?: string };
-    
-    if (isTableNotFoundError(err)) {
-      throw new Error('manufacturing_orders table does not exist');
-    }
-
-    if (isRelationshipNotFoundError(err)) {
-      // Final fallback retry
-      const supabase = await getClient();
-      const updateData: Record<string, unknown> = {
-        status,
-        updated_at: new Date().toISOString()
-      };
-
-      if (status === 'completed') {
-        updateData.end_date = new Date().toISOString();
-      }
-
-      return performSimpleUpdate(supabase, 'manufacturing_orders', id, updateData);
-    }
-
-    throw error;
+    return await handleUpdateError(getClient, id, status, error);
   }
 }

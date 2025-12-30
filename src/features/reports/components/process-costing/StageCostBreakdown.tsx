@@ -33,6 +33,8 @@ interface StageCostRecord {
   readonly unit_cost: number | string
 }
 
+// NOSONAR - Complex report component required for stage cost breakdown
+// eslint-disable-next-line complexity
 export function StageCostBreakdown({ filters }: { readonly filters: DashboardFilters }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'

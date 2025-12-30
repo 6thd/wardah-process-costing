@@ -51,6 +51,152 @@ interface EUPData {
   unit_cost: number
 }
 
+// Helper functions to reduce complexity
+function buildStageCostsQuery(filters: DashboardFilters) {
+  if (!supabase) throw new Error('Supabase client not initialized')
+  
+  let query = supabase.from('stage_costs').select('*')
+  
+  if (filters.manufacturingOrderId) {
+    query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
+  }
+  if (filters.dateFrom) {
+    query = query.gte('created_at', filters.dateFrom)
+  }
+  if (filters.dateTo) {
+    query = query.lte('created_at', filters.dateTo)
+  }
+  if (filters.stageNo) {
+    query = query.eq('stage_no', filters.stageNo)
+  }
+  
+  return query
+}
+
+async function fetchWorkCenters(wcIds: string[]) {
+  if (wcIds.length === 0) return {}
+  
+  const { data: wcs, error: wcError } = await supabase
+    .from('work_centers')
+    .select('id, name, name_ar')
+    .in('id', wcIds)
+  
+  if (wcError || !wcs) return {}
+  
+  const wcData: Record<string, { id: string; name?: string; name_ar?: string }> = {}
+  wcs.forEach((wc: { id: string; name?: string; name_ar?: string }) => {
+    wcData[wc.id] = wc
+  })
+  
+  return wcData
+}
+
+async function fetchManufacturingOrders(moIds: string[], costingMethod?: string) {
+  if (moIds.length === 0) return {}
+  
+  let moQuery = supabase
+    .from('manufacturing_orders')
+    .select('id, order_number, costing_method')
+    .in('id', moIds)
+  
+  if (costingMethod && costingMethod !== 'all') {
+    moQuery = moQuery.eq('costing_method', costingMethod)
+  }
+  
+  const { data: mos, error: moError } = await moQuery
+  
+  if (moError || !mos) return {}
+  
+  const moData: Record<string, { id: string; order_number?: string; costing_method?: string }> = {}
+  mos.forEach((mo: { id: string; order_number?: string; costing_method?: string }) => {
+    moData[mo.id] = mo
+  })
+  
+  return moData
+}
+
+function calculateEUP(
+  record: Record<string, unknown>,
+  costingMethod: string,
+  stageNo: number
+): { eupDm: number; eupCc: number } {
+  const goodQty = Number(record.good_qty) || 0
+  const wipEndQty = Number(record.wip_end_qty) || 0
+  const wipEndDmPct = Number(record.wip_end_dm_completion_pct) || 0
+  const wipEndCcPct = Number(record.wip_end_cc_completion_pct) || 0
+  const wipBegQty = Number(record.wip_beginning_qty) || 0
+  const wipBegDmPct = Number(record.wip_beginning_dm_completion_pct) || 0
+  const wipBegCcPct = Number(record.wip_beginning_cc_completion_pct) || 0
+  
+  let eupDm = 0
+  let eupCc = 0
+  
+  if (costingMethod === 'fifo') {
+    if (stageNo === 1) {
+      eupDm = goodQty + (wipEndQty * wipEndDmPct / 100) - (wipBegQty * wipBegDmPct / 100)
+    } else {
+      eupDm = goodQty
+    }
+    eupCc = goodQty + (wipEndQty * wipEndCcPct / 100) - (wipBegQty * wipBegCcPct / 100)
+  } else {
+    if (stageNo === 1) {
+      eupDm = goodQty + (wipEndQty * wipEndDmPct / 100)
+    } else {
+      eupDm = goodQty
+    }
+    eupCc = goodQty + (wipEndQty * wipEndCcPct / 100)
+  }
+  
+  return { eupDm, eupCc }
+}
+
+function transformToEUPData(
+  record: Record<string, unknown>,
+  moData: Record<string, { id: string; order_number?: string; costing_method?: string }>,
+  wcData: Record<string, { id: string; name?: string; name_ar?: string }>,
+  isRTL: boolean
+): EUPData {
+  const goodQty = Number(record.good_qty) || 0
+  const wipEndQty = Number(record.wip_end_qty) || 0
+  const wipEndDmPct = Number(record.wip_end_dm_completion_pct) || 0
+  const wipEndCcPct = Number(record.wip_end_cc_completion_pct) || 0
+  const wipBegQty = Number(record.wip_beginning_qty) || 0
+  const wipBegDmPct = Number(record.wip_beginning_dm_completion_pct) || 0
+  const wipBegCcPct = Number(record.wip_beginning_cc_completion_pct) || 0
+  
+  const moId = (record.manufacturing_order_id || record.mo_id) as string
+  const mo = moData[moId]
+  const costingMethod = mo?.costing_method || 'weighted_average'
+  const stageNo = Number(record.stage_no) || Number(record.stage_number) || 0
+  
+  const { eupDm, eupCc } = calculateEUP(record, costingMethod, stageNo)
+  
+  const wcId = (record.wc_id || record.work_center_id) as string
+  const wc = wcData[wcId]
+  
+  const stageName = isRTL
+    ? (wc?.name_ar || wc?.name || `المرحلة ${stageNo}`)
+    : (wc?.name || `Stage ${stageNo}`)
+  
+  return {
+    stage_no: stageNo,
+    stage_name: stageName,
+    good_qty: goodQty,
+    wip_end_qty: wipEndQty,
+    wip_end_dm_completion_pct: wipEndDmPct,
+    wip_end_cc_completion_pct: wipEndCcPct,
+    wip_beginning_qty: wipBegQty,
+    wip_beginning_dm_completion_pct: wipBegDmPct,
+    wip_beginning_cc_completion_pct: wipBegCcPct,
+    eup_dm: eupDm,
+    eup_cc: eupCc,
+    costing_method: costingMethod,
+    order_number: mo?.order_number || '',
+    unit_cost: Number(record.unit_cost) || 0
+  }
+}
+
+// eslint-disable-next-line complexity
 export function EUPCalculationBreakdown({ filters }: { readonly filters: DashboardFilters }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -58,36 +204,9 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
   const { data: eupData, isLoading, error } = useQuery({
     queryKey: ['eup-calculation-breakdown', filters],
     queryFn: async () => {
-      if (!supabase) throw new Error('Supabase client not initialized')
-
-      // Build query - use select('*') to avoid column name issues
-      // Try stage_no first, fallback to stage_number if needed
-      let query = supabase
-        .from('stage_costs')
-        .select('*')
-
-      // Apply filters - try manufacturing_order_id first (actual column name)
-      if (filters.manufacturingOrderId) {
-        query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
-      }
-
-      if (filters.dateFrom) {
-        query = query.gte('created_at', filters.dateFrom)
-      }
-
-      if (filters.dateTo) {
-        query = query.lte('created_at', filters.dateTo)
-      }
-
-      if (filters.stageNo) {
-        // Try stage_no first, fallback to stage_number
-        query = query.eq('stage_no', filters.stageNo)
-      }
-      
-      // Order by stage_no or stage_number (handle dynamically after query)
+      const query = buildStageCostsQuery(filters)
       const { data: stageCostsData, error: queryError } = await query
       
-      // Sort manually if order() fails
       if (stageCostsData && !queryError) {
         stageCostsData.sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
           const aStage = Number(a.stage_no || a.stage_number || 0)
@@ -97,19 +216,10 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
       }
 
       if (queryError) {
-        console.error('❌ EUP Query Error:', {
-          message: queryError.message,
-          code: queryError.code,
-          details: queryError.details,
-          hint: queryError.hint
-        })
+        // eslint-disable-next-line no-console
+        console.error('❌ EUP Query Error:', queryError)
         
-        // Try fallback: simple select all
-        const fallbackQuery = supabase
-          .from('stage_costs')
-          .select('*')
-          .limit(100)
-        
+        const fallbackQuery = supabase.from('stage_costs').select('*').limit(100)
         if (filters.manufacturingOrderId) {
           fallbackQuery.eq('mo_id', filters.manufacturingOrderId)
         }
@@ -117,141 +227,40 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         const { data: fallbackData, error: fallbackError } = await fallbackQuery
         
         if (fallbackError) {
-          console.error('❌ Fallback query also failed:', fallbackError)
           throw new Error(`Failed to fetch EUP data: ${queryError.message}`)
         }
         
-        // Return empty array if fallback succeeds but no data
         if (!fallbackData || fallbackData.length === 0) {
           return []
         }
         
-        // Use fallback data (will be processed below)
-        const processedData = fallbackData.map((sc: Record<string, unknown>) => ({
+        return fallbackData.map((sc: Record<string, unknown>) => ({
           ...sc,
           manufacturing_orders: {},
           work_centers: {}
         }))
-        
-        return processedData
       }
       
-      // Fetch work centers separately
-      const wcIds = [...new Set((stageCostsData || []).map((sc: { wc_id?: string }) => sc.wc_id).filter(Boolean))]
+      const wcIdArray = (stageCostsData || []).map((sc: { wc_id?: string }) => sc.wc_id).filter(Boolean);
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      const wcIds = [...new Set(wcIdArray)] as string[];
+      const wcData = await fetchWorkCenters(wcIds);
       
-      const wcData: Record<string, { id: string; name?: string; name_ar?: string }> = {}
-      if (wcIds.length > 0) {
-        const { data: wcs, error: wcError } = await supabase
-          .from('work_centers')
-          .select('id, name, name_ar')
-          .in('id', wcIds)
-        
-        if (!wcError && wcs) {
-          wcs.forEach((wc: { id: string; name?: string; name_ar?: string }) => {
-            wcData[wc.id] = wc
-          })
-        }
-      }
+      const moIdArray = (stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean);
+      const moIds = [...new Set(moIdArray)] as string[];
+      const moData = await fetchManufacturingOrders(moIds, filters.costingMethod)
       
-      // Fetch manufacturing orders separately - support both column names
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
-      
-      const moData: Record<string, { id: string; order_number?: string; costing_method?: string }> = {}
-      if (moIds.length > 0) {
-        let moQuery = supabase
-          .from('manufacturing_orders')
-          .select('id, order_number, costing_method')
-          .in('id', moIds)
-        
-        if (filters.costingMethod && filters.costingMethod !== 'all') {
-          moQuery = moQuery.eq('costing_method', filters.costingMethod)
-        }
-        
-        const { data: mos, error: moError } = await moQuery
-        
-        if (!moError && mos) {
-          mos.forEach((mo: { id: string; order_number?: string; costing_method?: string }) => {
-            moData[mo.id] = mo
-          })
-        }
-      }
-      
-      // Filter and join data - support both column names
-      const data = (stageCostsData || []).filter((sc: Record<string, unknown>) => {
+      const filteredData = (stageCostsData || []).filter((sc: Record<string, unknown>) => {
         if (filters.costingMethod && filters.costingMethod !== 'all') {
           const moId = sc.manufacturing_order_id || sc.mo_id
           return moData[moId as string]?.costing_method === filters.costingMethod
         }
         return true
-      }).map((sc: Record<string, unknown>) => ({
-        ...sc,
-        manufacturing_orders: moData[(sc.manufacturing_order_id || sc.mo_id) as string],
-        work_centers: wcData[(sc.wc_id || sc.work_center_id) as string]
-      }))
-
-      // Calculate EUP for each record
-      return (data || []).map((record: Record<string, unknown>) => {
-        const goodQty = Number(record.good_qty) || 0
-        const wipEndQty = Number(record.wip_end_qty) || 0
-        const wipEndDmPct = Number(record.wip_end_dm_completion_pct) || 0
-        const wipEndCcPct = Number(record.wip_end_cc_completion_pct) || 0
-        const wipBegQty = Number(record.wip_beginning_qty) || 0
-        const wipBegDmPct = Number(record.wip_beginning_dm_completion_pct) || 0
-        const wipBegCcPct = Number(record.wip_beginning_cc_completion_pct) || 0
-        
-        // Get costing method from manufacturing_orders
-        const moData = record.manufacturing_orders as Record<string, unknown> | undefined
-        const costingMethod = (moData?.costing_method as string) || 'weighted_average'
-
-        // Calculate EUP based on costing method
-        let eupDm = 0
-        let eupCc = 0
-
-        const stageNo = Number(record.stage_no) || Number(record.stage_number) || 0
-        
-        if (costingMethod === 'fifo') {
-          // FIFO: EUP = good_qty + ending_wip - beginning_wip
-          if (stageNo === 1) {
-            eupDm = goodQty + (wipEndQty * wipEndDmPct / 100) - (wipBegQty * wipBegDmPct / 100)
-          } else {
-            eupDm = goodQty // Stages > 1: DM already in transferred-in
-          }
-          eupCc = goodQty + (wipEndQty * wipEndCcPct / 100) - (wipBegQty * wipBegCcPct / 100)
-        } else {
-          // Weighted-Average: EUP = good_qty + ending_wip
-          if (stageNo === 1) {
-            eupDm = goodQty + (wipEndQty * wipEndDmPct / 100)
-          } else {
-            eupDm = goodQty
-          }
-          eupCc = goodQty + (wipEndQty * wipEndCcPct / 100)
-        }
-
-        // Get work center data
-        const wcData = record.work_centers as Record<string, unknown> | undefined
-        
-        return {
-          stage_no: stageNo,
-          stage_name: (() => {
-            if (isRTL) {
-              return (wcData?.name_ar as string) || (wcData?.name as string) || `المرحلة ${stageNo}`
-            }
-            return (wcData?.name as string) || `Stage ${stageNo}`
-          })(),
-          good_qty: goodQty,
-          wip_end_qty: wipEndQty,
-          wip_end_dm_completion_pct: wipEndDmPct,
-          wip_end_cc_completion_pct: wipEndCcPct,
-          wip_beginning_qty: wipBegQty,
-          wip_beginning_dm_completion_pct: wipBegDmPct,
-          wip_beginning_cc_completion_pct: wipBegCcPct,
-          eup_dm: eupDm,
-          eup_cc: eupCc,
-          costing_method: costingMethod,
-          order_number: (moData?.order_number as string) || '',
-          unit_cost: Number(record.unit_cost) || 0
-        } as EUPData
       })
+
+      return filteredData.map((record: Record<string, unknown>) => 
+        transformToEUPData(record, moData, wcData, isRTL)
+      )
     }
   })
 

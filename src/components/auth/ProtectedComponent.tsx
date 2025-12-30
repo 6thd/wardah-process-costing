@@ -109,7 +109,10 @@ export function ProtectedComponent({
     if (hide) {
       return null;
     }
-    return fallback ? <>{fallback}</> : null;
+    if (fallback) {
+      return <>{fallback}</>;
+    }
+    return null;
   };
 
   // Check admin permissions

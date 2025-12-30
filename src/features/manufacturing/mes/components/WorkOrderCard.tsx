@@ -49,7 +49,6 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
   const progress = getProgressPercentage(workOrder)
   const canStartSetup = workOrder.status === 'READY' || workOrder.status === 'PENDING'
   const canStartProduction = workOrder.status === 'IN_SETUP'
-  const canPause = workOrder.status === 'IN_PROGRESS'
   const canResume = workOrder.status === 'ON_HOLD'
 
   return (

@@ -4,7 +4,6 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -38,15 +37,8 @@ import {
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
 import { customersService } from '@/services/supabase-service'
-import { Calendar } from '@/components/ui/calendar'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { CalendarIcon } from 'lucide-react'
-import { format } from 'date-fns'
-import { ar } from 'date-fns/locale'
 
 export function CustomerReceipts() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
   const [receipts, setReceipts] = useState<CustomerReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -223,7 +215,7 @@ export function CustomerReceipts() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handlePost(receipt.id!)}
+                              onClick={() => handlePost(receipt.id)}
                             >
                               إقرار
                             </Button>
@@ -261,7 +253,7 @@ export function CustomerReceipts() {
   )
 }
 
-function CreateReceiptForm({ onSuccess }: { onSuccess: () => void }) {
+function CreateReceiptForm({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
   const [customers, setCustomers] = useState<any[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<string>('')
   const [outstandingInvoices, setOutstandingInvoices] = useState<any[]>([])
@@ -565,7 +557,7 @@ function CreateReceiptForm({ onSuccess }: { onSuccess: () => void }) {
   )
 }
 
-function ReceiptDetails({ receipt }: { receipt: CustomerReceipt }) {
+function ReceiptDetails({ receipt }: Readonly<{ receipt: CustomerReceipt }>) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -601,8 +593,9 @@ function ReceiptDetails({ receipt }: { receipt: CustomerReceipt }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {receipt.lines.map((line, idx) => (
-                <TableRow key={idx}>
+              {/* eslint-disable-next-line react/no-array-index-key */}
+              {receipt.lines.map((line) => (
+                <TableRow key={line.invoice_id || `${line.allocated_amount}-${line.discount_amount}`}>
                   <TableCell>{line.invoice_id}</TableCell>
                   <TableCell>{line.allocated_amount?.toFixed(2)} ريال</TableCell>
                   <TableCell>{line.discount_amount?.toFixed(2) || '0.00'} ريال</TableCell>

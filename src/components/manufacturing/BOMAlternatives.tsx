@@ -86,9 +86,12 @@ export function BOMAlternatives({ primaryBomId, onAlternativeSelect }: BOMAltern
                     <Badge variant="outline">{alt.reason_code || 'CUSTOM'}</Badge>
                   </TableCell>
                   <TableCell>
-                    {alt.min_quantity && alt.max_quantity
-                      ? `${alt.min_quantity} - ${alt.max_quantity}`
-                      : 'غير محدد'}
+                    {(() => {
+                      if (alt.min_quantity && alt.max_quantity) {
+                        return `${alt.min_quantity} - ${alt.max_quantity}`;
+                      }
+                      return 'غير محدد';
+                    })()}
                   </TableCell>
                   <TableCell>
                     {alt.is_active ? (

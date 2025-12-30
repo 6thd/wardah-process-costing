@@ -330,7 +330,7 @@ export async function updateWorkOrderStatus(
     .from('work_orders')
     .update({
       status,
-      notes: notes || undefined, // Fixed: notes ? notes : undefined -> notes || undefined
+      notes: notes ?? undefined,
       updated_at: new Date().toISOString()
     })
     .eq('id', workOrderId)

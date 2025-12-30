@@ -83,10 +83,10 @@ export default function StageCostingPanel() {
   const { data: stageCostsData, isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId)
   
   // Type assertions for data - needed because hooks return unknown types
-  const manufacturingOrders = (manufacturingOrdersData || []) as unknown as Array<Record<string, unknown>>
-  const workCenters = (workCentersData || []) as unknown as Array<Record<string, unknown>>
-  const stages = (stagesData || []) as unknown as Array<Record<string, unknown>>
-  const stageCosts = (stageCostsData || []) as StageCost[]
+  const manufacturingOrders = Array.isArray(manufacturingOrdersData) ? manufacturingOrdersData as Array<Record<string, unknown>> : []
+  const workCenters = Array.isArray(workCentersData) ? workCentersData as Array<Record<string, unknown>> : []
+  const stages = Array.isArray(stagesData) ? stagesData as Array<Record<string, unknown>> : []
+  const stageCosts = Array.isArray(stageCostsData) ? stageCostsData as StageCost[] : []
 
   // Setup realtime subscriptions
   useRealtimeSubscription('manufacturing_orders', 'manufacturing-orders')

@@ -2,9 +2,8 @@
  * Rate Limiter Tests
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { rateLimiter, RateLimiter } from '../lib/rate-limiter';
-import { TooManyRequestsError } from '../lib/errors';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { rateLimiter } from '../lib/rate-limiter';
 
 describe('RateLimiter', () => {
   beforeEach(() => {

@@ -20,9 +20,8 @@ export function isValidDecimalInput(value: string): boolean {
   let hasDot = false;
   let hasDigit = false;
   
-  for (let i = 0; i < value.length; i++) {
-    const char = value[i];
-    
+  // eslint-disable-next-line @typescript-eslint/prefer-for-of
+  for (const char of value) {
     if (char === '.') {
       if (hasDot) return false; // Only one dot allowed
       hasDot = true;

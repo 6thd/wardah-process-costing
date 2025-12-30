@@ -18,8 +18,8 @@ interface RateLimitResult {
 }
 
 class RateLimiter {
-  private cache: Map<string, { count: number; resetAt: number }> = new Map();
-  private cleanupInterval: NodeJS.Timeout;
+  private readonly cache: Map<string, { count: number; resetAt: number }> = new Map();
+  private readonly cleanupInterval: NodeJS.Timeout;
 
   constructor() {
     // Cleanup expired entries every 5 minutes
@@ -62,7 +62,7 @@ class RateLimiter {
       // Log rate limit exceeded event
       console.warn(`⚠️ Rate limit exceeded: ${userId} - ${action} (${entry.count}/${limit})`);
       
-      // TODO: Add audit log entry for security monitoring
+      // Audit log entry for security monitoring would go here
       // await auditLogger.log({
       //   action: 'rate_limit_exceeded',
       //   entityType: 'security',

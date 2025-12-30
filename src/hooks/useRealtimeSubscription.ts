@@ -9,7 +9,7 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
   const queryClient = useQueryClient()
   // Memoize key to prevent unnecessary re-renders
   const key = useMemo(() => Array.isArray(queryKey) ? queryKey : [queryKey], [queryKey])
-  const channelRef = useRef<any>(null)
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   useEffect(() => {
     if (!supabase) return
@@ -29,7 +29,7 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
       .channel(`wardah-${tableName}-${Date.now()}`) // Add timestamp to avoid conflicts
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: tableName },
-        (payload) => {
+        () => {
           queryClient.invalidateQueries({ queryKey: key })
         }
       )

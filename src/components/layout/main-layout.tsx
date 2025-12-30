@@ -19,7 +19,8 @@ export function MainLayout({ children }: MainLayoutProps) {
   // Helper function to get sidebar margin class
   const getSidebarMarginClass = (collapsed: boolean, rtl: boolean): string => {
     if (collapsed) return "lg:mx-0"
-    return rtl ? "lg:mr-64" : "lg:ml-64"
+    if (rtl) return "lg:mr-64"
+    return "lg:ml-64"
   }
 
   // Update document direction when language changes

@@ -39,14 +39,14 @@ interface Product {
 }
 
 interface ManufacturingOrderFormProps {
-  form: OrderFormState;
-  setForm: React.Dispatch<React.SetStateAction<OrderFormState>>;
-  products: Product[];
-  productsLoading: boolean;
-  dateRange: DateRange | undefined;
-  setDateRange: React.Dispatch<React.SetStateAction<DateRange | undefined>>;
-  onSubmit: (event: React.FormEvent) => Promise<void>;
-  isSubmitting: boolean;
+  readonly form: OrderFormState;
+  readonly setForm: React.Dispatch<React.SetStateAction<OrderFormState>>;
+  readonly products: Product[];
+  readonly productsLoading: boolean;
+  readonly dateRange: DateRange | undefined;
+  readonly setDateRange: React.Dispatch<React.SetStateAction<DateRange | undefined>>;
+  readonly onSubmit: (event: React.FormEvent) => Promise<void>;
+  readonly isSubmitting: boolean;
   isRTL: boolean;
 }
 

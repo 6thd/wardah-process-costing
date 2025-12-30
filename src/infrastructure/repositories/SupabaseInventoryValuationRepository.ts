@@ -292,7 +292,7 @@ export class SupabaseInventoryValuationRepository implements IInventoryValuation
     if (error) throw error
 
     // Group by valuation method
-    const byMethodMap = (data || []).reduce<Record<string, ValuationByMethodSummary>>((acc, item) => {
+    const byMethodMap = ((data || []) as unknown[]).reduce<Record<string, ValuationByMethodSummary>>((acc, item: any) => {
       const method = item.valuation_method || 'Unknown'
       if (!acc[method]) {
         acc[method] = {

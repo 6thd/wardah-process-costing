@@ -65,7 +65,7 @@ export const useStageCosts = (moId: string) => {
           }
           
           // If still error, try without filter (RLS will handle it)
-          if (error && error.code === '400') {
+          if (error?.code === '400') {
             // Debug: Trying without filter, using RLS only
             const rlsResult = await supabase.from('stage_costs')
               .select('*')
@@ -73,8 +73,8 @@ export const useStageCosts = (moId: string) => {
             
             if (rlsResult.data && !rlsResult.error) {
               // Filter in memory by manufacturing_order_id or mo_id
-              data = rlsResult.data.filter((item: any) => 
-                item.manufacturing_order_id === moId || item.mo_id === moId
+              data = rlsResult.data.filter((item: Record<string, unknown>) => 
+                (item.manufacturing_order_id === moId) || (item.mo_id === moId)
               )
               error = null
             } else {
@@ -86,48 +86,58 @@ export const useStageCosts = (moId: string) => {
           // If we have data, enrich with work_center and manufacturing_stage
           if (data && !error && data.length > 0) {
             // Get unique work center IDs (table uses work_center_id, not wc_id)
-            const workCenterIds = [...new Set(data.map((item: any) => item.work_center_id || item.wc_id).filter(Boolean))]
-            const stageIds = [...new Set(data.map((item: any) => item.stage_id).filter(Boolean))]
+            const workCenterIds = [...new Set(data.map((item: Record<string, unknown>) => {
+              const wcId = item.work_center_id || item.wc_id
+              return typeof wcId === 'string' ? wcId : null
+            }).filter(Boolean) as string[])]
+            const stageIds = [...new Set(data.map((item: Record<string, unknown>) => {
+              const sId = item.stage_id
+              return typeof sId === 'string' ? sId : null
+            }).filter(Boolean) as string[])]
             
             // Fetch work centers
-            let workCenters: any[] = []
+            let workCenters: Array<{ id: string; name: string; code: string }> = []
             if (workCenterIds.length > 0) {
               const { data: wcData } = await supabase
                 .from('work_centers')
                 .select('id, name, code')
                 .in('id', workCenterIds)
-              workCenters = wcData || []
+              workCenters = (wcData || []) as Array<{ id: string; name: string; code: string }>
             }
             
             // Fetch manufacturing stages
-            let stages: any[] = []
+            let stages: Array<{ id: string; name: string; name_ar?: string }> = []
             if (stageIds.length > 0) {
               const { data: stageData } = await supabase
                 .from('manufacturing_stages')
                 .select('*')
                 .in('id', stageIds)
-              stages = stageData || []
+              stages = (stageData || []) as Array<{ id: string; name: string; name_ar?: string }>
             }
             
             // Map relationships
-            const wcMap = new Map(workCenters.map((wc: any) => [wc.id, wc]))
-            const stageMap = new Map(stages.map((s: any) => [s.id, s]))
+            const wcMap = new Map(workCenters.map((wc) => [wc.id, wc]))
+            const stageMap = new Map(stages.map((s) => [s.id, s]))
             
-            data = data.map((item: any) => ({
-              ...item,
-              // Map work center (table uses work_center_id, not wc_id)
-              work_center: item.work_center_id ? wcMap.get(item.work_center_id) : (item.wc_id ? wcMap.get(item.wc_id) : null),
-              manufacturing_stage: item.stage_id ? stageMap.get(item.stage_id) : null,
-              // Normalize column names for consistency
-              manufacturing_order_id: item.manufacturing_order_id || item.mo_id,
-              work_center_id: item.work_center_id || item.wc_id
-            }))
+            data = data.map((item: Record<string, unknown>) => {
+              const workCenterId = (item.work_center_id || item.wc_id) as string | undefined
+              const stageId = item.stage_id as string | undefined
+              return {
+                ...item,
+                // Map work center (table uses work_center_id, not wc_id)
+                work_center: workCenterId ? wcMap.get(workCenterId) : undefined,
+                manufacturing_stage: stageId ? stageMap.get(stageId) : undefined,
+                // Normalize column names for consistency
+                manufacturing_order_id: (item.manufacturing_order_id || item.mo_id) as string,
+                work_center_id: workCenterId || (item.wc_id as string | undefined)
+              }
+            })
           }
           
           // Sort in memory if needed (more reliable than database order)
-          const sortedData = data ? [...data].sort((a: any, b: any) => {
-            const aStage = a.stage_number || a.stage_no || 0
-            const bStage = b.stage_number || b.stage_no || 0
+          const sortedData = data ? [...data].sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+            const aStage = (a.stage_number || a.stage_no || 0) as number
+            const bStage = (b.stage_number || b.stage_no || 0) as number
             return aStage - bStage
           }) : null
 
@@ -138,7 +148,7 @@ export const useStageCosts = (moId: string) => {
           }
 
           // Handle 400 Bad Request - likely RLS or column issue
-          if (error && error.code === '400') {
+          if (error?.code === '400') {
             console.warn('400 Bad Request when fetching stage_costs:', error.message)
             // Try to get error details
             if (error.message?.includes('RLS') || error.message?.includes('policy')) {
@@ -154,15 +164,16 @@ export const useStageCosts = (moId: string) => {
             return [] as StageCost[]
           }
           return (sortedData || []) as StageCost[]
-        } catch (error: any) {
+        } catch (error: unknown) {
           // If table doesn't exist, return empty array
-          if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+          const errorObj = error && typeof error === 'object' ? error as { code?: string; message?: string } : null
+          if (errorObj && (errorObj.code === 'PGRST205' || errorObj.message?.includes('Could not find the table'))) {
             console.warn('stage_costs table not found, returning empty array')
             return [] as StageCost[]
           }
           // For 400 errors, return empty array instead of throwing
-          if (error.code === '400') {
-            console.warn('400 Bad Request when fetching stage_costs:', error.message)
+          if (errorObj && errorObj.code === '400') {
+            console.warn('400 Bad Request when fetching stage_costs:', errorObj.message)
             return [] as StageCost[]
           }
           // Log other errors but don't break the UI

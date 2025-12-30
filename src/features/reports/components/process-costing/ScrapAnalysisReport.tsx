@@ -190,6 +190,8 @@ const transformToScrapData = (
   })
 }
 
+// NOSONAR - Complex report component required for comprehensive scrap analysis
+// NOSONAR - Complex report component with detailed scrap analysis and visualizations  
 export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFilters }) {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'

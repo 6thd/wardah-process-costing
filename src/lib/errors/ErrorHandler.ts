@@ -7,10 +7,6 @@
 import { toast } from 'sonner';
 import { AppError } from './AppError';
 import { ValidationError } from './ValidationError';
-import { NotFoundError } from './NotFoundError';
-import { UnauthorizedError } from './UnauthorizedError';
-import { ForbiddenError } from './ForbiddenError';
-import { InsufficientInventoryError } from './InsufficientInventoryError';
 
 /**
  * Localized error messages
@@ -119,8 +115,8 @@ class ErrorHandler {
    */
   private static sendToMonitoring(error: Error | AppError): void {
     // Check if Sentry is available
-    if (typeof window !== 'undefined' && (window as any).Sentry) {
-      const Sentry = (window as any).Sentry;
+    if (typeof globalThis.window !== 'undefined' && (globalThis.window as { Sentry?: unknown }).Sentry) {
+      const Sentry = (globalThis.window as { Sentry: { captureException: (error: Error | AppError, options: unknown) => void } }).Sentry;
       
       Sentry.captureException(error, {
         tags: {

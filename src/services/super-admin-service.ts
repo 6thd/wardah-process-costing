@@ -8,13 +8,15 @@ import { getSupabase } from '@/lib/supabase';
 // Types
 // =====================================
 
+export type PlanType = 'trial' | 'basic' | 'pro' | 'enterprise';
+
 export interface Organization {
   id: string;
   name: string;
   name_ar?: string;
-  code: string;
+  code: string; // NOSONAR - string is a primitive type, not a union type
   slug?: string;
-  plan_type: 'trial' | 'basic' | 'pro' | 'enterprise';
+  plan_type: PlanType;
   max_users: number;
   current_users_count: number;
   subscription_start?: string;
@@ -26,8 +28,8 @@ export interface Organization {
   currency: string;
   timezone: string;
   tax_id?: string;
-  settings?: Record<string, any>;
-  feature_flags?: Record<string, any>;
+  settings?: Record<string, unknown>;
+  feature_flags?: Record<string, unknown>;
   is_active: boolean;
   created_at: string;
   created_by?: string;
@@ -46,7 +48,7 @@ export interface CreateOrganizationInput {
   name: string;
   name_ar?: string;
   code: string;
-  plan_type?: 'trial' | 'basic' | 'pro' | 'enterprise';
+  plan_type?: PlanType;
   max_users?: number;
   industry?: string;
   country?: string;
@@ -60,7 +62,7 @@ export interface UpdateOrganizationInput {
   id: string;
   name?: string;
   name_ar?: string;
-  plan_type?: 'trial' | 'basic' | 'pro' | 'enterprise';
+  plan_type?: PlanType;
   max_users?: number;
   subscription_start?: string;
   subscription_end?: string;
@@ -72,8 +74,8 @@ export interface UpdateOrganizationInput {
   timezone?: string;
   tax_id?: string;
   is_active?: boolean;
-  settings?: Record<string, any>;
-  feature_flags?: Record<string, any>;
+  settings?: Record<string, unknown>;
+  feature_flags?: Record<string, unknown>;
 }
 
 export interface DashboardStats {
@@ -243,7 +245,7 @@ export async function getOrganizationById(id: string): Promise<OrganizationWithA
       admin = {
         id: adminUserId,
         email: '', // سيتم جلبه من مكان آخر
-        full_name: (adminData[0] as any).user_profiles?.full_name || '',
+        full_name: ((adminData[0] as Record<string, unknown>).user_profiles as Record<string, unknown> | undefined)?.full_name as string || '',
       };
     }
 

@@ -38,9 +38,12 @@ export const useWorkCenters = () => {
         
         if (error) throw error
         return (data || []) as WorkCenter[]
-      } catch (error: any) {
+      } catch (error: unknown) {
         // If table doesn't exist, return empty array
-        if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
+        if (
+          (error && typeof error === 'object' && 'code' in error && (error as { code: string }).code === 'PGRST205') ||
+          (error && typeof error === 'object' && 'message' in error && typeof (error as { message: string }).message === 'string' && (error as { message: string }).message.includes('Could not find the table'))
+        ) {
           console.warn('work_centers table not found, returning empty array')
           return [] as WorkCenter[]
         }

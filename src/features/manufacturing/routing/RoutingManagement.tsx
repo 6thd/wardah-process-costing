@@ -19,13 +19,8 @@ import {
 import {
   Plus,
   Search,
-  Edit,
-  Trash2,
-  Copy,
-  CheckCircle,
   RefreshCw,
-  Route,
-  Settings
+  Route
 } from 'lucide-react'
 import { useRoutings, useDeleteRouting, useApproveRouting, useCopyRouting } from '@/hooks/manufacturing/useRouting'
 import { useAuthStore } from '@/store/auth-store'
@@ -72,7 +67,7 @@ export function RoutingManagement() {
   // Filter routings
   const filteredRoutings = routings?.filter((routing: Routing) => {
     return matchesSearchTerm(routing, searchTerm) && matchesStatusFilter(routing)
-  })
+  }) ?? []
 
   const handleEdit = (id: string) => {
     navigate(`/manufacturing/routing/${id}`)

@@ -1,9 +1,8 @@
 
 import { createClient, type User, type SupabaseClient } from '@supabase/supabase-js';
-import { loadConfig } from './config';
 
 // Re-export the User type for other modules
-export type { User };
+export type { User } from '@supabase/supabase-js';
 
 // Singleton instance
 const supabaseInstance: SupabaseClient | null = null;
@@ -149,8 +148,8 @@ export const withOrgContext = <T>(query: T): T => {
 // ⚠️ The leaked JWT token has been removed. Generate a new one from Supabase dashboard and set it as an environment variable.
 
 // Priority: Environment variables ONLY (no hardcoded fallbacks for security)
-const supabaseUrl = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_URL : undefined;
-const supabaseAnonKey = typeof import.meta !== 'undefined' ? import.meta.env?.VITE_SUPABASE_ANON_KEY : undefined;
+const supabaseUrl = import.meta.env?.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env?.VITE_SUPABASE_ANON_KEY;
 
 // Debug logging in development
 if (import.meta.env?.DEV) {

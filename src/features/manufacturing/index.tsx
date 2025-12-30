@@ -235,7 +235,9 @@ function ManufacturingOverview() {
     const loadOrders = async () => {
       try {
         const data = await manufacturingService.getAll()
-        setOrders(data || [])
+        // Convert OrderWithItem[] to ManufacturingOrder[] via unknown
+        const ordersData = (data || []) as unknown as ManufacturingOrder[]
+        setOrders(ordersData)
       } catch (error: unknown) {
         // Handle missing table gracefully
         const err = error as { code?: string; message?: string }

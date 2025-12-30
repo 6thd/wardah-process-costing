@@ -76,7 +76,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
     return moData
   }
 
-  const handleQueryError = async (queryError: any) => {
+  const handleQueryError = async (queryError: unknown) => {
     console.error('❌ WIP Valuation Query Error:', queryError)
     
     const fallbackQuery = supabase
@@ -111,9 +111,10 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
         .from('stage_costs')
         .select('*')
 
-      const { data: stageCostsData, error: queryError } = filters.manufacturingOrderId
+      const queryResult = filters.manufacturingOrderId
         ? await baseQuery.eq('manufacturing_order_id', filters.manufacturingOrderId)
         : await baseQuery
+      const { data: stageCostsData, error: queryError } = queryResult
       
       if (stageCostsData && !queryError) {
         sortStageCosts(stageCostsData)
@@ -202,17 +203,20 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {wipRecords.map((item: any) => (
-                      <TableRow key={`${item.order_number || ''}-${item.stage_name || ''}-${item.wip_end_qty || 0}`}>
+                    {wipRecords.map((item: Record<string, unknown>) => {
+                      const itemKey = `${item.order_number || ''}-${item.stage_name || ''}-${item.wip_end_qty || 0}-${item.manufacturing_order_id || ''}`
+                      return (
+                      <TableRow key={itemKey}>
                         <TableCell>{item.order_number}</TableCell>
                         <TableCell>{item.stage_name}</TableCell>
-                        <TableCell className="text-right font-mono">{item.wip_end_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right font-mono">{item.wip_end_dm_pct.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">{item.wip_end_cc_pct.toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">{item.unit_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                        <TableCell className="text-right font-mono font-bold">{item.wip_value.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                        <TableCell className="text-right font-mono">{(item.wip_end_qty as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right font-mono">{(item.wip_end_dm_pct as number).toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-mono">{(item.wip_end_cc_pct as number).toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-mono">{(item.unit_cost as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                        <TableCell className="text-right font-mono font-bold">{(item.wip_value as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                       </TableRow>
-                    ))}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>

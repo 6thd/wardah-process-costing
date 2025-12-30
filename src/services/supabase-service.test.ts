@@ -134,15 +134,16 @@ describe('supabase-service itemsService.updateStock', () => {
     const { getSupabase } = await import('../lib/supabase')
     const { itemsService } = await import('./supabase-service')
 
-    const supabaseClient = {
-      from: vi.fn(() => ({
-        select: vi.fn(() => ({
-          eq: vi.fn(() => ({
-            single: vi.fn().mockResolvedValue({ data: null })
-          }))
-        }))
-      }))
-    }
+    // Helper to build mock supabase client
+    const createMockSupabaseClient = () => {
+      const mockSingle = vi.fn().mockResolvedValue({ data: null });
+      const mockEq = vi.fn(() => ({ single: mockSingle }));
+      const mockSelect = vi.fn(() => ({ eq: mockEq }));
+      const mockFrom = vi.fn(() => ({ select: mockSelect }));
+      return { from: mockFrom };
+    };
+
+    const supabaseClient = createMockSupabaseClient();
     ;(getSupabase as unknown as GetSupabaseMock).mockReturnValue(supabaseClient)
 
     await expect(itemsService.updateStock('missing', 1, 'in', 'user-1')).rejects.toThrow('Item not found')

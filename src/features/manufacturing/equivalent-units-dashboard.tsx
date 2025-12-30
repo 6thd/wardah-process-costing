@@ -16,7 +16,8 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  PieChart, Pie, Cell
+  PieChart, Pie, Cell,
+  type PieLabelRenderProps
 } from 'recharts'
 import { 
   AlertTriangle, TrendingUp, DollarSign, Package, Factory,
@@ -29,14 +30,14 @@ import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 
 // Temporary stub for equivalentUnitsService
 const equivalentUnitsService = {
-  getEquivalentUnits: async (...args: any[]) => ({ success: true, data: [] }),
-  calculateCostPerUnit: async (...args: any[]) => ({ success: true, data: [] }),
-  getProcessCostSummary: async (...args: any[]) => ({ success: true, data: null }),
-  getVarianceAlerts: async (...args: any[]) => [],
-  getLatestEquivalentUnits: async (...args: any[]) => [],
-  calculateCostPerEquivalentUnit: async (...args: any[]) => [],
-  calculateEquivalentUnits: async (...args: any[]) => ({ success: true, data: [] }),
-  performVarianceAnalysis: async (...args: any[]) => ({ success: true, data: [] })
+  getEquivalentUnits: async (..._args: unknown[]) => ({ success: true, data: [] }),
+  calculateCostPerUnit: async (..._args: unknown[]) => ({ success: true, data: [] }),
+  getProcessCostSummary: async (..._args: unknown[]) => ({ success: true, data: null }),
+  getVarianceAlerts: async (..._args: unknown[]) => [],
+  getLatestEquivalentUnits: async (..._args: unknown[]) => [],
+  calculateCostPerEquivalentUnit: async (..._args: unknown[]) => [],
+  calculateEquivalentUnits: async (..._args: unknown[]) => ({ success: true, data: [] }),
+  performVarianceAnalysis: async (..._args: unknown[]) => ({ success: true, data: [] })
 }
 
 // Types
@@ -349,7 +350,7 @@ export function EquivalentUnitsDashboard() {
             outerRadius={80}
             fill="#8884d8"
             dataKey="value"
-            label={(props: any) => `${props.name}: ${(props.percent * 100).toFixed(0)}%`}
+            label={(props: PieLabelRenderProps) => `${props.name || ''}: ${((props.percent || 0) * 100).toFixed(0)}%`}
           >
             {aggregatedData.map((entry, index) => {
               const cellKey = entry.name || `cell-${index}`
@@ -481,13 +482,20 @@ export function EquivalentUnitsDashboard() {
                 </SelectTrigger>
                 <SelectContent>
                   {stages
-                    .filter((stage: any) => stage.is_active)
-                    .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
-                    .map((stage: any) => (
-                      <SelectItem key={stage.id} value={stage.id}>
-                        {stage.code} - {stage.name_ar || stage.name} (الترتيب: {stage.order_sequence})
-                      </SelectItem>
-                    ))}
+                    .filter((stage: Record<string, unknown>) => stage.is_active as boolean)
+                    .sort((a: Record<string, unknown>, b: Record<string, unknown>) => ((a.order_sequence as number) || 0) - ((b.order_sequence as number) || 0))
+                    .map((stage: Record<string, unknown>) => {
+                      const stageId = stage.id as string;
+                      const stageCode = stage.code as string;
+                      const stageNameAr = stage.name_ar as string | undefined;
+                      const stageName = stage.name as string | undefined;
+                      const orderSequence = stage.order_sequence as number | undefined;
+                      return (
+                        <SelectItem key={stageId} value={stageId}>
+                          {stageCode} - {stageNameAr || stageName} (الترتيب: {orderSequence})
+                        </SelectItem>
+                      );
+                    })}
                 </SelectContent>
               </Select>
             </div>

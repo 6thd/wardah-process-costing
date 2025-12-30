@@ -27,18 +27,20 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [csvData, setCsvData] = useState<string[][] | null>(null);
 
-  useEffect(() => {
-    loadAttachments();
-  }, [entryId]);
-
   const loadAttachments = async () => {
     try {
       const data = await JournalService.getEntryAttachments(entryId);
       setAttachments(data);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      // eslint-disable-next-line no-console
       console.error('Error loading attachments:', error);
     }
   };
+
+  useEffect(() => {
+    loadAttachments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryId]);
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -52,8 +54,10 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       toast.success(
         isRTL ? 'تم رفع الملف بنجاح' : 'File uploaded successfully'
       );
-    } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'فشل رفع الملف' : 'Upload failed'));
+    } catch (error: unknown) {
+      const defaultMessage = isRTL ? 'فشل رفع الملف' : 'Upload failed';
+      const errorMessage = error instanceof Error ? error.message : defaultMessage;
+      toast.error(errorMessage);
     } finally {
       setUploading(false);
       // Reset input
@@ -70,8 +74,10 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       await JournalService.deleteAttachment(attachmentId);
       setAttachments(attachments.filter(a => a.id !== attachmentId));
       toast.success(isRTL ? 'تم حذف الملف' : 'File deleted');
-    } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'فشل الحذف' : 'Delete failed'));
+    } catch (error: unknown) {
+      const defaultMessage = isRTL ? 'فشل الحذف' : 'Delete failed';
+      const errorMessage = error instanceof Error ? error.message : defaultMessage;
+      toast.error(errorMessage);
     }
   };
 
@@ -121,7 +127,9 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       try {
         const fallbackUrl = await resolveAttachmentUrl(attachment);
         window.open(fallbackUrl, '_blank');
-      } catch (fallbackError) {
+      } catch (fallbackError: unknown) {
+        // eslint-disable-next-line no-console
+        console.error('Fallback download failed:', fallbackError);
         toast.error(isRTL ? 'تعذر تحميل الملف' : 'Failed to download file');
       }
     } finally {
@@ -144,8 +152,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       let current = '';
       let inQuotes = false;
       
-      for (let i = 0; i < line.length; i++) {
-        const char = line[i];
+      for (const char of line) {
         if (char === '"') {
           inQuotes = !inQuotes;
         } else if (char === ',' && !inQuotes) {
@@ -167,9 +174,162 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       const parsed = parseCSV(text);
       setCsvData(parsed);
     } catch (error) {
+      // eslint-disable-next-line no-console
       console.error('Failed to load CSV:', error);
       setCsvData(null);
     }
+  };
+
+  // Helper functions to reduce cognitive complexity
+  const getUploadButtonText = (): string => {
+    if (uploading) {
+      return isRTL ? 'جاري الرفع...' : 'Uploading...';
+    }
+    return isRTL ? 'رفع ملف' : 'Upload File';
+  };
+
+  const handlePreviewClick = async (attachment: JournalAttachment) => {
+    try {
+      setPreviewLoading(true);
+      const signedUrl = await resolveAttachmentUrl(attachment);
+      setPreviewUrl(signedUrl);
+      setPreviewType(attachment.file_type || 'application/octet-stream');
+      setPreviewName(attachment.file_name);
+      setPreviewAttachment(attachment);
+      
+      // Load CSV data if it's a CSV file
+      const isCSV = attachment.file_type === 'text/csv' || attachment.file_name.toLowerCase().endsWith('.csv');
+      if (isCSV) {
+        await loadCSVPreview(signedUrl);
+      } else {
+        setCsvData(null);
+      }
+    } catch (error: unknown) {
+      const defaultMessage = isRTL ? 'تعذر عرض الملف' : 'Failed to preview file';
+      const errorMessage = error instanceof Error ? error.message : defaultMessage;
+      toast.error(errorMessage);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const renderPreviewContent = () => {
+    if (previewType?.startsWith('image/') && previewUrl) {
+      return (
+        <img 
+          src={previewUrl} 
+          alt={previewName || 'Preview'} 
+          className="max-w-full max-h-full object-contain shadow-lg rounded-md" 
+        />
+      );
+    }
+    
+    if (previewType === 'application/pdf' && previewUrl) {
+      return (
+        <iframe 
+          src={previewUrl} 
+          className="w-full h-full rounded-md shadow-lg" 
+          title="PDF Preview"
+        />
+      );
+    }
+    
+    const isCSVFile = previewType === 'text/csv' || previewName?.toLowerCase().endsWith('.csv');
+    if (isCSVFile) {
+      return renderCSVPreview();
+    }
+    
+    if (previewType?.startsWith('text/') && previewUrl) {
+      return (
+        <div className="w-full h-full bg-white rounded-md shadow-lg p-6 overflow-auto">
+          <iframe 
+            src={previewUrl} 
+            className="w-full h-full border-0" 
+            title="Text Preview"
+            style={{ minHeight: '500px' }}
+          />
+        </div>
+      );
+    }
+    
+    return renderUnsupportedPreview();
+  };
+
+  const renderCSVPreview = () => {
+    if (!csvData) {
+      return (
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        </div>
+      );
+    }
+
+    const rowCount = csvData.length;
+    const rowLabel = isRTL ? 'صف' : 'rows';
+    const csvFileLabel = isRTL ? 'ملف CSV' : 'CSV File';
+
+    return (
+      <div className="w-full h-full bg-white rounded-md shadow-lg overflow-auto">
+        <div className="p-4">
+          <div className="flex items-center gap-2 mb-4 text-green-600">
+            <FileSpreadsheet className="h-5 w-5" />
+            <span className="font-semibold">
+              {csvFileLabel} ({rowCount} {rowLabel})
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-collapse border border-gray-300">
+              <thead>
+                <tr className="bg-gray-100">
+                  {csvData[0]?.map((header) => (
+                    <th
+                      key={`header-${header}`}
+                      className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700"
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {csvData.slice(1).map((row) => {
+                  const rowKey = row.join('-');
+                  return (
+                    <tr key={rowKey} className="hover:bg-gray-50">
+                      {row.map((cell) => (
+                        <td
+                          key={`${rowKey}-${cell}`}
+                          className="border border-gray-300 px-4 py-2 text-sm text-gray-600"
+                        >
+                          {cell}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderUnsupportedPreview = () => {
+    return (
+      <div className="text-center p-8 bg-white rounded-lg shadow-sm">
+        <Paperclip className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+        <p className="text-lg font-medium text-gray-900 mb-2">
+          {isRTL ? 'لا يمكن معاينة هذا الملف' : 'Cannot preview this file'}
+        </p>
+        <p className="text-sm text-gray-500 mb-4">
+          {isRTL ? 'يرجى تحميل الملف لعرضه' : 'Please download the file to view it'}
+        </p>
+        <Button onClick={() => previewAttachment && handleDownload(previewAttachment)} disabled={!previewAttachment}>
+          {isRTL ? 'تحميل الملف' : 'Download File'}
+        </Button>
+      </div>
+    );
   };
 
   return (
@@ -200,9 +360,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                 disabled={uploading}
               >
                 <Upload className="h-4 w-4 mr-2" />
-                {uploading
-                  ? (isRTL ? 'جاري الرفع...' : 'Uploading...')
-                  : (isRTL ? 'رفع ملف' : 'Upload File')}
+                {getUploadButtonText()}
               </Button>
             </div>
 
@@ -234,27 +392,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                       <Button
                         size="sm"
                         variant="ghost"
-                        onClick={async () => {
-                          try {
-                            setPreviewLoading(true);
-                            const signedUrl = await resolveAttachmentUrl(attachment);
-                            setPreviewUrl(signedUrl);
-                            setPreviewType(attachment.file_type || 'application/octet-stream');
-                            setPreviewName(attachment.file_name);
-                            setPreviewAttachment(attachment);
-                            
-                            // Load CSV data if it's a CSV file
-                            if (attachment.file_type === 'text/csv' || attachment.file_name.toLowerCase().endsWith('.csv')) {
-                              await loadCSVPreview(signedUrl);
-                            } else {
-                              setCsvData(null);
-                            }
-                          } catch (error: any) {
-                            toast.error(error.message || (isRTL ? 'تعذر عرض الملف' : 'Failed to preview file'));
-                          } finally {
-                            setPreviewLoading(false);
-                          }
-                        }}
+                        onClick={() => handlePreviewClick(attachment)}
                         title={isRTL ? 'معاينة' : 'Preview'}
                         disabled={previewLoading || downloadingId === attachment.id}
                       >
@@ -325,91 +463,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
             </DialogTitle>
           </DialogHeader>
           <div className="flex-1 bg-gray-100 p-4 overflow-auto flex items-center justify-center">
-            {previewType?.startsWith('image/') && previewUrl ? (
-              <img 
-                src={previewUrl} 
-                alt={previewName || 'Preview'} 
-                className="max-w-full max-h-full object-contain shadow-lg rounded-md" 
-              />
-            ) : previewType === 'application/pdf' && previewUrl ? (
-              <iframe 
-                src={previewUrl} 
-                className="w-full h-full rounded-md shadow-lg" 
-                title="PDF Preview"
-              />
-            ) : previewType === 'text/csv' || previewName?.toLowerCase().endsWith('.csv') ? (
-              <div className="w-full h-full bg-white rounded-md shadow-lg overflow-auto">
-                {csvData ? (
-                  <div className="p-4">
-                    <div className="flex items-center gap-2 mb-4 text-green-600">
-                      <FileSpreadsheet className="h-5 w-5" />
-                      <span className="font-semibold">
-                        {isRTL ? 'ملف CSV' : 'CSV File'} ({csvData.length} {isRTL ? 'صف' : 'rows'})
-                      </span>
-                    </div>
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full border-collapse border border-gray-300">
-                        <thead>
-                          <tr className="bg-gray-100">
-                            {csvData[0]?.map((header) => (
-                              <th
-                                key={`header-${header}`}
-                                className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700"
-                              >
-                                {header}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {csvData.slice(1).map((row) => {
-                            const rowKey = row.join('-')
-                            return (
-                              <tr key={rowKey} className="hover:bg-gray-50">
-                                {row.map((cell) => (
-                                  <td
-                                    key={`${rowKey}-${cell}`}
-                                    className="border border-gray-300 px-4 py-2 text-sm text-gray-600"
-                                  >
-                                    {cell}
-                                  </td>
-                                ))}
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-                  </div>
-                )}
-              </div>
-            ) : previewType?.startsWith('text/') && previewUrl ? (
-              <div className="w-full h-full bg-white rounded-md shadow-lg p-6 overflow-auto">
-                <iframe 
-                  src={previewUrl} 
-                  className="w-full h-full border-0" 
-                  title="Text Preview"
-                  style={{ minHeight: '500px' }}
-                />
-              </div>
-            ) : (
-              <div className="text-center p-8 bg-white rounded-lg shadow-sm">
-                <Paperclip className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-                <p className="text-lg font-medium text-gray-900 mb-2">
-                  {isRTL ? 'لا يمكن معاينة هذا الملف' : 'Cannot preview this file'}
-                </p>
-                <p className="text-sm text-gray-500 mb-4">
-                  {isRTL ? 'يرجى تحميل الملف لعرضه' : 'Please download the file to view it'}
-                </p>
-                <Button onClick={() => previewAttachment && handleDownload(previewAttachment)} disabled={!previewAttachment}>
-                  {isRTL ? 'تحميل الملف' : 'Download File'}
-                </Button>
-              </div>
-            )}
+            {renderPreviewContent()}
           </div>
         </DialogContent>
       </Dialog>

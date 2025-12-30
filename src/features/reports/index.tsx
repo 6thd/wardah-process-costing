@@ -190,8 +190,9 @@ function ReportsOverview() {
                   {category.description}
                 </p>
                 <div className="space-y-1">
-                  {category.reports.map((report, index) => (
-                    <div key={index} className={cn("flex items-center gap-2 text-xs text-muted-foreground", isRTL ? "flex-row-reverse" : "")}>
+                  {/* eslint-disable-next-line react/no-array-index-key */}
+                  {category.reports.map((report) => (
+                    <div key={report} className={cn("flex items-center gap-2 text-xs text-muted-foreground", isRTL ? "flex-row-reverse" : "")}>
                       <FileText className="h-3 w-3" />
                       <span>{report}</span>
                     </div>
@@ -214,8 +215,10 @@ function ReportsOverview() {
             { name: 'تقييم المخزون', type: 'مخزون', date: 'منذ 3 أيام', status: 'جاري' },
             { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
             { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
-          ].map((report, index) => (
-            <div key={index} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
+          ].map((report) => {
+            // eslint-disable-next-line react/no-array-index-key
+            return (
+            <div key={`${report.name}-${report.date}`} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
               <div className="flex-1">
                 <h4 className="font-medium">{report.name}</h4>
                 <div className="flex items-center gap-2 mt-1">
@@ -235,7 +238,8 @@ function ReportsOverview() {
                 </Button>
               </div>
             </div>
-          ))}
+            )
+          })}
         </div>
       </div>
     </div>

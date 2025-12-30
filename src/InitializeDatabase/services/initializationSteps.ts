@@ -42,9 +42,14 @@ export async function associateUsersWithOrganization(
   }
 }
 
+interface AuthUser {
+  id: string;
+  email?: string;
+}
+
 async function createUserProfile(
   client: SupabaseClient,
-  user: any,
+  user: AuthUser,
   results: InitializationResult[]
 ): Promise<void> {
   const { error: userError } = await client.from('users').upsert({
@@ -64,7 +69,7 @@ async function createUserProfile(
 
 async function associateUserWithOrg(
   client: SupabaseClient,
-  user: any,
+  user: AuthUser,
   results: InitializationResult[]
 ): Promise<void> {
   const { error: userOrgError } = await client.from('user_organizations').upsert({

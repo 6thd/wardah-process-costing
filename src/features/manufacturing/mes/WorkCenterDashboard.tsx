@@ -8,7 +8,6 @@ import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -28,15 +27,11 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  Play,
-  Pause,
   RefreshCw,
   CheckCircle,
   AlertTriangle,
-  Clock,
   Wrench,
-  Factory,
-  Timer
+  Factory
 } from 'lucide-react'
 import { useWorkOrders, useStartOperation, useCompleteOperation, usePauseWorkOrder, useResumeWorkOrder, useWorkCenterSummary } from '@/hooks/manufacturing/useMES'
 import { WorkOrder } from '@/services/manufacturing/mesService'
@@ -304,10 +299,12 @@ export function WorkCenterDashboard() {
               <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-yellow-600" />
                 <span className="text-sm text-yellow-700 dark:text-yellow-400">
-                  {isRTL 
-                    ? `سيتم تسجيل ${quantityScrapped} وحدة كخردة`
-                    : `${quantityScrapped} unit(s) will be recorded as scrap`
-                  }
+                  {(() => {
+                    if (isRTL) {
+                      return `سيتم تسجيل ${quantityScrapped} وحدة كخردة`
+                    }
+                    return `${quantityScrapped} unit(s) will be recorded as scrap`
+                  })()}
                 </span>
               </div>
             )}

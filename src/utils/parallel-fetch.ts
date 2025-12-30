@@ -6,36 +6,44 @@
 /**
  * Fetch multiple resources in parallel with timeout
  */
-export async function fetchParallel<T extends Record<string, Promise<any>>>(
+export async function fetchParallel<T extends Record<string, Promise<unknown>>>(
   promises: T,
   timeoutMs: number = 10000
-): Promise<{ [K in keyof T]: Awaited<T[K]> }> {
-  const timeoutPromise = new Promise((_, reject) =>
+): Promise<{ [K in keyof T]: Awaited<T[K]> | null }> {
+  const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(() => reject(new Error('Parallel fetch timed out')), timeoutMs)
   );
 
+  type SettledResult = {
+    key: string;
+    status: 'fulfilled' | 'rejected';
+    value?: unknown;
+    reason?: unknown;
+  };
+
   const results = await Promise.race([
-    Promise.allSettled(Object.entries(promises).map(async ([key, promise]) => {
+    Promise.allSettled(Object.entries(promises).map(async ([key, promise]): Promise<SettledResult> => {
       try {
-        return { key, status: 'fulfilled' as const, value: await promise };
+        const value = await promise;
+        return { key, status: 'fulfilled', value };
       } catch (error) {
-        return { key, status: 'rejected' as const, reason: error };
+        return { key, status: 'rejected', reason: error };
       }
     })),
     timeoutPromise,
-  ]) as PromiseSettledResult<any>[];
+  ]) as SettledResult[];
 
-  const result: any = {};
+  const result: Record<string, unknown> = {};
   for (const item of results) {
-    if (item.status === 'fulfilled') {
-      result[item.value.key] = item.value.value;
+    if (item.status === 'fulfilled' && item.value !== undefined) {
+      result[item.key] = item.value;
     } else {
-      // Set to null or empty array on error
-      result[item.value.key] = null;
+      // Set to null on error
+      result[item.key] = null;
     }
   }
 
-  return result;
+  return result as { [K in keyof T]: Awaited<T[K]> | null };
 }
 
 /**

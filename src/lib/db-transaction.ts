@@ -73,7 +73,8 @@ class TransactionManager {
         // All operations succeeded
         return {
           success: true,
-          data: results[results.length - 1], // Return last result
+          // eslint-disable-next-line @typescript-eslint/prefer-array-at
+          data: results.at(-1), // Return last result
         };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));

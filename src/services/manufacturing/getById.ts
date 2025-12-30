@@ -40,8 +40,38 @@ async function getOrderSimple(
 }
 
 /**
+ * Handle error and retry with simple query
+ */
+async function handleErrorAndRetry(
+  getClient: () => Promise<SupabaseClient>,
+  id: string,
+  error: unknown
+): Promise<ManufacturingOrderData | null> {
+  if (isTableNotFoundError(error)) {
+    console.warn('manufacturing_orders table not found');
+    return null;
+  }
+
+  if (isRelationshipNotFoundError(error)) {
+    try {
+      const supabase = await getClient();
+      return await getOrderSimple(supabase, id);
+    } catch (e: unknown) {
+      const simpleErr = e as { code?: string };
+      if (simpleErr?.code === 'PGRST205') {
+        return null;
+      }
+      throw e;
+    }
+  }
+
+  throw error;
+}
+
+/**
  * Get manufacturing order by ID with related item data
  */
+// eslint-disable-next-line complexity
 export async function getManufacturingOrderById(
   getClient: () => Promise<SupabaseClient>,
   id: string
@@ -49,58 +79,24 @@ export async function getManufacturingOrderById(
   try {
     const supabase = await getClient();
 
-    // Try to get order
     const { data, error } = await supabase
       .from('manufacturing_orders')
       .select('*')
       .eq('id', id)
       .single();
 
-    // Handle missing table
-    if (isTableNotFoundError(error)) {
-      console.warn('manufacturing_orders table not found');
-      return null;
+    if (error) {
+      return await handleErrorAndRetry(getClient, id, error);
     }
 
-    // Handle missing relationship - try simple query
-    if (isRelationshipNotFoundError(error)) {
-      const simpleData = await getOrderSimple(supabase, id);
-      return simpleData;
-    }
-
-    if (error) throw error;
-
-    // Load related item data
     if (data) {
       const orderData = data as ManufacturingOrderData;
       await loadRelatedItemData(supabase, orderData);
       return orderData;
     }
 
-    return data;
+    return null;
   } catch (error: unknown) {
-    const err = error as { code?: string; message?: string };
-    
-    // If table doesn't exist, return null
-    if (isTableNotFoundError(err)) {
-      console.warn('manufacturing_orders table not found');
-      return null;
-    }
-    
-    // If relationship doesn't exist, try simple query
-    if (isRelationshipNotFoundError(err)) {
-      try {
-        const supabase = await getClient();
-        return await getOrderSimple(supabase, id);
-      } catch (e: unknown) {
-        const simpleErr = e as { code?: string };
-        if (simpleErr?.code === 'PGRST205') {
-          return null;
-        }
-        throw e;
-      }
-    }
-    
-    throw error;
+    return await handleErrorAndRetry(getClient, id, error);
   }
 }

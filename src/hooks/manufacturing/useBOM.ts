@@ -24,7 +24,10 @@ export function useBOMs(orgId: string) {
 export function useBOM(bomId: string | undefined) {
   return useQuery({
     queryKey: ['bom', bomId],
-    queryFn: () => bomService.getBOMById(bomId!),
+    queryFn: () => {
+      if (!bomId) throw new Error('BOM ID is required')
+      return bomService.getBOMById(bomId)
+    },
     enabled: !!bomId
   })
 }
@@ -143,7 +146,10 @@ export function useApproveBOM(orgId: string, userId: string) {
 export function useBOMExplosion(bomId: string | undefined, quantity: number = 1, orgId?: string) {
   return useQuery({
     queryKey: ['bom-explosion', bomId, quantity, orgId],
-    queryFn: () => bomService.explodeBOM(bomId!, quantity, orgId),
+    queryFn: () => {
+      if (!bomId) throw new Error('BOM ID is required')
+      return bomService.explodeBOM(bomId, quantity, orgId)
+    },
     enabled: !!bomId
   })
 }
@@ -154,7 +160,10 @@ export function useBOMExplosion(bomId: string | undefined, quantity: number = 1,
 export function useBOMCost(bomId: string | undefined, quantity: number = 1) {
   return useQuery({
     queryKey: ['bom-cost', bomId, quantity],
-    queryFn: () => bomService.calculateBOMCost(bomId!, quantity),
+    queryFn: () => {
+      if (!bomId) throw new Error('BOM ID is required')
+      return bomService.calculateBOMCost(bomId, quantity)
+    },
     enabled: !!bomId
   })
 }
@@ -165,7 +174,10 @@ export function useBOMCost(bomId: string | undefined, quantity: number = 1) {
 export function useWhereUsed(itemId: string | undefined, orgId?: string) {
   return useQuery({
     queryKey: ['where-used', itemId, orgId],
-    queryFn: () => bomService.getWhereUsed(itemId!, orgId),
+    queryFn: () => {
+      if (!itemId) throw new Error('Item ID is required')
+      return bomService.getWhereUsed(itemId, orgId)
+    },
     enabled: !!itemId
   })
 }
@@ -176,7 +188,10 @@ export function useWhereUsed(itemId: string | undefined, orgId?: string) {
 export function useBOMVersions(bomId: string | undefined) {
   return useQuery({
     queryKey: ['bom-versions', bomId],
-    queryFn: () => bomService.getBOMVersions(bomId!),
+    queryFn: () => {
+      if (!bomId) throw new Error('BOM ID is required')
+      return bomService.getBOMVersions(bomId)
+    },
     enabled: !!bomId
   })
 }

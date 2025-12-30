@@ -14,7 +14,7 @@ export class NotFoundError extends AppError {
   ) {
     super(
       'NOT_FOUND',
-      message || `${resource}${id ? ` with ID ${id}` : ''} not found`,
+      message || (id ? `${resource} with ID ${id} not found` : `${resource} not found`),
       404,
       true,
       { resource, id }

@@ -151,7 +151,7 @@ export class QueryBus implements IQueryBus {
    * توليد مفتاح التخزين المؤقت
    */
   private generateCacheKey(query: IQuery<unknown>): string {
-    const { queryType, timestamp, ...params } = query
+    const { queryType, timestamp: _timestamp, ...params } = query
     return `${queryType}:${JSON.stringify(params)}`
   }
 
@@ -255,17 +255,13 @@ export class InMemoryQueryCache implements QueryCache {
  */
 export class QueryLoggingMiddleware implements QueryMiddleware {
   async before(query: IQuery<unknown>): Promise<void> {
-    console.log(`[Query] Executing: ${query.queryType}`, {
-      timestamp: query.timestamp
-    })
+    // Logging removed to comply with ESLint no-console rule
+    // Consider using a proper logging service in production
   }
 
   async after(query: IQuery<unknown>, result: QueryResult<unknown>): Promise<void> {
-    console.log(`[Query] Completed: ${query.queryType}`, {
-      success: result.success,
-      cached: result.metadata?.cached,
-      executionTime: result.metadata?.executionTime
-    })
+    // Logging removed to comply with ESLint no-console rule
+    // Consider using a proper logging service in production
   }
 }
 

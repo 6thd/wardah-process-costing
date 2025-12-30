@@ -247,7 +247,9 @@ export async function deleteOrganizationLogo(): Promise<{ success: boolean; erro
 
     // استخراج مسار الملف من الرابط
     const logoUrl = profileResult.data.logo_url;
-    const pathMatch = logoUrl.match(/organization-logos\/(.+)$/);
+    const pathRegex = /organization-logos\/(.+)$/;
+    // eslint-disable-next-line @typescript-eslint/prefer-regexp-exec
+    const pathMatch = pathRegex.exec(logoUrl);
     
     if (pathMatch) {
       const filePath = pathMatch[1];

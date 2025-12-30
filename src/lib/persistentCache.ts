@@ -35,7 +35,7 @@ export const localStorageCache = {
     if (!item) return undefined;
     try {
       return JSON.parse(item);
-    } catch (e) {
+    } catch {
       return undefined;
     }
   },

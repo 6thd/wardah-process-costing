@@ -588,13 +588,11 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                 <Label>اختر أمر الشراء *</Label>
                 <Select value={selectedPOId} onValueChange={setSelectedPOId} disabled={loadingPOs}>
                   <SelectTrigger>
-                    <SelectValue placeholder={
-                      loadingPOs 
-                        ? 'جاري التحميل...' 
-                        : availablePOs.length === 0 
-                          ? 'لا توجد أوامر شراء متاحة' 
-                          : 'اختر أمر شراء'
-                    } />
+                  <SelectValue placeholder={(() => {
+                    if (loadingPOs) return 'جاري التحميل...'
+                    if (availablePOs.length === 0) return 'لا توجد أوامر شراء متاحة'
+                    return 'اختر أمر شراء'
+                  })()} />
                   </SelectTrigger>
                   <SelectContent>
                     {availablePOs.length === 0 ? (
@@ -932,7 +930,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                       return (
                         <tr
                           key={line.po_line_id}
-                          className={!canInvoice ? 'bg-muted/30' : 'hover:bg-accent/50'}
+                          className={canInvoice ? 'hover:bg-accent/50' : 'bg-muted/30'}
                         >
                           <td className="p-3 text-center">
                             <Checkbox

@@ -14,6 +14,35 @@ import {
 } from '../lib/supabase'
 import { PerformanceMonitor } from '../lib/performance-monitor'
 import { updateManufacturingOrderStatus, createManufacturingOrder, getManufacturingOrderById } from './manufacturing'
+import {
+  isTableNotFoundError as isManufacturingTableNotFound,
+  isRelationshipNotFoundError as isManufacturingRelationshipNotFound,
+  handleTableNotFound,
+  fetchOrdersSimple,
+  extractItemIds,
+  fetchRelatedItems,
+  attachRelatedItems,
+  normalizeOrderStatuses
+} from './manufacturing/manufacturing-helpers'
+import {
+  isTableNotFoundError as isSalesTableNotFound,
+  isRelationshipNotFoundError as isSalesRelationshipNotFound,
+  fetchSalesOrdersWithRelations,
+  fetchSalesOrdersSimple,
+  fetchSalesInvoicesAsFallback,
+  attachCustomersToOrders
+} from './sales/sales-helpers'
+import {
+  fetchTrialBalanceFromView,
+  fetchPostedEntries,
+  fetchEntryLines,
+  fetchAccountNames,
+  calculateTrialBalanceTotals
+} from './accounting/trial-balance-helpers'
+import {
+  calculateTotalAmount,
+  updateSalesOrderWithFallback
+} from './sales/sales-order-helpers'
 
 // Type aliases for cleaner code
 type CategoryInput = Omit<Category, 'id' | 'created_at' | 'updated_at'>
@@ -270,162 +299,42 @@ export const manufacturingService = {
   getAll: async (options?: { limit?: number; includeItems?: boolean }) => {
     return PerformanceMonitor.measure('Manufacturing Orders List', async () => {
       try {
-        const supabase = await getClient()
-        const limit = options?.limit || 100 // Default limit to improve performance
-        const includeItems = options?.includeItems !== false // Default to true for backward compatibility
+        const supabase = await getClient();
+        const limit = options?.limit || 100;
+        const includeItems = options?.includeItems !== false;
 
-        // جلب البيانات بدون joins أولاً (لتجنب مشاكل العلاقات)
-        let query = supabase
-          .from('manufacturing_orders')
-          .select('*')
-          .order('created_at', { ascending: false })
-        
-        // Apply limit to improve performance
-        if (limit > 0) {
-          query = query.limit(limit)
-        }
-        
-        const { data, error } = await query
+        const orders = await fetchOrdersSimple(supabase, limit);
 
-        // Handle missing table gracefully
-        if (error && (error.code === 'PGRST205' || error.message?.includes('Could not find the table'))) {
-          console.warn('manufacturing_orders table not found, returning empty array')
-          return []
+        if (includeItems && orders.length > 0) {
+          const itemIds = extractItemIds(orders);
+          const itemsMap = await fetchRelatedItems(supabase, itemIds);
+          attachRelatedItems(orders, itemsMap);
         }
 
-        // Handle missing relationship gracefully
-        if (error && (error.code === 'PGRST200' || error.message?.includes('Could not find a relationship'))) {
-          console.warn('Relationships not found, returning data without joins')
-          // Try again without joins
-          const { data: simpleData, error: simpleError } = await supabase
-            .from('manufacturing_orders')
-            .select('*')
-            .order('created_at', { ascending: false })
-
-          if (simpleError?.code === 'PGRST205') {
-            return []
-          }
-
-          if (simpleError) throw simpleError
-          return simpleData || []
+        normalizeOrderStatuses(orders);
+        return orders;
+      } catch (error: unknown) {
+        if (isManufacturingTableNotFound(error)) {
+          return handleTableNotFound('manufacturing_orders');
         }
 
-        if (error) throw error
-
-        // محاولة جلب بيانات إضافية بشكل منفصل إذا كانت موجودة ومطلوبة
-        // Performance optimization: Only fetch related data if requested
-        if (includeItems && data?.length > 0) {
-          // جلب بيانات المنتجات إذا كان item_id أو product_id موجود
-          const itemIds = [...new Set(data
-            .map(order => {
-              const orderWithItem = order as { item_id?: string; product_id?: string }
-              return orderWithItem.item_id || orderWithItem.product_id
-            })
-            .filter(Boolean))] // Remove duplicates
-
-          if (itemIds.length > 0 && itemIds.length <= 50) { // Limit to 50 items to avoid slow queries
-            try {
-              // Parallel queries: fetch products and items simultaneously
-              // Note: Use only columns that exist in the tables (code, name, not product_code/product_name)
-              const [productsResult, itemsResult] = await Promise.all([
-                (async () => {
-                  try {
-                    const res = await supabase.from('products').select('id, code, name').in('id', itemIds)
-                    return res.data || []
-                  } catch { return [] }
-                })(),
-                (async () => {
-                  try {
-                    const res = await supabase.from('items').select('id, code, name, sku').in('id', itemIds)
-                    return res.data || []
-                  } catch { return [] }
-                })()
-              ])
-
-              // Merge results: prefer products over items
-              const combinedMap = new Map()
-              
-              // Add items first
-              itemsResult.forEach(item => combinedMap.set(item.id, item))
-              
-              // Override with products (higher priority)
-              productsResult.forEach(product => combinedMap.set(product.id, product))
-
-              // Attach to orders
-              data.forEach((order: any) => {
-                const itemId = order.item_id || order.product_id
-                const relatedData = combinedMap.get(itemId)
-                if (relatedData) {
-                  order.item = relatedData
-                }
-              })
-            } catch (e) {
-              // تجاهل أخطاء جلب البيانات الإضافية
-              console.warn('Could not load related data:', e)
-            }
-          } else if (itemIds.length > 50) {
-            console.warn('Too many items to fetch, skipping related data for performance')
-          }
-        }
-
-        // Normalize status values from database to frontend format
-        // Convert old format to new format if needed
-        if (Array.isArray(data)) {
-          data.forEach((order: any) => {
-            if (order.status === 'in_progress') {
-              order.status = 'in-progress'
-            } else if (order.status === 'done') {
-              order.status = 'completed'
-            }
-            // Keep other statuses as-is (on-hold, quality-check, etc. are already correct)
-          })
-        }
-
-        return data || []
-      } catch (error: any) {
-        // If table doesn't exist, return empty array
-        if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
-          console.warn('manufacturing_orders table not found, returning empty array')
-          return []
-        }
-        // If relationship doesn't exist, try without joins
-        if (error.code === 'PGRST200' || error.message?.includes('Could not find a relationship')) {
-          console.warn('Relationships not found, trying without joins')
+        if (isManufacturingRelationshipNotFound(error)) {
           try {
-            const supabase = await getClient()
-            const { data, error: simpleError } = await supabase
-              .from('manufacturing_orders')
-              .select('*')
-              .order('created_at', { ascending: false })
-
-            if (simpleError?.code === 'PGRST205') {
-              return []
+            const supabase = await getClient();
+            const orders = await fetchOrdersSimple(supabase, options?.limit || 100);
+            normalizeOrderStatuses(orders);
+            return orders;
+          } catch (e: unknown) {
+            if (isManufacturingTableNotFound(e)) {
+              return [];
             }
-
-            if (simpleError) throw simpleError
-            
-            // Normalize status values
-            if (Array.isArray(data)) {
-              data.forEach((order: any) => {
-                if (order.status === 'in_progress') {
-                  order.status = 'in-progress'
-                } else if (order.status === 'done') {
-                  order.status = 'completed'
-                }
-              })
-            }
-            
-            return data || []
-          } catch (e: any) {
-            if (e.code === 'PGRST205') {
-              return []
-            }
-            throw e
+            throw e;
           }
         }
-        throw error
+
+        throw error;
       }
-    })
+    });
   },
 
   /**
@@ -496,7 +405,7 @@ export const processCostService = {
       .select('total_cost')
       .eq('manufacturing_order_id', manufacturingOrderId)
 
-    const totalCost = costs?.reduce((sum: number, cost: any) => sum + cost.total_cost, 0) || 0
+    const totalCost = costs?.reduce((sum: number, cost: Record<string, unknown>) => sum + ((cost.total_cost as number) || 0), 0) || 0
 
     await supabase
       .from('manufacturing_orders')
@@ -617,7 +526,7 @@ export const purchaseOrdersService = {
 
     if (itemsError) throw itemsError
 
-    const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
+    const totalAmount = orderItems.reduce((sum: number, item: Record<string, unknown>) => sum + ((item.total_price as number) || 0), 0)
 
     // Update total amount
     const { data, error: updateError } = await supabase
@@ -644,201 +553,81 @@ export const purchaseOrdersService = {
 // Sales Orders Service
 export const salesOrdersService = {
   getAll: async () => {
-    const supabase = await getClient()
+    const supabase = await getClient();
 
-    // First try sales_orders with relationships
-    const { data, error } = await supabase
-      .from('sales_orders')
-      .select(`
-        *,
-        customer:customers(*),
-        user:users(full_name),
-        sales_order_items(
-          *,
-          item:products(*)
-        )
-      `)
-      .order('created_at', { ascending: false })
+    try {
+      const { data, error } = await fetchSalesOrdersWithRelations(supabase);
 
-    // If relationship error, try without relationships
-    if (error && (error.message?.includes('Could not find a relationship') || error.message?.includes('relationship'))) {
-      console.warn('Relationship not found, fetching without joins:', error.message)
-      
-      // Try without relationships
-      const { data: simpleData, error: simpleError } = await supabase
-        .from('sales_orders')
-        .select('*')
-        .order('created_at', { ascending: false })
+      if (!error && data) {
+        return data;
+      }
 
-      if (simpleError) {
-        // If table doesn't exist, try sales_invoices instead
-        if (simpleError.code === 'PGRST205') {
-          console.warn('sales_orders table not found, trying sales_invoices instead')
-          const { data: invoicesData, error: invoicesError } = await supabase
-            .from('sales_invoices')
-            .select('*')
-            .order('invoice_date', { ascending: false })
-            .limit(100)
+      if (isSalesRelationshipNotFound(error)) {
+        const orders = await fetchSalesOrdersSimple(supabase);
+        return await attachCustomersToOrders(supabase, orders);
+      }
 
-          if (invoicesError) {
-            console.error('Error fetching sales_invoices:', invoicesError.message)
-            return []
+      if (isSalesTableNotFound(error)) {
+        return await fetchSalesInvoicesAsFallback(supabase);
+      }
+
+      if (error) {
+        console.warn('Error fetching sales orders with user data, retrying without it.', (error as { message?: string }).message);
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('sales_orders')
+          .select(`
+            *,
+            customer:customers(*),
+            sales_order_items(
+              *,
+              item:products(*)
+            )
+          `)
+          .order('created_at', { ascending: false });
+
+        if (fallbackError) {
+          if (isSalesTableNotFound(fallbackError)) {
+            console.warn('sales_orders table not found, returning empty array');
+            return [];
           }
-
-          // Map invoices to orders format for compatibility
-          return (invoicesData || []).map((inv: any) => ({
-            ...inv,
-            so_date: inv.invoice_date,
-            so_number: inv.invoice_number,
-            status: inv.payment_status || inv.delivery_status || 'draft'
-          }))
+          throw fallbackError;
         }
-        
-        console.error('Error fetching sales orders:', simpleError.message)
-        return []
+        return fallbackData || [];
       }
 
-      // Try to fetch customers separately if we have customer_ids
-      if (simpleData && simpleData.length > 0) {
-        const customerIds = [...new Set(simpleData.map((order: any) => order.customer_id).filter(Boolean))];
-        if (customerIds.length > 0) {
-          try {
-            const { data: customers } = await supabase
-              .from('customers')
-              .select('*')
-              .in('id', customerIds);
-            
-            if (customers) {
-              const customerMap = new Map(customers.map((c: any) => [c.id, c]));
-              return simpleData.map((order: any) => ({
-                ...order,
-                customer: customerMap.get(order.customer_id) || null
-              }));
-            }
-          } catch (customerError) {
-            console.warn('Could not fetch customers separately:', customerError);
-          }
-        }
+      return data || [];
+    } catch (error: unknown) {
+      if (isSalesTableNotFound(error)) {
+        return await fetchSalesInvoicesAsFallback(supabase);
       }
-
-      return simpleData || []
+      throw error;
     }
-
-    // If table doesn't exist, try sales_invoices instead
-    if (error?.code === 'PGRST205') {
-      console.warn('sales_orders table not found, trying sales_invoices instead')
-      const { data: invoicesData, error: invoicesError } = await supabase
-        .from('sales_invoices')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .limit(100)
-
-      if (invoicesError) {
-        console.error('Error fetching sales_invoices:', invoicesError.message)
-        return []
-      }
-
-      // Map invoices to orders format for compatibility
-      return (invoicesData || []).map((inv: any) => ({
-        ...inv,
-        so_date: inv.invoice_date,
-        so_number: inv.invoice_number,
-        status: inv.payment_status || inv.delivery_status || 'draft'
-      }))
-    }
-
-    if (error) {
-      console.warn('Error fetching sales orders with user data, retrying without it.', error.message)
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('sales_orders')
-        .select(`
-                *,
-                customer:customers(*),
-                sales_order_items(
-                    *,
-                    item:products(*)
-                )
-            `)
-        .order('created_at', { ascending: false })
-
-      if (fallbackError) {
-        if (fallbackError.code === 'PGRST205') {
-          // Table doesn't exist, return empty array
-          console.warn('sales_orders table not found, returning empty array')
-          return []
-        }
-        console.error('Fallback fetch for sales orders also failed:', fallbackError.message)
-        throw fallbackError
-      }
-      return fallbackData
-    }
-
-    return data || []
   },
 
   create: async (order: SalesOrderInput, items: SalesOrderItemInput[]) => {
-    const supabase = await getClient()
+    const supabase = await getClient();
     const { data: orderData, error: orderError } = await supabase
       .from('sales_orders')
       .insert(order)
       .select()
-      .single()
+      .single();
 
-    if (orderError) throw orderError
+    if (orderError) throw orderError;
 
     const orderItems = items.map(item => ({
       ...item,
       sales_order_id: orderData.id,
       total_price: item.quantity * (item.unit_price || 0)
-    }))
+    }));
 
     const { error: itemsError } = await supabase
       .from('sales_order_items')
-      .insert(orderItems)
+      .insert(orderItems);
 
-    if (itemsError) throw itemsError
+    if (itemsError) throw itemsError;
 
-    const totalAmount = orderItems.reduce((sum: number, item: any) => sum + item.total_price, 0)
-
-    // First try to update with user data
-    const { data, error: updateError } = await supabase
-      .from('sales_orders')
-      .update({ total_amount: totalAmount })
-      .eq('id', orderData.id)
-      .select(`
-        *,
-        customer:customers(*),
-        user:users(full_name),
-        sales_order_items(
-          *,
-          item:products(*)
-        )
-      `)
-      .single()
-
-    // If there's an error related to the user not being found, try without user data
-    if (updateError?.message.includes('404')) {
-      console.warn('User not found for sales order, updating without user data:', orderData.id)
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('sales_orders')
-        .update({ total_amount: totalAmount })
-        .eq('id', orderData.id)
-        .select(`
-          *,
-          customer:customers(*),
-          sales_order_items(
-            *,
-            item:products(*)
-          )
-        `)
-        .single()
-
-      if (fallbackError) throw fallbackError
-      return fallbackData
-    }
-
-    if (updateError) throw updateError
-    return data
+    const totalAmount = calculateTotalAmount(orderItems);
+    return await updateSalesOrderWithFallback(supabase, orderData.id, totalAmount);
   }
 }
 
@@ -1026,146 +815,32 @@ export const journalEntriesService = {
 export const trialBalanceService = {
   get: async (startDate?: string, endDate?: string) => {
     return PerformanceMonitor.measure('Trial Balance Service Get', async () => {
-      const supabase = await getClient()
-      const orgId = await getTenantId()
+      const supabase = await getClient();
+      const orgId = await getTenantId();
 
-      // Try using the optimized view first (60-70% faster!)
-      try {
-        console.log('🚀 Trying v_trial_balance view...')
-        
-        let viewQuery = supabase
-          .from('v_trial_balance')
-          .select('*')
-        
-        if (orgId) {
-          viewQuery = viewQuery.eq('org_id', orgId)
-        }
-
-        const { data: viewData, error: viewError } = await viewQuery
-
-        if (!viewError && viewData && viewData.length > 0) {
-          console.log(`✅ Trial balance from VIEW: ${viewData.length} accounts (FAST!)`)
-          
-          // Map view columns to expected format
-          return viewData.map((row: any) => ({
-            account_code: row.account_code,
-            account_name: row.account_name,
-            account_name_ar: row.account_name_ar,
-            debit: row.total_debit || 0,
-            credit: row.total_credit || 0
-          })).sort((a, b) => a.account_code.localeCompare(b.account_code))
-        }
-        
-        console.warn('⚠️ View not available or empty, falling back to manual calculation')
-      } catch (error_) {
-        console.warn('⚠️ View query failed, falling back to manual calculation:', error_)
+      // Try using the optimized view first
+      const viewResult = await fetchTrialBalanceFromView(supabase, orgId);
+      if (viewResult) {
+        return viewResult;
       }
 
-      // Fallback: Original logic (slower but reliable)
-      console.log('📊 Using manual calculation...')
-
-      // First, get all POSTED entries (case-insensitive)
-      let entriesQuery = supabase
-        .from('gl_entries')
-        .select('id, entry_date, status')
-        .ilike('status', 'posted')
-
-      if (startDate) {
-        entriesQuery = entriesQuery.gte('entry_date', startDate)
-      }
-      if (endDate) {
-        entriesQuery = entriesQuery.lte('entry_date', endDate)
+      // Fallback: Manual calculation
+      const entries = await fetchPostedEntries(supabase, startDate, endDate);
+      if (entries.length === 0) {
+        return [];
       }
 
-      const { data: entries, error: entriesError } = await entriesQuery
-
-      if (entriesError) {
-        console.error('❌ Error fetching entries:', entriesError)
-        throw entriesError
+      const entryIds = entries.map(e => e.id);
+      const lines = await fetchEntryLines(supabase, entryIds);
+      if (lines.length === 0) {
+        return [];
       }
 
-      if (!entries || entries.length === 0) {
-        console.warn('⚠️ No posted entries found')
-        return []
-      }
+      const accountCodes = [...new Set(lines.map(line => line.account_code))];
+      const accountNamesMap = await fetchAccountNames(supabase, accountCodes);
 
-      console.log(`✅ Found ${entries.length} posted entries`)
-
-      // Get all entry IDs
-      const entryIds = entries.map(e => e.id)
-
-      // Get all lines for these entries
-      const { data: lines, error: linesError } = await supabase
-        .from('gl_entry_lines')
-        .select('*')
-        .in('entry_id', entryIds)
-
-      if (linesError) {
-        console.error('❌ Error fetching lines:', linesError)
-        throw linesError
-      }
-
-      if (!lines || lines.length === 0) {
-        console.warn('⚠️ No lines found for posted entries')
-        return []
-      }
-
-      console.log(`✅ Found ${lines.length} lines`)
-
-      // Get all unique account codes
-      const accountCodes = [...new Set(lines.map((line: any) => line.account_code))]
-
-      // Fetch account names from gl_accounts
-      const { data: accounts, error: accountsError} = await supabase
-        .from('gl_accounts')
-        .select('code, name, name_ar')
-        .in('code', accountCodes)
-
-      if (accountsError) {
-        console.warn('⚠️ Error fetching account names:', accountsError)
-      }
-
-      // Create account name lookup
-      const accountNamesMap = new Map<string, { name: string, name_ar?: string }>()
-      accounts?.forEach((acc: any) => {
-        accountNamesMap.set(acc.code, { name: acc.name, name_ar: acc.name_ar })
-      })
-
-      // Group by account and calculate totals
-      const accountTotals = new Map<string, { debit: number, credit: number, name: string, name_ar?: string }>()
-
-      for (const line of lines) {
-        if (!accountTotals.has(line.account_code)) {
-          const accountInfo = accountNamesMap.get(line.account_code)
-          accountTotals.set(line.account_code, {
-            debit: 0,
-            credit: 0,
-            name: accountInfo?.name || line.account_name || line.account_code,
-            name_ar: accountInfo?.name_ar
-          })
-        }
-
-        const account = accountTotals.get(line.account_code)
-        if (!account) continue
-        account.debit += line.debit_amount || 0
-        account.credit += line.credit_amount || 0
-      }
-
-      // Convert to array and sort by account code
-      const trialBalance = Array.from(accountTotals.entries())
-        .map(([code, totals]) => ({
-          account_code: code,
-          account_name: totals.name,
-          account_name_ar: totals.name_ar,
-          debit: totals.debit,
-          credit: totals.credit
-        }))
-        .sort((a, b) => a.account_code.localeCompare(b.account_code))
-
-      console.log(`✅ Trial balance calculated: ${trialBalance.length} accounts`)
-
-      return trialBalance
-    })
+      return calculateTrialBalanceTotals(lines, accountNamesMap);
+    });
   }
 }
 
@@ -1181,7 +856,7 @@ export const subscribeToItems = (callback: (items: Item[]) => void) => {
     .subscribe()
 }
 
-export const subscribeToManufacturingOrders = (callback: (orders: any[]) => void) => {
+export const subscribeToManufacturingOrders = (callback: (orders: Record<string, unknown>[]) => void) => {
   const supabase = getSupabase()
   if (!supabase) throw new Error('Supabase client not initialized')
   return supabase
@@ -1218,7 +893,7 @@ export const manufacturingStagesService = {
 
         if (error) throw error
         return data || []
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('❌ Error fetching manufacturing stages:', error)
         throw error
       }
@@ -1236,13 +911,13 @@ export const manufacturingStagesService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching manufacturing stage:', error)
       throw error
     }
   },
 
-  create: async (stage: any) => {
+  create: async (stage: Record<string, unknown>) => {
     try {
       const config = await getConfig()
       const tenantId = await getTenantId()
@@ -1262,13 +937,13 @@ export const manufacturingStagesService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Error creating manufacturing stage:', error)
       throw error
     }
   },
 
-  update: async (id: string, updates: any) => {
+  update: async (id: string, updates: Record<string, unknown>) => {
     try {
       const supabase = await getClient()
       const { data, error } = await supabase
@@ -1283,7 +958,7 @@ export const manufacturingStagesService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating manufacturing stage:', error)
       throw error
     }
@@ -1299,7 +974,7 @@ export const manufacturingStagesService = {
 
       if (error) throw error
       return { success: true }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting manufacturing stage:', error)
       throw error
     }
@@ -1319,48 +994,48 @@ export const stageWipLogService = {
   }) => {
     return PerformanceMonitor.measure('Stage WIP Log List', async () => {
       try {
-        const tenantId = await getTenantId()
-        const supabase = await getClient()
+        const tenantId = await getTenantId();
+        const supabase = await getClient();
 
         let query = supabase
           .from('stage_wip_log')
           .select('*, manufacturing_stages(*), manufacturing_orders(*)')
           .order('period_start', { ascending: false })
-          .order('created_at', { ascending: false })
+          .order('created_at', { ascending: false });
 
         if (tenantId) {
-          query = query.eq('org_id', tenantId)
+          query = query.eq('org_id', tenantId);
         }
 
         if (filters?.moId) {
-          query = query.eq('mo_id', filters.moId)
+          query = query.eq('mo_id', filters.moId);
         }
 
         if (filters?.stageId) {
-          query = query.eq('stage_id', filters.stageId)
+          query = query.eq('stage_id', filters.stageId);
         }
 
         if (filters?.periodStart) {
-          query = query.gte('period_start', filters.periodStart)
+          query = query.gte('period_start', filters.periodStart);
         }
 
         if (filters?.periodEnd) {
-          query = query.lte('period_end', filters.periodEnd)
+          query = query.lte('period_end', filters.periodEnd);
         }
 
         if (filters?.isClosed !== undefined) {
-          query = query.eq('is_closed', filters.isClosed)
+          query = query.eq('is_closed', filters.isClosed);
         }
 
-        const { data, error } = await query
+        const { data, error } = await query;
 
-        if (error) throw error
-        return data || []
-      } catch (error: any) {
-        console.error('Error fetching stage WIP log:', error)
-        throw error
+        if (error) throw error;
+        return data || [];
+      } catch (error: unknown) {
+        console.error('Error fetching stage WIP log:', error);
+        throw error;
       }
-    })
+    });
   },
 
   getById: async (id: string) => {
@@ -1374,13 +1049,13 @@ export const stageWipLogService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching stage WIP log:', error)
       throw error
     }
   },
 
-  create: async (wipLog: any) => {
+  create: async (wipLog: Record<string, unknown>) => {
     try {
       const config = await getConfig()
       const tenantId = await getTenantId()
@@ -1397,13 +1072,13 @@ export const stageWipLogService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating stage WIP log:', error)
       throw error
     }
   },
 
-  update: async (id: string, updates: any) => {
+  update: async (id: string, updates: Record<string, unknown>) => {
     try {
       const supabase = await getClient()
       const { data, error } = await supabase
@@ -1418,7 +1093,7 @@ export const stageWipLogService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating stage WIP log:', error)
       throw error
     }
@@ -1441,7 +1116,7 @@ export const stageWipLogService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error closing period:', error)
       throw error
     }
@@ -1457,7 +1132,7 @@ export const stageWipLogService = {
 
       if (error) throw error
       return { success: true }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting stage WIP log:', error)
       throw error
     }
@@ -1503,7 +1178,7 @@ export const standardCostsService = {
 
         if (error) throw error
         return data || []
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Error fetching standard costs:', error)
         throw error
       }
@@ -1521,7 +1196,7 @@ export const standardCostsService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching standard cost:', error)
       throw error
     }
@@ -1555,13 +1230,13 @@ export const standardCostsService = {
 
       if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows returned
       return data || null
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching active standard cost:', error)
       throw error
     }
   },
 
-  create: async (standardCost: any) => {
+  create: async (standardCost: Record<string, unknown>) => {
     try {
       const config = await getConfig()
       const tenantId = await getTenantId()
@@ -1578,13 +1253,13 @@ export const standardCostsService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating standard cost:', error)
       throw error
     }
   },
 
-  update: async (id: string, updates: any) => {
+  update: async (id: string, updates: Record<string, unknown>) => {
     try {
       const supabase = await getClient()
       const { data, error } = await supabase
@@ -1599,7 +1274,7 @@ export const standardCostsService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating standard cost:', error)
       throw error
     }
@@ -1621,7 +1296,7 @@ export const standardCostsService = {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error approving standard cost:', error)
       throw error
     }

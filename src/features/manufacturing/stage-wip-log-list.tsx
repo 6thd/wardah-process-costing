@@ -95,17 +95,20 @@ export function StageWipLogList() {
   // Load WIP logs
   const { data: wipLogsData, isLoading, isError, refetch } = useQuery<WipLog[]>({
     queryKey: ['stage-wip-log', filters],
-    queryFn: async () => {
+    queryFn: async (): Promise<WipLog[]> => {
       const filtersToUse: Record<string, string> = {}
       if (filters.moId && filters.moId !== 'all') filtersToUse.moId = filters.moId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
       
-      return stageWipLogService.getAll(filtersToUse) as Promise<WipLog[]>
+      const result = await stageWipLogService.getAll(filtersToUse);
+      return Array.isArray(result) ? result : [];
     },
     enabled: true
   })
   
-  const wipLogs: WipLog[] = wipLogsData || []
+  // Use wipLogsData directly as it's already typed as WipLog[] | undefined
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+  const wipLogs = wipLogsData ?? []
 
   // Delete mutation
   const deleteMutation = useMutation({

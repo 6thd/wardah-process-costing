@@ -115,9 +115,10 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching warehouses:', error)
-      toast.error('فشل تحميل المخازن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحميل المخازن: ' + message)
       return []
     }
   }
@@ -140,9 +141,10 @@ export class WarehouseService {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching warehouse:', error)
-      toast.error('فشل تحميل المخزن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحميل المخزن: ' + message)
       return null
     }
   }
@@ -162,9 +164,10 @@ export class WarehouseService {
 
       toast.success('✅ تم إنشاء المخزن بنجاح مع الحسابات المحاسبية')
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating warehouse:', error)
-      toast.error('فشل إنشاء المخزن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل إنشاء المخزن: ' + message)
       return null
     }
   }
@@ -183,9 +186,10 @@ export class WarehouseService {
 
       toast.success('✅ تم تحديث المخزن بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating warehouse:', error)
-      toast.error('فشل تحديث المخزن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحديث المخزن: ' + message)
       return false
     }
   }
@@ -218,9 +222,10 @@ export class WarehouseService {
 
       toast.success('✅ تم تعطيل المخزن بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deactivating warehouse:', error)
-      toast.error('فشل تعطيل المخزن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تعطيل المخزن: ' + message)
       return false
     }
   }
@@ -253,9 +258,10 @@ export class WarehouseService {
 
       toast.success('✅ تم حذف المخزن بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deactivating warehouse:', error)
-      toast.error('فشل تعطيل المخزن: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تعطيل المخزن: ' + message)
       return false
     }
   }
@@ -277,7 +283,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching locations:', error)
       return []
     }
@@ -298,9 +304,10 @@ export class WarehouseService {
 
       toast.success('✅ تم إنشاء الموقع بنجاح')
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating location:', error)
-      toast.error('فشل إنشاء الموقع: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل إنشاء الموقع: ' + message)
       return null
     }
   }
@@ -319,9 +326,10 @@ export class WarehouseService {
 
       toast.success('✅ تم تحديث الموقع بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating location:', error)
-      toast.error('فشل تحديث الموقع: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحديث الموقع: ' + message)
       return false
     }
   }
@@ -340,9 +348,10 @@ export class WarehouseService {
 
       toast.success('✅ تم حذف الموقع بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting location:', error)
-      toast.error('فشل حذف الموقع: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل حذف الموقع: ' + message)
       return false
     }
   }
@@ -371,7 +380,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching bins:', error)
       return []
     }
@@ -392,9 +401,10 @@ export class WarehouseService {
 
       toast.success('✅ تم إنشاء الصندوق بنجاح')
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error creating bin:', error)
-      toast.error('فشل إنشاء الصندوق: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل إنشاء الصندوق: ' + message)
       return null
     }
   }
@@ -413,9 +423,10 @@ export class WarehouseService {
 
       toast.success('✅ تم تحديث الصندوق بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating bin:', error)
-      toast.error('فشل تحديث الصندوق: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحديث الصندوق: ' + message)
       return false
     }
   }
@@ -434,9 +445,10 @@ export class WarehouseService {
 
       toast.success('✅ تم حذف الصندوق بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error deleting bin:', error)
-      toast.error('فشل حذف الصندوق: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل حذف الصندوق: ' + message)
       return false
     }
   }
@@ -448,19 +460,20 @@ export class WarehouseService {
   /**
    * Get GL accounts by category for account selection
    */
-  async getGLAccountsByCategory(category: string): Promise<any[]> {
+  async getGLAccountsByCategory(category: string): Promise<Record<string, unknown>[]> {
     try {
       const { data, error } = await this.supabase
         .rpc('get_gl_accounts_by_category', {
-          p_org_id: '00000000-0000-0000-0000-000000000001', // TODO: Get from context
+          p_org_id: '00000000-0000-0000-0000-000000000001', // Get org_id from context
           p_category: category
         })
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching GL accounts:', error)
-      toast.error('فشل تحميل الحسابات: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحميل الحسابات: ' + message)
       return []
     }
   }
@@ -468,7 +481,7 @@ export class WarehouseService {
   /**
    * Get suggested accounts for warehouses
    */
-  async getSuggestedAccounts(): Promise<any[]> {
+  async getSuggestedAccounts(): Promise<Record<string, unknown>[]> {
     try {
       const { data, error } = await this.supabase
         .from('v_suggested_warehouse_accounts')
@@ -476,7 +489,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching suggested accounts:', error)
       return []
     }
@@ -497,7 +510,7 @@ export class WarehouseService {
     }
   ): Promise<boolean> {
     try {
-      const { data, error } = await this.supabase
+      const { error } = await this.supabase
         .rpc('update_warehouse_gl_mapping', {
           p_warehouse_id: warehouseId,
           p_org_id: orgId,
@@ -512,9 +525,10 @@ export class WarehouseService {
 
       toast.success('✅ تم تحديث الربط المحاسبي بنجاح')
       return true
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error updating warehouse accounting:', error)
-      toast.error('فشل تحديث الربط المحاسبي: ' + error.message)
+      const message = error instanceof Error ? error.message : 'خطأ غير معروف'
+      toast.error('فشل تحديث الربط المحاسبي: ' + message)
       return false
     }
   }
@@ -537,7 +551,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching GL mapping:', error)
       return null
     }
@@ -546,7 +560,7 @@ export class WarehouseService {
   /**
    * Get stock value by warehouse (for accounting reports)
    */
-  async getStockValueByWarehouse(warehouseId?: string): Promise<any[]> {
+  async getStockValueByWarehouse(warehouseId?: string): Promise<Record<string, unknown>[]> {
     try {
       let query = this.supabase
         .from('v_stock_by_warehouse')
@@ -560,7 +574,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching stock value:', error)
       return []
     }
@@ -569,7 +583,7 @@ export class WarehouseService {
   /**
    * Get warehouse utilization report
    */
-  async getWarehouseUtilization(): Promise<any[]> {
+  async getWarehouseUtilization(): Promise<Record<string, unknown>[]> {
     try {
       const { data, error } = await this.supabase
         .from('v_warehouse_utilization')
@@ -578,7 +592,7 @@ export class WarehouseService {
 
       if (error) throw error
       return data || []
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching utilization:', error)
       return []
     }

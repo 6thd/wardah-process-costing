@@ -168,6 +168,7 @@ const getVarianceColor = (variance: number | undefined): string => {
 // Main Component
 // =====================================================
 
+// eslint-disable-next-line complexity
 export const EfficiencyDashboard: React.FC = () => {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'

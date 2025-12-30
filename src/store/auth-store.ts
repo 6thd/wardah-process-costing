@@ -219,7 +219,11 @@ export const useAuthStore = create<AuthState>()(
                   })
                 }
               }
-            } catch (tableError) {
+            } catch (tableError: unknown) {
+              // eslint-disable-next-line no-console
+              console.warn('Could not fetch user profile, using session data only:', tableError);
+              // Fallback to session user data if profile table doesn't exist
+              // This is expected behavior when user_profiles table is not available
               const fallbackUser: AppUser = {
                 id: session.user.id,
                 email: session.user.email || '',

@@ -8,13 +8,13 @@ import { useTranslation } from 'react-i18next';
 import type { ManufacturingOrder } from '@/lib/supabase';
 
 interface QuickStatsProps {
-  orders: ManufacturingOrder[];
+  readonly orders: ManufacturingOrder[];
 }
 
 interface StatItemProps {
-  value: number;
-  label: string;
-  color: string;
+  readonly value: number;
+  readonly label: string;
+  readonly color: string;
 }
 
 function StatItem({ value, label, color }: StatItemProps) {

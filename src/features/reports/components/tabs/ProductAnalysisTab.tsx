@@ -4,9 +4,9 @@ import { renderLoadingState, renderEmptyState } from '../utils/renderHelpers';
 import { ProductAnalysisTable } from './ProductAnalysisTable';
 
 interface ProductAnalysisTabProps {
-  loading: boolean;
-  productAnalysis: ProductSalesAnalysis[];
-  isRTL: boolean;
+  readonly loading: boolean;
+  readonly productAnalysis: ProductSalesAnalysis[];
+  readonly isRTL: boolean;
 }
 
 export function ProductAnalysisTab({ loading, productAnalysis, isRTL }: ProductAnalysisTabProps) {

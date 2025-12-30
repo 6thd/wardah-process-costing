@@ -25,8 +25,10 @@ import { loadConfig } from '@/lib/config'
  * Container بسيط للـ Dependency Injection
  */
 class Container {
-  private instances: Map<string, any> = new Map()
-  private factories: Map<string, () => any> = new Map()
+  // eslint-disable-next-line @typescript-eslint/prefer-readonly
+  private instances: Map<string, unknown> = new Map()
+  // eslint-disable-next-line @typescript-eslint/prefer-readonly
+  private factories: Map<string, () => unknown> = new Map()
 
   /**
    * تسجيل singleton
@@ -48,14 +50,17 @@ class Container {
   resolve<T>(key: string): T {
     // أولاً نبحث في الـ singletons
     if (this.instances.has(key)) {
-      return this.instances.get(key)
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      return this.instances.get(key) as T
     }
 
     // ثم في الـ factories
-    if (this.factories.has(key)) {
-      const instance = this.factories.get(key)!()
+    const factory = this.factories.get(key);
+    if (factory) {
+      const instance = factory()
       this.instances.set(key, instance) // cache للاستخدام المستقبلي
-      return instance
+      // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+      return instance as T
     }
 
     throw new Error(`الخدمة غير مسجلة: ${key}`)

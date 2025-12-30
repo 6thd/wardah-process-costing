@@ -48,7 +48,7 @@ export interface TenantAwareQueryBuilder<T = any> {
  * Tenant-aware Supabase client wrapper
  */
 class TenantAwareSupabaseClient {
-  private client: SupabaseClient;
+  private readonly client: SupabaseClient;
   private tenantId: string | null = null;
   private tenantIdPromise: Promise<string | null> | null = null;
 
