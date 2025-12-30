@@ -40,9 +40,9 @@ interface Product {
 }
 
 const getProductDisplayName = (product: Product) =>
-  (product.name_ar && product.name_ar.trim()) ||
-  (product.name && product.name.trim()) ||
-  (product.name_en && product.name_en.trim()) ||
+  product.name_ar?.trim() ||
+  product.name?.trim() ||
+  product.name_en?.trim() ||
   product.code
 
 interface PurchaseOrderLine {
@@ -633,8 +633,8 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
         void handlePaste()
       }
 
-      window.addEventListener('keydown', handleShortcut)
-      return () => window.removeEventListener('keydown', handleShortcut)
+      globalThis.addEventListener('keydown', handleShortcut)
+      return () => globalThis.removeEventListener('keydown', handleShortcut)
     }, [handlePaste])
 
     const handleSubmit = async (event: React.FormEvent) => {
@@ -768,7 +768,6 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                     mode="single"
                     selected={orderDate}
                     onSelect={(date) => date && setOrderDate(date)}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -800,7 +799,6 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                     selected={expectedDeliveryDate}
                     onSelect={setExpectedDeliveryDate}
                     disabled={(date) => date < orderDate}
-                    initialFocus
                   />
                 </PopoverContent>
               </Popover>
@@ -865,8 +863,9 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                         ? `${selectedProduct.code} - ${getProductDisplayName(selectedProduct)}`
                         : line.product_code || ''
 
+                      const lineKey = line.id || `${line.product_id}-${index}`
                       return (
-                        <tr key={index} className="border-t hover:bg-muted/50">
+                        <tr key={lineKey} className="border-t hover:bg-muted/50">
                           <td className="p-2">
                             <InlineProductSearch
                               products={products}

@@ -725,7 +725,6 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                       mode="single"
                       selected={invoiceDate}
                       onSelect={(date) => date && setInvoiceDate(date)}
-                      initialFocus
                     />
                   </PopoverContent>
                 </Popover>
@@ -755,7 +754,6 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                       selected={dueDate}
                       onSelect={setDueDate}
                       disabled={(date) => date < invoiceDate}
-                      initialFocus
                     />
                   </PopoverContent>
                 </Popover>

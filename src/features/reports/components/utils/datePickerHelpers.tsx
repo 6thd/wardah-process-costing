@@ -38,7 +38,6 @@ export function DatePicker({ date, onDateChange, label, placeholder, isRTL }: Da
             mode="single"
             selected={date}
             onSelect={onDateChange}
-            initialFocus
           />
         </PopoverContent>
       </Popover>
