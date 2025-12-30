@@ -55,7 +55,7 @@ export const useStageCosts = (moId: string) => {
             error.message?.includes('column') ||
             error.message?.includes('does not exist')
           )) {
-            console.debug('manufacturing_order_id failed, trying mo_id:', error.message)
+            // Debug: manufacturing_order_id failed, trying mo_id
             const result = await supabase.from('stage_costs')
               .select('*')
               .eq('mo_id', moId)
@@ -66,7 +66,7 @@ export const useStageCosts = (moId: string) => {
           
           // If still error, try without filter (RLS will handle it)
           if (error && error.code === '400') {
-            console.debug('Trying without filter, using RLS only')
+            // Debug: Trying without filter, using RLS only
             const rlsResult = await supabase.from('stage_costs')
               .select('*')
               .limit(100) // Get all accessible records, filter in memory

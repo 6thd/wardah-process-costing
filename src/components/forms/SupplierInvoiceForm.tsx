@@ -97,15 +97,9 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
 
   // Load POs when vendor is selected or mode changes to with-po
   useEffect(() => {
-    console.log('📊 useEffect triggered:', { selectedVendorId, createMode })
     if (selectedVendorId && createMode === 'with-po') {
-      console.log('✅ Conditions met, loading POs...')
       loadPurchaseOrders(selectedVendorId)
     } else {
-      console.log('⚠️ Conditions NOT met:', { 
-        hasVendor: !!selectedVendorId, 
-        isWithPO: createMode === 'with-po' 
-      })
       setAvailablePOs([])
       setSelectedPOId('')
     }
@@ -156,19 +150,15 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
         .order('order_date', { ascending: false })
 
       if (error) {
-        console.error('❌ Error loading POs:', error)
         throw error
       }
       
-      console.log('✅ Found', data?.length || 0, 'POs:', data)
       setAvailablePOs(data || [])
       
       if (!data || data.length === 0) {
-        console.warn('⚠️ No purchase orders found for vendor:', vendorId)
         toast.info('لا توجد أوامر شراء متاحة لهذا المورد')
       }
     } catch (error) {
-      console.error('💥 Error loading purchase orders:', error)
       toast.error('خطأ في تحميل أوامر الشراء')
     } finally {
       setLoadingPOs(false)

@@ -76,36 +76,28 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
   };
 
   const resolveAttachmentUrl = async (attachment: JournalAttachment) => {
-    console.log('🔍 Resolving attachment URL:', attachment);
-    
     if (!attachment.file_path) {
-      console.error('❌ File path is missing:', attachment);
       throw new Error(isRTL ? 'مسار الملف غير معروف' : 'File path missing');
     }
 
     // If it's already a full URL, return it
     if (attachment.file_path.startsWith('http')) {
-      console.log('✅ Using full URL:', attachment.file_path);
       return attachment.file_path;
     }
 
     // Create signed URL for storage path
-    console.log('🔗 Creating signed URL for:', attachment.file_path);
     const { data, error } = await supabase.storage
       .from('documents')
       .createSignedUrl(attachment.file_path, 60 * 60); // 1 hour
 
     if (error) {
-      console.error('❌ Signed URL error:', error);
       throw new Error(error?.message || (isRTL ? 'تعذر إنشاء رابط مؤقت' : 'Failed to create signed URL'));
     }
 
     if (!data?.signedUrl) {
-      console.error('❌ No signed URL returned');
       throw new Error(isRTL ? 'تعذر إنشاء رابط مؤقت' : 'Failed to create signed URL');
     }
 
-    console.log('✅ Signed URL created:', data.signedUrl);
     return data.signedUrl;
   };
 

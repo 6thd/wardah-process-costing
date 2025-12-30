@@ -19,9 +19,8 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
       void (async () => {
         try {
           await supabase.removeChannel(channelRef.current)
-        } catch (error) {
+        } catch {
           // Ignore errors when removing channel (it might already be closed)
-          console.debug('Channel already removed or closed')
         }
       })()
     }
@@ -31,17 +30,10 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
       .on('postgres_changes', 
         { event: '*', schema: 'public', table: tableName },
         (payload) => {
-          console.log('Realtime update:', payload)
           queryClient.invalidateQueries({ queryKey: key })
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          console.log(`✅ Subscribed to ${tableName} changes`)
-        } else if (status === 'CHANNEL_ERROR') {
-          console.warn(`⚠️ Channel error for ${tableName}`)
-        }
-      })
+      .subscribe()
 
     channelRef.current = channel
 
@@ -52,9 +44,8 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
           try {
             // Always attempt to remove the channel - Supabase handles cleanup gracefully
             await supabase.removeChannel(channelRef.current)
-          } catch (error) {
+          } catch {
             // Ignore errors - channel might already be closed
-            console.debug('Error removing channel (likely already closed):', error)
           }
           channelRef.current = null
         })()
