@@ -10,7 +10,7 @@ SELECT
 FROM information_schema.triggers 
 WHERE trigger_schema = 'public'
 AND trigger_name LIKE 'audit_%'
-ORDER BY event_object_table ASC;
+ORDER BY event_object_table;
 
 -- النتيجة المتوقعة: يجب أن تظهر triggers على الجداول:
 -- roles, user_roles, invitations, user_organizations, organizations, gl_accounts, etc.
