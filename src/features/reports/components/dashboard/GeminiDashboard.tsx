@@ -54,7 +54,9 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ onSendMessage }) => {
       </div>
       <div className="chat-messages">
         {messages.map((msg, idx) => {
-          const msgKey = `${msg.sender}-${msg.id || idx}-${msg.timestamp || Date.now()}`
+          const msgId = (msg as { id?: string }).id;
+          const msgTimestamp = (msg as { timestamp?: number }).timestamp;
+          const msgKey = `${msg.sender}-${msgId || idx}-${msgTimestamp || Date.now()}`
           return (
             <div key={msgKey} className={`message ${msg.sender}`}>
               {msg.text}

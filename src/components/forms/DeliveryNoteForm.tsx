@@ -248,7 +248,8 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
         resetForm()
         onOpenChange(false)
       } else {
-        throw new Error(result.error || 'فشل في إنشاء مذكرة التسليم')
+        const errorMessage = typeof result.error === 'string' ? result.error : 'فشل في إنشاء مذكرة التسليم';
+        throw new Error(errorMessage)
       }
     } catch (error) {
       console.error('Error creating delivery note:', error)

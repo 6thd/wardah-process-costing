@@ -865,7 +865,8 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
                         ? `${selectedProduct.code} - ${getProductDisplayName(selectedProduct)}`
                         : line.product_code || ''
 
-                      const lineKey = line.id || `${line.product_id}-${line.line_number || Date.now()}`
+                      const lineNumber = (line as { line_number?: number }).line_number;
+                      const lineKey = line.id || `${line.product_id}-${lineNumber || Date.now()}`
                       return (
                         <tr key={lineKey} className="border-t hover:bg-muted/50">
                           <td className="p-2">

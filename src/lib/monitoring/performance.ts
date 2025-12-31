@@ -39,8 +39,8 @@ class PerformanceMonitoringService {
       console.warn(`Slow operation: ${metric.name} took ${metric.duration}ms`, metric.metadata);
       
       // Send to monitoring if available
-      if (typeof globalThis.window !== 'undefined' && (globalThis.window as { Sentry?: { captureMessage: (message: string, level: string) => void } }).Sentry) {
-        (globalThis.window as { Sentry: { captureMessage: (message: string, level: string) => void } }).Sentry.captureMessage(
+      if (typeof globalThis.window !== 'undefined' && (globalThis.window as unknown as { Sentry?: { captureMessage: (message: string, level: string) => void } }).Sentry) {
+        (globalThis.window as unknown as { Sentry: { captureMessage: (message: string, level: string) => void } }).Sentry.captureMessage(
           `Slow operation: ${metric.name}`,
           'warning'
         );

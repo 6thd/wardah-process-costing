@@ -116,7 +116,7 @@ class ErrorHandler {
   private static sendToMonitoring(error: Error | AppError): void {
     // Check if Sentry is available
     if (typeof globalThis.window !== 'undefined' && (globalThis.window as { Sentry?: unknown }).Sentry) {
-      const Sentry = (globalThis.window as { Sentry: { captureException: (error: Error | AppError, options: unknown) => void } }).Sentry;
+      const Sentry = (globalThis.window as unknown as { Sentry: { captureException: (error: Error | AppError, options: unknown) => void } }).Sentry;
       
       Sentry.captureException(error, {
         tags: {

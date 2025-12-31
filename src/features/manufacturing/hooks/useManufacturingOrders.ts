@@ -12,7 +12,9 @@ export function useManufacturingOrders() {
   const loadOrders = async () => {
     try {
       const data = await manufacturingService.getAll();
-      setOrders(data || []);
+      // Convert OrderWithItem[] to ManufacturingOrder[]
+      const orders = (data || []) as unknown as ManufacturingOrder[];
+      setOrders(orders);
     } catch (error: any) {
       if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
         console.warn('manufacturing_orders table not found, using empty array');

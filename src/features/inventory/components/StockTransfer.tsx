@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { getSupabase } from '@/lib/supabase'
 import { itemsService } from '@/services/supabase-service'
 
 interface StockTransferItem {

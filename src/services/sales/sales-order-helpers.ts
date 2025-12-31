@@ -65,7 +65,7 @@ export async function updateSalesOrderWithFallback(
     .single();
 
   if (!updateError) {
-    return data as Record<string, unknown>;
+    return data as unknown as Record<string, unknown>;
   }
 
   // If user not found, try without user data
@@ -82,7 +82,7 @@ export async function updateSalesOrderWithFallback(
       throw fallbackError;
     }
 
-    return fallbackData as Record<string, unknown>;
+    return fallbackData as unknown as Record<string, unknown>;
   }
 
   throw updateError;

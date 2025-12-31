@@ -209,7 +209,8 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
         resetForm()
         onSuccess?.()
       } else {
-        throw new Error(result.error || 'فشل في إنشاء الفاتورة')
+        const errorMessage = typeof result.error === 'string' ? result.error : 'فشل في إنشاء الفاتورة';
+        throw new Error(errorMessage)
       }
       
     } catch (error: any) {

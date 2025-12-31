@@ -87,7 +87,8 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
     const { data: fallbackData, error: fallbackError } = await fallbackQuery
     
     if (fallbackError) {
-      throw new Error(`Failed to fetch WIP data: ${queryError.message}`)
+      const errorMessage = queryError instanceof Error ? queryError.message : String(queryError);
+      throw new Error(`Failed to fetch WIP data: ${errorMessage}`)
     }
     
     const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
@@ -207,11 +208,11 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
                       const itemKey = `${item.order_number || ''}-${item.stage_name || ''}-${item.wip_end_qty || 0}-${item.manufacturing_order_id || ''}`
                       return (
                       <TableRow key={itemKey}>
-                        <TableCell>{item.order_number}</TableCell>
-                        <TableCell>{item.stage_name}</TableCell>
+                        <TableCell>{String(item.order_number || '')}</TableCell>
+                        <TableCell>{String(item.stage_name || '')}</TableCell>
                         <TableCell className="text-right font-mono">{(item.wip_end_qty as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                        <TableCell className="text-right font-mono">{(item.wip_end_dm_pct as number).toFixed(1)}%</TableCell>
-                        <TableCell className="text-right font-mono">{(item.wip_end_cc_pct as number).toFixed(1)}%</TableCell>
+                        <TableCell className="text-right font-mono">{String((item.wip_end_dm_pct as number).toFixed(1))}%</TableCell>
+                        <TableCell className="text-right font-mono">{String((item.wip_end_cc_pct as number).toFixed(1))}%</TableCell>
                         <TableCell className="text-right font-mono">{(item.unit_cost as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                         <TableCell className="text-right font-mono font-bold">{(item.wip_value as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                       </TableRow>

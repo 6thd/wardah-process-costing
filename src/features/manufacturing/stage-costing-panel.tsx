@@ -84,7 +84,7 @@ export default function StageCostingPanel() {
   
   // Type assertions for data - needed because hooks return unknown types
   const manufacturingOrders = Array.isArray(manufacturingOrdersData) ? manufacturingOrdersData as Array<Record<string, unknown>> : []
-  const workCenters = Array.isArray(workCentersData) ? workCentersData as Array<Record<string, unknown>> : []
+  const workCenters = Array.isArray(workCentersData) ? (workCentersData as unknown as Array<Record<string, unknown>>) : []
   const stages = Array.isArray(stagesData) ? stagesData as Array<Record<string, unknown>> : []
   const stageCosts = Array.isArray(stageCostsData) ? stageCostsData as StageCost[] : []
 
