@@ -11,7 +11,6 @@
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError';
 import { AppError } from '@/lib/errors/AppError';
-import { executeTransaction } from '@/lib/db-transaction';
 
 /**
  * Material reservation

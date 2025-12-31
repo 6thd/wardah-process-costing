@@ -41,6 +41,7 @@ import { WorkOrderCard } from './components/WorkOrderCard'
 import { WorkCenterSummary } from './components/WorkCenterSummary'
 import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
 
+// eslint-disable-next-line complexity
 export function WorkCenterDashboard() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -153,7 +154,7 @@ export function WorkCenterDashboard() {
     const label = isRTL ? config.label.ar : config.label.en
     
     if (config.variant) {
-      return <Badge variant={config.variant as any}>{label}</Badge>
+      return <Badge variant={config.variant as 'default' | 'secondary' | 'destructive' | 'outline'}>{label}</Badge>
     }
     if (config.className) {
       return <Badge className={config.className}>{label}</Badge>
@@ -223,31 +224,34 @@ export function WorkCenterDashboard() {
             <div className="flex justify-center items-center h-32">
               <RefreshCw className="w-6 h-6 animate-spin" />
             </div>
-          ) : (!workOrders || workOrders.length === 0) ? (
-            <WorkOrdersEmptyState isRTL={isRTL} />
-          ) : (
-            <div className="space-y-4">
-              {(workOrders || []).map((wo: WorkOrder) => (
-                <WorkOrderCard
-                  key={wo.id}
-                  workOrder={wo}
-                  isRTL={isRTL}
-                  onStartSetup={handleStartSetup}
-                  onStartProduction={handleStartProduction}
-                  onPause={handlePause}
-                  onResume={handleResume}
-                  onComplete={openCompleteDialog}
-                  getStatusBadge={getStatusBadge}
-                  getProgressPercentage={getProgressPercentage}
-                  isPending={{
-                    start: startOperation.isPending,
-                    pause: pauseWorkOrder.isPending,
-                    resume: resumeWorkOrder.isPending
-                  }}
-                />
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            if (!workOrders || workOrders.length === 0) {
+              return <WorkOrdersEmptyState isRTL={isRTL} />
+            }
+            return (
+              <div className="space-y-4">
+                {(workOrders || []).map((wo: WorkOrder) => (
+                  <WorkOrderCard
+                    key={wo.id}
+                    workOrder={wo}
+                    isRTL={isRTL}
+                    onStartSetup={handleStartSetup}
+                    onStartProduction={handleStartProduction}
+                    onPause={handlePause}
+                    onResume={handleResume}
+                    onComplete={openCompleteDialog}
+                    getStatusBadge={getStatusBadge}
+                    getProgressPercentage={getProgressPercentage}
+                    isPending={{
+                      start: startOperation.isPending,
+                      pause: pauseWorkOrder.isPending,
+                      resume: resumeWorkOrder.isPending
+                    }}
+                  />
+                ))}
+              </div>
+            )
+          })()}
         </CardContent>
       </Card>
 

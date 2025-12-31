@@ -220,6 +220,7 @@ export const useAuthStore = create<AuthState>()(
                 }
               }
             } catch (tableError: unknown) {
+              // Expected behavior: user_profiles table may not exist, fallback to session data
               // eslint-disable-next-line no-console
               console.warn('Could not fetch user profile, using session data only:', tableError);
               // Fallback to session user data if profile table doesn't exist

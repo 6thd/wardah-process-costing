@@ -219,7 +219,7 @@ class GeminiFinancialService {
         contributionMargin,
         contributionMarginRatio
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching financial KPIs:', error);
       throw error;
     }
@@ -261,7 +261,7 @@ class GeminiFinancialService {
         variableCosts,
         currentSales: kpis.totalSales
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error calculating break-even:', error);
       throw error;
     }
@@ -305,7 +305,7 @@ class GeminiFinancialService {
       }
 
       return monthlyData;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error fetching monthly data:', error);
       throw error;
     }
@@ -336,7 +336,7 @@ class GeminiFinancialService {
         operatingMargin,
         grossMargin
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error analyzing profit/loss:', error);
       throw error;
     }
@@ -404,8 +404,8 @@ class GeminiFinancialService {
   /**
    * تنسيق البيانات للوحة Gemini
    */
-  formatForGeminiDashboard(kpis: FinancialKPIs, monthlyData: MonthlyFinancialData[]): any {
-    const formattedMonthly: any = {};
+  formatForGeminiDashboard(kpis: FinancialKPIs, monthlyData: MonthlyFinancialData[]): Record<string, unknown> {
+    const formattedMonthly: Record<string, unknown> = {};
     
     monthlyData.forEach(month => {
       formattedMonthly[month.monthNameAr] = {

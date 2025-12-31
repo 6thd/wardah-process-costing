@@ -16,6 +16,44 @@
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { JournalService } from './accounting/journal-service';
 
+// ===== HELPER FUNCTIONS =====
+
+/**
+ * Get error message from unknown error type
+ */
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error);
+}
+
+/**
+ * Check if error has a code property
+ */
+function hasErrorCode(error: unknown, code: string): boolean {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return error.code === code;
+  }
+  return false;
+}
+
+/**
+ * Check if error message includes a specific string
+ */
+function errorMessageIncludes(error: unknown, searchString: string): boolean {
+  if (error instanceof Error) {
+    return error.message.includes(searchString);
+  }
+  if (error && typeof error === 'object' && 'message' in error && typeof error.message === 'string') {
+    return error.message.includes(searchString);
+  }
+  return false;
+}
+
 // ===== TYPES =====
 
 export interface SalesOrder {
@@ -143,14 +181,14 @@ async function generateSalesOrderNumber(): Promise<string> {
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (error && error.code !== 'PGRST116') throw error; // PGRST116 = no rows
+    if (error && !hasErrorCode(error, 'PGRST116')) throw error; // PGRST116 = no rows
 
     const lastNumber = data?.[0]?.so_number || 'SO-000000';
     const match = lastNumber.match(/SO-(\d+)/);
     const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `SO-${String(nextNum).padStart(6, '0')}`;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error generating sales order number:', error);
     return `SO-${Date.now()}`;
   }
@@ -178,7 +216,7 @@ async function generateInvoiceNumber(): Promise<string> {
     const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `SI-${String(nextNum).padStart(6, '0')}`;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error generating invoice number:', error);
     return `SI-${Date.now()}`;
   }
@@ -206,7 +244,7 @@ async function generateDeliveryNumber(): Promise<string> {
     const nextNum = match ? Number.parseInt(match[1], 10) + 1 : 1;
 
     return `DN-${String(nextNum).padStart(6, '0')}`;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error generating delivery number:', error);
     return `DN-${Date.now()}`;
   }
@@ -260,7 +298,7 @@ async function checkCustomerCredit(customerId: string, newAmount: number): Promi
       creditLimit,
       availableCredit
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error checking customer credit:', error);
     // Allow if check fails (graceful degradation)
     return { allowed: true, currentBalance: 0, creditLimit: 0, availableCredit: 0 };
@@ -288,7 +326,7 @@ async function checkStockAvailability(itemId: string, requiredQuantity: number):
       availableQty,
       itemName: item.name_ar || item.name || 'Unknown'
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error checking stock:', error);
     throw error;
   }
@@ -304,7 +342,7 @@ async function recordSalesInventoryMovement(
   referenceType: string,
   referenceId: string,
   referenceNumber?: string
-): Promise<{ success: boolean; error?: any }> {
+): Promise<{ success: boolean; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -367,7 +405,7 @@ async function recordSalesInventoryMovement(
     }
 
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error recording inventory movement:', error);
     return { success: false, error };
   }
@@ -378,7 +416,7 @@ async function recordSalesInventoryMovement(
 /**
  * Create Sales Order
  */
-export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'so_number'>, lines: Omit<SalesOrderLine, 'id' | 'so_id'>[]): Promise<{ success: boolean; data?: any; error?: any }> {
+export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'so_number'>, lines: Omit<SalesOrderLine, 'id' | 'so_id'>[]): Promise<{ success: boolean; data?: SalesOrder; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -463,16 +501,16 @@ export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'so_number
     if (fetchError) throw fetchError;
 
     return { success: true, data: fullOrder };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating sales order:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Confirm Sales Order
  */
-export async function confirmSalesOrder(orderId: string): Promise<{ success: boolean; error?: any }> {
+export async function confirmSalesOrder(orderId: string): Promise<{ success: boolean; error?: unknown }> {
   try {
     const { error } = await supabase
       .from('sales_orders')
@@ -485,9 +523,9 @@ export async function confirmSalesOrder(orderId: string): Promise<{ success: boo
     if (error) throw error;
 
     return { success: true };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error confirming sales order:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
@@ -496,7 +534,7 @@ export async function confirmSalesOrder(orderId: string): Promise<{ success: boo
 /**
  * Create Sales Invoice (with automatic accounting entry)
  */
-export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'invoice_number'>): Promise<{ success: boolean; data?: any; error?: any }> {
+export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'invoice_number'>): Promise<{ success: boolean; data?: SalesInvoice; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -594,16 +632,16 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
     if (fetchError) throw fetchError;
 
     return { success: true, data: fullInvoice };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating sales invoice:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Create accounting entry for sales invoice
  */
-async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoice): Promise<void> {
+async function createSalesAccountingEntry(invoice: SalesInvoice, invoiceData: SalesInvoice): Promise<void> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -680,7 +718,7 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
       console.error('Failed to create accounting entry:', result.error);
       // Don't throw - invoice is created, accounting entry can be created manually
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating sales accounting entry:', error);
     // Don't throw - invoice is created
   }
@@ -691,7 +729,7 @@ async function createSalesAccountingEntry(invoice: any, invoiceData: SalesInvoic
 /**
  * Validate delivery note lines
  */
-function validateDeliveryLines(lines: any[]): void {
+function validateDeliveryLines(lines: DeliveryNoteLine[]): void {
   if (!lines || lines.length === 0) {
     throw new Error('Delivery note must have at least one line');
   }
@@ -714,8 +752,8 @@ async function validateInvoiceExists(invoiceId: string): Promise<void> {
  * Process a single delivery line
  */
 async function processDeliveryLine(
-  line: any,
-  dnData: any,
+  line: DeliveryNoteLine,
+  dnData: DeliveryNote,
   tenantId: string,
   deliveryNumber: string
 ): Promise<number> {
@@ -826,7 +864,7 @@ async function updateInvoiceDeliveryStatus(invoiceId: string): Promise<void> {
 /**
  * Create Delivery Note (with inventory deduction and COGS entry)
  */
-export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: any; totalCOGS?: number; error?: any }> {
+export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: DeliveryNote; totalCOGS?: number; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -886,16 +924,16 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     if (fetchError) throw fetchError;
 
     return { success: true, data: fullDelivery, totalCOGS };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating delivery note:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Create COGS accounting entry
  */
-async function createCOGSAccountingEntry(deliveryNote: any, totalCOGS: number, deliveryNumber: string): Promise<void> {
+async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: number, deliveryNumber: string): Promise<void> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -950,7 +988,7 @@ async function createCOGSAccountingEntry(deliveryNote: any, totalCOGS: number, d
     if (!result.success) {
       console.error('Failed to create COGS accounting entry:', result.error);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating COGS accounting entry:', error);
   }
 }
@@ -960,7 +998,7 @@ async function createCOGSAccountingEntry(deliveryNote: any, totalCOGS: number, d
 /**
  * Record Customer Collection (with accounting entry)
  */
-export async function recordCustomerCollection(collection: Omit<CustomerCollection, 'id' | 'collection_number'>): Promise<{ success: boolean; data?: any; balance?: number; error?: any }> {
+export async function recordCustomerCollection(collection: Omit<CustomerCollection, 'id' | 'collection_number'>): Promise<{ success: boolean; data?: CustomerCollection; balance?: number; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -1028,16 +1066,16 @@ export async function recordCustomerCollection(collection: Omit<CustomerCollecti
     await createCollectionAccountingEntry(collection, invoice, collectionNumber);
 
     return { success: true, balance: Math.max(0, balance) };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error recording collection:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Create collection accounting entry
  */
-async function createCollectionAccountingEntry(collection: CustomerCollection, invoice: any, collectionNumber: string): Promise<void> {
+async function createCollectionAccountingEntry(collection: CustomerCollection, invoice: SalesInvoice, collectionNumber: string): Promise<void> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -1101,7 +1139,7 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
     if (!result.success) {
       console.error('Failed to create collection accounting entry:', result.error);
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error creating collection accounting entry:', error);
   }
 }
@@ -1111,7 +1149,7 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
 /**
  * Get Sales Order with details
  */
-export async function getSalesOrderWithDetails(orderId: string): Promise<{ success: boolean; data?: any; error?: any }> {
+export async function getSalesOrderWithDetails(orderId: string): Promise<{ success: boolean; data?: SalesOrder; error?: unknown }> {
   try {
     const { data, error } = await supabase
       .from('sales_orders')
@@ -1129,16 +1167,16 @@ export async function getSalesOrderWithDetails(orderId: string): Promise<{ succe
     if (error) throw error;
 
     return { success: true, data };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching sales order:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Get Sales Invoice with details
  */
-export async function getSalesInvoiceWithDetails(invoiceId: string): Promise<{ success: boolean; data?: any; error?: any }> {
+export async function getSalesInvoiceWithDetails(invoiceId: string): Promise<{ success: boolean; data?: SalesInvoice; error?: unknown }> {
   try {
     const { data, error } = await supabase
       .from('sales_invoices')
@@ -1161,16 +1199,16 @@ export async function getSalesInvoiceWithDetails(invoiceId: string): Promise<{ s
     if (error) throw error;
 
     return { success: true, data };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching sales invoice:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Get Delivery Note with details
  */
-export async function getDeliveryNoteWithDetails(deliveryId: string): Promise<{ success: boolean; data?: any; error?: any }> {
+export async function getDeliveryNoteWithDetails(deliveryId: string): Promise<{ success: boolean; data?: DeliveryNote; error?: unknown }> {
   try {
     const { data, error } = await supabase
       .from('delivery_notes')
@@ -1189,21 +1227,22 @@ export async function getDeliveryNoteWithDetails(deliveryId: string): Promise<{ 
     if (error) throw error;
 
     return { success: true, data };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching delivery note:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Get all sales orders with filters
  */
+// eslint-disable-next-line complexity
 export async function getAllSalesOrders(filters?: {
   status?: string;
   customer_id?: string;
   from_date?: string;
   to_date?: string;
-}): Promise<{ success: boolean; data?: any[]; error?: any }> {
+}): Promise<{ success: boolean; data?: SalesOrder[]; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
     
@@ -1239,8 +1278,8 @@ export async function getAllSalesOrders(filters?: {
     let { data, error } = await query;
 
     // If relationship fails, try without it
-    if (error && (error.message?.includes('Could not find a relationship') || error.message?.includes('relationship'))) {
-      console.warn('Relationship not found, fetching without customer join:', error.message);
+      if (error && (errorMessageIncludes(error, 'Could not find a relationship') || errorMessageIncludes(error, 'relationship'))) {
+        console.warn('Relationship not found, fetching without customer join:', getErrorMessage(error));
       
       // Retry without customer relationship
       query = supabase
@@ -1277,7 +1316,7 @@ export async function getAllSalesOrders(filters?: {
 
     // If we have data but no customer info, try to fetch customers separately
     if (data && data.length > 0 && !data[0].customer) {
-      const customerIds = [...new Set(data.map((order: any) => order.customer_id).filter(Boolean))];
+      const customerIds = [...new Set(data.map((order: SalesOrder) => order.customer_id).filter(Boolean))];
       if (customerIds.length > 0) {
         try {
           const { data: customers } = await supabase
@@ -1286,8 +1325,8 @@ export async function getAllSalesOrders(filters?: {
             .in('id', customerIds);
           
           if (customers) {
-            const customerMap = new Map(customers.map((c: any) => [c.id, c]));
-            data = data.map((order: any) => ({
+            const customerMap = new Map(customers.map((c: { id: string; [key: string]: unknown }) => [c.id, c]));
+            data = data.map((order: SalesOrder) => ({
               ...order,
               customer: customerMap.get(order.customer_id) || null
             }));
@@ -1299,22 +1338,23 @@ export async function getAllSalesOrders(filters?: {
     }
 
     return { success: true, data: data || [] };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching sales orders:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Get all sales invoices with filters
  */
+// eslint-disable-next-line complexity
 export async function getAllSalesInvoices(filters?: {
   payment_status?: string;
   delivery_status?: string;
   customer_id?: string;
   from_date?: string;
   to_date?: string;
-}): Promise<{ success: boolean; data?: any[]; error?: any }> {
+}): Promise<{ success: boolean; data?: SalesInvoice[]; error?: unknown }> {
   try {
     const tenantId = await getEffectiveTenantId();
 
@@ -1346,8 +1386,8 @@ export async function getAllSalesInvoices(filters?: {
 
     // Try to add tenant filter if tenantId exists
     // We'll try tenant_id first, then org_id, then skip if both fail
-    let data: any = null;
-    let error: any = null;
+    let data: SalesInvoice[] | null = null;
+    let error: unknown = null;
 
     if (tenantId) {
       // sales_invoices table uses org_id, not tenant_id
@@ -1388,7 +1428,7 @@ export async function getAllSalesInvoices(filters?: {
         }
         
         // If org_id doesn't exist, try tenant_id (fallback for other schemas)
-        if (error && (error.code === '42703' || error.message?.includes('org_id'))) {
+        if (error && (hasErrorCode(error, '42703') || errorMessageIncludes(error, 'org_id'))) {
           console.warn('org_id column not found in sales_invoices, trying tenant_id');
           
           // Build new query with tenant_id
@@ -1427,7 +1467,7 @@ export async function getAllSalesInvoices(filters?: {
           }
           
           // If tenant_id also fails, skip tenant filter
-          if (error && (error.code === '42703' || error.message?.includes('tenant_id'))) {
+          if (error && (hasErrorCode(error, '42703') || errorMessageIncludes(error, 'tenant_id'))) {
             console.warn('Neither org_id nor tenant_id found in sales_invoices, skipping tenant filter');
             // Query without tenant filter (use the base query we built earlier)
             const noTenantResult = await query;
@@ -1435,9 +1475,10 @@ export async function getAllSalesInvoices(filters?: {
             error = noTenantResult.error;
           }
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         // If exception thrown, try without tenant filter
-        console.warn('Error with tenant filter, trying without:', e.message);
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        console.warn('Error with tenant filter, trying without:', errorMessage);
         const noTenantResult = await query;
         data = noTenantResult.data;
         error = noTenantResult.error;
@@ -1450,21 +1491,21 @@ export async function getAllSalesInvoices(filters?: {
     }
 
     // Only throw error if it's not about missing column
-    if (error && error.code !== '42703' && !(error.message && (error.message.includes('tenant_id') || error.message.includes('org_id')))) {
+    if (error && !hasErrorCode(error, '42703') && !(errorMessageIncludes(error, 'tenant_id') || errorMessageIncludes(error, 'org_id'))) {
       throw error;
     }
 
     return { success: true, data: data || [] };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error fetching sales invoices:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 
 /**
  * Calculate invoice profit
  */
-export async function calculateInvoiceProfit(invoiceId: string): Promise<{ success: boolean; revenue?: number; cogs?: number; profit?: number; profitMargin?: number; error?: any }> {
+export async function calculateInvoiceProfit(invoiceId: string): Promise<{ success: boolean; revenue?: number; cogs?: number; profit?: number; profitMargin?: number; error?: unknown }> {
   try {
     // Get invoice
     const { data: invoice, error: invoiceError } = await supabase
@@ -1490,8 +1531,8 @@ export async function calculateInvoiceProfit(invoiceId: string): Promise<{ succe
 
     // Calculate total COGS
     let totalCOGS = 0;
-    (deliveries || []).forEach((delivery: any) => {
-      (delivery.lines || []).forEach((line: any) => {
+    (deliveries || []).forEach((delivery: { lines?: Array<{ quantity_delivered?: number | string; unit_cost_at_delivery?: number | string }> }) => {
+      (delivery.lines || []).forEach((line: { quantity_delivered?: number | string; unit_cost_at_delivery?: number | string }) => {
         const qty = Number(line.quantity_delivered || 0);
         const cost = Number(line.unit_cost_at_delivery || 0);
         totalCOGS += qty * cost;
@@ -1509,9 +1550,9 @@ export async function calculateInvoiceProfit(invoiceId: string): Promise<{ succe
       profit,
       profitMargin
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Error calculating invoice profit:', error);
-    return { success: false, error: error.message || error };
+    return { success: false, error: getErrorMessage(error) };
   }
 }
 

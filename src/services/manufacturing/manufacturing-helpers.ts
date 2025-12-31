@@ -71,11 +71,10 @@ export async function fetchOrdersSimple(
  * Extract unique item IDs from orders
  */
 export function extractItemIds(orders: OrderWithItem[]): string[] {
-  return [...new Set(
-    orders
-      .map(order => order.item_id || order.product_id)
-      .filter(Boolean) as string[]
-  )];
+  const ids = orders
+    .map(order => order.item_id || order.product_id)
+    .filter((id): id is string => Boolean(id));
+  return [...new Set(ids)];
 }
 
 /**
@@ -96,8 +95,16 @@ export async function fetchRelatedItems(
     ]);
 
     const combinedMap = new Map<string, unknown>();
-    itemsResult.forEach(item => combinedMap.set(item.id as string, item));
-    productsResult.forEach(product => combinedMap.set(product.id as string, product));
+    itemsResult.forEach(item => {
+      if (item.id && typeof item.id === 'string') {
+        combinedMap.set(item.id, item);
+      }
+    });
+    productsResult.forEach(product => {
+      if (product.id && typeof product.id === 'string') {
+        combinedMap.set(product.id, product);
+      }
+    });
 
     return combinedMap;
   } catch {

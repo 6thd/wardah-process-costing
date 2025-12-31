@@ -16,6 +16,7 @@ interface BatchPostDialogProps {
   readonly onSuccess: () => void;
 }
 
+// eslint-disable-next-line complexity
 export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPostDialogProps) {
   const { i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';

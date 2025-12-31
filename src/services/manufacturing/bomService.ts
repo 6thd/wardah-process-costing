@@ -160,6 +160,7 @@ export const bomService = {
   /**
    * الحصول على BOM واحد بالتفاصيل
    */
+  // eslint-disable-next-line complexity
   async getBOMById(bomId: string): Promise<{
     header: BOMHeader
     lines: BOMLine[]

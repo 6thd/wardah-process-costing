@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Routes, Route } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,7 @@ import {
   Plus,
   Search,
   RefreshCw,
-  Route
+  Route as RouteIcon
 } from 'lucide-react'
 import { useRoutings, useDeleteRouting, useApproveRouting, useCopyRouting } from '@/hooks/manufacturing/useRouting'
 import { useAuthStore } from '@/store/auth-store'
@@ -29,8 +29,9 @@ import { Routing } from '@/services/manufacturing/routingService'
 import { RoutingTable } from './components/RoutingTable'
 import { RoutingStats } from './components/RoutingStats'
 import { RoutingEmptyState } from './components/RoutingEmptyState'
+import { RoutingForm } from './RoutingForm'
 
-export function RoutingManagement() {
+function RoutingList() {
   const navigate = useNavigate()
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -116,7 +117,7 @@ export function RoutingManagement() {
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="text-3xl font-bold wardah-text-gradient-google">
-            <Route className="inline-block w-8 h-8 mr-2" />
+            <RouteIcon className="inline-block w-8 h-8 mr-2" />
             {isRTL ? 'مسارات التصنيع' : 'Manufacturing Routings'}
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -199,6 +200,16 @@ export function RoutingManagement() {
         </CardContent>
       </Card>
     </div>
+  )
+}
+
+export function RoutingManagement() {
+  return (
+    <Routes>
+      <Route index element={<RoutingList />} />
+      <Route path="new" element={<RoutingForm />} />
+      <Route path=":id" element={<RoutingForm />} />
+    </Routes>
   )
 }
 

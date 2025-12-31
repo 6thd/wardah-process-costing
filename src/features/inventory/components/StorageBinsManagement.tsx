@@ -295,8 +295,12 @@ export default function StorageBinsManagement() {
             <div className="text-center p-8">
               <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
               <p className="text-muted-foreground mb-4">لا توجد مخازن مسجلة في النظام</p>
-              {/* eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, sonarjs/prefer-global-this */}
-              <Button variant="outline" onClick={() => { globalThis.window.location.href = '/inventory/warehouses'; }}>
+              <Button variant="outline" onClick={() => { 
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, sonarjs/prefer-global-this
+                if (globalThis.window) {
+                  globalThis.window.location.href = '/inventory/warehouses'
+                }
+              }}>
                 <Plus className="mr-2 h-4 w-4" />
                 إنشاء مخزن أولاً
               </Button>
@@ -670,9 +674,10 @@ export default function StorageBinsManagement() {
                 <Checkbox
                   id="is_active"
                   checked={formData.is_active}
-                  onCheckedChange={(checked) =>
+                  onCheckedChange={(checked) => {
+                    // eslint-disable-next-line sonarjs/prefer-immediate-return
                     setFormData({ ...formData, is_active: !!checked })
-                  }
+                  }}
                 />
                 <Label htmlFor="is_active" className="cursor-pointer">
                   صندوق نشط

@@ -11,8 +11,6 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { getSupabase } from '@/lib/supabase'
 import { itemsService } from '@/services/supabase-service'
 
 interface StockTransferItem {
@@ -440,6 +438,7 @@ export default function StockTransferManagement() {
           valuation_rate: valuationRate,
           stock_value_difference: item.quantity * valuationRate
         };
+        // Push both entries at once (intentional - both entries are created together)
         // eslint-disable-next-line sonarjs/prefer-array-methods
         stockLedgerEntries.push(outEntry, inEntry)
       }
@@ -851,13 +850,6 @@ export default function StockTransferManagement() {
                 className="w-full text-left border rounded-lg p-4 hover:bg-muted/30 transition-colors"
                 onClick={() => {
                   // View transfer details
-                }}
-                // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault()
-                    // View transfer details
-                  }
                 }}
               >
                 <div className="flex justify-between items-start">

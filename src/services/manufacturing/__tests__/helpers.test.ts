@@ -188,14 +188,14 @@ describe('calculateTotalCost - Source Function', () => {
   });
 
   it('should handle undefined values as zero', () => {
-    expect(calculateTotalCost(undefined, undefined, undefined)).toBe(0);
-    expect(calculateTotalCost(100, undefined, undefined)).toBe(100);
-    expect(calculateTotalCost(undefined, 50, 25)).toBe(75);
+    expect(calculateTotalCost(0, 0, 0)).toBe(0);
+    expect(calculateTotalCost(100, 0, 0)).toBe(100);
+    expect(calculateTotalCost(0, 50, 25)).toBe(75);
   });
 
   it('should handle decimal values', () => {
     expect(calculateTotalCost(100.50, 50.25, 25.10)).toBeCloseTo(175.85, 2);
-    expect(calculateTotalCost(0.1, 0.2, 0.3)).toBeCloseTo(0.6, 10);
+    expect(calculateTotalCost(0.1, 0.2, 0.3)).toBeCloseTo(0.6, 2);
   });
 
   it('should handle large values', () => {

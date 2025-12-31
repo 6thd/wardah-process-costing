@@ -107,7 +107,6 @@ export function StageWipLogList() {
   })
   
   // Use wipLogsData directly as it's already typed as WipLog[] | undefined
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
   const wipLogs = wipLogsData ?? []
 
   // Delete mutation
