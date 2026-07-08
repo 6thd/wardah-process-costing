@@ -126,14 +126,19 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل الحفظ يجب أن يصل للمستخدم
+      // (كان الكود سابقاً يتجاهل أخطاء "Could not find" ويرجع نجاحاً وهمياً بـ temp-id)
+      if (error) {
+        throw new Error(`فشل حفظ وقت العمالة في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data?.id) {
+        throw new Error('فشل حفظ وقت العمالة: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
         data: {
-          id: data?.id || 'temp-id',
+          id: data.id,
           totalLaborCost,
           hours: laborHours,
           hourlyRate
@@ -218,14 +223,18 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل الحفظ يجب أن يصل للمستخدم
+      if (error) {
+        throw new Error(`فشل حفظ الأوفرهيد في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data?.id) {
+        throw new Error('فشل حفظ الأوفرهيد: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
         data: {
-          id: data?.id || 'temp-id',
+          id: data.id,
           overheadAmount,
           baseQty,
           rate: overheadRate
@@ -347,26 +356,17 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل حفظ تكلفة المرحلة يجب أن يصل للمستخدم
+      if (error) {
+        throw new Error(`فشل حفظ تكلفة المرحلة في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data) {
+        throw new Error('فشل حفظ تكلفة المرحلة: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
-        data: data || {
-          manufacturing_order_id: moId,
-          stage_id: stageId || undefined,
-          stage_number: stageNo || undefined,
-          work_center_id: workCenterId || undefined,
-          good_quantity: goodQty,
-          scrap_quantity: scrapQty || 0,
-          material_cost: materialCost,
-          labor_cost: laborCost,
-          overhead_cost: overheadCost,
-          total_cost: totalCost,
-          unit_cost: unitCost,
-          status: mode || 'actual'
-        } as StageCostResult
+        data: data as StageCostResult
       }
     } catch (error: any) {
       console.error('Error upserting stage cost:', error)
@@ -389,8 +389,8 @@ class ProcessCostingService {
         .eq('manufacturing_order_id', moId)
         .order('stage_number', { ascending: true })
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      if (error) {
+        throw new Error(`فشل جلب تكاليف المراحل: ${error.message}`)
       }
 
       return {

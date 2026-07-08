@@ -111,9 +111,24 @@ export interface CreateJournalEntryRequest {
   }>;
 }
 
+/**
+ * Check if an RPC error means the function is not deployed yet
+ * (Migration 76 not applied) — in that case we fall back to the legacy path
+ */
+function isMissingFunctionError(error: { code?: string; message?: string }): boolean {
+  return (
+    error?.code === 'PGRST202' ||
+    (error?.message?.includes('Could not find the function') ?? false)
+  );
+}
+
 export class JournalService {
   /**
    * Create a journal entry with lines
+   *
+   * المسار الأساسي: rpc_create_journal_entry (ذرّي — رأس + سطور في معاملة واحدة،
+   * Migration 76). إذا لم تكن الدالة مطبَّقة بعد على قاعدة البيانات، نسقط تلقائياً
+   * إلى المسار القديم (INSERT رأس ثم سطور) دون كسر أي شيء.
    */
   static async createEntry(request: CreateJournalEntryRequest): Promise<{
     success: boolean;
@@ -132,6 +147,51 @@ export class JournalService {
       if (Math.abs(totalDebit - totalCredit) > 0.01) {
         throw new Error(`Entry not balanced! Debit: ${totalDebit}, Credit: ${totalCredit}`);
       }
+
+      // ===== المسار الذرّي الجديد (Migration 76) =====
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_create_journal_entry', {
+        p_payload: {
+          org_id: tenantId,
+          journal_id: request.journal_id || null,
+          entry_date: request.entry_date,
+          description: request.description || null,
+          description_ar: request.description_ar || null,
+          reference_type: request.reference_type || null,
+          reference_number: request.reference_number || null,
+          lines: request.lines.map((line) => ({
+            line_number: line.line_number,
+            account_id: line.account_id,
+            debit: Number(line.debit) || 0,
+            credit: Number(line.credit) || 0,
+            currency_code: line.currency_code || 'SAR',
+            description: line.description || null,
+            description_ar: line.description_ar || null
+          }))
+        }
+      });
+
+      if (!rpcError && rpcResult?.success) {
+        return {
+          success: true,
+          data: {
+            id: rpcResult.entry_id,
+            entry_number: rpcResult.entry_number,
+            entry_date: request.entry_date,
+            status: rpcResult.status || 'draft',
+            total_debit: totalDebit,
+            total_credit: totalCredit,
+            org_id: tenantId,
+            lines: request.lines
+          }
+        };
+      }
+
+      // خطأ حقيقي من الدالة الذرّية (توازن/فترة مقفلة/...) — يُعرض للمستخدم ولا نتجاوزه
+      if (rpcError && !isMissingFunctionError(rpcError)) {
+        throw new Error(rpcError.message);
+      }
+
+      // ===== Fallback: الدالة غير مطبَّقة بعد — المسار القديم كما هو =====
 
       // Get default journal if not provided
       let journalId = request.journal_id;
