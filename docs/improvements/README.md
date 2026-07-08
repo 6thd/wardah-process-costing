@@ -101,13 +101,36 @@
 | بند 8 (جزئياً): حارس الفترات | `assert_period_open` — متسامح إن لم تُعرَّف فترات (لا يكسر العمل)، يرفض القيد في فترة مقفلة | `sql/migrations/76_...sql` |
 | بند 9: حماية القيود المرحّلة | Triggers تمنع حذف/تعديل الحقول المالية للقيود المرحّلة وسطورها، مع السماح بمسارات الترحيل والعكس الحالية | `sql/migrations/76_...sql` |
 
-### ⚠️ خطوة تطبيق مطلوبة منك (يدوية وآمنة)
+### ✅ تم تطبيق Migration 76 على قاعدة البيانات الحية (8 يوليو 2026)
 
-الـ Migration **إضافي بحت** (لا يحذف ولا يعدّل بيانات). لتفعيله:
+نُفِّذ محتوى `sql/migrations/76_p0_atomic_journal_and_gl_event_posting.sql` عبر Supabase SQL Editor بنجاح (`Success. No rows returned`). أصبح الآن:
 
-1. افتح Supabase SQL Editor ونفّذ محتوى `sql/migrations/76_p0_atomic_journal_and_gl_event_posting.sql`.
-2. أعدّ خرائط الأحداث لمؤسستك (أمثلة جاهزة في نهاية الملف، قسم 9) — بدونها ترجع دوال الترحيل خطأ `MAPPING_MISSING` الواضح بدل الفشل الصامت السابق.
-3. **قبل التطبيق تعمل الواجهة كما هي تماماً** (Fallback تلقائي)، وبعده يصبح إنشاء القيود ذرّياً وتُحمى القيود المرحّلة.
+- إنشاء القيود اليومية **ذرّياً** عبر `rpc_create_journal_entry` — الواجهة تلتقطه تلقائياً بلا أي تعديل إضافي (الـ Fallback القديم لم يعد يُستخدم)
+- القيود المرحّلة **محمية** من الحذف وتعديل الحقول المالية
+- دالتا `rpc_post_event_journal` و`rpc_post_work_center_oh` **معرّفتان** وجاهزتان
+
+### ⚠️ خطوة متبقية واحدة: خرائط الأحداث المحاسبية
+
+دوال الترحيل التشغيلي ترجع خطأ `MAPPING_MISSING` الواضح حتى تُعرَّف خرائط الأحداث لمؤسستك. نفّذ في SQL Editor (بعد تعديل أكواد الحسابات لتطابق شجرة حساباتك):
+
+```sql
+SELECT rpc_upsert_event_mapping('MATERIAL_ISSUE', '134100', '131000', NULL, 'صرف مواد للإنتاج: مدين WIP / دائن مخزون مواد خام');
+SELECT rpc_upsert_event_mapping('LABOR_APPLIED',  '134200', '210900', NULL, 'تحميل أجور: مدين WIP-عمالة / دائن أجور مستحقة');
+SELECT rpc_upsert_event_mapping('OH_APPLIED',     '134300', '540000', NULL, 'تحميل أوفرهيد: مدين WIP-أوفرهيد / دائن محمّل OH');
+SELECT rpc_upsert_event_mapping('FG_RECEIPT',     '135000', '134100', NULL, 'استلام إنتاج تام: مدين مخزون تام / دائن WIP');
+SELECT rpc_upsert_event_mapping('ABNORMAL_SCRAP', '590000', '134100', NULL, 'تالف غير طبيعي: مدين مصروف تالف / دائن WIP');
+```
+
+الدالة تتحقق من وجود الحسابات في `gl_accounts` قبل الحفظ — إن كان كود غير موجود سترجع رسالة خطأ واضحة باسم الكود الناقص.
+
+وللتحقق السريع من اكتمال التطبيق:
+
+```sql
+SELECT proname FROM pg_proc WHERE proname IN
+  ('rpc_create_journal_entry','rpc_post_event_journal','rpc_post_work_center_oh',
+   'rpc_upsert_event_mapping','wardah_org_id','assert_period_open');
+-- المتوقع: 6 صفوف
+```
 
 ---
 
