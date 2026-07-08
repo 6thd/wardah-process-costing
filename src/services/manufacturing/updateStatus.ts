@@ -15,6 +15,11 @@ import {
   performSimpleUpdate
 } from './helpers';
 
+function isMissingFunctionError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST202' || error.message?.includes('Could not find the function') || false;
+}
+
 type ManufacturingOrderStatus = 
   | 'draft' 
   | 'confirmed' 
@@ -126,6 +131,8 @@ async function processUpdateResponse(
 
 /**
  * Main update status function with reduced complexity
+ * Attempts rpc_transition_mo_status first (enforces state machine at DB level),
+ * falls back to direct UPDATE if Migration 78 has not been applied yet.
  */
 // eslint-disable-next-line complexity
 export async function updateManufacturingOrderStatus(
@@ -136,8 +143,29 @@ export async function updateManufacturingOrderStatus(
 
   try {
     const supabase = await getClient();
-    const updateData = prepareStatusUpdateData(status, providedUpdateData);
 
+    // ===== المسار الذرّي: آلة الحالات عبر RPC =====
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'rpc_transition_mo_status',
+      { p_mo_id: id, p_status: status, p_notes: null, p_tenant: null }
+    );
+
+    if (!rpcError && rpcData?.success) {
+      // RPC نجح — أعِد الحالة الموحَّدة
+      return {
+        id,
+        status: normalizeStatus(rpcData.new_status),
+        ...rpcData
+      };
+    }
+
+    // خطأ DB حقيقي (مثل MO_INVALID_TRANSITION) — يجب أن يصل للمستخدم
+    if (rpcError && !isMissingFunctionError(rpcError)) {
+      throw new Error(rpcError.message);
+    }
+
+    // ===== Fallback: المسار القديم (Migration 78 غير مطبَّق بعد) =====
+    const updateData = prepareStatusUpdateData(status, providedUpdateData);
     await applyAutomaticDates(supabase, id, status, updateData, providedUpdateData);
 
     const { data, error } = await supabase
@@ -150,9 +178,7 @@ export async function updateManufacturingOrderStatus(
     if (error) {
       if (isRelationshipNotFoundError(error)) {
         const simpleData = await handleRelationshipError(supabase, id, updateData);
-        if (simpleData) {
-          return simpleData;
-        }
+        if (simpleData) return simpleData;
       }
       return await handleUpdateError(getClient, id, status, error);
     }
