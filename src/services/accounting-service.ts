@@ -53,36 +53,36 @@ export async function createJournalEntry(journalEntry: JournalEntry) {
       throw new Error(`القيد غير متوازن. المدين: ${totalDebit}، الدائن: ${totalCredit}`);
     }
 
-    // 2. التحقق من وجود الحسابات في دليل الحسابات
-    for (const entry of journalEntry.entries) {
-      const { data: account, error } = await supabase
-        .from('gl_accounts')
-        .select('account_code, account_name')
-        .eq('account_code', entry.account_code)
-        .single();
+    // 2+3. P4-B2: المسار القانوني — كان الكود القديم يُدخل صفوف "سطور"
+    // في جدول الرؤوس gl_entries مباشرة (مخطط غير متوافق ⇒ فشل/تلوث).
+    // الآن: حل الأكواد إلى معرّفات ثم JournalService.createEntry الذرّي
+    const { resolveAccountIdByCode } = await import('./accounting/account-lookup');
+    const { JournalService } = await import('./accounting/journal-service');
 
-      if (error || !account) {
-        throw new Error(`الحساب ${entry.account_code} غير موجود في دليل الحسابات`);
-      }
+    const lines = await Promise.all(
+      journalEntry.entries.map(async (entry, i) => ({
+        account_id: await resolveAccountIdByCode(entry.account_code),
+        line_number: i + 1,
+        debit: entry.debit || 0,
+        credit: entry.credit || 0,
+        description: entry.description
+      }))
+    );
+
+    const result = await JournalService.createEntry({
+      entry_date: journalEntry.entry_date,
+      description: journalEntry.description,
+      reference_type: journalEntry.reference_type,
+      reference_number: journalEntry.reference_id,
+      lines
+    });
+
+    if (!result.success) {
+      throw result.error instanceof Error ? result.error : new Error(String(result.error));
     }
 
-    // 3. إدراج القيود
-    const entriesWithDate = journalEntry.entries.map(entry => ({
-      ...entry,
-      transaction_date: journalEntry.entry_date,
-      reference_type: journalEntry.reference_type,
-      reference_id: journalEntry.reference_id,
-    }));
-
-    const { data, error } = await supabase
-      .from('gl_entries')
-      .insert(entriesWithDate)
-      .select();
-
-    if (error) throw error;
-
     console.log(`✅ تم إنشاء قيد محاسبي: ${journalEntry.description} (${journalEntry.entries.length} سطور)`);
-    return { success: true, data };
+    return { success: true, data: result.data };
   } catch (error) {
     console.error('Error creating journal entry:', error);
     return { success: false, error };

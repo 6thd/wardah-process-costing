@@ -32,6 +32,12 @@ jobs:
         run: npm run lint
         continue-on-error: false
 
+      # P4-C1: الاختبارات حاجز حقيقي — أي فشل يمنع الدمج والنشر
+      # (coverage معطَّل هنا للسرعة — SonarQube يتولى قياس التغطية)
+      - name: Unit & integration tests
+        run: npm run test -- --run --coverage.enabled=false
+        continue-on-error: false
+
       - name: Build project
         run: npm run build
 

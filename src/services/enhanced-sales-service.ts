@@ -310,7 +310,24 @@ async function checkCustomerCredit(customerId: string, newAmount: number): Promi
     };
   } catch (error: unknown) {
     console.error('Error checking customer credit:', error);
-    // Allow if check fails (graceful degradation)
+    // P4-B4: قابل للضبط — fail-open افتراضياً (السلوك التاريخي)،
+    // وعند FEATURES.credit_check_fail_closed=true يمنع العملية بدل السماح الصامت
+    let failClosed = false;
+    try {
+      const { loadConfig } = await import('@/lib/config');
+      const config = await loadConfig();
+      failClosed = Boolean(
+        (config.FEATURES as Record<string, boolean> | undefined)?.credit_check_fail_closed
+      );
+    } catch {
+      // فشل تحميل الإعدادات ⇒ السلوك التاريخي
+    }
+    if (failClosed) {
+      throw new Error(
+        'تعذر التحقق من الحد الائتماني للعميل — العملية موقوفة (credit_check_fail_closed مفعّل): ' +
+        getErrorMessage(error)
+      );
+    }
     return { allowed: true, currentBalance: 0, creditLimit: 0, availableCredit: 0 };
   }
 }
@@ -352,7 +369,7 @@ async function recordSalesInventoryMovement(
   referenceType: string,
   referenceId: string,
   referenceNumber?: string
-): Promise<{ success: boolean; error?: unknown }> {
+): Promise<{ success: boolean; error?: unknown; warning?: string }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -407,7 +424,12 @@ async function recordSalesInventoryMovement(
         });
 
       if (moveError && moveError.code !== '42P01') { // 42P01 = table doesn't exist
+        // P4-B3: خطأ حقيقي في سجل الحركة (المخزون خُصم فعلاً!) — يتصاعد كتحذير
         console.warn('Could not record stock move:', moveError);
+        return {
+          success: true,
+          warning: `خُصم المخزون لكن حركة stock_moves لم تُسجَّل: ${moveError.message}`
+        };
       }
     } catch (error_) {
       // Ignore if stock_moves table doesn't exist
@@ -544,7 +566,7 @@ export async function confirmSalesOrder(orderId: string): Promise<{ success: boo
 /**
  * Create Sales Invoice (with automatic accounting entry)
  */
-export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'invoice_number'>): Promise<{ success: boolean; data?: SalesInvoice; error?: unknown }> {
+export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'invoice_number'>): Promise<{ success: boolean; data?: SalesInvoice; error?: unknown; warnings?: string[] }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -623,7 +645,7 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
       id: invData.id,
       invoice_number: invoiceNumber
     };
-    await createSalesAccountingEntry(invData, invoiceForAccounting);
+    const accountingWarning = await createSalesAccountingEntry(invData, invoiceForAccounting);
 
     // 8. Get full invoice with relations
     const { data: fullInvoice, error: fetchError } = await supabase
@@ -641,7 +663,11 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
 
     if (fetchError) throw fetchError;
 
-    return { success: true, data: fullInvoice };
+    return {
+      success: true,
+      data: fullInvoice,
+      warnings: accountingWarning ? [accountingWarning] : undefined
+    };
   } catch (error: unknown) {
     console.error('Error creating sales invoice:', error);
     return { success: false, error: getErrorMessage(error) };
@@ -651,7 +677,7 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
 /**
  * Create accounting entry for sales invoice
  */
-async function createSalesAccountingEntry(invoice: SalesInvoice, invoiceData: SalesInvoice): Promise<void> {
+async function createSalesAccountingEntry(invoice: SalesInvoice, invoiceData: SalesInvoice): Promise<string | undefined> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -721,16 +747,17 @@ async function createSalesAccountingEntry(invoice: SalesInvoice, invoiceData: Sa
       });
     }
 
-    // Create journal entry
+    // Create journal entry — P4-B3: الفشل يتصاعد كتحذير مرئي بدل الصمت
     const result = await JournalService.createEntry(journalEntry);
-    
+
     if (!result.success) {
       console.error('Failed to create accounting entry:', result.error);
-      // Don't throw - invoice is created, accounting entry can be created manually
+      return `الفاتورة أُنشئت لكن قيدها المحاسبي لم يُرحَّل: ${getErrorMessage(result.error)} — أنشئ القيد يدوياً من شاشة قيود اليومية`;
     }
+    return undefined;
   } catch (error: unknown) {
     console.error('Error creating sales accounting entry:', error);
-    // Don't throw - invoice is created
+    return `الفاتورة أُنشئت لكن قيدها المحاسبي لم يُرحَّل: ${getErrorMessage(error)} — أنشئ القيد يدوياً من شاشة قيود اليومية`;
   }
 }
 
@@ -766,7 +793,7 @@ async function processDeliveryLine(
   dnData: DeliveryNote,
   tenantId: string,
   deliveryNumber: string
-): Promise<number> {
+): Promise<{ lineCOGS: number; warning?: string }> {
   // Get item with current AVCO
   const { data: item, error: itemError } = await supabase
     .from('items')
@@ -832,7 +859,7 @@ async function processDeliveryLine(
     })
     .eq('id', line.sales_invoice_line_id);
 
-  return lineCOGS;
+  return { lineCOGS, warning: inventoryResult.warning };
 }
 
 /**
@@ -874,7 +901,7 @@ async function updateInvoiceDeliveryStatus(invoiceId: string): Promise<void> {
 /**
  * Create Delivery Note (with inventory deduction and COGS entry)
  */
-export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: DeliveryNote; totalCOGS?: number; error?: unknown }> {
+export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: DeliveryNote; totalCOGS?: number; error?: unknown; warnings?: string[] }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -882,6 +909,55 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     validateDeliveryLines(delivery.lines);
     await validateInvoiceExists(delivery.sales_invoice_id);
 
+    // ===== P4-B5: المسار الذرّي أولاً (Migration 85) =====
+    // رأس + سطور + قفل صف الصنف + خصم + حركة + COGS في معاملة واحدة —
+    // يحل سباق الخصم المتزامن. PGRST202 ⇒ المسار القديم كما هو
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_post_delivery_note', {
+      p_payload: {
+        tenant_id: tenantId,
+        sales_invoice_id: delivery.sales_invoice_id,
+        customer_id: delivery.customer_id,
+        delivery_date: delivery.delivery_date,
+        vehicle_number: delivery.vehicle_number ?? null,
+        driver_name: delivery.driver_name ?? null,
+        notes: delivery.notes ?? null,
+        lines: delivery.lines.map((l) => ({
+          item_id: l.item_id,
+          delivered_quantity: l.delivered_quantity,
+          sales_invoice_line_id: l.sales_invoice_line_id ?? null,
+          notes: l.notes ?? null
+        }))
+      }
+    });
+
+    if (!rpcError && rpcResult?.success) {
+      const { data: fullDeliveryAtomic } = await supabase
+        .from('delivery_notes')
+        .select(`
+          *,
+          customer:customers(*),
+          sales_invoice:sales_invoices(*),
+          lines:delivery_note_lines(*, product:items(*))
+        `)
+        .eq('id', rpcResult.delivery_id)
+        .single();
+
+      const atomicWarnings = (rpcResult.warnings ?? []) as string[];
+      return {
+        success: true,
+        data: (fullDeliveryAtomic ?? { id: rpcResult.delivery_id, delivery_number: rpcResult.delivery_number }) as DeliveryNote,
+        totalCOGS: Number(rpcResult.total_cogs) || 0,
+        warnings: atomicWarnings.length > 0 ? atomicWarnings : undefined
+      };
+    }
+
+    // خطأ حقيقي من الدالة الذرّية (رصيد غير كافٍ/فترة مقفلة/...) — يصل كما هو
+    if (rpcError && !errorMessageIncludes(rpcError, 'Could not find the function') &&
+        !hasErrorCode(rpcError, 'PGRST202')) {
+      throw new Error(getErrorMessage(rpcError));
+    }
+
+    // ===== Fallback: Migration 85 غير مطبَّقة — المسار القديم حرفياً =====
     const deliveryNumber = await generateDeliveryNumber();
 
     // Create delivery note
@@ -905,13 +981,16 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
 
     // Process each delivery line
     let totalCOGS = 0;
+    const warnings: string[] = [];
     for (const line of delivery.lines) {
-      const lineCOGS = await processDeliveryLine(line, dnData, tenantId, deliveryNumber);
-      totalCOGS += lineCOGS;
+      const lineResult = await processDeliveryLine(line, dnData, tenantId, deliveryNumber);
+      totalCOGS += lineResult.lineCOGS;
+      if (lineResult.warning) warnings.push(lineResult.warning);
     }
 
-    // Create COGS accounting entry
-    await createCOGSAccountingEntry(dnData, totalCOGS, deliveryNumber);
+    // Create COGS accounting entry — P4-B3: فشله يتصاعد كتحذير لا يُبتلع
+    const cogsWarning = await createCOGSAccountingEntry(dnData, totalCOGS, deliveryNumber);
+    if (cogsWarning) warnings.push(cogsWarning);
 
     // Update invoice delivery status
     await updateInvoiceDeliveryStatus(delivery.sales_invoice_id);
@@ -933,7 +1012,12 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
 
     if (fetchError) throw fetchError;
 
-    return { success: true, data: fullDelivery, totalCOGS };
+    return {
+      success: true,
+      data: fullDelivery,
+      totalCOGS,
+      warnings: warnings.length > 0 ? warnings : undefined
+    };
   } catch (error: unknown) {
     console.error('Error creating delivery note:', error);
     return { success: false, error: getErrorMessage(error) };
@@ -943,7 +1027,7 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
 /**
  * Create COGS accounting entry
  */
-async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: number, deliveryNumber: string): Promise<void> {
+async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: number, deliveryNumber: string): Promise<string | undefined> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -994,12 +1078,15 @@ async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: 
     };
 
     const result = await JournalService.createEntry(journalEntry);
-    
+
     if (!result.success) {
       console.error('Failed to create COGS accounting entry:', result.error);
+      return `التسليم تم لكن قيد تكلفة البضاعة المباعة لم يُرحَّل: ${getErrorMessage(result.error)}`;
     }
+    return undefined;
   } catch (error: unknown) {
     console.error('Error creating COGS accounting entry:', error);
+    return `التسليم تم لكن قيد تكلفة البضاعة المباعة لم يُرحَّل: ${getErrorMessage(error)}`;
   }
 }
 
@@ -1008,7 +1095,7 @@ async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: 
 /**
  * Record Customer Collection (with accounting entry)
  */
-export async function recordCustomerCollection(collection: Omit<CustomerCollection, 'id' | 'collection_number'>): Promise<{ success: boolean; data?: CustomerCollection; balance?: number; error?: unknown }> {
+export async function recordCustomerCollection(collection: Omit<CustomerCollection, 'id' | 'collection_number'>): Promise<{ success: boolean; data?: CustomerCollection; balance?: number; error?: unknown; warnings?: string[] }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -1072,10 +1159,14 @@ export async function recordCustomerCollection(collection: Omit<CustomerCollecti
 
     if (updateError) throw updateError;
 
-    // 7. Create accounting entry
-    await createCollectionAccountingEntry(collection, invoice, collectionNumber);
+    // 7. Create accounting entry — P4-B3: الفشل يتصاعد كتحذير
+    const collectionWarning = await createCollectionAccountingEntry(collection, invoice, collectionNumber);
 
-    return { success: true, balance: Math.max(0, balance) };
+    return {
+      success: true,
+      balance: Math.max(0, balance),
+      warnings: collectionWarning ? [collectionWarning] : undefined
+    };
   } catch (error: unknown) {
     console.error('Error recording collection:', error);
     return { success: false, error: getErrorMessage(error) };
@@ -1085,7 +1176,7 @@ export async function recordCustomerCollection(collection: Omit<CustomerCollecti
 /**
  * Create collection accounting entry
  */
-async function createCollectionAccountingEntry(collection: CustomerCollection, invoice: SalesInvoice, collectionNumber: string): Promise<void> {
+async function createCollectionAccountingEntry(collection: CustomerCollection, invoice: SalesInvoice, collectionNumber: string): Promise<string | undefined> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -1145,12 +1236,15 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
     };
 
     const result = await JournalService.createEntry(journalEntry);
-    
+
     if (!result.success) {
       console.error('Failed to create collection accounting entry:', result.error);
+      return `التحصيل سُجِّل لكن قيده المحاسبي لم يُرحَّل: ${getErrorMessage(result.error)}`;
     }
+    return undefined;
   } catch (error: unknown) {
     console.error('Error creating collection accounting entry:', error);
+    return `التحصيل سُجِّل لكن قيده المحاسبي لم يُرحَّل: ${getErrorMessage(error)}`;
   }
 }
 

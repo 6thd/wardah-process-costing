@@ -221,7 +221,7 @@ export const checkSupabaseConnection = async () => {
             return { status: 'error', message: error.message };
         }
         
-        console.log("Supabase connection appears to be working.");
+        if (import.meta.env.DEV) console.log("Supabase connection appears to be working.");
         return { status: 'ok', message: 'Supabase connection is active.' };
     } catch (e: any) {
         console.error("An exception occurred while checking Supabase connection:", e.message);
@@ -241,7 +241,7 @@ export const checkSupabaseConnection = async () => {
  * Fetches all GL accounts across all organizations.
  */
 export const getAllGLAccounts = async (): Promise<GLAccount[]> => {
-    console.log("Fetching all GL accounts.");
+    if (import.meta.env.DEV) console.log("Fetching all GL accounts.");
 
     try {
         const { data, error } = await supabase
@@ -254,7 +254,7 @@ export const getAllGLAccounts = async (): Promise<GLAccount[]> => {
             throw error;
         }
 
-        console.log(`Successfully fetched ${data?.length || 0} accounts.`);
+        if (import.meta.env.DEV) console.log(`Successfully fetched ${data?.length || 0} accounts.`);
         return data || [];
         
     } catch (err) {
@@ -267,7 +267,7 @@ export const getAllGLAccounts = async (): Promise<GLAccount[]> => {
  * Fetches the chart of accounts for a given organization.
  */
 export const getChartOfAccounts = async (orgId: string): Promise<GLAccount[]> => {
-    console.log(`Fetching chart of accounts for org_id: ${orgId}`);
+    if (import.meta.env.DEV) console.log(`Fetching chart of accounts for org_id: ${orgId}`);
     
     if (!orgId || typeof orgId !== 'string') {
         console.error("Invalid orgId provided to getChartOfAccounts.");
@@ -291,7 +291,7 @@ export const getChartOfAccounts = async (orgId: string): Promise<GLAccount[]> =>
             throw error;
         }
 
-        console.log(`Successfully fetched ${data?.length || 0} accounts.`);
+        if (import.meta.env.DEV) console.log(`Successfully fetched ${data?.length || 0} accounts.`);
         return data || [];
         
     } catch (err) {
@@ -318,7 +318,7 @@ export const getAccountById = async (accountId: string): Promise<GLAccount | nul
 
         if (error) {
             if (error.code === 'PGRST116') {
-                console.log(`Account with ID ${accountId} not found.`);
+                if (import.meta.env.DEV) console.log(`Account with ID ${accountId} not found.`);
                 return null;
             }
             console.error(`Error fetching account ${accountId}:`, error);

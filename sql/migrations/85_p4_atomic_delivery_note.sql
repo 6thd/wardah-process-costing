@@ -1,0 +1,228 @@
+-- ===================================================================
+-- Migration 85: إذن التسليم الذرّي — rpc_post_delivery_note
+-- ===================================================================
+-- المشكلة: createDeliveryNote في الواجهة كان ينفّذ لكل سطر على حدة:
+--   إدراج سطر التسليم ← قراءة رصيد الصنف ← خصمه وكتابته (سباق!)
+--   ← تسجيل الحركة ← تحديث سطر الفاتورة — بلا أي معاملة.
+--   أي فشل في منتصف الحلقة = مخزون مخصوم جزئياً بلا قيد COGS كامل.
+--
+-- الحل: معاملة واحدة ذرّية تشمل: الرأس + السطور + قفل صف الصنف
+--   (FOR UPDATE يمنع السباق) + الخصم + الحركة + قيد COGS.
+--   كلها تنجح معاً أو تفشل معاً.
+--
+-- دلالة الرصيد: مطابقة السلوك الحالي للواجهة — يُرفض التسليم لو
+--   الرصيد غير كافٍ (نفس رسالة الواجهة الحالية Insufficient stock).
+--
+-- المتطلبات: 76 (wardah_org_id) + 79 (assert_period_open — تُستدعى
+--   ديناميكياً إن وُجدت). Fallback كامل في TypeScript عند PGRST202.
+-- المبدأ: إضافي 100% — دالة جديدة فقط.
+-- ===================================================================
+
+CREATE OR REPLACE FUNCTION public.rpc_post_delivery_note(p_payload JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_org        UUID;
+    v_dn_id      UUID;
+    v_dn_number  TEXT;
+    v_invoice_id UUID;
+    v_line       JSONB;
+    v_item       RECORD;
+    v_qty        NUMERIC;
+    v_unit_cost  NUMERIC;
+    v_line_cogs  NUMERIC;
+    v_total_cogs NUMERIC := 0;
+    v_line_no    INTEGER := 0;
+    v_inv_line_id UUID;
+    v_prev_delivered NUMERIC;
+    v_warnings   JSONB := '[]'::JSONB;
+BEGIN
+    -- ===== هوية المؤسسة =====
+    v_org := wardah_org_id(NULLIF(p_payload->>'tenant_id', '')::UUID);
+    IF v_org IS NULL THEN
+        RAISE EXCEPTION 'ORG_NOT_RESOLVED: تعذر تحديد هوية المؤسسة';
+    END IF;
+
+    v_invoice_id := (p_payload->>'sales_invoice_id')::UUID;
+    IF v_invoice_id IS NULL THEN
+        RAISE EXCEPTION 'INVALID_PAYLOAD: sales_invoice_id مطلوب';
+    END IF;
+    IF jsonb_array_length(COALESCE(p_payload->'lines', '[]'::JSONB)) = 0 THEN
+        RAISE EXCEPTION 'INVALID_PAYLOAD: لا سطور في إذن التسليم';
+    END IF;
+
+    -- ===== فحص الفترة المحاسبية (Migration 79 — إن وُجدت) =====
+    BEGIN
+        PERFORM assert_period_open(
+            v_org,
+            COALESCE((p_payload->>'delivery_date')::DATE, CURRENT_DATE)
+        );
+    EXCEPTION
+        WHEN undefined_function THEN NULL;  -- 79 غير مطبَّقة — نكمل
+    END;
+
+    -- ===== توليد رقم التسليم داخل المعاملة (بقفل استشاري يمنع التصادم) =====
+    PERFORM pg_advisory_xact_lock(hashtext('delivery_notes:' || v_org::TEXT));
+    SELECT 'DN-' || LPAD((
+        COALESCE(MAX(NULLIF(regexp_replace(delivery_number, '\D', '', 'g'), ''))::BIGINT, 0) + 1
+    )::TEXT, 6, '0')
+    INTO v_dn_number
+    FROM delivery_notes
+    WHERE tenant_id = v_org AND delivery_number ~ '^DN-\d+$';
+    v_dn_number := COALESCE(v_dn_number, 'DN-000001');
+
+    -- ===== رأس إذن التسليم =====
+    INSERT INTO delivery_notes (
+        tenant_id, delivery_number, sales_invoice_id, customer_id,
+        delivery_date, vehicle_number, driver_name, status, notes
+    ) VALUES (
+        v_org, v_dn_number, v_invoice_id,
+        (p_payload->>'customer_id')::UUID,
+        COALESCE((p_payload->>'delivery_date')::DATE, CURRENT_DATE),
+        NULLIF(p_payload->>'vehicle_number', ''),
+        NULLIF(p_payload->>'driver_name', ''),
+        'delivered',
+        NULLIF(p_payload->>'notes', '')
+    )
+    RETURNING id INTO v_dn_id;
+
+    -- ===== السطور: قفل ← تحقق ← خصم ← حركة ← تحديث سطر الفاتورة =====
+    FOR v_line IN SELECT * FROM jsonb_array_elements(p_payload->'lines')
+    LOOP
+        v_line_no := v_line_no + 1;
+        v_qty := (v_line->>'delivered_quantity')::NUMERIC;
+        IF v_qty IS NULL OR v_qty <= 0 THEN
+            RAISE EXCEPTION 'INVALID_LINE: كمية غير صالحة في السطر %', v_line_no;
+        END IF;
+
+        -- قفل صف الصنف — يمنع سباق الخصم المتزامن نهائياً
+        SELECT id, stock_quantity, cost_price, name, name_ar
+        INTO v_item
+        FROM items
+        WHERE id = (v_line->>'item_id')::UUID
+        FOR UPDATE;
+
+        IF v_item.id IS NULL THEN
+            RAISE EXCEPTION 'ITEM_NOT_FOUND: الصنف % غير موجود', v_line->>'item_id';
+        END IF;
+
+        -- نفس دلالة الواجهة الحالية: لا تسليم برصيد غير كافٍ
+        IF COALESCE(v_item.stock_quantity, 0) < v_qty THEN
+            RAISE EXCEPTION 'INSUFFICIENT_STOCK: % — المتاح: %، المطلوب: %',
+                COALESCE(v_item.name_ar, v_item.name),
+                COALESCE(v_item.stock_quantity, 0), v_qty;
+        END IF;
+
+        v_unit_cost := COALESCE(v_item.cost_price, 0);
+        v_line_cogs := v_qty * v_unit_cost;
+        v_total_cogs := v_total_cogs + v_line_cogs;
+
+        -- سطر التسليم
+        INSERT INTO delivery_note_lines (
+            tenant_id, delivery_id, invoice_line_id, product_id,
+            quantity_delivered, unit_cost_at_delivery, notes
+        ) VALUES (
+            v_org, v_dn_id,
+            NULLIF(v_line->>'sales_invoice_line_id', '')::UUID,
+            v_item.id, v_qty, v_unit_cost,
+            NULLIF(v_line->>'notes', '')
+        );
+
+        -- الخصم — تحت القفل، لا سباق
+        UPDATE items
+        SET stock_quantity = stock_quantity - v_qty,
+            updated_at = NOW()
+        WHERE id = v_item.id;
+
+        -- حركة المخزون (إن وُجد الجدول — دفاعي)
+        IF to_regclass('public.stock_moves') IS NOT NULL THEN
+            INSERT INTO stock_moves (
+                tenant_id, product_id, quantity, move_type,
+                unit_cost_out, reference_type, reference_id,
+                reference_number, status, date_done
+            ) VALUES (
+                v_org, v_item.id, -v_qty, 'sales_delivery',
+                v_unit_cost, 'DELIVERY_NOTE', v_dn_id,
+                v_dn_number, 'done', NOW()
+            );
+        END IF;
+
+        -- تحديث الكمية المسلَّمة في سطر الفاتورة
+        v_inv_line_id := NULLIF(v_line->>'sales_invoice_line_id', '')::UUID;
+        IF v_inv_line_id IS NOT NULL THEN
+            SELECT COALESCE(delivered_quantity, 0) INTO v_prev_delivered
+            FROM sales_invoice_lines WHERE id = v_inv_line_id
+            FOR UPDATE;
+
+            UPDATE sales_invoice_lines
+            SET delivered_quantity = v_prev_delivered + v_qty,
+                unit_cost_at_sale = v_unit_cost
+            WHERE id = v_inv_line_id;
+        END IF;
+    END LOOP;
+
+    -- ===== قيد COGS عبر بوابة الأحداث (إن وُجدت خريطة COGS_DELIVERY) =====
+    IF v_total_cogs > 0 THEN
+        BEGIN
+            PERFORM rpc_post_event_journal(
+                'COGS_DELIVERY', v_total_cogs,
+                'تكلفة بضاعة مباعة - ' || v_dn_number,
+                'DELIVERY_NOTE', v_dn_id, v_org,
+                'COGS_DELIVERY:' || v_dn_id::TEXT, NULL
+            );
+        EXCEPTION WHEN OTHERS THEN
+            -- خريطة الحدث غير مزروعة ⇒ تحذير للواجهة، التسليم نفسه ذرّي وسليم
+            v_warnings := v_warnings || to_jsonb(
+                'قيد COGS لم يُرحَّل: ' || SQLERRM ||
+                ' — ازرع خريطة COGS_DELIVERY عبر rpc_upsert_event_mapping'
+            );
+        END;
+    END IF;
+
+    -- ===== تحديث حالة تسليم الفاتورة =====
+    UPDATE sales_invoices si
+    SET delivery_status = CASE
+        WHEN NOT EXISTS (
+            SELECT 1 FROM sales_invoice_lines l
+            WHERE l.invoice_id = si.id
+              AND COALESCE(l.delivered_quantity, 0) < l.quantity
+        ) THEN 'fully_delivered'
+        ELSE 'partially_delivered'
+    END
+    WHERE si.id = v_invoice_id;
+
+    RETURN jsonb_build_object(
+        'success', TRUE,
+        'delivery_id', v_dn_id,
+        'delivery_number', v_dn_number,
+        'total_cogs', ROUND(v_total_cogs, 6),
+        'lines_processed', v_line_no,
+        'warnings', v_warnings
+    );
+END;
+$$;
+
+COMMENT ON FUNCTION public.rpc_post_delivery_note(JSONB) IS
+'إذن تسليم ذرّي: رأس + سطور + قفل صف الصنف (FOR UPDATE) + خصم المخزون + حركة stock_moves + قيد COGS عبر rpc_post_event_journal — معاملة واحدة، كلها تنجح معاً أو تفشل معاً. يحل سباق الخصم المتزامن نهائياً. Migration 85';
+
+GRANT EXECUTE ON FUNCTION public.rpc_post_delivery_note(JSONB) TO authenticated;
+
+-- زرع خريطة COGS_DELIVERY (مدين COGS 511100* / دائن FG 135100) — إن وُجد الحسابان
+-- * عدّل الكود لو مختلف في شجرتك: SELECT code, name FROM gl_accounts WHERE code LIKE '5%';
+DO $$
+BEGIN
+    BEGIN
+        PERFORM rpc_upsert_event_mapping('COGS_DELIVERY', '511100', '135100', NULL,
+          'تكلفة بضاعة مباعة عند التسليم: مدين COGS / دائن مخزون تام الصنع');
+        RAISE NOTICE 'زُرعت خريطة COGS_DELIVERY ✅';
+    EXCEPTION WHEN OTHERS THEN
+        RAISE NOTICE 'لم تُزرع خريطة COGS_DELIVERY (%) — القيود ستظهر كتحذير حتى تزرعها بالأكواد الصحيحة', SQLERRM;
+    END;
+END $$;
+
+-- ===================================================================
+-- التحقق: SELECT proname FROM pg_proc WHERE proname = 'rpc_post_delivery_note';
+-- ===================================================================

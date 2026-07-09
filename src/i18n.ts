@@ -2,7 +2,7 @@ import i18n from 'i18next'
 import { initReactI18next } from 'react-i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 
-console.log('🔧 Initializing i18n...')
+if (import.meta.env.DEV) console.log('🔧 Initializing i18n...')
 
 // Safe language detection that doesn't fail if localStorage is unavailable
 const safeLanguageDetector = new LanguageDetector(null, {
@@ -24,7 +24,7 @@ const resources = {
   },
 }
 
-console.log('✅ Translation resources loaded')
+if (import.meta.env.DEV) console.log('✅ Translation resources loaded')
 
 i18n
   .use(safeLanguageDetector as any)
@@ -48,7 +48,7 @@ i18n
     },
   })
   .then(() => {
-    console.log('✅ i18n initialized successfully')
+    if (import.meta.env.DEV) console.log('✅ i18n initialized successfully')
   })
   .catch((error) => {
     console.error('❌ i18n initialization failed:', error)

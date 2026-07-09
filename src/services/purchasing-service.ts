@@ -614,14 +614,17 @@ async function createPurchaseGLEntry(invoice: any) {
       transaction_date: invoice.invoice_date,
     });
 
-    // إدراج القيود في جدول gl_entries
-    const { error } = await supabase
-      .from('gl_entries')
-      .insert(entries);
-
-    if (error) {
-      console.error('Error creating GL entries:', error);
-      throw error;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const result = await createJournalEntry({
+      entry_date: invoice.invoice_date,
+      description: `فاتورة مورد ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_INVOICE',
+      reference_id: invoice.id,
+      entries
+    });
+    if (!result.success) {
+      throw result.error instanceof Error ? result.error : new Error(String(result.error));
     }
 
     console.log(`✅ تم إنشاء القيد المحاسبي للفاتورة ${invoice.invoice_number}`);
@@ -724,11 +727,18 @@ export async function recordSupplierPayment(invoiceId: string, paymentAmount: nu
       },
     ];
 
-    const { error: glError } = await supabase
-      .from('gl_entries')
-      .insert(paymentEntries);
-
-    if (glError) throw glError;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const glResult = await createJournalEntry({
+      entry_date: paymentDate,
+      description: `دفعة لفاتورة ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_PAYMENT',
+      reference_id: invoiceId,
+      entries: paymentEntries
+    });
+    if (!glResult.success) {
+      throw glResult.error instanceof Error ? glResult.error : new Error(String(glResult.error));
+    }
 
     console.log(`✅ تم تسجيل دفعة بمبلغ ${paymentAmount} للفاتورة ${invoice.invoice_number}`);
     return { success: true, balance, newStatus };

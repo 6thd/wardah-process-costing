@@ -1,7 +1,6 @@
 import { format } from 'date-fns';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+// P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط — لا تُشحنان بالحزمة الأولى
+import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import type { TrialBalanceRow, TrialBalanceTotals } from '../types';
 
 interface ExportData {
@@ -12,7 +11,8 @@ interface ExportData {
   isRTL: boolean;
 }
 
-export function exportToExcel({ balances, totals, fromDate, asOfDate, isRTL }: ExportData) {
+export async function exportToExcel({ balances, totals, fromDate, asOfDate, isRTL }: ExportData) {
+  const XLSX = await loadXLSX();
   const excelData = balances.map(row => ({
     [isRTL ? 'كود الحساب' : 'Account Code']: row.account_code,
     [isRTL ? 'اسم الحساب' : 'Account Name']: isRTL ? (row.account_name_ar || row.account_name) : row.account_name,
@@ -43,7 +43,8 @@ export function exportToExcel({ balances, totals, fromDate, asOfDate, isRTL }: E
   XLSX.writeFile(workbook, `trial-balance-${asOfDate}.xlsx`);
 }
 
-export function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL }: ExportData) {
+export async function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL }: ExportData) {
+  const jsPDF = await loadJsPDF();
   const doc = new jsPDF('l', 'mm', 'a4');
 
   if (isRTL) {

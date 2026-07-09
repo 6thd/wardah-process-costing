@@ -15,9 +15,8 @@ import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { Download, FileText, Search, Calendar as CalendarIcon, X, Eye } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+// P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط
+import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -262,7 +261,8 @@ export function AccountStatement() {
     }
   };
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
+    const XLSX = await loadXLSX();
     if (statementLines.length === 0) return;
 
     const selectedAccountData = accounts.find(a => a.id === selectedAccount);
@@ -302,7 +302,8 @@ export function AccountStatement() {
     XLSX.writeFile(wb, `AccountStatement_${selectedAccountData?.code}_${format(toDate, 'yyyy-MM-dd')}.xlsx`);
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
+    const jsPDF = await loadJsPDF();
     if (statementLines.length === 0) return;
 
     const selectedAccountData = accounts.find(a => a.id === selectedAccount);

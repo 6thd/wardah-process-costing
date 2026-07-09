@@ -244,6 +244,8 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
         if (result.totalCOGS) {
           toast.info(`تم حساب COGS: ${result.totalCOGS.toFixed(2)} ريال`)
         }
+        // P4-B3: تحذيرات القيود/الحركات غير المرحَّلة تظهر فوراً
+        result.warnings?.forEach((w: string) => toast.warning(w, { duration: 10000 }))
         onSuccess()
         resetForm()
         onOpenChange(false)

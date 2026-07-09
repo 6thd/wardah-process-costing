@@ -205,6 +205,8 @@ export function SalesInvoiceForm({ open, onOpenChange, onSuccess }: SalesInvoice
       
       if (result.success && result.data) {
         toast.success(`تم إنشاء فاتورة المبيعات ${result.data.invoice_number} بنجاح`)
+        // P4-B3: قيد لم يُرحَّل؟ المستخدم يعرف فوراً بدل اكتشافه في التسوية
+        result.warnings?.forEach((w: string) => toast.warning(w, { duration: 10000 }))
         onOpenChange(false)
         resetForm()
         onSuccess?.()
