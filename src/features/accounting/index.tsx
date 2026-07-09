@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 const JournalEntries = lazy(() => import('./journal-entries').then(m => ({ default: m.default })));
 const TrialBalance = lazy(() => import('./trial-balance').then(m => ({ default: m.default })));
 const AccountStatement = lazy(() => import('./account-statement').then(m => ({ default: m.AccountStatement })));
+const ReconciliationPage = lazy(() => import('./reconciliation').then(m => ({ default: m.ReconciliationPage })));
 
 // Loading component
 function LoadingSpinner() {
@@ -156,6 +157,7 @@ export function AccountingModule() {
         <Route path="/trial-balance" element={<TrialBalance />} />
         <Route path="/account-statement" element={<AccountStatement />} />
         <Route path="/posting" element={<PostingPage />} />
+        <Route path="/reconciliation" element={<ReconciliationPage />} />
         <Route path="*" element={<Navigate to="/accounting" replace />} />
       </Routes>
     </Suspense>

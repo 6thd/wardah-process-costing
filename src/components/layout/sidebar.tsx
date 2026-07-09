@@ -362,6 +362,7 @@ export function Sidebar() {
         { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
         { key: 'efficiency', href: '/manufacturing/efficiency', label: isRTL ? 'الكفاءة والأداء' : 'Efficiency & OEE' },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
+        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report' },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
         { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },
@@ -427,7 +428,8 @@ export function Sidebar() {
         { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
         { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
         { key: 'account-statement', href: '/accounting/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' },
-        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' }
+        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' },
+        { key: 'reconciliation', href: '/accounting/reconciliation', label: isRTL ? 'تسوية الدفاتر مع GL' : 'Subledger ↔ GL Reconciliation' }
       ]
     },
     {

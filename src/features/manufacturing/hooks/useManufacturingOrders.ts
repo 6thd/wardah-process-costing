@@ -1,41 +1,54 @@
-import { useState, useEffect } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { manufacturingService } from '@/services/supabase-service';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import type { ManufacturingOrder } from '@/lib/supabase';
 
+/**
+ * نفس مفتاح hooks/use-manufacturing.ts — كاش واحد مشترك عبر التطبيق:
+ * أي invalidation من useCreateManufacturingOrder/useUpdateOrderStatus
+ * يحدّث هذه الشاشات تلقائياً، والعكس صحيح
+ */
+export const MANUFACTURING_ORDERS_QUERY_KEY = ['manufacturing-orders'] as const;
+
+/**
+ * بند 11: موحَّد على React Query داخلياً — الواجهة الخارجية
+ * { orders, loading, loadOrders } كما كانت تماماً، لا كسر لأي مستهلك.
+ * المكاسب: كاش مشترك + إلغاء تكرار الطلبات + refetch تلقائي
+ */
 export function useManufacturingOrders() {
   const { t } = useTranslation();
-  const [orders, setOrders] = useState<ManufacturingOrder[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
 
-  const loadOrders = async () => {
-    try {
-      const data = await manufacturingService.getAll();
-      // Convert OrderWithItem[] to ManufacturingOrder[]
-      const orders = (data || []) as unknown as ManufacturingOrder[];
-      setOrders(orders);
-    } catch (error: any) {
-      if (error.code === 'PGRST205' || error.message?.includes('Could not find the table')) {
-        console.warn('manufacturing_orders table not found, using empty array');
-        setOrders([]);
-      } else {
+  const { data, isLoading } = useQuery<ManufacturingOrder[]>({
+    queryKey: MANUFACTURING_ORDERS_QUERY_KEY,
+    queryFn: async () => {
+      try {
+        const data = await manufacturingService.getAll();
+        return (data || []) as unknown as ManufacturingOrder[];
+      } catch (error: unknown) {
+        const err = error as { code?: string; message?: string };
+        if (err.code === 'PGRST205' || err.message?.includes('Could not find the table')) {
+          console.warn('manufacturing_orders table not found, using empty array');
+          return [];
+        }
         console.error('Error loading orders:', error);
         toast.error(t('manufacturing.ordersPage.loadError'));
+        return [];
       }
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    loadOrders();
-  }, []);
+  // نفس التوقيع القديم: تُستدعى بعد الإنشاء/تغيير الحالة لإعادة التحميل
+  const loadOrders = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: MANUFACTURING_ORDERS_QUERY_KEY });
+  }, [queryClient]);
 
   return {
-    orders,
-    loading,
+    orders: data ?? [],
+    loading: isLoading,
     loadOrders
   };
 }
-
