@@ -23,7 +23,7 @@ import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { Plus, Trash2, CalendarIcon, X, Search, Upload } from 'lucide-react'
 import { toast } from 'sonner'
 import { vendorsService } from '@/services/supabase-service'
-import { supabase } from '@/lib/supabase'
+import { supabase, resolveOrgIdWithFallback } from '@/lib/supabase'
 import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
 import { loadRawMaterials, loadPurchasableProducts } from '@/lib/product-utils'
@@ -656,7 +656,7 @@ const calculateTotals = (lines: PurchaseOrderLine[]) => {
       setLoading(true)
 
       try {
-        const orgId = '00000000-0000-0000-0000-000000000001'
+        const orgId = await resolveOrgIdWithFallback()
         const orderNumber = `PO-${Date.now()}`
 
         const { subtotal, discountAmount, taxAmount, total } = calculateTotals(validLines)

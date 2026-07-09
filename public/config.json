@@ -41,7 +41,7 @@
     "realtime_updates": true,
     "advanced_costing": true,
     "multi_tenant": true,
-    "demo_mode": true,
+    "demo_mode": false,
     "process_costing": true,
     "avco_inventory": true,
     "audit_trail": true

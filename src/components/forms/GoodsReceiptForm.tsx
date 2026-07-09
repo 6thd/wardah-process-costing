@@ -198,7 +198,12 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
       console.log('✅ Goods Receipt created successfully:', result.data)
 
       toast.success('تم إنشاء سند الاستلام بنجاح')
-      
+
+      // B1: قيد GL لم يُرحَّل؟ أخبر المستخدم بدل الصمت
+      if (result.glWarning) {
+        toast.warning(result.glWarning, { duration: 10000 })
+      }
+
       // Reset form
       setSelectedPO('')
       setWarehouseId('')
