@@ -49,6 +49,7 @@ import {
 } from '@/utils/manufacturing-order-status'
 import StageCostingPanel from './stage-costing-panel.tsx'
 import { EquivalentUnitsDashboard } from './equivalent-units-dashboard'
+import { CostOfProductionReportView } from './cost-of-production-report'
 import { VarianceAlerts } from './variance-alerts'
 import { BOMManagement, BOMBuilder } from './bom'
 import { ManufacturingStagesList } from './manufacturing-stages-list'
@@ -97,6 +98,7 @@ export function ManufacturingModule() {
       <Route path="efficiency" element={<EfficiencyDashboard />} />
       <Route path="process-costing" element={<ProcessCostingPage />} />
       <Route path="equivalent-units" element={<EquivalentUnitsPage />} />
+      <Route path="cost-of-production" element={<CostOfProductionPage />} />
       <Route path="variance-alerts" element={<VarianceAlertsPage />} />
       <Route path="workcenters" element={<WorkCentersManagement />} />
       <Route path="stages" element={<ManufacturingStagesPage />} />
@@ -143,6 +145,28 @@ function EquivalentUnitsPage() {
       </div>
 
       <EquivalentUnitsDashboard />
+    </div>
+  )
+}
+
+function CostOfProductionPage() {
+  const { i18n } = useTranslation()
+  const isRTL = i18n.language === 'ar'
+
+  return (
+    <div className="space-y-6">
+      <div className={cn(isRTL ? "text-right" : "text-left", "print:hidden")}>
+        <h1 className="text-3xl font-bold">
+          {isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
+        </h1>
+        <p className="text-muted-foreground mt-2">
+          {isRTL
+            ? 'الخطوات الخمس القياسية: الكميات، الوحدات المكافئة، التكاليف، تكلفة الوحدة، التوزيع والتسوية'
+            : 'The five standard steps: quantities, EUP, costs, cost per EU, assignment & reconciliation'}
+        </p>
+      </div>
+
+      <CostOfProductionReportView />
     </div>
   )
 }

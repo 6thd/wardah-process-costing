@@ -362,6 +362,7 @@ export function Sidebar() {
         { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
         { key: 'efficiency', href: '/manufacturing/efficiency', label: isRTL ? 'الكفاءة والأداء' : 'Efficiency & OEE' },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
+        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report' },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
         { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },

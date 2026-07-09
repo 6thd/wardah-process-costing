@@ -148,6 +148,24 @@
 | رسائل أخطاء Supabase كانت تصل للمستخدم كـ `[object Object]` — `getErrorMessage` تتعامل الآن مع كائنات PostgREST | `src/services/enhanced-sales-service.ts` |
 | اختبارات `createOrder` محدَّثة للمسار الذرّي (Migration 78) + اختبار `resumeWorkOrder` يحاكي RPC `start_operation` الفعلي | `createOrder.test.ts`، `mesService.test.ts` |
 
+### 🆕 Migration 80 — تقرير تكلفة الإنتاج بالوحدات المكافئة (9 يوليو 2026) — بند 12 (P2)
+
+**⚠️ تتطلب التطبيق على قاعدة البيانات**: نفّذ `sql/migrations/80_cost_of_production_report.sql` في محرّر Supabase SQL.
+
+أول مخرجات المرحلة الثانية: تقرير تكلفة الإنتاج (Cost of Production Report) بالخطوات الخمس القياسية:
+
+1. **جدول الكميات**: WIP أول + بدأ = مكتمل + WIP آخر + تالف طبيعي/غير طبيعي (مع فحص توازن)
+2. **الوحدات المكافئة**: لكل عنصر (مواد/تحويل) — بنفس معادلات `upsert_stage_cost` حرفياً (WA وFIFO)
+3. **التكاليف الواجب حسابها**: WIP أول + محوَّل وارد + مواد + عمالة + أوفرهيد + إعادة طحن − رصيد خردة
+4. **تكلفة الوحدة المكافئة**: لكل عنصر + مقارنة مع `unit_cost` المخزَّن
+5. **التوزيع والتسوية**: مكتمل / WIP نهائي / خسارة تالف غير طبيعي — مع `is_balanced` لكل مرحلة وللأمر كاملاً
+
+المكوّنات (إضافية 100% — قراءة فقط، لا تعديل على أي جدول):
+- `rpc_cost_of_production_report(p_mo_id, p_stage_no?, p_tenant?)` — دالة `STABLE` تُرجع JSONB
+- `src/services/manufacturing/cost-of-production-service.ts` — خدمة بأنواع كاملة + كشف PGRST202 (8 اختبارات)
+- `src/features/manufacturing/cost-of-production-report.tsx` — شاشة RTL قابلة للطباعة (3 اختبارات)
+- مسار جديد `/manufacturing/cost-of-production` + رابط في القائمة الجانبية
+
 ---
 
 ## 📏 معايير القبول العامة (Definition of Done)
