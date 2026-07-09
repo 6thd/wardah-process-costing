@@ -48,11 +48,12 @@ describe('CostOfProductionReportView', () => {
     vi.clearAllMocks()
   })
 
-  it('يعرض الشاشة بدون أخطاء مع رسالة اختيار الأمر', async () => {
+  it('يعرض الشاشة بدون أخطاء مع حالة فارغة موجِّهة', async () => {
     render(<CostOfProductionReportView />)
 
+    expect(screen.getByText('لم يُحدَّد أمر تصنيع بعد')).toBeInTheDocument()
     expect(
-      screen.getByText(/اختر أمر تصنيع لعرض تقرير تكلفة الإنتاج/)
+      screen.getByText(/اختر أمر تصنيع من القائمة أعلاه/)
     ).toBeInTheDocument()
   })
 
