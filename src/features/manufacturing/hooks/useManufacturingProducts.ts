@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 interface Product {
@@ -7,94 +8,85 @@ interface Product {
   code?: string;
 }
 
-export function useManufacturingProducts() {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(false);
+export const MANUFACTURING_PRODUCTS_QUERY_KEY = ['manufacturing-products'] as const;
 
-  const loadProducts = async () => {
+interface ProductRow {
+  id: string;
+  name?: string | null;
+  code?: string | null;
+}
+
+const mapProducts = (data: ProductRow[] | null | undefined): Product[] =>
+  (data || []).map((item) => ({
+    id: item.id,
+    name: item.name || item.code || 'Unnamed product',
+    code: item.code ?? undefined
+  }));
+
+async function fetchProducts(): Promise<Product[]> {
+  try {
+    const orgId = await getEffectiveTenantId();
+
+    const buildQuery = (table: 'products' | 'items') => {
+      let query = supabase
+        .from(table)
+        .select('id, name, code, org_id')
+        .order('name', { ascending: true })
+        .limit(100);
+      if (orgId) query = query.eq('org_id', orgId);
+      return query;
+    };
+
+    let productData: ProductRow[] | null = null;
+
     try {
-      setLoading(true);
-      const orgId = await getEffectiveTenantId();
-
-      const mapProducts = (data: any[] | null | undefined): Product[] =>
-        (data || []).map((item) => ({
-          id: item.id,
-          name: item.name || item.code || 'Unnamed product',
-          code: item.code
-        }));
-
-      const buildProductQuery = () => {
-        let query = supabase
-          .from('products')
-          .select('id, name, code, org_id')
-          .order('name', { ascending: true })
-          .limit(100);
-
-        if (orgId) {
-          query = query.eq('org_id', orgId);
-        }
-
-        return query;
-      };
-
-      const buildItemsQuery = () => {
-        let query = supabase
-          .from('items')
-          .select('id, name, code, org_id')
-          .order('name', { ascending: true })
-          .limit(100);
-
-        if (orgId) {
-          query = query.eq('org_id', orgId);
-        }
-
-        return query;
-      };
-
-      let productData: any[] | null = null;
-
-      try {
-        const { data, error } = await buildProductQuery();
-        if (error && (error.code === 'PGRST205' || error.message?.includes('relation'))) {
-          // Table doesn't exist, try items table - productData already null, no assignment needed
-        } else if (error) {
-          throw error;
-        } else {
-          productData = data || null;
-        }
-      } catch (error: unknown) {
-        const err = error as { code?: string }
-        if (err.code !== 'PGRST205') {
-          throw error;
-        }
-        // Table doesn't exist, try items table - productData already null, no assignment needed
+      const { data, error } = await buildQuery('products');
+      if (error && (error.code === 'PGRST205' || error.message?.includes('relation'))) {
+        // الجدول غير موجود — نجرّب items
+      } else if (error) {
+        throw error;
+      } else {
+        productData = data || null;
       }
-
-      if (!productData || productData.length === 0) {
-        const { data: itemsData, error: itemsError } = await buildItemsQuery();
-        if (itemsError && itemsError.code !== 'PGRST205') {
-          throw itemsError;
-        }
-        productData = itemsData || null;
-      }
-
-      setProducts(mapProducts(productData));
-    } catch (error) {
-      console.warn('Could not load products for manufacturing orders form', error);
-      setProducts([]);
-      } finally {
-      setLoading(false);
+    } catch (error: unknown) {
+      const err = error as { code?: string };
+      if (err.code !== 'PGRST205') throw error;
     }
-  };
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
+    if (!productData || productData.length === 0) {
+      const { data: itemsData, error: itemsError } = await buildQuery('items');
+      if (itemsError && itemsError.code !== 'PGRST205') throw itemsError;
+      productData = itemsData || null;
+    }
+
+    return mapProducts(productData);
+  } catch (error) {
+    // نفس السلوك القديم: تحذير + قائمة فارغة — لا نكسر نموذج إنشاء الأوامر
+    console.warn('Could not load products for manufacturing orders form', error);
+    return [];
+  }
+}
+
+/**
+ * بند 11: موحَّد على React Query داخلياً — الواجهة الخارجية
+ * { products, loading, loadProducts } كما كانت تماماً، لا كسر لأي مستهلك
+ */
+export function useManufacturingProducts() {
+  const queryClient = useQueryClient();
+
+  const { data, isLoading } = useQuery<Product[]>({
+    queryKey: MANUFACTURING_PRODUCTS_QUERY_KEY,
+    queryFn: fetchProducts,
+    staleTime: 60_000,
+  });
+
+  const loadProducts = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: MANUFACTURING_PRODUCTS_QUERY_KEY });
+  }, [queryClient]);
 
   return {
-    products,
-    loading,
+    products: data ?? [],
+    loading: isLoading,
     loadProducts
   };
 }
-

@@ -166,9 +166,9 @@
 - `src/features/manufacturing/cost-of-production-report.tsx` — شاشة RTL قابلة للطباعة (3 اختبارات)
 - مسار جديد `/manufacturing/cost-of-production` + رابط في القائمة الجانبية
 
-### 🆕 Migration 81 — تسوية الدفاتر الفرعية مع GL (9 يوليو 2026) — بند 13 (P2)
+### ✅ تم تطبيق Migration 81 — تسوية الدفاتر الفرعية مع GL (9 يوليو 2026) — بند 13 (P2)
 
-**⚠️ تتطلب التطبيق على قاعدة البيانات**: نفّذ `sql/migrations/81_subledger_gl_reconciliation.sql` في محرّر Supabase SQL.
+نُفِّذ محتوى `sql/migrations/81_subledger_gl_reconciliation.sql` بنجاح. تم التحقق: الدالة `rpc_subledger_gl_reconciliation` موجودة في `pg_proc` ✅
 
 يقارن أرصدة الدفاتر الفرعية مع حسابات الأستاذ العام — أي قيد يدوي شارد أو ترحيل ناقص يظهر فوراً بدلاً من اكتشافه في إقفال نهاية السنة:
 
@@ -181,6 +181,16 @@
 - `rpc_subledger_gl_reconciliation(p_as_of_date?, p_tenant?, p_prefixes?)` — دفاعية: أي جدول غير موجود يُعلَّم قسمه `unavailable` دون فشل الدالة، وبادئات الحسابات قابلة للتخصيص
 - `src/services/accounting/reconciliation-service.ts` (6 اختبارات)
 - شاشة `/accounting/reconciliation` بتاريخ قابل للاختيار + تفصيل حسابات GL + شارات توازن + طباعة (3 اختبارات)
+
+### ✅ بند 11 — توحيد React Query في hooks الجلب اليدوية (9 يوليو 2026) — P2
+
+لا يتطلب أي migration — تحسين واجهة فقط، **بدون تغيير أي واجهة عامة**:
+
+- `useManufacturingOrders` و`useManufacturingProducts` (كانتا `useState + useEffect` يدوياً) تستخدمان الآن React Query داخلياً — الواجهة الخارجية `{ orders, loading, loadOrders }` كما هي حرفياً، لا كسر لأي مستهلك
+- **كاش مشترك**: نفس مفتاح `['manufacturing-orders']` المستخدم في `hooks/use-manufacturing.ts` — أي إنشاء/تغيير حالة عبر mutations يحدّث كل الشاشات تلقائياً
+- المكاسب: إلغاء تكرار الطلبات بين الشاشات، `staleTime` يمنع الجلب الزائد، وإعادة الجلب بعد المسـح invalidation بدل إعادة تحميل يدوية
+- `useAuth`/`usePermissions` بقيتا كما هما عمداً — حالة جلسة وليست بيانات خادم
+- 6 اختبارات جديدة تثبت ثبات الواجهة والسلوك (PGRST205 ⇒ فارغ، خطأ ⇒ toast، loadOrders ⇒ إعادة جلب)
 
 ---
 
