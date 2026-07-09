@@ -103,34 +103,30 @@
 
 ### ✅ تم تطبيق Migration 76 على قاعدة البيانات الحية (8 يوليو 2026)
 
-نُفِّذ محتوى `sql/migrations/76_p0_atomic_journal_and_gl_event_posting.sql` عبر Supabase SQL Editor بنجاح (`Success. No rows returned`). أصبح الآن:
+نُفِّذ محتوى `sql/migrations/76_p0_atomic_journal_and_gl_event_posting.sql` عبر Supabase SQL Editor بنجاح (`Success. No rows returned`). تم التحقق: 6 صفوف في `pg_proc` ✅
 
-- إنشاء القيود اليومية **ذرّياً** عبر `rpc_create_journal_entry` — الواجهة تلتقطه تلقائياً بلا أي تعديل إضافي (الـ Fallback القديم لم يعد يُستخدم)
+- إنشاء القيود اليومية **ذرّياً** عبر `rpc_create_journal_entry`
 - القيود المرحّلة **محمية** من الحذف وتعديل الحقول المالية
 - دالتا `rpc_post_event_journal` و`rpc_post_work_center_oh` **معرّفتان** وجاهزتان
 
-### ⚠️ خطوة متبقية واحدة: خرائط الأحداث المحاسبية
+### ✅ تم تطبيق Migration 77 — زرع خرائط الأحداث المحاسبية (8 يوليو 2026)
 
-دوال الترحيل التشغيلي ترجع خطأ `MAPPING_MISSING` الواضح حتى تُعرَّف خرائط الأحداث لمؤسستك. نفّذ في SQL Editor (بعد تعديل أكواد الحسابات لتطابق شجرة حساباتك):
+نُفِّذ محتوى `sql/migrations/77_seed_gl_event_mappings.sql` بنجاح. تم التحقق: 14 خريطة حدث في `gl_event_mappings` ✅
 
-```sql
-SELECT rpc_upsert_event_mapping('MATERIAL_ISSUE', '134100', '131000', NULL, 'صرف مواد للإنتاج: مدين WIP / دائن مخزون مواد خام');
-SELECT rpc_upsert_event_mapping('LABOR_APPLIED',  '134200', '210900', NULL, 'تحميل أجور: مدين WIP-عمالة / دائن أجور مستحقة');
-SELECT rpc_upsert_event_mapping('OH_APPLIED',     '134300', '540000', NULL, 'تحميل أوفرهيد: مدين WIP-أوفرهيد / دائن محمّل OH');
-SELECT rpc_upsert_event_mapping('FG_RECEIPT',     '135000', '134100', NULL, 'استلام إنتاج تام: مدين مخزون تام / دائن WIP');
-SELECT rpc_upsert_event_mapping('ABNORMAL_SCRAP', '590000', '134100', NULL, 'تالف غير طبيعي: مدين مصروف تالف / دائن WIP');
-```
+أكواد الحسابات مستخرجة مباشرة من `wardah_enhanced_coa.csv` و`wardah_gl_mappings.csv`:
+- WIP بالمراحل: 134100 (خلط)، 134200 (بثق)، 134300 (طباعة)، 134400 (قطع)، 134500 (تغليف)
+- FG: 135100+، مواد خام: 131100+، أجور: 210201، OH مُحمَّل: 514000، تالف: 595100/595200
 
-الدالة تتحقق من وجود الحسابات في `gl_accounts` قبل الحفظ — إن كان كود غير موجود سترجع رسالة خطأ واضحة باسم الكود الناقص.
+### ✅ تم تطبيق Migration 78 — آلة حالات MO + حجز مواد ذرّي (9 يوليو 2026)
 
-وللتحقق السريع من اكتمال التطبيق:
+نُفِّذ محتوى `sql/migrations/78_p1_mo_state_machine_and_atomic_reservation.sql` بنجاح. تم التحقق: trigger `mo_status_machine` موجود ✅
 
-```sql
-SELECT proname FROM pg_proc WHERE proname IN
-  ('rpc_create_journal_entry','rpc_post_event_journal','rpc_post_work_center_oh',
-   'rpc_upsert_event_mapping','wardah_org_id','assert_period_open');
--- المتوقع: 6 صفوف
-```
+- **`normalize_mo_status()`** — توحيد kebab-case ↔ snake_case (`in-progress` → `in_progress`، `completed` → `done`)
+- **`validate_mo_transition()`** — منطق آلة الحالات: يرفع `MO_INVALID_TRANSITION` أو `MO_TERMINAL_STATE`
+- **Trigger `mo_status_machine`** — يعمل قبل أي UPDATE على حقل status، يُطبق التحقق ويضبط تواريخ البداية/النهاية تلقائياً
+- **`rpc_transition_mo_status()`** — RPC آمن لتغيير الحالة من الواجهة
+- **`rpc_create_mo_with_reservation()`** — إنشاء MO + حجز مواد في معاملة واحدة (فحص التوفر مسبقاً)
+- الواجهة (`updateStatus.ts`، `createOrder.ts`) تجرّب المسار الذرّي أولاً وتُراجع للمسار القديم تلقائياً إن لم يُطبَّق الـ Migration بعد (Fallback آمن)
 
 ---
 
