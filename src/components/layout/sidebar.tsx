@@ -428,7 +428,8 @@ export function Sidebar() {
         { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
         { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
         { key: 'account-statement', href: '/accounting/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' },
-        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' }
+        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' },
+        { key: 'reconciliation', href: '/accounting/reconciliation', label: isRTL ? 'تسوية الدفاتر مع GL' : 'Subledger ↔ GL Reconciliation' }
       ]
     },
     {

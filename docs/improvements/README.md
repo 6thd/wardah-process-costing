@@ -166,6 +166,22 @@
 - `src/features/manufacturing/cost-of-production-report.tsx` — شاشة RTL قابلة للطباعة (3 اختبارات)
 - مسار جديد `/manufacturing/cost-of-production` + رابط في القائمة الجانبية
 
+### 🆕 Migration 81 — تسوية الدفاتر الفرعية مع GL (9 يوليو 2026) — بند 13 (P2)
+
+**⚠️ تتطلب التطبيق على قاعدة البيانات**: نفّذ `sql/migrations/81_subledger_gl_reconciliation.sql` في محرّر Supabase SQL.
+
+يقارن أرصدة الدفاتر الفرعية مع حسابات الأستاذ العام — أي قيد يدوي شارد أو ترحيل ناقص يظهر فوراً بدلاً من اكتشافه في إقفال نهاية السنة:
+
+| القسم | جانب GL | جانب الدفتر الفرعي |
+|---|---|---|
+| المخزون | حسابات بادئة `131/132/133/135` من القيود المرحَّلة | `inventory_ledger` (AVCO) أو `stock_ledger_entries` — أيهما وُجد |
+| WIP | حسابات بادئة `134` | `stage_costs` للأوامر المفتوحة (غير done/cancelled) |
+
+المكوّنات (إضافية 100% — قراءة فقط):
+- `rpc_subledger_gl_reconciliation(p_as_of_date?, p_tenant?, p_prefixes?)` — دفاعية: أي جدول غير موجود يُعلَّم قسمه `unavailable` دون فشل الدالة، وبادئات الحسابات قابلة للتخصيص
+- `src/services/accounting/reconciliation-service.ts` (6 اختبارات)
+- شاشة `/accounting/reconciliation` بتاريخ قابل للاختيار + تفصيل حسابات GL + شارات توازن + طباعة (3 اختبارات)
+
 ---
 
 ## 📏 معايير القبول العامة (Definition of Done)
