@@ -43,24 +43,31 @@ $$;
 
 -- =====================================================================
 -- 2. توسيع CHECK constraint لقبول الحالات الجديدة
---    (DROP + ADD — آمن لأننا نزيد الخيارات فقط)
+--    NOT VALID: يُضاف الـ CHECK فوراً ويُطبَّق على الكتابات الجديدة فقط
+--    لا يُعيد فحص الصفوف الموجودة → لا خطأ 23514 مهما كانت قيمها.
+--    يمكن لاحقاً VALIDATE CONSTRAINT بعد تنظيف البيانات كاملاً.
 -- =====================================================================
 DO $$
 BEGIN
-    -- حذف الـ CHECK القديم إن وُجد
+    -- حذف أي CHECK قديم بنفس الاسم إن وُجد
     ALTER TABLE manufacturing_orders
         DROP CONSTRAINT IF EXISTS manufacturing_orders_status_check;
 
-    -- إضافة CHECK موسَّع
+    -- إضافة CHECK موسَّع بدون فحص الصفوف الحالية (NOT VALID)
     ALTER TABLE manufacturing_orders
         ADD CONSTRAINT manufacturing_orders_status_check
         CHECK (status IN (
             'draft', 'pending', 'confirmed',
             'in_progress', 'on_hold', 'quality_check',
             'done', 'cancelled'
-        ));
+        ))
+        NOT VALID;
 END;
 $$;
+
+-- [اختياري — شغّله يدوياً بعد التحقق من تنظيف البيانات]
+-- ALTER TABLE manufacturing_orders
+--     VALIDATE CONSTRAINT manufacturing_orders_status_check;
 
 -- =====================================================================
 -- 3. دالة منطق آلة الحالات (مستقلة عن الـ Trigger — سهلة الاختبار)
