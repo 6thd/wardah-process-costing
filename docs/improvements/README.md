@@ -148,9 +148,9 @@
 | رسائل أخطاء Supabase كانت تصل للمستخدم كـ `[object Object]` — `getErrorMessage` تتعامل الآن مع كائنات PostgREST | `src/services/enhanced-sales-service.ts` |
 | اختبارات `createOrder` محدَّثة للمسار الذرّي (Migration 78) + اختبار `resumeWorkOrder` يحاكي RPC `start_operation` الفعلي | `createOrder.test.ts`، `mesService.test.ts` |
 
-### 🆕 Migration 80 — تقرير تكلفة الإنتاج بالوحدات المكافئة (9 يوليو 2026) — بند 12 (P2)
+### ✅ تم تطبيق Migration 80 — تقرير تكلفة الإنتاج بالوحدات المكافئة (9 يوليو 2026) — بند 12 (P2)
 
-**⚠️ تتطلب التطبيق على قاعدة البيانات**: نفّذ `sql/migrations/80_cost_of_production_report.sql` في محرّر Supabase SQL.
+نُفِّذ محتوى `sql/migrations/80_cost_of_production_report.sql` بنجاح. تم التحقق: الدالة `rpc_cost_of_production_report` موجودة في `pg_proc` ✅
 
 أول مخرجات المرحلة الثانية: تقرير تكلفة الإنتاج (Cost of Production Report) بالخطوات الخمس القياسية:
 
