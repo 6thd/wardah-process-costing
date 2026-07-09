@@ -14,6 +14,8 @@ export interface PageHeaderProps {
   /** أيقونة اختيارية بجانب العنوان */
   readonly icon?: React.ReactNode
   readonly className?: string
+  /** فئات إضافية للعنوان — مثل wardah-text-gradient-google لهوية الشاشات الرئيسية */
+  readonly titleClassName?: string
   /** إخفاء الرأس عند الطباعة (افتراضي: true — التقرير نفسه له رأسه) */
   readonly hideOnPrint?: boolean
 }
@@ -24,6 +26,7 @@ export function PageHeader({
   actions,
   icon,
   className,
+  titleClassName,
   hideOnPrint = true
 }: PageHeaderProps) {
   return (
@@ -35,7 +38,7 @@ export function PageHeader({
       )}
     >
       <div className="min-w-0">
-        <h1 className="text-3xl font-bold flex items-center gap-3">
+        <h1 className={cn('text-3xl font-bold flex items-center gap-3', titleClassName)}>
           {icon && <span className="text-muted-foreground [&>svg]:h-7 [&>svg]:w-7">{icon}</span>}
           <span className="truncate">{title}</span>
         </h1>

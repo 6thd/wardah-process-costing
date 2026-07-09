@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { Plus, X, Trash2 } from 'lucide-react'
+import { Plus, X, Trash2, PackageOpen, ClipboardList } from 'lucide-react'
+import { PageHeader } from '@/components/ui/page-header'
+import { EmptyState } from '@/components/ui/empty-state'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -63,12 +65,11 @@ function InventoryOverview() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('inventory.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة المخزون والأصناف
-        </p>
-      </div>
+      <PageHeader
+        title={t('inventory.title')}
+        description="إدارة المخزون والأصناف"
+        hideOnPrint={false}
+      />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -704,15 +705,13 @@ function ItemsManagement() {
         </div>
         
         {filteredItems.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="text-6xl mb-4">📭</div>
-            <h3 className="text-lg font-semibold mb-2">لا توجد أصناف</h3>
-            <p className="text-muted-foreground">
-              {searchTerm || selectedCategory !== 'all' || stockFilter !== 'all'
-                ? 'جرب تغيير الفلاتر للحصول على نتائج'
-                : 'لم يتم إضافة أي أصناف بعد'}
-            </p>
-          </div>
+          <EmptyState
+            icon={<PackageOpen aria-hidden="true" />}
+            title="لا توجد أصناف"
+            description={searchTerm || selectedCategory !== 'all' || stockFilter !== 'all'
+              ? 'جرب تغيير الفلاتر للحصول على نتائج'
+              : 'لم يتم إضافة أي أصناف بعد — ابدأ بزر «إضافة صنف»'}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1505,22 +1504,17 @@ function StockAdjustments() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold">تسويات المخزون</h1>
-          <p className="text-muted-foreground mt-2">
-            تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية
-          </p>
-        </div>
-        <Button
-          onClick={() => setShowNewForm(true)}
-          className="gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          تسوية جديدة
-        </Button>
-      </div>
+      <PageHeader
+        title="تسويات المخزون"
+        description="تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية"
+        hideOnPrint={false}
+        actions={
+          <Button onClick={() => setShowNewForm(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            تسوية جديدة
+          </Button>
+        }
+      />
 
       {/* New Adjustment Form */}
       {showNewForm && (
@@ -2212,11 +2206,11 @@ function StockAdjustments() {
       {/* Adjustments List */}
       <div className="bg-card rounded-lg border">
         {adjustments.length === 0 ? (
-          <div className="p-12 text-center text-muted-foreground">
-            <p className="text-4xl mb-4">📋</p>
-            <p className="text-lg">لا توجد تسويات مخزون بعد</p>
-            <p className="text-sm mt-2">ابدأ بإنشاء تسوية جديدة</p>
-          </div>
+          <EmptyState
+            icon={<ClipboardList aria-hidden="true" />}
+            title="لا توجد تسويات مخزون بعد"
+            description="ابدأ بإنشاء تسوية جديدة بالزر أعلاه"
+          />
         ) : (
           <div className="divide-y">
             {adjustments.map((adj) => (
@@ -2284,12 +2278,11 @@ function InventoryValuation() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقييم المخزون</h1>
-        <p className="text-muted-foreground mt-2">
-          تقارير قيمة وتقييم المخزون
-        </p>
-      </div>
+      <PageHeader
+        title="تقييم المخزون"
+        description="تقارير قيمة وتقييم المخزون"
+        hideOnPrint={false}
+      />
       <div className="bg-card rounded-lg border p-6">
         <p className={cn(
           "text-muted-foreground",
@@ -2309,12 +2302,11 @@ function StorageLocations() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">مواقع التخزين</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة مواقع ومستودعات التخزين
-        </p>
-      </div>
+      <PageHeader
+        title="مواقع التخزين"
+        description="إدارة مواقع ومستودعات التخزين"
+        hideOnPrint={false}
+      />
       <div className="bg-card rounded-lg border p-6">
         <p className={cn(
           "text-muted-foreground",
@@ -2371,9 +2363,10 @@ function StockMovements() {
         </div>
         <div className="divide-y">
           {movements.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">
-              <p>لا توجد حركات مخزون بعد</p>
-            </div>
+            <EmptyState
+              title="لا توجد حركات مخزون بعد"
+              description="تظهر الحركات هنا تلقائياً مع أول استلام أو صرف أو تسوية"
+            />
           ) : (
             movements.map((movement) => {
               // Determine movement direction from actual_qty
@@ -2580,9 +2573,10 @@ function CategoriesManagement() {
         </div>
         <div className="divide-y">
           {categories.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">
-              <p>لا توجد فئات. ابدأ بإضافة فئة جديدة!</p>
-            </div>
+            <EmptyState
+              title="لا توجد فئات"
+              description="ابدأ بإضافة فئة جديدة لتنظيم الأصناف"
+            />
           ) : (
             categories.map((category) => (
               <div key={category.id} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">

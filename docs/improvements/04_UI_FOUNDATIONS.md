@@ -71,14 +71,21 @@ import { TableSkeleton, CardSkeleton, ReportSkeleton } from '@/components/ui/loa
 - البطاقات والصفوف لا تنقسم عبر الصفحات (`break-inside: avoid`)
 - A4 بهوامش قياسية
 
-## أين طُبِّقت كنموذج مرجعي
+## أين طُبِّقت (الدفعة الأولى + الثانية)
 
 | الشاشة | المكوّنات |
 |---|---|
 | `/accounting/reconciliation` | PageHeader + ErrorState + ReportSkeleton |
 | `/manufacturing/cost-of-production` | EmptyState + ErrorState + ReportSkeleton |
+| `/manufacturing/overview` | PageHeader (بهوية gradient) + الـ hook الموحَّد بدل جلب مكرر |
+| صفحات التصنيع: process-costing، equivalent-units، variance-alerts، stages، wip-log، standard-costs، workcenters، quality | PageHeader (مع `titleClassName` لهوية gradient حيث كانت) |
+| `/accounting/journal-entries` | TableSkeleton بدل «جاري التحميل...» + EmptyState موجِّهة |
+| `/inventory` (الرئيسية + التسويات + التقييم + المواقع) | PageHeader + EmptyState للأصناف/التسويات/الحركات/الفئات |
+
+> **ملاحظة الهوية**: خاصية `titleClassName` في PageHeader تسمح بالإبقاء على
+> `wardah-text-gradient-google` للشاشات الرئيسية — التوحيد لا يعني طمس الهوية.
 
 ## خطة الاعتماد التدريجي
 
 عند لمس أي شاشة قديمة لأي سبب، استبدل أنماطها اليدوية بالمكوّنات الموحَّدة —
-**لا حاجة لحملة تعديل شاملة** تخاطر بكسر 41 شاشة دفعة واحدة.
+**لا حاجة لحملة تعديل شاملة** تخاطر بكسر بقية الشاشات دفعة واحدة.
