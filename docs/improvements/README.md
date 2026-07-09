@@ -128,9 +128,9 @@
 - **`rpc_create_mo_with_reservation()`** — إنشاء MO + حجز مواد في معاملة واحدة (فحص التوفر مسبقاً)
 - الواجهة (`updateStatus.ts`، `createOrder.ts`) تجرّب المسار الذرّي أولاً وتُراجع للمسار القديم تلقائياً إن لم يُطبَّق الـ Migration بعد (Fallback آمن)
 
-### ⚠️ Migration 79 — فرض إقفال الفترات + إدارتها (جاهز، لم يُطبَّق بعد)
+### ✅ تم تطبيق Migration 79 — فرض إقفال الفترات + إدارتها (9 يوليو 2026)
 
-`sql/migrations/79_p1_period_enforcement_and_management.sql` — بند 8 من المصفوفة:
+نُفِّذ محتوى `sql/migrations/79_p1_period_enforcement_and_management.sql` بنجاح (مع تفعيل RLS من محرّر Supabase). تم التحقق: trigger `gl_entries_period_guard` موجود على `gl_entries` ✅ — بند 8 من المصفوفة:
 
 - **إصلاح جذري في `assert_period_open`**: النسخة الأولى كانت تبحث بعمود `org_id` بينما جدول الفترات القديم يستخدم `tenant_id` — فكانت تسمح دائماً بصمت. v2 تكتشف اسم العمود تلقائياً (`wardah_periods_org_col`)
 - **Trigger `gl_entries_period_guard`**: يحمي *كل* مسارات الإدخال والترحيل (INSERT قيد جديد، ترحيل draft→posted، تغيير تاريخ قيد) — مهما كان المصدر: RPC أو batch أو INSERT مباشر
