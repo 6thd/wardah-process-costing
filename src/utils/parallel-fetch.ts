@@ -22,7 +22,7 @@ export async function fetchParallel<T extends Record<string, Promise<unknown>>>(
   };
 
   const results = await Promise.race([
-    Promise.allSettled(Object.entries(promises).map(async ([key, promise]): Promise<SettledResult> => {
+    Promise.all(Object.entries(promises).map(async ([key, promise]): Promise<SettledResult> => {
       try {
         const value = await promise;
         return { key, status: 'fulfilled', value };
