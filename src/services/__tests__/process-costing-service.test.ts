@@ -35,6 +35,8 @@ vi.mock('@/lib/supabase', () => ({
       })),
     })),
   },
+  // null ⇒ يسقط resolveOrgId للـ Fallback (config.ORG_ID) — نفس سلوك الاختبارات السابق
+  getEffectiveTenantId: vi.fn(() => Promise.resolve(null)),
 }));
 
 // Mock config loader

@@ -22,6 +22,8 @@ vi.mock('@/lib/supabase', () => ({
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
     })),
   },
+  // null ⇒ يسقط resolveOrgId للـ Fallback (config.ORG_ID) — نفس سلوك الاختبارات السابق
+  getEffectiveTenantId: vi.fn(() => Promise.resolve(null)),
 }))
 
 // Mock loadConfig - must return the config object properly

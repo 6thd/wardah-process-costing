@@ -28,7 +28,17 @@ function getErrorMessage(error: unknown): string {
   if (typeof error === 'string') {
     return error;
   }
-  return String(error);
+  // أخطاء Supabase/PostgREST كائنات عادية { message, code, ... } وليست Error —
+  // بدون هذا الفرع كانت تصل للمستخدم كـ "[object Object]"
+  if (error && typeof error === 'object' && 'message' in error) {
+    const msg = (error as { message?: unknown }).message;
+    if (typeof msg === 'string' && msg) return msg;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
 }
 
 /**

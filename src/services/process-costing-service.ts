@@ -3,8 +3,22 @@
  * Handles process costing operations with support for stage_id and stage_number
  */
 
-import { supabase } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { loadConfig } from '@/lib/config'
+
+/**
+ * اشتقاق هوية المؤسسة: جلسة المستخدم أولاً (عضويته الفعلية)،
+ * ثم config.ORG_ID كـ Fallback فقط — لا كسر للبيئات التي تعتمد الـ Config
+ */
+async function resolveOrgId(): Promise<string> {
+  const sessionOrgId = await getEffectiveTenantId()
+  if (sessionOrgId) return sessionOrgId
+
+  const config = await loadConfig()
+  if (config.ORG_ID) return config.ORG_ID
+
+  throw new Error('تعذر تحديد هوية المؤسسة: لا جلسة مستخدم نشطة ولا ORG_ID في الإعدادات')
+}
 
 export interface ProcessCostingParams {
   moId: string
@@ -69,8 +83,7 @@ class ProcessCostingService {
       }
 
       const totalLaborCost = laborHours * hourlyRate
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Get stage_no from stageId if needed
       let targetStageNo = stageNo
@@ -162,8 +175,7 @@ class ProcessCostingService {
       }
 
       const overheadAmount = baseQty * overheadRate
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Try to use stage_wip_log if stageId is provided
       // Note: moh_applied table doesn't have stage_id, only stage_no
@@ -267,8 +279,7 @@ class ProcessCostingService {
         throw new Error('Missing required parameters: moId, stageId/stageNo, goodQty')
       }
 
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Calculate costs
       let laborCost = 0
