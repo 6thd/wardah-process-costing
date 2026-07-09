@@ -19,6 +19,7 @@ vi.mock('../../inventory-transaction-service', () => ({
 describe('createManufacturingOrder', () => {
   let mockSupabase: SupabaseClient;
   let mockFrom: ReturnType<typeof vi.fn>;
+  let mockRpc: ReturnType<typeof vi.fn>;
   let mockInsert: ReturnType<typeof vi.fn>;
   let mockSelect: ReturnType<typeof vi.fn>;
   let mockSingle: ReturnType<typeof vi.fn>;
@@ -32,9 +33,15 @@ describe('createManufacturingOrder', () => {
     mockSelect = vi.fn(() => ({ eq: mockEq, single: mockSingle }));
     mockInsert = vi.fn(() => ({ select: mockSelect }));
     mockFrom = vi.fn(() => ({ insert: mockInsert, select: mockSelect }));
+    // افتراضي: RPC غير موجود (Migration 78 لم يُطبَّق) → Fallback يعمل
+    mockRpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function rpc_create_mo_with_reservation' },
+    });
 
     mockSupabase = {
       from: mockFrom,
+      rpc: mockRpc,
     } as unknown as SupabaseClient;
 
     mockCheckAvailability.mockResolvedValue([]);
@@ -278,6 +285,55 @@ describe('createManufacturingOrder', () => {
     expect(consoleErrorSpy).toHaveBeenCalled();
 
     consoleErrorSpy.mockRestore();
+  });
+
+  // ===== اختبارات المسار الذرّي (Migration 78) =====
+
+  it('should use rpc_create_mo_with_reservation when available (atomic path)', async () => {
+    const { createManufacturingOrder } = await import('../createOrder');
+
+    mockRpc.mockResolvedValue({
+      data: { success: true, mo_id: 'mo-atomic-1', mo_number: 'MO-20260709-0001', materials_reserved: 1 },
+      error: null,
+    });
+
+    const materials = [{ item_id: 'item-1', quantity: 10, unit_cost: 5 }];
+
+    const result = await createManufacturingOrder(getClient, {
+      order_number: 'MO-001',
+      product_id: 'prod-1',
+      quantity: 10,
+    }, materials);
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_create_mo_with_reservation', expect.objectContaining({
+      p_materials: [{ item_id: 'item-1', quantity: 10 }],
+    }));
+    expect(result.id).toBe('mo-atomic-1');
+    // لا يجب استدعاء المسار القديم (INSERT مباشر أو حجز منفصل)
+    expect(mockInsert).not.toHaveBeenCalled();
+    expect(mockReserveMaterials).not.toHaveBeenCalled();
+  });
+
+  it('should propagate DB error from rpc_create_mo_with_reservation (insufficient stock)', async () => {
+    const { createManufacturingOrder } = await import('../createOrder');
+
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: 'INSUFFICIENT_STOCK: مواد غير كافية' },
+    });
+
+    const materials = [{ item_id: 'item-1', quantity: 1000, unit_cost: 5 }];
+
+    await expect(
+      createManufacturingOrder(getClient, {
+        order_number: 'MO-001',
+        product_id: 'prod-1',
+        quantity: 1000,
+      }, materials)
+    ).rejects.toThrow('INSUFFICIENT_STOCK');
+
+    // يجب ألا يسقط للمسار القديم عند خطأ DB حقيقي
+    expect(mockInsert).not.toHaveBeenCalled();
   });
 });
 

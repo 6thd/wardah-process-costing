@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 describe('updateManufacturingOrderStatus', () => {
   let mockSupabase: SupabaseClient;
   let mockFrom: ReturnType<typeof vi.fn>;
+  let mockRpc: ReturnType<typeof vi.fn>;
   let mockUpdate: ReturnType<typeof vi.fn>;
   let mockSelect: ReturnType<typeof vi.fn>;
   let mockEq: ReturnType<typeof vi.fn>;
@@ -23,9 +24,15 @@ describe('updateManufacturingOrderStatus', () => {
     const eqAfterUpdate = vi.fn(() => ({ select: mockSelect }));
     mockUpdate = vi.fn(() => ({ eq: eqAfterUpdate }));
     mockFrom = vi.fn(() => ({ update: mockUpdate, select: mockSelect }));
+    // افتراضي: RPC غير موجود (Migration 78 لم يُطبَّق) → Fallback يعمل
+    mockRpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function rpc_transition_mo_status' }
+    });
 
     mockSupabase = {
       from: mockFrom,
+      rpc: mockRpc,
     } as unknown as SupabaseClient;
   });
 
@@ -306,6 +313,67 @@ describe('updateManufacturingOrderStatus', () => {
     });
 
     expect(result).toEqual(fallbackData);
+  });
+
+  // ===== اختبارات المسار الذرّي (Migration 78) =====
+
+  it('should use rpc_transition_mo_status when available (atomic path)', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockResolvedValue({
+      data: { success: true, mo_id: 'mo-1', new_status: 'in_progress', mo_number: 'MO-001' },
+      error: null
+    });
+
+    const result = await updateManufacturingOrderStatus(getClient, {
+      id: 'mo-1',
+      status: 'in-progress',
+    });
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_transition_mo_status', expect.objectContaining({
+      p_mo_id: 'mo-1',
+      p_status: 'in-progress',
+    }));
+    // لا يجب استدعاء UPDATE المباشر
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(result?.status).toBe('in-progress'); // normalizeStatus يحوّل in_progress → in-progress
+  });
+
+  it('should propagate DB error from rpc_transition_mo_status (invalid transition)', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'P0001', message: 'MO_INVALID_TRANSITION: التنقل من "done" إلى "confirmed" غير مسموح' }
+    });
+
+    await expect(
+      updateManufacturingOrderStatus(getClient, { id: 'mo-1', status: 'confirmed' })
+    ).rejects.toThrow('MO_INVALID_TRANSITION');
+
+    // يجب ألا يسقط للـ Fallback عند وجود خطأ DB حقيقي
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('should fall back to direct UPDATE when Migration 78 not yet applied', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    // PGRST202 = دالة غير موجودة → Fallback مسموح
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function rpc_transition_mo_status' }
+    });
+
+    const updatedData = { id: 'mo-1', status: 'confirmed', updated_at: new Date().toISOString() };
+    mockSingle.mockResolvedValue({ data: updatedData, error: null });
+
+    const result = await updateManufacturingOrderStatus(getClient, {
+      id: 'mo-1',
+      status: 'confirmed',
+    });
+
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(result).toEqual(updatedData);
   });
 });
 

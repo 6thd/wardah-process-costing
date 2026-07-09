@@ -154,8 +154,15 @@ async function insertOrder(
   return data as DataWithItem;
 }
 
+function isMissingFunctionError(error: { code?: string; message?: string } | null | undefined): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST202' || error.message?.includes('Could not find the function') || false;
+}
+
 /**
- * Create a manufacturing order with optional material reservation
+ * Create a manufacturing order with optional material reservation.
+ * Uses rpc_create_mo_with_reservation (atomic) when Migration 78 is applied,
+ * falls back to the legacy two-step approach otherwise.
  */
 export async function createManufacturingOrder(
   getClient: () => Promise<SupabaseClient>,
@@ -163,8 +170,44 @@ export async function createManufacturingOrder(
   materials?: MaterialInput[]
 ): Promise<DataWithItem> {
   const supabase = await getClient();
-  
-  // Check material availability if materials provided
+
+  // ===== المسار الذرّي: RPC واحد يُنشئ الأمر ويحجز المواد في معاملة واحدة =====
+  if (materials && materials.length > 0) {
+    const { data: rpcData, error: rpcError } = await supabase.rpc(
+      'rpc_create_mo_with_reservation',
+      {
+        p_order: order,
+        p_materials: materials.map(m => ({
+          item_id: m.item_id,
+          quantity: m.quantity,
+        })),
+        p_tenant: null,
+      }
+    );
+
+    if (!rpcError && rpcData?.success) {
+      // نجح — نُعيد بيانات الأمر المنشأ مع تحميل بيانات المنتج
+      const result: DataWithItem = {
+        id: rpcData.mo_id,
+        ...order,
+      };
+      await loadRelatedProductData(supabase, result);
+      return result;
+    }
+
+    // خطأ DB حقيقي (مخزون غير كافٍ، بيانات ناقصة...) — يصل للمستخدم
+    if (rpcError && !isMissingFunctionError(rpcError)) {
+      throw new Error(`فشل إنشاء أمر التصنيع: ${rpcError.message}`);
+    }
+
+    // Migration 78 غير مطبَّق — نرجع للمسار القديم مع تحذير
+    console.warn(
+      '[createManufacturingOrder] rpc_create_mo_with_reservation غير متاح، ' +
+      'جاري استخدام المسار القديم (إنشاء ثم حجز منفصل). طبّق Migration 78 لضمان الذرّية.'
+    );
+  }
+
+  // ===== Fallback: المسار القديم (خطوتان — غير ذرّي) =====
   if (materials && materials.length > 0) {
     try {
       await checkMaterialAvailability(materials);
@@ -175,19 +218,16 @@ export async function createManufacturingOrder(
       throw new Error(`فشل في التحقق من توفر المواد: ${error instanceof Error ? error.message : 'خطأ غير معروف'}`);
     }
   }
-  
-  // Insert the order
+
   const data = await insertOrder(supabase, order);
-  
-  // Reserve materials if order created successfully and materials provided
+
   if (data && materials && materials.length > 0) {
     await reserveMaterials(data.id, materials);
   }
-  
-  // Load related product data
+
   if (data) {
     await loadRelatedProductData(supabase, data);
   }
-  
+
   return data;
 }

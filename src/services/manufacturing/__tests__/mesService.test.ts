@@ -452,15 +452,19 @@ describe('MES Service', () => {
         updated_at: new Date().toISOString(),
       }
 
-      // @ts-ignore - Mock response for testing
+      // resumeWorkOrder يمر عبر RPC start_operation وليس عبر UPDATE مباشر
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      mockSupabaseQuery.single.mockResolvedValue({
+      ;(supabase.rpc as any).mockResolvedValue({
         data: mockWorkOrder,
         error: null,
-      } as any)
+      })
 
       const result = await mesService.resumeWorkOrder(testWorkOrderId)
 
+      expect(supabase.rpc).toHaveBeenCalledWith('start_operation', expect.objectContaining({
+        p_work_order_id: testWorkOrderId,
+        p_is_setup: false,
+      }))
       expect(result.status).toBe('IN_PROGRESS')
     })
   })

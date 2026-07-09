@@ -22,6 +22,8 @@ vi.mock('@/lib/supabase', () => ({
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
     })),
   },
+  // null ⇒ يسقط resolveOrgId للـ Fallback (config.ORG_ID) — نفس سلوك الاختبارات السابق
+  getEffectiveTenantId: vi.fn(() => Promise.resolve(null)),
 }))
 
 // Mock loadConfig - must return the config object properly
@@ -594,6 +596,10 @@ describe('Integration: process-costing-service', () => {
     })
 
     it('should calculate unit cost correctly', async () => {
+      // Mock realistic upsert behavior: the DB echoes back the upserted row.
+      // (The service no longer fabricates a success response when the DB
+      // returns nothing — data:null without error cannot happen with .single())
+      let capturedPayload: Record<string, unknown> | null = null
       const mockFrom = vi.fn().mockImplementation((table: string) => {
         if (table === 'labor_time_logs' || table === 'moh_applied') {
           return {
@@ -604,21 +610,23 @@ describe('Integration: process-costing-service', () => {
           }
         }
         if (table === 'stage_costs') {
-          return {
-            upsert: vi.fn().mockReturnThis(),
-            select: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({
-              data: null,
-              error: null,
-            }),
-          }
+          const chain: Record<string, ReturnType<typeof vi.fn>> = {}
+          chain.upsert = vi.fn().mockImplementation((payload: Record<string, unknown>) => {
+            capturedPayload = payload
+            return chain
+          })
+          chain.select = vi.fn().mockImplementation(() => chain)
+          chain.single = vi.fn().mockImplementation(() =>
+            Promise.resolve({ data: capturedPayload, error: null })
+          )
+          return chain
         }
         return {
           select: vi.fn().mockReturnThis(),
           single: vi.fn().mockResolvedValue({ data: null, error: null }),
         }
       })
-      
+
       vi.mocked(supabase.from).mockImplementation(mockFrom)
 
       const params: ProcessCostingParams = {
@@ -673,7 +681,18 @@ describe('Integration: process-costing-service', () => {
     })
 
     it('should use stageId for conflict resolution when provided', async () => {
-      const mockUpsert = vi.fn().mockReturnThis()
+      // Realistic mock: the upserted row is echoed back by the DB
+      let capturedPayload: Record<string, unknown> | null = null
+      const stageCostsChain: Record<string, ReturnType<typeof vi.fn>> = {}
+      stageCostsChain.upsert = vi.fn().mockImplementation((payload: Record<string, unknown>) => {
+        capturedPayload = payload
+        return stageCostsChain
+      })
+      stageCostsChain.select = vi.fn().mockImplementation(() => stageCostsChain)
+      stageCostsChain.single = vi.fn().mockImplementation(() =>
+        Promise.resolve({ data: capturedPayload, error: null })
+      )
+
       const mockFrom = vi.fn().mockImplementation((table: string) => {
         if (table === 'manufacturing_stages') {
           return {
@@ -694,18 +713,14 @@ describe('Integration: process-costing-service', () => {
           }
         }
         if (table === 'stage_costs') {
-          return {
-            upsert: mockUpsert,
-            select: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: null, error: null }),
-          }
+          return stageCostsChain
         }
         return {
           select: vi.fn().mockReturnThis(),
           single: vi.fn().mockResolvedValue({ data: null, error: null }),
         }
       })
-      
+
       vi.mocked(supabase.from).mockImplementation(mockFrom)
 
       const params: ProcessCostingParams = {
@@ -717,7 +732,8 @@ describe('Integration: process-costing-service', () => {
       await processCostingService.upsertStageCost(params)
 
       // Verify upsert was called with stage_id
-      expect(mockUpsert).toHaveBeenCalled()
+      expect(stageCostsChain.upsert).toHaveBeenCalled()
+      expect(capturedPayload).toMatchObject({ stage_id: 'stage-uuid-789' })
     })
   })
 

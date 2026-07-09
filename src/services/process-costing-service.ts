@@ -3,8 +3,22 @@
  * Handles process costing operations with support for stage_id and stage_number
  */
 
-import { supabase } from '@/lib/supabase'
+import { supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { loadConfig } from '@/lib/config'
+
+/**
+ * اشتقاق هوية المؤسسة: جلسة المستخدم أولاً (عضويته الفعلية)،
+ * ثم config.ORG_ID كـ Fallback فقط — لا كسر للبيئات التي تعتمد الـ Config
+ */
+async function resolveOrgId(): Promise<string> {
+  const sessionOrgId = await getEffectiveTenantId()
+  if (sessionOrgId) return sessionOrgId
+
+  const config = await loadConfig()
+  if (config.ORG_ID) return config.ORG_ID
+
+  throw new Error('تعذر تحديد هوية المؤسسة: لا جلسة مستخدم نشطة ولا ORG_ID في الإعدادات')
+}
 
 export interface ProcessCostingParams {
   moId: string
@@ -69,8 +83,7 @@ class ProcessCostingService {
       }
 
       const totalLaborCost = laborHours * hourlyRate
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Get stage_no from stageId if needed
       let targetStageNo = stageNo
@@ -126,14 +139,19 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل الحفظ يجب أن يصل للمستخدم
+      // (كان الكود سابقاً يتجاهل أخطاء "Could not find" ويرجع نجاحاً وهمياً بـ temp-id)
+      if (error) {
+        throw new Error(`فشل حفظ وقت العمالة في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data?.id) {
+        throw new Error('فشل حفظ وقت العمالة: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
         data: {
-          id: data?.id || 'temp-id',
+          id: data.id,
           totalLaborCost,
           hours: laborHours,
           hourlyRate
@@ -157,8 +175,7 @@ class ProcessCostingService {
       }
 
       const overheadAmount = baseQty * overheadRate
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Try to use stage_wip_log if stageId is provided
       // Note: moh_applied table doesn't have stage_id, only stage_no
@@ -218,14 +235,18 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل الحفظ يجب أن يصل للمستخدم
+      if (error) {
+        throw new Error(`فشل حفظ الأوفرهيد في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data?.id) {
+        throw new Error('فشل حفظ الأوفرهيد: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
         data: {
-          id: data?.id || 'temp-id',
+          id: data.id,
           overheadAmount,
           baseQty,
           rate: overheadRate
@@ -258,8 +279,7 @@ class ProcessCostingService {
         throw new Error('Missing required parameters: moId, stageId/stageNo, goodQty')
       }
 
-      const config = await loadConfig()
-      const orgId = config.ORG_ID
+      const orgId = await resolveOrgId()
 
       // Calculate costs
       let laborCost = 0
@@ -347,26 +367,17 @@ class ProcessCostingService {
         .select()
         .single()
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      // لا نبتلع أخطاء قاعدة البيانات: فشل حفظ تكلفة المرحلة يجب أن يصل للمستخدم
+      if (error) {
+        throw new Error(`فشل حفظ تكلفة المرحلة في قاعدة البيانات: ${error.message}`)
+      }
+      if (!data) {
+        throw new Error('فشل حفظ تكلفة المرحلة: لم تُرجع قاعدة البيانات سجلاً')
       }
 
       return {
         success: true,
-        data: data || {
-          manufacturing_order_id: moId,
-          stage_id: stageId || undefined,
-          stage_number: stageNo || undefined,
-          work_center_id: workCenterId || undefined,
-          good_quantity: goodQty,
-          scrap_quantity: scrapQty || 0,
-          material_cost: materialCost,
-          labor_cost: laborCost,
-          overhead_cost: overheadCost,
-          total_cost: totalCost,
-          unit_cost: unitCost,
-          status: mode || 'actual'
-        } as StageCostResult
+        data: data as StageCostResult
       }
     } catch (error: any) {
       console.error('Error upserting stage cost:', error)
@@ -389,8 +400,8 @@ class ProcessCostingService {
         .eq('manufacturing_order_id', moId)
         .order('stage_number', { ascending: true })
 
-      if (error && !error.message.includes('Could not find')) {
-        throw error
+      if (error) {
+        throw new Error(`فشل جلب تكاليف المراحل: ${error.message}`)
       }
 
       return {
