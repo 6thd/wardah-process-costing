@@ -1,25 +1,14 @@
+import type { ComponentType } from "react";
 import { createBrowserRouter, Link, Outlet, Navigate } from "react-router-dom";
 import { MainLayout } from "@/components/layout/main-layout";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute"; // ✅ حماية المسارات
 import { ModuleGuard } from "@/components/auth/ModuleGuard"; // ✅ حماية الموديولات
 import { LoginPage } from "@/pages/login"; // ✅ صفحة تسجيل الدخول
 import { SignUpPage } from "@/pages/signup"; // ✅ صفحة التسجيل الجديد
-import { SuperAdminModule } from "@/pages/super-admin"; // ✅ لوحة Super Admin
-import { OrgAdminModule } from "@/pages/org-admin/module"; // ✅ لوحة Org Admin
 import { MODULE_CODES } from "@/config/module-permissions"; // ✅ أكواد الموديولات
 
-// Import all the modules
-import { DashboardModule } from "@/features/dashboard";
-import { GeneralLedgerModule } from "@/features/general-ledger";
-import { InventoryModule } from "@/features/inventory";
-import { ManufacturingModule } from "@/features/manufacturing";
-import { ReportsModule } from "@/features/reports"
-import { GeminiDashboardModule } from "@/features/gemini-dashboard";
-import { SettingsModule } from "@/features/settings";
-import { HRModule } from "@/features/hr";
-import { PurchasingModule } from "@/features/purchasing";
-import { SalesModule } from "@/features/sales";
-import { DesignSystemDemo } from "@/components/design-system-demo"
+// P4-D1: كل الموديولات lazy — كانت كلها eager فتُشحن حزمة واحدة 3.9MB.
+// نفس نمط accounting المثبت سابقاً؛ Login/SignUp/التخطيط تبقى فورية.
 
 // Minimal Not Found Page component
 const NotFoundPage = () => (
@@ -41,6 +30,25 @@ const AppLayout = () => {
   );
 };
 
+/** مسار كسول محمي بـ ModuleGuard — يوحّد النمط لكل الموديولات */
+function guardedLazy(
+  moduleCode: string,
+  loader: () => Promise<Record<string, unknown>>,
+  exportName: string
+) {
+  return async () => {
+    const mod = await loader() as Record<string, ComponentType>;
+    const Component = mod[exportName];
+    return {
+      Component: () => (
+        <ModuleGuard moduleCode={moduleCode} action="view">
+          <Component />
+        </ModuleGuard>
+      ),
+    };
+  };
+}
+
 export const appRouter = createBrowserRouter([
   // ===================================
   // مسارات المصادقة (غير محمية)
@@ -53,7 +61,7 @@ export const appRouter = createBrowserRouter([
     path: "/signup",
     element: <SignUpPage />
   },
-  
+
   // ===================================
   // المسارات المحمية (تحتاج تسجيل دخول)
   // ===================================
@@ -71,116 +79,124 @@ export const appRouter = createBrowserRouter([
           },
           {
             path: "dashboard/*",
-            element: <DashboardModule />, // الداشبورد متاح للجميع
+            // الداشبورد متاح للجميع
+            lazy: async () => {
+              const { DashboardModule } = await import("@/features/dashboard");
+              return { Component: DashboardModule };
+            },
           },
           {
             path: "general-ledger/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.GENERAL_LEDGER} action="view">
-                <GeneralLedgerModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.GENERAL_LEDGER,
+              () => import("@/features/general-ledger"),
+              "GeneralLedgerModule"
             ),
           },
           {
             path: "accounting/*",
-            lazy: async () => {
-              const { AccountingModule } = await import("@/features/accounting");
-              return { 
-                Component: () => (
-                  <ModuleGuard moduleCode={MODULE_CODES.ACCOUNTING} action="view">
-                    <AccountingModule />
-                  </ModuleGuard>
-                )
-              };
-            },
+            lazy: guardedLazy(
+              MODULE_CODES.ACCOUNTING,
+              () => import("@/features/accounting"),
+              "AccountingModule"
+            ),
           },
           {
             path: "inventory/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.INVENTORY} action="view">
-                <InventoryModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.INVENTORY,
+              () => import("@/features/inventory"),
+              "InventoryModule"
             ),
           },
           {
             path: "manufacturing/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.MANUFACTURING} action="view">
-                <ManufacturingModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.MANUFACTURING,
+              () => import("@/features/manufacturing"),
+              "ManufacturingModule"
             ),
           },
           {
             path: "purchasing/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.PURCHASING} action="view">
-                <PurchasingModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.PURCHASING,
+              () => import("@/features/purchasing"),
+              "PurchasingModule"
             ),
           },
           {
             path: "sales/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.SALES} action="view">
-                <SalesModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.SALES,
+              () => import("@/features/sales"),
+              "SalesModule"
             ),
           },
           {
             path: "hr/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.HR} action="view">
-                <HRModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.HR,
+              () => import("@/features/hr"),
+              "HRModule"
             ),
           },
           {
             path: "reports/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.REPORTS} action="view">
-                <ReportsModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.REPORTS,
+              () => import("@/features/reports"),
+              "ReportsModule"
             ),
           },
           {
             path: "gemini-dashboard/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.REPORTS} action="view">
-                <GeminiDashboardModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.REPORTS,
+              () => import("@/features/gemini-dashboard"),
+              "GeminiDashboardModule"
             ),
           },
           {
             path: "settings/*",
-            element: (
-              <ModuleGuard moduleCode={MODULE_CODES.SETTINGS} action="view">
-                <SettingsModule />
-              </ModuleGuard>
+            lazy: guardedLazy(
+              MODULE_CODES.SETTINGS,
+              () => import("@/features/settings"),
+              "SettingsModule"
             ),
           },
           {
             path: "design-system",
-            element: <DesignSystemDemo />,
+            lazy: async () => {
+              const { DesignSystemDemo } = await import("@/components/design-system-demo");
+              return { Component: DesignSystemDemo };
+            },
           },
           // ===================================
           // 🔴 Super Admin (داخل MainLayout)
           // ===================================
           {
             path: "super-admin/*",
-            element: <SuperAdminModule />,
+            lazy: async () => {
+              const { SuperAdminModule } = await import("@/pages/super-admin");
+              return { Component: SuperAdminModule };
+            },
           },
           // ===================================
           // 🟢 Org Admin (داخل MainLayout)
           // ===================================
           {
             path: "org-admin/*",
-            element: <OrgAdminModule />,
+            lazy: async () => {
+              const { OrgAdminModule } = await import("@/pages/org-admin/module");
+              return { Component: OrgAdminModule };
+            },
           },
         ],
       }
     ],
   },
-  
+
   // ===================================
   // Catch-all للصفحات غير الموجودة
   // ===================================

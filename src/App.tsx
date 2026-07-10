@@ -25,21 +25,34 @@ const queryClient = new QueryClient({
   },
 });
 
+/** P4-D1: هيكل تحميل يطابق تخطيط التطبيق بدل نص Loading... العاري */
+function AppLoadingFallback() {
+  return (
+    <div dir="rtl" className="min-h-screen bg-background flex items-center justify-center">
+      <div className="text-center space-y-3">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto" />
+        <p className="text-muted-foreground text-sm">جارٍ تحميل الوحدة…</p>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<AppLoadingFallback />}>
       <ErrorBoundary>
         <AuthProvider>
           <QueryClientProvider client={queryClient}>
             <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
               <WardahThemeProvider>
                 {/* Opting into React Router v7 future behavior early */}
-                <RouterProvider 
-                  router={appRouter} 
+                <RouterProvider
+                  router={appRouter}
                   future={{ v7_startTransition: true } as { v7_startTransition: boolean }}
                 />
                 <Toaster />
-                <ReactQueryDevtools initialIsOpen={false} />
+                {/* P4-C4: أدوات التطوير لا تُشحن للإنتاج */}
+                {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
               </WardahThemeProvider>
             </ThemeProvider>
           </QueryClientProvider>

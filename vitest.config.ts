@@ -25,10 +25,19 @@ export default defineConfig({
         ],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html', 'lcov'],
+      reporter: ['text', 'json', 'json-summary', 'html', 'lcov'],
       reportsDirectory: './coverage',
       enabled: true,
       all: true,
+      // P4-E1: أرضية تغطية ضد الانحدار — مضبوطة على القياس الفعلي منقوصاً
+      // هامشاً (سطور 19% لأن all:true يحسب كل src بما فيه غير المختبَر؛
+      // دوال 44%، فروع 68%). ترفع تدريجياً مع نمو الاختبارات
+      thresholds: {
+        lines: 15,
+        statements: 15,
+        functions: 38,
+        branches: 60
+      },
       include: ['src/**/*.{ts,tsx}'],
       exclude: [
         'node_modules/',

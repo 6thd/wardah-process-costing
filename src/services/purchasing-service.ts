@@ -3,7 +3,7 @@
  * تدير دورة المشتريات الكاملة مع تكامل Stock Ledger System والقيود المحاسبية
  */
 
-import { supabase } from '../lib/supabase';
+import { supabase, resolveOrgIdWithFallback } from '../lib/supabase';
 // import { recordInventoryMovement } from '../domain/inventory'; // DISABLED - domain not implemented
 import { createStockLedgerEntry, getBin } from './stock-ledger-service';
 // import { ValuationFactory, StockBatch } from './valuation'; // DISABLED - valuation service not implemented
@@ -245,8 +245,8 @@ export async function receiveGoods(
       throw new Error('يجب تحديد المخزن (Warehouse) لإتمام الاستلام');
     }
 
-    // TODO: Get org_id from auth context/session
-    const org_id = '00000000-0000-0000-0000-000000000001';
+    // P4-A4: جلسة المستخدم أولاً، والافتراضية التاريخية كـ Fallback بتحذير
+    const org_id = await resolveOrgIdWithFallback();
 
     // 1. إنشاء سند الاستلام
     const { data: grData, error: grError } = await supabase
@@ -440,9 +440,36 @@ export async function receiveGoods(
     const newStatus = allReceived ? 'fully_received' : (anyReceived ? 'partially_received' : 'approved');
     await updatePurchaseOrderStatus(receipt.purchase_order_id, newStatus);
 
+    // 5. قيد GL: مدين مخزون / دائن GRNI (Migration 84) — متسامح:
+    //    غياب الـ RPC أو الخريطة لا يُفشل الاستلام أبداً، لكنه يُبلَّغ كتحذير
+    let glWarning: string | undefined;
+    const totalValue = lines.reduce(
+      (sum, l) => sum + (l.received_quantity || 0) * (l.unit_cost || 0), 0
+    );
+    if (totalValue > 0) {
+      try {
+        const { PostingService } = await import('./accounting/posting-service');
+        await PostingService.postEventJournal({
+          event: 'GR_RECEIPT',
+          amount: totalValue,
+          memo: `استلام بضاعة ${grData.receipt_number || grData.id}`,
+          refType: 'GOODS_RECEIPT',
+          refId: grData.id,
+          idempotencyKey: `GR_RECEIPT:${grData.id}`
+        });
+        console.log('✅ GL entry posted for goods receipt (Dr Inventory / Cr GRNI)');
+      } catch (glError: unknown) {
+        const msg = glError instanceof Error ? glError.message : String(glError);
+        glWarning =
+          'الاستلام تم لكن قيد GL لم يُرحَّل: ' + msg +
+          ' — تأكد من تطبيق Migration 84 (GR_RECEIPT) ثم أنشئ القيد يدوياً لهذا السند';
+        console.warn('⚠️ ' + glWarning);
+      }
+    }
+
     console.log('🎉 Goods Receipt completed successfully with Stock Ledger Entries!');
 
-    return { success: true, data: grData };
+    return { success: true, data: grData, glWarning };
   } catch (error) {
     console.error('💥 Error receiving goods:', error);
     return { success: false, error };
@@ -587,14 +614,17 @@ async function createPurchaseGLEntry(invoice: any) {
       transaction_date: invoice.invoice_date,
     });
 
-    // إدراج القيود في جدول gl_entries
-    const { error } = await supabase
-      .from('gl_entries')
-      .insert(entries);
-
-    if (error) {
-      console.error('Error creating GL entries:', error);
-      throw error;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const result = await createJournalEntry({
+      entry_date: invoice.invoice_date,
+      description: `فاتورة مورد ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_INVOICE',
+      reference_id: invoice.id,
+      entries
+    });
+    if (!result.success) {
+      throw result.error instanceof Error ? result.error : new Error(String(result.error));
     }
 
     console.log(`✅ تم إنشاء القيد المحاسبي للفاتورة ${invoice.invoice_number}`);
@@ -697,11 +727,18 @@ export async function recordSupplierPayment(invoiceId: string, paymentAmount: nu
       },
     ];
 
-    const { error: glError } = await supabase
-      .from('gl_entries')
-      .insert(paymentEntries);
-
-    if (glError) throw glError;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const glResult = await createJournalEntry({
+      entry_date: paymentDate,
+      description: `دفعة لفاتورة ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_PAYMENT',
+      reference_id: invoiceId,
+      entries: paymentEntries
+    });
+    if (!glResult.success) {
+      throw glResult.error instanceof Error ? glResult.error : new Error(String(glResult.error));
+    }
 
     console.log(`✅ تم تسجيل دفعة بمبلغ ${paymentAmount} للفاتورة ${invoice.invoice_number}`);
     return { success: true, balance, newStatus };

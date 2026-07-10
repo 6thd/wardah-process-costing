@@ -15,6 +15,9 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '@/components/ui/table'
 import { RefreshCw, CheckCircle2, AlertTriangle, Scale, Printer } from 'lucide-react'
+import { PageHeader } from '@/components/ui/page-header'
+import { ErrorState } from '@/components/ui/error-state'
+import { ReportSkeleton } from '@/components/ui/loading-state'
 import {
   ReconciliationService,
   type ReconciliationReport,
@@ -166,16 +169,13 @@ export function ReconciliationPage() {
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
-      <div className={cn(isRTL ? 'text-right' : 'text-left', 'print:hidden')}>
-        <h1 className="text-3xl font-bold">
-          {isRTL ? 'تسوية الدفاتر الفرعية مع الأستاذ العام' : 'Subledger ↔ GL Reconciliation'}
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {isRTL
-            ? 'مقارنة أرصدة المخزون والإنتاج تحت التشغيل الفرعية مع حسابات الأستاذ العام — أي فرق يظهر فوراً'
-            : 'Compare inventory and WIP subledger balances against GL accounts — any difference surfaces immediately'}
-        </p>
-      </div>
+      <PageHeader
+        icon={<Scale />}
+        title={isRTL ? 'تسوية الدفاتر الفرعية مع الأستاذ العام' : 'Subledger ↔ GL Reconciliation'}
+        description={isRTL
+          ? 'مقارنة أرصدة المخزون والإنتاج تحت التشغيل الفرعية مع حسابات الأستاذ العام — أي فرق يظهر فوراً'
+          : 'Compare inventory and WIP subledger balances against GL accounts — any difference surfaces immediately'}
+      />
 
       {/* شريط التحكم */}
       <Card className="print:hidden">
@@ -224,10 +224,15 @@ export function ReconciliationPage() {
       </Card>
 
       {error && (
-        <Card className="border-destructive">
-          <CardContent className="pt-6 text-destructive">{error.message}</CardContent>
-        </Card>
+        <ErrorState
+          title={isRTL ? 'تعذر توليد تقرير التسوية' : 'Could not generate reconciliation report'}
+          message={error.message}
+          onRetry={() => refetch()}
+          retryLabel={isRTL ? 'إعادة المحاولة' : 'Retry'}
+        />
       )}
+
+      {isFetching && !report && !error && <ReportSkeleton />}
 
       {report && (
         <div className="space-y-6" data-testid="reconciliation-report">

@@ -6,7 +6,7 @@
  * ==============================================================================
  */
 
-import { getSupabase } from '@/lib/supabase'
+import { getSupabase, resolveOrgIdWithFallback } from '@/lib/supabase'
 import { toast } from 'sonner'
 
 export interface Warehouse {
@@ -464,7 +464,7 @@ export class WarehouseService {
     try {
       const { data, error } = await this.supabase
         .rpc('get_gl_accounts_by_category', {
-          p_org_id: '00000000-0000-0000-0000-000000000001', // Get org_id from context
+          p_org_id: await resolveOrgIdWithFallback(),
           p_category: category
         })
 

@@ -10,6 +10,22 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    // P4-D3: تقسيم الحزمة — كانت 3.9MB في ملف واحد.
+    // المكتبات المستقرة تنفصل فتُكاش لدى المتصفح عبر النشرات
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-supabase': ['@supabase/supabase-js'],
+          'vendor-query': ['@tanstack/react-query'],
+          'vendor-charts': ['recharts'],
+          'vendor-ui': ['lucide-react', 'sonner', 'date-fns'],
+        },
+      },
+    },
+    chunkSizeWarningLimit: 900,
+  },
   server: {
     host: '0.0.0.0',
     port: 5173,

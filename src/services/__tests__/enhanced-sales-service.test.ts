@@ -166,7 +166,7 @@ describe('Enhanced Sales Service', () => {
 
       const result = await createSalesOrder(validOrder, validLines);
 
-      expect(mockFrom).toHaveBeenCalledWith('items');
+      expect(mockFrom).toHaveBeenCalledWith('products');
       expect(mockFrom).toHaveBeenCalledWith('customers');
       expect(mockFrom).toHaveBeenCalledWith('sales_orders');
     });

@@ -1,0 +1,91 @@
+/**
+ * Wardah Print Stylesheet — طبقة الطباعة الاحترافية (P3-UI)
+ * ==========================================================
+ * التقارير المحاسبية تُطبع وتُؤرشف — هذه الطبقة تضمن:
+ * - إخفاء عناصر الملاحة (رأس/قائمة جانبية/أزرار) تلقائياً
+ * - جداول بحدود سوداء واضحة تصلح للأرشفة الورقية
+ * - عدم انقسام البطاقات والصفوف عبر الصفحات
+ * - أرقام صفحات وهوامش قياسية
+ * إضافية بالكامل: لا تغيّر أي شيء على الشاشة
+ */
+
+@media print {
+  /* ===== إعداد الصفحة ===== */
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  /* ===== إخفاء الملاحة والتفاعل تلقائياً ===== */
+  header,
+  nav,
+  aside,
+  [data-sidebar],
+  .print\:hidden,
+  .no-print {
+    display: none !important;
+  }
+
+  /* المحتوى يملأ الصفحة بدون هوامش التخطيط */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ===== البطاقات: حدود رفيعة بلا ظلال، ولا تنقسم ===== */
+  .rounded-lg,
+  .rounded-xl,
+  [class*='card'] {
+    box-shadow: none !important;
+    border-color: #000 !important;
+    break-inside: avoid;
+  }
+
+  /* ===== الجداول: أرشفة ورقية واضحة ===== */
+  table {
+    border-collapse: collapse !important;
+    width: 100%;
+  }
+
+  th,
+  td {
+    border: 0.5pt solid #444 !important;
+    padding: 4pt 6pt !important;
+    color: #000 !important;
+  }
+
+  thead {
+    display: table-header-group; /* رأس الجدول يتكرر مع كل صفحة */
+  }
+
+  tr {
+    break-inside: avoid;
+  }
+
+  /* ===== العناوين لا تنفصل عن محتواها ===== */
+  h1, h2, h3, h4 {
+    break-after: avoid;
+    color: #000 !important;
+  }
+
+  /* ===== الشارات (متوازن/غير متوازن) تبقى مقروءة ===== */
+  [class*='badge'] {
+    border: 0.5pt solid #000 !important;
+    color: #000 !important;
+    background: #fff !important;
+  }
+
+  /* ===== الروابط: أظهر النص فقط بلا زخرفة ===== */
+  a {
+    color: #000 !important;
+    text-decoration: none !important;
+  }
+}

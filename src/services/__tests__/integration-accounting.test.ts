@@ -23,7 +23,10 @@ vi.mock('@/lib/supabase', () => ({
       order: vi.fn().mockReturnThis(),
       single: vi.fn().mockResolvedValue({ data: null, error: null }),
     })),
+    // P4-B2: createJournalEntry يمر الآن عبر JournalService الذرّي
+    rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
   },
+  getEffectiveTenantId: vi.fn(() => Promise.resolve('org-test-1')),
 }))
 
 // Mock PerformanceMonitor
@@ -274,38 +277,30 @@ describe('Integration: Accounting Service', () => {
         ],
       }
 
-      // Mock account exists
-      const selectChainable: any = {}
-      selectChainable.select = vi.fn().mockReturnValue(selectChainable)
-      selectChainable.eq = vi.fn().mockReturnValue(selectChainable)
-      selectChainable.single = vi.fn().mockResolvedValue({ 
-        data: { account_code: '1101', account_name: 'Cash' }, 
-        error: null 
-      })
+      // P4-B2: المسار الجديد — resolveAccountIdByCode ثم JournalService (RPC ذرّي)
+      // gl_accounts: سلسلة thenable ترجع معرّف الحساب
+      const accountChainable: any = {}
+      accountChainable.select = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.eq = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.limit = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.then = (resolve: (v: unknown) => void) =>
+        resolve({ data: [{ id: 'acc-uuid-1', code: '1101' }], error: null })
 
-      // Mock insert
-      const insertChainable: any = {}
-      insertChainable.insert = vi.fn().mockReturnValue(insertChainable)
-      insertChainable.select = vi.fn().mockResolvedValue({
-        data: journalEntry.entries,
+      vi.mocked(supabase.from).mockImplementation(() => accountChainable)
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: { success: true, entry_id: 'je-1', entry_number: 'JE-2025-000001', status: 'draft' },
         error: null,
-      })
-
-      let callCount = 0
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'gl_accounts') {
-          return selectChainable
-        }
-        if (table === 'gl_entries') {
-          return insertChainable
-        }
-        return selectChainable
-      })
+      } as any)
 
       const result = await createJournalEntry(journalEntry)
 
       expect(result.success).toBe(true)
       expect(result.data).toBeDefined()
+      // القيد مرّ عبر الدالة الذرّية — لا INSERT مباشر في gl_entries
+      expect(supabase.rpc).toHaveBeenCalledWith(
+        'rpc_create_journal_entry',
+        expect.objectContaining({ p_payload: expect.any(Object) })
+      )
     })
 
     it('should handle zero tolerance for balance check', async () => {
@@ -336,26 +331,19 @@ describe('Integration: Accounting Service', () => {
         ],
       }
 
-      // Should pass with 0.01 tolerance
-      const selectChainable: any = {}
-      selectChainable.select = vi.fn().mockReturnValue(selectChainable)
-      selectChainable.eq = vi.fn().mockReturnValue(selectChainable)
-      selectChainable.single = vi.fn().mockResolvedValue({ 
-        data: { account_code: '1101', account_name: 'Cash' }, 
-        error: null 
-      })
+      // Should pass with 0.01 tolerance — P4-B2: عبر المسار الذرّي
+      const accountChainable: any = {}
+      accountChainable.select = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.eq = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.limit = vi.fn().mockReturnValue(accountChainable)
+      accountChainable.then = (resolve: (v: unknown) => void) =>
+        resolve({ data: [{ id: 'acc-uuid-x', code: '1101' }], error: null })
 
-      const insertChainable: any = {}
-      insertChainable.insert = vi.fn().mockReturnValue(insertChainable)
-      insertChainable.select = vi.fn().mockResolvedValue({
-        data: journalEntry.entries,
+      vi.mocked(supabase.from).mockImplementation(() => accountChainable)
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: { success: true, entry_id: 'je-2', entry_number: 'JE-2025-000002', status: 'draft' },
         error: null,
-      })
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'gl_accounts') return selectChainable
-        return insertChainable
-      })
+      } as any)
 
       const result = await createJournalEntry(journalEntry)
       expect(result.success).toBe(true)

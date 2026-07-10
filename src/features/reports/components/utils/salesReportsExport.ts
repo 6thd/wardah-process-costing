@@ -1,8 +1,8 @@
 import { format } from 'date-fns';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+// P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط
+import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
+import type jsPDF from 'jspdf'; // نوع فقط — يُحذف عند البناء
 import type {
   SalesPerformanceMetrics,
   CustomerSalesAnalysis,
@@ -97,7 +97,8 @@ function getExportData({ activeTab, isRTL, performance, customerAnalysis, produc
   return null;
 }
 
-export function exportToExcel(exportData: ExportData) {
+export async function exportToExcel(exportData: ExportData) {
+  const XLSX = await loadXLSX();
   try {
     const result = getExportData(exportData);
     
@@ -192,7 +193,8 @@ function addProfitabilityToPDF(doc: jsPDF, profitability: ProfitabilityAnalysis,
   doc.text(`${isRTL ? 'هامش الربح الصافي %' : 'Net Profit Margin %'}: ${profitability.netProfitMargin.toFixed(2)}`, 14, y);
 }
 
-export function exportToPDF(exportData: ExportData) {
+export async function exportToPDF(exportData: ExportData) {
+  const jsPDF = await loadJsPDF();
   try {
     const doc = new jsPDF();
     const { activeTab, isRTL, performance, customerAnalysis, productAnalysis, profitability } = exportData;
