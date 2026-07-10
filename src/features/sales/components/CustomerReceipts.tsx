@@ -593,7 +593,6 @@ function ReceiptDetails({ receipt }: Readonly<{ receipt: CustomerReceipt }>) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {/* eslint-disable-next-line react/no-array-index-key */}
               {receipt.lines.map((line) => (
                 <TableRow key={line.invoice_id || `${line.allocated_amount}-${line.discount_amount}`}>
                   <TableCell>{line.invoice_id}</TableCell>

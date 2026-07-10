@@ -190,7 +190,6 @@ function ReportsOverview() {
                   {category.description}
                 </p>
                 <div className="space-y-1">
-                  {/* eslint-disable-next-line react/no-array-index-key */}
                   {category.reports.map((report) => (
                     <div key={report} className={cn("flex items-center gap-2 text-xs text-muted-foreground", isRTL ? "flex-row-reverse" : "")}>
                       <FileText className="h-3 w-3" />
@@ -216,7 +215,6 @@ function ReportsOverview() {
             { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
             { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
           ].map((report) => {
-            // eslint-disable-next-line react/no-array-index-key
             return (
             <div key={`${report.name}-${report.date}`} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
               <div className="flex-1">

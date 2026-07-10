@@ -14,7 +14,6 @@ export interface Organization {
   id: string;
   name: string;
   name_ar?: string;
-  // eslint-disable-next-line @typescript-eslint/prefer-type-alias
   code: string; // NOSONAR - string is a primitive type, not a union type
   slug?: string;
   plan_type: PlanType;

@@ -73,7 +73,6 @@ class TransactionManager {
         // All operations succeeded
         return {
           success: true,
-          // eslint-disable-next-line @typescript-eslint/prefer-array-at
           data: results.at(-1), // Return last result
         };
       } catch (error) {

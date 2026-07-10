@@ -177,11 +177,10 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {batches.map((batch, index) => {
-                    // eslint-disable-next-line react/no-array-index-key
                     const batchKey = `batch-${batch.batch_number}-${productId}-${index}`;
                     const isFIFOFirst = valuationMethod === 'FIFO' && index === 0;
                     const isLIFOLast = valuationMethod === 'LIFO' && index === batches.length - 1;
-                    // eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional
+                    // eslint-disable-next-line complexity
                     let rowClassName = '';
                     if (isFIFOFirst) {
                       rowClassName = 'bg-green-50';
