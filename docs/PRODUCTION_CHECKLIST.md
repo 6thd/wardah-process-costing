@@ -3,23 +3,25 @@
 > آخر تحديث: P4 (9 يوليو 2026). هذه القائمة هي بوابة الانتقال للإنتاج —
 > كل بند يُشطب بعد التحقق الفعلي، لا بالافتراض.
 
-## 1) قاعدة البيانات — Migrations بانتظار التطبيق
+## 1) قاعدة البيانات — Migrations ✅ مطبَّقة على الإنتاج (10 يوليو 2026)
 
-طبّقها بالترتيب في محرّر Supabase SQL (كلها إضافية — لا تمس بيانات قائمة):
+طُبِّقت 82–86 مباشرةً على مشروع `uutfztmqvajmsxnrqeiv` عبر واجهة الإدارة مع تحقق
+بعد كلٍّ. تبقى الملفات مؤرشفةً لإعادة بناء أي بيئة جديدة:
 
-- [ ] **82** `82_p4_security_hardening.sql` — إزالة `execute_sql` (ثغرة تنفيذ SQL من المتصفح)
-  - تحقق: `SELECT proname FROM pg_proc WHERE proname IN ('execute_sql','exec_sql','run_sql');` ⇒ 0 صفوف
-  - ⚠️ قبلها: تأكد أن لا أتمتة خارجية عندك تستدعي `execute_sql`
-- [ ] **83** `83_p4_org_scoped_rls.sql` — عزل المؤسسات (products/categories/journals/BOM)
-  - **افتح `sql/rollback/83_rollback_org_scoped_rls.sql` في تبويب ثانٍ قبل التنفيذ**
-  - لو رمى `PREFLIGHT_FAILED`: اقرأ الرسالة، فعّل عبارات الـ backfill المعلَّقة (مؤسسة واحدة)، أعد التنفيذ
-  - بعده: سجّل دخولاً حقيقياً وتحقق أن المنتجات والقيود وBOM تظهر — عندها فقط أغلق تبويب التراجع
-- [ ] **84** `84_p4_gr_receipt_event_mapping.sql` — حساب GRNI 210150 + حدث GR_RECEIPT
-  - تحقق: `SELECT * FROM gl_event_mappings WHERE event_code = 'GR_RECEIPT';`
-- [ ] **85** `85_p4_atomic_delivery_note.sql` — إذن التسليم الذرّي
-  - تحقق: `SELECT proname FROM pg_proc WHERE proname = 'rpc_post_delivery_note';`
-  - لاحظ إشعار زرع `COGS_DELIVERY` — لو فشل (أكواد حسابات مختلفة) ازرعه يدوياً:
-    `SELECT rpc_upsert_event_mapping('COGS_DELIVERY', '<كود COGS>', '<كود FG>', NULL, '...');`
+- [x] **82** `82_p4_security_hardening.sql` — إزالة `execute_sql` (كانت غائبة أصلاً)
+- [x] **83** `83_p4_org_scoped_rls.sql` — عزل products/categories/journals/BOM
+  - ⚠️ الملف افترض أسماء سياسات لم تطابق الحيّ فبقيت `"Allow all"` مفتوحة —
+    **أُتمّت الإزالة في 86**. تحقُّق نهائي: بمفتاح anon القراءة من products ⇒ 0 صف
+- [x] **84** `84_p4_gr_receipt_event_mapping.sql` — GRNI 210150 + GR_RECEIPT (مدين 131100/دائن 210150)
+- [x] **85** `85_p4_atomic_delivery_note.sql` — دالة التسليم منشورة؛ COGS_DELIVERY
+  زُرعت بالحسابين الفعليين **544000 / 135100** (لا 511100)
+  - ⚠️ **الدالة لا تعمل فعلياً على هذه القاعدة** (تقرأ `items` الفارغ + أعمدة
+    `tenant_id`/`delivery_id` غير موجودة) — راجع `MANIFEST.md` البند 4؛ تحتاج
+    مواءمة `items↔products` قبل تفعيلها
+- [x] **86** `86_p4_close_anon_rls_holes.sql` — إغلاق anon على كل الدفتر المالي
+  (gl_entries، sales/purchase/supplier invoices، goods_receipts، delivery_notes
+  وأسطرها) بتحويل `"Allow all%"` من public إلى authenticated
+  - تحقُّق عملي: بمفتاح anon القراءة من `gl_entries` ⇒ 0 صف (كانت تكشف الكل)
 
 ## 2) متغيرات البيئة في Vercel
 
