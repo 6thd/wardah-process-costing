@@ -5,7 +5,7 @@
 
 ## 1) قاعدة البيانات — Migrations ✅ مطبَّقة على الإنتاج (10 يوليو 2026)
 
-طُبِّقت 82–86 مباشرةً على مشروع `uutfztmqvajmsxnrqeiv` عبر واجهة الإدارة مع تحقق
+طُبِّقت 82–89 مباشرةً على مشروع `uutfztmqvajmsxnrqeiv` عبر واجهة الإدارة مع تحقق
 بعد كلٍّ. تبقى الملفات مؤرشفةً لإعادة بناء أي بيئة جديدة:
 
 - [x] **82** `82_p4_security_hardening.sql` — إزالة `execute_sql` (كانت غائبة أصلاً)
@@ -13,15 +13,20 @@
   - ⚠️ الملف افترض أسماء سياسات لم تطابق الحيّ فبقيت `"Allow all"` مفتوحة —
     **أُتمّت الإزالة في 86**. تحقُّق نهائي: بمفتاح anon القراءة من products ⇒ 0 صف
 - [x] **84** `84_p4_gr_receipt_event_mapping.sql` — GRNI 210150 + GR_RECEIPT (مدين 131100/دائن 210150)
-- [x] **85** `85_p4_atomic_delivery_note.sql` — دالة التسليم منشورة؛ COGS_DELIVERY
-  زُرعت بالحسابين الفعليين **544000 / 135100** (لا 511100)
-  - ⚠️ **الدالة لا تعمل فعلياً على هذه القاعدة** (تقرأ `items` الفارغ + أعمدة
-    `tenant_id`/`delivery_id` غير موجودة) — راجع `MANIFEST.md` البند 4؛ تحتاج
-    مواءمة `items↔products` قبل تفعيلها
+- [x] **85** `85_p4_atomic_delivery_note.sql` — دالة التسليم (نسخة أولى)
 - [x] **86** `86_p4_close_anon_rls_holes.sql` — إغلاق anon على كل الدفتر المالي
   (gl_entries، sales/purchase/supplier invoices، goods_receipts، delivery_notes
   وأسطرها) بتحويل `"Allow all%"` من public إلى authenticated
   - تحقُّق عملي: بمفتاح anon القراءة من `gl_entries` ⇒ 0 صف (كانت تكشف الكل)
+- [x] **87** `87_p4_fix_delivery_note_schema.sql` — مواءمة دالة التسليم مع المخطط الحيّ
+  (`products`/`org_id` بدل `items`/`tenant_id`)؛ COGS_DELIVERY = **544000 / 135100**.
+  مُختبرة حيّاً بـ rollback (success + total_cogs صحيحة).
+- [x] **88** `88_p5_harden_delivery_note.sql` — **تحصين التسليم**: تحقق عضوية المستخدم
+  + عزل org لكل استعلام + ملكية الفاتورة/السطر/المنتج + منع تسليم زائد +
+  `idempotency_key` + **COGS Fail-closed**. 9 اختبارات rollback حيّة ناجحة.
+- [x] **89** `89_p5_atomic_goods_receipt.sql` — **استلام ذرّي**: رأس+سطور+قيد GRNI في
+  معاملة واحدة Fail-closed (لا مستند بلا قيد) + عزل org + عضوية + idempotency.
+  دفتر المخزون/التقييم يبقى في الواجهة. 5 اختبارات rollback حيّة ناجحة.
 
 ## 2) متغيرات البيئة في Vercel
 
@@ -67,4 +72,5 @@
 | فرض CSP الكامل | Report-Only أولاً لرصد الانتهاكات |
 | Playwright e2e في CI | الإعداد أُصلح (منفذ 5173) — التشغيل الدوري لاحقاً |
 | توحيد مخطط stock-adjustment الثالث | موثَّق في `sql/migrations/MANIFEST.md` |
-| تسلسل DB لأرقام المستندات | مرشح Migration 86 |
+| عزل org_id لجداول الدفتر المالي (بدل authenticated USING(true)) | تجهيز SaaS — Migration 90+ ببيئة staging |
+| strict TypeScript + اختبارات DB حقيقية (تسليم زائد/تزامن) | دفعة جودة لاحقة |
