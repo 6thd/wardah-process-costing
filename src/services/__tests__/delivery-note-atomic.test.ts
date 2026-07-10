@@ -77,6 +77,19 @@ describe('createDeliveryNote — المسار الذرّي (Migration 85)', () =
     })
   })
 
+  it('يمرّر idempotency_key في حمولة الـ RPC (منع تكرار الخصم عند إعادة الإرسال)', async () => {
+    mockRpc.mockResolvedValue({
+      data: { success: true, delivery_id: 'dn-idem', delivery_number: 'DN-000011', total_cogs: 0, warnings: [] },
+      error: null
+    })
+
+    await createDeliveryNote(deliveryInput)
+
+    const payload = mockRpc.mock.calls[0][1].p_payload as { idempotency_key?: string }
+    expect(typeof payload.idempotency_key).toBe('string')
+    expect(payload.idempotency_key && payload.idempotency_key.length > 0).toBe(true)
+  })
+
   it('خطأ حقيقي (رصيد غير كافٍ) يصل للمستخدم — لا fallback صامت', async () => {
     mockRpc.mockResolvedValue({
       data: null,

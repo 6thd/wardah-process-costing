@@ -248,44 +248,91 @@ export async function receiveGoods(
     // P4-A4: جلسة المستخدم أولاً، والافتراضية التاريخية كـ Fallback بتحذير
     const org_id = await resolveOrgIdWithFallback();
 
-    // 1. إنشاء سند الاستلام
-    const { data: grData, error: grError } = await supabase
-      .from('goods_receipts')
-      .insert({
-        org_id,  // ⭐ Required for RLS
-        purchase_order_id: receipt.purchase_order_id,
+    // 1. إنشاء سند الاستلام — P5: المسار الذرّي أولاً (Migration 89):
+    //    رأس + سطور + قيد GRNI في معاملة واحدة Fail-closed، فلا يُسجَّل استلام
+    //    بلا قيد مقابل. idempotency يمنع التكرار. PGRST202 ⇒ المسار القديم حرفياً.
+    const grIdempotencyKey =
+      (globalThis.crypto?.randomUUID?.() ?? `gr-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    let grData: { id: string; receipt_number?: string; [k: string]: unknown };
+    let linesAlreadyCreated = false;
+
+    const { data: grRpc, error: grRpcError } = await supabase.rpc('rpc_post_goods_receipt', {
+      p_payload: {
+        tenant_id: org_id,
+        idempotency_key: grIdempotencyKey,
         vendor_id: receipt.vendor_id,
+        purchase_order_id: receipt.purchase_order_id ?? null,
         receipt_date: receipt.receipt_date,
-        warehouse_id: receipt.warehouse_id,  // ⭐ Required
-        warehouse_location: receipt.warehouse_location,
-        receiver_name: receipt.receiver_name,
-        notes: receipt.notes,
-      })
-      .select()
-      .single();
+        warehouse_id: receipt.warehouse_id,
+        warehouse_location: receipt.warehouse_location ?? null,
+        receiver_name: receipt.receiver_name ?? null,
+        notes: receipt.notes ?? null,
+        lines: lines.map((l) => ({
+          product_id: l.product_id,
+          purchase_order_line_id: l.purchase_order_line_id ?? null,
+          ordered_quantity: l.ordered_quantity,
+          received_quantity: l.received_quantity,
+          unit_cost: l.unit_cost,
+          quality_status: l.quality_status,
+          notes: l.notes ?? null,
+        })),
+      },
+    });
 
-    if (grError) throw grError;
+    const grRpcMissing =
+      grRpcError != null &&
+      ((grRpcError as { code?: string }).code === 'PGRST202' ||
+        /Could not find the function/i.test((grRpcError as { message?: string }).message ?? ''));
 
-    console.log('✅ Goods Receipt created:', grData.id);
-
-    // 2. إنشاء سطور الاستلام وStock Ledger Entries
-    for (const line of lines) {
-      // إدراج سطر الاستلام
-      const { error: lineError } = await supabase
-        .from('goods_receipt_lines')
+    if (!grRpcError && (grRpc as { success?: boolean } | null)?.success) {
+      const res = grRpc as { goods_receipt_id: string; receipt_number?: string };
+      grData = { id: res.goods_receipt_id, receipt_number: res.receipt_number };
+      linesAlreadyCreated = true;
+      console.log('✅ Goods Receipt + GRNI posted atomically:', grData.id);
+    } else if (grRpcError && !grRpcMissing) {
+      // خطأ حقيقي (فشل قيد GRNI / عزل / عضوية) — Fail-closed: لا استلام ناقص
+      throw new Error((grRpcError as { message?: string }).message ?? 'فشل ترحيل الاستلام الذرّي');
+    } else {
+      // Fallback: Migration 89 غير مطبَّقة — إدراج الرأس يدوياً كالسابق
+      const { data: grLegacy, error: grError } = await supabase
+        .from('goods_receipts')
         .insert({
-          org_id,  // ⭐ Required for RLS
-          goods_receipt_id: grData.id,
-          purchase_order_line_id: line.purchase_order_line_id,
-          product_id: line.product_id,
-          ordered_quantity: line.ordered_quantity,
-          received_quantity: line.received_quantity,
-          unit_cost: line.unit_cost,
-          quality_status: line.quality_status,
-          notes: line.notes,
-        });
+          org_id,
+          purchase_order_id: receipt.purchase_order_id,
+          vendor_id: receipt.vendor_id,
+          receipt_date: receipt.receipt_date,
+          warehouse_id: receipt.warehouse_id,
+          warehouse_location: receipt.warehouse_location,
+          receiver_name: receipt.receiver_name,
+          notes: receipt.notes,
+        })
+        .select()
+        .single();
+      if (grError) throw grError;
+      grData = grLegacy;
+      console.log('✅ Goods Receipt created (legacy path):', grData.id);
+    }
 
-      if (lineError) throw lineError;
+    // 2. سطور الاستلام (أُنشئت ذرّياً في الـ RPC) + Stock Ledger Entries
+    for (const line of lines) {
+      // إدراج سطر الاستلام — فقط في مسار الـ fallback (المسار الذرّي أنشأها)
+      if (!linesAlreadyCreated) {
+        const { error: lineError } = await supabase
+          .from('goods_receipt_lines')
+          .insert({
+            org_id,  // ⭐ Required for RLS
+            goods_receipt_id: grData.id,
+            purchase_order_line_id: line.purchase_order_line_id,
+            product_id: line.product_id,
+            ordered_quantity: line.ordered_quantity,
+            received_quantity: line.received_quantity,
+            unit_cost: line.unit_cost,
+            quality_status: line.quality_status,
+            notes: line.notes,
+          });
+
+        if (lineError) throw lineError;
+      }
 
       // ⭐ إنشاء Stock Ledger Entry (فقط للكميات المقبولة)
       if (line.quality_status === 'accepted' && line.received_quantity > 0) {
@@ -440,30 +487,33 @@ export async function receiveGoods(
     const newStatus = allReceived ? 'fully_received' : (anyReceived ? 'partially_received' : 'approved');
     await updatePurchaseOrderStatus(receipt.purchase_order_id, newStatus);
 
-    // 5. قيد GL: مدين مخزون / دائن GRNI (Migration 84) — متسامح:
-    //    غياب الـ RPC أو الخريطة لا يُفشل الاستلام أبداً، لكنه يُبلَّغ كتحذير
+    // 5. قيد GRNI (مدين مخزون / دائن GRNI): يُرحَّل **ذرّياً** داخل
+    //    rpc_post_goods_receipt (Migration 89) في المسار الأساسي — Fail-closed.
+    //    هنا نرحّله فقط في مسار الـ fallback (متسامح تاريخياً بتحذير).
     let glWarning: string | undefined;
-    const totalValue = lines.reduce(
-      (sum, l) => sum + (l.received_quantity || 0) * (l.unit_cost || 0), 0
-    );
-    if (totalValue > 0) {
-      try {
-        const { PostingService } = await import('./accounting/posting-service');
-        await PostingService.postEventJournal({
-          event: 'GR_RECEIPT',
-          amount: totalValue,
-          memo: `استلام بضاعة ${grData.receipt_number || grData.id}`,
-          refType: 'GOODS_RECEIPT',
-          refId: grData.id,
-          idempotencyKey: `GR_RECEIPT:${grData.id}`
-        });
-        console.log('✅ GL entry posted for goods receipt (Dr Inventory / Cr GRNI)');
-      } catch (glError: unknown) {
-        const msg = glError instanceof Error ? glError.message : String(glError);
-        glWarning =
-          'الاستلام تم لكن قيد GL لم يُرحَّل: ' + msg +
-          ' — تأكد من تطبيق Migration 84 (GR_RECEIPT) ثم أنشئ القيد يدوياً لهذا السند';
-        console.warn('⚠️ ' + glWarning);
+    if (!linesAlreadyCreated) {
+      const totalValue = lines.reduce(
+        (sum, l) => sum + (l.received_quantity || 0) * (l.unit_cost || 0), 0
+      );
+      if (totalValue > 0) {
+        try {
+          const { PostingService } = await import('./accounting/posting-service');
+          await PostingService.postEventJournal({
+            event: 'GR_RECEIPT',
+            amount: totalValue,
+            memo: `استلام بضاعة ${grData.receipt_number || grData.id}`,
+            refType: 'GOODS_RECEIPT',
+            refId: grData.id,
+            idempotencyKey: `GR_RECEIPT:${grData.id}`
+          });
+          console.log('✅ GL entry posted for goods receipt (Dr Inventory / Cr GRNI)');
+        } catch (glError: unknown) {
+          const msg = glError instanceof Error ? glError.message : String(glError);
+          glWarning =
+            'الاستلام تم لكن قيد GL لم يُرحَّل: ' + msg +
+            ' — تأكد من تطبيق Migration 84 (GR_RECEIPT) ثم أنشئ القيد يدوياً لهذا السند';
+          console.warn('⚠️ ' + glWarning);
+        }
       }
     }
 

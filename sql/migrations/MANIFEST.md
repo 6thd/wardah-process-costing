@@ -21,6 +21,8 @@
 | 85 | إذن التسليم الذرّي `rpc_post_delivery_note` + COGS | ✅ منشورة — ⚠️ راجع «تعارض بنيوي» أدناه |
 | **86** | **أمني: إغلاق ثغرات anon على الدفتر المالي (متمّم لـ 83)** | ✅ مطبَّقة — الملف يعيد إنتاجها |
 | **87** | **مواءمة دالة التسليم الذرّي مع المخطط الحيّ (products/org_id)** | ✅ مطبَّقة + مُختبرة حيّاً |
+| **88** | **تحصين التسليم: عضوية+عزل org+ملكية+منع تسليم زائد+idempotency+COGS fail-closed** | ✅ مطبَّقة + 9 اختبارات rollback |
+| **89** | **استلام بضاعة ذرّي (رأس+سطور+GRNI) fail-closed + idempotency** | ✅ مطبَّقة + 5 اختبارات rollback |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -45,16 +47,15 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **88**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
-4. **✅ حُسم تعارض مسار التسليم (Migration 87)**: القانوني هو **`products`** (كل
-   مفاتيح product_id الأجنبية تشير إليه، 118 صفاً؛ `items` جدول ميت فارغ) و**`org_id`**
-   (موجود على 112 جدولاً مقابل tenant_id على 13 محاسبياً فقط). Migration 87 أعاد
-   تعريف `rpc_post_delivery_note` بالأسماء الحيّة (products/org_id/delivery_note_id/
-   sales_invoice_line_id + أعمدة NOT NULL: invoiced_quantity/delivered_quantity/
-   unit_price)، و`enhanced-sales-service.ts` وُوئم بالكامل (items→products،
-   tenant_id→org_id، sales_invoice_id→invoice_id على السطور والتحصيل). **اختبار حيّ
-   (rollback) أثبت نجاح الدالة**: success + total_cogs صحيحة + قيد COGS مُرحَّل، صفر
-   تغيير للبيانات.
+3. **أرقام جديدة**: التالي هو **90**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
+   **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
+   و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة
+   والخدمة بالكامل؛ **88 حصّنها** (تحقق عضوية + عزل org لكل استعلام + ملكية
+   الفاتورة/السطر/المنتج + منع تسليم زائد + idempotency + COGS **fail-closed**).
+   **89** يوفّر استلاماً ذرّياً مماثلاً (رأس+سطور+GRNI fail-closed). كلاهما مُختبَر
+   بـ rollback حيّ. دفتر المخزون/التقييم (bins/FIFO/LIFO) يبقى في الواجهة عمداً
+   (بورت SQL له خارج نطاق هذه الدفعة).
 5. **مؤجَّل (دفعة مواءمة تالية)**: خدمات أخرى ما زالت تشير إلى `items` القديم للقراءة
    فقط (financial-dashboard, sales-reports, gemini-financial, بعض manufacturing/*).
    لوحات/تقارير غير حرجة — تُواءم على حدة مع تشغيل التطبيق.

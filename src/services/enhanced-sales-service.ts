@@ -914,12 +914,16 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     validateDeliveryLines(delivery.lines);
     await validateInvoiceExists(delivery.sales_invoice_id);
 
-    // ===== P4-B5: المسار الذرّي أولاً (Migration 85) =====
-    // رأس + سطور + قفل صف الصنف + خصم + حركة + COGS في معاملة واحدة —
-    // يحل سباق الخصم المتزامن. PGRST202 ⇒ المسار القديم كما هو
+    // ===== P4-B5 + P5: المسار الذرّي المحصَّن أولاً (Migrations 85/87/88) =====
+    // رأس + سطور + قفل صف الصنف + خصم + حركة + COGS في معاملة واحدة، مع تحقق
+    // عضوية/ملكية/منع تسليم زائد وidempotency (88). PGRST202 ⇒ المسار القديم كما هو.
+    // idempotency_key يمنع تكرار الخصم عند إعادة إرسال نفس الطلب (شبكة/عميل).
+    const idempotencyKey =
+      (globalThis.crypto?.randomUUID?.() ?? `dn-${Date.now()}-${Math.random().toString(36).slice(2)}`);
     const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_post_delivery_note', {
       p_payload: {
         tenant_id: tenantId,
+        idempotency_key: idempotencyKey,
         sales_invoice_id: delivery.sales_invoice_id,
         customer_id: delivery.customer_id,
         delivery_date: delivery.delivery_date,
