@@ -20,6 +20,7 @@
 | 84 | قيد GL للاستلام (GRNI 210150) | ✅ مطبَّقة — GR_RECEIPT: مدين 131100/دائن 210150 |
 | 85 | إذن التسليم الذرّي `rpc_post_delivery_note` + COGS | ✅ منشورة — ⚠️ راجع «تعارض بنيوي» أدناه |
 | **86** | **أمني: إغلاق ثغرات anon على الدفتر المالي (متمّم لـ 83)** | ✅ مطبَّقة — الملف يعيد إنتاجها |
+| **87** | **مواءمة دالة التسليم الذرّي مع المخطط الحيّ (products/org_id)** | ✅ مطبَّقة + مُختبرة حيّاً |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -44,12 +45,16 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **87**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
-4. **⚠️ تعارض بنيوي في مسار التسليم (Migration 85 + `enhanced-sales-service.ts`)**:
-   الدالة `rpc_post_delivery_note` والكود يقرآن من جدول **`items`** (فارغ حياً — 0
-   صف؛ كتالوج الأصناف الفعلي في **`products`** بـ118 صفاً)، ويستخدمان أعمدة
-   `tenant_id`/`delivery_id`/`invoice_line_id` بينما الأعمدة الحية
-   `org_id`/`delivery_note_id`/`sales_invoice_line_id` (و`sales_invoice_lines.invoice_id`
-   لا `sales_invoice_id`). النتيجة: التسليم الذرّي **يفشل وقت التشغيل ويسقط للمسار
-   القديم — الذي يعاني نفس التعارض**. تعارض سابق بين الكود وهذه القاعدة، يحتاج قرار
-   المالك: أيّ جدول قانوني للأصناف `items` أم `products`؟ قبل مواءمة الدالة والخدمة.
+3. **أرقام جديدة**: التالي هو **88**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+4. **✅ حُسم تعارض مسار التسليم (Migration 87)**: القانوني هو **`products`** (كل
+   مفاتيح product_id الأجنبية تشير إليه، 118 صفاً؛ `items` جدول ميت فارغ) و**`org_id`**
+   (موجود على 112 جدولاً مقابل tenant_id على 13 محاسبياً فقط). Migration 87 أعاد
+   تعريف `rpc_post_delivery_note` بالأسماء الحيّة (products/org_id/delivery_note_id/
+   sales_invoice_line_id + أعمدة NOT NULL: invoiced_quantity/delivered_quantity/
+   unit_price)، و`enhanced-sales-service.ts` وُوئم بالكامل (items→products،
+   tenant_id→org_id، sales_invoice_id→invoice_id على السطور والتحصيل). **اختبار حيّ
+   (rollback) أثبت نجاح الدالة**: success + total_cogs صحيحة + قيد COGS مُرحَّل، صفر
+   تغيير للبيانات.
+5. **مؤجَّل (دفعة مواءمة تالية)**: خدمات أخرى ما زالت تشير إلى `items` القديم للقراءة
+   فقط (financial-dashboard, sales-reports, gemini-financial, بعض manufacturing/*).
+   لوحات/تقارير غير حرجة — تُواءم على حدة مع تشغيل التطبيق.

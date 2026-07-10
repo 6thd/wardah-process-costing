@@ -187,7 +187,7 @@ async function generateSalesOrderNumber(): Promise<string> {
     const { data, error } = await supabase
       .from('sales_orders')
       .select('so_number')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -215,7 +215,7 @@ async function generateInvoiceNumber(): Promise<string> {
     const { data, error } = await supabase
       .from('sales_invoices')
       .select('invoice_number')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -243,7 +243,7 @@ async function generateDeliveryNumber(): Promise<string> {
     const { data, error } = await supabase
       .from('delivery_notes')
       .select('delivery_number')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(1);
 
@@ -292,7 +292,7 @@ async function checkCustomerCredit(customerId: string, newAmount: number): Promi
       .from('sales_invoices')
       .select('total_amount, paid_amount')
       .eq('customer_id', customerId)
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .in('payment_status', ['unpaid', 'partially_paid']);
 
     const currentBalance = (unpaidInvoices || []).reduce((sum, inv) => {
@@ -338,7 +338,7 @@ async function checkCustomerCredit(customerId: string, newAmount: number): Promi
 async function checkStockAvailability(itemId: string, requiredQuantity: number): Promise<{ available: boolean; availableQty: number; itemName: string }> {
   try {
     const { data: item, error } = await supabase
-      .from('items')
+      .from('products')
       .select('stock_quantity, name, name_ar')
       .eq('id', itemId)
       .single();
@@ -376,7 +376,7 @@ async function recordSalesInventoryMovement(
 
     // Get current item data
     const { data: item, error: itemError } = await supabase
-      .from('items')
+      .from('products')
       .select('stock_quantity, cost_price, name')
       .eq('id', itemId)
       .single();
@@ -397,7 +397,7 @@ async function recordSalesInventoryMovement(
 
     // Update item stock
     const { error: updateError } = await supabase
-      .from('items')
+      .from('products')
       .update({
         stock_quantity: newStock,
         updated_at: new Date().toISOString()
@@ -411,7 +411,7 @@ async function recordSalesInventoryMovement(
       const { error: moveError } = await supabase
         .from('stock_moves')
         .insert({
-          tenant_id: tenantId,
+          org_id: tenantId,
           product_id: itemId,
           quantity: -quantity, // Negative for outgoing
           move_type: 'sales_delivery',
@@ -479,7 +479,7 @@ export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'so_number
     const { data: soData, error: soError } = await supabase
       .from('sales_orders')
       .insert({
-        tenant_id: tenantId,
+        org_id: tenantId,
         so_number: soNumber,
         customer_id: order.customer_id,
         so_date: order.order_date,
@@ -524,7 +524,7 @@ export async function createSalesOrder(order: Omit<SalesOrder, 'id' | 'so_number
         customer:customers(*),
         lines:sales_order_lines(
           *,
-          item:items(*)
+          item:products(*)
         )
       `)
       .eq('id', soData.id)
@@ -597,7 +597,7 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
     const { data: invData, error: invError } = await supabase
       .from('sales_invoices')
       .insert({
-        tenant_id: tenantId,
+        org_id: tenantId,
         invoice_number: invoiceNumber,
         so_id: invoice.so_id,
         customer_id: invoice.customer_id,
@@ -620,8 +620,8 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
 
     // 6. Create invoice lines
     const invoiceLines = invoice.lines.map((line, index) => ({
-      tenant_id: tenantId,
-      sales_invoice_id: invData.id,
+      org_id: tenantId,
+      invoice_id: invData.id,
       line_number: line.line_number || index + 1,
       product_id: line.item_id,
       quantity: line.quantity,
@@ -655,7 +655,7 @@ export async function createSalesInvoice(invoice: Omit<SalesInvoice, 'id' | 'inv
         customer:customers(*),
         lines:sales_invoice_lines(
           *,
-          product:items(*)
+          product:products(*)
         )
       `)
       .eq('id', invData.id)
@@ -686,7 +686,7 @@ async function createSalesAccountingEntry(invoice: SalesInvoice, invoiceData: Sa
     const { data: accounts } = await supabase
       .from('gl_accounts')
       .select('id, code, category')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .in('code', ['1120', '4001', '2162']); // Accounts Receivable, Sales Revenue, Output VAT
 
     const arAccount = accounts?.find(a => a.code === '1120' || a.category === 'ASSET');
@@ -796,7 +796,7 @@ async function processDeliveryLine(
 ): Promise<{ lineCOGS: number; warning?: string }> {
   // Get item with current AVCO
   const { data: item, error: itemError } = await supabase
-    .from('items')
+    .from('products')
     .select('stock_quantity, cost_price, name, name_ar')
     .eq('id', line.item_id)
     .single();
@@ -813,15 +813,26 @@ async function processDeliveryLine(
   const unitCostAtDelivery = Number(item.cost_price || 0);
   const lineCOGS = line.delivered_quantity * unitCostAtDelivery;
 
-  // Create delivery line
+  // Fetch invoice line first — needed for NOT NULL columns (invoiced_quantity/unit_price)
+  // and the current delivered quantity
+  const { data: invoiceLine } = await supabase
+    .from('sales_invoice_lines')
+    .select('quantity, unit_price, delivered_quantity')
+    .eq('id', line.sales_invoice_line_id)
+    .single();
+
+  // Create delivery line — schema carries invoiced/delivered/quantity_delivered + unit_price (NOT NULL)
   const { error: lineError } = await supabase
     .from('delivery_note_lines')
     .insert({
-      tenant_id: tenantId,
-      delivery_id: dnData.id,
-      invoice_line_id: line.sales_invoice_line_id,
+      org_id: tenantId,
+      delivery_note_id: dnData.id,
+      sales_invoice_line_id: line.sales_invoice_line_id,
       product_id: line.item_id,
+      invoiced_quantity: Number(invoiceLine?.quantity ?? line.delivered_quantity),
+      delivered_quantity: line.delivered_quantity,
       quantity_delivered: line.delivered_quantity,
+      unit_price: Number(invoiceLine?.unit_price ?? 0),
       unit_cost_at_delivery: unitCostAtDelivery,
       notes: line.notes
     });
@@ -842,13 +853,7 @@ async function processDeliveryLine(
     throw new Error(`Failed to deduct inventory for ${item.name_ar || item.name}: ${inventoryResult.error}`);
   }
 
-  // Update invoice line delivered quantity
-  const { data: invoiceLine } = await supabase
-    .from('sales_invoice_lines')
-    .select('delivered_quantity')
-    .eq('id', line.sales_invoice_line_id)
-    .single();
-
+  // Update invoice line delivered quantity (invoiceLine fetched above)
   const newDeliveredQty = (Number(invoiceLine?.delivered_quantity || 0)) + line.delivered_quantity;
 
   await supabase
@@ -869,7 +874,7 @@ async function updateInvoiceDeliveryStatus(invoiceId: string): Promise<void> {
   const { data: invoiceLines } = await supabase
     .from('sales_invoice_lines')
     .select('quantity, delivered_quantity')
-    .eq('sales_invoice_id', invoiceId);
+    .eq('invoice_id', invoiceId);
 
   let allDelivered = true;
   let anyDelivered = false;
@@ -937,7 +942,7 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
           *,
           customer:customers(*),
           sales_invoice:sales_invoices(*),
-          lines:delivery_note_lines(*, product:items(*))
+          lines:delivery_note_lines(*, product:products(*))
         `)
         .eq('id', rpcResult.delivery_id)
         .single();
@@ -964,7 +969,7 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     const { data: dnData, error: dnError } = await supabase
       .from('delivery_notes')
       .insert({
-        tenant_id: tenantId,
+        org_id: tenantId,
         delivery_number: deliveryNumber,
         sales_invoice_id: delivery.sales_invoice_id,
         customer_id: delivery.customer_id,
@@ -1004,7 +1009,7 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
         sales_invoice:sales_invoices(*),
         lines:delivery_note_lines(
           *,
-          product:items(*)
+          product:products(*)
         )
       `)
       .eq('id', dnData.id)
@@ -1036,7 +1041,7 @@ async function createCOGSAccountingEntry(deliveryNote: DeliveryNote, totalCOGS: 
     const { data: accounts } = await supabase
       .from('gl_accounts')
       .select('id, code, category')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .in('code', ['5001', '1130']); // COGS, Inventory
 
     const cogsAccount = accounts?.find(a => a.code === '5001' || a.category === 'EXPENSE');
@@ -1130,9 +1135,9 @@ export async function recordCustomerCollection(collection: Omit<CustomerCollecti
       await supabase
         .from('customer_collections')
         .insert({
-          tenant_id: tenantId,
+          org_id: tenantId,
           collection_number: collectionNumber,
-          sales_invoice_id: collection.sales_invoice_id,
+          invoice_id: collection.sales_invoice_id,
           customer_id: collection.customer_id,
           collection_date: collection.collection_date,
           amount: collection.amount,
@@ -1189,7 +1194,7 @@ async function createCollectionAccountingEntry(collection: CustomerCollection, i
     const { data: accounts } = await supabase
       .from('gl_accounts')
       .select('id, code')
-      .eq('tenant_id', tenantId)
+      .eq('org_id', tenantId)
       .in('code', [cashAccountCode, bankAccountCode, arAccountCode]);
 
     const paymentAccount = accounts?.find(a => 
@@ -1262,7 +1267,7 @@ export async function getSalesOrderWithDetails(orderId: string): Promise<{ succe
         customer:customers(*),
         lines:sales_order_lines(
           *,
-          item:items(*)
+          item:products(*)
         )
       `)
       .eq('id', orderId)
@@ -1290,7 +1295,7 @@ export async function getSalesInvoiceWithDetails(invoiceId: string): Promise<{ s
         so:sales_orders(*),
         lines:sales_invoice_lines(
           *,
-          product:items(*)
+          product:products(*)
         ),
         deliveries:delivery_notes(
           *,
@@ -1322,7 +1327,7 @@ export async function getDeliveryNoteWithDetails(deliveryId: string): Promise<{ 
         sales_invoice:sales_invoices(*),
         lines:delivery_note_lines(
           *,
-          product:items(*)
+          product:products(*)
         )
       `)
       .eq('id', deliveryId)
