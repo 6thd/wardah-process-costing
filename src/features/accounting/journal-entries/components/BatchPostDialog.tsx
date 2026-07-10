@@ -114,7 +114,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
             <>
               <div className="flex justify-between items-center">
                 <Button variant="outline" size="sm" onClick={selectAll}>
-                  {/* eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional */}
+                  {/* eslint-disable-next-line complexity */}
                   {(() => {
                     const isAllSelected = selectedEntries.size === draftEntries.length;
                     if (isAllSelected) {
@@ -160,7 +160,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                             })}
                           </TableCell>
                           <TableCell>
-                            {/* eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional */}
+                            {/* eslint-disable-next-line complexity */}
                             {(() => {
                               if (!result) {
                                 return (

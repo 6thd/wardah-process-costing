@@ -440,7 +440,6 @@ export default function StockTransferManagement() {
           stock_value_difference: item.quantity * valuationRate
         };
         // Push both entries at once (intentional - both entries are created together)
-        // eslint-disable-next-line sonarjs/prefer-array-methods
         stockLedgerEntries.push(outEntry, inEntry)
       }
 
