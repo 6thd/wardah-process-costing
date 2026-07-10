@@ -918,8 +918,7 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     // رأس + سطور + قفل صف الصنف + خصم + حركة + COGS في معاملة واحدة، مع تحقق
     // عضوية/ملكية/منع تسليم زائد وidempotency (88). PGRST202 ⇒ المسار القديم كما هو.
     // idempotency_key يمنع تكرار الخصم عند إعادة إرسال نفس الطلب (شبكة/عميل).
-    const idempotencyKey =
-      (globalThis.crypto?.randomUUID?.() ?? `dn-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const idempotencyKey = globalThis.crypto.randomUUID();
     const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_post_delivery_note', {
       p_payload: {
         tenant_id: tenantId,

@@ -251,8 +251,7 @@ export async function receiveGoods(
     // 1. إنشاء سند الاستلام — P5: المسار الذرّي أولاً (Migration 89):
     //    رأس + سطور + قيد GRNI في معاملة واحدة Fail-closed، فلا يُسجَّل استلام
     //    بلا قيد مقابل. idempotency يمنع التكرار. PGRST202 ⇒ المسار القديم حرفياً.
-    const grIdempotencyKey =
-      (globalThis.crypto?.randomUUID?.() ?? `gr-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const grIdempotencyKey = globalThis.crypto.randomUUID();
     let grData: { id: string; receipt_number?: string; [k: string]: unknown };
     let linesAlreadyCreated = false;
 
