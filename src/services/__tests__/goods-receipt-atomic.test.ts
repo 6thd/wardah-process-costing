@@ -116,6 +116,52 @@ describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
     expect(mockCreateSLE).not.toHaveBeenCalled()
   })
 
+  it('idempotent replay: لا يُكرّر دفتر المخزون في الواجهة (Migration 95 P0-1)', async () => {
+    // إعادة إرسال بنفس المفتاح ⇒ الـ RPC يعيد idempotent_replay + inventory_atomic
+    mockRpc.mockResolvedValue({
+      data: { success: true, goods_receipt_id: 'gr-existing', receipt_number: 'GR-000007',
+        idempotent_replay: true, inventory_atomic: true },
+      error: null,
+    })
+    mockGetBin.mockResolvedValue({ data: null })
+    mockCreateSLE.mockResolvedValue({ success: true })
+    mockFrom.mockImplementation(() => {
+      const c: Record<string, unknown> = {}
+      c.select = vi.fn().mockReturnValue(c)
+      c.eq = vi.fn().mockReturnValue(c)
+      c.single = vi.fn().mockResolvedValue({ data: { received_quantity: 0, quantity: 100 } })
+      c.update = vi.fn().mockReturnValue(c)
+      c.upsert = vi.fn().mockResolvedValue({ error: null })
+      return c
+    })
+
+    const res = await receiveGoods(receipt, lines, 'stable-key-1')
+
+    expect(res.success).toBe(true)
+    // replay ⇒ الدفتر عولج أصلاً في الاستدعاء الأصلي ⇒ لا SLE مكرَّر
+    expect(mockCreateSLE).not.toHaveBeenCalled()
+    // مُرِّر المفتاح الثابت للـ RPC
+    expect(mockRpc.mock.calls[0][1].p_payload.idempotency_key).toBe('stable-key-1')
+  })
+
+  it('Fail-closed: replay من دالة قديمة بلا inventory_atomic يُرفض (لا تخطٍّ صامت للدفتر)', async () => {
+    // دالة 89/90 قديمة: replay بلا inventory_atomic ⇒ حالة الدفتر غير مؤكَّدة ⇒ رفض
+    mockRpc.mockResolvedValue({
+      data: { success: true, goods_receipt_id: 'gr-legacy-replay', receipt_number: 'GR-000008',
+        idempotent_replay: true },
+      error: null,
+    })
+    mockGetBin.mockResolvedValue({ data: null })
+    mockCreateSLE.mockResolvedValue({ success: true })
+    mockFrom.mockImplementation(() => ({ insert: vi.fn() }))
+
+    const res = await receiveGoods(receipt, lines, 'stable-key-2')
+
+    expect(res.success).toBe(false)
+    // لم يُكرَّر دفتر المخزون ولا خُطّي عنه صامتاً
+    expect(mockCreateSLE).not.toHaveBeenCalled()
+  })
+
   it('Fail-closed: خطأ حقيقي من الـ RPC (فشل GRNI) يوقف العملية — لا دفتر مخزون', async () => {
     mockRpc.mockResolvedValue({
       data: null,

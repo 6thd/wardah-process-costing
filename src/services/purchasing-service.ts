@@ -220,7 +220,8 @@ export async function updatePurchaseOrderStatus(orderId: string, status: string)
  */
 export async function receiveGoods(
   receipt: GoodsReceipt,
-  lines: GoodsReceiptLine[]
+  lines: GoodsReceiptLine[],
+  idempotencyKey?: string
 ) {
   try {
     console.log('📦 Creating Goods Receipt with Stock Ledger Entries...');
@@ -236,7 +237,9 @@ export async function receiveGoods(
     // 1. إنشاء سند الاستلام — P5: المسار الذرّي أولاً (Migration 89):
     //    رأس + سطور + قيد GRNI في معاملة واحدة Fail-closed، فلا يُسجَّل استلام
     //    بلا قيد مقابل. idempotency يمنع التكرار. PGRST202 ⇒ المسار القديم حرفياً.
-    const grIdempotencyKey = globalThis.crypto.randomUUID();
+    // مفتاح idempotency: يُفضَّل استقباله من الواجهة فيظل ثابتاً عبر إعادة المحاولة
+    // بعد timeout (لا يتكرر الاستلام). عند غيابه نولّد واحداً (حماية داخل الاستدعاء).
+    const grIdempotencyKey = idempotencyKey ?? globalThis.crypto.randomUUID();
     let grData: { id: string; receipt_number?: string; [k: string]: unknown };
     let linesAlreadyCreated = false;
     // هل رحّل الـ RPC دفتر المخزون (SLE + bin) ذرّياً؟ (Migration 94 فقط).
@@ -274,11 +277,24 @@ export async function receiveGoods(
 
     if (!grRpcError && (grRpc as { success?: boolean } | null)?.success) {
       const res = grRpc as { goods_receipt_id: string; receipt_number?: string; inventory_atomic?: boolean };
+      const isReplay = (grRpc as { idempotent_replay?: boolean }).idempotent_replay === true;
       grData = { id: res.goods_receipt_id, receipt_number: res.receipt_number };
       linesAlreadyCreated = true;
+      // نثق فقط بالعلم الصريح inventory_atomic: الدالة الذرّية (Migration 94+) طبّقت
+      // SLE/bin — والـ replay منها يعيد inventory_atomic=true أيضاً (Migration 95).
       inventoryHandledByRpc = res.inventory_atomic === true;
-      console.log('✅ Goods Receipt + GRNI posted atomically:', grData.id,
-        inventoryHandledByRpc ? '(inventory ledger atomic)' : '(legacy RPC — client SLE)');
+      // replay من دالة قديمة (89/90) بلا inventory_atomic: دفتر المخزون هناك في
+      // الواجهة، ولا يمكن تأكيد أنه نُفِّذ في المحاولة الأصلية ⇒ Fail-closed بدل
+      // تخطّيه (فقدان مخزون) أو تكراره (مضاعفة مخزون).
+      if (isReplay && !inventoryHandledByRpc) {
+        throw new Error(
+          'استلام مكرَّر (idempotent replay) من دالة استلام قديمة بلا دفتر مخزون ذرّي — ' +
+          'تعذّر تأكيد حالة دفتر المخزون. طبّق Migration 94+ أو راجع الاستلام والمخزون يدوياً.'
+        );
+      }
+      console.log('✅ Goods Receipt + GRNI posted:', grData.id,
+        isReplay ? '(idempotent replay — inventory atomic)'
+          : inventoryHandledByRpc ? '(inventory ledger atomic)' : '(legacy RPC — client SLE)');
     } else if (grRpcError && !grRpcMissing) {
       // خطأ حقيقي (فشل قيد GRNI / عزل / عضوية) — Fail-closed: لا استلام ناقص
       throw new Error((grRpcError as { message?: string }).message ?? 'فشل ترحيل الاستلام الذرّي');
