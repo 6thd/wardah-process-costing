@@ -408,6 +408,25 @@ describe('updateManufacturingOrderStatus', () => {
     expect(result?.total_cost).toBe(500);
   });
 
+  it('should forward tenant_id/org_id into the completion payload when provided', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === 'rpc_complete_manufacturing_order'
+        ? Promise.resolve({ data: { success: true, mo_id: 'mo-1', warnings: [] }, error: null })
+        : Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'nope' } })
+    );
+
+    await updateManufacturingOrderStatus(getClient, {
+      id: 'mo-1',
+      status: 'completed',
+      providedUpdateData: { org_id: 'org-77' },
+    });
+
+    const payload = mockRpc.mock.calls.find(c => c[0] === 'rpc_complete_manufacturing_order')?.[1].p_payload;
+    expect(payload.tenant_id).toBe('org-77');
+  });
+
   it('should forward completed_quantity into the completion payload', async () => {
     const { updateManufacturingOrderStatus } = await import('../updateStatus');
 

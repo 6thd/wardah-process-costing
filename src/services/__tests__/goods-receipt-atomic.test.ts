@@ -87,6 +87,9 @@ describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
     expect(typeof payload.idempotency_key).toBe('string')
     expect(payload.vendor_id).toBe('vendor-1')
     expect(payload.lines).toHaveLength(1)
+    // RPC نجح لكن بلا علم inventory_atomic (مهاجرة 89/90 قديمة) ⇒ الواجهة تُطبّق
+    // دفتر المخزون لئلا يُسجَّل استلام بلا حركة مخزون
+    expect(mockCreateSLE).toHaveBeenCalled()
   })
 
   it('المسار الذرّي: دفتر المخزون (SLE) يُطبَّق داخل الـ RPC — لا يُكرَّر في الواجهة (Migration 94)', async () => {

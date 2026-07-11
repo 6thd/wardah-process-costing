@@ -89,25 +89,21 @@ BEGIN
         v_new_queue := jsonb_build_array(jsonb_build_object('qty', v_new_qty, 'rate', v_new_rate));
     END IF;
 
-    -- SLE: لا تُدرج مكرَّراً لنفس المستند/المنتج/المخزن/الكمية (دفاع ضد إعادة التطبيق)
-    IF NOT EXISTS (
-        SELECT 1 FROM stock_ledger_entries
-        WHERE voucher_id = p_voucher_id AND product_id = p_product
-          AND warehouse_id = p_warehouse AND actual_qty = p_qty
-          AND COALESCE(is_cancelled, FALSE) = FALSE
-    ) THEN
-        INSERT INTO stock_ledger_entries (
-            voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
-            posting_date, actual_qty, qty_after_transaction, incoming_rate,
-            valuation_rate, stock_value, stock_value_difference, stock_queue,
-            docstatus, org_id, created_by
-        ) VALUES (
-            p_voucher_type, p_voucher_id, p_voucher_number, p_product, p_warehouse,
-            COALESCE(p_posting_date, CURRENT_DATE), p_qty, v_new_qty, p_rate,
-            v_new_rate, v_new_value, (p_qty * p_rate), v_new_queue,
-            1, p_org, auth.uid()
-        );
-    END IF;
+    -- SLE دفتر إلحاقي: كل حركة (كل سطر) تُنشئ صفاً مستقلاً. لا نُزيل التكرار هنا —
+    -- إعادة تطبيق سند كامل يمنعها idempotency_key على مستوى rpc_post_goods_receipt
+    -- (يعود مبكراً قبل حلقة السطور)، وسطران متمايزان بنفس المنتج/المخزن/الكمية
+    -- يجب أن يحصل كلٌّ منهما على SLE خاصّ (وإلا تخلّف رصيد الدفتر عن الـ bin).
+    INSERT INTO stock_ledger_entries (
+        voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
+        posting_date, actual_qty, qty_after_transaction, incoming_rate,
+        valuation_rate, stock_value, stock_value_difference, stock_queue,
+        docstatus, org_id, created_by
+    ) VALUES (
+        p_voucher_type, p_voucher_id, p_voucher_number, p_product, p_warehouse,
+        COALESCE(p_posting_date, CURRENT_DATE), p_qty, v_new_qty, p_rate,
+        v_new_rate, v_new_value, (p_qty * p_rate), v_new_queue,
+        1, p_org, auth.uid()
+    );
 
     -- Bin: upsert (فهرس فريد على product_id, warehouse_id)
     INSERT INTO bins (

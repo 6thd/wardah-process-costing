@@ -116,7 +116,7 @@ BEGIN
             org_id, product_id, quantity, move_type, unit_cost_in,
             reference_type, reference_id, reference_number, status, date_done
         ) VALUES (
-            v_org, v_mo.product_id, v_done_qty, 'manufacturing_receipt', v_unit_cost,
+            v_org, v_mo.product_id, v_done_qty, 'production_receipt', v_unit_cost,
             'MANUFACTURING_ORDER', v_mo_id, NULL, 'done', NOW()
         );
     END IF;
