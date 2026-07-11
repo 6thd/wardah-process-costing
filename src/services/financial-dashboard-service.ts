@@ -47,12 +47,13 @@ class FinancialDashboardService {
         throw new Error('Tenant ID not found')
       }
       
-      // Fetch sales data — المبيعات الفعلية في sales_invoices (sales_orders قد يكون فارغاً)
+      // Fetch sales data — المبيعات الفعلية في sales_invoices (sales_orders قد يكون فارغاً).
+      // الترشيح بتاريخ الفاتورة (invoice_date) لا created_at: هو التاريخ المحاسبي المعتمَد.
       const { data: salesData, error: salesError } = await supabase
         .from('sales_invoices')
         .select('total_amount')
         .eq('org_id', tenantId)
-        .gte('created_at', this.getStartOfMonth())
+        .gte('invoice_date', this.getStartOfMonth())
       
       if (salesError) throw salesError
       
