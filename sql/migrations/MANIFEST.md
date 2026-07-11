@@ -31,6 +31,7 @@
 | **95** | **إغلاق مراجعة Codex: replay يعيد inventory_atomic (منع تكرار مخزون) + سحب صلاحية الدالة المساعدة (أمني) + تشديد المورد/المخزن/PO + إتمام تكلفة صفرية Fail-closed** | ✅ مطبَّقة + مُختبرة حيّاً (replay=SLE واحد، الدالة المساعدة غير متاحة لـ authenticated، رفض مورد/PO/مخزن، ZERO_COST_COMPLETION) |
 | **96** | **بوابة admin لـ allow_zero_cost + بصمة الحمولة (request_hash) على idempotency الاستلام** | ✅ مطبَّقة + مُختبرة حيّاً (نفس المفتاح بحمولة مختلفة=IDEMPOTENCY_KEY_REUSED، allow_zero_cost لغير المدير يُخفَّض) |
 | **97** | **توحيد المخزون: products مجمّع مرجعي مشتق من bins (الخيار B) — مزامنة products.stock_quantity/cost_price داخل wardah_apply_stock_incoming + تسوية idempotent للـ bins السابقة** | ✅ مطبَّقة + مُختبرة حيّاً (تسوية: products=001(18,200 تام)+RM-042(3,250 خام)=**21,450**؛ استلام 100@8 فوق 500@6.5 ⇒ bins=products=600@6.75، اشتقاق idempotent بلا مضاعفة) |
+| **98** | **جدول org_settings (key/value JSONB لكل مؤسسة) + RLS قياسي + trigger updated_at — خلفية شاشة إعدادات النظام والنسخ الاحتياطي (P11-6)** | ✅ مطبَّقة + مُختبرة حيّاً (upsert مرتين على نفس المفتاح ⇒ صف واحد بالقيمة الأحدث، rollback) |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -55,7 +56,7 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **98**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **99**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة
