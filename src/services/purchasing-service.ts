@@ -326,9 +326,12 @@ export async function receiveGoods(
         if (lineError) throw lineError;
       }
 
-      // ⭐ إنشاء Stock Ledger Entry (فقط للكميات المقبولة)
-      if (line.quality_status === 'accepted' && line.received_quantity > 0) {
-        
+      // ⭐ دفتر المخزون (Stock Ledger Entry + bin): يُطبَّق **ذرّياً** داخل
+      //    rpc_post_goods_receipt (Migration 94) في المسار الأساسي — ضمن نفس
+      //    معاملة المستند/القيد وبقفل صف الـ bin (لا سباق). هنا فقط في مسار
+      //    الـ fallback القديم (تطوير بلا Migration 94) تفادياً للتطبيق المزدوج.
+      if (!linesAlreadyCreated && line.quality_status === 'accepted' && line.received_quantity > 0) {
+
         // Get product to check valuation method
         const { data: product, error: productError } = await supabase
           .from('products')
