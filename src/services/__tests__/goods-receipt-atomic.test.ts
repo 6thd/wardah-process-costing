@@ -3,7 +3,7 @@
  * يتحقق من: RPC أولاً، Fail-closed عند فشل حقيقي (لا دفتر مخزون بلا مستند+قيد)،
  * وتمرير idempotency_key.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
@@ -41,6 +41,24 @@ const lines = [
 
 describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
   beforeEach(() => vi.clearAllMocks())
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('Fail-closed في الإنتاج: غياب الدالة (PGRST202) يرمي بدل المسار المتسامح', async () => {
+    vi.stubEnv('PROD', true)
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function' },
+    })
+    const insertSpy = vi.fn()
+    mockFrom.mockImplementation(() => ({ insert: insertSpy }))
+
+    const res = await receiveGoods(receipt, lines)
+
+    expect(res.success).toBe(false)
+    // لم يلجأ للمسار القديم في الإنتاج
+    expect(insertSpy).not.toHaveBeenCalled()
+    expect(mockCreateSLE).not.toHaveBeenCalled()
+  })
 
   it('يستدعي rpc_post_goods_receipt أولاً ويمرّر idempotency_key + vendor + lines', async () => {
     mockRpc.mockResolvedValue({

@@ -1,7 +1,7 @@
 /**
  * اختبارات المسار الذرّي لإذن التسليم (Migration 85 — P4-B5)
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
@@ -100,6 +100,20 @@ describe('createDeliveryNote — المسار الذرّي (Migration 85)', () =
 
     expect(result.success).toBe(false)
     expect(String(result.error)).toContain('INSUFFICIENT_STOCK')
+  })
+
+  it('Fail-closed في الإنتاج: غياب الدالة (PGRST202) يرفض المسار المتسامح', async () => {
+    vi.stubEnv('PROD', true)
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function' }
+    })
+
+    const result = await createDeliveryNote(deliveryInput)
+
+    expect(result.success).toBe(false)
+    expect(String(result.error)).toContain('الإنتاج')
+    vi.unstubAllEnvs()
   })
 
   it('تحذيرات الدالة الذرّية (COGS غير مزروع) تتصاعد للواجهة', async () => {
