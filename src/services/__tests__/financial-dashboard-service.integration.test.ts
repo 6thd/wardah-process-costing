@@ -5,7 +5,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const tableData: Record<string, unknown[]> = {
-  sales_orders: [{ id: 's1', order_number: 'SO-1', total_amount: 1000, created_at: '2026-07-01' }],
+  sales_invoices: [{ id: 's1', order_number: 'INV-1', total_amount: 1000, created_at: '2026-07-01' }],
   purchase_orders: [{ total_amount: 400 }],
   products: [
     { id: 'p1', name: 'A', code: 'A1', stock_quantity: 10, cost_price: 5 }, // 50
@@ -49,7 +49,7 @@ describe('financialDashboardService — قراءة products/org_id (إصلاح P
     expect(top).toHaveLength(2);
   });
 
-  it('fetchRecentTransactions يقرأ من sales_orders', async () => {
+  it('fetchRecentTransactions يقرأ من sales_invoices', async () => {
     const txns = await financialDashboardService.fetchRecentTransactions();
     expect(txns).toHaveLength(1);
   });
