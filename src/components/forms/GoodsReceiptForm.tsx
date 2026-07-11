@@ -63,12 +63,17 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
     if (open) {
       loadPurchaseOrders()
     }
+    // فتح/إغلاق الحوار يبدأ محاولة استلام جديدة ⇒ صفّر مفتاح idempotency لئلا
+    // يُعاد استخدام مفتاح محاولة سابقة مهجورة (فيرجع الـ RPC سنداً قديماً كـ replay).
+    idempotencyKeyRef.current = null
   }, [open])
 
   useEffect(() => {
     if (selectedPO) {
       loadPOLines()
     }
+    // تغيّر أمر الشراء = حمولة استلام مختلفة ⇒ مفتاح جديد (لا تكرار مفتاح PO سابق).
+    idempotencyKeyRef.current = null
   }, [selectedPO])
 
   const loadPurchaseOrders = async () => {
