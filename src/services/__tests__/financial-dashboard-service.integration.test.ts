@@ -15,11 +15,15 @@ const tableData: Record<string, unknown[]> = {
 
 function makeChain(table: string) {
   const result = { data: tableData[table] ?? [], error: null };
-  const chain: Record<string, unknown> = {};
-  for (const m of ['select', 'eq', 'gte', 'lte', 'order', 'limit']) {
-    chain[m] = () => chain;
-  }
-  (chain as { then: (r: (v: unknown) => unknown) => unknown }).then = (resolve) => resolve(result);
+  const chain: Record<string, unknown> = {
+    then: (resolve: (v: unknown) => unknown) => resolve(result),
+  };
+  chain.select = () => chain;
+  chain.eq = () => chain;
+  chain.gte = () => chain;
+  chain.lte = () => chain;
+  chain.order = () => chain;
+  chain.limit = () => chain;
   return chain;
 }
 
