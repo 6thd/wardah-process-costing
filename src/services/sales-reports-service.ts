@@ -487,7 +487,7 @@ export async function getProductSalesAnalysis(
         const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
         if (productIds.length > 0) {
           const { data: itemsData } = await supabase
-            .from('items')
+            .from('products')
             .select('id, code, name')
             .in('id', productIds);
           
@@ -564,7 +564,7 @@ export async function getProductSalesAnalysis(
         const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
         if (productIds.length > 0) {
           const { data: itemsData } = await supabase
-            .from('items')
+            .from('products')
             .select('id, code, name')
             .in('id', productIds);
           
@@ -611,7 +611,7 @@ export async function getProductSalesAnalysis(
           const productIds = [...new Set(invoiceLines.map((line: any) => line.product_id).filter(Boolean))];
           if (productIds.length > 0) {
             const { data: itemsData } = await supabase
-              .from('items')
+              .from('products')
               .select('id, code, name')
               .in('id', productIds);
             
