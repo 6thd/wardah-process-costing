@@ -26,16 +26,18 @@ describe('InventoryValuationReport', () => {
       data: [
         { id: 'p1', code: 'A1', name: 'منتج أ', stock_quantity: 100, cost_price: 10 }, // 1000
         { id: 'p2', code: 'B2', name: 'منتج ب', stock_quantity: 50, cost_price: 4 },   // 200
+        // صف بحقول فارغة ⇒ يغطّي مسارات ?? '—' و ?? 0 (لا يضيف للإجمالي)
+        { id: 'p3', code: null, name: null, stock_quantity: null, cost_price: null },
       ],
       error: null,
     });
 
     render(<InventoryValuationReport />);
 
-    // الإجمالي = 1000 + 200 = 1,200.00
+    // الإجمالي = 1000 + 200 + 0 = 1,200.00
     await waitFor(() => expect(screen.getByText(/1,200\.00 ريال/)).toBeInTheDocument());
     expect(screen.getByText('منتج أ')).toBeInTheDocument();
-    expect(screen.getByText(/2 منتجاً/)).toBeInTheDocument();
+    expect(screen.getByText(/3 منتجاً/)).toBeInTheDocument();
   });
 
   it('يعرض حالة فارغة عند غياب المنتجات', async () => {
