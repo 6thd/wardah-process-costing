@@ -459,11 +459,54 @@ function PurchaseOrdersManagement() {
   )
 }
 
-// Goods Receipt Management Component
+// Goods Receipt Management Component — قائمة حقيقية من goods_receipts (P11-2)
 function GoodsReceiptManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [showGRForm, setShowGRForm] = useState(false)
+  const [receipts, setReceipts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadReceipts()
+  }, [])
+
+  const loadReceipts = async () => {
+    setLoading(true)
+    try {
+      const { getAllGoodsReceipts } = await import('@/services/purchasing-service')
+      const res = await getAllGoodsReceipts()
+      if (!res.success) throw res.error
+      setReceipts(res.data || [])
+    } catch (error) {
+      console.error('Error loading goods receipts:', error)
+      toast.error('خطأ في تحميل سندات الاستلام')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getReceiptStatusBadge = (status: string) => {
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      'draft': { label: 'مسودة', variant: 'outline' },
+      'confirmed': { label: 'مؤكَّد', variant: 'secondary' },
+      'completed': { label: 'مكتمل', variant: 'secondary' },
+      'cancelled': { label: 'ملغى', variant: 'destructive' }
+    }
+    const config = statusMap[status] || { label: status || '—', variant: 'outline' }
+    return <Badge variant={config.variant}>{config.label}</Badge>
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -478,22 +521,55 @@ function GoodsReceiptManagement() {
           + إضافة استلام
         </Button>
       </div>
-      
-      <GoodsReceiptForm 
+
+      <GoodsReceiptForm
         open={showGRForm}
         onOpenChange={setShowGRForm}
         onSuccess={async () => {
           toast.success('تم إنشاء إشعار الاستلام بنجاح')
-          // Reload goods receipts if needed
+          await loadReceipts()
         }}
       />
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - عمليات استلام وفحص البضائع
-        </p>
+
+      {/* Receipts List */}
+      <div className="bg-card rounded-lg border">
+        <div className="p-4 border-b">
+          <h3 className="font-semibold">سندات الاستلام ({receipts.length})</h3>
+        </div>
+        <div className="divide-y">
+          {receipts.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              لا توجد سندات استلام. اضغط على «+ إضافة استلام» لتسجيل أول استلام.
+            </div>
+          ) : (
+            receipts.map((receipt) => (
+              <div key={receipt.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{receipt.receipt_number}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {receipt.vendor?.name || 'مورد غير محدد'}
+                    </p>
+                    <div className="flex flex-wrap gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(receipt.receipt_date).toLocaleDateString('en-US')}</span>
+                      {receipt.purchase_order && (
+                        <span>📦 أمر الشراء: {receipt.purchase_order.order_number}</span>
+                      )}
+                      {receipt.receiver_name && <span>👤 المستلم: {receipt.receiver_name}</span>}
+                      {receipt.warehouse_location && <span>🏭 {receipt.warehouse_location}</span>}
+                    </div>
+                    {receipt.notes && (
+                      <p className="text-xs text-muted-foreground mt-2">{receipt.notes}</p>
+                    )}
+                  </div>
+                  <div className="text-right ml-4">
+                    {getReceiptStatusBadge(receipt.status)}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
