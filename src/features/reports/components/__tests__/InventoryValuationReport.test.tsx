@@ -49,4 +49,11 @@ describe('InventoryValuationReport', () => {
     render(<InventoryValuationReport />);
     await waitFor(() => expect(screen.getByText(/DB down/)).toBeInTheDocument());
   });
+
+  it('يعرض خطأً عند تعذّر تحديد المؤسسة (org غير موجود)', async () => {
+    const supa = await import('@/lib/supabase');
+    (supa.getEffectiveTenantId as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    render(<InventoryValuationReport />);
+    await waitFor(() => expect(screen.getByText(/تعذّر تحديد هوية المؤسسة/)).toBeInTheDocument());
+  });
 });
