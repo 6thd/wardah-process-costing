@@ -20,6 +20,65 @@ function isMissingFunctionError(error: { code?: string; message?: string } | nul
   return error.code === 'PGRST202' || error.message?.includes('Could not find the function') || false;
 }
 
+/**
+ * هل الحالة المطلوبة هي «إتمام»؟ (normalizeStatus يطبّق done⇒completed)
+ * الإتمام مسار مالي: يزيد مخزون المنتج التام ويُرحّل سلسلة قيود WIP→FG.
+ */
+function isCompletionStatus(status: string): boolean {
+  return normalizeStatus(status) === 'completed';
+}
+
+/**
+ * المسار الذرّي للإتمام (Migration 93): rpc_complete_manufacturing_order
+ * — يزيد مخزون المنتج التام (متوسط مرجّح) + يُرحّل قيدَي MATERIAL_ISSUE/FG_RECEIPT
+ *   (Fail-closed) + يضبط الحالة done — كل ذلك في معاملة واحدة idempotent.
+ * يرجع { handled:false } فقط عند غياب الدالة (PGRST202) وخارج الإنتاج، ليسقط
+ * النداءُ للمسار القديم rpc_transition_mo_status (توافق مع بيئات بلا Migration 93).
+ * في الإنتاج يُرمى خطأ Fail-closed بدل إتمام بلا ترحيل تكلفة.
+ */
+async function attemptAtomicCompletion(
+  supabase: SupabaseClient,
+  id: string,
+  providedUpdateData?: Record<string, unknown>
+): Promise<{ handled: boolean; result?: Record<string, unknown> }> {
+  const payload: Record<string, unknown> = { mo_id: id };
+
+  const tenantId = providedUpdateData?.tenant_id ?? providedUpdateData?.org_id;
+  if (typeof tenantId === 'string' && tenantId) {
+    payload.tenant_id = tenantId;
+  }
+
+  const doneQty = providedUpdateData?.completed_quantity ?? providedUpdateData?.completedQty;
+  if (doneQty !== undefined && doneQty !== null && doneQty !== '') {
+    payload.completed_quantity = Number(doneQty);
+  }
+
+  const { data, error } = await supabase.rpc('rpc_complete_manufacturing_order', {
+    p_payload: payload,
+  });
+
+  if (!error && data?.success) {
+    return { handled: true, result: { id, status: 'completed', ...data } };
+  }
+
+  // خطأ DB حقيقي (منتج غير موجود، عزل org، انتقال غير صالح…) — يجب أن يصل للمستخدم
+  if (error && !isMissingFunctionError(error)) {
+    throw new Error(error.message);
+  }
+
+  // الدالة غير مطبَّقة (PGRST202)
+  if (import.meta.env.PROD) {
+    // Fail-closed: لا نُتمّ أمر تصنيع بلا قيد ومخزون تام في الإنتاج
+    throw new Error(
+      'الإنتاج: دالة الإتمام الذرّي rpc_complete_manufacturing_order غير مطبَّقة — ' +
+      'تعذّر إتمام أمر التصنيع بأمان (منع إتمام بلا ترحيل تكلفة). طبّق Migration 93.'
+    );
+  }
+
+  // خارج الإنتاج: اسمح بالسقوط لمسار الانتقال القديم (تطوير بلا Migration 93)
+  return { handled: false };
+}
+
 type ManufacturingOrderStatus = 
   | 'draft' 
   | 'confirmed' 
@@ -143,6 +202,15 @@ export async function updateManufacturingOrderStatus(
 
   try {
     const supabase = await getClient();
+
+    // ===== الإتمام الذرّي (مخزون تام + قيود WIP→FG) عبر RPC مخصّص (Migration 93) =====
+    if (isCompletionStatus(status)) {
+      const completion = await attemptAtomicCompletion(supabase, id, providedUpdateData);
+      if (completion.handled) {
+        return completion.result ?? null;
+      }
+      // غير مُتمَّم ذرّياً (تطوير بلا Migration 93) ⇒ استمر بمسار الانتقال القديم
+    }
 
     // ===== المسار الذرّي: آلة الحالات عبر RPC =====
     const { data: rpcData, error: rpcError } = await supabase.rpc(

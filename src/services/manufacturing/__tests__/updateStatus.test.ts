@@ -375,5 +375,122 @@ describe('updateManufacturingOrderStatus', () => {
     expect(mockUpdate).toHaveBeenCalled();
     expect(result).toEqual(updatedData);
   });
+
+  // ===== اختبارات الإتمام الذرّي (Migration 93 — rpc_complete_manufacturing_order) =====
+
+  it('should route completion through rpc_complete_manufacturing_order (atomic FG+GL)', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === 'rpc_complete_manufacturing_order'
+        ? Promise.resolve({
+            data: {
+              success: true, mo_id: 'mo-1', completed_quantity: 100,
+              total_cost: 500, unit_cost: 5, fg_new_stock: 100, warnings: []
+            },
+            error: null,
+          })
+        : Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'nope' } })
+    );
+
+    const result = await updateManufacturingOrderStatus(getClient, {
+      id: 'mo-1',
+      status: 'completed',
+    });
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_complete_manufacturing_order', {
+      p_payload: expect.objectContaining({ mo_id: 'mo-1' }),
+    });
+    // لم يلجأ لمسار الانتقال ولا للتحديث المباشر (الإتمام ذرّي كامل)
+    expect(mockRpc).not.toHaveBeenCalledWith('rpc_transition_mo_status', expect.anything());
+    expect(mockUpdate).not.toHaveBeenCalled();
+    expect(result?.status).toBe('completed');
+    expect(result?.total_cost).toBe(500);
+  });
+
+  it('should forward completed_quantity into the completion payload', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === 'rpc_complete_manufacturing_order'
+        ? Promise.resolve({ data: { success: true, mo_id: 'mo-1', completed_quantity: 42, warnings: [] }, error: null })
+        : Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'nope' } })
+    );
+
+    await updateManufacturingOrderStatus(getClient, {
+      id: 'mo-1',
+      status: 'completed',
+      providedUpdateData: { completed_quantity: 42 },
+    });
+
+    const payload = mockRpc.mock.calls.find(c => c[0] === 'rpc_complete_manufacturing_order')?.[1].p_payload;
+    expect(payload.completed_quantity).toBe(42);
+  });
+
+  it('should surface idempotent replay (already_done) from completion RPC', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === 'rpc_complete_manufacturing_order'
+        ? Promise.resolve({
+            data: { success: true, mo_id: 'mo-1', already_done: true, completed_quantity: 100, total_cost: 500 },
+            error: null,
+          })
+        : Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'nope' } })
+    );
+
+    const result = await updateManufacturingOrderStatus(getClient, { id: 'mo-1', status: 'completed' });
+
+    expect(result?.already_done).toBe(true);
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('should propagate a real DB error from completion RPC (no fallback)', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockImplementation((fn: string) =>
+      fn === 'rpc_complete_manufacturing_order'
+        ? Promise.resolve({ data: null, error: { code: 'P0001', message: 'MO_NO_PRODUCT: أمر التصنيع بلا منتج تام' } })
+        : Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'nope' } })
+    );
+
+    await expect(
+      updateManufacturingOrderStatus(getClient, { id: 'mo-1', status: 'completed' })
+    ).rejects.toThrow('MO_NO_PRODUCT');
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('should fail-closed in production when completion RPC is missing (PGRST202)', async () => {
+    vi.stubEnv('PROD', true);
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: 'PGRST202', message: 'Could not find the function' },
+    });
+
+    await expect(
+      updateManufacturingOrderStatus(getClient, { id: 'mo-1', status: 'completed' })
+    ).rejects.toThrow('الإنتاج');
+    // لا إتمام بلا ترحيل تكلفة في الإنتاج — لا تحديث مباشر
+    expect(mockUpdate).not.toHaveBeenCalled();
+    vi.unstubAllEnvs();
+  });
+
+  it('should fall back to legacy path for completion when Migration 93 missing (dev)', async () => {
+    const { updateManufacturingOrderStatus } = await import('../updateStatus');
+
+    // كلتا الدالتين الذرّيتين غائبتان (تطوير) ⇒ السقوط للتحديث المباشر
+    mockRpc.mockResolvedValue({ data: null, error: { code: 'PGRST202', message: 'missing' } });
+    const updatedData = { id: 'mo-1', status: 'completed', end_date: new Date().toISOString(), updated_at: new Date().toISOString() };
+    mockSingle.mockResolvedValue({ data: updatedData, error: null });
+
+    const result = await updateManufacturingOrderStatus(getClient, { id: 'mo-1', status: 'completed' });
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_complete_manufacturing_order', expect.anything());
+    expect(mockRpc).toHaveBeenCalledWith('rpc_transition_mo_status', expect.anything());
+    expect(mockUpdate).toHaveBeenCalled();
+    expect(result).toEqual(updatedData);
+  });
 });
 

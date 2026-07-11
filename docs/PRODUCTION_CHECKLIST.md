@@ -33,6 +33,17 @@
   المعاملة** + إصلاح **سباق idempotency** (فحص بعد القفل). 9 اختبارات rollback حيّة.
 - [x] **91** `91_p5_delivery_idem_race_and_admin_gate.sql` — التسليم: إصلاح سباق
   idempotency + **`allow_over_delivery` محكوم بدور admin** لا براية العميل. مُختبَر حيّاً.
+- [x] **92** `92_p6_fix_mo_status_machine_drift.sql` — **إصلاح آلة حالات التصنيع**:
+  `rpc_transition_mo_status` و`trg_mo_status_machine` كانتا تشيران لأعمدة ميتة
+  (`mo_number/date_started/date_finished`) فأي تغيير حالة يفشل بـ 42703 — صُحّحت إلى
+  `order_number/start_date/completed_date` + تحقق عضوية + `previous_status` صحيح. مُختبَر حيّاً.
+- [x] **93** `93_p6_atomic_mo_completion_costing.sql` — **إتمام أمر تصنيع ذرّي/مالي**:
+  تكلفة WIP الفعلية المتراكمة من `material_consumption` ⇒ زيادة مخزون المنتج التام
+  (متوسط مرجّح) + سلسلة قيود `MATERIAL_ISSUE` (مدين WIP 134100/دائن مواد) و`FG_RECEIPT`
+  (مدين تام 135100/دائن WIP 134100) **Fail-closed** + حالة `done` + **idempotent** (لا
+  إتمام مزدوج). الواجهة `updateManufacturingOrderStatus` توجّه الإتمام لهذا الـ RPC
+  (RPC أولاً، fallback خارج الإنتاج، **Fail-closed في الإنتاج**). مُختبَر حيّاً (PART 1:
+  مخزون تام يزيد + done + replay). الأجور/الأوفرهيد وWIP متعدد المراحل: بناء لاحق.
 
 > **P0 (كود، لا migration): إصلاح تصفير مخزون الاستلام** — كان
 > `purchasing-service.ts` يستخدم stub تقييم يُرجع أصفاراً فيُصفّر رصيد الـ Bin
@@ -70,6 +81,9 @@
 - [ ] تقرير التسوية (`/accounting/reconciliation`) — سجّل الفجوة الحالية كخط أساس:
   الفجوة التاريخية طبيعية (حركات قبل P4)؛ **المطلوب ألا تكبر** مع العمليات الجديدة
 - [ ] فاتورة مبيعات بقيد فاشل (مثلاً فترة مقفلة) ⇒ يظهر توست تحذير برتقالي واضح
+- [ ] إتمام أمر تصنيع (بعد تسجيل استهلاك مواد) ⇒ مخزون المنتج التام يزيد + قيدان
+  `MATERIAL_ISSUE` + `FG_RECEIPT` يظهران و **WIP 134100 يصفو**؛ إتمام ثانٍ لنفس الأمر
+  = لا خصم/قيد مزدوج (idempotent). إتمام بلا استهلاك مواد ⇒ تحذير «تكلفة صفرية».
 
 ## 5) CI/CD
 
