@@ -22,6 +22,7 @@ import { ReportsDashboard } from './components/ReportsDashboard'
 import GeminiDashboard from './components/GeminiDashboard'
 import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
 import { SalesReports as SalesReportsComponent } from './components/SalesReports'
+import { InventoryValuationReport } from './components/InventoryValuationReport'
 
 export function ReportsModule() {
   return (
@@ -269,7 +270,7 @@ function FinancialReports() {
   )
 }
 
-// Inventory Reports Component
+// Inventory Reports Component — تقرير تقييم المخزون الحقيقي (products المجمّع المرجعي)
 function InventoryReports() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -282,14 +283,7 @@ function InventoryReports() {
           تقييم وحركة وأداء المخزون
         </p>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - تقييم المخزون، كارت الأصناف، الأصناف بطيئة الحركة
-        </p>
-      </div>
+      <InventoryValuationReport />
     </div>
   )
 }
