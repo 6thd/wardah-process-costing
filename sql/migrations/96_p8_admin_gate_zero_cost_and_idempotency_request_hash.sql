@@ -117,9 +117,11 @@ BEGIN
         INTO v_existing_id, v_existing_no, v_existing_hash
         FROM goods_receipts WHERE org_id = v_org AND idempotency_key = v_idem_key;
         IF v_existing_id IS NOT NULL THEN
-            -- نفس المفتاح بحمولة مختلفة ⇒ عملية مختلفة، لا تُعِد السند القديم
-            IF v_existing_hash IS NOT NULL AND v_existing_hash <> v_req_hash THEN
-                RAISE EXCEPTION 'IDEMPOTENCY_KEY_REUSED: نفس مفتاح idempotency بحمولة مختلفة — العملية المعدَّلة تتطلب مفتاحاً جديداً';
+            -- نُعيد السند القديم فقط إن تأكّد تطابق الحمولة (نفس request_hash).
+            -- request_hash فارغ (سند أقدم من هذه المهاجرة أو نافذة نشر) ⇒ لا يمكن
+            -- تأكيد التطابق ⇒ Fail-closed برفض بدل إعادة سند قد يكون لحمولة مختلفة.
+            IF v_existing_hash IS NULL OR v_existing_hash <> v_req_hash THEN
+                RAISE EXCEPTION 'IDEMPOTENCY_KEY_REUSED: تعذّر تأكيد تطابق الحمولة لهذا المفتاح (حمولة مختلفة أو سند قديم بلا بصمة) — استخدم مفتاحاً جديداً للعملية';
             END IF;
             RETURN jsonb_build_object(
                 'success', TRUE, 'goods_receipt_id', v_existing_id,
