@@ -55,25 +55,22 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
   const [receiptDate, setReceiptDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<GoodsReceiptLine[]>([])
-  // مفتاح idempotency ثابت لمحاولة الاستلام الواحدة: يُنشأ مرة ويُعاد استخدامه عبر
-  // إعادة المحاولة بعد فشل/timeout فلا يتكرر الاستلام؛ يُصفَّر بعد النجاح فقط.
-  const idempotencyKeyRef = useRef<string | null>(null)
+  // مفتاح idempotency مقرون ببصمة الحمولة { key, fp }: يُعاد استخدام المفتاح فقط
+  // عند تطابق الحمولة (إعادة محاولة حقيقية بعد فشل/timeout ⇒ لا تكرار استلام)،
+  // وأي تغيّر في الحمولة (كمية/مخزن/تاريخ/سطور/تكلفة/أمر الشراء) يولّد مفتاحاً
+  // جديداً — فلا يُعاد سند قديم كـ replay لعملية مختلفة. يُصفَّر بعد النجاح.
+  const idempotencyRef = useRef<{ key: string; fp: string } | null>(null)
 
   useEffect(() => {
     if (open) {
       loadPurchaseOrders()
     }
-    // فتح/إغلاق الحوار يبدأ محاولة استلام جديدة ⇒ صفّر مفتاح idempotency لئلا
-    // يُعاد استخدام مفتاح محاولة سابقة مهجورة (فيرجع الـ RPC سنداً قديماً كـ replay).
-    idempotencyKeyRef.current = null
   }, [open])
 
   useEffect(() => {
     if (selectedPO) {
       loadPOLines()
     }
-    // تغيّر أمر الشراء = حمولة استلام مختلفة ⇒ مفتاح جديد (لا تكرار مفتاح PO سابق).
-    idempotencyKeyRef.current = null
   }, [selectedPO])
 
   const loadPurchaseOrders = async () => {
@@ -197,11 +194,13 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
       }))
 
       // ⭐ Use the new receiveGoods function with Stock Ledger System.
-      //    مفتاح idempotency ثابت عبر إعادة المحاولة (يُنشأ مرة لهذه المحاولة).
-      if (!idempotencyKeyRef.current) {
-        idempotencyKeyRef.current = globalThis.crypto.randomUUID()
+      //    بصمة الحمولة تحكم المفتاح: نفس الحمولة ⇒ نفس المفتاح (إعادة محاولة آمنة)،
+      //    وتغيّرها ⇒ مفتاح جديد (عملية مختلفة، لا يُعاد سند سابق كـ replay).
+      const receiptFingerprint = JSON.stringify({ ...receipt, lines: receiptLines })
+      if (!idempotencyRef.current || idempotencyRef.current.fp !== receiptFingerprint) {
+        idempotencyRef.current = { key: globalThis.crypto.randomUUID(), fp: receiptFingerprint }
       }
-      const result = await receiveGoods(receipt, receiptLines, idempotencyKeyRef.current)
+      const result = await receiveGoods(receipt, receiptLines, idempotencyRef.current.key)
 
       if (!result.success) {
         throw result.error || new Error('Failed to create goods receipt')
@@ -211,8 +210,8 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
 
       toast.success('تم إنشاء سند الاستلام بنجاح')
 
-      // نجح الاستلام ⇒ صفّر المفتاح ليبدأ الاستلام التالي بمفتاح جديد
-      idempotencyKeyRef.current = null
+      // نجح الاستلام ⇒ صفّر المفتاح/البصمة ليبدأ الاستلام التالي بمفتاح جديد
+      idempotencyRef.current = null
 
       // B1: قيد GL لم يُرحَّل؟ أخبر المستخدم بدل الصمت
       if (result.glWarning) {
