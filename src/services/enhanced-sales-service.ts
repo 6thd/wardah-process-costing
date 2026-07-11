@@ -906,7 +906,7 @@ async function updateInvoiceDeliveryStatus(invoiceId: string): Promise<void> {
 /**
  * Create Delivery Note (with inventory deduction and COGS entry)
  */
-export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>): Promise<{ success: boolean; data?: DeliveryNote; totalCOGS?: number; error?: unknown; warnings?: string[] }> {
+export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'delivery_number'>, idempotencyKeyArg?: string): Promise<{ success: boolean; data?: DeliveryNote; totalCOGS?: number; error?: unknown; warnings?: string[] }> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
@@ -918,7 +918,8 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
     // رأس + سطور + قفل صف الصنف + خصم + حركة + COGS في معاملة واحدة، مع تحقق
     // عضوية/ملكية/منع تسليم زائد وidempotency (88). PGRST202 ⇒ المسار القديم كما هو.
     // idempotency_key يمنع تكرار الخصم عند إعادة إرسال نفس الطلب (شبكة/عميل).
-    const idempotencyKey = globalThis.crypto.randomUUID();
+    // يُفضَّل استقباله من الواجهة (ثابت عبر إعادة المحاولة) وإلا نولّد واحداً.
+    const idempotencyKey = idempotencyKeyArg ?? globalThis.crypto.randomUUID();
     const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_post_delivery_note', {
       p_payload: {
         tenant_id: tenantId,

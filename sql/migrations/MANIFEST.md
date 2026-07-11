@@ -29,6 +29,7 @@
 | **93** | **إتمام أمر تصنيع ذرّي: مخزون تام (متوسط مرجّح) + سلسلة قيود Raw→WIP→FG (Fail-closed) + idempotent** | ✅ مطبَّقة + مُختبرة حيّاً بالكامل (PART 1: مخزون تام+done+replay؛ PART 2: total_cost + قيدا MATERIAL_ISSUE/FG_RECEIPT + **WIP 134100 يصفو=0**) |
 | **94** | **إغلاق ذرّية المخزون: SLE + bins + تقييم (FIFO/LIFO/متوسط) داخل rpc_post_goods_receipt** | ✅ مطبَّقة + مُختبرة حيّاً (WA/FIFO/LIFO مطابِقة للمحرّك + GRNI متزن + idempotent + إصلاح علة bin فارغ) |
 | **95** | **إغلاق مراجعة Codex: replay يعيد inventory_atomic (منع تكرار مخزون) + سحب صلاحية الدالة المساعدة (أمني) + تشديد المورد/المخزن/PO + إتمام تكلفة صفرية Fail-closed** | ✅ مطبَّقة + مُختبرة حيّاً (replay=SLE واحد، الدالة المساعدة غير متاحة لـ authenticated، رفض مورد/PO/مخزن، ZERO_COST_COMPLETION) |
+| **96** | **بوابة admin لـ allow_zero_cost + بصمة الحمولة (request_hash) على idempotency الاستلام** | ✅ مطبَّقة + مُختبرة حيّاً (نفس المفتاح بحمولة مختلفة=IDEMPOTENCY_KEY_REUSED، allow_zero_cost لغير المدير يُخفَّض) |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -53,7 +54,7 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **96**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **97**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة

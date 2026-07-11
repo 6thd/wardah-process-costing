@@ -62,6 +62,13 @@
   (P2) إتمام تصنيع بتكلفة صفرية **Fail-closed** ما لم يُمرَّر `allow_zero_cost=true`. الواجهة:
   مفتاح idempotency ثابت من نموذج الاستلام عبر إعادة المحاولة + معاملة replay كمُعالَجة.
   مُختبَر حيّاً بالكامل (replay=SLE واحد، رفض الدالة لـ authenticated، رفض مورد/PO/مخزن، ZERO_COST).
+- [x] **96** `96_p8_admin_gate_zero_cost_and_idempotency_request_hash.sql` — **إغلاق مراجعة
+  Codex الثالثة**: (P1) `allow_zero_cost` صار محكوماً بدور مدير المؤسسة (is_org_admin/admin/owner)
+  — غير المدير تُخفَّض رايته فيسري Fail-closed (كنمط `allow_over_delivery`/91)؛ (P2) عمود
+  `request_hash` على `goods_receipts` + مقارنة بصمة الحمولة على مسار idempotency: نفس المفتاح
+  بحمولة مختلفة ⇒ `IDEMPOTENCY_KEY_REUSED` (بدل إرجاع سند خاطئ). الواجهة: مفتاح idempotency
+  مقرون ببصمة الحمولة في نموذجَي **الاستلام والتسليم** (تغيّر الكمية/المخزن/السطور ⇒ مفتاح جديد).
+  مُختبَر حيّاً (IDEMPOTENCY_KEY_REUSED، بوابة admin لغير المدير).
 
 > **P0 (كود، لا migration): إصلاح تصفير مخزون الاستلام** — كان
 > `purchasing-service.ts` يستخدم stub تقييم يُرجع أصفاراً فيُصفّر رصيد الـ Bin
