@@ -21,15 +21,20 @@ const tableData: Record<string, unknown[]> = {
     { account_code: '1000', debit_amount: 2500, credit_amount: 0 },
     { account_code: 'ZZZZ', debit_amount: 999, credit_amount: 0 }, // لا يطابق COA ⇒ يُستبعَد
   ],
+  manufacturing_orders: [{ id: 'mo1' }, { id: 'mo2' }],
+  customers: [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }],
+  vendors: [{ id: 'v1' }],
 };
 
 function makeChain(table: string) {
-  const result = { data: tableData[table] ?? [], error: null };
+  const rows = tableData[table] ?? [];
+  const result = { data: rows, error: null, count: rows.length };
   const chain: Record<string, unknown> = {
     then: (resolve: (v: unknown) => unknown) => resolve(result),
   };
   chain.select = () => chain;
   chain.eq = () => chain;
+  chain.not = () => chain;
   chain.order = () => chain;
   chain.limit = () => chain;
   return chain;
@@ -40,7 +45,7 @@ vi.mock('@/lib/supabase', () => ({
   getEffectiveTenantId: vi.fn(() => Promise.resolve('org-1')),
 }));
 
-import { fetchRealDashboardData } from '../dashboard-data-service';
+import { fetchRealDashboardData, fetchOperationalCounts } from '../dashboard-data-service';
 
 describe('fetchRealDashboardData — بيانات حقيقية', () => {
   beforeEach(() => {
@@ -76,5 +81,15 @@ describe('fetchRealDashboardData — بيانات حقيقية', () => {
   it('أحدث المعاملات من الفواتير الفعلية', async () => {
     const d = await fetchRealDashboardData();
     expect(d.recentTransactions).toHaveLength(1);
+  });
+});
+
+describe('fetchOperationalCounts — عدّادات تشغيلية حقيقية', () => {
+  it('يعيد عدّادات من الجداول الفعلية (count فقط)', async () => {
+    const c = await fetchOperationalCounts();
+    expect(c.activeManufacturingOrders).toBe(2); // من manufacturing_orders
+    expect(c.pendingPurchaseOrders).toBe(1);     // من purchase_orders
+    expect(c.totalCustomers).toBe(3);
+    expect(c.totalVendors).toBe(1);
   });
 });
