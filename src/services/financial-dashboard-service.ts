@@ -51,7 +51,7 @@ class FinancialDashboardService {
       const { data: salesData, error: salesError } = await supabase
         .from('sales_orders')
         .select('total_amount')
-        .eq('tenant_id', tenantId)
+        .eq('org_id', tenantId)
         .gte('created_at', this.getStartOfMonth())
       
       if (salesError) throw salesError
@@ -62,7 +62,7 @@ class FinancialDashboardService {
       const { data: purchaseData, error: purchaseError } = await supabase
         .from('purchase_orders')
         .select('total_amount')
-        .eq('tenant_id', tenantId)
+        .eq('org_id', tenantId)
         .gte('created_at', this.getStartOfMonth())
       
       if (purchaseError) throw purchaseError
@@ -76,9 +76,9 @@ class FinancialDashboardService {
       
       // Fetch inventory data
       const { data: inventoryData, error: inventoryError } = await supabase
-        .from('items')
+        .from('products')
         .select('stock_quantity, cost_price')
-        .eq('tenant_id', tenantId)
+        .eq('org_id', tenantId)
       
       if (inventoryError) throw inventoryError
       
@@ -182,7 +182,7 @@ class FinancialDashboardService {
           created_at,
           customer:customers(name)
         `)
-        .eq('tenant_id', tenantId)
+        .eq('org_id', tenantId)
         .order('created_at', { ascending: false })
         .limit(5)
       
@@ -209,19 +209,19 @@ class FinancialDashboardService {
         throw new Error('Tenant ID not found')
       }
       
-      // Fetch items with highest sales (simplified)
+      // Fetch top products by stock value (products بلا عمود sales_count — نرتّب
+      // بالكمية كتبسيط؛ قيمة المخزون = stock_quantity × cost_price تُحسب في الواجهة)
       const { data: itemsData, error: itemsError } = await supabase
-        .from('items')
+        .from('products')
         .select(`
           id,
           name,
           code,
           stock_quantity,
-          cost_price,
-          sales_count
+          cost_price
         `)
-        .eq('tenant_id', tenantId)
-        .order('sales_count', { ascending: false })
+        .eq('org_id', tenantId)
+        .order('stock_quantity', { ascending: false })
         .limit(5)
       
       if (itemsError) throw itemsError

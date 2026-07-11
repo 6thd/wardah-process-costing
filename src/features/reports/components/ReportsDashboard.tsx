@@ -4,6 +4,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { VarianceAnalysisReport } from './VarianceAnalysisReport';
 import { WIPReport } from './WIPReport';
 import { ProfitabilityReport } from './ProfitabilityReport';
+import { InventoryValuationReport } from './InventoryValuationReport';
 import GeminiDashboard from './GeminiDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -79,16 +80,7 @@ export const ReportsDashboard: React.FC = () => {
         </TabsContent>
         
         <TabsContent value="inventory" className="space-y-4">
-          <Card className="wardah-glass-card">
-            <CardHeader>
-              <CardTitle className="text-right wardah-text-gradient-google">تقرير تقييم المخزون</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8 text-muted-foreground">
-                تقرير تقييم المخزون قيد التطوير
-              </div>
-            </CardContent>
-          </Card>
+          <InventoryValuationReport />
         </TabsContent>
       </Tabs>
     </div>

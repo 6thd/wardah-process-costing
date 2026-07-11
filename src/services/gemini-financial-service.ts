@@ -154,7 +154,7 @@ class GeminiFinancialService {
 
       // 4. حساب قيم المخزون
       const { data: inventoryItems } = await supabase
-        .from('items')
+        .from('products')
         .select('stock_quantity, cost_price')
         .eq('is_active', true);
 
