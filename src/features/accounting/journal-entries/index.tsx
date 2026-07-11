@@ -99,7 +99,7 @@ const JournalEntries = () => {
       
       const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
       if (!validation.valid) {
-        alert(validation.message);
+        toast.error(validation.message);
         setFormLoading(false);
         return;
       }
@@ -154,7 +154,7 @@ const JournalEntries = () => {
 
   const handleDelete = async (entry: JournalEntry) => {
     if (entry.status === 'posted') {
-      alert(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete a posted entry');
+      toast.error(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete a posted entry');
       return;
     }
 

@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -116,7 +117,7 @@ export function BOMBuilder() {
   const handleSave = async () => {
     // التحقق من الحقول الأساسية فقط (بدون مكونات)
     if (!bomNumber || !itemId) {
-      alert('الرجاء ملء رقم القائمة ورمز الصنف')
+      toast.warning('الرجاء ملء رقم القائمة ورمز الصنف')
       return
     }
 
@@ -124,7 +125,7 @@ export function BOMBuilder() {
     if (bomLines.length > 0) {
       const invalidLines = bomLines.filter(line => !line.item_id || !line.quantity || line.quantity <= 0)
       if (invalidLines.length > 0) {
-        alert('الرجاء ملء جميع حقول المكونات (الصنف والكمية)')
+        toast.warning('الرجاء ملء جميع حقول المكونات (الصنف والكمية)')
         return
       }
     }

@@ -130,7 +130,7 @@ export function AccountStatement() {
       if (error) {
         console.error('Error fetching accounts:', error);
         // Show user-friendly error
-        alert(isRTL ? 'خطأ في جلب الحسابات. تأكد من وجود بيانات.' : 'Error fetching accounts. Please ensure data exists.');
+        toast.error(isRTL ? 'خطأ في جلب الحسابات. تأكد من وجود بيانات.' : 'Error fetching accounts. Please ensure data exists.');
       } else {
         // Map data to include name_ar as optional (may not exist)
         const mappedData = (data || []).map((account: any) => ({
@@ -145,13 +145,13 @@ export function AccountStatement() {
       }
     } catch (error: any) {
       console.error('Error fetching accounts:', error);
-      alert(isRTL ? 'حدث خطأ في جلب الحسابات' : 'An error occurred while fetching accounts');
+      toast.error(isRTL ? 'حدث خطأ في جلب الحسابات' : 'An error occurred while fetching accounts');
     }
   };
 
   const fetchStatement = async () => {
     if (!selectedAccount) {
-      alert(isRTL ? 'يرجى اختيار حساب' : 'Please select an account');
+      toast.warning(isRTL ? 'يرجى اختيار حساب' : 'Please select an account');
       return;
     }
 
@@ -255,7 +255,7 @@ export function AccountStatement() {
       }
     } catch (error: any) {
       console.error('Error fetching statement:', error);
-      alert(error.message || (isRTL ? 'حدث خطأ في جلب كشف الحساب' : 'An error occurred while fetching statement'));
+      toast.error(error.message || (isRTL ? 'حدث خطأ في جلب كشف الحساب' : 'An error occurred while fetching statement'));
     } finally {
       setLoading(false);
     }

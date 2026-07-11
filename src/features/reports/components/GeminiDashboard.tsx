@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
 import ApexCharts from 'apexcharts';
-import axios from 'axios';
 import { useWardahTheme } from '@/components/wardah-theme-provider';
 
 // Interfaces for financial data
@@ -125,11 +124,11 @@ const GeminiDashboard: React.FC = () => {
         setLoading(true);
         setError(null);
         
-        // Fetch real financial data from the API
-        const response = await axios.get('/api/data/financial/dashboard');
-        const dashboardData: DashboardData = response.data;
-        
-        setData(dashboardData);
+        // بيانات مالية حقيقية من Supabase مباشرة (بدل الـ mock proxy الذي لا يعمل بالإنتاج)
+        const { fetchRealDashboardData } = await import('@/services/dashboard-data-service');
+        const dashboardData = await fetchRealDashboardData();
+
+        setData(dashboardData as unknown as DashboardData);
       } catch (err) {
         console.error('Error fetching dashboard data:', err);
         setError(err instanceof Error ? err.message : 'حدث خطأ غير معروف');

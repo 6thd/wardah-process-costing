@@ -18,10 +18,7 @@ interface ProductRow {
 }
 
 /** تقرير تقييم المخزون: قيمة كل منتج = الكمية × تكلفة الوحدة، من products (org-scoped). */
-async function fetchInventoryValuation(): Promise<ProductRow[]> {
-  const orgId = await getEffectiveTenantId();
-  if (!orgId) throw new Error('تعذّر تحديد هوية المؤسسة');
-
+async function fetchInventoryValuation(orgId: string): Promise<ProductRow[]> {
   const { data, error } = await supabase
     .from('products')
     .select('id, code, name, stock_quantity, cost_price')
@@ -36,11 +33,22 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
 export function InventoryValuationReport() {
-  const { data, isLoading, isError, error, refetch } = useQuery({
-    queryKey: ['inventory-valuation'],
-    queryFn: fetchInventoryValuation,
+  // هوية المؤسسة أولاً، ثم مفتاح استعلام معزول بها (لا تسرّب كاش عبر تبديل المؤسسة)
+  const { data: orgId, isLoading: orgLoading } = useQuery({
+    queryKey: ['effective-org-id'],
+    queryFn: () => getEffectiveTenantId(),
   });
 
+  const { data, isLoading, isError, error, refetch } = useQuery({
+    queryKey: ['inventory-valuation', orgId],
+    queryFn: () => fetchInventoryValuation(orgId as string),
+    enabled: !!orgId,
+  });
+
+  if (orgLoading) return <ReportSkeleton />;
+  if (!orgId) {
+    return <ErrorState title="تعذّر تحميل تقرير تقييم المخزون" message="تعذّر تحديد هوية المؤسسة" />;
+  }
   if (isLoading) return <ReportSkeleton />;
   if (isError) {
     return (
