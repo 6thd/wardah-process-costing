@@ -4,30 +4,15 @@
  */
 
 import { supabase, resolveOrgIdWithFallback } from '../lib/supabase';
-// import { recordInventoryMovement } from '../domain/inventory'; // DISABLED - domain not implemented
 import { createStockLedgerEntry, getBin } from './stock-ledger-service';
-// import { ValuationFactory, StockBatch } from './valuation'; // DISABLED - valuation service not implemented
+// P5.1 (P0): إعادة ربط محرّك التقييم الحقيقي (FIFO/LIFO/متوسط مرجّح/متحرّك) بدل
+// الـ stub الذي كان يُرجع أصفاراً فيُصفّر رصيد الـ Bin وتقييمه عند كل استلام مقبول.
+import { ValuationFactory, type StockBatch, type ValuationMethod } from './valuation';
 
-// Temporary stubs for missing imports
-const recordInventoryMovement = async (...args: any[]) => {
-  console.warn('recordInventoryMovement not implemented yet');
+// ملاحظة: نظام المخزون القديم (domain/inventory) غير مُفعَّل — التتبّع الفعلي عبر
+// bins + Stock Ledger. هذا النداء يبقى no-op متوافقاً تراجعياً (غير حرج).
+const recordInventoryMovement = async (..._args: unknown[]) => {
   return { success: true };
-};
-
-interface StockBatch {
-  qty: number;
-  rate: number;
-}
-
-const ValuationFactory = {
-  getStrategy: (method: string) => ({
-    calculateIncomingRate: (...args: any[]) => ({
-      newQty: 0,
-      newRate: 0,
-      newValue: 0,
-      newQueue: []
-    })
-  })
 };
 
 // ===== TYPES =====
@@ -292,7 +277,15 @@ export async function receiveGoods(
       // خطأ حقيقي (فشل قيد GRNI / عزل / عضوية) — Fail-closed: لا استلام ناقص
       throw new Error((grRpcError as { message?: string }).message ?? 'فشل ترحيل الاستلام الذرّي');
     } else {
-      // Fallback: Migration 89 غير مطبَّقة — إدراج الرأس يدوياً كالسابق
+      // P5.1: في الإنتاج الـ RPC مطبَّق — غيابه خطأ يجب ألا يمرّ للمسار المتسامح.
+      // fail-closed في PROD؛ يُسمح بالـ fallback في التطوير فقط.
+      if (import.meta.env.PROD) {
+        throw new Error(
+          'rpc_post_goods_receipt غير متاحة في الإنتاج — تأكد من تطبيق Migration 89/90. ' +
+          'رُفض المسار المتسامح لضمان ذرّية الاستلام.'
+        );
+      }
+      // Fallback (تطوير فقط): Migration غير مطبَّقة — إدراج الرأس يدوياً كالسابق
       const { data: grLegacy, error: grError } = await supabase
         .from('goods_receipts')
         .insert({
@@ -443,7 +436,10 @@ export async function receiveGoods(
       }
     }
 
-    // 3. تحديث كميات الاستلام في PO Lines
+    // 3+4: تحديث كميات وحالة أمر الشراء — يتمّان **ذرّياً** داخل الـ RPC
+    //      (Migration 90)؛ يُنفَّذان هنا فقط في مسار الـ fallback القديم تفادياً
+    //      لتكرار احتساب received_quantity.
+    if (!linesAlreadyCreated) {
     for (const line of lines) {
       if (line.purchase_order_line_id) {
         // Get current received quantity
@@ -485,6 +481,7 @@ export async function receiveGoods(
 
     const newStatus = allReceived ? 'fully_received' : (anyReceived ? 'partially_received' : 'approved');
     await updatePurchaseOrderStatus(receipt.purchase_order_id, newStatus);
+    } // end fallback-only PO update
 
     // 5. قيد GRNI (مدين مخزون / دائن GRNI): يُرحَّل **ذرّياً** داخل
     //    rpc_post_goods_receipt (Migration 89) في المسار الأساسي — Fail-closed.
