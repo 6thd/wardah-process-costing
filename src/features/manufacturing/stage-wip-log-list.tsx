@@ -36,6 +36,7 @@ import {
 import { stageWipLogService } from '@/services/supabase-service'
 import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
+import { WipLogFormDialog, type WipLogFormValues } from './components/WipLogFormDialog'
 
 interface ManufacturingOrder {
   id: string
@@ -61,24 +62,30 @@ interface WipLog {
   units_started?: number
   units_completed?: number
   units_ending_wip?: number
+  material_completion_pct?: number
+  conversion_completion_pct?: number
+  cost_beginning_wip?: number
   cost_material?: number
   cost_labor?: number
   cost_overhead?: number
-  total_cost?: number
-  eu_material?: number
-  eu_conversion?: number
-  is_posted?: boolean
+  cost_total?: number
+  equivalent_units_material?: number
+  equivalent_units_conversion?: number
+  is_closed?: boolean
+  notes?: string
 }
 
 export function StageWipLogList() {
   const queryClient = useQueryClient()
-  
+
   const [filters, setFilters] = useState({
     moId: 'all',
     stageId: 'all',
     periodStart: '',
     periodEnd: ''
   })
+  const [formOpen, setFormOpen] = useState(false)
+  const [editingLog, setEditingLog] = useState<(Partial<WipLogFormValues> & { id: string }) | null>(null)
 
   // Load related data
   const { data: manufacturingOrdersData } = useManufacturingOrders()
@@ -148,7 +155,6 @@ export function StageWipLogList() {
                 </CardTitle>
                 <p className="text-sm text-muted-foreground mt-1">
                   تتبع ومراقبة العمل قيد التنفيذ لكل مرحلة تصنيع
-                  {/* Note: Create/Edit dialogs will be implemented in future updates */}
                 </p>
               </div>
             </div>
@@ -165,8 +171,8 @@ export function StageWipLogList() {
               <Button
                 size="sm"
                 onClick={() => {
-                  // Note: Create dialog will be implemented in future updates
-                  toast.info('إنشاء سجل WIP جديد - قيد التطوير')
+                  setEditingLog(null)
+                  setFormOpen(true)
                 }}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -307,8 +313,8 @@ export function StageWipLogList() {
                             {stage?.code || 'N/A'} - {stage?.name_ar || stage?.name || 'N/A'}
                           </TableCell>
                           <TableCell>
-                            {new Date(log.period_start).toLocaleDateString('ar-SA')} -{' '}
-                            {new Date(log.period_end).toLocaleDateString('ar-SA')}
+                            {new Date(log.period_start ?? '').toLocaleDateString('en-US')} -{' '}
+                            {new Date(log.period_end ?? '').toLocaleDateString('en-US')}
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
@@ -323,18 +329,18 @@ export function StageWipLogList() {
                               <div>مواد: {Number(log.cost_material || 0).toFixed(2)}</div>
                               <div>عمل: {Number(log.cost_labor || 0).toFixed(2)}</div>
                               <div>مصروفات: {Number(log.cost_overhead || 0).toFixed(2)}</div>
-                              <div className="font-medium">إجمالي: {Number(log.total_cost || 0).toFixed(2)}</div>
+                              <div className="font-medium">إجمالي: {Number(log.cost_total || 0).toFixed(2)}</div>
                             </div>
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              <div>مواد: {Number(log.eu_material || 0).toFixed(2)}</div>
-                              <div>تحويل: {Number(log.eu_conversion || 0).toFixed(2)}</div>
+                              <div>مواد: {Number(log.equivalent_units_material || 0).toFixed(2)}</div>
+                              <div>تحويل: {Number(log.equivalent_units_conversion || 0).toFixed(2)}</div>
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={log.is_posted ? 'default' : 'outline'}>
-                              {log.is_posted ? 'منشور' : 'مسودات'}
+                            <Badge variant={log.is_closed ? 'default' : 'outline'}>
+                              {log.is_closed ? 'مقفل' : 'مسودة'}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -342,9 +348,27 @@ export function StageWipLogList() {
                               <Button
                                 variant="ghost"
                                 size="sm"
+                                disabled={log.is_closed}
                                 onClick={() => {
-                                  // Note: Edit dialog will be implemented in future updates
-                                  toast.info('تعديل سجل WIP - قيد التطوير')
+                                  setEditingLog({
+                                    id: log.id,
+                                    mo_id: log.mo_id ?? '',
+                                    stage_id: log.stage_id ?? '',
+                                    period_start: log.period_start?.split('T')[0] ?? '',
+                                    period_end: log.period_end?.split('T')[0] ?? '',
+                                    units_beginning_wip: log.units_beginning_wip ?? 0,
+                                    units_started: log.units_started ?? 0,
+                                    units_completed: log.units_completed ?? 0,
+                                    units_ending_wip: log.units_ending_wip ?? 0,
+                                    material_completion_pct: log.material_completion_pct ?? 100,
+                                    conversion_completion_pct: log.conversion_completion_pct ?? 50,
+                                    cost_beginning_wip: log.cost_beginning_wip ?? 0,
+                                    cost_material: log.cost_material ?? 0,
+                                    cost_labor: log.cost_labor ?? 0,
+                                    cost_overhead: log.cost_overhead ?? 0,
+                                    notes: log.notes ?? '',
+                                  })
+                                  setFormOpen(true)
                                 }}
                               >
                                 <Edit className="h-4 w-4" />
@@ -369,6 +393,22 @@ export function StageWipLogList() {
           )}
         </CardContent>
       </Card>
+
+      <WipLogFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        editing={editingLog}
+        manufacturingOrders={manufacturingOrders.map((mo) => ({
+          id: mo.id,
+          label: mo.order_number || mo.id,
+        }))}
+        stages={stages
+          .filter((s) => s.is_active !== false)
+          .map((s) => ({
+            id: s.id,
+            label: `${s.code || s.id} - ${s.name_ar || s.name || ''}`,
+          }))}
+      />
     </div>
   )
 }
