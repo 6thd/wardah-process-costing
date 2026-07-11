@@ -54,6 +54,14 @@
   تتخطّى خطوة SLE في المسار الأساسي وتُبقيها للـ fallback (تطوير) فقط. **✅ مطبَّقة
   ومُختبرة حيّاً**: WA/FIFO/LIFO تطابق محرّك التقييم، GRNI متزن، idempotent بلا SLE مكرَّر؛
   الاختبار الحيّ كشف وأصلح علة bin فارغ (SELECT INTO يُنيّل المتغيّرات ⇒ COALESCE بعد الجلب).
+- [x] **95** `95_p8_harden_receipt_idempotency_security_and_zero_cost.sql` — **إغلاق مراجعة
+  Codex على 92–94**: (P0) مسار replay يعيد `inventory_atomic=true` فلا تُكرّر الواجهة SLE/bin؛
+  (P0 أمني) **سحب EXECUTE للدالة المساعدة `wardah_apply_stock_incoming` من authenticated**
+  فتبقى داخلية (النداء من `rpc_post_goods_receipt` بصلاحية المالك)؛ (P1) تحقق وجود المورد
+  وملكيته + إلزام المخزن للسطر المقبول + منع `purchase_order_line_id` بلا `purchase_order_id`؛
+  (P2) إتمام تصنيع بتكلفة صفرية **Fail-closed** ما لم يُمرَّر `allow_zero_cost=true`. الواجهة:
+  مفتاح idempotency ثابت من نموذج الاستلام عبر إعادة المحاولة + معاملة replay كمُعالَجة.
+  مُختبَر حيّاً بالكامل (replay=SLE واحد، رفض الدالة لـ authenticated، رفض مورد/PO/مخزن، ZERO_COST).
 
 > **P0 (كود، لا migration): إصلاح تصفير مخزون الاستلام** — كان
 > `purchasing-service.ts` يستخدم stub تقييم يُرجع أصفاراً فيُصفّر رصيد الـ Bin

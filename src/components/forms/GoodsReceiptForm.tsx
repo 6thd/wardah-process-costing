@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -55,6 +55,9 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
   const [receiptDate, setReceiptDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<GoodsReceiptLine[]>([])
+  // مفتاح idempotency ثابت لمحاولة الاستلام الواحدة: يُنشأ مرة ويُعاد استخدامه عبر
+  // إعادة المحاولة بعد فشل/timeout فلا يتكرر الاستلام؛ يُصفَّر بعد النجاح فقط.
+  const idempotencyKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -188,8 +191,12 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
         quality_status: 'accepted' as const  // Default to accepted
       }))
 
-      // ⭐ Use the new receiveGoods function with Stock Ledger System
-      const result = await receiveGoods(receipt, receiptLines)
+      // ⭐ Use the new receiveGoods function with Stock Ledger System.
+      //    مفتاح idempotency ثابت عبر إعادة المحاولة (يُنشأ مرة لهذه المحاولة).
+      if (!idempotencyKeyRef.current) {
+        idempotencyKeyRef.current = globalThis.crypto.randomUUID()
+      }
+      const result = await receiveGoods(receipt, receiptLines, idempotencyKeyRef.current)
 
       if (!result.success) {
         throw result.error || new Error('Failed to create goods receipt')
@@ -198,6 +205,9 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
       console.log('✅ Goods Receipt created successfully:', result.data)
 
       toast.success('تم إنشاء سند الاستلام بنجاح')
+
+      // نجح الاستلام ⇒ صفّر المفتاح ليبدأ الاستلام التالي بمفتاح جديد
+      idempotencyKeyRef.current = null
 
       // B1: قيد GL لم يُرحَّل؟ أخبر المستخدم بدل الصمت
       if (result.glWarning) {
