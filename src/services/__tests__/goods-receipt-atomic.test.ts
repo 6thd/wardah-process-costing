@@ -87,6 +87,33 @@ describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
     expect(typeof payload.idempotency_key).toBe('string')
     expect(payload.vendor_id).toBe('vendor-1')
     expect(payload.lines).toHaveLength(1)
+    // RPC نجح لكن بلا علم inventory_atomic (مهاجرة 89/90 قديمة) ⇒ الواجهة تُطبّق
+    // دفتر المخزون لئلا يُسجَّل استلام بلا حركة مخزون
+    expect(mockCreateSLE).toHaveBeenCalled()
+  })
+
+  it('المسار الذرّي: دفتر المخزون (SLE) يُطبَّق داخل الـ RPC — لا يُكرَّر في الواجهة (Migration 94)', async () => {
+    mockRpc.mockResolvedValue({
+      data: { success: true, goods_receipt_id: 'gr-2', receipt_number: 'GR-000002', inventory_atomic: true },
+      error: null,
+    })
+    mockGetBin.mockResolvedValue({ data: null })
+    mockCreateSLE.mockResolvedValue({ success: true })
+    mockFrom.mockImplementation(() => {
+      const c: Record<string, unknown> = {}
+      c.select = vi.fn().mockReturnValue(c)
+      c.eq = vi.fn().mockReturnValue(c)
+      c.single = vi.fn().mockResolvedValue({ data: { received_quantity: 0, quantity: 100 } })
+      c.update = vi.fn().mockReturnValue(c)
+      c.upsert = vi.fn().mockResolvedValue({ error: null })
+      return c
+    })
+
+    const res = await receiveGoods(receipt, lines)
+
+    expect(res.success).toBe(true)
+    // دفتر المخزون انتقل للـ RPC (ذرّي) ⇒ الواجهة لا تُنشئ SLE في المسار الأساسي
+    expect(mockCreateSLE).not.toHaveBeenCalled()
   })
 
   it('Fail-closed: خطأ حقيقي من الـ RPC (فشل GRNI) يوقف العملية — لا دفتر مخزون', async () => {
@@ -127,5 +154,7 @@ describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
 
     // المسار القديم أدرج الرأس يدوياً (fallback عند غياب الدالة الذرّية)
     expect(insertSpy).toHaveBeenCalled()
+    // وفي مسار الـ fallback (تطوير) يبقى دفتر المخزون في الواجهة
+    expect(mockCreateSLE).toHaveBeenCalled()
   })
 })

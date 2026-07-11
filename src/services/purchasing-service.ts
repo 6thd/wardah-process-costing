@@ -239,6 +239,10 @@ export async function receiveGoods(
     const grIdempotencyKey = globalThis.crypto.randomUUID();
     let grData: { id: string; receipt_number?: string; [k: string]: unknown };
     let linesAlreadyCreated = false;
+    // هل رحّل الـ RPC دفتر المخزون (SLE + bin) ذرّياً؟ (Migration 94 فقط).
+    // على DB بمهاجرة 89/90 القديمة ينجح الـ RPC بلا SLE/bin ولا هذا العلم، فيجب
+    // ألا نتخطّى دفتر المخزون في الواجهة (وإلا استلام بلا حركة مخزون).
+    let inventoryHandledByRpc = false;
 
     const { data: grRpc, error: grRpcError } = await supabase.rpc('rpc_post_goods_receipt', {
       p_payload: {
@@ -269,10 +273,12 @@ export async function receiveGoods(
         /Could not find the function/i.test((grRpcError as { message?: string }).message ?? ''));
 
     if (!grRpcError && (grRpc as { success?: boolean } | null)?.success) {
-      const res = grRpc as { goods_receipt_id: string; receipt_number?: string };
+      const res = grRpc as { goods_receipt_id: string; receipt_number?: string; inventory_atomic?: boolean };
       grData = { id: res.goods_receipt_id, receipt_number: res.receipt_number };
       linesAlreadyCreated = true;
-      console.log('✅ Goods Receipt + GRNI posted atomically:', grData.id);
+      inventoryHandledByRpc = res.inventory_atomic === true;
+      console.log('✅ Goods Receipt + GRNI posted atomically:', grData.id,
+        inventoryHandledByRpc ? '(inventory ledger atomic)' : '(legacy RPC — client SLE)');
     } else if (grRpcError && !grRpcMissing) {
       // خطأ حقيقي (فشل قيد GRNI / عزل / عضوية) — Fail-closed: لا استلام ناقص
       throw new Error((grRpcError as { message?: string }).message ?? 'فشل ترحيل الاستلام الذرّي');
@@ -326,9 +332,12 @@ export async function receiveGoods(
         if (lineError) throw lineError;
       }
 
-      // ⭐ إنشاء Stock Ledger Entry (فقط للكميات المقبولة)
-      if (line.quality_status === 'accepted' && line.received_quantity > 0) {
-        
+      // ⭐ دفتر المخزون (Stock Ledger Entry + bin): يُطبَّق **ذرّياً** داخل
+      //    rpc_post_goods_receipt (Migration 94) عندما يُعيد inventory_atomic=true.
+      //    نتخطّاه هنا فقط حينها؛ أما إن غاب العلم (RPC 89/90 قديم) أو سقطنا للـ
+      //    fallback فنُطبّقه في الواجهة (وإلا استلام بلا حركة مخزون).
+      if (!inventoryHandledByRpc && line.quality_status === 'accepted' && line.received_quantity > 0) {
+
         // Get product to check valuation method
         const { data: product, error: productError } = await supabase
           .from('products')

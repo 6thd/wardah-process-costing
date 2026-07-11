@@ -25,6 +25,9 @@
 | **89** | **استلام بضاعة ذرّي (رأس+سطور+GRNI) fail-closed + idempotency** | ✅ مطبَّقة + 5 اختبارات rollback |
 | **90** | **تشديد الاستلام: مورد/سطر PO/مخزن/تجاوز/سالب + PO ذرّي + سباق idempotency** | ✅ مطبَّقة + 9 اختبارات rollback |
 | **91** | **التسليم: إصلاح سباق idempotency + بوابة admin للتسليم الزائد** | ✅ مطبَّقة + مُختبرة حيّاً |
+| **92** | **إصلاح تعارض مخطط آلة حالات التصنيع (mo_number→order_number إلخ) + عضوية** | ✅ مطبَّقة + مُختبرة حيّاً |
+| **93** | **إتمام أمر تصنيع ذرّي: مخزون تام (متوسط مرجّح) + سلسلة قيود Raw→WIP→FG (Fail-closed) + idempotent** | ✅ مطبَّقة + مُختبرة حيّاً بالكامل (PART 1: مخزون تام+done+replay؛ PART 2: total_cost + قيدا MATERIAL_ISSUE/FG_RECEIPT + **WIP 134100 يصفو=0**) |
+| **94** | **إغلاق ذرّية المخزون: SLE + bins + تقييم (FIFO/LIFO/متوسط) داخل rpc_post_goods_receipt** | ✅ مطبَّقة + مُختبرة حيّاً (WA/FIFO/LIFO مطابِقة للمحرّك + GRNI متزن + idempotent + إصلاح علة bin فارغ) |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -49,15 +52,32 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **92**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **95**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة
    والخدمة بالكامل؛ **88 حصّنها** (تحقق عضوية + عزل org لكل استعلام + ملكية
    الفاتورة/السطر/المنتج + منع تسليم زائد + idempotency + COGS **fail-closed**).
    **89** يوفّر استلاماً ذرّياً مماثلاً (رأس+سطور+GRNI fail-closed). كلاهما مُختبَر
-   بـ rollback حيّ. دفتر المخزون/التقييم (bins/FIFO/LIFO) يبقى في الواجهة عمداً
-   (بورت SQL له خارج نطاق هذه الدفعة).
-5. **مؤجَّل (دفعة مواءمة تالية)**: خدمات أخرى ما زالت تشير إلى `items` القديم للقراءة
+   بـ rollback حيّ. **✅ أُغلقت ذرّية المخزون (Migration 94)**: نُقل دفتر المخزون
+   (SLE + bins + طابور FIFO/LIFO + التقييم) من خطوات الواجهة المنفصلة إلى **داخل**
+   `rpc_post_goods_receipt` عبر `wardah_apply_stock_incoming` (قفل صف bin FOR UPDATE
+   ⇒ لا سباق قراءة/كتابة)، فصار مستند+PO+GRNI+SLE+bin **معاملة ذرّية واحدة Fail-closed**.
+   الواجهة تتخطّى خطوة الـ SLE في المسار الأساسي وتُبقيها للـ fallback فقط. **✅ 94
+   مطبَّقة ومُختبرة حيّاً**: WA/FIFO/LIFO تطابق محرّك `services/valuation` (رصيد/سعر/طابور)،
+   وGRNI يظل متزناً، وidempotency لا يُكرّر SLE؛ والاختبار الحيّ كشف وأصلح علة: عند غياب
+   صف bin يضبط `SELECT INTO` كل المتغيّرات NULL ⇒ عولجت بـ COALESCE بعد الجلب.
+5. **✅ حُسم تعارض آلة حالات التصنيع (Migration 92) ثم إتمام ذرّي (93)**: 92 صحّح
+   أعمدة التواريخ الميتة (`mo_number/date_started/date_finished` ⇒
+   `order_number/start_date/completed_date`) في `rpc_transition_mo_status` و
+   `trg_mo_status_machine` (كانت آلة الحالات معطوبة كلياً كتعارض التسليم في 87)، وأضاف
+   تحقق عضوية. **93** يجعل الإتمام **ذرّياً ومالياً**: تكلفة WIP الفعلية المتراكمة من
+   `material_consumption` ⇒ زيادة مخزون المنتج التام (متوسط مرجّح) + سلسلة قيود
+   `MATERIAL_ISSUE` (مدين WIP 134100/دائن مواد) و`FG_RECEIPT` (مدين تام 135100/دائن
+   WIP 134100) **Fail-closed** + حالة `done` + **idempotent** (لا إتمام مزدوج). الواجهة:
+   `updateManufacturingOrderStatus` توجّه الإتمام (`completed`/`done`) لـ
+   `rpc_complete_manufacturing_order` (RPC أولاً، fallback خارج الإنتاج، **Fail-closed
+   في الإنتاج**). الأجور/الأوفرهيد/الفروق وWIP متعدد المراحل: بناء لاحق (أحداث WIP إضافية).
+6. **مؤجَّل (دفعة مواءمة تالية)**: خدمات أخرى ما زالت تشير إلى `items` القديم للقراءة
    فقط (financial-dashboard, sales-reports, gemini-financial, بعض manufacturing/*).
    لوحات/تقارير غير حرجة — تُواءم على حدة مع تشغيل التطبيق.
