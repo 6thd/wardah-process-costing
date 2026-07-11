@@ -86,6 +86,39 @@ function lastMonths(n: number): { key: string; label: string; start: Date }[] {
 
 const monthKey = (iso: string | null | undefined): string => (iso ? iso.slice(0, 7) : '');
 
+interface DatedAmount { total_amount: number; date: string }
+
+/** يجمّع المبالغ حسب الشهر ويعيد مصفوفة بطول أشهر الرسم. */
+function sumByMonth(items: DatedAmount[], months: { key: string }[]): number[] {
+  const byMonth = new Map<string, number>();
+  for (const it of items) {
+    const k = monthKey(it.date);
+    byMonth.set(k, (byMonth.get(k) ?? 0) + (it.total_amount || 0));
+  }
+  return months.map((m) => byMonth.get(m.key) ?? 0);
+}
+
+/** يبني مؤشرات KPI من الإجماليات وأرصدة GL (بلا تلفيق). */
+function buildKpis(
+  totalSales: number, totalCosts: number, inventoryValue: number,
+  balances: Record<string, number>,
+): FinancialKPIs {
+  const grossProfit = totalSales - totalCosts;
+  const totalAssets = balances.ASSET ?? 0;
+  const totalLiabilities = balances.LIABILITY ?? 0;
+  const revenueGL = balances.REVENUE ?? 0;
+  const expenseGL = balances.EXPENSE ?? 0;
+  const equity = balances.EQUITY ?? (totalAssets - totalLiabilities);
+  const netProfit = (revenueGL !== 0 || expenseGL !== 0) ? revenueGL - expenseGL : grossProfit;
+  return {
+    totalSales, totalCosts, netProfit, grossProfit, inventoryValue,
+    totalAssets, totalLiabilities, equity,
+    profitMargin: totalSales > 0 ? (netProfit / totalSales) * 100 : 0,
+    revenueGrowth: 0,          // نمو الإيراد: يتطلب فترة مقارنة — 0 (لا تلفيق)
+    operationalEfficiency: totalSales > 0 ? (grossProfit / totalSales) * 100 : 0,
+  };
+}
+
 /** بيانات لوحة التحكم المالية الكاملة من مصادر حقيقية (org-scoped). */
 export async function fetchRealDashboardData(): Promise<DashboardData> {
   const orgId = await getEffectiveTenantId();
@@ -110,42 +143,19 @@ export async function fetchRealDashboardData(): Promise<DashboardData> {
     (productsRes.data ?? []) as { stock_quantity: number; cost_price: number }[],
     (r) => (r.stock_quantity || 0) * (r.cost_price || 0),
   );
-  const grossProfit = totalSales - totalCosts;
-
-  // مؤشرات الميزانية من GL (حقيقية عند تطابق شجرة الحسابات، وإلا 0)
-  const totalAssets = balances.ASSET ?? 0;
-  const totalLiabilities = balances.LIABILITY ?? 0;
-  const revenueGL = balances.REVENUE ?? 0;
-  const expenseGL = balances.EXPENSE ?? 0;
-  const equity = balances.EQUITY ?? (totalAssets - totalLiabilities);
-  // صافي الربح من GL إن توفّر، وإلا مجمل الربح (لا نسبة مفبركة)
-  const netProfit = (revenueGL !== 0 || expenseGL !== 0) ? revenueGL - expenseGL : grossProfit;
-  const profitMargin = totalSales > 0 ? (netProfit / totalSales) * 100 : 0;
 
   // رسم شهري حقيقي (آخر 6 أشهر) من الفواتير والمشتريات
   const months = lastMonths(6);
-  const revByMonth = new Map<string, number>();
-  const costByMonth = new Map<string, number>();
-  for (const inv of invoices) {
-    const k = monthKey(inv.invoice_date);
-    revByMonth.set(k, (revByMonth.get(k) ?? 0) + (inv.total_amount || 0));
-  }
-  for (const p of purchases) {
-    const k = monthKey(p.created_at);
-    costByMonth.set(k, (costByMonth.get(k) ?? 0) + (p.total_amount || 0));
-  }
-  const revenue = months.map((m) => revByMonth.get(m.key) ?? 0);
-  const costs = months.map((m) => costByMonth.get(m.key) ?? 0);
-  const profit = revenue.map((r, i) => r - costs[i]);
+  const revenue = sumByMonth(invoices.map((i) => ({ total_amount: i.total_amount, date: i.invoice_date })), months);
+  const costs = sumByMonth(purchases.map((p) => ({ total_amount: p.total_amount, date: p.created_at })), months);
 
   return {
-    kpis: {
-      totalSales, totalCosts, netProfit, grossProfit, inventoryValue,
-      totalAssets, totalLiabilities, equity, profitMargin,
-      revenueGrowth: 0,          // نمو الإيراد: يتطلب فترة مقارنة — 0 مؤقتاً (لا تلفيق)
-      operationalEfficiency: totalSales > 0 ? (grossProfit / totalSales) * 100 : 0,
+    kpis: buildKpis(totalSales, totalCosts, inventoryValue, balances),
+    charts: {
+      revenue, costs,
+      profit: revenue.map((r, i) => r - costs[i]),
+      months: months.map((m) => m.label),
     },
-    charts: { revenue, costs, profit, months: months.map((m) => m.label) },
     recentTransactions: recentRes.data ?? [],
     topProducts: [],
   };
