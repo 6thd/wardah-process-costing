@@ -625,27 +625,3 @@ function SupplierInvoicesManagement() {
   )
 }
 
-// Payments Management Component
-function PaymentsManagement() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">إدارة المدفوعات</h1>
-        <p className="text-muted-foreground mt-2">
-          متابعة وإدارة مدفوعات الموردين
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - متابعة وإدارة المدفوعات
-        </p>
-      </div>
-    </div>
-  )
-}
