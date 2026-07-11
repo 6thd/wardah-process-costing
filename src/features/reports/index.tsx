@@ -29,6 +29,8 @@ import GeminiDashboard from './components/GeminiDashboard'
 import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
 import { SalesReports as SalesReportsComponent } from './components/SalesReports'
 import { InventoryValuationReport } from './components/InventoryValuationReport'
+import { FinancialStatementsReport } from './components/FinancialStatementsReport'
+import { PurchasingAnalyticsReport } from './components/PurchasingAnalyticsReport'
 
 export function ReportsModule() {
   return (
@@ -251,7 +253,7 @@ function ReportsOverview() {
   )
 }
 
-// Financial Reports Component
+// Financial Reports Component — قوائم مالية من أرصدة GL الفعلية (P11-4)
 function FinancialReports() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
@@ -261,17 +263,23 @@ function FinancialReports() {
       <div className={cn(isRTL ? "text-right" : "text-left")}>
         <h1 className="text-3xl font-bold">التقارير المالية</h1>
         <p className="text-muted-foreground mt-2">
-          تقارير شاملة عن الوضع المالي للشركة
+          قائمة الدخل وملخص الميزانية من أرصدة دفتر الأستاذ الفعلية
         </p>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - قائمة الدخل، الميزانية العمومية، التدفقات النقدية
-        </p>
+
+      {/* روابط للتقارير المحاسبية الكاملة */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Link to="/accounting/trial-balance" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">ميزان المراجعة</h3>
+          <p className="text-sm text-muted-foreground mt-1">أرصدة كل الحسابات مع تصدير Excel/PDF</p>
+        </Link>
+        <Link to="/accounting/account-statement" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">كشف حساب</h3>
+          <p className="text-sm text-muted-foreground mt-1">حركات حساب محدد بفترة زمنية</p>
+        </Link>
       </div>
+
+      <FinancialStatementsReport />
     </div>
   )
 }
@@ -393,17 +401,10 @@ function PurchasingReports() {
       <div className={cn(isRTL ? "text-right" : "text-left")}>
         <h1 className="text-3xl font-bold">تقارير المشتريات</h1>
         <p className="text-muted-foreground mt-2">
-          أداء المشتريات وتحليل الموردين
+          أداء المشتريات وتحليل الموردين من البيانات الفعلية
         </p>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - أداء الموردين، تحليل المشتريات، معدلات التسليم
-        </p>
-      </div>
+      <PurchasingAnalyticsReport />
     </div>
   )
 }
