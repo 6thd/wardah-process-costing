@@ -46,7 +46,6 @@ DECLARE
     v_new_rate   NUMERIC;
     v_new_queue  JSONB;
     v_len        INTEGER;
-    v_found      BOOLEAN := FALSE;
 BEGIN
     -- لا مخزن ⇒ لا دفتر مخزون (المخزن اختياري في سند الاستلام)
     IF p_warehouse IS NULL OR p_qty IS NULL OR p_qty <= 0 THEN
@@ -59,17 +58,22 @@ BEGIN
     FROM products WHERE id = p_product AND org_id = p_org;
     v_method := COALESCE(v_method, 'Weighted Average');
 
-    -- قفل صف الـ bin (أو غيابه) — يمنع سباق القراءة/الكتابة
-    SELECT TRUE, COALESCE(actual_qty, 0), COALESCE(stock_value, 0),
-           COALESCE(stock_queue, '[]'::JSONB)
-    INTO v_found, v_prev_qty, v_prev_value, v_prev_queue
+    -- قفل صف الـ bin (أو غيابه) — يمنع سباق القراءة/الكتابة.
+    -- ⚠️ عند غياب الصف يضبط SELECT INTO كل المتغيّرات NULL (لا تنطبق COALESCE
+    --    على الأعمدة لأنه لا صف)، لذا نُطبّق COALESCE على المتغيّرات **بعد** الجلب.
+    SELECT actual_qty, stock_value, stock_queue
+    INTO v_prev_qty, v_prev_value, v_prev_queue
     FROM bins
     WHERE product_id = p_product AND warehouse_id = p_warehouse
     FOR UPDATE;
 
+    v_prev_qty   := COALESCE(v_prev_qty, 0);
+    v_prev_value := COALESCE(v_prev_value, 0);
+    v_prev_queue := COALESCE(v_prev_queue, '[]'::JSONB);
+
     v_new_qty   := v_prev_qty + p_qty;
     v_new_value := v_prev_value + (p_qty * p_rate);
-    v_new_queue := COALESCE(v_prev_queue, '[]'::JSONB)
+    v_new_queue := v_prev_queue
                    || jsonb_build_array(jsonb_build_object('qty', p_qty, 'rate', p_rate));
 
     IF v_method = 'FIFO' THEN

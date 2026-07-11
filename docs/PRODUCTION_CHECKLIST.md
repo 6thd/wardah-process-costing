@@ -42,15 +42,18 @@
   (متوسط مرجّح) + سلسلة قيود `MATERIAL_ISSUE` (مدين WIP 134100/دائن مواد) و`FG_RECEIPT`
   (مدين تام 135100/دائن WIP 134100) **Fail-closed** + حالة `done` + **idempotent** (لا
   إتمام مزدوج). الواجهة `updateManufacturingOrderStatus` توجّه الإتمام لهذا الـ RPC
-  (RPC أولاً، fallback خارج الإنتاج، **Fail-closed في الإنتاج**). مُختبَر حيّاً (PART 1:
-  مخزون تام يزيد + done + replay). الأجور/الأوفرهيد وWIP متعدد المراحل: بناء لاحق.
-- [~] **94** `94_p7_atomic_inventory_ledger_on_receipt.sql` — **إغلاق ذرّية المخزون**:
+  (RPC أولاً، fallback خارج الإنتاج، **Fail-closed في الإنتاج**). مُختبَر حيّاً بالكامل:
+  PART 1 (مخزون تام + done + replay) + PART 2 (بتكلفة مواد 1000: `total_cost`=1000،
+  قيدا MATERIAL_ISSUE + FG_RECEIPT، **WIP 134100 يصفو=0**، مخزون التام + تكلفته صحيحان).
+  الأجور/الأوفرهيد وWIP متعدد المراحل: بناء لاحق.
+- [x] **94** `94_p7_atomic_inventory_ledger_on_receipt.sql` — **إغلاق ذرّية المخزون**:
   نقل دفتر المخزون (Stock Ledger Entry + bins + طابور FIFO/LIFO + التقييم) من خطوات
   الواجهة المنفصلة (قراءة bin ⇒ حساب JS ⇒ كتابة — عرضة للسباق) إلى **داخل**
   `rpc_post_goods_receipt` عبر `wardah_apply_stock_incoming` (قفل صف bin FOR UPDATE)،
   فصار مستند + سطور + PO + GRNI + SLE + bin **معاملة ذرّية واحدة Fail-closed**. الواجهة
-  تتخطّى خطوة SLE في المسار الأساسي وتُبقيها للـ fallback (تطوير) فقط. **⏳ بانتظار
-  التطبيق الحيّ + اختبار rollback** (tsc + الاختبارات + build خضراء؛ لم تُطبَّق حيّاً بعد).
+  تتخطّى خطوة SLE في المسار الأساسي وتُبقيها للـ fallback (تطوير) فقط. **✅ مطبَّقة
+  ومُختبرة حيّاً**: WA/FIFO/LIFO تطابق محرّك التقييم، GRNI متزن، idempotent بلا SLE مكرَّر؛
+  الاختبار الحيّ كشف وأصلح علة bin فارغ (SELECT INTO يُنيّل المتغيّرات ⇒ COALESCE بعد الجلب).
 
 > **P0 (كود، لا migration): إصلاح تصفير مخزون الاستلام** — كان
 > `purchasing-service.ts` يستخدم stub تقييم يُرجع أصفاراً فيُصفّر رصيد الـ Bin
