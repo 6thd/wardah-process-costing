@@ -965,7 +965,16 @@ export async function createDeliveryNote(delivery: Omit<DeliveryNote, 'id' | 'de
       throw new Error(getErrorMessage(rpcError));
     }
 
-    // ===== Fallback: Migration 85 غير مطبَّقة — المسار القديم حرفياً =====
+    // P5.1: في الإنتاج الـ RPC مطبَّق — غيابه خطأ يجب ألا يمرّ للمسار المتسامح
+    // (الذي لا يملك تحصينات 88/91). fail-closed في PROD؛ fallback بالتطوير فقط.
+    if (import.meta.env.PROD) {
+      throw new Error(
+        'rpc_post_delivery_note غير متاحة في الإنتاج — تأكد من تطبيق Migrations 85/87/88/91. ' +
+        'رُفض المسار المتسامح لضمان تحصين التسليم.'
+      );
+    }
+
+    // ===== Fallback (تطوير فقط): Migration غير مطبَّقة — المسار القديم حرفياً =====
     const deliveryNumber = await generateDeliveryNumber();
 
     // Create delivery note
