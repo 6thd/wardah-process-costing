@@ -131,13 +131,12 @@ export function evaluateComponentAmount(
   calculationType: string | null | undefined,
   structureValue: number,
   basicBase: number,
-  percentageBase?: string | null,
+  _percentageBase?: string | null,
 ): number {
   const type = (calculationType || 'fixed').toLowerCase();
   if (type === 'fixed') return structureValue;
   if (type === 'percentage') {
-    const base = (percentageBase || 'basic').toLowerCase() === 'basic' ? basicBase : basicBase;
-    return (structureValue / 100) * base;
+    return (structureValue / 100) * basicBase;
   }
   throw new Error(`مكوّن راتب بنوع حساب غير مدعوم: ${calculationType} — عدّله إلى fixed أو percentage`);
 }

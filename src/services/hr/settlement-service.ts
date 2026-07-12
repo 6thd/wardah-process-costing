@@ -240,7 +240,7 @@ export async function createSettlement(
   const { data: components, error: compErr } = await supabase
     .from('employee_salary_structures')
     .select(
-      `amount, calculation_type,
+      `value,
        component:salary_components(code, name)`,
     )
     .eq('employee_id', input.employee_id)
@@ -249,11 +249,14 @@ export async function createSettlement(
 
   if (compErr) throw new Error(compErr.message);
 
-  let basic = 0, housing = 0, transport = 0, other = 0;
+  let basic = 0;
+  let housing = 0;
+  let transport = 0;
+  let other = 0;
   for (const c of components ?? []) {
     const comp = Array.isArray(c.component) ? c.component[0] : c.component;
     const code: string = (comp?.code ?? '').toUpperCase();
-    const amount = Number(c.amount);
+    const amount = Number((c as { value?: number }).value ?? 0);
     if (code === 'BASIC' || code === 'BASIC_SALARY') basic += amount;
     else if (code.includes('HOUSING') || code.includes('HOUSE')) housing += amount;
     else if (code.includes('TRANSPORT') || code.includes('TRAVEL')) transport += amount;

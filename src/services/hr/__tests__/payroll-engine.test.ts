@@ -22,6 +22,7 @@ import {
   overtimeHourlyRate,
   getWorkingDays,
   getDaysInMonth,
+  round2,
 } from '../payroll-engine';
 
 const gosiPolicies = {
@@ -107,7 +108,69 @@ describe('أيام الشهر/العمل', () => {
     expect(getDaysInMonth(2024, 2)).toBe(29);
     expect(getDaysInMonth(2026, 2)).toBe(28);
   });
+  it('شهور 31/30 يوماً', () => {
+    expect(getDaysInMonth(2026, 1)).toBe(31);  // يناير
+    expect(getDaysInMonth(2026, 4)).toBe(30);  // أبريل
+    expect(getDaysInMonth(2026, 12)).toBe(31); // ديسمبر
+  });
   it('أيام عمل يوليو 2026 بعطلة الجمعة = 26', () => {
     expect(getWorkingDays(2026, 7, new Set(['friday']))).toBe(26);
+  });
+  it('أيام عمل بعطلة الجمعة+السبت', () => {
+    const wd = getWorkingDays(2026, 7, new Set(['friday', 'saturday']));
+    expect(wd).toBeGreaterThan(0);
+    expect(wd).toBeLessThan(26);
+  });
+});
+
+describe('round2', () => {
+  it('يُقرّب لـ خانتين عشريتين', () => {
+    expect(round2(9.999)).toBe(10);
+    expect(round2(1.236)).toBe(1.24);
+    expect(round2(1234.567)).toBe(1234.57);
+  });
+  it('أعداد سالبة', () => {
+    expect(round2(-1.236)).toBe(-1.24);
+  });
+});
+
+describe('evaluateComponentAmount — حالات حدية', () => {
+  it('نوع null/undefined ⇒ fixed', () => {
+    expect(evaluateComponentAmount(null, 500, 10000)).toBe(500);
+    expect(evaluateComponentAmount(undefined, 500, 10000)).toBe(500);
+  });
+  it('نسبة 0% ⇒ صفر', () => {
+    expect(evaluateComponentAmount('percentage', 0, 10000)).toBe(0);
+  });
+  it('حالة غير حساسة للأحرف', () => {
+    expect(evaluateComponentAmount('FIXED', 300, 10000)).toBe(300);
+    expect(evaluateComponentAmount('PERCENTAGE', 10, 10000)).toBe(1000);
+  });
+});
+
+describe('dailyRateOf — حالات حدية', () => {
+  it('صفر أيام عمل ⇒ /30 احتياطياً', () => {
+    expect(dailyRateOf(6000, 0, 'working_days')).toBeCloseTo(200);
+  });
+});
+
+describe('analyzeAttendance — حالات حدية', () => {
+  it('undefined days ⇒ صفر', () => {
+    const r = analyzeAttendance(undefined, 8, 0);
+    expect(r.absenceDays).toBe(0);
+    expect(r.unpaidLeaveDays).toBe(0);
+    expect(r.overtimeHours).toBe(0);
+  });
+  it('check_in بعد check_out ⇒ لا إضافي', () => {
+    const r = analyzeAttendance({
+      '1': { status: 'present', check_in: '2026-07-01T18:00:00Z', check_out: '2026-07-01T08:00:00Z' },
+    }, 8, 0);
+    expect(r.overtimeHours).toBe(0);
+  });
+  it('in/out بديل لـ check_in/check_out', () => {
+    const r = analyzeAttendance({
+      '1': { status: 'present', in: '2026-07-01T08:00:00Z', out: '2026-07-01T19:00:00Z' },
+    }, 8, 0);
+    expect(r.overtimeHours).toBeCloseTo(3);
   });
 });
