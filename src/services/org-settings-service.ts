@@ -63,10 +63,15 @@ export async function saveSystemSettings(values: SystemSettingsValues): Promise<
 
 // ===== تصدير بيانات (نسخ احتياطي يدوي من الشاشة) =====
 
-/** الجداول المسموح تصديرها (قائمة بيضاء ثابتة — لا إدخال حر). */
+/**
+ * الجداول المسموح تصديرها (قائمة بيضاء ثابتة — لا إدخال حر).
+ * هذا «تصدير البيانات الرئيسية» وليس نسخة كاملة قابلة للاستعادة: لا يشمل سطور
+ * الفواتير/أوامر الشراء ولا المخزون التفصيلي ولا التصنيع ولا HR ولا الإعدادات.
+ * gl_entry_lines أضيفت حتى لا تُصدَّر رؤوس القيود بلا سطورها.
+ */
 export const EXPORTABLE_TABLES = [
   'products', 'customers', 'vendors',
-  'sales_invoices', 'purchase_orders', 'gl_entries',
+  'sales_invoices', 'purchase_orders', 'gl_entries', 'gl_entry_lines',
 ] as const;
 export type ExportableTable = (typeof EXPORTABLE_TABLES)[number];
 

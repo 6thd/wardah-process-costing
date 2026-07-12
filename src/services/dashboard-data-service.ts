@@ -6,9 +6,12 @@
  * تتطابق شجرة الحسابات؛ وإلا تظهر 0 (لا رقم مفبرك).
  */
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { fetchCogsAccounts } from './financial-statements-service';
 
 export interface FinancialKPIs {
+  /** قيمة فواتير المبيعات غير الملغاة (دورة حالة الفاتورة لا تُرحّل بعد — بند متابعة) */
   totalSales: number;
+  /** COGS فعلي من قيود GL المرحّلة على حسابات خريطة COGS — لم يعد «أوامر الشراء» */
   totalCosts: number;
   netProfit: number;
   grossProfit: number;
@@ -43,10 +46,15 @@ const sum = <T>(rows: T[] | null | undefined, pick: (r: T) => number): number =>
 
 /** أرصدة GL مجمّعة حسب تصنيف الحساب (تحترم اتجاه الرصيد الطبيعي). */
 async function fetchCategoryBalances(orgId: string): Promise<Record<string, number>> {
-  const [{ data: accounts }, { data: lines }] = await Promise.all([
+  // Fail-visible: فشل RLS/المخطط يظهر خطأً صريحاً لا أصولاً/خصوماً صفرية مضللة
+  const [accountsRes, linesRes] = await Promise.all([
     supabase.from('gl_accounts').select('code, category, normal_balance').eq('org_id', orgId),
     supabase.from('gl_entry_lines').select('account_code, debit_amount, credit_amount, debit, credit').eq('org_id', orgId),
   ]);
+  if (accountsRes.error) throw new Error(`تعذّر جلب شجرة الحسابات: ${accountsRes.error.message}`);
+  if (linesRes.error) throw new Error(`تعذّر جلب سطور القيود: ${linesRes.error.message}`);
+  const accounts = accountsRes.data;
+  const lines = linesRes.data;
 
   const meta = new Map<string, { category: string; normal: string }>();
   for (const a of accounts ?? []) {
@@ -151,35 +159,69 @@ export async function fetchOperationalCounts(): Promise<OperationalCounts> {
   return { activeManufacturingOrders, pendingPurchaseOrders, totalCustomers, totalVendors };
 }
 
-/** بيانات لوحة التحكم المالية الكاملة من مصادر حقيقية (org-scoped). */
+interface CogsLine {
+  debit_amount?: number; credit_amount?: number; debit?: number; credit?: number;
+  gl_entries: { entry_date: string } | { entry_date: string }[] | null;
+}
+
+const cogsSigned = (l: CogsLine): number =>
+  ((l.debit_amount ?? l.debit ?? 0) - (l.credit_amount ?? l.credit ?? 0));
+
+const cogsEntryDate = (l: CogsLine): string => {
+  const e = Array.isArray(l.gl_entries) ? l.gl_entries[0] : l.gl_entries;
+  return e?.entry_date ?? '';
+};
+
+/**
+ * بيانات لوحة التحكم المالية الكاملة من مصادر حقيقية (org-scoped).
+ * كان «الربح الإجمالي» = فواتير − أوامر شراء (خطأ محاسبي: المشتريات ليست تكلفة
+ * مبيعات، وبتواريخ غير متسقة invoice_date/created_at) — الآن COGS فعلي من قيود
+ * GL المرحّلة بتاريخ القيد entry_date، بنفس حسابات تقرير الربحية.
+ */
 export async function fetchRealDashboardData(): Promise<DashboardData> {
   const orgId = await getEffectiveTenantId();
   if (!orgId) throw new Error('تعذّر تحديد هوية المؤسسة');
 
-  const [invoicesRes, poRes, productsRes, recentRes, balances] = await Promise.all([
-    supabase.from('sales_invoices').select('total_amount, invoice_date').eq('org_id', orgId),
-    supabase.from('purchase_orders').select('total_amount, created_at').eq('org_id', orgId),
+  const cogsAccounts = await fetchCogsAccounts(orgId);
+
+  const [invoicesRes, cogsRes, productsRes, recentRes, balances] = await Promise.all([
+    supabase.from('sales_invoices').select('total_amount, invoice_date')
+      .eq('org_id', orgId).neq('status', 'cancelled'),
+    cogsAccounts.length
+      ? supabase.from('gl_entry_lines')
+          .select('debit_amount, credit_amount, debit, credit, gl_entries!inner(entry_date, status, org_id)')
+          .eq('org_id', orgId)
+          .eq('gl_entries.org_id', orgId)
+          .eq('gl_entries.status', 'posted')
+          .in('account_code', cogsAccounts)
+      : Promise.resolve({ data: [] as CogsLine[], error: null }),
     supabase.from('products').select('stock_quantity, cost_price').eq('org_id', orgId),
     supabase.from('sales_invoices')
       .select('id, invoice_number, total_amount, invoice_date, customer:customers(name)')
-      .eq('org_id', orgId).order('invoice_date', { ascending: false }).limit(5),
+      .eq('org_id', orgId).neq('status', 'cancelled')
+      .order('invoice_date', { ascending: false }).limit(5),
     fetchCategoryBalances(orgId),
   ]);
+  // Fail-visible: كل نتيجة تُفحص منفردة — فشل جزئي لا يصبح أصفاراً مضللة
+  if (invoicesRes.error) throw new Error(`تعذّر جلب الفواتير: ${invoicesRes.error.message}`);
+  if (cogsRes.error) throw new Error(`تعذّر جلب سطور COGS: ${cogsRes.error.message}`);
+  if (productsRes.error) throw new Error(`تعذّر جلب المنتجات: ${productsRes.error.message}`);
+  if (recentRes.error) throw new Error(`تعذّر جلب آخر الفواتير: ${recentRes.error.message}`);
 
   const invoices = (invoicesRes.data ?? []) as { total_amount: number; invoice_date: string }[];
-  const purchases = (poRes.data ?? []) as { total_amount: number; created_at: string }[];
+  const cogsLines = (cogsRes.data ?? []) as unknown as CogsLine[];
 
   const totalSales = sum(invoices, (r) => r.total_amount);
-  const totalCosts = sum(purchases, (r) => r.total_amount);
+  const totalCosts = sum(cogsLines, cogsSigned);
   const inventoryValue = sum(
     (productsRes.data ?? []) as { stock_quantity: number; cost_price: number }[],
     (r) => (r.stock_quantity || 0) * (r.cost_price || 0),
   );
 
-  // رسم شهري حقيقي (آخر 6 أشهر) من الفواتير والمشتريات
+  // رسم شهري حقيقي (آخر 6 أشهر): مبيعات بتاريخ الفاتورة وCOGS بتاريخ القيد
   const months = lastMonths(6);
   const revenue = sumByMonth(invoices.map((i) => ({ total_amount: i.total_amount, date: i.invoice_date })), months);
-  const costs = sumByMonth(purchases.map((p) => ({ total_amount: p.total_amount, date: p.created_at })), months);
+  const costs = sumByMonth(cogsLines.map((l) => ({ total_amount: cogsSigned(l), date: cogsEntryDate(l) })), months);
 
   return {
     kpis: buildKpis(totalSales, totalCosts, inventoryValue, balances),

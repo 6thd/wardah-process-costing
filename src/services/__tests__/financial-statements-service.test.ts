@@ -1,6 +1,7 @@
 /**
  * اختبارات خدمة القوائم المالية — قائمة دخل/ميزانية من أرصدة GL الفعلية بلا تلفيق:
- * السطور غير المطابِقة لشجرة الحسابات تُستبعَد بشفافية، وCOGS من خريطة sale_delivery.
+ * السطور غير المطابِقة لشجرة الحسابات تُستبعَد بشفافية، وCOGS من خريطة أحداث
+ * COGS_DELIVERY (كانت تُفلتر بـ sale_delivery% الذي لا يرحّل به التسليم ⇒ COGS=0).
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -14,32 +15,56 @@ const tableData: Record<string, unknown[]> = {
   ],
   gl_entry_lines: [
     { account_code: '410100', credit_amount: 5000, debit_amount: 0 },
-    { account_code: '544000', debit_amount: 3000, credit_amount: 0 },
+    { account_code: '544000', debit_amount: 3000, credit_amount: 0, gl_entries: { entry_date: '2026-07-01', status: 'posted' } },
     { account_code: '110300', debit_amount: 5000, credit_amount: 0 },
     { account_code: '210100', credit_amount: 2000, debit_amount: 0 },
     { account_code: '330000', credit_amount: 1000, debit_amount: 0 },
     { account_code: '9999', debit_amount: 777, credit_amount: 0 }, // غير مطابِق ⇒ يُستبعَد
   ],
   gl_mappings: [
-    { key_value: 'sale_delivery_bags', debit_account_code: '544000' },
-    { key_value: 'sale_delivery_rolls', debit_account_code: '545000' },
+    // الحساب الحي 544000 (الافتراضي 511100 غير موجود بشجرة الحسابات الحية)
+    { key_value: 'COGS_DELIVERY', debit_account_code: '544000' },
+    // خريطة مضبوطة خطأً على حساب غير مصروف — يجب استبعادها من حسابات COGS
+    { key_value: 'COGS_DELIVERY', debit_account_code: '110300' },
   ],
-  sales_invoices: [{ total_amount: 5000 }, { total_amount: 2000 }],
+  sales_invoices: [
+    { total_amount: 5000, status: 'draft' },
+    { total_amount: 2000, status: 'draft' },
+    { total_amount: 9999, status: 'cancelled' }, // ملغاة ⇒ خارج الإيراد
+  ],
 };
 
+const valueOf = (r: Record<string, unknown>, col: string): unknown =>
+  r[col.includes('.') ? col.split('.').pop()! : col];
+
 function makeChain(table: string) {
-  let rows = tableData[table] ?? [];
+  let rows = (tableData[table] ?? []) as Record<string, unknown>[];
   const chain: Record<string, unknown> = {
     then: (resolve: (v: unknown) => unknown) =>
       resolve({ data: rows, error: null, count: rows.length }),
   };
   chain.select = () => chain;
-  chain.eq = () => chain;
+  chain.eq = (col: string, v: unknown) => {
+    if (col === 'org_id' || col.endsWith('.org_id')) return chain;
+    rows = rows.filter((r) => {
+      const embedded = col.includes('.')
+        ? (r[col.split('.')[0]] as Record<string, unknown> | undefined)
+        : undefined;
+      const actual = embedded ? embedded[col.split('.')[1]] : r[col];
+      return actual === undefined || actual === v;
+    });
+    return chain;
+  };
+  chain.neq = (col: string, v: unknown) => {
+    rows = rows.filter((r) => valueOf(r, col) !== v);
+    return chain;
+  };
+  chain.gte = () => chain;
+  chain.lte = () => chain;
   chain.like = () => chain;
   chain.not = () => chain;
-  chain.in = (_col: string, values: string[]) => {
-    // ترشيح فعلي لأكواد الحسابات (يحاكي PostgREST in)
-    rows = rows.filter((r) => values.includes((r as { account_code: string }).account_code));
+  chain.in = (col: string, values: string[]) => {
+    rows = rows.filter((r) => values.includes(valueOf(r, col) as string));
     return chain;
   };
   return chain;
@@ -76,12 +101,14 @@ describe('fetchFinancialStatements — قوائم من GL الفعلي', () => {
 });
 
 describe('fetchProfitability — إيراد الفواتير مقابل COGS من الخريطة', () => {
-  it('يحسب الإيراد وCOGS ومجمل الربح والهامش', async () => {
+  it('يحسب الإيراد (بلا ملغاة) وCOGS من حدث COGS_DELIVERY المرحّل ومجمل الربح والهامش', async () => {
     const p = await fetchProfitability();
-    expect(p.revenue).toBe(7000);         // فاتورتان 5000+2000
-    expect(p.cogs).toBe(3000);            // حساب 544000 فقط (من الخريطة)
+    expect(p.revenue).toBe(7000);         // 5000+2000 — الفاتورة الملغاة 9999 مستبعدة
+    expect(p.cogs).toBe(3000);            // حساب 544000 الحي (من خريطة COGS_DELIVERY)
     expect(p.grossProfit).toBe(4000);
     expect(p.margin).toBeCloseTo((4000 / 7000) * 100);
     expect(p.cogsAccounts).toContain('544000');
+    // الخريطة المضبوطة خطأً على حساب أصول (110300) لا تدخل حسابات COGS
+    expect(p.cogsAccounts).not.toContain('110300');
   });
 });

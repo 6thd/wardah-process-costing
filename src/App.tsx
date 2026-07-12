@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { WardahThemeProvider } from '@/components/wardah-theme-provider';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { AuthProvider } from '@/contexts/AuthContext'; // ✅ Auth Context الجديد
+import { supabase } from '@/lib/supabase';
 import { appRouter } from '@/pages/routes'; // Correctly import the router
 
 // Import the core CSS styles
@@ -23,6 +24,18 @@ const queryClient = new QueryClient({
       refetchOnReconnect: false, // عدم إعادة التحميل عند إعادة الاتصال
     },
   },
+});
+
+// تصفير الكاش عند تغيّر هوية المستخدم: مفاتيح مثل ['effective-org-id'] وكل
+// الاستعلامات المؤسسية كانت تبقى حية عبر تسجيل خروج/دخول مستخدم آخر في نفس
+// التبويب فتُعرض بيانات مؤسسة سابقة من الكاش قبل إعادة الجلب
+let lastAuthUserId: string | null | undefined;
+supabase.auth?.onAuthStateChange?.((_event, session) => {
+  const uid = session?.user?.id ?? null;
+  if (lastAuthUserId !== undefined && lastAuthUserId !== uid) {
+    queryClient.clear();
+  }
+  lastAuthUserId = uid;
 });
 
 /** P4-D1: هيكل تحميل يطابق تخطيط التطبيق بدل نص Loading... العاري */

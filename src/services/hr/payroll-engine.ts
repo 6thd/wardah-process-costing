@@ -260,7 +260,9 @@ export function overtimeHourlyRate(
 
 export const round2 = (n: number) => Math.round(n * 100) / 100;
 
-const classifyAllowanceBucket = (code: string): PayrollAccountType => {
+const classifyAllowanceBucket = (
+  code: string,
+): Extract<PayrollLineBucket, 'housing_allowance' | 'transport_allowance' | 'other_allowance'> => {
   const normalized = code.toUpperCase();
   if (normalized.includes('HRA') || normalized.includes('HOUSE') || normalized.includes('HSG'))
     return 'housing_allowance';

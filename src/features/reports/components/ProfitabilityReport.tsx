@@ -11,11 +11,11 @@ import { fetchProfitability } from '@/services/financial-statements-service';
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
 
-/** تحليل الربحية الحقيقي: إيراد الفواتير مقابل COGS من قيود GL (خريطة sale_delivery). */
+/** تحليل الربحية الحقيقي: قيمة الفواتير غير الملغاة مقابل COGS من قيود GL المرحّلة (خريطة COGS_DELIVERY). */
 export const ProfitabilityReport: React.FC = () => {
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['profitability'],
-    queryFn: fetchProfitability,
+    queryFn: () => fetchProfitability(),
   });
 
   if (isLoading) return <ReportSkeleton />;
@@ -49,7 +49,7 @@ export const ProfitabilityReport: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className={getGlassClasses()}>
               <div className="text-2xl font-bold text-green-600 p-4">{fmt(data.revenue)} ر.س</div>
-              <div className="text-sm text-muted-foreground px-4 pb-4">إجمالي الإيرادات (فواتير المبيعات)</div>
+              <div className="text-sm text-muted-foreground px-4 pb-4">قيمة الفواتير غير الملغاة (لا تشمل ضبط حالة الترحيل بعد)</div>
             </div>
             <div className={getGlassClasses()}>
               <div className="text-2xl font-bold text-red-600 p-4">{fmt(data.cogs)} ر.س</div>

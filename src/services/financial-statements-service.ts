@@ -65,12 +65,17 @@ const totalOf = (rows: AccountBalanceRow[]): number =>
 export async function fetchAccountBalances(
   orgId: string,
 ): Promise<{ rows: AccountBalanceRow[]; unmatched: number }> {
-  const [{ data: accounts }, { data: lines }] = await Promise.all([
+  // Fail-visible: فشل RLS/المخطط يظهر خطأً صريحاً لا قوائم صفرية مضللة
+  const [accountsRes, linesRes] = await Promise.all([
     supabase.from('gl_accounts')
       .select('code, name, category, normal_balance').eq('org_id', orgId),
     supabase.from('gl_entry_lines')
       .select('account_code, debit_amount, credit_amount, debit, credit').eq('org_id', orgId),
   ]);
+  if (accountsRes.error) throw new Error(`تعذّر جلب شجرة الحسابات: ${accountsRes.error.message}`);
+  if (linesRes.error) throw new Error(`تعذّر جلب سطور القيود: ${linesRes.error.message}`);
+  const accounts = accountsRes.data;
+  const lines = linesRes.data;
 
   const meta = new Map<string, GLAccountMeta>();
   for (const a of (accounts ?? []) as GLAccountMeta[]) meta.set(a.code, a);
@@ -92,41 +97,96 @@ export async function fetchAccountBalances(
 }
 
 export interface Profitability {
-  revenue: number;        // من فواتير المبيعات الفعلية
-  cogs: number;           // رصيد حسابات COGS المزروعة في gl_mappings (sale_delivery_*)
+  revenue: number;        // قيمة فواتير المبيعات غير الملغاة (ليس إيراداً محاسبياً نهائياً — انظر التعليق أدناه)
+  cogs: number;           // رصيد حسابات COGS من قيود GL المرحّلة (أحداث COGS_EVENT_KEYS)
   grossProfit: number;
   margin: number | null;  // null عند غياب إيراد (لا تلفيق)
   cogsAccounts: string[]; // الحسابات المعتمدة (شفافية)
 }
 
-/** تحليل الربحية: إيراد الفواتير مقابل COGS من قيود GL على حسابات الخريطة المزروعة. */
-export async function fetchProfitability(): Promise<Profitability> {
-  const orgId = await getEffectiveTenantId();
-  if (!orgId) throw new Error('تعذّر تحديد هوية المؤسسة');
+export interface ProfitabilityParams {
+  /** بداية الفترة (YYYY-MM-DD) على invoice_date/entry_date — اختياري */
+  from?: string;
+  /** نهاية الفترة (YYYY-MM-DD) شاملة — invoice_date/entry_date أعمدة DATE فلا مشكلة نهاية يوم */
+  to?: string;
+}
 
-  // حسابات COGS القانونية من gl_mappings (الطرف المدين لأحداث sale_delivery_*)
-  const { data: mappings } = await supabase
+/**
+ * قائمة أحداث COGS المعتمدة — كانت الخريطة تُفلتر بـ sale_delivery% بينما مسار
+ * التسليم يرحّل بحدث COGS_DELIVERY حصراً (الحساب المدين الحي 544000 وليس
+ * 511100 الافتراضي في ملف 85) ⇒ كان COGS يظهر صفراً دائماً. الحساب يُقرأ من
+ * الخريطة الحية لا يُفترض. أي حدث COGS جديد يُضاف هنا صراحةً.
+ */
+export const COGS_EVENT_KEYS = ['COGS_DELIVERY'] as const;
+
+/** حسابات COGS القانونية: الطرف المدين لأحداث القائمة، بعد التحقق أنها حسابات مصروف. */
+export async function fetchCogsAccounts(orgId: string): Promise<string[]> {
+  const { data: mappings, error } = await supabase
     .from('gl_mappings')
     .select('key_value, debit_account_code')
     .eq('org_id', orgId)
     .eq('key_type', 'EVENT')
-    .like('key_value', 'sale_delivery%');
+    .in('key_value', [...COGS_EVENT_KEYS]);
+  if (error) throw new Error(`تعذّر جلب خريطة COGS: ${error.message}`);
 
-  const cogsAccounts = [...new Set(
+  const candidates = [...new Set(
     ((mappings ?? []) as { debit_account_code: string }[])
       .map((m) => m.debit_account_code)
       .filter(Boolean),
   )];
+  if (!candidates.length) return [];
+
+  // تحقق أن الطرف المدين حساب مصروف فعلاً (خريطة مضبوطة خطأً لا تُدخل أصولاً في COGS)
+  const { data: accounts, error: accErr } = await supabase
+    .from('gl_accounts')
+    .select('code, category')
+    .eq('org_id', orgId)
+    .in('code', candidates);
+  if (accErr) throw new Error(`تعذّر التحقق من حسابات COGS: ${accErr.message}`);
+  const expenseCodes = new Set(
+    ((accounts ?? []) as { code: string; category: string }[])
+      .filter((a) => a.category === 'EXPENSE')
+      .map((a) => a.code),
+  );
+  return candidates.filter((c) => expenseCodes.has(c));
+}
+
+/**
+ * تحليل الربحية: قيمة الفواتير غير الملغاة مقابل COGS من قيود GL المرحّلة.
+ * ملاحظة موثقة: العميل لا يكتب sales_invoices.status بعد الإنشاء (تبقى draft)
+ * فالفلتر الصحيح مرحلياً هو استبعاد cancelled فقط — اشتراط paid/posted كان
+ * سيصفّر الإيراد كله. اعتماد الإيراد من GL أو من الفواتير المرحلة فقط يتطلب
+ * إصلاح دورة حالة الفاتورة أولاً (بند متابعة).
+ */
+export async function fetchProfitability(params?: ProfitabilityParams): Promise<Profitability> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('تعذّر تحديد هوية المؤسسة');
+
+  const cogsAccounts = await fetchCogsAccounts(orgId);
+
+  let invoicesQuery = supabase.from('sales_invoices')
+    .select('total_amount')
+    .eq('org_id', orgId)
+    .neq('status', 'cancelled');
+  if (params?.from) invoicesQuery = invoicesQuery.gte('invoice_date', params.from);
+  if (params?.to) invoicesQuery = invoicesQuery.lte('invoice_date', params.to);
+
+  // سطور COGS مقيدة برأس قيد مرحّل (لا draft/reversed) وبنفس حدود الفترة
+  let cogsQuery = supabase.from('gl_entry_lines')
+    .select('account_code, debit_amount, credit_amount, debit, credit, gl_entries!inner(entry_date, status, org_id)')
+    .eq('org_id', orgId)
+    .eq('gl_entries.org_id', orgId)
+    .eq('gl_entries.status', 'posted')
+    .in('account_code', cogsAccounts);
+  if (params?.from) cogsQuery = cogsQuery.gte('gl_entries.entry_date', params.from);
+  if (params?.to) cogsQuery = cogsQuery.lte('gl_entries.entry_date', params.to);
 
   const [invoicesRes, cogsLinesRes] = await Promise.all([
-    supabase.from('sales_invoices').select('total_amount').eq('org_id', orgId),
-    cogsAccounts.length
-      ? supabase.from('gl_entry_lines')
-          .select('account_code, debit_amount, credit_amount, debit, credit')
-          .eq('org_id', orgId)
-          .in('account_code', cogsAccounts)
-      : Promise.resolve({ data: [] as GLLine[] }),
+    invoicesQuery,
+    cogsAccounts.length ? cogsQuery : Promise.resolve({ data: [] as GLLine[], error: null }),
   ]);
+  if (invoicesRes.error) throw new Error(`تعذّر جلب الفواتير: ${invoicesRes.error.message}`);
+  if (cogsLinesRes.error) throw new Error(`تعذّر جلب سطور COGS: ${cogsLinesRes.error.message}`);
 
   const revenue = ((invoicesRes.data ?? []) as { total_amount: number }[])
     .reduce((s, r) => s + (r.total_amount || 0), 0);
