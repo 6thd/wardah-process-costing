@@ -1,7 +1,6 @@
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { setDayStatusFallback } from './attendance-service';
-import type { HrPolicies } from './policies-service';
-import { getHrPolicies } from './policies-service';
+import { getHrPolicies, type HrPolicies } from './policies-service';
 
 export interface LeaveRequest {
   id: string;
