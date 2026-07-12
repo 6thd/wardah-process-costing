@@ -316,8 +316,8 @@ export const LeavesPage: React.FC = () => {
                               <span>{leaveType.name}</span>
                             </div>
                           </TableCell>
-                          <TableCell>{startDate.toLocaleDateString('ar-SA')}</TableCell>
-                          <TableCell>{endDate.toLocaleDateString('ar-SA')}</TableCell>
+                          <TableCell>{startDate.toLocaleDateString('en-US')}</TableCell>
+                          <TableCell>{endDate.toLocaleDateString('en-US')}</TableCell>
                           <TableCell>
                             <Badge variant="outline">{days} يوم</Badge>
                           </TableCell>
@@ -390,8 +390,8 @@ export const LeavesPage: React.FC = () => {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">الفترة:</span>
                   <span dir="ltr">
-                    {new Date(selectedRequest.startDate).toLocaleDateString('ar-SA')} - 
-                    {new Date(selectedRequest.endDate).toLocaleDateString('ar-SA')}
+                    {new Date(selectedRequest.startDate).toLocaleDateString('en-US')} - 
+                    {new Date(selectedRequest.endDate).toLocaleDateString('en-US')}
                   </span>
                 </div>
               </div>

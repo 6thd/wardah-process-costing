@@ -273,7 +273,7 @@ export function BOMManagement() {
                       </td>
                       <td className="p-4">{bom.unit_cost.toFixed(2)} ر.س</td>
                       <td className="p-4 text-sm text-muted-foreground">
-                        {new Date(bom.effective_date).toLocaleDateString('ar-SA')}
+                        {new Date(bom.effective_date).toLocaleDateString('en-US')}
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">

@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -153,12 +154,7 @@ function ReportsOverview() {
   
   return (
     <div className="space-y-8">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('reports.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          تقارير وتحليلات شاملة لعمليات الشركة
-        </p>
-      </div>
+      <PageHeader title={t('reports.title')} description="تقارير وتحليلات شاملة لعمليات الشركة" hideOnPrint={false} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -260,12 +256,7 @@ function FinancialReports() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">التقارير المالية</h1>
-        <p className="text-muted-foreground mt-2">
-          قائمة الدخل وملخص الميزانية من أرصدة دفتر الأستاذ الفعلية
-        </p>
-      </div>
+      <PageHeader title="التقارير المالية" description="قائمة الدخل وملخص الميزانية من أرصدة دفتر الأستاذ الفعلية" hideOnPrint={false} />
 
       {/* روابط للتقارير المحاسبية الكاملة */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -291,12 +282,7 @@ function InventoryReports() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير المخزون</h1>
-        <p className="text-muted-foreground mt-2">
-          تقييم وحركة وأداء المخزون
-        </p>
-      </div>
+      <PageHeader title="تقارير المخزون" description="تقييم وحركة وأداء المخزون" hideOnPrint={false} />
       <InventoryValuationReport />
     </div>
   )
@@ -311,12 +297,7 @@ function ManufacturingReports() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير التصنيع</h1>
-        <p className="text-muted-foreground mt-2">
-          أداء وتكاليف وكفاءة عمليات الإنتاج
-        </p>
-      </div>
+      <PageHeader title="تقارير التصنيع" description="أداء وتكاليف وكفاءة عمليات الإنتاج" hideOnPrint={false} />
 
       {/* روابط سريعة للتقارير الكاملة القائمة */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -370,12 +351,7 @@ function ProcessCostingReportPage() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقرير تكاليف المراحل</h1>
-        <p className="text-muted-foreground mt-2">
-          تحليل تكاليف المراحل مع حساب الوحدات المكافئة
-        </p>
-      </div>
+      <PageHeader title="تقرير تكاليف المراحل" description="تحليل تكاليف المراحل مع حساب الوحدات المكافئة" hideOnPrint={false} />
 
       <ProcessCostingReport />
     </div>
@@ -398,12 +374,7 @@ function PurchasingReports() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير المشتريات</h1>
-        <p className="text-muted-foreground mt-2">
-          أداء المشتريات وتحليل الموردين من البيانات الفعلية
-        </p>
-      </div>
+      <PageHeader title="تقارير المشتريات" description="أداء المشتريات وتحليل الموردين من البيانات الفعلية" hideOnPrint={false} />
       <PurchasingAnalyticsReport />
     </div>
   )
@@ -416,12 +387,7 @@ function AdvancedAnalytics() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">التحليلات المتقدمة</h1>
-        <p className="text-muted-foreground mt-2">
-          مؤشرات ورسوم مالية حية من بيانات المؤسسة الفعلية
-        </p>
-      </div>
+      <PageHeader title="التحليلات المتقدمة" description="مؤشرات ورسوم مالية حية من بيانات المؤسسة الفعلية" hideOnPrint={false} />
       <EnhancedGeminiDashboard />
     </div>
   )

@@ -395,7 +395,7 @@ export function CostOfProductionReportView() {
                     {isRTL ? 'الكمية المخططة' : 'Planned qty'}: {qty(report.manufacturing_order.qty_planned)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString(isRTL ? 'ar-SA' : 'en-US')}
+                    {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString('en-US')}
                   </p>
                 </div>
                 <BalanceBadge balanced={report.totals.all_stages_balanced} isRTL={isRTL} />

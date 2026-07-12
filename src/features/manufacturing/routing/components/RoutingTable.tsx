@@ -66,7 +66,7 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
             </TableCell>
             <TableCell>{getStatusBadge(routing.status, routing.is_active)}</TableCell>
             <TableCell>
-              {new Date(routing.effective_date).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}
+              {new Date(routing.effective_date).toLocaleDateString('en-US')}
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-center gap-2">

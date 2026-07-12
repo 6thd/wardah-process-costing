@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { 
     GLAccount, 
     getAllGLAccounts, 
@@ -737,7 +738,7 @@ function ChartOfAccounts() {
                         />
                     ))
                  ) : (
-                     <div className="p-8 text-center text-muted-foreground">{isRTL ? 'لا توجد حسابات لعرضها.' : 'No accounts to display.'}</div>
+                     <EmptyState title={isRTL ? 'لا توجد حسابات لعرضها' : 'No accounts to display'} description={isRTL ? 'أضف حساباً جديداً أو عدّل الفلاتر.' : 'Add an account or adjust filters.'} />
                  )}
             </div>
 

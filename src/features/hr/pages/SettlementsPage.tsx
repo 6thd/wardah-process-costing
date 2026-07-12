@@ -316,7 +316,7 @@ export const SettlementsPage: React.FC = () => {
                             <span className={termType.color}>{termType.name}</span>
                           </TableCell>
                           <TableCell>
-                            {new Date(settlement.terminationDate).toLocaleDateString('ar-SA')}
+                            {new Date(settlement.terminationDate).toLocaleDateString('en-US')}
                           </TableCell>
                           <TableCell>
                             <Badge variant="outline">{settlement.yearsOfService} سنة</Badge>
@@ -384,11 +384,11 @@ export const SettlementsPage: React.FC = () => {
                     </div>
                     <div className="flex justify-between">
                       <span>تاريخ التعيين:</span>
-                      <span>{new Date(selectedSettlement.hireDate).toLocaleDateString('ar-SA')}</span>
+                      <span>{new Date(selectedSettlement.hireDate).toLocaleDateString('en-US')}</span>
                     </div>
                     <div className="flex justify-between">
                       <span>تاريخ الإنهاء:</span>
-                      <span>{new Date(selectedSettlement.terminationDate).toLocaleDateString('ar-SA')}</span>
+                      <span>{new Date(selectedSettlement.terminationDate).toLocaleDateString('en-US')}</span>
                     </div>
                   </div>
                 </div>

@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -61,12 +63,7 @@ function PurchasingOverview() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('purchasing.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة المشتريات والموردين
-        </p>
-      </div>
+      <PageHeader title={t('purchasing.title')} description="إدارة المشتريات والموردين" hideOnPrint={false} />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -181,12 +178,7 @@ function SuppliersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -367,12 +359,7 @@ function PurchaseOrdersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -417,9 +404,9 @@ function PurchaseOrdersManagement() {
                       {order.vendor?.name || order.supplier?.name || 'مورد غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(order.order_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(order.order_date).toLocaleDateString('en-US')}</span>
                       {(order.expected_delivery || order.delivery_date) && (
-                        <span>🚚 التسليم: {new Date(order.expected_delivery || order.delivery_date).toLocaleDateString('ar-SA')}</span>
+                        <span>🚚 التسليم: {new Date(order.expected_delivery || order.delivery_date).toLocaleDateString('en-US')}</span>
                       )}
                     </div>
                     {order.purchase_order_lines && order.purchase_order_lines.length > 0 && (
@@ -499,24 +486,14 @@ function GoodsReceiptManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div className={cn(isRTL ? "text-right" : "text-left")}>
-          <h1 className="text-3xl font-bold">استلام البضائع</h1>
-          <p className="text-muted-foreground mt-2">
-            إدارة عمليات استلام البضائع من الموردين
-          </p>
-        </div>
+        <PageHeader title="استلام البضائع" description="إدارة عمليات استلام البضائع من الموردين" hideOnPrint={false} />
         <Button onClick={() => setShowGRForm(true)}>
           + إضافة استلام
         </Button>
@@ -622,24 +599,14 @@ function SupplierInvoicesManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div className={cn(isRTL ? "text-right" : "text-left")}>
-          <h1 className="text-3xl font-bold">فواتير المشتريات</h1>
-          <p className="text-muted-foreground mt-2">
-            إدارة فواتير الموردين وقيود اليومية
-          </p>
-        </div>
+        <PageHeader title="فواتير المشتريات" description="إدارة فواتير الموردين وقيود اليومية" hideOnPrint={false} />
         <Button onClick={() => setShowInvoiceForm(true)}>
           + إضافة فاتورة مشتريات
         </Button>
@@ -671,9 +638,9 @@ function SupplierInvoicesManagement() {
                       {invoice.vendor?.name || 'مورد غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('en-US')}</span>
                       {invoice.due_date && (
-                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('ar-SA')}</span>
+                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('en-US')}</span>
                       )}
                       {invoice.purchase_order && (
                         <span>📦 أمر الشراء: {invoice.purchase_order.order_number}</span>

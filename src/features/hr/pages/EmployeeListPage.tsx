@@ -439,7 +439,7 @@ export const EmployeeListPage: React.FC = () => {
                                             </TableCell>
                                             <TableCell onClick={() => navigate(`/hr/employees/${employee.id}`)}>
                                                 {employee.hiringDate
-                                                    ? new Date(employee.hiringDate).toLocaleDateString('ar-SA')
+                                                    ? new Date(employee.hiringDate).toLocaleDateString('en-US')
                                                     : '—'}
                                             </TableCell>
                                             <TableCell className="text-right" onClick={() => navigate(`/hr/employees/${employee.id}`)}>

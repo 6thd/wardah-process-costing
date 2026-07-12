@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import ApexCharts from 'apexcharts'
 import { ErrorState } from '@/components/ui/error-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -59,12 +60,7 @@ export function DashboardAnalytics() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري تحميل التحليلات...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري تحميل التحليلات..." />
     )
   }
 

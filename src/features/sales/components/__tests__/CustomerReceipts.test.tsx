@@ -288,7 +288,7 @@ describe('CustomerReceipts Component Logic', () => {
   describe('Date Formatting', () => {
     it('should format date for display', () => {
       const date = new Date('2025-12-20');
-      const formatted = date.toLocaleDateString('ar-SA');
+      const formatted = date.toLocaleDateString('en-US');
       expect(formatted).toBeDefined();
     });
 
@@ -308,7 +308,7 @@ describe('CustomerReceipts Component Logic', () => {
 
     it('should format with thousand separators', () => {
       const amount = 1500000;
-      const formatted = amount.toLocaleString('ar-SA');
+      const formatted = amount.toLocaleString('en-US');
       expect(formatted).toBeDefined();
     });
   });

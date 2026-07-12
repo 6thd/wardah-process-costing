@@ -204,7 +204,7 @@ export function CustomerReceipts() {
                       <TableCell className="font-medium">{receipt.receipt_number}</TableCell>
                       <TableCell>{receipt.customer?.name || 'غير محدد'}</TableCell>
                       <TableCell>
-                        {receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString('ar-SA') : '-'}
+                        {receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString('en-US') : '-'}
                       </TableCell>
                       <TableCell>{receipt.amount?.toFixed(2) || '0.00'} ريال</TableCell>
                       <TableCell>{getPaymentMethodLabel(receipt.payment_method)}</TableCell>
@@ -513,7 +513,7 @@ function CreateReceiptForm({ onSuccess }: Readonly<{ onSuccess: () => void }>) {
                     <TableRow key={invoice.id}>
                       <TableCell>{invoice.invoice_number}</TableCell>
                       <TableCell>
-                        {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}
+                        {new Date(invoice.invoice_date).toLocaleDateString('en-US')}
                       </TableCell>
                       <TableCell>{invoice.total_amount?.toFixed(2)} ريال</TableCell>
                       <TableCell>{invoice.paid_amount?.toFixed(2) || '0.00'} ريال</TableCell>
@@ -568,7 +568,7 @@ function ReceiptDetails({ receipt }: Readonly<{ receipt: CustomerReceipt }>) {
         <div>
           <Label className="text-muted-foreground">التاريخ</Label>
           <p className="font-medium">
-            {receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString('ar-SA') : '-'}
+            {receipt.receipt_date ? new Date(receipt.receipt_date).toLocaleDateString('en-US') : '-'}
           </p>
         </div>
         <div>

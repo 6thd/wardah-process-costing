@@ -335,9 +335,9 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totals.normal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-2xl font-bold">{totals.normal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {totals.normal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+              {totals.normal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
             </p>
           </CardContent>
         </Card>
@@ -350,9 +350,9 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totals.abnormal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            <div className="text-2xl font-bold">{totals.abnormal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {totals.abnormal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+              {totals.abnormal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
             </p>
           </CardContent>
         </Card>
@@ -365,7 +365,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totals.regrind_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
+            <div className="text-2xl font-bold">{totals.regrind_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
             <p className="text-xs text-muted-foreground mt-1">
               {isRTL ? 'تكلفة إعادة المعالجة' : 'Reprocessing cost'}
             </p>
@@ -380,7 +380,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{totals.waste_credit_amount.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
+            <div className="text-2xl font-bold">{totals.waste_credit_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
             <p className="text-xs text-muted-foreground mt-1">
               {isRTL ? 'ائتمان من بيع النفايات' : 'Credit from waste sales'}
             </p>
@@ -418,22 +418,22 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
                     <TableCell>{item.order_number}</TableCell>
                     <TableCell>{item.stage_name}</TableCell>
                     <TableCell className="text-right font-mono">
-                      {item.good_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.good_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {item.scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-green-600">
-                      {item.normal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.normal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-red-600">
-                      {item.abnormal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.abnormal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono text-green-600">
-                      {item.normal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                      {item.normal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
                     <TableCell className="text-right font-mono text-red-600">
-                      {item.abnormal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                      {item.abnormal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {item.normal_scrap_rate.toFixed(2)}%
@@ -444,22 +444,22 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
                 <TableRow className="font-bold bg-muted/50">
                   <TableCell colSpan={2}>{isRTL ? 'الإجمالي' : 'Total'}</TableCell>
                   <TableCell className="text-right font-mono">
-                    {totals.good_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totals.good_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-right font-mono">
-                    {totals.scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totals.scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-right font-mono text-green-600">
-                    {totals.normal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totals.normal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-right font-mono text-red-600">
-                    {totals.abnormal_scrap_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {totals.abnormal_scrap_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
                   <TableCell className="text-right font-mono text-green-600">
-                    {totals.normal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    {totals.normal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                   </TableCell>
                   <TableCell className="text-right font-mono text-red-600">
-                    {totals.abnormal_scrap_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                    {totals.abnormal_scrap_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                   </TableCell>
                   <TableCell></TableCell>
                 </TableRow>

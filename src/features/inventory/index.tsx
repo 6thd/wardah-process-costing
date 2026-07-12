@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
@@ -364,12 +365,7 @@ function ItemsManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -429,7 +425,7 @@ function ItemsManagement() {
             <div>
               <p className="text-sm text-muted-foreground">قيمة المخزون</p>
               <h3 className="text-2xl font-bold mt-1 text-green-600">
-                {stats.totalValue.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س
+                {stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} ر.س
               </h3>
             </div>
             <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -788,12 +784,12 @@ function ItemsManagement() {
                       </td>
                       <td className="p-3">
                         <div className="text-sm">
-                          {item.cost_price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                          {item.cost_price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س
                         </div>
                       </td>
                       <td className="p-3">
                         <div className="text-sm font-medium">
-                          {item.price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                          {item.price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س
                         </div>
                       </td>
                       <td className="p-3 text-center">
@@ -1493,12 +1489,7 @@ function StockAdjustments() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
@@ -2341,12 +2332,7 @@ function StockMovements() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -2444,7 +2430,7 @@ function StockMovements() {
                       </div>
                       
                       <div className="text-xs text-muted-foreground mt-2">
-                        {new Date(movement.posting_date).toLocaleDateString('ar-SA')}
+                        {new Date(movement.posting_date).toLocaleDateString('en-US')}
                       </div>
                     </div>
                   </div>
@@ -2510,12 +2496,7 @@ function CategoriesManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 

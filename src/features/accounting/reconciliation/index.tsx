@@ -242,7 +242,7 @@ export function ReconciliationPage() {
           <p className="text-xs text-muted-foreground">
             {isRTL ? 'حتى تاريخ' : 'As of'}: {report.as_of_date}
             {' · '}
-            {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString(isRTL ? 'ar-SA' : 'en-US')}
+            {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString('en-US')}
           </p>
         </div>
       )}

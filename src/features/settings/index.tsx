@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { 
   Settings as SettingsIcon, 
   Building, 
@@ -92,12 +93,7 @@ function SettingsOverview() {
   
   return (
     <div className="space-y-8">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('settings.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة إعدادات وتكوين النظام
-        </p>
-      </div>
+      <PageHeader title={t('settings.title')} description="إدارة إعدادات وتكوين النظام" hideOnPrint={false} />
 
       {/* Quick Info */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
