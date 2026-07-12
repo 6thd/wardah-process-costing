@@ -8,7 +8,15 @@ export type PayrollAccountType =
   | 'deductions'
   | 'loans'
   | 'payable'
-  | 'net_payable';
+  | 'net_payable'
+  // أنواع Migration 99 (قرار المالك: كل حسابات القيد قابلة للاختيار من الضبط)
+  | 'overtime'
+  | 'absence_recovery'
+  | 'gosi_employee'
+  | 'gosi_employer_expense'
+  | 'gosi_payable'
+  | 'eos_expense'
+  | 'eos_payable';
 
 export interface PayrollAccountMapping {
   id: string;

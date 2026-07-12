@@ -9,6 +9,18 @@ export interface HrPolicies {
   weekend_days: string[];
   overtime_multiplier: number;
   overtime_grace_minutes: number;
+  // سياسات GOSI/الرواتب (Migration 99 — قابلة للتعديل من شاشة الضبط)
+  gosi_employee_pct: number;
+  gosi_employer_pct: number;
+  gosi_base_cap: number;
+  gosi_applies_to: 'saudi_only' | 'all' | 'none';
+  daily_rate_basis: 'working_days' | 'thirty';
+  overtime_base: 'basic' | 'basic_housing';
+  // استحقاق الإجازات (نظام العمل م109)
+  annual_leave_days_before_5y: number;
+  annual_leave_days_after_5y: number;
+  include_weekends_in_accrual: boolean;
+  exclude_unpaid_from_accrual: boolean;
 }
 
 const DEFAULT_POLICIES: HrPolicies = {
@@ -20,6 +32,16 @@ const DEFAULT_POLICIES: HrPolicies = {
   weekend_days: ['friday'],
   overtime_multiplier: 1.5,
   overtime_grace_minutes: 0,
+  gosi_employee_pct: 9.75,
+  gosi_employer_pct: 11.75,
+  gosi_base_cap: 45000,
+  gosi_applies_to: 'saudi_only',
+  daily_rate_basis: 'working_days',
+  overtime_base: 'basic',
+  annual_leave_days_before_5y: 21,
+  annual_leave_days_after_5y: 30,
+  include_weekends_in_accrual: true,
+  exclude_unpaid_from_accrual: true,
 };
 
 export async function getHrPolicies(): Promise<HrPolicies> {
