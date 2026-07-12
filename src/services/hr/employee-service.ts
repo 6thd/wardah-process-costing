@@ -57,3 +57,62 @@ export async function createEmployee(input: CreateEmployeeInput): Promise<HrEmpl
 }
 
 
+
+/**
+ * حذف موظف (org-scoped). عند وجود سجلات مرتبطة (رواتب/حضور/إجازات) يفشل الحذف
+ * الفعلي بقيد FK — نعيد رسالة واضحة تقترح إنهاء الخدمة بدل الحذف (لا فقد سجلات).
+ */
+export async function deleteEmployee(id: string): Promise<void> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) {
+    throw new Error('Organization (org_id) not found for current user.');
+  }
+
+  const { error } = await supabase
+    .from('employees')
+    .delete()
+    .eq('id', id)
+    .eq('org_id', orgId);
+
+  if (error) {
+    console.error('Failed to delete employee:', error);
+    if (error.code === '23503') { // foreign_key_violation
+      throw new Error('لا يمكن حذف الموظف لوجود سجلات مرتبطة (رواتب/حضور/إجازات) — استخدم إنهاء الخدمة بدل الحذف.');
+    }
+    throw new Error(error.message);
+  }
+}
+
+export interface EmployeeSalaryComponent {
+  id: string;
+  componentName: string;
+  componentType: string; // earning | deduction ...
+  value: number;
+}
+
+/** بدلات/استقطاعات الموظف الفعّالة من employee_salary_structures × salary_components. */
+export async function getEmployeeSalaryComponents(employeeId: string): Promise<EmployeeSalaryComponent[]> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) {
+    throw new Error('Organization (org_id) not found for current user.');
+  }
+
+  const { data, error } = await supabase
+    .from('employee_salary_structures')
+    .select('id, value, is_active, component:salary_components(name, name_ar, component_type)')
+    .eq('org_id', orgId)
+    .eq('employee_id', employeeId)
+    .eq('is_active', true);
+
+  if (error) {
+    console.error('Failed to fetch salary components:', error);
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    componentName: row.component?.name_ar || row.component?.name || '—',
+    componentType: row.component?.component_type || '',
+    value: Number(row.value ?? 0),
+  }));
+}

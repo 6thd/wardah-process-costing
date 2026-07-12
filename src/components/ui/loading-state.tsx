@@ -47,3 +47,21 @@ export function ReportSkeleton({ className }: { readonly className?: string }) {
     </output>
   )
 }
+
+/**
+ * سبينر صفحة موحَّد — يستخلص الكتلة المكررة في 15+ شاشة
+ * (نفس الشكل السابق تماماً؛ P11-7). للمحتوى المهيكل فضّل الهياكل أعلاه.
+ */
+export function LoadingSpinner({
+  label = 'جاري التحميل...',
+  className
+}: { readonly label?: string; readonly className?: string }) {
+  return (
+    <output className={cn('flex items-center justify-center h-64', className)} aria-label={label}>
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+        <p className="mt-2 text-muted-foreground">{label}</p>
+      </div>
+    </output>
+  )
+}

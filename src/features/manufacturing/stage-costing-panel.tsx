@@ -553,7 +553,7 @@ export default function StageCostingPanel() {
             </div>
             
             <div className="text-xs text-gray-500 text-center">
-              تم الحساب في: {new Date(lastResult.calculatedAt).toLocaleString('ar-SA')}
+              تم الحساب في: {new Date(lastResult.calculatedAt).toLocaleString('en-US')}
             </div>
           </div>
         )}
@@ -603,7 +603,7 @@ export default function StageCostingPanel() {
                       </Badge>
                     </td>
                     <td className="p-2 text-sm text-gray-600">
-                      {new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA')}
+                      {new Date(stage.updated_at || stage.created_at).toLocaleDateString('en-US')}
                     </td>
                   </tr>
                 ))}

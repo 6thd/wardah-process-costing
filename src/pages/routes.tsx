@@ -150,12 +150,10 @@ export const appRouter = createBrowserRouter([
             ),
           },
           {
+            // توافق URLs: الوحدة اليتيمة gemini-dashboard حُذفت (كانت غلافاً
+            // مكرّراً لمكوّن reports) — التوجيه يبقى للّوحة الحقيقية.
             path: "gemini-dashboard/*",
-            lazy: guardedLazy(
-              MODULE_CODES.REPORTS,
-              () => import("@/features/gemini-dashboard"),
-              "GeminiDashboardModule"
-            ),
+            element: <Navigate to="/reports/gemini" replace />,
           },
           {
             path: "settings/*",

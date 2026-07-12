@@ -186,7 +186,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
             <>
               <div className="mb-6 p-4 bg-muted rounded-lg">
                 <div className="text-2xl font-bold text-center">
-                  {isRTL ? 'إجمالي قيمة WIP' : 'Total WIP Value'}: {totalWipValue.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                  {isRTL ? 'إجمالي قيمة WIP' : 'Total WIP Value'}: {totalWipValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                 </div>
               </div>
               
@@ -210,11 +210,11 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
                       <TableRow key={itemKey}>
                         <TableCell>{String(item.order_number || '')}</TableCell>
                         <TableCell>{String(item.stage_name || '')}</TableCell>
-                        <TableCell className="text-right font-mono">{(item.wip_end_qty as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right font-mono">{(item.wip_end_qty as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
                         <TableCell className="text-right font-mono">{String((item.wip_end_dm_pct as number).toFixed(1))}%</TableCell>
                         <TableCell className="text-right font-mono">{String((item.wip_end_cc_pct as number).toFixed(1))}%</TableCell>
-                        <TableCell className="text-right font-mono">{(item.unit_cost as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                        <TableCell className="text-right font-mono font-bold">{(item.wip_value as number).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                        <TableCell className="text-right font-mono">{(item.unit_cost as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                        <TableCell className="text-right font-mono font-bold">{(item.wip_value as number).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                       </TableRow>
                       )
                     })}

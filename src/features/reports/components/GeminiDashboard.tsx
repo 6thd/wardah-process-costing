@@ -265,7 +265,7 @@ const GeminiDashboard: React.FC = () => {
   };
 
   const formatCurrency = (value: number): string => {
-    return new Intl.NumberFormat('ar-SA', {
+    return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: 'SAR'
     }).format(value);

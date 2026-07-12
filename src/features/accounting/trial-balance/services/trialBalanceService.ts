@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 import type { TrialBalanceRow } from '../types';
 
 export async function fetchTrialBalanceManual(
@@ -122,11 +123,8 @@ export async function fetchTrialBalanceManual(
     return balanceArray;
   } catch (error) {
     console.error('❌ Error fetching manual trial balance:', error);
-    if (isRTL) {
-      alert('حدث خطأ في جلب البيانات');
-    } else {
-      alert('Error fetching data');
-    }
+    // توست غير حاجب بدل alert() المتصفح (لا حوارات نظام في طبقة الخدمات)
+    toast.error(isRTL ? 'حدث خطأ في جلب البيانات' : 'Error fetching data');
     return [];
   }
 }

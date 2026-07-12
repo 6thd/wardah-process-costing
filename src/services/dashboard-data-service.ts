@@ -119,6 +119,38 @@ function buildKpis(
   };
 }
 
+export interface OperationalCounts {
+  activeManufacturingOrders: number;
+  pendingPurchaseOrders: number;
+  totalCustomers: number;
+  totalVendors: number;
+}
+
+/** عدّادات تشغيلية حقيقية (org-scoped) للوحة التحكم — count فقط بلا جلب صفوف. */
+export async function fetchOperationalCounts(): Promise<OperationalCounts> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('تعذّر تحديد هوية المؤسسة');
+
+  const countRows = async (table: string, notInStatuses?: string[]): Promise<number> => {
+    let q = supabase.from(table).select('id', { count: 'exact', head: true }).eq('org_id', orgId);
+    if (notInStatuses?.length) {
+      q = q.not('status', 'in', `(${notInStatuses.join(',')})`);
+    }
+    const { count } = await q;
+    return count ?? 0;
+  };
+
+  const [activeManufacturingOrders, pendingPurchaseOrders, totalCustomers, totalVendors] =
+    await Promise.all([
+      countRows('manufacturing_orders', ['cancelled', 'completed', 'done']),
+      countRows('purchase_orders', ['fully_received', 'cancelled', 'closed']),
+      countRows('customers'),
+      countRows('vendors'),
+    ]);
+
+  return { activeManufacturingOrders, pendingPurchaseOrders, totalCustomers, totalVendors };
+}
+
 /** بيانات لوحة التحكم المالية الكاملة من مصادر حقيقية (org-scoped). */
 export async function fetchRealDashboardData(): Promise<DashboardData> {
   const orgId = await getEffectiveTenantId();

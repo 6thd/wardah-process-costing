@@ -593,9 +593,9 @@ export function StandardCostsList() {
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              <div>من: {new Date(cost.effective_from).toLocaleDateString('ar-SA')}</div>
+                              <div>من: {new Date(cost.effective_from).toLocaleDateString('en-US')}</div>
                               {cost.effective_to && (
-                                <div>إلى: {new Date(cost.effective_to).toLocaleDateString('ar-SA')}</div>
+                                <div>إلى: {new Date(cost.effective_to).toLocaleDateString('en-US')}</div>
                               )}
                             </div>
                           </TableCell>

@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -663,9 +664,7 @@ export function AccountStatement() {
             )}
 
             {!loading && statementLines.length === 0 && selectedAccount && (
-              <div className="text-center py-8 text-gray-500">
-                {isRTL ? 'لا توجد حركات' : 'No transactions found'}
-              </div>
+              <EmptyState title={isRTL ? 'لا توجد حركات' : 'No transactions found'} description={isRTL ? 'لا حركات لهذا الحساب في الفترة المحددة.' : 'No movements for this account in the selected period.'} />
             )}
           </div>
         </CardContent>

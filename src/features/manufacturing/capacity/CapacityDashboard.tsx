@@ -463,7 +463,7 @@ export function CapacityDashboard() {
                       <TableRow key={pred.work_order_id}>
                         <TableCell className="font-medium">{pred.work_order_number}</TableCell>
                         <TableCell>
-                          {new Date(pred.scheduled_end).toLocaleDateString(isRTL ? 'ar-SA' : 'en-US')}
+                          {new Date(pred.scheduled_end).toLocaleDateString('en-US')}
                         </TableCell>
                         <TableCell>
                           <Badge variant="destructive">

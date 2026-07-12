@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { getEmployees } from '@/services/hr/hr-service';
+import { getEmployeeSalaryComponents } from '@/services/hr/employee-service';
 import { STATUS_BADGES } from '../types';
 
 export const EmployeeProfilePage: React.FC = () => {
@@ -23,6 +24,14 @@ export const EmployeeProfilePage: React.FC = () => {
     });
 
     const employee = React.useMemo(() => employees.find((e) => e.id === id), [employees, id]);
+
+    // بدلات/استقطاعات فعلية من employee_salary_structures (بدل placeholder)
+    const { data: salaryComponents = [] } = useQuery({
+        queryKey: ['hr', 'employee-salary-components', id],
+        queryFn: () => getEmployeeSalaryComponents(id as string),
+        enabled: !!id && !!employee,
+        staleTime: 60_000,
+    });
 
     if (!employee) {
         return (
@@ -127,10 +136,25 @@ export const EmployeeProfilePage: React.FC = () => {
                                             <span className="font-medium">الراتب الأساسي</span>
                                             <span className="font-bold">{employee.salary?.toLocaleString()} {employee.currency}</span>
                                         </div>
-                                        {/* Placeholder for allowances - to be connected to salary_components */}
-                                        <div className="text-center py-4 text-muted-foreground text-sm border-2 border-dashed rounded-md">
-                                            لا توجد بدلات إضافية مسجلة
-                                        </div>
+                                        {salaryComponents.length === 0 ? (
+                                            <div className="text-center py-4 text-muted-foreground text-sm border-2 border-dashed rounded-md">
+                                                لا توجد بدلات إضافية مسجلة
+                                            </div>
+                                        ) : (
+                                            salaryComponents.map((comp) => (
+                                                <div key={comp.id} className="flex justify-between items-center p-3 bg-muted/30 rounded-md">
+                                                    <span>
+                                                        {comp.componentName}
+                                                        {comp.componentType === 'deduction' && (
+                                                            <Badge variant="outline" className="mr-2 text-xs">استقطاع</Badge>
+                                                        )}
+                                                    </span>
+                                                    <span className={`font-medium ${comp.componentType === 'deduction' ? 'text-destructive' : ''}`}>
+                                                        {comp.componentType === 'deduction' ? '−' : ''}{comp.value.toLocaleString('en-US')} {employee.currency}
+                                                    </span>
+                                                </div>
+                                            ))
+                                        )}
                                     </div>
                                 </CardContent>
                             </Card>

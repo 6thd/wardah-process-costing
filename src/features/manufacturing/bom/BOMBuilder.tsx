@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge'
 import { Plus, Trash2, Save, X, Search } from 'lucide-react'
 import { useBOM, useCreateBOM, useUpdateBOM } from '@/hooks/manufacturing/useBOM'
 import { BOMLine } from '@/services/manufacturing/bomService'
+import { ProductPickerDialog, type PickedProduct } from '../components/ProductPickerDialog'
 
 interface BOMLineInput extends Omit<BOMLine, 'id' | 'bom_id' | 'org_id'> {
   tempId: string
@@ -51,6 +52,23 @@ export function BOMBuilder() {
   // Lines state
   const [bomLines, setBomLines] = useState<BOMLineInput[]>([])
   const [nextLineNumber, setNextLineNumber] = useState(10)
+
+  // منتقي الأصناف: null=مغلق، 'header'=صنف القائمة، وإلا tempId لسطر مكوّن
+  const [pickerTarget, setPickerTarget] = useState<string | null>(null)
+
+  const handlePick = (product: PickedProduct) => {
+    if (pickerTarget === 'header') {
+      setItemId(product.id)
+      setItemCode(product.code)
+      if (!description) setDescription(product.name)
+    } else if (pickerTarget) {
+      setBomLines((lines) => lines.map((line) =>
+        line.tempId === pickerTarget
+          ? { ...line, item_id: product.id, item_code: product.code, item_name: product.name }
+          : line,
+      ))
+    }
+  }
 
   // Load existing BOM data
   useEffect(() => {
@@ -226,18 +244,21 @@ export function BOMBuilder() {
                   }}
                   placeholder="أدخل معرف الصنف أو اختر بالبحث"
                 />
-                <Button 
-                  size="icon" 
+                <Button
+                  size="icon"
                   variant="outline"
                   type="button"
-                  title="البحث عن صنف - قريباً"
+                  title="البحث عن صنف"
+                  onClick={() => setPickerTarget('header')}
                 >
                   <Search className="w-4 h-4" />
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                💡 مؤقتاً: أدخل معرف الصنف (UUID) من جدول products
-              </p>
+              {itemCode && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  الرمز المختار: <span className="font-mono">{itemCode}</span>
+                </p>
+              )}
             </div>
             
             <div>
@@ -310,12 +331,23 @@ export function BOMBuilder() {
                     <tr key={line.tempId} className="border-b hover:bg-muted/50">
                       <td className="p-2">{line.line_number}</td>
                       <td className="p-2">
-                        <Input
-                          value={line.item_code}
-                          onChange={(e) => updateLine(line.tempId, 'item_code', e.target.value)}
-                          placeholder="رمز المادة"
-                          className="w-32"
-                        />
+                        <div className="flex gap-1">
+                          <Input
+                            value={line.item_code}
+                            onChange={(e) => updateLine(line.tempId, 'item_code', e.target.value)}
+                            placeholder="رمز المادة"
+                            className="w-32"
+                          />
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            type="button"
+                            title="البحث عن صنف"
+                            onClick={() => setPickerTarget(line.tempId)}
+                          >
+                            <Search className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </td>
                       <td className="p-2">
                         <Input
@@ -434,6 +466,12 @@ export function BOMBuilder() {
           </CardContent>
         </Card>
       )}
+
+      <ProductPickerDialog
+        open={pickerTarget !== null}
+        onOpenChange={(open) => { if (!open) setPickerTarget(null) }}
+        onPick={handlePick}
+      />
     </div>
   )
 }
