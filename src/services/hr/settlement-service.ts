@@ -7,6 +7,7 @@
  */
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { getLeaveBalance } from './leave-service';
+import { translateRpcError } from './payroll-engine';
 
 // ─── أنواع ────────────────────────────────────────────────────────────────────
 
@@ -339,7 +340,7 @@ export async function postSettlement(settlementId: string): Promise<void> {
         'دالة rpc_post_settlement غير موجودة — يرجى تطبيق Migration 100 أولاً',
       );
     }
-    throw new Error(error.message);
+    throw new Error(translateRpcError(error.message));
   }
 
   const msg = typeof data === 'string' ? data : data?.status;

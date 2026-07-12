@@ -36,6 +36,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getPayrollRuns } from '@/services/hr/hr-service';
 import { calculatePayrollPreview, processPayrollRun, type PayrollPreviewEmployee } from '@/services/hr/payroll-engine';
+import { checkIsPayrollAdmin } from '@/services/hr/payroll-admin-service';
 import { STATUS_BADGES } from '../types';
 import {
     DollarSign, Users, TrendingUp, AlertCircle, Download, 
@@ -58,6 +59,12 @@ export const PayrollPage: React.FC = () => {
     const { data: payrollRuns = [], isLoading: runsLoading } = useQuery({
         queryKey: ['hr', 'payroll-runs'],
         queryFn: () => getPayrollRuns(12),
+    });
+
+    // بوابة عرض فقط — الحاجز الفعلي هو wardah_is_org_admin في RLS/RPC (Migration 101)
+    const { data: isPayrollAdmin = false } = useQuery({
+        queryKey: ['hr', 'payroll-admin-gate'],
+        queryFn: checkIsPayrollAdmin,
     });
 
     const {
@@ -172,7 +179,8 @@ export const PayrollPage: React.FC = () => {
                     />
                     <Button
                         onClick={() => processPayrollMutation.mutate()}
-                        disabled={processPayrollMutation.isPending || preview?.locked || !preview?.employees.length}
+                        disabled={!isPayrollAdmin || processPayrollMutation.isPending || preview?.locked || !preview?.employees.length}
+                        title={!isPayrollAdmin ? 'اعتماد الرواتب يتطلب صلاحية مدير المؤسسة (admin/owner)' : undefined}
                         className="gap-2 bg-teal-600 hover:bg-teal-700"
                     >
                         {preview?.locked ? (

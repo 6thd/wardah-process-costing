@@ -55,6 +55,7 @@ import {
   type TerminationType,
   type EosResult,
 } from '@/services/hr/settlement-service';
+import { checkIsPayrollAdmin } from '@/services/hr/payroll-admin-service';
 import { STATUS_BADGES } from '../types';
 
 const TERMINATION_TYPES: { id: TerminationType; name: string; color: string }[] = [
@@ -92,6 +93,12 @@ export const SettlementsPage: React.FC = () => {
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
+  });
+
+  // بوابة عرض فقط — الحاجز الفعلي wardah_is_org_admin في RPC (Migration 101)
+  const { data: isPayrollAdmin = false } = useQuery({
+    queryKey: ['hr', 'payroll-admin-gate'],
+    queryFn: checkIsPayrollAdmin,
   });
 
   // تصفية
@@ -566,7 +573,8 @@ export const SettlementsPage: React.FC = () => {
                 <Button
                   className="bg-teal-600 hover:bg-teal-700"
                   onClick={() => postMutation.mutate(selectedSettlement.id)}
-                  disabled={isPending}
+                  disabled={isPending || !isPayrollAdmin}
+                  title={!isPayrollAdmin ? 'اعتماد التسوية يتطلب صلاحية مدير المؤسسة (admin/owner)' : undefined}
                 >
                   <CheckCircle2 className="h-4 w-4 ml-2" />
                   {isPending ? 'جارٍ الاعتماد...' : 'اعتماد وترحيل القيد'}

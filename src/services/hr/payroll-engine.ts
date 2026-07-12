@@ -20,12 +20,31 @@ import { listAdjustmentsForMonth, PayrollAdjustment } from './adjustments-servic
 
 // ===== أنواع =====
 
+/**
+ * تصنيف السطر إلى bucket قيد محاسبي — يُرسل مع كل سطر إلى rpc_post_payroll_run
+ * (Migration 101) الذي يشتق مجاميع الـbuckets من السطور ويطابقها مع totals،
+ * فلا يمكن إعادة توزيع القيد دون أن يظهر ذلك في تفاصيل القسائم.
+ * ملاحظة: gosi_employee ليس bucket قيد مستقلاً — حصة الموظف تدخل ضمن
+ * gosi_payable الدائن (مع حصة صاحب العمل gosi_employer_expense التي بلا سطر).
+ */
+export type PayrollLineBucket =
+  | 'basic_salary'
+  | 'housing_allowance'
+  | 'transport_allowance'
+  | 'other_allowance'
+  | 'overtime'
+  | 'deductions'
+  | 'loans'
+  | 'absence_recovery'
+  | 'gosi_employee';
+
 export interface PayrollLine {
   employee_id: string;
   component_code: string;
   component_label: string;
   amount: number;
   is_deduction: boolean;
+  bucket: PayrollLineBucket;
 }
 
 export interface PayrollPreviewEmployee {
@@ -363,21 +382,22 @@ export async function calculatePayrollPreview(
         if (bucket === 'housing_allowance') housingAllowance += amount;
         else if (bucket === 'transport_allowance') transportAllowance += amount;
         else otherAllowance += amount;
-        lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: false });
+        lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: false, bucket });
       } else if (compType === 'deduction') {
         // GOSI يُحسب من السياسات لا من المكوّنات (منع الازدواج)
         if (isGosiComponent(code)) continue;
         const amount = round2(evaluateComponentAmount(
           c.component?.calculation_type, Number(c.value || 0), baseSalary, c.component?.percentage_base));
         if (!amount) continue;
-        if (isLoanComponent(code)) loanDeductions += amount;
+        const isLoan = isLoanComponent(code);
+        if (isLoan) loanDeductions += amount;
         else componentDeductions += amount;
-        lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: true });
+        lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: true, bucket: isLoan ? 'loans' : 'deductions' });
       }
     }
 
     if (baseSalary > 0) {
-      lines.unshift({ employee_id: employee.id, component_code: 'BASIC', component_label: 'الراتب الأساسي', amount: round2(baseSalary), is_deduction: false });
+      lines.unshift({ employee_id: employee.id, component_code: 'BASIC', component_label: 'الراتب الأساسي', amount: round2(baseSalary), is_deduction: false, bucket: 'basic_salary' });
     }
 
     // 3) الحضور: غياب/إجازة غير مدفوعة/إضافي
@@ -392,7 +412,11 @@ export async function calculatePayrollPreview(
     const absenceAmount = round2(deductibleDays * dailyRate);
     const hourlyRate = overtimeHourlyRate(
       baseSalary, housingAllowance, workingDays, expectedHours, policies.overtime_base);
-    let overtimeAmount = round2(att.overtimeHours * hourlyRate * Number(policies.overtime_multiplier ?? 1.5));
+    // إضافي الحضور منفصل عن تعديلات الإضافي: سطر OT يحمل مبلغ الحضور فقط،
+    // وكل تعديل إضافي سطر ADJ_OVERTIME مستقل — كان المبلغ يُدمج في overtimeAmount
+    // ويُدفع سطراً مستقلاً معاً فيتضاعف في القسيمة ويكسر عقد Σسطور=gross (علّة E1)
+    const attendanceOvertime = round2(att.overtimeHours * hourlyRate * Number(policies.overtime_multiplier ?? 1.5));
+    let overtimeAmount = attendanceOvertime;
 
     // 4) التعديلات الشهرية
     let adjustmentAllowances = 0;
@@ -400,32 +424,38 @@ export async function calculatePayrollPreview(
     for (const adj of adjustmentsByEmployee.get(employee.id) ?? []) {
       const amount = round2(Number(adj.amount || 0));
       if (!amount) continue;
+      if (amount < 0) {
+        // rpc_post_payroll_run (Migration 101) يرفض السطور غير الموجبة —
+        // التعديل السالب يُسجَّل بنوعه المعاكس (allowance سالب ⇒ deduction)
+        throw new Error(
+          `تعديل رواتب بمبلغ سالب (${amount}) للموظف ${employee.id} — سجّله بالنوع المعاكس بمبلغ موجب`);
+      }
       const label = adj.description || adj.adjustment_type;
       if (adj.adjustment_type === 'allowance') {
         adjustmentAllowances += amount;
-        lines.push({ employee_id: employee.id, component_code: 'ADJ_ALLOWANCE', component_label: label, amount, is_deduction: false });
+        lines.push({ employee_id: employee.id, component_code: 'ADJ_ALLOWANCE', component_label: label, amount, is_deduction: false, bucket: 'other_allowance' });
       } else if (adj.adjustment_type === 'overtime') {
         overtimeAmount = round2(overtimeAmount + amount);
-        lines.push({ employee_id: employee.id, component_code: 'ADJ_OVERTIME', component_label: label, amount, is_deduction: false });
+        lines.push({ employee_id: employee.id, component_code: 'ADJ_OVERTIME', component_label: label, amount, is_deduction: false, bucket: 'overtime' });
       } else if (adj.adjustment_type === 'loan') {
         loanDeductions += amount;
-        lines.push({ employee_id: employee.id, component_code: 'ADJ_LOAN', component_label: label, amount, is_deduction: true });
+        lines.push({ employee_id: employee.id, component_code: 'ADJ_LOAN', component_label: label, amount, is_deduction: true, bucket: 'loans' });
       } else {
         adjustmentDeductions += amount;
-        lines.push({ employee_id: employee.id, component_code: 'ADJ_DEDUCTION', component_label: label, amount, is_deduction: true });
+        lines.push({ employee_id: employee.id, component_code: 'ADJ_DEDUCTION', component_label: label, amount, is_deduction: true, bucket: 'deductions' });
       }
     }
 
     // 5) GOSI من السياسات
     const gosi = computeGosi(baseSalary, housingAllowance, policies, employee.is_saudi);
     if (gosi.employee > 0) {
-      lines.push({ employee_id: employee.id, component_code: 'GOSI_EMP', component_label: 'التأمينات — حصة الموظف', amount: gosi.employee, is_deduction: true });
+      lines.push({ employee_id: employee.id, component_code: 'GOSI_EMP', component_label: 'التأمينات — حصة الموظف', amount: gosi.employee, is_deduction: true, bucket: 'gosi_employee' });
     }
-    if (att.overtimeHours > 0 || overtimeAmount > 0) {
-      lines.push({ employee_id: employee.id, component_code: 'OT', component_label: 'عمل إضافي', amount: overtimeAmount, is_deduction: false });
+    if (attendanceOvertime > 0) {
+      lines.push({ employee_id: employee.id, component_code: 'OT', component_label: 'عمل إضافي', amount: attendanceOvertime, is_deduction: false, bucket: 'overtime' });
     }
     if (absenceAmount > 0) {
-      lines.push({ employee_id: employee.id, component_code: 'ABSENCE', component_label: 'خصم غياب/إجازة غير مدفوعة', amount: absenceAmount, is_deduction: true });
+      lines.push({ employee_id: employee.id, component_code: 'ABSENCE', component_label: 'خصم غياب/إجازة غير مدفوعة', amount: absenceAmount, is_deduction: true, bucket: 'absence_recovery' });
     }
 
     const allowanceTotal = round2(housingAllowance + transportAllowance + otherAllowance + adjustmentAllowances);
@@ -506,6 +536,26 @@ export interface ProcessPayrollResult {
   replayed: boolean;
 }
 
+/** ترجمة أخطاء rpc_post_payroll_run/rpc_post_settlement (Migrations 100/101) لرسائل واضحة. */
+const RPC_ERROR_MESSAGES: Record<string, string> = {
+  NOT_AUTHORIZED_PAYROLL_POST: 'اعتماد مسير الرواتب يتطلب صلاحية مدير المؤسسة (admin/owner).',
+  NOT_AUTHORIZED_SETTLEMENT_POST: 'اعتماد التسوية يتطلب صلاحية مدير المؤسسة (admin/owner).',
+  TOTALS_MISMATCH: 'إجماليات المسير لا تطابق مجموع السطور — أعد حساب المعاينة قبل الاعتماد.',
+  BUCKETS_MISMATCH: 'توزيع القيد المحاسبي لا يطابق تفاصيل السطور — أعد حساب المعاينة قبل الاعتماد.',
+  EMPLOYEE_ORG_MISMATCH: 'أحد الموظفين في المسير لا يتبع هذه المؤسسة.',
+  INVALID_LINE: 'سطر مسير غير صالح (مبلغ غير موجب أو حقول ناقصة).',
+  PAYLOAD_VERSION_UNSUPPORTED: 'إصدار الواجهة أقدم من الخادم — حدّث الصفحة ثم أعد المحاولة.',
+  IDEMPOTENCY_KEY_REUSED: 'مفتاح الاعتماد مستخدم سابقاً بحمولة مختلفة — أنشئ اعتماداً جديداً.',
+  PAYROLL_MONTH_LOCKED: 'هذا الشهر مقفل رواتبياً.',
+};
+
+export const translateRpcError = (message: string): string => {
+  for (const [code, friendly] of Object.entries(RPC_ERROR_MESSAGES)) {
+    if (message.includes(code)) return friendly;
+  }
+  return message;
+};
+
 export async function processPayrollRun(
   year: number,
   month: number,
@@ -518,15 +568,31 @@ export async function processPayrollRun(
   const lines: PayrollLine[] = preview.employees.flatMap((emp) => emp.lines);
   const key = idempotencyKey ?? (globalThis.crypto?.randomUUID?.() ?? `pr-${year}-${month}-${Date.now()}`);
 
+  // عقد الحمولة (payload_version 2 — Migration 101): الإجماليات تُشتق من السطور
+  // نفسها فتتطابق بالبناء، ثم تُقارن بإجماليات المعاينة لكشف أي انحراف في المحرك
+  // مبكراً client-side قبل أن يرفضه الخادم بـ TOTALS_MISMATCH.
+  const totalGross = round2(lines.filter((l) => !l.is_deduction).reduce((s, l) => s + l.amount, 0));
+  const totalDeductions = round2(lines.filter((l) => l.is_deduction).reduce((s, l) => s + l.amount, 0));
+  const totalNet = round2(totalGross - totalDeductions);
+  const previewDeductions = round2(
+    preview.totals.gosiEmployee + preview.totals.deductions + preview.totals.absence);
+  if (Math.abs(totalGross - preview.totals.gross) > 0.011
+    || Math.abs(totalDeductions - previewDeductions) > 0.011
+    || Math.abs(totalNet - preview.totals.net) > 0.011) {
+    throw new Error(
+      `خلل عقد المسير: سطور (${totalGross}/${totalDeductions}/${totalNet}) ≠ معاينة `
+      + `(${preview.totals.gross}/${previewDeductions}/${preview.totals.net}) — بلّغ عن المشكلة`);
+  }
+
   const { data, error } = await supabase.rpc('rpc_post_payroll_run', {
     p_payload: {
+      payload_version: 2,
       idempotency_key: key,
       year,
       month,
-      total_gross: preview.totals.gross,
-      total_deductions: round2(
-        preview.totals.gosiEmployee + preview.totals.deductions + preview.totals.absence),
-      total_net: preview.totals.net,
+      total_gross: totalGross,
+      total_deductions: totalDeductions,
+      total_net: totalNet,
       totals: preview.buckets,
       lines,
     },
@@ -537,7 +603,7 @@ export async function processPayrollRun(
       // fail-closed: لا مسار ترحيل client-side بديل (كان يتجاوز القناة القانونية)
       throw new Error('دالة اعتماد الرواتب غير منشورة — طبّق Migration 100 أولاً.');
     }
-    throw new Error(error.message);
+    throw new Error(translateRpcError(error.message));
   }
 
   const result = data as Record<string, unknown>;
