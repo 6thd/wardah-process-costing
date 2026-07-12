@@ -49,6 +49,7 @@ import { getEmployees } from '@/services/hr/hr-service';
 import {
   listSettlements,
   createSettlement,
+  submitSettlementForReview,
   postSettlement,
   cancelSettlement,
   type SettlementRow,
@@ -116,6 +117,7 @@ export const SettlementsPage: React.FC = () => {
   const stats = React.useMemo(
     () => ({
       draft: settlements.filter((s) => s.status === 'draft').length,
+      review: settlements.filter((s) => s.status === 'review').length,
       approved: settlements.filter((s) => s.status === 'approved').length,
       paid: settlements.filter((s) => s.status === 'paid').length,
       total: settlements.length,
@@ -147,6 +149,18 @@ export const SettlementsPage: React.FC = () => {
     },
   });
 
+  const submitReviewMutation = useMutation({
+    mutationFn: (settlementId: string) => submitSettlementForReview(settlementId),
+    onSuccess: () => {
+      toast.success('أُرسلت التسوية للمراجعة — الأرقام مجمّدة ببصمة حتى الاعتماد');
+      queryClient.invalidateQueries({ queryKey: ['hr', 'settlements'] });
+      setShowDetailsDialog(false);
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+
   const postMutation = useMutation({
     mutationFn: (settlementId: string) => postSettlement(settlementId),
     onSuccess: () => {
@@ -171,7 +185,8 @@ export const SettlementsPage: React.FC = () => {
     },
   });
 
-  const isPending = createMutation.isPending || postMutation.isPending || cancelMutation.isPending;
+  const isPending = createMutation.isPending || submitReviewMutation.isPending
+    || postMutation.isPending || cancelMutation.isPending;
 
   function openDetails(s: SettlementRow) {
     setSelectedSettlement(s);
@@ -279,6 +294,7 @@ export const SettlementsPage: React.FC = () => {
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="draft">مسودة ({stats.draft})</TabsTrigger>
+              <TabsTrigger value="review">قيد المراجعة ({stats.review})</TabsTrigger>
               <TabsTrigger value="approved">معتمدة</TabsTrigger>
               <TabsTrigger value="paid">مدفوعة</TabsTrigger>
               <TabsTrigger value="all">الكل</TabsTrigger>
@@ -308,7 +324,7 @@ export const SettlementsPage: React.FC = () => {
                   <TableBody>
                     {filteredSettlements.map((s) => {
                       const emp = Array.isArray(s.employee) ? s.employee[0] : s.employee;
-                      const tt = getTermType(s.settlement_type);
+                      const tt = getTermType(s.termination_type ?? s.settlement_type);
                       const years = s.service_days
                         ? (s.service_days / 365.25).toFixed(1)
                         : '—';
@@ -480,7 +496,7 @@ export const SettlementsPage: React.FC = () => {
                   <div className="flex justify-between">
                     <span>سبب الإنهاء:</span>
                     <span className="font-medium">
-                      {getTermType(selectedSettlement.settlement_type).name}
+                      {getTermType(selectedSettlement.termination_type ?? selectedSettlement.settlement_type).name}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -544,6 +560,12 @@ export const SettlementsPage: React.FC = () => {
               </div>
 
               {selectedSettlement.status === 'draft' && (
+                <div className="rounded-lg bg-sky-500/10 border border-sky-500/30 p-3 text-sm text-sky-300">
+                  الخطوة التالية: إرسال التسوية للمراجعة — تُجمَّد أرقامها ببصمة، وأي
+                  تعديل بعدها يتطلب إعادة المراجعة.
+                </div>
+              )}
+              {selectedSettlement.status === 'review' && (
                 <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 text-sm text-amber-300">
                   الاعتماد يُنشئ قيداً محاسبياً ذرّياً ويقلب حالة الموظف إلى &laquo;منتهية&raquo;.
                   لا يمكن التراجع عنه.
@@ -560,26 +582,37 @@ export const SettlementsPage: React.FC = () => {
             >
               إغلاق
             </Button>
+            {(selectedSettlement?.status === 'draft' || selectedSettlement?.status === 'review') && (
+              <Button
+                variant="outline"
+                className="text-rose-600"
+                onClick={() => cancelMutation.mutate(selectedSettlement.id)}
+                disabled={isPending}
+              >
+                إلغاء التسوية
+              </Button>
+            )}
             {selectedSettlement?.status === 'draft' && (
-              <>
-                <Button
-                  variant="outline"
-                  className="text-rose-600"
-                  onClick={() => cancelMutation.mutate(selectedSettlement.id)}
-                  disabled={isPending}
-                >
-                  إلغاء التسوية
-                </Button>
-                <Button
-                  className="bg-teal-600 hover:bg-teal-700"
-                  onClick={() => postMutation.mutate(selectedSettlement.id)}
-                  disabled={isPending || !isPayrollAdmin}
-                  title={!isPayrollAdmin ? 'اعتماد التسوية يتطلب صلاحية مدير المؤسسة (admin/owner)' : undefined}
-                >
-                  <CheckCircle2 className="h-4 w-4 ml-2" />
-                  {isPending ? 'جارٍ الاعتماد...' : 'اعتماد وترحيل القيد'}
-                </Button>
-              </>
+              <Button
+                className="bg-sky-600 hover:bg-sky-700"
+                onClick={() => submitReviewMutation.mutate(selectedSettlement.id)}
+                disabled={isPending || !isPayrollAdmin}
+                title={!isPayrollAdmin ? 'إرسال التسوية للمراجعة يتطلب صلاحية مدير المؤسسة (admin/owner)' : undefined}
+              >
+                <Clock className="h-4 w-4 ml-2" />
+                {isPending ? 'جارٍ الإرسال...' : 'إرسال للمراجعة'}
+              </Button>
+            )}
+            {selectedSettlement?.status === 'review' && (
+              <Button
+                className="bg-teal-600 hover:bg-teal-700"
+                onClick={() => postMutation.mutate(selectedSettlement.id)}
+                disabled={isPending || !isPayrollAdmin}
+                title={!isPayrollAdmin ? 'اعتماد التسوية يتطلب صلاحية مدير المؤسسة (admin/owner)' : undefined}
+              >
+                <CheckCircle2 className="h-4 w-4 ml-2" />
+                {isPending ? 'جارٍ الاعتماد...' : 'اعتماد وترحيل القيد'}
+              </Button>
             )}
           </DialogFooter>
         </DialogContent>

@@ -116,3 +116,35 @@ describe('calcEos — سيناريوهات كاملة', () => {
     expect(r.total).toBeCloseTo(r.eos_amount + r.leave_encashment, 0);
   });
 });
+
+// ===== حواف حدود الشرائح الدقيقة (P13 — سد فجوات مراجعة كودكس) =====
+describe('حدود الشرائح بالضبط', () => {
+  it('سنتان بالضبط ⇒ الثلث (لا صفر)', () => {
+    expect(resignationMultiplier(2)).toBeCloseTo(1 / 3);
+  });
+  it('5 سنوات بالضبط ⇒ الثلثان، و10 بالضبط ⇒ كامل', () => {
+    expect(resignationMultiplier(5)).toBeCloseTo(2 / 3);
+    expect(resignationMultiplier(10)).toBe(1);
+  });
+  it('computeBaseEos عند 5 سنوات بالضبط: الشريحة الأولى فقط (25000)', () => {
+    expect(computeBaseEos(10000, 5)).toBeCloseTo(25000);
+  });
+  it('الحزمة الكاملة تجمع كل البدلات', () => {
+    const r = calcEos({
+      basic: 8000, housing: 2000, transport: 500, other_allowances: 300,
+      service_start: '2020-01-01', service_end: '2026-01-01',
+      termination_type: 'end_of_contract',
+    });
+    expect(r.full_package).toBe(10800);
+  });
+  it('تقاعد/وفاة/اتفاق مشترك ⇒ مضاعِف كامل', () => {
+    for (const t of ['retirement', 'death', 'mutual_agreement'] as const) {
+      const r = calcEos({
+        basic: 10000, housing: 0, transport: 0, other_allowances: 0,
+        service_start: '2020-01-01', service_end: '2026-01-01',
+        termination_type: t,
+      });
+      expect(r.eos_multiplier).toBe(1);
+    }
+  });
+});

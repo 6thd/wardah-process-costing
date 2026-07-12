@@ -52,6 +52,7 @@ export const EmployeeProfilePage: React.FC = () => {
     component_id: '',
     amount: '',
     calculation_type: 'fixed' as 'fixed' | 'percentage',
+    percentage_base: 'basic' as 'basic' | 'basic_housing',
   });
 
   const { data: employees = [] } = useQuery({
@@ -84,12 +85,13 @@ export const EmployeeProfilePage: React.FC = () => {
         component_id: addForm.component_id,
         amount: Number(addForm.amount),
         calculation_type: addForm.calculation_type,
+        percentage_base: addForm.calculation_type === 'percentage' ? addForm.percentage_base : undefined,
       }),
     onSuccess: () => {
       toast.success('تم إسناد مكوّن الراتب');
       queryClient.invalidateQueries({ queryKey: ['hr', 'employee-salary-components', id] });
       setShowAddDialog(false);
-      setAddForm({ component_id: '', amount: '', calculation_type: 'fixed' });
+      setAddForm({ component_id: '', amount: '', calculation_type: 'fixed', percentage_base: 'basic' });
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -403,6 +405,33 @@ export const EmployeeProfilePage: React.FC = () => {
                 />
               </div>
             </div>
+
+            {addForm.calculation_type === 'percentage' && (
+              <div className="space-y-2">
+                <Label>أساس النسبة</Label>
+                <Select
+                  value={addForm.percentage_base}
+                  onValueChange={(v) =>
+                    setAddForm((f) => ({
+                      ...f,
+                      percentage_base: v as 'basic' | 'basic_housing',
+                    }))
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="basic">الراتب الأساسي</SelectItem>
+                    <SelectItem value="basic_housing">الأساسي + بدل السكن</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  الأساس يُحفظ على تعريف المكوّن نفسه ويسري على كل من أُسند له.
+                  بدل السكن يُحسب من الأساسي حصراً (منع الاعتماد الدائري).
+                </p>
+              </div>
+            )}
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowAddDialog(false)}>

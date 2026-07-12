@@ -55,7 +55,10 @@ export interface SettlementRow {
   id: string;
   org_id: string;
   employee_id: string;
+  /** نوع التسوية (end_of_service) — كان يحمل نوع الإنهاء خطأً قبل Migration 102 (علّة E7) */
   settlement_type: string;
+  /** نوع الإنهاء (resignation/termination_without_cause/...) — عمود مستقل منذ 102 */
+  termination_type?: string | null;
   status: 'draft' | 'review' | 'approved' | 'paid' | 'rejected';
   service_start: string | null;
   service_end: string | null;
@@ -202,7 +205,7 @@ export async function listSettlements(limit = 100): Promise<SettlementRow[]> {
   const { data, error } = await supabase
     .from('hr_settlements')
     .select(
-      `id, org_id, employee_id, settlement_type, status,
+      `id, org_id, employee_id, settlement_type, termination_type, status,
        service_start, service_end, service_days,
        calculated_amount, payable_amount, notes, created_at,
        employee:employees(id, full_name, hire_date)`,
@@ -286,7 +289,10 @@ export async function createSettlement(
     .insert({
       org_id: orgId,
       employee_id: input.employee_id,
-      settlement_type: input.termination_type,
+      // E7: كان نوع الإنهاء يُكتب في settlement_type فلا يطابق شرط قلب الموظف
+      // terminated في rpc_post_settlement (= 'end_of_service') — الإنهاء لم يكن يحدث
+      settlement_type: 'end_of_service',
+      termination_type: input.termination_type,
       status: 'draft',
       service_start: emp.hire_date,
       service_end: input.service_end,
@@ -323,8 +329,25 @@ export async function createSettlement(
 }
 
 /**
- * ترحيل التسوية ذرّياً عبر rpc_post_settlement (Migration 100).
- * يقلب حالة الموظف إلى terminated ويُنشئ قيد GL.
+ * إرسال التسوية للمراجعة (Migration 102): draft → review مع تجميد snapshot/hash
+ * خادمياً — أي تعديل بعدها يُبطل المراجعة عند الاعتماد.
+ */
+export async function submitSettlementForReview(settlementId: string): Promise<void> {
+  const { error } = await supabase.rpc('rpc_submit_settlement_review', {
+    p_payload: { settlement_id: settlementId },
+  });
+  if (error) {
+    if (error.code === 'PGRST202') {
+      throw new Error('دالة rpc_submit_settlement_review غير موجودة — طبّق Migration 102 أولاً');
+    }
+    throw new Error(translateRpcError(error.message));
+  }
+}
+
+/**
+ * ترحيل التسوية ذرّياً عبر rpc_post_settlement (Migrations 100/101/102).
+ * يتطلب حالة review (snapshot مطابق)، ثم يُنشئ قيد GL ويقلب الموظف terminated
+ * لتسويات نهاية الخدمة بعد اجتياز الحراس.
  */
 export async function postSettlement(settlementId: string): Promise<void> {
   const idempotencyKey = `settlement:${settlementId}`;

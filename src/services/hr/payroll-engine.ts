@@ -143,19 +143,28 @@ export const getWorkingDays = (year: number, month: number, weekendSet: Set<stri
 
 /**
  * تقييم مبلغ مكوّن راتب حسب calculation_type:
- * fixed ⇒ القيمة كما هي؛ percentage ⇒ نسبة من الأساس (basic افتراضاً)؛
+ * fixed ⇒ القيمة كما هي؛ percentage ⇒ نسبة من الأساس المضبوط في
+ * salary_components.percentage_base (basic | basic_housing — قائمة مغلقة بقيد
+ * CHECK منذ Migration 102، وقيمة مجهولة تُرفض لا fallback صامت)؛
  * formula ⇒ رفض واضح (كانت تُعامل كمبلغ ثابت صامت — علّة).
+ * كان المعامل percentageBase يُستقبل ويُتجاهل (P2-13) فتبدو النسب قابلة للضبط
+ * بينما تُحسب من الأساسي دائماً.
  */
 export function evaluateComponentAmount(
   calculationType: string | null | undefined,
   structureValue: number,
   basicBase: number,
-  _percentageBase?: string | null,
+  percentageBase?: string | null,
+  housingBase = 0,
 ): number {
   const type = (calculationType || 'fixed').toLowerCase();
   if (type === 'fixed') return structureValue;
   if (type === 'percentage') {
-    return (structureValue / 100) * basicBase;
+    const base = (percentageBase || 'basic').toLowerCase();
+    if (base === 'basic') return (structureValue / 100) * basicBase;
+    if (base === 'basic_housing') return (structureValue / 100) * (basicBase + housingBase);
+    throw new Error(
+      `أساس نسبة غير معروف: ${percentageBase} — المسموح basic أو basic_housing`);
   }
   throw new Error(`مكوّن راتب بنوع حساب غير مدعوم: ${calculationType} — عدّله إلى fixed أو percentage`);
 }
@@ -264,7 +273,9 @@ const classifyAllowanceBucket = (
   code: string,
 ): Extract<PayrollLineBucket, 'housing_allowance' | 'transport_allowance' | 'other_allowance'> => {
   const normalized = code.toUpperCase();
-  if (normalized.includes('HRA') || normalized.includes('HOUSE') || normalized.includes('HSG'))
+  // HOUS يلتقط HOUSE وHOUSING معاً — كان النمط HOUSE فيسقط الكود الشائع HOUSING
+  // إلى «أخرى» ويُخرج السكن من وعاء GOSI (علّة E8)
+  if (normalized.includes('HRA') || normalized.includes('HOUS') || normalized.includes('HSG'))
     return 'housing_allowance';
   if (normalized.includes('TRANS')) return 'transport_allowance';
   return 'other_allowance';
@@ -365,31 +376,56 @@ export async function calculatePayrollPreview(
     }
     if (baseSalary === 0) baseSalary = Number(employee.salary ?? 0);
 
-    // 2) البدلات والاستقطاعات (النسب من الأساسي)
+    // 2) البدلات والاستقطاعات — بمرورين لدعم percentage_base='basic_housing':
+    //    المرور الأول يقيّم مكوّنات السكن من الأساسي حصراً (basic_housing على
+    //    السكن نفسه = اعتماد دائري ⇒ رفض واضح)، والثاني يقيّم البقية وقد
+    //    اكتمل وعاء السكن.
     let housingAllowance = 0;
     let transportAllowance = 0;
     let otherAllowance = 0;
     let componentDeductions = 0;
     let loanDeductions = 0;
 
+    const isEarning = (compType?: string) => compType === 'earning' || compType === 'benefit';
+
     for (const c of comps) {
       const code = c.component?.code?.toUpperCase() ?? '';
       const label = c.component?.name_ar || c.component?.name || code;
       const compType = c.component?.component_type?.toLowerCase();
-      if ((compType === 'earning' || compType === 'benefit') && !code.includes('BASIC')) {
-        const amount = round2(evaluateComponentAmount(
-          c.component?.calculation_type, Number(c.value || 0), baseSalary, c.component?.percentage_base));
-        if (!amount) continue;
+      if (!isEarning(compType) || code.includes('BASIC')) continue;
+      if (classifyAllowanceBucket(code) !== 'housing_allowance') continue;
+      if ((c.component?.calculation_type || '').toLowerCase() === 'percentage'
+        && (c.component?.percentage_base || 'basic').toLowerCase() === 'basic_housing') {
+        throw new Error(
+          `مكوّن السكن ${code} بأساس basic_housing — اعتماد دائري: السكن يُحسب من الأساسي فقط`);
+      }
+      const amount = round2(evaluateComponentAmount(
+        c.component?.calculation_type, Number(c.value || 0), baseSalary, 'basic'));
+      if (!amount) continue;
+      housingAllowance += amount;
+      lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: false, bucket: 'housing_allowance' });
+    }
+
+    for (const c of comps) {
+      const code = c.component?.code?.toUpperCase() ?? '';
+      const label = c.component?.name_ar || c.component?.name || code;
+      const compType = c.component?.component_type?.toLowerCase();
+      if (isEarning(compType) && !code.includes('BASIC')) {
         const bucket = classifyAllowanceBucket(code);
-        if (bucket === 'housing_allowance') housingAllowance += amount;
-        else if (bucket === 'transport_allowance') transportAllowance += amount;
+        if (bucket === 'housing_allowance') continue; // قُيّم في المرور الأول
+        const amount = round2(evaluateComponentAmount(
+          c.component?.calculation_type, Number(c.value || 0), baseSalary,
+          c.component?.percentage_base, housingAllowance));
+        if (!amount) continue;
+        if (bucket === 'transport_allowance') transportAllowance += amount;
         else otherAllowance += amount;
         lines.push({ employee_id: employee.id, component_code: code, component_label: label, amount, is_deduction: false, bucket });
       } else if (compType === 'deduction') {
         // GOSI يُحسب من السياسات لا من المكوّنات (منع الازدواج)
         if (isGosiComponent(code)) continue;
         const amount = round2(evaluateComponentAmount(
-          c.component?.calculation_type, Number(c.value || 0), baseSalary, c.component?.percentage_base));
+          c.component?.calculation_type, Number(c.value || 0), baseSalary,
+          c.component?.percentage_base, housingAllowance));
         if (!amount) continue;
         const isLoan = isLoanComponent(code);
         if (isLoan) loanDeductions += amount;
@@ -549,6 +585,13 @@ const RPC_ERROR_MESSAGES: Record<string, string> = {
   PAYLOAD_VERSION_UNSUPPORTED: 'إصدار الواجهة أقدم من الخادم — حدّث الصفحة ثم أعد المحاولة.',
   IDEMPOTENCY_KEY_REUSED: 'مفتاح الاعتماد مستخدم سابقاً بحمولة مختلفة — أنشئ اعتماداً جديداً.',
   PAYROLL_MONTH_LOCKED: 'هذا الشهر مقفل رواتبياً.',
+  SETTLEMENT_NOT_DRAFT: 'المراجعة تبدأ من مسودة — هذه التسوية تجاوزت مرحلة المسودة.',
+  SETTLEMENT_NOT_REVIEWED: 'أرسل التسوية للمراجعة أولاً — الاعتماد المباشر من المسودة لم يعد ممكناً.',
+  SETTLEMENT_CHANGED_AFTER_REVIEW: 'عُدّلت التسوية بعد مراجعتها — أعد إرسالها للمراجعة قبل الاعتماد.',
+  EMPLOYEE_NOT_ACTIVE: 'الموظف ليس نشطاً — لا يمكن إنهاء خدمته مرة أخرى.',
+  EOS_ALREADY_SETTLED: 'للموظف تسوية نهاية خدمة معتمدة سابقاً.',
+  SETTLEMENT_INVALID_PERIOD: 'تاريخ نهاية الخدمة قبل بدايتها — صحّح الفترة.',
+  SETTLEMENT_AFTER_LOCKED_PAYROLL: 'يوجد مسير رواتب مقفل لشهر يلي نهاية الخدمة — راجع الفترات أولاً.',
 };
 
 export const translateRpcError = (message: string): string => {

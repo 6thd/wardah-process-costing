@@ -70,6 +70,7 @@ export const STATUS_BADGES: Record<string, string> = {
     approved: 'bg-emerald-500/20 text-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-400',
     rejected: 'bg-rose-500/20 text-rose-400 dark:bg-rose-500/20 dark:text-rose-400',
     draft: 'bg-slate-500/20 text-slate-400 dark:bg-slate-500/20 dark:text-slate-400',
+    review: 'bg-sky-500/20 text-sky-400 dark:bg-sky-500/20 dark:text-sky-400',
     calculated: 'bg-blue-500/20 text-blue-400 dark:bg-blue-500/20 dark:text-blue-400',
     paid: 'bg-emerald-500/20 text-emerald-400 dark:bg-emerald-500/20 dark:text-emerald-400',
 };

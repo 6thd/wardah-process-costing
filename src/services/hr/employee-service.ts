@@ -120,6 +120,8 @@ export interface UpsertSalaryStructureInput {
   component_id: string;
   amount: number;          // القيمة الثابتة أو النسبة
   calculation_type?: 'fixed' | 'percentage';
+  /** أساس النسبة — يُحفظ على تعريف المكوّن (salary_components) ويسري org-wide */
+  percentage_base?: 'basic' | 'basic_housing';
 }
 
 /** إسناد / تعديل مكوّن راتب لموظف (تعطيل القديم + إدراج جديد). */
@@ -130,6 +132,22 @@ export async function upsertEmployeeSalaryComponent(
   const orgId = await getEffectiveTenantId();
   if (!orgId) throw new Error('Organization not found.');
   if (input.amount <= 0) throw new Error('القيمة يجب أن تكون موجبة');
+
+  // المحرك يقرأ calculation_type/percentage_base من تعريف المكوّن — كانت قيمة
+  // الحوار تُهمل بصمت (P2-13) فيبدو نوع الحساب قابلاً للضبط بينما لا يتغير شيء
+  if (input.calculation_type) {
+    const { error: compUpdateErr } = await supabase
+      .from('salary_components')
+      .update({
+        calculation_type: input.calculation_type,
+        percentage_base: input.calculation_type === 'percentage'
+          ? (input.percentage_base ?? 'basic')
+          : null,
+      })
+      .eq('org_id', orgId)
+      .eq('id', input.component_id);
+    if (compUpdateErr) throw new Error(compUpdateErr.message);
+  }
 
   // تعطيل أي سجل نشط حالي لنفس المكوّن
   await supabase
