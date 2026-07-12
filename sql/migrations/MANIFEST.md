@@ -33,6 +33,7 @@
 | **97** | **توحيد المخزون: products مجمّع مرجعي مشتق من bins (الخيار B) — مزامنة products.stock_quantity/cost_price داخل wardah_apply_stock_incoming + تسوية idempotent للـ bins السابقة** | ✅ مطبَّقة + مُختبرة حيّاً (تسوية: products=001(18,200 تام)+RM-042(3,250 خام)=**21,450**؛ استلام 100@8 فوق 500@6.5 ⇒ bins=products=600@6.75، اشتقاق idempotent بلا مضاعفة) |
 | **98** | **جدول org_settings (key/value JSONB لكل مؤسسة) + RLS قياسي + trigger updated_at — خلفية شاشة إعدادات النظام والنسخ الاحتياطي (P11-6)** | ✅ مطبَّقة + مُختبرة حيّاً (upsert مرتين على نفس المفتاح ⇒ صف واحد بالقيمة الأحدث، rollback) |
 | **99** | **تأسيس HR الشرعي (P12-A): سياسات RLS عاملة (wardah_org_id) للجداول الثمانية المقفلة فعلياً (سياستها القديمة تعتمد app.current_org_id الذي لا يضبطه عميل Supabase) + تحصين upsert_attendance_day (عضوية + موظف نفس المؤسسة + رفض شهر مقفل) + تفرّد/idempotency على payroll_runs + توسيع أنواع حسابات الرواتب (GOSI/نهاية خدمة/إضافي) + سياسات GOSI والمعدل اليومي والإضافي واستحقاق الإجازات في hr_policies + employees.is_saudi/contract_end_date. ملاحظة: جداول HR التاريخية (15_hr_module + sql/hr/16 + sql/hr/17) تأكد وجودها حيّاً واستُوعبت قانونياً هنا** | ✅ مطبَّقة + مُختبرة حيّاً (بلا JWT⇒NOT_ORG_MEMBER، عضو⇒upsert يوم يدمج JSONB، شهر مقفل⇒PAYROLL_MONTH_LOCKED، 8 سياسات جديدة، rollback) |
+| **100** | **مسير رواتب وتسوية نهاية خدمة ذرّيان (P12-B): rpc_post_payroll_run (عضوية + قفل استشاري + idempotency ببصمة + سطور payroll_details + قيد متزن عبر rpc_create_journal_entry بحسابات hr_payroll_account_mappings + قفل الشهر) وrpc_post_settlement (FOR UPDATE + idempotency + قيد eos_expense/eos_payable + قلب الموظف terminated). كان الترحيل client-side مباشراً متجاوزاً القناة القانونية وبلا سطور قسائم** | ✅ مطبَّقة + مُختبرة حيّاً (مسير: bal=0.00 و4 سطور GL وdetails=2 وreplay=نفس run وIDEMPOTENCY_KEY_REUSED وPAYROLL_MONTH_LOCKED وUNBALANCED_PAYROLL؛ تسوية: قيد سطرين وemployee=terminated وreplay وSETTLEMENT_NOT_POSTABLE — كله rollback) |
 
 > **COGS_DELIVERY** زُرعت يدوياً بالحسابين الفعليين: مدين **544000** (COGS أكياس
 > مطبوعة) / دائن **135100** (FG أكياس مطبوعة) — الافتراضي `511100` في ملف 85 غير
@@ -57,7 +58,7 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **100**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **101**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة
