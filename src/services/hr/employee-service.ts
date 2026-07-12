@@ -90,6 +90,114 @@ export interface EmployeeSalaryComponent {
   value: number;
 }
 
+export interface SalaryComponentOption {
+  id: string;
+  code: string;
+  name: string;
+  name_ar: string;
+  component_type: string;
+  calculation_type: string;
+}
+
+/** قائمة مكوّنات الراتب المتاحة للمنظمة (للاختيار منها عند الإسناد). */
+export async function listSalaryComponents(): Promise<SalaryComponentOption[]> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found.');
+
+  const { data, error } = await supabase
+    .from('salary_components')
+    .select('id, code, name, name_ar, component_type, calculation_type')
+    .eq('org_id', orgId)
+    .eq('is_active', true)
+    .order('component_type', { ascending: true })
+    .order('name', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as SalaryComponentOption[];
+}
+
+export interface UpsertSalaryStructureInput {
+  component_id: string;
+  amount: number;          // القيمة الثابتة أو النسبة
+  calculation_type?: 'fixed' | 'percentage';
+}
+
+/** إسناد / تعديل مكوّن راتب لموظف (تعطيل القديم + إدراج جديد). */
+export async function upsertEmployeeSalaryComponent(
+  employeeId: string,
+  input: UpsertSalaryStructureInput,
+): Promise<void> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found.');
+  if (input.amount <= 0) throw new Error('القيمة يجب أن تكون موجبة');
+
+  // تعطيل أي سجل نشط حالي لنفس المكوّن
+  await supabase
+    .from('employee_salary_structures')
+    .update({ is_active: false })
+    .eq('org_id', orgId)
+    .eq('employee_id', employeeId)
+    .eq('component_id', input.component_id)
+    .eq('is_active', true);
+
+  const today = new Date().toISOString().split('T')[0];
+  const { error } = await supabase.from('employee_salary_structures').insert({
+    org_id: orgId,
+    employee_id: employeeId,
+    component_id: input.component_id,
+    value: input.amount,
+    effective_from: today,
+    is_active: true,
+  });
+
+  if (error) throw new Error(error.message);
+}
+
+/** تعطيل مكوّن راتب لموظف (soft-delete). */
+export async function deactivateEmployeeSalaryComponent(
+  structureId: string,
+): Promise<void> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found.');
+
+  const { error } = await supabase
+    .from('employee_salary_structures')
+    .update({ is_active: false })
+    .eq('id', structureId)
+    .eq('org_id', orgId);
+
+  if (error) throw new Error(error.message);
+}
+
+export interface PayrollDetailRow {
+  id: string;
+  employee_id: string;
+  component_code: string | null;
+  component_label: string | null;
+  amount: number;
+  is_deduction: boolean;
+}
+
+/** سطور تفصيل المسير لموظف من دورة مُعتمدة. */
+export async function getPayrollDetailsForEmployee(
+  runId: string,
+  employeeId: string,
+): Promise<PayrollDetailRow[]> {
+  const orgId = await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found.');
+
+  const { data, error } = await supabase
+    .from('payroll_details')
+    .select('id, employee_id, component_code, component_label, amount, is_deduction')
+    .eq('org_id', orgId)
+    .eq('payroll_run_id', runId)
+    .eq('employee_id', employeeId)
+    .order('is_deduction', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as PayrollDetailRow[];
+}
+
 /** بدلات/استقطاعات الموظف الفعّالة من employee_salary_structures × salary_components. */
 export async function getEmployeeSalaryComponents(employeeId: string): Promise<EmployeeSalaryComponent[]> {
   const orgId = await getEffectiveTenantId();
