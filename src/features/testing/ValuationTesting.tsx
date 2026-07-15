@@ -139,7 +139,7 @@ export const ValuationTesting: React.FC = () => {
         
         // Add transaction to history
         const transaction: TestTransaction = {
-          timestamp: new Date().toLocaleString('ar-SA'),
+          timestamp: new Date().toLocaleString('en-US'),
           type: transactionType,
           quantity: qty,
           rate: transactionType === 'IN' ? unitRate : result.data.costAfter,

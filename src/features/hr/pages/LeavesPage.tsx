@@ -35,105 +35,161 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { toast } from 'sonner';
-import { 
+import {
   CheckCircle2,
   XCircle,
   AlertCircle,
   Plus,
   Search,
   CalendarDays,
-  Palmtree,
-  Stethoscope,
-  Baby,
-  Briefcase,
-  FileText,
 } from 'lucide-react';
-import { getLeaveRequests, getEmployees } from '@/services/hr/hr-service';
+import { getEmployees } from '@/services/hr/hr-service';
+import {
+  listLeaveRequests,
+  getLeaveTypes,
+  approveLeaveRequest,
+  rejectLeaveRequest,
+  createLeaveRequest,
+  getLeaveBalance,
+  type LeaveRequestRow,
+} from '@/services/hr/leave-service';
 import { STATUS_BADGES } from '../types';
-
-// أنواع الإجازات
-const LEAVE_TYPES = [
-  { id: 'annual', name: 'إجازة سنوية', icon: Palmtree, color: 'text-emerald-500', days: 21 },
-  { id: 'sick', name: 'إجازة مرضية', icon: Stethoscope, color: 'text-rose-500', days: 30 },
-  { id: 'maternity', name: 'إجازة أمومة', icon: Baby, color: 'text-pink-500', days: 70 },
-  { id: 'paternity', name: 'إجازة أبوة', icon: Baby, color: 'text-blue-500', days: 3 },
-  { id: 'unpaid', name: 'إجازة بدون راتب', icon: Briefcase, color: 'text-slate-500', days: 0 },
-  { id: 'compassionate', name: 'إجازة عزاء', icon: FileText, color: 'text-purple-500', days: 5 },
-];
 
 export const LeavesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState('pending');
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedType, setSelectedType] = useState<string>('all');
   const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
   const [showApprovalDialog, setShowApprovalDialog] = useState(false);
-  const [selectedRequest, setSelectedRequest] = useState<any>(null);
+  const [approveAction, setApproveAction] = useState<'approve' | 'reject'>('approve');
+  const [selectedRequest, setSelectedRequest] = useState<LeaveRequestRow | null>(null);
   const [approvalNote, setApprovalNote] = useState('');
+  const [adminOverride, setAdminOverride] = useState(false);
 
-  // جلب طلبات الإجازات
-  const { data: leaveRequests = [], isLoading } = useQuery({
-    queryKey: ['hr', 'leave-requests'],
-    queryFn: () => getLeaveRequests(100),
+  // نموذج الطلب الجديد
+  const [newForm, setNewForm] = useState({
+    employee_id: '',
+    leave_type_id: '',
+    start_date: '',
+    end_date: '',
+    reason: '',
   });
 
-  // جلب قائمة الموظفين
+  // بيانات
+  const { data: leaveRequests = [], isLoading } = useQuery({
+    queryKey: ['hr', 'leave-requests'],
+    queryFn: () => listLeaveRequests(200),
+  });
+
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
   });
 
-  // تصفية الطلبات
+  const { data: leaveTypes = [] } = useQuery({
+    queryKey: ['hr', 'leave-types'],
+    queryFn: getLeaveTypes,
+  });
+
+  // رصيد الإجازة للطلب المحدد
+  const { data: selectedBalance } = useQuery({
+    queryKey: ['hr', 'leave-balance', selectedRequest?.employee_id],
+    queryFn: () => getLeaveBalance(selectedRequest!.employee_id),
+    enabled: !!selectedRequest?.employee_id,
+  });
+
+  // تصفية
   const filteredRequests = React.useMemo(() => {
-    return leaveRequests.filter((req: any) => {
+    return leaveRequests.filter((req) => {
       const matchesTab = activeTab === 'all' || req.status === activeTab;
-      const matchesSearch = !searchQuery || 
-        req.employeeName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        req.employeeId?.includes(searchQuery);
-      const matchesType = selectedType === 'all' || req.leaveType === selectedType;
-      return matchesTab && matchesSearch && matchesType;
+      const empName =
+        (Array.isArray(req.employee) ? req.employee[0] : req.employee)?.full_name ?? '';
+      const matchesSearch =
+        !searchQuery || empName.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesTab && matchesSearch;
     });
-  }, [leaveRequests, activeTab, searchQuery, selectedType]);
+  }, [leaveRequests, activeTab, searchQuery]);
 
-  // إحصائيات الإجازات
-  const leaveStats = React.useMemo(() => {
-    const stats = {
-      pending: leaveRequests.filter((r: any) => r.status === 'pending').length,
-      approved: leaveRequests.filter((r: any) => r.status === 'approved').length,
-      rejected: leaveRequests.filter((r: any) => r.status === 'rejected').length,
+  const leaveStats = React.useMemo(
+    () => ({
+      pending: leaveRequests.filter((r) => r.status === 'pending').length,
+      approved: leaveRequests.filter((r) => r.status === 'approved').length,
+      rejected: leaveRequests.filter((r) => r.status === 'rejected').length,
       total: leaveRequests.length,
-    };
-    return stats;
-  }, [leaveRequests]);
+    }),
+    [leaveRequests],
+  );
 
-  // الموافقة على الطلب
-  const handleApprove = async () => {
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  const approveMutation = useMutation({
+    mutationFn: ({ id, override }: { id: string; override: boolean }) =>
+      approveLeaveRequest(id, override),
+    onSuccess: () => {
+      toast.success('تمت الموافقة على الإجازة وتحديث الحضور');
+      queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
+      queryClient.invalidateQueries({ queryKey: ['hr', 'leave-balance'] });
+      closeApprovalDialog();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+
+  const rejectMutation = useMutation({
+    mutationFn: ({ id, notes }: { id: string; notes: string }) =>
+      rejectLeaveRequest(id, notes),
+    onSuccess: () => {
+      toast.success('تم رفض طلب الإجازة');
+      queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
+      closeApprovalDialog();
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => createLeaveRequest(newForm),
+    onSuccess: () => {
+      toast.success('تم تقديم طلب الإجازة');
+      queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
+      setShowNewRequestDialog(false);
+      setNewForm({ employee_id: '', leave_type_id: '', start_date: '', end_date: '', reason: '' });
+    },
+    onError: (err: Error) => {
+      toast.error(err.message);
+    },
+  });
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  function openApprovalDialog(req: LeaveRequestRow, action: 'approve' | 'reject') {
+    setSelectedRequest(req);
+    setApproveAction(action);
+    setApprovalNote('');
+    setAdminOverride(false);
+    setShowApprovalDialog(true);
+  }
+
+  function closeApprovalDialog() {
+    setShowApprovalDialog(false);
+    setSelectedRequest(null);
+    setApprovalNote('');
+    setAdminOverride(false);
+  }
+
+  function handleConfirm() {
     if (!selectedRequest) return;
-    // TODO: Call API to approve
-    toast.success(`تمت الموافقة على طلب الإجازة رقم ${selectedRequest.id}`);
-    setShowApprovalDialog(false);
-    setSelectedRequest(null);
-    setApprovalNote('');
-    queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
-  };
-
-  // رفض الطلب
-  const handleReject = async () => {
-    if (!selectedRequest || !approvalNote) {
-      toast.error('يرجى إدخال سبب الرفض');
-      return;
+    if (approveAction === 'approve') {
+      approveMutation.mutate({ id: selectedRequest.id, override: adminOverride });
+    } else {
+      rejectMutation.mutate({ id: selectedRequest.id, notes: approvalNote });
     }
-    // TODO: Call API to reject
-    toast.error(`تم رفض طلب الإجازة رقم ${selectedRequest.id}`);
-    setShowApprovalDialog(false);
-    setSelectedRequest(null);
-    setApprovalNote('');
-    queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
-  };
+  }
 
-  const getLeaveTypeInfo = (typeId: string) => {
-    return LEAVE_TYPES.find(t => t.id === typeId) || LEAVE_TYPES[0];
-  };
+  const isPending =
+    approveMutation.isPending || rejectMutation.isPending || createMutation.isPending;
 
   return (
     <div className="space-y-6">
@@ -145,7 +201,7 @@ export const LeavesPage: React.FC = () => {
         </p>
       </div>
 
-      {/* بطاقات الإحصائيات */}
+      {/* إحصائيات */}
       <div className="grid gap-4 md:grid-cols-4">
         <Card className="border-amber-500/30 bg-amber-500/10">
           <CardContent className="p-4">
@@ -193,32 +249,6 @@ export const LeavesPage: React.FC = () => {
         </Card>
       </div>
 
-      {/* أنواع الإجازات */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">أنواع الإجازات والرصيد المتاح</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-            {LEAVE_TYPES.map((type) => {
-              const Icon = type.icon;
-              return (
-                <div
-                  key={type.id}
-                  className="flex items-center gap-3 rounded-lg border p-3 hover:bg-muted/50 transition-colors"
-                >
-                  <Icon className={`h-5 w-5 ${type.color}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{type.name}</p>
-                    <p className="text-xs text-muted-foreground">{type.days} يوم</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
       {/* قائمة الطلبات */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -232,31 +262,16 @@ export const LeavesPage: React.FC = () => {
           </Button>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* أدوات التصفية */}
-          <div className="flex flex-wrap gap-3">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="بحث بالاسم أو الرقم الوظيفي..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pr-10"
-              />
-            </div>
-            <Select value={selectedType} onValueChange={setSelectedType}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="نوع الإجازة" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">جميع الأنواع</SelectItem>
-                {LEAVE_TYPES.map((type) => (
-                  <SelectItem key={type.id} value={type.id}>{type.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="relative max-w-sm">
+            <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="بحث بالاسم..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pr-10"
+            />
           </div>
 
-          {/* التبويبات */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="pending" className="gap-2">
@@ -295,37 +310,35 @@ export const LeavesPage: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredRequests.map((request: any) => {
-                      const leaveType = getLeaveTypeInfo(request.leaveType);
-                      const Icon = leaveType.icon;
-                      const startDate = new Date(request.startDate);
-                      const endDate = new Date(request.endDate);
-                      const days = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-
+                    {filteredRequests.map((request) => {
+                      const emp = Array.isArray(request.employee)
+                        ? request.employee[0]
+                        : request.employee;
+                      const lt = Array.isArray(request.leave_type)
+                        ? request.leave_type[0]
+                        : request.leave_type;
                       return (
                         <TableRow key={request.id}>
                           <TableCell>
-                            <div>
-                              <p className="font-medium">{request.employeeName || '—'}</p>
-                              <p className="text-xs text-muted-foreground">{request.employeeId}</p>
-                            </div>
+                            <p className="font-medium">{emp?.full_name ?? '—'}</p>
+                          </TableCell>
+                          <TableCell>{lt?.name_ar ?? lt?.name ?? '—'}</TableCell>
+                          <TableCell dir="ltr">{request.start_date}</TableCell>
+                          <TableCell dir="ltr">{request.end_date}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{request.total_days} يوم</Badge>
                           </TableCell>
                           <TableCell>
-                            <div className="flex items-center gap-2">
-                              <Icon className={`h-4 w-4 ${leaveType.color}`} />
-                              <span>{leaveType.name}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{startDate.toLocaleDateString('ar-SA')}</TableCell>
-                          <TableCell>{endDate.toLocaleDateString('ar-SA')}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{days} يوم</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className={STATUS_BADGES[request.status] || 'bg-slate-100 text-slate-700'}>
+                            <Badge
+                              className={
+                                STATUS_BADGES[request.status] ||
+                                'bg-slate-100 text-slate-700'
+                              }
+                            >
                               {request.status === 'pending' && 'معلق'}
                               {request.status === 'approved' && 'موافق عليه'}
                               {request.status === 'rejected' && 'مرفوض'}
+                              {request.status === 'cancelled' && 'ملغى'}
                             </Badge>
                           </TableCell>
                           <TableCell>
@@ -335,10 +348,7 @@ export const LeavesPage: React.FC = () => {
                                   size="sm"
                                   variant="outline"
                                   className="text-emerald-600 hover:bg-emerald-50"
-                                  onClick={() => {
-                                    setSelectedRequest(request);
-                                    setShowApprovalDialog(true);
-                                  }}
+                                  onClick={() => openApprovalDialog(request, 'approve')}
                                 >
                                   <CheckCircle2 className="h-4 w-4" />
                                 </Button>
@@ -346,10 +356,7 @@ export const LeavesPage: React.FC = () => {
                                   size="sm"
                                   variant="outline"
                                   className="text-rose-600 hover:bg-rose-50"
-                                  onClick={() => {
-                                    setSelectedRequest(request);
-                                    setShowApprovalDialog(true);
-                                  }}
+                                  onClick={() => openApprovalDialog(request, 'reject')}
                                 >
                                   <XCircle className="h-4 w-4" />
                                 </Button>
@@ -367,36 +374,102 @@ export const LeavesPage: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* نافذة الموافقة/الرفض */}
+      {/* ── نافذة الموافقة/الرفض ── */}
       <Dialog open={showApprovalDialog} onOpenChange={setShowApprovalDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>مراجعة طلب الإجازة</DialogTitle>
+            <DialogTitle>
+              {approveAction === 'approve' ? 'الموافقة على الإجازة' : 'رفض طلب الإجازة'}
+            </DialogTitle>
             <DialogDescription>
-              راجع تفاصيل الطلب واتخذ القرار المناسب
+              {approveAction === 'approve'
+                ? 'سيتم تحديث سجل الحضور آلياً عند الموافقة'
+                : 'يرجى إدخال سبب الرفض'}
             </DialogDescription>
           </DialogHeader>
+
           {selectedRequest && (
             <div className="space-y-4">
-              <div className="rounded-lg border p-4 space-y-2">
+              <div className="rounded-lg border p-4 space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">الموظف:</span>
-                  <span className="font-medium">{selectedRequest.employeeName}</span>
+                  <span className="font-medium">
+                    {(Array.isArray(selectedRequest.employee)
+                      ? selectedRequest.employee[0]
+                      : selectedRequest.employee
+                    )?.full_name ?? '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">نوع الإجازة:</span>
-                  <span>{getLeaveTypeInfo(selectedRequest.leaveType).name}</span>
+                  <span>
+                    {(Array.isArray(selectedRequest.leave_type)
+                      ? selectedRequest.leave_type[0]
+                      : selectedRequest.leave_type
+                    )?.name_ar ?? '—'}
+                  </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">الفترة:</span>
                   <span dir="ltr">
-                    {new Date(selectedRequest.startDate).toLocaleDateString('ar-SA')} - 
-                    {new Date(selectedRequest.endDate).toLocaleDateString('ar-SA')}
+                    {selectedRequest.start_date} → {selectedRequest.end_date}
                   </span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">المدة:</span>
+                  <span>{selectedRequest.total_days} يوم</span>
+                </div>
               </div>
+
+              {/* رصيد الإجازة */}
+              {selectedBalance && (
+                <div className="rounded-lg bg-muted/50 p-3 text-sm space-y-1">
+                  <p className="font-medium">رصيد الإجازة</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <p className="text-muted-foreground text-xs">المكتسب</p>
+                      <p className="font-mono font-bold">{selectedBalance.accrued.toFixed(1)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">المستهلك</p>
+                      <p className="font-mono font-bold">{selectedBalance.used.toFixed(1)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground text-xs">المتبقي</p>
+                      <p
+                        className={`font-mono font-bold ${
+                          selectedBalance.balance < selectedRequest.total_days
+                            ? 'text-rose-500'
+                            : 'text-emerald-500'
+                        }`}
+                      >
+                        {selectedBalance.balance.toFixed(1)}
+                      </p>
+                    </div>
+                  </div>
+                  {selectedBalance.balance < selectedRequest.total_days &&
+                    approveAction === 'approve' && (
+                      <div className="mt-2 space-y-2">
+                        <p className="text-rose-500 text-xs">
+                          الرصيد أقل من المطلوب ({selectedRequest.total_days} يوم)
+                        </p>
+                        <label className="flex items-center gap-2 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={adminOverride}
+                            onChange={(e) => setAdminOverride(e.target.checked)}
+                          />
+                          تجاوز بصلاحية المشرف (تجاوز الرصيد)
+                        </label>
+                      </div>
+                    )}
+                </div>
+              )}
+
               <div className="space-y-2">
-                <Label>ملاحظات (مطلوبة في حالة الرفض)</Label>
+                <Label>
+                  {approveAction === 'reject' ? 'سبب الرفض (مطلوب)' : 'ملاحظات (اختياري)'}
+                </Label>
                 <Textarea
                   value={approvalNote}
                   onChange={(e) => setApprovalNote(e.target.value)}
@@ -406,24 +479,136 @@ export const LeavesPage: React.FC = () => {
               </div>
             </div>
           )}
+
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setShowApprovalDialog(false)}>
+            <Button variant="outline" onClick={closeApprovalDialog} disabled={isPending}>
+              إلغاء
+            </Button>
+            {approveAction === 'reject' ? (
+              <Button
+                variant="destructive"
+                onClick={handleConfirm}
+                disabled={!approvalNote.trim() || isPending}
+              >
+                <XCircle className="h-4 w-4 ml-2" />
+                {isPending ? 'جارٍ الرفض...' : 'رفض'}
+              </Button>
+            ) : (
+              <Button
+                className="bg-emerald-600 hover:bg-emerald-700"
+                onClick={handleConfirm}
+                disabled={
+                  isPending ||
+                  (!!selectedBalance &&
+                    selectedBalance.balance < (selectedRequest?.total_days ?? 0) &&
+                    !adminOverride)
+                }
+              >
+                <CheckCircle2 className="h-4 w-4 ml-2" />
+                {isPending ? 'جارٍ الموافقة...' : 'موافقة'}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── نافذة الطلب الجديد ── */}
+      <Dialog open={showNewRequestDialog} onOpenChange={setShowNewRequestDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>طلب إجازة جديد</DialogTitle>
+            <DialogDescription>تقديم طلب إجازة لأحد الموظفين</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>الموظف *</Label>
+              <Select
+                value={newForm.employee_id}
+                onValueChange={(v) => setNewForm((f) => ({ ...f, employee_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر الموظف..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {employees.map((emp) => (
+                    <SelectItem key={emp.id} value={emp.id}>
+                      {emp.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>نوع الإجازة *</Label>
+              <Select
+                value={newForm.leave_type_id}
+                onValueChange={(v) => setNewForm((f) => ({ ...f, leave_type_id: v }))}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="اختر نوع الإجازة..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {leaveTypes.map((lt) => (
+                    <SelectItem key={lt.id} value={lt.id}>
+                      {lt.name_ar}
+                      {lt.max_days_per_year ? ` (حتى ${lt.max_days_per_year} يوم)` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>تاريخ البداية *</Label>
+                <Input
+                  type="date"
+                  value={newForm.start_date}
+                  onChange={(e) => setNewForm((f) => ({ ...f, start_date: e.target.value }))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>تاريخ الانتهاء *</Label>
+                <Input
+                  type="date"
+                  value={newForm.end_date}
+                  onChange={(e) => setNewForm((f) => ({ ...f, end_date: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label>السبب (اختياري)</Label>
+              <Textarea
+                value={newForm.reason}
+                onChange={(e) => setNewForm((f) => ({ ...f, reason: e.target.value }))}
+                placeholder="أدخل سبب الإجازة..."
+                rows={2}
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowNewRequestDialog(false)}
+              disabled={isPending}
+            >
               إلغاء
             </Button>
             <Button
-              variant="destructive"
-              onClick={handleReject}
-              disabled={!approvalNote}
+              onClick={() => createMutation.mutate()}
+              disabled={
+                !newForm.employee_id ||
+                !newForm.leave_type_id ||
+                !newForm.start_date ||
+                !newForm.end_date ||
+                isPending
+              }
             >
-              <XCircle className="h-4 w-4 ml-2" />
-              رفض
-            </Button>
-            <Button
-              className="bg-emerald-600 hover:bg-emerald-700"
-              onClick={handleApprove}
-            >
-              <CheckCircle2 className="h-4 w-4 ml-2" />
-              موافقة
+              {isPending ? 'جارٍ التقديم...' : 'تقديم الطلب'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -431,4 +616,3 @@ export const LeavesPage: React.FC = () => {
     </div>
   );
 };
-

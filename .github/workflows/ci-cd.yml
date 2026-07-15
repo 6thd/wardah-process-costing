@@ -18,7 +18,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          # Node 18/20 انتهى دعمهما — موحَّد مع sonarqube.yml على 24 LTS
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
@@ -30,6 +31,12 @@ jobs:
 
       - name: ESLint check
         run: npm run lint
+        continue-on-error: false
+
+      # P4-C1: الاختبارات حاجز حقيقي — أي فشل يمنع الدمج والنشر
+      # (coverage معطَّل هنا للسرعة — SonarQube يتولى قياس التغطية)
+      - name: Unit & integration tests
+        run: npm run test -- --run --coverage.enabled=false
         continue-on-error: false
 
       - name: Build project

@@ -1,8 +1,15 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { VarianceAnalysisReport } from './components/VarianceAnalysisReport'
+import { WIPReport } from './components/WIPReport'
+import { useManufacturingOrders } from '@/features/manufacturing/hooks/useManufacturingOrders'
 import { 
   BarChart3, 
   TrendingUp, 
@@ -22,6 +29,9 @@ import { ReportsDashboard } from './components/ReportsDashboard'
 import GeminiDashboard from './components/GeminiDashboard'
 import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
 import { SalesReports as SalesReportsComponent } from './components/SalesReports'
+import { InventoryValuationReport } from './components/InventoryValuationReport'
+import { FinancialStatementsReport } from './components/FinancialStatementsReport'
+import { PurchasingAnalyticsReport } from './components/PurchasingAnalyticsReport'
 
 export function ReportsModule() {
   return (
@@ -144,12 +154,7 @@ function ReportsOverview() {
   
   return (
     <div className="space-y-8">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('reports.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          تقارير وتحليلات شاملة لعمليات الشركة
-        </p>
-      </div>
+      <PageHeader title={t('reports.title')} description="تقارير وتحليلات شاملة لعمليات الشركة" hideOnPrint={false} />
 
       {/* Quick Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -190,7 +195,6 @@ function ReportsOverview() {
                   {category.description}
                 </p>
                 <div className="space-y-1">
-                  {/* eslint-disable-next-line react/no-array-index-key */}
                   {category.reports.map((report) => (
                     <div key={report} className={cn("flex items-center gap-2 text-xs text-muted-foreground", isRTL ? "flex-row-reverse" : "")}>
                       <FileText className="h-3 w-3" />
@@ -216,7 +220,6 @@ function ReportsOverview() {
             { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
             { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
           ].map((report) => {
-            // eslint-disable-next-line react/no-array-index-key
             return (
             <div key={`${report.name}-${report.date}`} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
               <div className="flex-1">
@@ -246,77 +249,98 @@ function ReportsOverview() {
   )
 }
 
-// Financial Reports Component
+// Financial Reports Component — قوائم مالية من أرصدة GL الفعلية (P11-4)
 function FinancialReports() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">التقارير المالية</h1>
-        <p className="text-muted-foreground mt-2">
-          تقارير شاملة عن الوضع المالي للشركة
-        </p>
+      <PageHeader title="التقارير المالية" description="قائمة الدخل وملخص الميزانية من أرصدة دفتر الأستاذ الفعلية" hideOnPrint={false} />
+
+      {/* روابط للتقارير المحاسبية الكاملة */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Link to="/accounting/trial-balance" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">ميزان المراجعة</h3>
+          <p className="text-sm text-muted-foreground mt-1">أرصدة كل الحسابات مع تصدير Excel/PDF</p>
+        </Link>
+        <Link to="/accounting/account-statement" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">كشف حساب</h3>
+          <p className="text-sm text-muted-foreground mt-1">حركات حساب محدد بفترة زمنية</p>
+        </Link>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - قائمة الدخل، الميزانية العمومية، التدفقات النقدية
-        </p>
-      </div>
+
+      <FinancialStatementsReport />
     </div>
   )
 }
 
-// Inventory Reports Component
+// Inventory Reports Component — تقرير تقييم المخزون الحقيقي (products المجمّع المرجعي)
 function InventoryReports() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير المخزون</h1>
-        <p className="text-muted-foreground mt-2">
-          تقييم وحركة وأداء المخزون
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - تقييم المخزون، كارت الأصناف، الأصناف بطيئة الحركة
-        </p>
-      </div>
+      <PageHeader title="تقارير المخزون" description="تقييم وحركة وأداء المخزون" hideOnPrint={false} />
+      <InventoryValuationReport />
     </div>
   )
 }
 
-// Manufacturing Reports Component
+// Manufacturing Reports Component — يجمع تقارير التصنيع الحقيقية القائمة (P11-2)
 function ManufacturingReports() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const [selectedMO, setSelectedMO] = useState('')
+  const { orders: manufacturingOrders, loading: moLoading } = useManufacturingOrders()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير التصنيع</h1>
-        <p className="text-muted-foreground mt-2">
-          أداء وتكاليف وكفاءة عمليات الإنتاج
-        </p>
+      <PageHeader title="تقارير التصنيع" description="أداء وتكاليف وكفاءة عمليات الإنتاج" hideOnPrint={false} />
+
+      {/* روابط سريعة للتقارير الكاملة القائمة */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Link to="/manufacturing/cost-of-production" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">تقرير تكلفة الإنتاج</h3>
+          <p className="text-sm text-muted-foreground mt-1">الوحدات المكافئة وتكلفة المراحل (قابل للطباعة)</p>
+        </Link>
+        <Link to="/reports/process-costing-dashboard" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">لوحة تكاليف المراحل</h3>
+          <p className="text-sm text-muted-foreground mt-1">EUP، الخردة، تقييم WIP، توزيع التكاليف</p>
+        </Link>
+        <Link to="/manufacturing/variance-alerts" className="bg-card rounded-lg border p-4 hover:bg-accent transition-colors">
+          <h3 className="font-semibold">تنبيهات الانحرافات</h3>
+          <p className="text-sm text-muted-foreground mt-1">انحرافات التكلفة الفعلية عن القياسية</p>
+        </Link>
       </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - تكاليف الإنتاج، كفاءة العمليات، تحليل المراحل
-        </p>
-      </div>
+
+      {/* تحليل الانحرافات لأمر تصنيع محدد + تقرير WIP */}
+      <Card className="wardah-glass-card">
+        <CardHeader>
+          <CardTitle className="text-right">تحليل انحرافات أمر تصنيع</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="w-full md:w-64">
+            <label htmlFor="mfg-report-mo" className="block text-sm font-medium mb-1 text-right">اختر أمر التصنيع</label>
+            <Select value={selectedMO} onValueChange={setSelectedMO} disabled={moLoading}>
+              <SelectTrigger id="mfg-report-mo" className="text-right">
+                <SelectValue placeholder={moLoading ? 'جارٍ التحميل…' : 'اختر أمر التصنيع'} />
+              </SelectTrigger>
+              <SelectContent>
+                {manufacturingOrders.map((mo) => (
+                  <SelectItem key={mo.id} value={mo.id} className="text-right">
+                    {mo.order_number ?? mo.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <VarianceAnalysisReport manufacturingOrderId={selectedMO} />
+        </CardContent>
+      </Card>
+
+      <WIPReport />
     </div>
   )
 }
@@ -327,12 +351,7 @@ function ProcessCostingReportPage() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقرير تكاليف المراحل</h1>
-        <p className="text-muted-foreground mt-2">
-          تحليل تكاليف المراحل مع حساب الوحدات المكافئة
-        </p>
-      </div>
+      <PageHeader title="تقرير تكاليف المراحل" description="تحليل تكاليف المراحل مع حساب الوحدات المكافئة" hideOnPrint={false} />
 
       <ProcessCostingReport />
     </div>
@@ -355,45 +374,21 @@ function PurchasingReports() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقارير المشتريات</h1>
-        <p className="text-muted-foreground mt-2">
-          أداء المشتريات وتحليل الموردين
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - أداء الموردين، تحليل المشتريات، معدلات التسليم
-        </p>
-      </div>
+      <PageHeader title="تقارير المشتريات" description="أداء المشتريات وتحليل الموردين من البيانات الفعلية" hideOnPrint={false} />
+      <PurchasingAnalyticsReport />
     </div>
   )
 }
 
-// Advanced Analytics Component
+// Advanced Analytics Component — لوحة التحليلات الحقيقية (P11-2)
 function AdvancedAnalytics() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">التحليلات المتقدمة</h1>
-        <p className="text-muted-foreground mt-2">
-          تحليلات ورؤى متقدمة باستخدام الذكاء الاصطناعي
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - الذكاء الاصطناعي، التنبؤات، الاتجاهات
-        </p>
-      </div>
+      <PageHeader title="التحليلات المتقدمة" description="مؤشرات ورسوم مالية حية من بيانات المؤسسة الفعلية" hideOnPrint={false} />
+      <EnhancedGeminiDashboard />
     </div>
   )
 }

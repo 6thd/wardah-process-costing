@@ -362,7 +362,9 @@ export function Sidebar() {
         { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
         { key: 'efficiency', href: '/manufacturing/efficiency', label: isRTL ? 'الكفاءة والأداء' : 'Efficiency & OEE' },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
+        { key: 'equivalent-units', href: '/manufacturing/equivalent-units', label: isRTL ? 'الوحدات المكافئة' : 'Equivalent Units' },
         { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report' },
+        { key: 'variance-alerts', href: '/manufacturing/variance-alerts', label: isRTL ? 'تنبيهات الانحرافات' : 'Variance Alerts' },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
         { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },
@@ -380,10 +382,14 @@ export function Sidebar() {
       subItems: [
         { key: 'overview', href: '/inventory/overview', label: t('navigation.overview') },
         { key: 'items', href: '/inventory/items', label: t('navigation.items') },
+        { key: 'categories', href: '/inventory/categories', label: isRTL ? 'فئات المنتجات' : 'Categories' },
         { key: 'movements', href: '/inventory/movements', label: t('navigation.movements') },
         { key: 'adjustments', href: '/inventory/adjustments', label: t('navigation.adjustments') },
         { key: 'valuation', href: '/inventory/valuation', label: t('navigation.valuation') },
-        { key: 'locations', href: '/inventory/locations', label: t('navigation.locations') }
+        { key: 'warehouses', href: '/inventory/warehouses', label: isRTL ? 'المخازن' : 'Warehouses' },
+        { key: 'locations', href: '/inventory/locations', label: t('navigation.locations') },
+        { key: 'bins', href: '/inventory/bins', label: isRTL ? 'صناديق التخزين' : 'Storage Bins' },
+        { key: 'transfers', href: '/inventory/transfers', label: isRTL ? 'تحويلات البضاعة' : 'Stock Transfers' }
       ]
     },
     {
@@ -432,17 +438,8 @@ export function Sidebar() {
         { key: 'reconciliation', href: '/accounting/reconciliation', label: isRTL ? 'تسوية الدفاتر مع GL' : 'Subledger ↔ GL Reconciliation' }
       ]
     },
-    {
-      key: 'general-ledger',
-      icon: BookOpen,
-      href: '/general-ledger',
-      badge: null,
-      moduleCode: MODULE_CODES.GENERAL_LEDGER,
-      subItems: [
-        { key: 'accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
-        { key: 'account-statement', href: '/general-ledger/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' }
-      ]
-    },
+    // قائمة «دفتر الأستاذ» المكرّرة حُذفت: عنصراها موجودان في قائمة المحاسبة،
+    // ومسارات /general-ledger/* تبقى عاملة (توافق URLs).
     {
       key: 'hr',
       icon: Users,
@@ -473,6 +470,7 @@ export function Sidebar() {
         { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', label: isRTL ? 'لوحة تكاليف المراحل' : 'Process Costing Dashboard' },
         { key: 'sales', href: '/reports/sales', label: t('navigation.sales') },
         { key: 'purchasing', href: '/reports/purchasing', label: t('navigation.purchasing') },
+        { key: 'advanced', href: '/reports/advanced', label: isRTL ? 'التقارير المتقدمة' : 'Advanced Reports' },
         { key: 'analytics', href: '/reports/analytics', label: t('navigation.analytics') },
         { key: 'gemini-dashboard', href: '/reports/gemini', label: t('navigation.gemini-dashboard') }
       ]
@@ -485,10 +483,9 @@ export function Sidebar() {
       moduleCode: MODULE_CODES.SETTINGS,
       subItems: [
         { key: 'company', href: '/settings/company', label: t('navigation.company') },
-        { key: 'users', href: '/settings/users', label: t('navigation.users') },
-        { key: 'permissions', href: '/settings/permissions', label: t('navigation.permissions') },
+        // users/permissions حُذفا: مجرد redirect لإدارة المؤسسة المكرَّرة في قائمتها.
+        // integrations مخفيّة حتى تُبنى تكاملات فعلية (قرار المالك).
         { key: 'system', href: '/settings/system', label: t('navigation.system') },
-        { key: 'integrations', href: '/settings/integrations', label: t('navigation.integrations') },
         { key: 'backup', href: '/settings/backup', label: t('navigation.backup') }
       ]
     },

@@ -1,7 +1,7 @@
 // src/hooks/useSmartRealtime.ts
 import { useEffect, useRef, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { supabase } from '@/lib/supabase';
+import { supabase, resolveOrgIdWithFallback } from '@/lib/supabase';
 
 interface RealtimePayload {
   eventType: 'INSERT' | 'UPDATE' | 'DELETE';
@@ -64,37 +64,45 @@ export const useSmartRealtime = (configs: RealtimeConfig[]) => {
     // Capture refs at effect start to use in cleanup
     const channels = channelsRef.current;
     const timers = debounceTimers.current;
+    let cancelled = false;
 
-    configs.forEach(config => {
-      if (channels.has(config.tableName)) return;
-      
-      // Add null check before using supabase
-      if (!supabase) return;
+    // P4-A4: هوية المؤسسة من الجلسة بدل UUID ثابت — ثم فتح الاشتراكات
+    (async () => {
+      const orgId = await resolveOrgIdWithFallback();
+      if (cancelled) return;
 
-      const channel = supabase
-        .channel(`wardah-${config.tableName}-optimized`)
-        .on('postgres_changes', 
-          { 
-            event: '*', 
-            schema: 'public', 
-            table: config.tableName,
-            // Add base-level filter to improve performance
-            filter: 'org_id=eq.00000000-0000-0000-0000-000000000001'
-          },
-          (payload) => handleUpdate(config, payload)
-        )
-        .subscribe(status => {
-          if (status === 'SUBSCRIBED') {
-            // eslint-disable-next-line no-console
-            console.log(`✅ Realtime subscription active for ${config.tableName}`);
-          }
-        });
+      configs.forEach(config => {
+        if (channels.has(config.tableName)) return;
 
-      channels.set(config.tableName, channel);
-    });
+        // Add null check before using supabase
+        if (!supabase) return;
+
+        const channel = supabase
+          .channel(`wardah-${config.tableName}-optimized`)
+          .on('postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: config.tableName,
+              // Add base-level filter to improve performance
+              filter: `org_id=eq.${orgId}`
+            },
+            (payload) => handleUpdate(config, payload)
+          )
+          .subscribe(status => {
+            if (status === 'SUBSCRIBED') {
+              // eslint-disable-next-line no-console
+              console.log(`✅ Realtime subscription active for ${config.tableName}`);
+            }
+          });
+
+        channels.set(config.tableName, channel);
+      });
+    })();
 
     // Clean up subscriptions when component unmounts
     return () => {
+      cancelled = true;
       // Use captured refs from effect start
       const channelsSnapshot = Array.from(channels.values());
       const timersSnapshot = Array.from(timers.values());

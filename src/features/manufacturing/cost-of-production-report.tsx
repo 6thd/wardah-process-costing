@@ -17,6 +17,9 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue
 } from '@/components/ui/select'
 import { Printer, RefreshCw, CheckCircle2, AlertTriangle, FileBarChart } from 'lucide-react'
+import { EmptyState } from '@/components/ui/empty-state'
+import { ErrorState } from '@/components/ui/error-state'
+import { ReportSkeleton } from '@/components/ui/loading-state'
 import { useManufacturingOrders } from './hooks/useManufacturingOrders'
 import {
   CostOfProductionService,
@@ -352,23 +355,27 @@ export function CostOfProductionReportView() {
 
       {/* حالات: خطأ / فارغ / التقرير */}
       {error && (
-        <Card className="border-destructive">
-          <CardContent className="pt-6 text-destructive">
-            {error.message}
-          </CardContent>
-        </Card>
+        <ErrorState
+          title={isRTL ? 'تعذر توليد التقرير' : 'Could not generate report'}
+          message={error.message}
+          onRetry={() => refetch()}
+          retryLabel={isRTL ? 'إعادة المحاولة' : 'Retry'}
+        />
       )}
 
       {!selectedMoId && !error && (
         <Card>
-          <CardContent className="pt-6 text-center text-muted-foreground py-16">
-            <FileBarChart className="h-12 w-12 mx-auto mb-4 opacity-40" />
-            {isRTL
-              ? 'اختر أمر تصنيع لعرض تقرير تكلفة الإنتاج بالوحدات المكافئة'
-              : 'Select a manufacturing order to view the Cost of Production Report'}
-          </CardContent>
+          <EmptyState
+            icon={<FileBarChart aria-hidden="true" />}
+            title={isRTL ? 'لم يُحدَّد أمر تصنيع بعد' : 'No manufacturing order selected'}
+            description={isRTL
+              ? 'اختر أمر تصنيع من القائمة أعلاه لعرض تقرير تكلفة الإنتاج بالوحدات المكافئة بخطواته الخمس'
+              : 'Select a manufacturing order above to view the five-step Cost of Production Report'}
+          />
         </Card>
       )}
+
+      {isFetching && !report && !error && selectedMoId && <ReportSkeleton />}
 
       {report && (
         <div className="space-y-6" data-testid="cpr-report">
@@ -388,7 +395,7 @@ export function CostOfProductionReportView() {
                     {isRTL ? 'الكمية المخططة' : 'Planned qty'}: {qty(report.manufacturing_order.qty_planned)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString(isRTL ? 'ar-SA' : 'en-US')}
+                    {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString('en-US')}
                   </p>
                 </div>
                 <BalanceBadge balanced={report.totals.all_stages_balanced} isRTL={isRTL} />

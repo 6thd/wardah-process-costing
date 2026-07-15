@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogC
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
+import { EmptyState } from '@/components/ui/empty-state';
 import { 
     GLAccount, 
     getAllGLAccounts, 
@@ -17,9 +18,8 @@ import {
     checkAccountCodeExists
 } from '@/lib/supabase';
 import { toast } from 'sonner';
-import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+// P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط
+import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import { AccountStatement } from '@/features/accounting/account-statement';
 import {
   Plus,
@@ -526,7 +526,8 @@ function ChartOfAccounts() {
         return result;
     };
 
-    const handleExportToExcel = () => {
+    const handleExportToExcel = async () => {
+        const XLSX = await loadXLSX();
         const tree = buildTree(accounts);
         const flatData = flattenForExport(tree);
         const worksheetData = flatData.map(item => ({
@@ -541,7 +542,8 @@ function ChartOfAccounts() {
         XLSX.writeFile(workbook, "ChartOfAccounts.xlsx");
     };
 
-    const handleExportToPdf = () => {
+    const handleExportToPdf = async () => {
+        const jsPDF = await loadJsPDF();
         const doc = new jsPDF();
         // Add a font that supports Arabic
         // doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
@@ -736,7 +738,7 @@ function ChartOfAccounts() {
                         />
                     ))
                  ) : (
-                     <div className="p-8 text-center text-muted-foreground">{isRTL ? 'لا توجد حسابات لعرضها.' : 'No accounts to display.'}</div>
+                     <EmptyState title={isRTL ? 'لا توجد حسابات لعرضها' : 'No accounts to display'} description={isRTL ? 'أضف حساباً جديداً أو عدّل الفلاتر.' : 'Add an account or adjust filters.'} />
                  )}
             </div>
 

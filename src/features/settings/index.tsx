@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { 
   Settings as SettingsIcon, 
   Building, 
@@ -11,6 +12,8 @@ import {
   Database,
 } from 'lucide-react'
 import { CompanySettings } from './CompanySettings'
+import { SystemSettingsPage } from './SystemSettingsPage'
+import { BackupSettingsPage } from './BackupSettingsPage'
 
 export function SettingsModule() {
   return (
@@ -90,12 +93,7 @@ function SettingsOverview() {
   
   return (
     <div className="space-y-8">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('settings.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة إعدادات وتكوين النظام
-        </p>
-      </div>
+      <PageHeader title={t('settings.title')} description="إدارة إعدادات وتكوين النظام" hideOnPrint={false} />
 
       {/* Quick Info */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -192,77 +190,17 @@ function PermissionsManagement() {
   return <Navigate to="/org-admin/roles" replace />
 }
 
-// System Settings Component
+// System Settings — شاشة حقيقية (org_settings, Migration 98)
 function SystemSettings() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">إعدادات النظام</h1>
-        <p className="text-muted-foreground mt-2">
-          إعدادات عامة وتكوين النظام
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - إعدادات عامة، إشعارات، وظائف مجدولة
-        </p>
-      </div>
-    </div>
-  )
+  return <SystemSettingsPage />
 }
 
-// Integrations Settings Component
+// Integrations — مخفيّة من القائمة حتى تُبنى تكاملات فعلية؛ المسار يعيد التوجيه
 function IntegrationsSettings() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">التكاملات</h1>
-        <p className="text-muted-foreground mt-2">
-          ربط النظام مع الخدمات الخارجية
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - بريد إلكتروني، أنظمة محاسبية، الخدمات السحابية
-        </p>
-      </div>
-    </div>
-  )
+  return <Navigate to="/settings" replace />
 }
 
-// Backup Settings Component
+// Backup Settings — تصدير بيانات فعلي (JSON/CSV)
 function BackupSettings() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">النسخ الاحتياطي</h1>
-        <p className="text-muted-foreground mt-2">
-          نسخ واستعادة بيانات النظام
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - نسخ تلقائي، استعادة بيانات، جدولة النسخ
-        </p>
-      </div>
-    </div>
-  )
+  return <BackupSettingsPage />
 }

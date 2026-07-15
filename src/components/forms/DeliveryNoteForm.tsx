@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -74,6 +74,9 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
   const [deliveryLines, setDeliveryLines] = useState<DeliveryLine[]>([])
   const [deliveryDate, setDeliveryDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState('')
+  // مفتاح idempotency مقرون ببصمة الحمولة: نفس التسليم ⇒ نفس المفتاح (إعادة محاولة
+  // آمنة بلا تكرار خصم COGS/مخزون)، وتغيّر الحمولة ⇒ مفتاح جديد. يُصفَّر بعد النجاح.
+  const idempotencyRef = useRef<{ key: string; fp: string } | null>(null)
 
   // Load available sales invoices (confirmed or partially_delivered)
   useEffect(() => {
@@ -236,14 +239,21 @@ export function DeliveryNoteForm({ open, onOpenChange, onSuccess }: DeliveryNote
         }))
       }
 
-      // Use enhanced sales service
-      const result = await createDeliveryNote(deliveryData)
+      // Use enhanced sales service — بصمة الحمولة تحكم المفتاح (منع تكرار خصم على retry)
+      const deliveryFingerprint = JSON.stringify(deliveryData)
+      if (!idempotencyRef.current || idempotencyRef.current.fp !== deliveryFingerprint) {
+        idempotencyRef.current = { key: globalThis.crypto.randomUUID(), fp: deliveryFingerprint }
+      }
+      const result = await createDeliveryNote(deliveryData, idempotencyRef.current.key)
 
       if (result.success && result.data) {
         toast.success(`تم إنشاء مذكرة التسليم ${result.data.delivery_number || result.data.id} بنجاح`)
         if (result.totalCOGS) {
           toast.info(`تم حساب COGS: ${result.totalCOGS.toFixed(2)} ريال`)
         }
+        // P4-B3: تحذيرات القيود/الحركات غير المرحَّلة تظهر فوراً
+        result.warnings?.forEach((w: string) => toast.warning(w, { duration: 10000 }))
+        idempotencyRef.current = null  // نجح ⇒ التسليم التالي بمفتاح جديد
         onSuccess()
         resetForm()
         onOpenChange(false)

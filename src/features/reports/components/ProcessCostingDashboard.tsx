@@ -471,10 +471,10 @@ export function ProcessCostingDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {summary.total_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                {summary.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'متوسط التكلفة للوحدة' : 'Avg Unit Cost'}: {summary.avg_unit_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                {isRTL ? 'متوسط التكلفة للوحدة' : 'Avg Unit Cost'}: {summary.avg_unit_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </p>
             </CardContent>
           </Card>
@@ -488,10 +488,10 @@ export function ProcessCostingDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {summary.eup_calculated.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {summary.eup_calculated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'إجمالي الوحدات الجيدة' : 'Total Good Qty'}: {summary.total_good_qty.toLocaleString('ar-SA')}
+                {isRTL ? 'إجمالي الوحدات الجيدة' : 'Total Good Qty'}: {summary.total_good_qty.toLocaleString('en-US')}
               </p>
             </CardContent>
           </Card>
@@ -505,7 +505,7 @@ export function ProcessCostingDashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {summary.total_wip_value.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                {summary.total_wip_value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 {isRTL ? 'قيمة العمل قيد التنفيذ' : 'Work in Process Value'}

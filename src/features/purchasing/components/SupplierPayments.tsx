@@ -209,7 +209,7 @@ export function SupplierPayments() {
                       <TableCell className="font-medium">{payment.payment_number}</TableCell>
                       <TableCell>{payment.vendor?.name || 'غير محدد'}</TableCell>
                       <TableCell>
-                        {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('ar-SA') : '-'}
+                        {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-US') : '-'}
                       </TableCell>
                       <TableCell>{payment.amount?.toFixed(2) || '0.00'} ريال</TableCell>
                       <TableCell>{getPaymentMethodLabel(payment.payment_method)}</TableCell>
@@ -518,7 +518,7 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
                     <TableRow key={invoice.id}>
                       <TableCell>{invoice.invoice_number}</TableCell>
                       <TableCell>
-                        {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}
+                        {new Date(invoice.invoice_date).toLocaleDateString('en-US')}
                       </TableCell>
                       <TableCell>{invoice.total_amount?.toFixed(2)} ريال</TableCell>
                       <TableCell>{invoice.paid_amount?.toFixed(2) || '0.00'} ريال</TableCell>
@@ -573,7 +573,7 @@ function PaymentDetails({ payment }: { payment: SupplierPayment }) {
         <div>
           <Label className="text-muted-foreground">التاريخ</Label>
           <p className="font-medium">
-            {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('ar-SA') : '-'}
+            {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString('en-US') : '-'}
           </p>
         </div>
         <div>

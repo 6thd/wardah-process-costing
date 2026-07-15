@@ -117,7 +117,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
                 <CardTitle className="text-sm">{isRTL ? 'إجمالي التكلفة' : 'Total Cost'}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{totals.totalCost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
+                <div className="text-2xl font-bold">{totals.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
               </CardContent>
             </Card>
             <Card>
@@ -125,7 +125,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
                 <CardTitle className="text-sm">{isRTL ? 'الكمية الجيدة' : 'Good Quantity'}</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{totals.goodQty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div className="text-2xl font-bold">{totals.goodQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </CardContent>
             </Card>
             <Card>
@@ -134,7 +134,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {totals.goodQty > 0 ? (totals.totalCost / totals.goodQty).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 0} ر.س
+                  {totals.goodQty > 0 ? (totals.totalCost / totals.goodQty).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : 0} ر.س
                 </div>
               </CardContent>
             </Card>

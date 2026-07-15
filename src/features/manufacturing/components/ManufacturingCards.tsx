@@ -16,8 +16,7 @@ import {
   Users
 } from 'lucide-react'
 import type { ManufacturingOrder } from '@/lib/supabase'
-import type { ManufacturingOrderStatus } from '@/utils/manufacturing-order-status'
-import { isActiveOrder } from '@/utils/manufacturing-order-status'
+import { type ManufacturingOrderStatus, isActiveOrder } from '@/utils/manufacturing-order-status'
 
 interface ManufacturingCardsProps {
   orders: ManufacturingOrder[]

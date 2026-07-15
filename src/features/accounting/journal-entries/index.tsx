@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { Plus, Edit, Trash2, CheckCircle, FileText, RotateCcw, Layers, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, CheckCircle, FileText, RotateCcw, Layers, Search, BookOpen } from 'lucide-react';
+import { EmptyState } from '@/components/ui/empty-state';
+import { TableSkeleton } from '@/components/ui/loading-state';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -97,7 +99,7 @@ const JournalEntries = () => {
       
       const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
       if (!validation.valid) {
-        alert(validation.message);
+        toast.error(validation.message);
         setFormLoading(false);
         return;
       }
@@ -152,7 +154,7 @@ const JournalEntries = () => {
 
   const handleDelete = async (entry: JournalEntry) => {
     if (entry.status === 'posted') {
-      alert(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete a posted entry');
+      toast.error(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete a posted entry');
       return;
     }
 
@@ -669,14 +671,20 @@ const JournalEntries = () => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8">
-                      {isRTL ? 'جاري التحميل...' : 'Loading...'}
+                    <TableCell colSpan={8} className="p-4">
+                      <TableSkeleton rows={5} />
                     </TableCell>
                   </TableRow>
                 ) : filteredEntries.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
-                      {isRTL ? 'لا توجد قيود' : 'No entries found'}
+                    <TableCell colSpan={8}>
+                      <EmptyState
+                        icon={<BookOpen aria-hidden="true" />}
+                        title={isRTL ? 'لا توجد قيود' : 'No entries found'}
+                        description={isRTL
+                          ? 'أنشئ قيداً جديداً بزر «قيد جديد»، أو عدّل عوامل التصفية أعلاه'
+                          : 'Create a new entry with the "New Entry" button, or adjust the filters above'}
+                      />
                     </TableCell>
                   </TableRow>
                 ) : (

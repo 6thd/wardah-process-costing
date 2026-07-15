@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
@@ -6,7 +7,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { Plus, X, Trash2 } from 'lucide-react'
+import { Plus, X, Trash2, PackageOpen, ClipboardList } from 'lucide-react'
+import { PageHeader } from '@/components/ui/page-header'
+import { EmptyState } from '@/components/ui/empty-state'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
@@ -63,12 +66,11 @@ function InventoryOverview() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('inventory.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة المخزون والأصناف
-        </p>
-      </div>
+      <PageHeader
+        title={t('inventory.title')}
+        description="إدارة المخزون والأصناف"
+        hideOnPrint={false}
+      />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -363,12 +365,7 @@ function ItemsManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -428,7 +425,7 @@ function ItemsManagement() {
             <div>
               <p className="text-sm text-muted-foreground">قيمة المخزون</p>
               <h3 className="text-2xl font-bold mt-1 text-green-600">
-                {stats.totalValue.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س
+                {stats.totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })} ر.س
               </h3>
             </div>
             <div className="h-12 w-12 bg-green-100 rounded-full flex items-center justify-center">
@@ -704,15 +701,13 @@ function ItemsManagement() {
         </div>
         
         {filteredItems.length === 0 ? (
-          <div className="p-12 text-center">
-            <div className="text-6xl mb-4">📭</div>
-            <h3 className="text-lg font-semibold mb-2">لا توجد أصناف</h3>
-            <p className="text-muted-foreground">
-              {searchTerm || selectedCategory !== 'all' || stockFilter !== 'all'
-                ? 'جرب تغيير الفلاتر للحصول على نتائج'
-                : 'لم يتم إضافة أي أصناف بعد'}
-            </p>
-          </div>
+          <EmptyState
+            icon={<PackageOpen aria-hidden="true" />}
+            title="لا توجد أصناف"
+            description={searchTerm || selectedCategory !== 'all' || stockFilter !== 'all'
+              ? 'جرب تغيير الفلاتر للحصول على نتائج'
+              : 'لم يتم إضافة أي أصناف بعد — ابدأ بزر «إضافة صنف»'}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -789,12 +784,12 @@ function ItemsManagement() {
                       </td>
                       <td className="p-3">
                         <div className="text-sm">
-                          {item.cost_price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                          {item.cost_price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س
                         </div>
                       </td>
                       <td className="p-3">
                         <div className="text-sm font-medium">
-                          {item.price.toLocaleString('ar-SA', { maximumFractionDigits: 2 })} ر.س
+                          {item.price.toLocaleString('en-US', { maximumFractionDigits: 2 })} ر.س
                         </div>
                       </td>
                       <td className="p-3 text-center">
@@ -1494,33 +1489,23 @@ function StockAdjustments() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-3xl font-bold">تسويات المخزون</h1>
-          <p className="text-muted-foreground mt-2">
-            تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية
-          </p>
-        </div>
-        <Button
-          onClick={() => setShowNewForm(true)}
-          className="gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          تسوية جديدة
-        </Button>
-      </div>
+      <PageHeader
+        title="تسويات المخزون"
+        description="تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية"
+        hideOnPrint={false}
+        actions={
+          <Button onClick={() => setShowNewForm(true)} className="gap-2">
+            <Plus className="w-4 h-4" />
+            تسوية جديدة
+          </Button>
+        }
+      />
 
       {/* New Adjustment Form */}
       {showNewForm && (
@@ -2212,11 +2197,11 @@ function StockAdjustments() {
       {/* Adjustments List */}
       <div className="bg-card rounded-lg border">
         {adjustments.length === 0 ? (
-          <div className="p-12 text-center text-muted-foreground">
-            <p className="text-4xl mb-4">📋</p>
-            <p className="text-lg">لا توجد تسويات مخزون بعد</p>
-            <p className="text-sm mt-2">ابدأ بإنشاء تسوية جديدة</p>
-          </div>
+          <EmptyState
+            icon={<ClipboardList aria-hidden="true" />}
+            title="لا توجد تسويات مخزون بعد"
+            description="ابدأ بإنشاء تسوية جديدة بالزر أعلاه"
+          />
         ) : (
           <div className="divide-y">
             {adjustments.map((adj) => (
@@ -2284,12 +2269,11 @@ function InventoryValuation() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">تقييم المخزون</h1>
-        <p className="text-muted-foreground mt-2">
-          تقارير قيمة وتقييم المخزون
-        </p>
-      </div>
+      <PageHeader
+        title="تقييم المخزون"
+        description="تقارير قيمة وتقييم المخزون"
+        hideOnPrint={false}
+      />
       <div className="bg-card rounded-lg border p-6">
         <p className={cn(
           "text-muted-foreground",
@@ -2309,12 +2293,11 @@ function StorageLocations() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">مواقع التخزين</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة مواقع ومستودعات التخزين
-        </p>
-      </div>
+      <PageHeader
+        title="مواقع التخزين"
+        description="إدارة مواقع ومستودعات التخزين"
+        hideOnPrint={false}
+      />
       <div className="bg-card rounded-lg border p-6">
         <p className={cn(
           "text-muted-foreground",
@@ -2349,12 +2332,7 @@ function StockMovements() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -2371,9 +2349,10 @@ function StockMovements() {
         </div>
         <div className="divide-y">
           {movements.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">
-              <p>لا توجد حركات مخزون بعد</p>
-            </div>
+            <EmptyState
+              title="لا توجد حركات مخزون بعد"
+              description="تظهر الحركات هنا تلقائياً مع أول استلام أو صرف أو تسوية"
+            />
           ) : (
             movements.map((movement) => {
               // Determine movement direction from actual_qty
@@ -2451,7 +2430,7 @@ function StockMovements() {
                       </div>
                       
                       <div className="text-xs text-muted-foreground mt-2">
-                        {new Date(movement.posting_date).toLocaleDateString('ar-SA')}
+                        {new Date(movement.posting_date).toLocaleDateString('en-US')}
                       </div>
                     </div>
                   </div>
@@ -2517,12 +2496,7 @@ function CategoriesManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -2580,9 +2554,10 @@ function CategoriesManagement() {
         </div>
         <div className="divide-y">
           {categories.length === 0 ? (
-            <div className="p-8 text-center text-muted-foreground">
-              <p>لا توجد فئات. ابدأ بإضافة فئة جديدة!</p>
-            </div>
+            <EmptyState
+              title="لا توجد فئات"
+              description="ابدأ بإضافة فئة جديدة لتنظيم الأصناف"
+            />
           ) : (
             categories.map((category) => (
               <div key={category.id} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">

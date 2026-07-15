@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Calendar as CalendarComponent } from '@/components/ui/calendar'
 import { toast } from 'sonner'
-import { supabase } from '@/lib/supabase'
+import { supabase, resolveOrgIdWithFallback } from '@/lib/supabase'
 import { Loader2, Package, Truck, Calendar, DollarSign, CalendarIcon } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { format } from 'date-fns'
@@ -414,7 +414,7 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
       const { data: mappings, error: mappingsError } = await supabase
         .from('gl_mappings')
         .select('*')
-        .eq('org_id', '00000000-0000-0000-0000-000000000001')
+        .eq('org_id', await resolveOrgIdWithFallback())
 
       if (mappingsError) throw mappingsError
 

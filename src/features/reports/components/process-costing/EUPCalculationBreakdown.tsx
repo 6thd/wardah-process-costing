@@ -372,12 +372,12 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {item.good_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.good_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {item.wip_beginning_qty > 0 ? (
                         <>
-                          {item.wip_beginning_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {item.wip_beginning_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           <span className="text-xs text-muted-foreground block">
                             ({item.wip_beginning_dm_completion_pct.toFixed(1)}% / {item.wip_beginning_cc_completion_pct.toFixed(1)}%)
                           </span>
@@ -387,7 +387,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
                     <TableCell className="text-right font-mono">
                       {item.wip_end_qty > 0 ? (
                         <>
-                          {item.wip_end_qty.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {item.wip_end_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           <span className="text-xs text-muted-foreground block">
                             ({item.wip_end_dm_completion_pct.toFixed(1)}% / {item.wip_end_cc_completion_pct.toFixed(1)}%)
                           </span>
@@ -395,13 +395,13 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
                       ) : '-'}
                     </TableCell>
                     <TableCell className="text-right font-mono font-semibold">
-                      {item.eup_dm.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.eup_dm.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono font-semibold text-primary">
-                      {item.eup_cc.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {item.eup_cc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </TableCell>
                     <TableCell className="text-right font-mono font-bold">
-                      {item.unit_cost.toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                      {item.unit_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                     </TableCell>
                   </TableRow>
                 ))}

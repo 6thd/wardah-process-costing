@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -61,12 +63,7 @@ function PurchasingOverview() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('purchasing.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة المشتريات والموردين
-        </p>
-      </div>
+      <PageHeader title={t('purchasing.title')} description="إدارة المشتريات والموردين" hideOnPrint={false} />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -181,12 +178,7 @@ function SuppliersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -367,12 +359,7 @@ function PurchaseOrdersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -417,9 +404,9 @@ function PurchaseOrdersManagement() {
                       {order.vendor?.name || order.supplier?.name || 'مورد غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(order.order_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(order.order_date).toLocaleDateString('en-US')}</span>
                       {(order.expected_delivery || order.delivery_date) && (
-                        <span>🚚 التسليم: {new Date(order.expected_delivery || order.delivery_date).toLocaleDateString('ar-SA')}</span>
+                        <span>🚚 التسليم: {new Date(order.expected_delivery || order.delivery_date).toLocaleDateString('en-US')}</span>
                       )}
                     </div>
                     {order.purchase_order_lines && order.purchase_order_lines.length > 0 && (
@@ -459,41 +446,107 @@ function PurchaseOrdersManagement() {
   )
 }
 
-// Goods Receipt Management Component
+// Goods Receipt Management Component — قائمة حقيقية من goods_receipts (P11-2)
 function GoodsReceiptManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [showGRForm, setShowGRForm] = useState(false)
+  const [receipts, setReceipts] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadReceipts()
+  }, [])
+
+  const loadReceipts = async () => {
+    setLoading(true)
+    try {
+      const { getAllGoodsReceipts } = await import('@/services/purchasing-service')
+      const res = await getAllGoodsReceipts()
+      if (!res.success) throw res.error
+      setReceipts(res.data || [])
+    } catch (error) {
+      console.error('Error loading goods receipts:', error)
+      toast.error('خطأ في تحميل سندات الاستلام')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const getReceiptStatusBadge = (status: string) => {
+    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+      'draft': { label: 'مسودة', variant: 'outline' },
+      'confirmed': { label: 'مؤكَّد', variant: 'secondary' },
+      'completed': { label: 'مكتمل', variant: 'secondary' },
+      'cancelled': { label: 'ملغى', variant: 'destructive' }
+    }
+    const config = statusMap[status] || { label: status || '—', variant: 'outline' }
+    return <Badge variant={config.variant}>{config.label}</Badge>
+  }
+
+  if (loading) {
+    return (
+      <LoadingSpinner label="جاري التحميل..." />
+    )
+  }
 
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div className={cn(isRTL ? "text-right" : "text-left")}>
-          <h1 className="text-3xl font-bold">استلام البضائع</h1>
-          <p className="text-muted-foreground mt-2">
-            إدارة عمليات استلام البضائع من الموردين
-          </p>
-        </div>
+        <PageHeader title="استلام البضائع" description="إدارة عمليات استلام البضائع من الموردين" hideOnPrint={false} />
         <Button onClick={() => setShowGRForm(true)}>
           + إضافة استلام
         </Button>
       </div>
-      
-      <GoodsReceiptForm 
+
+      <GoodsReceiptForm
         open={showGRForm}
         onOpenChange={setShowGRForm}
         onSuccess={async () => {
           toast.success('تم إنشاء إشعار الاستلام بنجاح')
-          // Reload goods receipts if needed
+          await loadReceipts()
         }}
       />
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - عمليات استلام وفحص البضائع
-        </p>
+
+      {/* Receipts List */}
+      <div className="bg-card rounded-lg border">
+        <div className="p-4 border-b">
+          <h3 className="font-semibold">سندات الاستلام ({receipts.length})</h3>
+        </div>
+        <div className="divide-y">
+          {receipts.length === 0 ? (
+            <div className="p-8 text-center text-muted-foreground">
+              لا توجد سندات استلام. اضغط على «+ إضافة استلام» لتسجيل أول استلام.
+            </div>
+          ) : (
+            receipts.map((receipt) => (
+              <div key={receipt.id} className="p-4 hover:bg-accent/50 transition-colors">
+                <div className="flex justify-between items-start">
+                  <div className="flex-1">
+                    <h4 className="font-medium text-lg">{receipt.receipt_number}</h4>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {receipt.vendor?.name || 'مورد غير محدد'}
+                    </p>
+                    <div className="flex flex-wrap gap-4 mt-2 text-sm text-muted-foreground">
+                      <span>📅 {new Date(receipt.receipt_date).toLocaleDateString('en-US')}</span>
+                      {receipt.purchase_order && (
+                        <span>📦 أمر الشراء: {receipt.purchase_order.order_number}</span>
+                      )}
+                      {receipt.receiver_name && <span>👤 المستلم: {receipt.receiver_name}</span>}
+                      {receipt.warehouse_location && <span>🏭 {receipt.warehouse_location}</span>}
+                    </div>
+                    {receipt.notes && (
+                      <p className="text-xs text-muted-foreground mt-2">{receipt.notes}</p>
+                    )}
+                  </div>
+                  <div className="text-right ml-4">
+                    {getReceiptStatusBadge(receipt.status)}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
     </div>
   )
@@ -546,24 +599,14 @@ function SupplierInvoicesManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
   return (
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
-        <div className={cn(isRTL ? "text-right" : "text-left")}>
-          <h1 className="text-3xl font-bold">فواتير المشتريات</h1>
-          <p className="text-muted-foreground mt-2">
-            إدارة فواتير الموردين وقيود اليومية
-          </p>
-        </div>
+        <PageHeader title="فواتير المشتريات" description="إدارة فواتير الموردين وقيود اليومية" hideOnPrint={false} />
         <Button onClick={() => setShowInvoiceForm(true)}>
           + إضافة فاتورة مشتريات
         </Button>
@@ -595,9 +638,9 @@ function SupplierInvoicesManagement() {
                       {invoice.vendor?.name || 'مورد غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('en-US')}</span>
                       {invoice.due_date && (
-                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('ar-SA')}</span>
+                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('en-US')}</span>
                       )}
                       {invoice.purchase_order && (
                         <span>📦 أمر الشراء: {invoice.purchase_order.order_number}</span>
@@ -625,27 +668,3 @@ function SupplierInvoicesManagement() {
   )
 }
 
-// Payments Management Component
-function PaymentsManagement() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-
-  return (
-    <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">إدارة المدفوعات</h1>
-        <p className="text-muted-foreground mt-2">
-          متابعة وإدارة مدفوعات الموردين
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          قريباً - متابعة وإدارة المدفوعات
-        </p>
-      </div>
-    </div>
-  )
-}

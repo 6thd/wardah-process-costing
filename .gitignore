@@ -75,3 +75,4 @@ logs/
 *.seed
 *.pid.lock
 claude_desktop_config*.json
+supabase/.temp/

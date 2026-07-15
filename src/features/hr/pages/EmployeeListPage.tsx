@@ -60,7 +60,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
-import { createEmployee } from '@/services/hr/employee-service';
+import { createEmployee, deleteEmployee } from '@/services/hr/employee-service';
 import { STATUS_BADGES } from '../types';
 
 type ViewMode = 'table' | 'grid';
@@ -226,11 +226,29 @@ export const EmployeeListPage: React.FC = () => {
         toast({ title: '✅ تم تصدير البيانات بنجاح' });
     };
 
+    const deleteEmployeeMutation = useMutation({
+        mutationFn: (ids: string[]) => Promise.all(ids.map((id) => deleteEmployee(id))),
+        onSuccess: (_data, ids) => {
+            queryClient.invalidateQueries({ queryKey: ['hr', 'employees'] });
+            toast({ title: `✅ تم حذف ${ids.length > 1 ? `${ids.length} موظفين` : 'الموظف'} بنجاح` });
+            setSelectedEmployees(new Set());
+        },
+        onError: (error: any) => {
+            toast({
+                title: '❌ فشل الحذف',
+                description: error?.message ?? '',
+                variant: 'destructive',
+            });
+        },
+        onSettled: () => {
+            setDeleteDialogOpen(false);
+            setEmployeeToDelete(null);
+        },
+    });
+
     const handleBulkDelete = () => {
-        toast({ 
-            title: '⚠️ قيد التطوير',
-            description: 'ميزة الحذف الجماعي قيد التطوير'
-        });
+        if (selectedEmployees.size === 0) return;
+        deleteEmployeeMutation.mutate([...selectedEmployees]);
     };
 
     const handleDeleteEmployee = (id: string) => {
@@ -239,10 +257,8 @@ export const EmployeeListPage: React.FC = () => {
     };
 
     const confirmDelete = () => {
-        // TODO: Implement delete mutation
-        toast({ title: '✅ تم حذف الموظف بنجاح' });
-        setDeleteDialogOpen(false);
-        setEmployeeToDelete(null);
+        if (!employeeToDelete) return;
+        deleteEmployeeMutation.mutate([employeeToDelete]);
     };
 
     const allSelected = filteredEmployees.length > 0 && selectedEmployees.size === filteredEmployees.length;
@@ -439,7 +455,7 @@ export const EmployeeListPage: React.FC = () => {
                                             </TableCell>
                                             <TableCell onClick={() => navigate(`/hr/employees/${employee.id}`)}>
                                                 {employee.hiringDate
-                                                    ? new Date(employee.hiringDate).toLocaleDateString('ar-SA')
+                                                    ? new Date(employee.hiringDate).toLocaleDateString('en-US')
                                                     : '—'}
                                             </TableCell>
                                             <TableCell className="text-right" onClick={() => navigate(`/hr/employees/${employee.id}`)}>

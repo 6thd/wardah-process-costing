@@ -8,9 +8,10 @@
  * ├── base.css        - Reset, Body, Typography, Scrollbars, Accessibility
  * ├── components.css  - ERP Components (buttons, cards, inputs, tables)
  * ├── utilities.css   - Helper utilities, Logical Properties (RTL support)
- * └── wardah-ui-core.css - Glassmorphism & Animation effects
- * 
- * @version 2.0.0
+ * ├── wardah-ui-core.css - Glassmorphism & Animation effects
+ * └── print.css       - Professional print layer for reports (P3-UI)
+ *
+ * @version 2.1.0
  */
 
 /* Import Design System Modules (must be first) */
@@ -19,6 +20,7 @@
 @import './styles/components.css';
 @import './styles/utilities.css';
 @import './styles/wardah-ui-core.css';
+@import './styles/print.css';
 
 /* Tailwind Directives */
 @tailwind base;

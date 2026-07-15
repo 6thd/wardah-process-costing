@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { cn } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -116,12 +118,7 @@ function SalesOverview() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('sales.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          إدارة المبيعات والعملاء
-        </p>
-      </div>
+      <PageHeader title={t('sales.title')} description="إدارة المبيعات والعملاء" hideOnPrint={false} />
 
       {/* Key Metrics */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -236,12 +233,7 @@ function CustomersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -414,12 +406,7 @@ function SalesOrdersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -456,9 +443,9 @@ function SalesOrdersManagement() {
                       {order.customer?.name || 'عميل غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(order.order_date || order.so_date || order.created_at).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(order.order_date || order.so_date || order.created_at).toLocaleDateString('en-US')}</span>
                       {order.delivery_date && (
-                        <span>🚚 التسليم: {new Date(order.delivery_date).toLocaleDateString('ar-SA')}</span>
+                        <span>🚚 التسليم: {new Date(order.delivery_date).toLocaleDateString('en-US')}</span>
                       )}
                     </div>
                   </div>
@@ -534,12 +521,7 @@ function SalesInvoicesManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -584,9 +566,9 @@ function SalesInvoicesManagement() {
                       {invoice.customer?.name || 'عميل غير محدد'}
                     </p>
                     <div className="flex gap-4 mt-2 text-sm text-muted-foreground">
-                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('ar-SA')}</span>
+                      <span>📅 {new Date(invoice.invoice_date).toLocaleDateString('en-US')}</span>
                       {invoice.due_date && (
-                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('ar-SA')}</span>
+                        <span>⏰ الاستحقاق: {new Date(invoice.due_date).toLocaleDateString('en-US')}</span>
                       )}
                     </div>
                     {invoice.sales_invoice_lines && invoice.sales_invoice_lines.length > 0 && (
@@ -732,12 +714,7 @@ function DeliveryManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -835,7 +812,7 @@ function DeliveryManagement() {
                 <div className="text-right">
                   <div className="font-medium mb-1">{delivery.items_count} عنصر</div>
                   <div className="text-sm text-muted-foreground">
-                    {new Date(delivery.delivery_date).toLocaleDateString('ar-SA')}
+                    {new Date(delivery.delivery_date).toLocaleDateString('en-US')}
                   </div>
                 </div>
               </div>
@@ -921,12 +898,7 @@ function CollectionsManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -990,7 +962,7 @@ function CollectionsManagement() {
                     رقم الفاتورة: {collection.invoice_number}
                   </p>
                   <p className="text-sm text-muted-foreground">
-                    تاريخ الاستحقاق: {new Date(collection.due_date).toLocaleDateString('ar-SA')}
+                    تاريخ الاستحقاق: {new Date(collection.due_date).toLocaleDateString('en-US')}
                   </p>
                 </div>
                 <div className="text-right">

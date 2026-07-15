@@ -68,7 +68,8 @@ const DEFAULT_CONFIG: AppConfig = {
     realtime_updates: true,
     advanced_costing: true,
     multi_tenant: true,
-    demo_mode: true
+    // أمني: false افتراضياً — الديمو يُفعَّل يدوياً وفي DEV فقط
+    demo_mode: false
   },
   GEMINI_DASHBOARD: {
     proxy_url: 'http://localhost:3001/api/wardah',

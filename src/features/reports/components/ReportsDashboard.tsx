@@ -4,18 +4,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { VarianceAnalysisReport } from './VarianceAnalysisReport';
 import { WIPReport } from './WIPReport';
 import { ProfitabilityReport } from './ProfitabilityReport';
+import { InventoryValuationReport } from './InventoryValuationReport';
 import GeminiDashboard from './GeminiDashboard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useManufacturingOrders } from '@/features/manufacturing/hooks/useManufacturingOrders';
 
 export const ReportsDashboard: React.FC = () => {
   const [selectedMO, setSelectedMO] = useState<string>('');
 
-  // Sample manufacturing orders for demo
-  const sampleMOs = [
-    { id: 'mo1', number: 'MO-2025-001', product: 'كريم ورد عطري' },
-    { id: 'mo2', number: 'MO-2025-002', product: 'صابون زعتر طبيعي' },
-    { id: 'mo3', number: 'MO-2025-003', product: 'زيت جوز الهند العضوي' }
-  ];
+  // أوامر التصنيع الحقيقية (بدل بيانات وهمية) لتغذية تقرير الانحرافات
+  const { orders: manufacturingOrders, loading: moLoading } = useManufacturingOrders();
 
   return (
     <div className="space-y-6">
@@ -28,14 +26,14 @@ export const ReportsDashboard: React.FC = () => {
           <div className="flex flex-col md:flex-row gap-4 items-end">
             <div className="w-full md:w-64">
               <label htmlFor="mo-select" className="block text-sm font-medium mb-1 text-right">اختر أمر التصنيع</label>
-              <Select value={selectedMO} onValueChange={setSelectedMO}>
+              <Select value={selectedMO} onValueChange={setSelectedMO} disabled={moLoading}>
                 <SelectTrigger id="mo-select" className="text-right">
-                  <SelectValue placeholder="اختر أمر التصنيع" />
+                  <SelectValue placeholder={moLoading ? 'جارٍ التحميل…' : 'اختر أمر التصنيع'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {sampleMOs.map((mo) => (
+                  {manufacturingOrders.map((mo) => (
                     <SelectItem key={mo.id} value={mo.id} className="text-right">
-                      {mo.number} - {mo.product}
+                      {mo.order_number ?? mo.id}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -79,16 +77,7 @@ export const ReportsDashboard: React.FC = () => {
         </TabsContent>
         
         <TabsContent value="inventory" className="space-y-4">
-          <Card className="wardah-glass-card">
-            <CardHeader>
-              <CardTitle className="text-right wardah-text-gradient-google">تقرير تقييم المخزون</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-8 text-muted-foreground">
-                تقرير تقييم المخزون قيد التطوير
-              </div>
-            </CardContent>
-          </Card>
+          <InventoryValuationReport />
         </TabsContent>
       </Tabs>
     </div>

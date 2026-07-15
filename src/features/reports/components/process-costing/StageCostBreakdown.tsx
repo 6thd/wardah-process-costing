@@ -187,12 +187,12 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
                   <TableRow key={`${item.manufacturing_orders?.order_number || ''}-${item.stage_no}`}>
                     <TableCell>{item.manufacturing_orders?.order_number}</TableCell>
                     <TableCell>{getStageName(item)}</TableCell>
-                    <TableCell className="text-right font-mono">{Number(item.good_qty || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell className="text-right font-mono">{Number(item.dm_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                    <TableCell className="text-right font-mono">{Number(item.dl_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                    <TableCell className="text-right font-mono">{Number(item.moh_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                    <TableCell className="text-right font-mono font-bold">{Number(item.total_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
-                    <TableCell className="text-right font-mono font-bold text-primary">{Number(item.unit_cost || 0).toLocaleString('ar-SA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                    <TableCell className="text-right font-mono">{Number(item.good_qty || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</TableCell>
+                    <TableCell className="text-right font-mono">{Number(item.dm_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                    <TableCell className="text-right font-mono">{Number(item.dl_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                    <TableCell className="text-right font-mono">{Number(item.moh_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                    <TableCell className="text-right font-mono font-bold">{Number(item.total_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
+                    <TableCell className="text-right font-mono font-bold text-primary">{Number(item.unit_cost || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

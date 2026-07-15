@@ -88,7 +88,8 @@ export async function loadConfig(): Promise<AppConfig> {
         realtime_updates: true,
         advanced_costing: true,
         multi_tenant: true,
-        demo_mode: true,
+        // أمني: false افتراضياً — الديمو يُفعَّل يدوياً وفي DEV فقط (auth-store يفرض DEV)
+        demo_mode: false,
         process_costing: true,
         avco_inventory: true,
         audit_trail: true

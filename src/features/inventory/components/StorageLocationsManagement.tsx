@@ -261,7 +261,7 @@ export default function StorageLocationsManagement() {
               <AlertCircle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
               <p className="text-muted-foreground mb-4">لا توجد مخازن مسجلة في النظام</p>
               <Button variant="outline" onClick={() => { 
-                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, sonarjs/prefer-global-this
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
                 if (globalThis.window) {
                   globalThis.window.location.href = '/inventory/warehouses'
                 }
@@ -309,7 +309,7 @@ export default function StorageLocationsManagement() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {/* eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional */}
+            {/* eslint-disable-next-line complexity */}
             {(() => {
               if (loading && !showDialog) {
                 return (
@@ -578,7 +578,6 @@ export default function StorageLocationsManagement() {
                   id="is_active"
                   checked={formData.is_active}
                   onCheckedChange={(checked) => {
-                    // eslint-disable-next-line sonarjs/prefer-immediate-return
                     setFormData({ ...formData, is_active: !!checked })
                   }}
                 />
@@ -594,7 +593,7 @@ export default function StorageLocationsManagement() {
               إلغاء
             </Button>
             <Button onClick={handleSave} disabled={loading}>
-              {/* eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional */}
+              {/* eslint-disable-next-line complexity */}
               {(() => {
                 if (loading) return 'جاري الحفظ...';
                 return editingLocation ? 'تحديث' : 'إنشاء';

@@ -18,7 +18,6 @@ export function initSentry(): void {
 
   // Dynamic import to avoid loading Sentry in development if not needed
   if (import.meta.env.PROD) {
-    // @ts-ignore - Sentry may not be installed
     import('@sentry/react').then((Sentry) => {
       Sentry.init({
         dsn: sentryDsn,
@@ -60,6 +59,10 @@ export function initSentry(): void {
           return event;
         },
       });
+
+      // P4-C2: تعيين window.Sentry — فتشتغل فحوصات ErrorHandler
+      // وerror-boundary القائمة (تتحقق من window.Sentry) بلا أي تعديل عليها
+      (window as unknown as { Sentry: typeof Sentry }).Sentry = Sentry;
 
       console.log('Sentry initialized');
     }).catch((error) => {

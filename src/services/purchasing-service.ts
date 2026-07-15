@@ -3,31 +3,16 @@
  * تدير دورة المشتريات الكاملة مع تكامل Stock Ledger System والقيود المحاسبية
  */
 
-import { supabase } from '../lib/supabase';
-// import { recordInventoryMovement } from '../domain/inventory'; // DISABLED - domain not implemented
+import { supabase, resolveOrgIdWithFallback } from '../lib/supabase';
 import { createStockLedgerEntry, getBin } from './stock-ledger-service';
-// import { ValuationFactory, StockBatch } from './valuation'; // DISABLED - valuation service not implemented
+// P5.1 (P0): إعادة ربط محرّك التقييم الحقيقي (FIFO/LIFO/متوسط مرجّح/متحرّك) بدل
+// الـ stub الذي كان يُرجع أصفاراً فيُصفّر رصيد الـ Bin وتقييمه عند كل استلام مقبول.
+import { ValuationFactory, type StockBatch, type ValuationMethod } from './valuation';
 
-// Temporary stubs for missing imports
-const recordInventoryMovement = async (...args: any[]) => {
-  console.warn('recordInventoryMovement not implemented yet');
+// ملاحظة: نظام المخزون القديم (domain/inventory) غير مُفعَّل — التتبّع الفعلي عبر
+// bins + Stock Ledger. هذا النداء يبقى no-op متوافقاً تراجعياً (غير حرج).
+const recordInventoryMovement = async (..._args: unknown[]) => {
   return { success: true };
-};
-
-interface StockBatch {
-  qty: number;
-  rate: number;
-}
-
-const ValuationFactory = {
-  getStrategy: (method: string) => ({
-    calculateIncomingRate: (...args: any[]) => ({
-      newQty: 0,
-      newRate: 0,
-      newValue: 0,
-      newQueue: []
-    })
-  })
 };
 
 // ===== TYPES =====
@@ -235,7 +220,8 @@ export async function updatePurchaseOrderStatus(orderId: string, status: string)
  */
 export async function receiveGoods(
   receipt: GoodsReceipt,
-  lines: GoodsReceiptLine[]
+  lines: GoodsReceiptLine[],
+  idempotencyKey?: string
 ) {
   try {
     console.log('📦 Creating Goods Receipt with Stock Ledger Entries...');
@@ -245,51 +231,129 @@ export async function receiveGoods(
       throw new Error('يجب تحديد المخزن (Warehouse) لإتمام الاستلام');
     }
 
-    // TODO: Get org_id from auth context/session
-    const org_id = '00000000-0000-0000-0000-000000000001';
+    // P4-A4: جلسة المستخدم أولاً، والافتراضية التاريخية كـ Fallback بتحذير
+    const org_id = await resolveOrgIdWithFallback();
 
-    // 1. إنشاء سند الاستلام
-    const { data: grData, error: grError } = await supabase
-      .from('goods_receipts')
-      .insert({
-        org_id,  // ⭐ Required for RLS
-        purchase_order_id: receipt.purchase_order_id,
+    // 1. إنشاء سند الاستلام — P5: المسار الذرّي أولاً (Migration 89):
+    //    رأس + سطور + قيد GRNI في معاملة واحدة Fail-closed، فلا يُسجَّل استلام
+    //    بلا قيد مقابل. idempotency يمنع التكرار. PGRST202 ⇒ المسار القديم حرفياً.
+    // مفتاح idempotency: يُفضَّل استقباله من الواجهة فيظل ثابتاً عبر إعادة المحاولة
+    // بعد timeout (لا يتكرر الاستلام). عند غيابه نولّد واحداً (حماية داخل الاستدعاء).
+    const grIdempotencyKey = idempotencyKey ?? globalThis.crypto.randomUUID();
+    let grData: { id: string; receipt_number?: string; [k: string]: unknown };
+    let linesAlreadyCreated = false;
+    // هل رحّل الـ RPC دفتر المخزون (SLE + bin) ذرّياً؟ (Migration 94 فقط).
+    // على DB بمهاجرة 89/90 القديمة ينجح الـ RPC بلا SLE/bin ولا هذا العلم، فيجب
+    // ألا نتخطّى دفتر المخزون في الواجهة (وإلا استلام بلا حركة مخزون).
+    let inventoryHandledByRpc = false;
+
+    const { data: grRpc, error: grRpcError } = await supabase.rpc('rpc_post_goods_receipt', {
+      p_payload: {
+        tenant_id: org_id,
+        idempotency_key: grIdempotencyKey,
         vendor_id: receipt.vendor_id,
+        purchase_order_id: receipt.purchase_order_id ?? null,
         receipt_date: receipt.receipt_date,
-        warehouse_id: receipt.warehouse_id,  // ⭐ Required
-        warehouse_location: receipt.warehouse_location,
-        receiver_name: receipt.receiver_name,
-        notes: receipt.notes,
-      })
-      .select()
-      .single();
+        warehouse_id: receipt.warehouse_id,
+        warehouse_location: receipt.warehouse_location ?? null,
+        receiver_name: receipt.receiver_name ?? null,
+        notes: receipt.notes ?? null,
+        lines: lines.map((l) => ({
+          product_id: l.product_id,
+          purchase_order_line_id: l.purchase_order_line_id ?? null,
+          ordered_quantity: l.ordered_quantity,
+          received_quantity: l.received_quantity,
+          unit_cost: l.unit_cost,
+          quality_status: l.quality_status,
+          notes: l.notes ?? null,
+        })),
+      },
+    });
 
-    if (grError) throw grError;
+    const grRpcMissing =
+      grRpcError != null &&
+      ((grRpcError as { code?: string }).code === 'PGRST202' ||
+        /Could not find the function/i.test((grRpcError as { message?: string }).message ?? ''));
 
-    console.log('✅ Goods Receipt created:', grData.id);
-
-    // 2. إنشاء سطور الاستلام وStock Ledger Entries
-    for (const line of lines) {
-      // إدراج سطر الاستلام
-      const { error: lineError } = await supabase
-        .from('goods_receipt_lines')
+    if (!grRpcError && (grRpc as { success?: boolean } | null)?.success) {
+      const res = grRpc as { goods_receipt_id: string; receipt_number?: string; inventory_atomic?: boolean };
+      const isReplay = (grRpc as { idempotent_replay?: boolean }).idempotent_replay === true;
+      grData = { id: res.goods_receipt_id, receipt_number: res.receipt_number };
+      linesAlreadyCreated = true;
+      // نثق فقط بالعلم الصريح inventory_atomic: الدالة الذرّية (Migration 94+) طبّقت
+      // SLE/bin — والـ replay منها يعيد inventory_atomic=true أيضاً (Migration 95).
+      inventoryHandledByRpc = res.inventory_atomic === true;
+      // replay من دالة قديمة (89/90) بلا inventory_atomic: دفتر المخزون هناك في
+      // الواجهة، ولا يمكن تأكيد أنه نُفِّذ في المحاولة الأصلية ⇒ Fail-closed بدل
+      // تخطّيه (فقدان مخزون) أو تكراره (مضاعفة مخزون).
+      if (isReplay && !inventoryHandledByRpc) {
+        throw new Error(
+          'استلام مكرَّر (idempotent replay) من دالة استلام قديمة بلا دفتر مخزون ذرّي — ' +
+          'تعذّر تأكيد حالة دفتر المخزون. طبّق Migration 94+ أو راجع الاستلام والمخزون يدوياً.'
+        );
+      }
+      console.log('✅ Goods Receipt + GRNI posted:', grData.id,
+        isReplay ? '(idempotent replay — inventory atomic)'
+          : inventoryHandledByRpc ? '(inventory ledger atomic)' : '(legacy RPC — client SLE)');
+    } else if (grRpcError && !grRpcMissing) {
+      // خطأ حقيقي (فشل قيد GRNI / عزل / عضوية) — Fail-closed: لا استلام ناقص
+      throw new Error((grRpcError as { message?: string }).message ?? 'فشل ترحيل الاستلام الذرّي');
+    } else {
+      // P5.1: في الإنتاج الـ RPC مطبَّق — غيابه خطأ يجب ألا يمرّ للمسار المتسامح.
+      // fail-closed في PROD؛ يُسمح بالـ fallback في التطوير فقط.
+      if (import.meta.env.PROD) {
+        throw new Error(
+          'rpc_post_goods_receipt غير متاحة في الإنتاج — تأكد من تطبيق Migration 89/90. ' +
+          'رُفض المسار المتسامح لضمان ذرّية الاستلام.'
+        );
+      }
+      // Fallback (تطوير فقط): Migration غير مطبَّقة — إدراج الرأس يدوياً كالسابق
+      const { data: grLegacy, error: grError } = await supabase
+        .from('goods_receipts')
         .insert({
-          org_id,  // ⭐ Required for RLS
-          goods_receipt_id: grData.id,
-          purchase_order_line_id: line.purchase_order_line_id,
-          product_id: line.product_id,
-          ordered_quantity: line.ordered_quantity,
-          received_quantity: line.received_quantity,
-          unit_cost: line.unit_cost,
-          quality_status: line.quality_status,
-          notes: line.notes,
-        });
+          org_id,
+          purchase_order_id: receipt.purchase_order_id,
+          vendor_id: receipt.vendor_id,
+          receipt_date: receipt.receipt_date,
+          warehouse_id: receipt.warehouse_id,
+          warehouse_location: receipt.warehouse_location,
+          receiver_name: receipt.receiver_name,
+          notes: receipt.notes,
+        })
+        .select()
+        .single();
+      if (grError) throw grError;
+      grData = grLegacy;
+      console.log('✅ Goods Receipt created (legacy path):', grData.id);
+    }
 
-      if (lineError) throw lineError;
+    // 2. سطور الاستلام (أُنشئت ذرّياً في الـ RPC) + Stock Ledger Entries
+    for (const line of lines) {
+      // إدراج سطر الاستلام — فقط في مسار الـ fallback (المسار الذرّي أنشأها)
+      if (!linesAlreadyCreated) {
+        const { error: lineError } = await supabase
+          .from('goods_receipt_lines')
+          .insert({
+            org_id,  // ⭐ Required for RLS
+            goods_receipt_id: grData.id,
+            purchase_order_line_id: line.purchase_order_line_id,
+            product_id: line.product_id,
+            ordered_quantity: line.ordered_quantity,
+            received_quantity: line.received_quantity,
+            unit_cost: line.unit_cost,
+            quality_status: line.quality_status,
+            notes: line.notes,
+          });
 
-      // ⭐ إنشاء Stock Ledger Entry (فقط للكميات المقبولة)
-      if (line.quality_status === 'accepted' && line.received_quantity > 0) {
-        
+        if (lineError) throw lineError;
+      }
+
+      // ⭐ دفتر المخزون (Stock Ledger Entry + bin): يُطبَّق **ذرّياً** داخل
+      //    rpc_post_goods_receipt (Migration 94) عندما يُعيد inventory_atomic=true.
+      //    نتخطّاه هنا فقط حينها؛ أما إن غاب العلم (RPC 89/90 قديم) أو سقطنا للـ
+      //    fallback فنُطبّقه في الواجهة (وإلا استلام بلا حركة مخزون).
+      if (!inventoryHandledByRpc && line.quality_status === 'accepted' && line.received_quantity > 0) {
+
         // Get product to check valuation method
         const { data: product, error: productError } = await supabase
           .from('products')
@@ -397,7 +461,10 @@ export async function receiveGoods(
       }
     }
 
-    // 3. تحديث كميات الاستلام في PO Lines
+    // 3+4: تحديث كميات وحالة أمر الشراء — يتمّان **ذرّياً** داخل الـ RPC
+    //      (Migration 90)؛ يُنفَّذان هنا فقط في مسار الـ fallback القديم تفادياً
+    //      لتكرار احتساب received_quantity.
+    if (!linesAlreadyCreated) {
     for (const line of lines) {
       if (line.purchase_order_line_id) {
         // Get current received quantity
@@ -439,10 +506,41 @@ export async function receiveGoods(
 
     const newStatus = allReceived ? 'fully_received' : (anyReceived ? 'partially_received' : 'approved');
     await updatePurchaseOrderStatus(receipt.purchase_order_id, newStatus);
+    } // end fallback-only PO update
+
+    // 5. قيد GRNI (مدين مخزون / دائن GRNI): يُرحَّل **ذرّياً** داخل
+    //    rpc_post_goods_receipt (Migration 89) في المسار الأساسي — Fail-closed.
+    //    هنا نرحّله فقط في مسار الـ fallback (متسامح تاريخياً بتحذير).
+    let glWarning: string | undefined;
+    if (!linesAlreadyCreated) {
+      const totalValue = lines.reduce(
+        (sum, l) => sum + (l.received_quantity || 0) * (l.unit_cost || 0), 0
+      );
+      if (totalValue > 0) {
+        try {
+          const { PostingService } = await import('./accounting/posting-service');
+          await PostingService.postEventJournal({
+            event: 'GR_RECEIPT',
+            amount: totalValue,
+            memo: `استلام بضاعة ${grData.receipt_number || grData.id}`,
+            refType: 'GOODS_RECEIPT',
+            refId: grData.id,
+            idempotencyKey: `GR_RECEIPT:${grData.id}`
+          });
+          console.log('✅ GL entry posted for goods receipt (Dr Inventory / Cr GRNI)');
+        } catch (glError: unknown) {
+          const msg = glError instanceof Error ? glError.message : String(glError);
+          glWarning =
+            'الاستلام تم لكن قيد GL لم يُرحَّل: ' + msg +
+            ' — تأكد من تطبيق Migration 84 (GR_RECEIPT) ثم أنشئ القيد يدوياً لهذا السند';
+          console.warn('⚠️ ' + glWarning);
+        }
+      }
+    }
 
     console.log('🎉 Goods Receipt completed successfully with Stock Ledger Entries!');
 
-    return { success: true, data: grData };
+    return { success: true, data: grData, glWarning };
   } catch (error) {
     console.error('💥 Error receiving goods:', error);
     return { success: false, error };
@@ -587,14 +685,17 @@ async function createPurchaseGLEntry(invoice: any) {
       transaction_date: invoice.invoice_date,
     });
 
-    // إدراج القيود في جدول gl_entries
-    const { error } = await supabase
-      .from('gl_entries')
-      .insert(entries);
-
-    if (error) {
-      console.error('Error creating GL entries:', error);
-      throw error;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const result = await createJournalEntry({
+      entry_date: invoice.invoice_date,
+      description: `فاتورة مورد ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_INVOICE',
+      reference_id: invoice.id,
+      entries
+    });
+    if (!result.success) {
+      throw result.error instanceof Error ? result.error : new Error(String(result.error));
     }
 
     console.log(`✅ تم إنشاء القيد المحاسبي للفاتورة ${invoice.invoice_number}`);
@@ -697,11 +798,18 @@ export async function recordSupplierPayment(invoiceId: string, paymentAmount: nu
       },
     ];
 
-    const { error: glError } = await supabase
-      .from('gl_entries')
-      .insert(paymentEntries);
-
-    if (glError) throw glError;
+    // P4-B2: المسار القانوني بدل INSERT مباشر في جدول الرؤوس gl_entries
+    const { createJournalEntry } = await import('./accounting-service');
+    const glResult = await createJournalEntry({
+      entry_date: paymentDate,
+      description: `دفعة لفاتورة ${invoice.invoice_number}`,
+      reference_type: 'SUPPLIER_PAYMENT',
+      reference_id: invoiceId,
+      entries: paymentEntries
+    });
+    if (!glResult.success) {
+      throw glResult.error instanceof Error ? glResult.error : new Error(String(glResult.error));
+    }
 
     console.log(`✅ تم تسجيل دفعة بمبلغ ${paymentAmount} للفاتورة ${invoice.invoice_number}`);
     return { success: true, balance, newStatus };

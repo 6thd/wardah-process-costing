@@ -145,7 +145,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           set({ isLoading: true })
           const config = await loadConfig()
-          if (config.FEATURES?.demo_mode) {
+          // أمني (Migration 82 era): وضع الديمو يعمل في التطوير فقط —
+          // في الإنتاج كان يفبرك مستخدم admin بلا أي مصادقة حقيقية
+          if (import.meta.env.DEV && config.FEATURES?.demo_mode) {
             const mockUser: AppUser = {
               id: 'demo-user-1',
               email: 'admin@wardah.sa',

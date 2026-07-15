@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -27,6 +28,8 @@ import {
 import { DateRange } from 'react-day-picker'
 import { manufacturingService } from '@/services/supabase-service'
 import { toast } from 'sonner'
+import { PageHeader } from '@/components/ui/page-header'
+import { EmptyState } from '@/components/ui/empty-state'
 import { useManufacturingOrders } from './hooks/useManufacturingOrders'
 import { useManufacturingProducts } from './hooks/useManufacturingProducts'
 import { createManufacturingOrder, getOrderDetails } from './services/manufacturingOrderService'
@@ -114,17 +117,15 @@ export function ManufacturingModule() {
 }
 
 function ProcessCostingPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.processCostingPage.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.processCostingPage.subtitle')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.processCostingPage.title')}
+        description={t('manufacturing.processCostingPage.subtitle')}
+        hideOnPrint={false}
+      />
 
       <StageCostingPanel />
     </div>
@@ -132,17 +133,15 @@ function ProcessCostingPage() {
 }
 
 function EquivalentUnitsPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.equivalentUnitsPage.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.equivalentUnitsPage.subtitle')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.equivalentUnitsPage.title')}
+        description={t('manufacturing.equivalentUnitsPage.subtitle')}
+        hideOnPrint={false}
+      />
 
       <EquivalentUnitsDashboard />
     </div>
@@ -155,16 +154,12 @@ function CostOfProductionPage() {
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left", "print:hidden")}>
-        <h1 className="text-3xl font-bold">
-          {isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {isRTL
-            ? 'الخطوات الخمس القياسية: الكميات، الوحدات المكافئة، التكاليف، تكلفة الوحدة، التوزيع والتسوية'
-            : 'The five standard steps: quantities, EUP, costs, cost per EU, assignment & reconciliation'}
-        </p>
-      </div>
+      <PageHeader
+        title={isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
+        description={isRTL
+          ? 'الخطوات الخمس القياسية: الكميات، الوحدات المكافئة، التكاليف، تكلفة الوحدة، التوزيع والتسوية'
+          : 'The five standard steps: quantities, EUP, costs, cost per EU, assignment & reconciliation'}
+      />
 
       <CostOfProductionReportView />
     </div>
@@ -172,17 +167,15 @@ function CostOfProductionPage() {
 }
 
 function VarianceAlertsPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.varianceAlertsPage.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.varianceAlertsPage.subtitle')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.varianceAlertsPage.title')}
+        description={t('manufacturing.varianceAlertsPage.subtitle')}
+        hideOnPrint={false}
+      />
 
       <VarianceAlerts />
     </div>
@@ -190,19 +183,16 @@ function VarianceAlertsPage() {
 }
 
 function ManufacturingStagesPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold wardah-text-gradient-google">
-          {t('manufacturing.stagesPage.title', { defaultValue: 'مراحل التصنيع' })}
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.stagesPage.subtitle', { defaultValue: 'إدارة مراحل التصنيع وخطوات الإنتاج' })}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.stagesPage.title', { defaultValue: 'مراحل التصنيع' })}
+        titleClassName="wardah-text-gradient-google"
+        description={t('manufacturing.stagesPage.subtitle', { defaultValue: 'إدارة مراحل التصنيع وخطوات الإنتاج' })}
+        hideOnPrint={false}
+      />
 
       <ManufacturingStagesList />
     </div>
@@ -210,19 +200,16 @@ function ManufacturingStagesPage() {
 }
 
 function StageWipLogPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold wardah-text-gradient-google">
-          {t('manufacturing.wipLogPage.title', { defaultValue: 'سجلات العمل قيد التنفيذ (WIP)' })}
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.wipLogPage.subtitle', { defaultValue: 'تتبع ومراقبة العمل قيد التنفيذ لكل مرحلة تصنيع' })}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.wipLogPage.title', { defaultValue: 'سجلات العمل قيد التنفيذ (WIP)' })}
+        titleClassName="wardah-text-gradient-google"
+        description={t('manufacturing.wipLogPage.subtitle', { defaultValue: 'تتبع ومراقبة العمل قيد التنفيذ لكل مرحلة تصنيع' })}
+        hideOnPrint={false}
+      />
 
       <StageWipLogList />
     </div>
@@ -230,19 +217,16 @@ function StageWipLogPage() {
 }
 
 function StandardCostsPage() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold wardah-text-gradient-google">
-          {t('manufacturing.standardCostsPage.title', { defaultValue: 'التكاليف القياسية' })}
-        </h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.standardCostsPage.subtitle', { defaultValue: 'إدارة التكاليف القياسية للمنتجات والمراحل لتحليل الانحرافات' })}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.standardCostsPage.title', { defaultValue: 'التكاليف القياسية' })}
+        titleClassName="wardah-text-gradient-google"
+        description={t('manufacturing.standardCostsPage.subtitle', { defaultValue: 'إدارة التكاليف القياسية للمنتجات والمراحل لتحليل الانحرافات' })}
+        hideOnPrint={false}
+      />
 
       <StandardCostsList />
     </div>
@@ -252,41 +236,17 @@ function StandardCostsPage() {
 function ManufacturingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  const [orders, setOrders] = useState<ManufacturingOrder[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        const data = await manufacturingService.getAll()
-        // Convert OrderWithItem[] to ManufacturingOrder[] via unknown
-        const ordersData = (data || []) as unknown as ManufacturingOrder[]
-        setOrders(ordersData)
-      } catch (error: unknown) {
-        // Handle missing table gracefully
-        const err = error as { code?: string; message?: string }
-        if (err.code === 'PGRST205' || err.message?.includes('Could not find the table')) {
-          console.warn('manufacturing_orders table not found, using empty array')
-          setOrders([])
-        } else {
-          console.error('Error loading manufacturing orders:', error)
-          toast.error(t('manufacturing.ordersPage.loadError'))
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-    loadOrders()
-  }, [t])
+  // بند 11: الـ hook الموحَّد — كاش مشترك مع شاشة الأوامر بدل جلب مكرر
+  const { orders, loading } = useManufacturingOrders()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold wardah-text-gradient-google">{t('manufacturing.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.overviewPage.subtitle')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.title')}
+        titleClassName="wardah-text-gradient-google"
+        description={t('manufacturing.overviewPage.subtitle')}
+        hideOnPrint={false}
+      />
 
       {/* Key Metrics */}
       <ManufacturingMetrics orders={orders} isRTL={isRTL} t={t} />
@@ -446,12 +406,7 @@ function ManufacturingOrdersManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{t('common.loading')}</p>
-        </div>
-      </div>
+      <LoadingSpinner label={t('common.loading')} />
     )
   }
 
@@ -804,12 +759,11 @@ function WorkCentersManagement() {
 
   return (
     <div className="space-y-8">
-      <div className={cn(isRTL ? 'text-right' : 'text-left')}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.workCenters.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.workCenters.subtitle')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.workCenters.title')}
+        description={t('manufacturing.workCenters.subtitle')}
+        hideOnPrint={false}
+      />
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card>
@@ -966,25 +920,20 @@ function WorkCentersManagement() {
 
 // Quality Control Management Component
 function QualityControlManagement() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
-      <div className={cn(isRTL ? "text-right" : "text-left")}>
-        <h1 className="text-3xl font-bold">{t('manufacturing.qualityControlPage.title')}</h1>
-        <p className="text-muted-foreground mt-2">
-          {t('manufacturing.qualityControlPage.subtitle')}
-        </p>
-      </div>
-      <div className="bg-card rounded-lg border p-6">
-        <p className={cn(
-          "text-muted-foreground",
-          isRTL ? "text-right" : "text-left"
-        )}>
-          {t('manufacturing.qualityControlPage.comingSoon')}
-        </p>
-      </div>
+      <PageHeader
+        title={t('manufacturing.qualityControlPage.title')}
+        description={t('manufacturing.qualityControlPage.subtitle')}
+        hideOnPrint={false}
+      />
+      <Card>
+        <EmptyState
+          title={t('manufacturing.qualityControlPage.comingSoon')}
+        />
+      </Card>
     </div>
   )
 }

@@ -123,13 +123,13 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
             <div className="text-right">
               <div className="text-xs text-gray-600 mb-1">إجمالي الكمية</div>
               <div className="text-lg font-bold text-gray-800">
-                {totalStock.toLocaleString('ar-SA', { minimumFractionDigits: 2 })}
+                {totalStock.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </div>
             </div>
             <div className="text-right">
               <div className="text-xs text-gray-600 mb-1">إجمالي القيمة</div>
               <div className="text-lg font-bold text-green-600">
-                {totalValue.toLocaleString('ar-SA', { 
+                {totalValue.toLocaleString('en-US', { 
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2 
                 })} ر.س
@@ -177,11 +177,10 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {batches.map((batch, index) => {
-                    // eslint-disable-next-line react/no-array-index-key
                     const batchKey = `batch-${batch.batch_number}-${productId}-${index}`;
                     const isFIFOFirst = valuationMethod === 'FIFO' && index === 0;
                     const isLIFOLast = valuationMethod === 'LIFO' && index === batches.length - 1;
-                    // eslint-disable-next-line sonarjs/prefer-immediate-return, complexity, sonarjs/no-nested-template-literals, sonarjs/no-nested-conditional
+                    // eslint-disable-next-line complexity
                     let rowClassName = '';
                     if (isFIFOFirst) {
                       rowClassName = 'bg-green-50';
@@ -207,18 +206,18 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        {batch.quantity.toLocaleString('ar-SA', { 
+                        {batch.quantity.toLocaleString('en-US', { 
                           minimumFractionDigits: 2 
                         })}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        {batch.rate.toLocaleString('ar-SA', { 
+                        {batch.rate.toLocaleString('en-US', { 
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2 
                         })} ر.س
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {batch.value.toLocaleString('ar-SA', { 
+                        {batch.value.toLocaleString('en-US', { 
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2 
                         })} ر.س
@@ -245,7 +244,7 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                       الإجمالي
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
-                      {batches.reduce((sum, b) => sum + b.quantity, 0).toLocaleString('ar-SA', { 
+                      {batches.reduce((sum, b) => sum + b.quantity, 0).toLocaleString('en-US', { 
                         minimumFractionDigits: 2 
                       })}
                     </td>
@@ -253,7 +252,7 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                       {batches.length > 0 
                         ? (batches.reduce((sum, b) => sum + b.value, 0) / 
                            batches.reduce((sum, b) => sum + b.quantity, 0))
-                            .toLocaleString('ar-SA', { 
+                            .toLocaleString('en-US', { 
                               minimumFractionDigits: 2,
                               maximumFractionDigits: 2 
                             })
@@ -261,7 +260,7 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                       } ر.س
                     </td>
                     <td className="px-4 py-3 text-sm text-green-600">
-                      {batches.reduce((sum, b) => sum + b.value, 0).toLocaleString('ar-SA', { 
+                      {batches.reduce((sum, b) => sum + b.value, 0).toLocaleString('en-US', { 
                         minimumFractionDigits: 2,
                         maximumFractionDigits: 2 
                       })} ر.س

@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react'
+import { LoadingSpinner } from '@/components/ui/loading-state'
 import { Plus, X, Trash2, Package, ArrowRight, Save, Send } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -440,7 +441,6 @@ export default function StockTransferManagement() {
           stock_value_difference: item.quantity * valuationRate
         };
         // Push both entries at once (intentional - both entries are created together)
-        // eslint-disable-next-line sonarjs/prefer-array-methods
         stockLedgerEntries.push(outEntry, inEntry)
       }
 
@@ -502,12 +502,7 @@ export default function StockTransferManagement() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">جاري التحميل...</p>
-        </div>
-      </div>
+      <LoadingSpinner label="جاري التحميل..." />
     )
   }
 
@@ -862,7 +857,7 @@ export default function StockTransferManagement() {
                       </Badge>
                     </div>
                     <div className="text-sm text-muted-foreground mt-1">
-                      {new Date(transfer.transfer_date).toLocaleDateString('ar-SA')}
+                      {new Date(transfer.transfer_date).toLocaleDateString('en-US')}
                     </div>
                     <div className="flex items-center gap-2 mt-2 text-sm">
                       <span>{getWarehouseName(transfer.from_warehouse_id)}</span>

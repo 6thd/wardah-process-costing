@@ -55,7 +55,7 @@ describe('enhanced-sales-service number generators (__testables)', () => {
     const next = await mod.__testables.generateSalesOrderNumber()
     expect(next).toBe('SO-000010')
     expect(qb.select).toHaveBeenCalledWith('so_number')
-    expect(qb.eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(qb.eq).toHaveBeenCalledWith('org_id', 'tenant-1')
   })
 
   it('starts sales order sequence at SO-000001 when no prior rows', async () => {
@@ -163,7 +163,7 @@ describe('enhanced-sales-service createSalesOrder', () => {
     }))
 
     ;(supabase as unknown as SupabaseMock).from.mockImplementation((table: string) => {
-      if (table === 'items') {
+      if (table === 'products') {
         return { select: itemsSelectMock }
       }
       return {}
@@ -244,7 +244,7 @@ describe('enhanced-sales-service createSalesOrder', () => {
     }))
 
     ;(supabase as unknown as SupabaseMock).from.mockImplementation((table: string) => {
-      if (table === 'items') return { select: itemsSelectMock }
+      if (table === 'products') return { select: itemsSelectMock }
       if (table === 'customers') return { select: customersSelectMock }
       if (table === 'sales_invoices') return { select: invoicesSelectMock }
       if (table === 'sales_orders') return { insert: salesOrdersInsertMock }

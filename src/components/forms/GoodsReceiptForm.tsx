@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -55,6 +55,11 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
   const [receiptDate, setReceiptDate] = useState<Date>(new Date())
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<GoodsReceiptLine[]>([])
+  // مفتاح idempotency مقرون ببصمة الحمولة { key, fp }: يُعاد استخدام المفتاح فقط
+  // عند تطابق الحمولة (إعادة محاولة حقيقية بعد فشل/timeout ⇒ لا تكرار استلام)،
+  // وأي تغيّر في الحمولة (كمية/مخزن/تاريخ/سطور/تكلفة/أمر الشراء) يولّد مفتاحاً
+  // جديداً — فلا يُعاد سند قديم كـ replay لعملية مختلفة. يُصفَّر بعد النجاح.
+  const idempotencyRef = useRef<{ key: string; fp: string } | null>(null)
 
   useEffect(() => {
     if (open) {
@@ -188,8 +193,14 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
         quality_status: 'accepted' as const  // Default to accepted
       }))
 
-      // ⭐ Use the new receiveGoods function with Stock Ledger System
-      const result = await receiveGoods(receipt, receiptLines)
+      // ⭐ Use the new receiveGoods function with Stock Ledger System.
+      //    بصمة الحمولة تحكم المفتاح: نفس الحمولة ⇒ نفس المفتاح (إعادة محاولة آمنة)،
+      //    وتغيّرها ⇒ مفتاح جديد (عملية مختلفة، لا يُعاد سند سابق كـ replay).
+      const receiptFingerprint = JSON.stringify({ ...receipt, lines: receiptLines })
+      if (!idempotencyRef.current || idempotencyRef.current.fp !== receiptFingerprint) {
+        idempotencyRef.current = { key: globalThis.crypto.randomUUID(), fp: receiptFingerprint }
+      }
+      const result = await receiveGoods(receipt, receiptLines, idempotencyRef.current.key)
 
       if (!result.success) {
         throw result.error || new Error('Failed to create goods receipt')
@@ -198,7 +209,15 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
       console.log('✅ Goods Receipt created successfully:', result.data)
 
       toast.success('تم إنشاء سند الاستلام بنجاح')
-      
+
+      // نجح الاستلام ⇒ صفّر المفتاح/البصمة ليبدأ الاستلام التالي بمفتاح جديد
+      idempotencyRef.current = null
+
+      // B1: قيد GL لم يُرحَّل؟ أخبر المستخدم بدل الصمت
+      if (result.glWarning) {
+        toast.warning(result.glWarning, { duration: 10000 })
+      }
+
       // Reset form
       setSelectedPO('')
       setWarehouseId('')
