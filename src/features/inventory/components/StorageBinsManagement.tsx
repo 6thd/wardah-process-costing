@@ -410,7 +410,7 @@ export default function StorageBinsManagement() {
                     <TableHead>الموقع الفيزيائي</TableHead>
                     <TableHead>النوع</TableHead>
                     <TableHead>الحالة</TableHead>
-                    <TableHead className="text-left">الإجراءات</TableHead>
+                    <TableHead className="text-start">الإجراءات</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -470,7 +470,7 @@ export default function StorageBinsManagement() {
                           )}
                         </div>
                       </TableCell>
-                      <TableCell className="text-left">
+                      <TableCell className="text-start">
                         <div className="flex items-center gap-2">
                           <Button
                             variant="ghost"

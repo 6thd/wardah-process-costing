@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSupabase } from '@/lib/supabase';
 import { safeLocalStorage } from '@/lib/safe-storage';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 // =====================================
 // Types
@@ -301,11 +302,11 @@ export async function checkPermission(
     if (orgUser?.is_org_admin) return true;
 
     // Check specific permission via database function
-    const { data, error } = await supabase.rpc('has_permission', {
+    // has_permission takes p_permission_key; send module+action as combined key
+    const { data, error } = await (supabase as SupabaseClient).rpc('has_permission', {
       p_user_id: userId,
       p_org_id: orgId,
-      p_module_code: moduleCode,
-      p_action: action,
+      p_permission_key: `${moduleCode}.${action}`,
     });
 
     if (error) {

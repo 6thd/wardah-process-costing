@@ -843,7 +843,7 @@ export default function StockTransferManagement() {
                 key={transfer.id}
                 type="button"
                 aria-label={`عرض تفاصيل نقل المخزون ${transfer.id}`}
-                className="w-full text-left border rounded-lg p-4 hover:bg-muted/30 transition-colors"
+                className="w-full text-start border rounded-lg p-4 hover:bg-muted/30 transition-colors"
                 onClick={() => {
                   // View transfer details
                 }}

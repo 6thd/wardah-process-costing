@@ -91,9 +91,9 @@ export function InventoryValuationReport() {
               <TableRow>
                 <TableHead className="text-right">الرمز</TableHead>
                 <TableHead className="text-right">المنتج</TableHead>
-                <TableHead className="text-left">الكمية</TableHead>
-                <TableHead className="text-left">تكلفة الوحدة</TableHead>
-                <TableHead className="text-left">قيمة المخزون</TableHead>
+                <TableHead className="text-start">الكمية</TableHead>
+                <TableHead className="text-start">تكلفة الوحدة</TableHead>
+                <TableHead className="text-start">قيمة المخزون</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -101,9 +101,9 @@ export function InventoryValuationReport() {
                 <TableRow key={r.id}>
                   <TableCell className="text-right font-mono text-xs">{r.code ?? '—'}</TableCell>
                   <TableCell className="text-right">{r.name ?? '—'}</TableCell>
-                  <TableCell className="text-left">{fmt(r.stock_quantity ?? 0)}</TableCell>
-                  <TableCell className="text-left">{fmt(r.cost_price ?? 0)}</TableCell>
-                  <TableCell className="text-left font-medium">
+                  <TableCell className="text-start">{fmt(r.stock_quantity ?? 0)}</TableCell>
+                  <TableCell className="text-start">{fmt(r.cost_price ?? 0)}</TableCell>
+                  <TableCell className="text-start font-medium">
                     {fmt((r.stock_quantity ?? 0) * (r.cost_price ?? 0))}
                   </TableCell>
                 </TableRow>
@@ -114,9 +114,9 @@ export function InventoryValuationReport() {
                 <TableCell className="text-right font-bold" colSpan={2}>
                   الإجمالي ({rows.length} منتجاً)
                 </TableCell>
-                <TableCell className="text-left font-bold">{fmt(totalQty)}</TableCell>
+                <TableCell className="text-start font-bold">{fmt(totalQty)}</TableCell>
                 <TableCell />
-                <TableCell className="text-left font-bold">{fmt(grandTotal)} ريال</TableCell>
+                <TableCell className="text-start font-bold">{fmt(grandTotal)} ريال</TableCell>
               </TableRow>
             </TableFooter>
           </Table>

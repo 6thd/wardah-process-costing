@@ -340,7 +340,7 @@ export default function StorageLocationsManagement() {
                       <TableHead>الميزات</TableHead>
                       <TableHead>السعة</TableHead>
                       <TableHead>الحالة</TableHead>
-                      <TableHead className="text-left">الإجراءات</TableHead>
+                      <TableHead className="text-start">الإجراءات</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -400,7 +400,7 @@ export default function StorageLocationsManagement() {
                             <Badge variant="secondary">غير نشط</Badge>
                           )}
                         </TableCell>
-                        <TableCell className="text-left">
+                        <TableCell className="text-start">
                           <div className="flex items-center gap-2">
                             <Button
                               variant="ghost"

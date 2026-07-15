@@ -1,3 +1,10 @@
+-- ===================================================================
+-- Migration 108: دوال انحرافات التصنيع (مادة + عمالة)
+-- ===================================================================
+-- مصدر: src/database/migrations/001_create_variance_functions.sql
+-- الحالة: ⏳ مُرقَّمة (توحيد Phase 2) — تُطبَّق بعد التحقق من stock_moves/labor_entries
+-- ===================================================================
+
 -- Material and Labor Variance Calculation Functions
 
 -- Function to calculate material variances for a manufacturing order

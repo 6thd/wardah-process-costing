@@ -42,7 +42,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
       if (queryError) throw queryError
       
       // Fetch manufacturing orders separately if needed - support both column names
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
+      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id).filter(Boolean))] as string[]
       
       const moData: Record<string, { id: string; order_number?: string; costing_method?: string }> = {}
       if (moIds.length > 0) {

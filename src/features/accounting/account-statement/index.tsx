@@ -245,7 +245,7 @@ export function AccountStatement() {
 
       if (error) throw error;
 
-      const lines = data || [];
+      const lines = (data || []) as AccountStatementLine[];
       setStatementLines(lines);
       
       // Calculate opening balance (first running balance - first balance)
@@ -506,7 +506,7 @@ export function AccountStatement() {
                     <Button
                       variant="outline"
                       className={cn(
-                        "w-full justify-start text-left font-normal",
+                        "w-full justify-start text-start font-normal",
                         !fromDate && "text-muted-foreground"
                       )}
                     >
@@ -548,7 +548,7 @@ export function AccountStatement() {
                     <Button
                       variant="outline"
                       className={cn(
-                        "w-full justify-start text-left font-normal",
+                        "w-full justify-start text-start font-normal",
                         !toDate && "text-muted-foreground"
                       )}
                     >

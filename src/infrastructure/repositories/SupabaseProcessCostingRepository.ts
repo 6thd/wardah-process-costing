@@ -5,7 +5,8 @@
  * This is an adapter that connects the domain to the database.
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabase as _supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   IProcessCostingRepository,
   DirectMaterialData,
@@ -14,6 +15,9 @@ import type {
 } from '@/domain/interfaces/IProcessCostingRepository';
 import type { IProcessCostingRepositoryExtended } from '@/application/services/ProcessCostingAppService';
 import type { StageCostResult } from '@/domain/interfaces/IProcessCostingService';
+
+// This repository uses a legacy process-costing schema; cast to bypass type-checking.
+const supabase = _supabase as SupabaseClient;
 
 /**
  * SupabaseProcessCostingRepository

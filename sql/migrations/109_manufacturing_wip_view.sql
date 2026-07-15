@@ -1,3 +1,10 @@
+-- ===================================================================
+-- Migration 109: عرض WIP حسب مراحل التصنيع
+-- ===================================================================
+-- مصدر: src/database/migrations/002_create_wip_view.sql
+-- الحالة: ⏳ مُرقَّمة (توحيد Phase 2) — تُطبَّق بعد التحقق من labor_entries/overhead_allocations
+-- ===================================================================
+
 -- WIP by Stage View
 -- Shows work in progress inventory by manufacturing order stage
 

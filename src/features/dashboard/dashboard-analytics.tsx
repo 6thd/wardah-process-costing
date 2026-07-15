@@ -104,18 +104,18 @@ export function DashboardAnalytics() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">الشهر</TableHead>
-                  <TableHead className="text-left">المبيعات</TableHead>
-                  <TableHead className="text-left">التكاليف</TableHead>
-                  <TableHead className="text-left">الربح</TableHead>
+                  <TableHead className="text-start">المبيعات</TableHead>
+                  <TableHead className="text-start">التكاليف</TableHead>
+                  <TableHead className="text-start">الربح</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {months.map((m, i) => (
                   <TableRow key={m + i}>
                     <TableCell className="text-right">{m}</TableCell>
-                    <TableCell className="text-left">{formatCurrency(revenue[i])}</TableCell>
-                    <TableCell className="text-left">{formatCurrency(costs[i])}</TableCell>
-                    <TableCell className={`text-left font-medium ${profit[i] >= 0 ? 'text-success' : 'text-destructive'}`}>
+                    <TableCell className="text-start">{formatCurrency(revenue[i])}</TableCell>
+                    <TableCell className="text-start">{formatCurrency(costs[i])}</TableCell>
+                    <TableCell className={`text-start font-medium ${profit[i] >= 0 ? 'text-success' : 'text-destructive'}`}>
                       {formatCurrency(profit[i])}
                     </TableCell>
                   </TableRow>

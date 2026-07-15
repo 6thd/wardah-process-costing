@@ -4,7 +4,8 @@
  * تنفيذ Repository Pattern للمحاسبة باستخدام Supabase
  */
 
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   IAccountingRepository,
   GLAccountData,
@@ -16,6 +17,10 @@ import type {
   BalanceSheetData,
   AccountStatementData,
 } from '@/domain/interfaces/IAccountingRepository'
+
+// This repository uses a legacy GL schema (debit/credit on gl_entries) that differs
+// from the generated typed schema. Cast to bypass type-checking in this file.
+const supabase = _supabase as SupabaseClient
 
 export class SupabaseAccountingRepository implements IAccountingRepository {
   

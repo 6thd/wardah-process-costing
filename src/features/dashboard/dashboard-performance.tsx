@@ -98,9 +98,9 @@ export function DashboardPerformance() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">الشهر</TableHead>
-                  <TableHead className="text-left">المبيعات</TableHead>
-                  <TableHead className="text-left">الربح</TableHead>
-                  <TableHead className="text-left">الهامش</TableHead>
+                  <TableHead className="text-start">المبيعات</TableHead>
+                  <TableHead className="text-start">الربح</TableHead>
+                  <TableHead className="text-start">الهامش</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -109,9 +109,9 @@ export function DashboardPerformance() {
                   return (
                     <TableRow key={m + i}>
                       <TableCell className="text-right">{m}</TableCell>
-                      <TableCell className="text-left">{formatCurrency(charts.revenue[i])}</TableCell>
-                      <TableCell className="text-left">{formatCurrency(charts.profit[i])}</TableCell>
-                      <TableCell className="text-left font-medium">
+                      <TableCell className="text-start">{formatCurrency(charts.revenue[i])}</TableCell>
+                      <TableCell className="text-start">{formatCurrency(charts.profit[i])}</TableCell>
+                      <TableCell className="text-start font-medium">
                         {margin === null ? '—' : `${margin.toFixed(1)}%`}
                       </TableCell>
                     </TableRow>

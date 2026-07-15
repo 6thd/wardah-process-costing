@@ -66,7 +66,7 @@ export async function fetchTrialBalanceManual(
         account_code: account.code,
         account_name: account.name,
         account_name_ar: account.name_ar,
-        account_type: account.account_type,
+        account_type: account.category,
         opening_debit: 0,
         opening_credit: 0,
         period_debit: 0,

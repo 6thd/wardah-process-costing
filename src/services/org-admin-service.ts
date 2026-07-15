@@ -178,7 +178,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
           .in('user_id', userIds);
 
         // Merge roles with users
-        (userRoles || []).forEach((ur: any) => {
+        (userRoles || []).forEach((ur) => {
           if (!rolesMap.has(ur.user_id)) {
             rolesMap.set(ur.user_id, []);
           }

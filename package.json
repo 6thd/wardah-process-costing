@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
+    "gen:types": "supabase gen types typescript --project-id uutfztmqvajmsxnrqeiv > src/types/database.generated.ts",
     "validate-env": "tsx scripts/env/validate-env.ts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --coverage.reportOnFailure",
