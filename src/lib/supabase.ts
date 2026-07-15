@@ -599,22 +599,20 @@ export const getEffectiveTenantId = async (): Promise<string | null> => {
 };
 
 /**
- * المؤسسة الافتراضية التاريخية — كانت مكتوبة حرفياً في 5+ مواضع.
- * تُستخدم كـ Fallback أخير فقط عندما لا توجد جلسة مستخدم
- * (P4-A4: كل المواضع تمر الآن عبر resolveOrgIdWithFallback)
+ * هوية المؤسسة من الجلسة — null عند غياب الجلسة أو المؤسسة.
  */
-export const LEGACY_DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
+export const resolveOrgId = async (): Promise<string | null> => {
+    return getEffectiveTenantId();
+};
 
 /**
- * هوية المؤسسة من الجلسة أولاً، ثم الافتراضية التاريخية كـ Fallback
- * مع تحذير — حتى لا تُكتب بيانات تحت مؤسسة خاطئة بصمت
+ * هوية المؤسسة من الجلسة — يرمي خطأ إذا لم تُحدَّد مؤسسة.
+ * لا يعود إلى UUID ثابت.
  */
 export const resolveOrgIdWithFallback = async (): Promise<string> => {
-    const sessionOrgId = await getEffectiveTenantId();
-    if (sessionOrgId) return sessionOrgId;
-    console.warn(
-        '[wardah] لا جلسة مستخدم نشطة — استخدام المؤسسة الافتراضية التاريخية. ' +
-        'تحقق من تسجيل الدخول وعضوية user_organizations.'
-    );
-    return LEGACY_DEFAULT_ORG_ID;
+    const orgId = await getEffectiveTenantId();
+    if (!orgId) {
+        throw new Error('لا مؤسسة نشطة — تحقق من تسجيل الدخول وعضوية user_organizations');
+    }
+    return orgId;
 };

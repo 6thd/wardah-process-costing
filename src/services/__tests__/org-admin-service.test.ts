@@ -17,9 +17,14 @@ const mockMaybeSingle = vi.fn();
 const mockEq = vi.fn();
 
 const mockAuthGetUser = vi.fn();
+const mockRpc = vi.fn();
 
 vi.mock('@/lib/supabase', () => ({
   getSupabase: () => ({
+    rpc: async (name: string, args: unknown) => {
+      const result = mockRpc(name, args);
+      return result ?? { data: null, error: null };
+    },
     from: (table: string) => {
       mockFrom(table);
       return {
@@ -95,6 +100,7 @@ import {
 describe('Org Admin Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRpc.mockReturnValue({ data: null, error: null });
     mockAuthGetUser.mockResolvedValue({
       data: { user: { id: 'user-1', email: 'admin@example.com' } },
       error: null,
@@ -103,28 +109,21 @@ describe('Org Admin Service', () => {
 
   describe('checkIsOrgAdmin', () => {
     it('should return true when user is org admin', async () => {
-      mockMaybeSingle.mockResolvedValueOnce({
-        data: { id: 'uo-1', is_org_admin: true },
-        error: null,
-      });
+      mockRpc.mockReturnValueOnce({ data: true, error: null });
 
       const result = await checkIsOrgAdmin('org-1');
 
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
+      expect(mockRpc).toHaveBeenCalledWith('wardah_is_org_admin', { p_org: 'org-1' });
       expect(result).toBe(true);
     });
 
     it('should return false when user is not org admin', async () => {
-      mockMaybeSingle.mockResolvedValueOnce({
-        data: { id: 'uo-1', is_org_admin: false },
-        error: null,
-      });
+      mockRpc.mockReturnValueOnce({ data: false, error: null });
 
-      await checkIsOrgAdmin('org-1');
+      const result = await checkIsOrgAdmin('org-1');
 
-      // Note: Current implementation returns true as fallback
-      // This test documents expected behavior
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
+      expect(mockRpc).toHaveBeenCalledWith('wardah_is_org_admin', { p_org: 'org-1' });
+      expect(result).toBe(false);
     });
 
     it('should return true when no user found (fallback)', async () => {
@@ -195,28 +194,38 @@ describe('Org Admin Service', () => {
 
   describe('setUserAsOrgAdmin', () => {
     it('should set user as org admin successfully', async () => {
+      mockRpc.mockReturnValueOnce({ data: { ok: true }, error: null });
+
       const result = await setUserAsOrgAdmin('user-1', 'org-1', true);
 
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
-      expect(mockUpdate).toHaveBeenCalledWith({ is_org_admin: true });
+      expect(mockRpc).toHaveBeenCalledWith('rpc_set_org_admin', {
+        p_target_user_id: 'user-1',
+        p_org_id: 'org-1',
+        p_value: true,
+      });
       expect(result.success).toBe(true);
     });
 
     it('should remove org admin status successfully', async () => {
+      mockRpc.mockReturnValueOnce({ data: { ok: true }, error: null });
+
       const result = await setUserAsOrgAdmin('user-1', 'org-1', false);
 
-      expect(mockUpdate).toHaveBeenCalledWith({ is_org_admin: false });
+      expect(mockRpc).toHaveBeenCalledWith('rpc_set_org_admin', {
+        p_target_user_id: 'user-1',
+        p_org_id: 'org-1',
+        p_value: false,
+      });
       expect(result.success).toBe(true);
     });
 
     it('should handle error scenarios', async () => {
-      // Test that the function handles errors gracefully
-      // Current implementation catches errors and returns success: true as fallback
+      mockRpc.mockReturnValueOnce({ data: { ok: false, error: 'غير مصرح' }, error: null });
+
       const result = await setUserAsOrgAdmin('user-1', 'org-1', true);
 
-      // Verify the function was called
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
-      expect(typeof result.success).toBe('boolean');
+      expect(mockRpc).toHaveBeenCalledWith('rpc_set_org_admin', expect.objectContaining({ p_value: true }));
+      expect(result.success).toBe(false);
     });
   });
 

@@ -74,46 +74,20 @@ export interface OrgStats {
 // =====================================
 
 /**
- * Check if current user is org admin
+ * Check if current user is org admin — via server-side RPC (fail-closed)
  */
 export async function checkIsOrgAdmin(orgId: string): Promise<boolean> {
-  console.log('🔍 Checking org admin for org:', orgId);
   try {
     const supabase = getSupabase();
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    if (!user) {
-      console.log('❌ No user found');
+    const { data, error } = await supabase.rpc('wardah_is_org_admin', { p_org: orgId });
+    if (error) {
+      console.error('❌ checkIsOrgAdmin RPC error:', error);
       return false;
     }
-
-    // Add timeout to prevent hanging
-    const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => 
-      setTimeout(() => resolve({ data: null, error: new Error('Timeout') }), 5000)
-    );
-
-    const queryPromise = supabase
-      .from('user_organizations')
-      .select('id, is_org_admin')
-      .eq('user_id', user.id)
-      .eq('org_id', orgId)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    const { data, error } = await Promise.race([queryPromise, timeoutPromise]);
-
-    console.log('📦 Org admin check result:', { data, error });
-
-    if (error) {
-      console.error('❌ Error checking org admin:', error);
-      // Return true as fallback if RLS blocks but user exists
-      return true; // Temporary: allow access while RLS is being fixed
-    }
-
-    return data?.is_org_admin === true;
+    return data === true;
   } catch (error) {
-    console.error('❌ Error in checkIsOrgAdmin:', error);
-    return true; // Temporary: allow access while RLS is being fixed
+    console.error('❌ checkIsOrgAdmin unexpected error:', error);
+    return false;
   }
 }
 
@@ -231,7 +205,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
 }
 
 /**
- * Update user's org admin status
+ * Update user's org admin status — via server-side RPC only
  */
 export async function setUserAsOrgAdmin(
   userId: string,
@@ -240,15 +214,13 @@ export async function setUserAsOrgAdmin(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabase();
-
-    const { error } = await supabase
-      .from('user_organizations')
-      .update({ is_org_admin: isAdmin })
-      .eq('user_id', userId)
-      .eq('org_id', orgId);
-
+    const { data, error } = await supabase.rpc('rpc_set_org_admin', {
+      p_target_user_id: userId,
+      p_org_id: orgId,
+      p_value: isAdmin,
+    });
     if (error) throw error;
-
+    if (!data?.ok) return { success: false, error: data?.error || 'فشل تحديث الصلاحية' };
     return { success: true };
   } catch (error: any) {
     console.error('Error setting org admin:', error);
@@ -504,71 +476,18 @@ export async function revokeInvitation(
 }
 
 /**
- * Accept invitation (called when user signs up with invitation token)
+ * Accept invitation — delegates entirely to server-side RPC.
+ * userId is derived from auth.uid() on the server; no client-supplied userId.
  */
 export async function acceptInvitation(
-  token: string,
-  userId: string
+  token: string
 ): Promise<{ success: boolean; orgId?: string; error?: string }> {
   try {
     const supabase = getSupabase();
-
-    // Get invitation
-    const { data: invitation, error: invError } = await supabase
-      .from('invitations')
-      .select('*')
-      .eq('token', token)
-      .eq('status', 'pending')
-      .single();
-
-    if (invError || !invitation) {
-      return { success: false, error: 'الدعوة غير صالحة أو منتهية' };
-    }
-
-    // Check expiry
-    if (new Date(invitation.expires_at) < new Date()) {
-      await supabase
-        .from('invitations')
-        .update({ status: 'expired' })
-        .eq('id', invitation.id);
-      return { success: false, error: 'انتهت صلاحية الدعوة' };
-    }
-
-    // Add user to organization
-    const { error: orgError } = await supabase
-      .from('user_organizations')
-      .insert({
-        user_id: userId,
-        org_id: invitation.org_id,
-        is_active: true,
-        is_org_admin: false,
-        joined_at: new Date().toISOString(),
-        invited_by: invitation.invited_by,
-      });
-
-    if (orgError) throw orgError;
-
-    // Assign roles
-    if (invitation.role_ids && invitation.role_ids.length > 0) {
-      const userRoles = invitation.role_ids.map((roleId: string) => ({
-        user_id: userId,
-        role_id: roleId,
-        org_id: invitation.org_id,
-      }));
-
-      await supabase.from('user_roles').insert(userRoles);
-    }
-
-    // Update invitation status
-    await supabase
-      .from('invitations')
-      .update({
-        status: 'accepted',
-        accepted_at: new Date().toISOString(),
-      })
-      .eq('id', invitation.id);
-
-    return { success: true, orgId: invitation.org_id };
+    const { data, error } = await supabase.rpc('rpc_accept_invitation', { p_token: token });
+    if (error) throw error;
+    if (!data?.ok) return { success: false, error: data?.error || 'فشل قبول الدعوة' };
+    return { success: true, orgId: data.org_id };
   } catch (error: any) {
     console.error('Error accepting invitation:', error);
     return { success: false, error: error.message || 'فشل قبول الدعوة' };

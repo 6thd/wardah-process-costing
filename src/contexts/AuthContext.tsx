@@ -24,8 +24,7 @@ interface AuthContextType {
 // إنشاء السياق
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Default org from config
-const DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001';
+// لا يوجد fallback للمؤسسة — الحالة الصحيحة عند غياب مؤسسة هي null
 
 // Provider Component
 export function AuthProvider({ children }: { readonly children: ReactNode }) {
@@ -34,7 +33,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   // Lazy initializer is correct pattern for localStorage access
   const [currentOrgId, setCurrentOrgIdState] = useState<string | null>(
-    () => safeLocalStorage.getItem('current_org_id') || DEFAULT_ORG_ID
+    () => safeLocalStorage.getItem('current_org_id') || null
   );
   const [organizations, setOrganizations] = useState<any[]>([]);
   
@@ -80,12 +79,7 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
 
       if (error) {
         console.error('❌ Error loading organizations:', error);
-        // استخدام القيمة الافتراضية من localStorage أو config
-        const storedOrg = safeLocalStorage.getItem('current_org_id');
-        if (!storedOrg) {
-          setCurrentOrgIdState(DEFAULT_ORG_ID);
-          safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
-        }
+        // لا fallback لمؤسسة افتراضية — الحالة الصحيحة هي null
         return;
       }
 
@@ -101,19 +95,14 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         setCurrentOrgIdState(firstOrgId);
         safeLocalStorage.setItem('current_org_id', firstOrgId);
       } else {
-        // No organizations found, use config default
-        console.log('⚠️ No organizations found, using default:', DEFAULT_ORG_ID);
-        setCurrentOrgIdState(DEFAULT_ORG_ID);
-        safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
+        // لا مؤسسات — الحالة الصحيحة null، لا fallback
+        console.log('⚠️ No organizations found for this user');
+        setCurrentOrgIdState(null);
+        safeLocalStorage.removeItem('current_org_id');
       }
     } catch (error) {
       console.error('❌ Error in loadOrganizations:', error);
-      // Fallback to stored or default org_id
-      const storedOrg = safeLocalStorage.getItem('current_org_id');
-      if (!storedOrg) {
-        setCurrentOrgIdState(DEFAULT_ORG_ID);
-        safeLocalStorage.setItem('current_org_id', DEFAULT_ORG_ID);
-      }
+      // لا fallback — نبقي الحالة الحالية بدون تغيير
     } finally {
       loadingOrgsRef.current = false;
     }
@@ -150,12 +139,8 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
         setSession(session);
         setUser(session?.user ?? null);
         
-        // Cache tenantId immediately from currentOrgId or default
-        if (currentOrgId) {
-          tenantIdCacheRef.current = currentOrgId;
-        } else {
-          tenantIdCacheRef.current = DEFAULT_ORG_ID;
-        }
+        // Cache tenantId immediately from currentOrgId
+        tenantIdCacheRef.current = currentOrgId;
         
         // Load organizations in parallel (don't wait for it to finish)
         if (session?.user) {
@@ -298,9 +283,15 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   }, []);
 
   const setCurrentOrgId = useCallback((orgId: string) => {
+    // تحقق من العضوية قبل القبول
+    const isMember = organizations.some((uo: any) => uo.org_id === orgId);
+    if (!isMember) {
+      console.error('❌ setCurrentOrgId: orgId ليس ضمن عضويات المستخدم:', orgId);
+      return;
+    }
     setCurrentOrgIdState(orgId);
     safeLocalStorage.setItem('current_org_id', orgId);
-  }, []);
+  }, [organizations]);
 
   const refreshOrganizations = useCallback(async () => {
     if (user) {
@@ -310,19 +301,14 @@ export function AuthProvider({ children }: { readonly children: ReactNode }) {
   
   // Get effective tenant ID (cached from currentOrgId)
   const getEffectiveTenantId = useCallback((): string | null => {
-    // Use cached currentOrgId first (fastest)
     if (currentOrgId) {
       tenantIdCacheRef.current = currentOrgId;
       return currentOrgId;
     }
-    
-    // Fallback to cached value
     if (tenantIdCacheRef.current) {
       return tenantIdCacheRef.current;
     }
-    
-    // Fallback to default org ID
-    return DEFAULT_ORG_ID;
+    return null;
   }, [currentOrgId]);
   
   const value = useMemo(() => ({

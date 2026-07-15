@@ -46,7 +46,7 @@ export async function handleInviteSignUp(
     };
   }
 
-  const result = await acceptInvitation(inviteToken, authData.user.id);
+  const result = await acceptInvitation(inviteToken);
   
   if (!result.success) {
     return {
