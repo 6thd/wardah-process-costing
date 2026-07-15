@@ -1,44 +1,44 @@
 -- ===================================================================
 -- Migration 109: عرض WIP حسب مراحل التصنيع
 -- ===================================================================
--- مصدر: src/database/migrations/002_create_wip_view.sql
--- الحالة: ⏳ مُرقَّمة (توحيد Phase 2) — تُطبَّق بعد التحقق من labor_entries/overhead_allocations
+-- الجداول المتوفرة فعلاً في الإنتاج (مُحقَّقة):
+--   manufacturing_orders (total_cost, unit_cost, completed_quantity)
+--   work_orders          (actual_run_time, actual_setup_time, status)
+-- ملاحظة: stock_moves / labor_entries / overhead_allocations غير موجودة حتى الآن.
+--   التكاليف مأخوذة من حقلَي total_cost/unit_cost على أمر التصنيع مباشرة.
 -- ===================================================================
 
--- WIP by Stage View
--- Shows work in progress inventory by manufacturing order stage
-
-CREATE OR REPLACE VIEW wip_by_stage AS
-SELECT 
-  mo.order_number,
-  mo.product_id,
-  p.name as product_name,
-  mo.status,
-  mo.quantity as qty_planned,
-  -- Assuming there's a qty_produced field or we calculate it
-  0 as qty_produced, -- This should be updated with actual produced quantity
-  -- Material cost (from stock moves with material_issue type)
-  COALESCE(SUM(CASE WHEN sm.move_type = 'material_issue' THEN sm.total_cost ELSE 0 END), 0) as materials_cost,
-  -- Labor cost (from labor entries)
-  COALESCE(SUM(le.total_cost), 0) as labor_cost,
-  -- Overhead applied (from overhead allocations)
-  COALESCE(SUM(oa.allocated_amount), 0) as overhead_applied,
-  -- Total WIP cost
-  COALESCE(SUM(CASE WHEN sm.move_type = 'material_issue' THEN sm.total_cost ELSE 0 END), 0) +
-  COALESCE(SUM(le.total_cost), 0) +
-  COALESCE(SUM(oa.allocated_amount), 0) as total_wip_cost,
-  -- Current unit cost
-  CASE 
-    WHEN mo.quantity > 0 THEN
-      (COALESCE(SUM(CASE WHEN sm.move_type = 'material_issue' THEN sm.total_cost ELSE 0 END), 0) +
-       COALESCE(SUM(le.total_cost), 0) +
-       COALESCE(SUM(oa.allocated_amount), 0)) / mo.quantity
-    ELSE 0
-  END as current_unit_cost
+CREATE OR REPLACE VIEW wip_by_stage
+WITH (security_invoker = on)
+AS
+SELECT
+    mo.id,
+    mo.org_id,
+    mo.order_number,
+    mo.product_id,
+    p.name                              AS product_name,
+    mo.status,
+    mo.quantity                         AS qty_planned,
+    COALESCE(mo.completed_quantity, 0)  AS qty_produced,
+    -- نسبة إتمام العمليات (من work_orders)
+    CASE
+        WHEN COUNT(wo.id) = 0 THEN 0
+        ELSE ROUND(
+            100.0 * COUNT(wo.id) FILTER (WHERE wo.status = 'done')
+            / NULLIF(COUNT(wo.id), 0), 1
+        )
+    END                                 AS operations_completion_pct,
+    -- التكلفة الإجمالية المسجَّلة على الأمر
+    COALESCE(mo.total_cost, 0)          AS total_wip_cost,
+    -- تكلفة الوحدة
+    COALESCE(mo.unit_cost, 0)           AS current_unit_cost,
+    mo.start_date,
+    mo.due_date
 FROM manufacturing_orders mo
-JOIN products p ON mo.product_id = p.id
-LEFT JOIN stock_moves sm ON sm.reference_id::text = mo.id::text
-LEFT JOIN labor_entries le ON le.manufacturing_order_id = mo.id  -- Fixed: using correct column name
-LEFT JOIN overhead_allocations oa ON oa.manufacturing_order_id = mo.id  -- Fixed: using correct column name
-WHERE mo.status IN ('in_progress', 'completed')
-GROUP BY mo.id, mo.order_number, mo.product_id, p.name, mo.status, mo.quantity;
+JOIN products p ON p.id = mo.product_id
+LEFT JOIN work_orders wo ON wo.mo_id = mo.id
+WHERE mo.status IN ('in_progress', 'quality_check', 'on_hold')
+GROUP BY
+    mo.id, mo.org_id, mo.order_number, mo.product_id, p.name,
+    mo.status, mo.quantity, mo.completed_quantity,
+    mo.total_cost, mo.unit_cost, mo.start_date, mo.due_date;

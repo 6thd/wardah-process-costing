@@ -84,7 +84,10 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **110**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **111**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+   — 108: `calculate_material_variances` / `calculate_labor_variances` (دوال انحرافات).
+   — 109: `wip_by_stage` view (security_invoker؛ معاد كتابتها باستخدام الجداول المتوفرة فعلاً).
+   — 110: تطبيع حالات MO (in-progress→in_progress, quality-check→quality_check) + VALIDATE CONSTRAINT.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة
