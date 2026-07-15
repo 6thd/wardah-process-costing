@@ -174,19 +174,10 @@ router.get('/transactions', verifyApiKey, async (req: Request, res: Response) =>
 
     const limit = Number.parseInt(req.query.limit as string, 10) || 10;
 
-    // Get recent journal entries
+    // Get recent GL entries (canonical table)
     const { data: entries, error } = await supabase
-      .from('journal_entries')
-      .select(`
-        id,
-        entry_number,
-        entry_date,
-        description,
-        description_ar,
-        total_debit,
-        total_credit,
-        status
-      `)
+      .from('gl_entries')
+      .select('id, entry_number, entry_date, description, description_ar, total_debit, total_credit, status')
       .eq('status', 'posted')
       .order('entry_date', { ascending: false })
       .limit(limit);

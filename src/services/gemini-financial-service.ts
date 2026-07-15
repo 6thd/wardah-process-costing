@@ -71,86 +71,32 @@ class GeminiFinancialService {
       const start = startDate || new Date(new Date().getFullYear(), 0, 1);
       const end = endDate || new Date();
 
-      // 1. حساب الإيرادات من قيود اليومية (حسابات الإيرادات)
-      const { data: revenueData } = await supabase
-        .from('journal_lines')
-        .select(`
-          account_id,
-          credit,
-          debit,
-          journal_entries!inner (
-            entry_date,
-            status
-          )
-        `)
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.entry_date', start.toISOString().split('T')[0])
-        .lte('journal_entries.entry_date', end.toISOString().split('T')[0]);
+      // جلب كل سطور القيود المرحّلة في الفترة (استدعاء واحد يُعاد استخدامه)
+      const periodLines = await this.fetchPostedLines(start, end);
 
-      // Get revenue accounts
+      // 1. الإيرادات
       const { data: revenueAccounts } = await supabase
-        .from('gl_accounts')
-        .select('id')
-        .eq('category', 'REVENUE')
-        .eq('is_active', true);
+        .from('gl_accounts').select('id').eq('category', 'REVENUE').eq('is_active', true);
+      const revenueIds = new Set((revenueAccounts || []).map((a: { id: string }) => a.id));
+      const totalRevenue = periodLines
+        .filter(l => l.account_id && revenueIds.has(l.account_id))
+        .reduce((sum, l) => sum + (l.credit - l.debit), 0);
 
-      const revenueAccountIds = revenueAccounts?.map(a => a.id) || [];
-      const totalRevenue = ((revenueData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
-        .filter(line => line.account_id && revenueAccountIds.includes(line.account_id))
-        .reduce((sum, line) => sum + (Number(line.credit || 0) - Number(line.debit || 0)), 0);
-
-      // 2. حساب COGS من قيود اليومية (حسابات COGS)
-      const { data: cogsData } = await supabase
-        .from('journal_lines')
-        .select(`
-          account_id,
-          debit,
-          credit,
-          journal_entries!inner (
-            entry_date,
-            status
-          )
-        `)
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.entry_date', start.toISOString().split('T')[0])
-        .lte('journal_entries.entry_date', end.toISOString().split('T')[0]);
-
+      // 2. COGS
       const { data: cogsAccounts } = await supabase
-        .from('gl_accounts')
-        .select('id')
-        .eq('category', 'COGS')
-        .eq('is_active', true);
+        .from('gl_accounts').select('id').eq('category', 'COGS').eq('is_active', true);
+      const cogsIds = new Set((cogsAccounts || []).map((a: { id: string }) => a.id));
+      const totalCOGS = periodLines
+        .filter(l => l.account_id && cogsIds.has(l.account_id))
+        .reduce((sum, l) => sum + (l.debit - l.credit), 0);
 
-      const cogsAccountIds = cogsAccounts?.map(a => a.id) || [];
-      const totalCOGS = ((cogsData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
-        .filter(line => line.account_id && cogsAccountIds.includes(line.account_id))
-        .reduce((sum, line) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0);
-
-      // 3. حساب المصروفات التشغيلية
-      const { data: expenseData } = await supabase
-        .from('journal_lines')
-        .select(`
-          debit,
-          credit,
-          journal_entries!inner (
-            entry_date,
-            status
-          )
-        `)
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.entry_date', start.toISOString().split('T')[0])
-        .lte('journal_entries.entry_date', end.toISOString().split('T')[0]);
-
+      // 3. المصروفات التشغيلية
       const { data: expenseAccounts } = await supabase
-        .from('gl_accounts')
-        .select('id')
-        .in('category', ['EXPENSE'])
-        .eq('is_active', true);
-
-      const expenseAccountIds = expenseAccounts?.map(a => a.id) || [];
-      const totalExpenses = ((expenseData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
-        .filter(line => line.account_id && expenseAccountIds.includes(line.account_id))
-        .reduce((sum, line) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0);
+        .from('gl_accounts').select('id').eq('category', 'EXPENSE').eq('is_active', true);
+      const expenseIds = new Set((expenseAccounts || []).map((a: { id: string }) => a.id));
+      const totalExpenses = periodLines
+        .filter(l => l.account_id && expenseIds.has(l.account_id))
+        .reduce((sum, l) => sum + (l.debit - l.credit), 0);
 
       // 4. حساب قيم المخزون
       const { data: inventoryItems } = await supabase
@@ -343,22 +289,53 @@ class GeminiFinancialService {
   }
 
   /**
-   * Helper: حساب رصيد مجموعة حسابات
+   * Helper: جلب سطور القيود المرحّلة من الجداول القانونية (gl_entry_lines / gl_entries)
+   * خطوتان: (1) تصفية gl_entries بالتاريخ/الحالة → (2) جلب gl_entry_lines بمعرفاتها
+   */
+  private async fetchPostedLines(
+    startDate?: Date,
+    endDate?: Date
+  ): Promise<Array<{ account_id: string | null; debit: number; credit: number }>> {
+    try {
+      let entriesQuery = supabase
+        .from('gl_entries')
+        .select('id')
+        .eq('status', 'posted');
+
+      if (startDate) entriesQuery = entriesQuery.gte('entry_date', startDate.toISOString().split('T')[0]);
+      if (endDate)   entriesQuery = entriesQuery.lte('entry_date', endDate.toISOString().split('T')[0]);
+
+      const { data: entries } = await entriesQuery;
+      if (!entries || entries.length === 0) return [];
+
+      const entryIds = entries.map((e: { id: string }) => e.id);
+      const { data: lines } = await supabase
+        .from('gl_entry_lines')
+        .select('account_id, debit, credit')
+        .in('entry_id', entryIds);
+
+      return (lines || []).map(l => ({
+        account_id: l.account_id ?? null,
+        debit:  Number(l.debit  || 0),
+        credit: Number(l.credit || 0),
+      }));
+    } catch (error) {
+      console.error('Error fetching posted GL lines:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Helper: حساب رصيد مجموعة حسابات (كل التاريخ)
    */
   private async calculateAccountGroupBalance(accountIds: string[]): Promise<number> {
     if (accountIds.length === 0) return 0;
-
     try {
-      const { data } = await supabase
-        .from('journal_lines')
-        .select('debit, credit, account_id')
-        .in('account_id', accountIds);
-
-      if (!data) return 0;
-
-      return data.reduce((sum, line) => {
-        return sum + (Number(line.debit || 0) - Number(line.credit || 0));
-      }, 0);
+      const lines = await this.fetchPostedLines();
+      const idSet = new Set(accountIds);
+      return lines
+        .filter(l => l.account_id && idSet.has(l.account_id))
+        .reduce((sum, l) => sum + (l.debit - l.credit), 0);
     } catch (error) {
       console.error('Error calculating account group balance:', error);
       return 0;
@@ -376,25 +353,12 @@ class GeminiFinancialService {
         .eq('category', 'REVENUE')
         .eq('is_active', true);
 
-      const revenueAccountIds = revenueAccounts?.map(a => a.id) || [];
+      const revenueAccountIds = new Set((revenueAccounts || []).map((a: { id: string }) => a.id));
+      const lines = await this.fetchPostedLines(startDate, endDate);
 
-      const { data: revenueData } = await supabase
-        .from('journal_lines')
-        .select(`
-          credit,
-          debit,
-          journal_entries!inner (
-            entry_date,
-            status
-          )
-        `)
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.entry_date', startDate.toISOString().split('T')[0])
-        .lte('journal_entries.entry_date', endDate.toISOString().split('T')[0]);
-
-      return ((revenueData || []) as Array<{ account_id?: string; debit?: number; credit?: number }>)
-        .filter(line => line.account_id && revenueAccountIds.includes(line.account_id))
-        .reduce((sum, line) => sum + (Number(line.credit || 0) - Number(line.debit || 0)), 0);
+      return lines
+        .filter(l => l.account_id && revenueAccountIds.has(l.account_id))
+        .reduce((sum, l) => sum + (l.credit - l.debit), 0);
     } catch (error) {
       console.error('Error getting revenue for period:', error);
       return 0;

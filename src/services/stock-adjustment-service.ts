@@ -457,68 +457,68 @@ async function createAdjustmentAccountingEntries(
   const entries = []
   
   if (totalValueDiff > 0) {
-    // Stock increase (gain)
-    // Dr: Inventory Asset
-    // Cr: Gain on Inventory Adjustment (Other Income)
-    
+    // Stock increase: Dr increase_account_id (inventory asset) / Cr decrease_account_id (adjustment/gain)
     entries.push({
-      account_id: adjustment.inventory_account_id,
+      account_id: adjustment.increase_account_id,
       debit: totalValueDiff,
       credit: 0,
       description: `تسوية مخزون - زيادة: ${adjustment.reference_number}`
     })
-    
     entries.push({
-      account_id: adjustment.gain_account_id,
+      account_id: adjustment.decrease_account_id,
       debit: 0,
       credit: totalValueDiff,
       description: `ربح تسوية مخزون: ${adjustment.reference_number}`
     })
-    
   } else {
-    // Stock decrease (loss)
-    // Dr: Inventory Adjustment Expense
-    // Cr: Inventory Asset
-    
+    // Stock decrease: Dr decrease_account_id (adjustment/loss) / Cr increase_account_id (inventory asset)
     entries.push({
-      account_id: adjustment.expense_account_id,
+      account_id: adjustment.decrease_account_id,
       debit: Math.abs(totalValueDiff),
       credit: 0,
       description: `خسارة تسوية مخزون: ${adjustment.reference_number}`
     })
-    
     entries.push({
-      account_id: adjustment.inventory_account_id,
+      account_id: adjustment.increase_account_id,
       debit: 0,
       credit: Math.abs(totalValueDiff),
       description: `تسوية مخزون - نقص: ${adjustment.reference_number}`
     })
   }
   
-  // Create journal entry
-  const { data: journalEntry, error: jeError } = await supabase
-    .from('journal_entries')
-    .insert({
-      posting_date: adjustment.adjustment_date,
-      voucher_type: 'Stock Adjustment',
-      voucher_id: adjustment.id,
-      total_debit: Math.abs(totalValueDiff),
-      total_credit: Math.abs(totalValueDiff),
-      remarks: adjustment.reason
-    })
-    .select()
-    .single()
-  
-  if (jeError) throw jeError
-  
-  // Create journal entry lines
-  for (const entry of entries) {
+  // Create GL entry via canonical RPC (atomic, idempotent)
+  const { data: rpcResult, error: rpcError } = await supabase.rpc(
+    'rpc_create_journal_entry',
+    {
+      p_payload: {
+        org_id: adjustment.org_id,
+        entry_date: adjustment.adjustment_date,
+        entry_type: 'manual',
+        reference_type: 'Stock Adjustment',
+        reference_number: adjustment.reference_number,
+        description: adjustment.reason || `تسوية مخزون ${adjustment.reference_number}`,
+        auto_post: true,
+        idempotency_key: `stock-adj-${adjustment.id}`,
+        lines: entries.map((e, i) => ({
+          line_number: i + 1,
+          account_id: e.account_id,
+          debit: e.debit,
+          credit: e.credit,
+          description: e.description,
+        })),
+      },
+    }
+  )
+
+  if (rpcError) throw rpcError
+  if (!rpcResult?.success) throw new Error(rpcResult?.error || 'فشل إنشاء القيد المحاسبي')
+
+  // Store GL entry reference on the adjustment record
+  if (rpcResult.entry_id) {
     await supabase
-      .from('journal_entry_lines')
-      .insert({
-        journal_entry_id: journalEntry.id,
-        ...entry
-      })
+      .from('stock_adjustments')
+      .update({ journal_entry_id: rpcResult.entry_id })
+      .eq('id', adjustment.id)
   }
 }
 
