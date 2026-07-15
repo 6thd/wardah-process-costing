@@ -3,8 +3,9 @@
  * إدارة القيود المحاسبية والتكامل مع دليل الحسابات
  */
 
-import { supabase } from '../lib/supabase';
+import { supabase as _supabase } from '../lib/supabase';
 import { PerformanceMonitor } from '../lib/performance-monitor';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ===== TYPES =====
 

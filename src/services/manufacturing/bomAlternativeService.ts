@@ -3,7 +3,8 @@
  * خدمة إدارة BOMs البديلة
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface BOMAlternative {
   id?: string

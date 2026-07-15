@@ -2,7 +2,8 @@
 // بسم الله الرحمن الرحيم
 // خدمة Super Admin
 
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase as _getSupabase } from '@/lib/supabase';
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // =====================================
 // Types

@@ -2,7 +2,8 @@
 // بسم الله الرحمن الرحيم
 // خدمة نظام الصلاحيات RBAC
 
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase as _getSupabase } from '@/lib/supabase';
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // =====================================
 // Types

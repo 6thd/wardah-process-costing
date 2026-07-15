@@ -6,7 +6,8 @@
  */
 
 import { BuyingController, BuyingDocument, PurchaseLine } from '../core/BuyingController'
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface PurchaseOrder extends BuyingDocument {
   order_number?: string

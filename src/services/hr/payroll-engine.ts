@@ -11,12 +11,13 @@
  * الاعتماد النهائي عبر rpc_post_payroll_run الذرّي (Migration 100) — القيد
  * حصراً من القناة القانونية rpc_create_journal_entry. لا ترحيل client-side.
  */
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { getHrPolicies, HrPolicies } from './policies-service';
 import { listAttendanceForPeriod } from './attendance-service';
 import { getPayrollLock } from './payroll-lock-service';
 import { PayrollAccountType } from './payroll-account-service';
 import { listAdjustmentsForMonth, PayrollAdjustment } from './adjustments-service';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ===== أنواع =====
 

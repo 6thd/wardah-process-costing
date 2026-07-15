@@ -13,8 +13,9 @@
  * - COGS calculation
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { JournalService } from './accounting/journal-service';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ===== HELPER FUNCTIONS =====
 

@@ -1,8 +1,9 @@
 // src/services/organization-service.ts
 // إدارة المنظمات في نظام multi-tenant
 
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase as _getSupabase } from '@/lib/supabase';
 import { safeLocalStorage } from '@/lib/safe-storage';
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 export interface Organization {
   id: string;

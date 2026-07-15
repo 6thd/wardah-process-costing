@@ -1,5 +1,6 @@
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import type { PostgrestError } from '@supabase/supabase-js';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export type EmployeeStatus = 'active' | 'inactive' | 'terminated' | 'probation';
 export type AttendanceStatus = 'present' | 'absent' | 'late' | 'leave' | 'remote' | 'off';

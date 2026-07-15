@@ -1,5 +1,5 @@
 import {
-  getSupabase,
+  getSupabase as _getSupabase,
   getTenantId,
   type Item,
   type Category,
@@ -43,6 +43,7 @@ import {
   calculateTotalAmount,
   updateSalesOrderWithFallback
 } from './sales/sales-order-helpers'
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // Type aliases for cleaner code
 type CategoryInput = Omit<Category, 'id' | 'created_at' | 'updated_at'>

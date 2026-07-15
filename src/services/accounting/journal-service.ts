@@ -3,7 +3,8 @@
  * Enhanced with Batch Posting, Approvals, Attachments, Comments
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface JournalEntry {
   id: string;

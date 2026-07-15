@@ -2,7 +2,8 @@
 // بسم الله الرحمن الرحيم
 // خدمة Org Admin - إدارة مستخدمي وأدوار المنظمة
 
-import { getSupabase } from '@/lib/supabase';
+import { getSupabase as _getSupabase } from '@/lib/supabase';
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // =====================================
 // Types
@@ -185,7 +186,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
           if (ur.role) {
             const userRoles = rolesMap.get(ur.user_id);
             if (userRoles) {
-              userRoles.push(ur.role);
+              userRoles.push(ur.role as unknown as OrgRole);
             }
           }
         });

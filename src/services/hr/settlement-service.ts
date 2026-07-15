@@ -5,9 +5,10 @@
  * م77 (فصل بلا سبب): كامل + تعويض شهر/سنة (حد أدنى شهرين).
  * م80 (مخالفة جسيمة): صفر.
  */
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { getLeaveBalance } from './leave-service';
 import { translateRpcError } from './payroll-engine';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ─── أنواع ────────────────────────────────────────────────────────────────────
 

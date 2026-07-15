@@ -88,7 +88,7 @@ export interface GLAccount {
  * Warehouse Service Class
  */
 export class WarehouseService {
-  private supabase = getSupabase()
+  private supabase = getSupabase() as SupabaseClient
 
   // ==============================================================================
   // WAREHOUSE CRUD OPERATIONS

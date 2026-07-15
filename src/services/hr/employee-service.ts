@@ -1,5 +1,6 @@
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import type { HrEmployee } from './hr-service';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface CreateEmployeeInput {
   firstName: string;

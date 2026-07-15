@@ -125,13 +125,16 @@ export interface GLAccount {
     name_ar?: string;
     name_en?: string;
     category?: string;
-    normal_balance?: 'Debit' | 'Credit';
+    normal_balance?: 'Debit' | 'Credit' | string;
     allow_posting?: boolean;
     is_active?: boolean;
     children?: GLAccount[];
-    parent_code?: string;
+    parent_code?: string | null;
     org_id: string;
-    parent_id: string | null;
+    parent_id?: string | null;
+    subtype?: string;
+    currency?: string | null;
+    notes?: string | null;
 }
 
 // withOrgContext is deprecated - use explicit .eq('org_id', orgId) in queries instead
@@ -206,6 +209,9 @@ export const getSupabase = (): SupabaseClient<Database> => {
   return supabase;
 };
 
+// Untyped alias for internal functions that use legacy schema column names
+const db = supabase as SupabaseClient;
+
 /**
  * Legacy async version for backward compatibility
  */
@@ -218,7 +224,7 @@ export const getSupabaseAsync = async (): Promise<SupabaseClient<Database>> => {
  */
 export const checkSupabaseConnection = async () => {
     try {
-        const { error } = await supabase.from('gl_accounts').select('id').limit(1);
+        const { error } = await db.from('gl_accounts').select('id').limit(1);
 
         if (error && error.code !== '42P01') { 
             console.error("Supabase connection check failed with an unexpected error:", error);
@@ -249,7 +255,7 @@ export const getAllGLAccounts = async (): Promise<GLAccount[]> => {
     if (import.meta.env.DEV) console.log("Fetching all GL accounts.");
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
             .select('*')
             .order('code', { ascending: true });
@@ -260,7 +266,7 @@ export const getAllGLAccounts = async (): Promise<GLAccount[]> => {
         }
 
         if (import.meta.env.DEV) console.log(`Successfully fetched ${data?.length || 0} accounts.`);
-        return data || [];
+        return (data || []) as unknown as GLAccount[];
         
     } catch (err) {
         console.error("An unexpected exception occurred in getAllGLAccounts:", err);
@@ -280,7 +286,7 @@ export const getChartOfAccounts = async (orgId: string): Promise<GLAccount[]> =>
     }
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
             .select('*')
             .eq('org_id', orgId)
@@ -297,7 +303,7 @@ export const getChartOfAccounts = async (orgId: string): Promise<GLAccount[]> =>
         }
 
         if (import.meta.env.DEV) console.log(`Successfully fetched ${data?.length || 0} accounts.`);
-        return data || [];
+        return (data || []) as unknown as GLAccount[];
         
     } catch (err) {
         console.error("An unexpected exception occurred in getChartOfAccounts:", err);
@@ -315,7 +321,7 @@ export const getAccountById = async (accountId: string): Promise<GLAccount | nul
     }
 
     try {
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
             .select('*')
             .eq('id', accountId)
@@ -330,7 +336,7 @@ export const getAccountById = async (accountId: string): Promise<GLAccount | nul
             throw error;
         }
         
-        return data;
+        return data as unknown as GLAccount;
     } catch (err) {
         console.error(`Unexpected exception in getAccountById for ID ${accountId}:`, err);
         throw new Error("An error occurred while fetching the specific account.");
@@ -369,25 +375,26 @@ export const createGLAccount = async (input: CreateGLAccountInput): Promise<{ su
         const orgId = await getEffectiveTenantId();
         if (!orgId) throw new Error('Organization ID not found');
 
-        // Prepare account data
+        // Map account_type → category + normal_balance (DB schema uses category/normal_balance)
+        const normalBalanceMap: Record<string, string> = {
+            ASSET: 'Debit', EXPENSE: 'Debit',
+            LIABILITY: 'Credit', EQUITY: 'Credit', REVENUE: 'Credit',
+        };
         const accountData = {
             org_id: orgId,
             code: input.code,
             name: input.name,
             name_ar: input.name_ar || input.name,
             name_en: input.name_en || input.name,
-            account_type: input.account_type,
-            subtype: input.subtype,
-            parent_id: input.parent_id || null,
-            description: input.description,
+            category: input.account_type,
+            normal_balance: normalBalanceMap[input.account_type] || 'Debit',
+            subtype: input.subtype || input.account_type,
+            notes: input.description,
             is_active: input.is_active !== false,
-            opening_balance: input.opening_balance || 0,
-            opening_balance_type: input.opening_balance_type || 'DEBIT',
-            created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         };
 
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
             .insert(accountData)
             .select()
@@ -422,9 +429,9 @@ export const updateGLAccount = async (input: UpdateGLAccountInput): Promise<{ su
             }
         });
 
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
-            .update(updateData)
+            .update(updateData as Record<string, unknown>)
             .eq('id', id)
             .select()
             .single();
@@ -445,7 +452,7 @@ export const updateGLAccount = async (input: UpdateGLAccountInput): Promise<{ su
 export const deleteGLAccount = async (id: string): Promise<{ success: boolean; error?: string }> => {
     try {
         // Check if account has children
-        const { data: children } = await supabase
+        const { data: children } = await db
             .from('gl_accounts')
             .select('id')
             .eq('parent_id', id)
@@ -456,15 +463,15 @@ export const deleteGLAccount = async (id: string): Promise<{ success: boolean; e
         }
 
         // Check if account has transactions
-        const { data: transactions } = await supabase
-            .from('journal_entry_lines')
+        const { data: transactions } = await db
+            .from('gl_entry_lines')
             .select('id')
             .eq('account_id', id)
             .limit(1);
 
         if (transactions && transactions.length > 0) {
             // If has transactions, only deactivate
-            const { error } = await supabase
+            const { error } = await db
                 .from('gl_accounts')
                 .update({ is_active: false, updated_at: new Date().toISOString() })
                 .eq('id', id);
@@ -475,7 +482,7 @@ export const deleteGLAccount = async (id: string): Promise<{ success: boolean; e
         }
 
         // If no transactions, can safely delete
-        const { error } = await supabase
+        const { error } = await db
             .from('gl_accounts')
             .delete()
             .eq('id', id);
@@ -495,14 +502,14 @@ export const deleteGLAccount = async (id: string): Promise<{ success: boolean; e
  */
 export const getGLAccountById = async (id: string): Promise<GLAccount | null> => {
     try {
-        const { data, error } = await supabase
+        const { data, error } = await db
             .from('gl_accounts')
             .select('*')
             .eq('id', id)
             .single();
 
         if (error) throw error;
-        return data;
+        return data as unknown as GLAccount;
     } catch (error) {
         console.error('Error fetching GL account:', error);
         return null;

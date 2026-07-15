@@ -2,7 +2,8 @@
  * خدمة إعدادات المؤسسة — قراءة/حفظ key/value JSONB في org_settings (Migration 98).
  * upsert على (org_id, key)؛ org-scoped عبر RLS + فلتر صريح.
  */
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface SystemSettingsValues {
   currency: string;        // عملة العرض (مثل SAR)

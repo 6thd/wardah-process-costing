@@ -3,11 +3,12 @@
  * تدير دورة المشتريات الكاملة مع تكامل Stock Ledger System والقيود المحاسبية
  */
 
-import { supabase, resolveOrgIdWithFallback } from '../lib/supabase';
+import { supabase as _supabase, resolveOrgIdWithFallback } from '../lib/supabase';
 import { createStockLedgerEntry, getBin } from './stock-ledger-service';
 // P5.1 (P0): إعادة ربط محرّك التقييم الحقيقي (FIFO/LIFO/متوسط مرجّح/متحرّك) بدل
 // الـ stub الذي كان يُرجع أصفاراً فيُصفّر رصيد الـ Bin وتقييمه عند كل استلام مقبول.
 import { ValuationFactory, type StockBatch, type ValuationMethod } from './valuation';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ملاحظة: نظام المخزون القديم (domain/inventory) غير مُفعَّل — التتبّع الفعلي عبر
 // bins + Stock Ledger. هذا النداء يبقى no-op متوافقاً تراجعياً (غير حرج).

@@ -5,7 +5,8 @@
  * Ensures atomicity and rollback on errors
  */
 
-import { supabase } from './supabase';
+import { supabase as _supabase } from './supabase';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 import { AppError } from './errors/AppError';
 
 /**

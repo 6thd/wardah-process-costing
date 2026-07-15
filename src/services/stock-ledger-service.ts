@@ -5,7 +5,8 @@
  * Based on ERPNext Stock Ledger Entry pattern
  */
 
-import { supabase } from '@/lib/supabase';
+import { supabase as _supabase } from '@/lib/supabase';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // =====================================================
 // Types & Interfaces

@@ -7,8 +7,9 @@
 
 import { StockController, StockMove } from '../core/StockController'
 import { BuyingDocument } from '../core/BuyingController'
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
 import { StockLedgerService } from '../inventory/StockLedgerService'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface GoodsReceipt extends BuyingDocument {
   receipt_number?: string

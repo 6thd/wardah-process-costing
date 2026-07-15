@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
  * Accounting Period — كما تُرجعها rpc_list_periods

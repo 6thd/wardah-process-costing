@@ -4,8 +4,9 @@
  * Validates inventory data integrity
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { AppError } from '@/lib/errors/AppError';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
  * Validation result

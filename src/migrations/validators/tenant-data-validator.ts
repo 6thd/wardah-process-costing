@@ -4,8 +4,9 @@
  * Validates tenant data integrity and isolation
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { AppError } from '@/lib/errors/AppError';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
  * Validation result

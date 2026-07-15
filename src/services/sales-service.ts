@@ -3,7 +3,8 @@
  * تدير دورة المبيعات الكاملة مع احتساب COGS والقيود المحاسبية
  */
 
-import { supabase } from '../lib/supabase';
+import { supabase as _supabase } from '../lib/supabase';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 // import { recordInventoryMovement } from '../domain/inventory'; // DISABLED - domain not implemented
 
 // Temporary stub for recordInventoryMovement

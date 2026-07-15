@@ -4,7 +4,8 @@
  * Handles inventory adjustments with proper accounting integration
  */
 
-import { getSupabase } from '../lib/supabase'
+import { getSupabase as _getSupabase } from '../lib/supabase'
+const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // Helper function to get supabase client
 const getClient = async () => {

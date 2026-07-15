@@ -1,5 +1,6 @@
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
 import { VarianceAnalysis, OverheadVariance } from './variance-monitoring-service'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
  * Interface for notification preferences

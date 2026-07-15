@@ -3,8 +3,9 @@
  * Handles process costing operations with support for stage_id and stage_number
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
 import { loadConfig } from '@/lib/config'
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
  * اشتقاق هوية المؤسسة: جلسة المستخدم أولاً (عضويته الفعلية)،

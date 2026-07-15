@@ -5,8 +5,9 @@
  * Provides comprehensive sales reporting and profitability analysis
  */
 
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { calculateInvoiceProfit } from './enhanced-sales-service';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ===== TYPES =====
 

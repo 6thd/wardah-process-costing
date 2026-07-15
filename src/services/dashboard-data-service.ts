@@ -5,8 +5,9 @@
  * مفبركة. مؤشرات الميزانية (أصول/خصوم/حقوق) تُشتقّ من أرصدة GL حسب التصنيف عندما
  * تتطابق شجرة الحسابات؛ وإلا تظهر 0 (لا رقم مفبرك).
  */
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { fetchCogsAccounts } from './financial-statements-service';
+const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 export interface FinancialKPIs {
   /** قيمة فواتير المبيعات غير الملغاة (دورة حالة الفاتورة لا تُرحّل بعد — بند متابعة) */
