@@ -67,7 +67,7 @@ function buildStageCostsQuery(filters: DashboardFilters) {
     query = query.lte('created_at', filters.dateTo)
   }
   if (filters.stageNo) {
-    query = query.eq('stage_no', filters.stageNo)
+    query = query.eq('stage_number', filters.stageNo)
   }
   
   return query
@@ -221,7 +221,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         
         const fallbackQuery = supabase.from('stage_costs').select('*').limit(100)
         if (filters.manufacturingOrderId) {
-          fallbackQuery.eq('mo_id', filters.manufacturingOrderId)
+          fallbackQuery.eq('manufacturing_order_id', filters.manufacturingOrderId)
         }
         
         const { data: fallbackData, error: fallbackError } = await fallbackQuery
@@ -241,18 +241,18 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         }))
       }
       
-      const wcIdArray = (stageCostsData || []).map((sc: { wc_id?: string }) => sc.wc_id).filter(Boolean);
+      const wcIdArray = (stageCostsData || []).map((sc: { work_center_id?: string | null }) => sc.work_center_id).filter(Boolean);
       // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
       const wcIds = [...new Set(wcIdArray)] as string[];
       const wcData = await fetchWorkCenters(wcIds);
       
-      const moIdArray = (stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean);
+      const moIdArray = (stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id).filter(Boolean);
       const moIds = [...new Set(moIdArray)] as string[];
       const moData = await fetchManufacturingOrders(moIds, filters.costingMethod)
       
       const filteredData = (stageCostsData || []).filter((sc: Record<string, unknown>) => {
         if (filters.costingMethod && filters.costingMethod !== 'all') {
-          const moId = sc.manufacturing_order_id || sc.mo_id
+          const moId = sc.manufacturing_order_id
           return moData[moId as string]?.costing_method === filters.costingMethod
         }
         return true

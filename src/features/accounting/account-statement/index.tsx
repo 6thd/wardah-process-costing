@@ -245,7 +245,7 @@ export function AccountStatement() {
 
       if (error) throw error;
 
-      const lines = data || [];
+      const lines = (data || []) as AccountStatementLine[];
       setStatementLines(lines);
       
       // Calculate opening balance (first running balance - first balance)

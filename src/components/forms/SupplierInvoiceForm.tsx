@@ -44,11 +44,11 @@ interface POLine {
   id: string
   product_id: string
   quantity: number
-  invoiced_quantity: number
+  received_quantity: number | null
   unit_price: number
-  discount_amount: number
-  tax_amount: number
-  line_total: number
+  discount_percentage: number | null
+  tax_percentage: number | null
+  line_total: number | null
   product?: {
     id: string
     code: string
@@ -180,10 +180,10 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
 
       if (error) throw error
 
-      // Transform to invoice lines
+      // Transform to invoice lines (invoiced_quantity not tracked in DB — use 0 as base)
       const lines: InvoiceLine[] = (data || []).map((line: POLine) => {
         const orderedQty = line.quantity
-        const alreadyInvoiced = line.invoiced_quantity || 0
+        const alreadyInvoiced = 0
         const remaining = orderedQty - alreadyInvoiced
 
         return {
@@ -194,10 +194,10 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
           ordered_quantity: orderedQty,
           already_invoiced: alreadyInvoiced,
           remaining_quantity: remaining,
-          quantity_to_invoice: remaining, // Default to remaining
+          quantity_to_invoice: remaining,
           unit_price: line.unit_price,
-          discount_amount: line.discount_amount || 0,
-          tax_rate: 15, // Default 15%
+          discount_amount: 0,
+          tax_rate: line.tax_percentage ?? 15,
           selected: remaining > 0
         }
       })
@@ -317,10 +317,13 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
 
       const totalAmount = subtotal - totalDiscount + totalTax
 
+      const orgId = await resolveOrgIdWithFallback()
+
       // 1. Create supplier invoice
       const { data: invoice, error: invoiceError } = await supabase
         .from('supplier_invoices')
         .insert({
+          org_id: orgId,
           invoice_number: invoiceNumber,
           invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
           due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null,
@@ -345,49 +348,25 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
         const { error: lineError } = await supabase
           .from('supplier_invoice_lines')
           .insert({
-            invoice_id: invoice.id,
+            org_id: orgId,
+            supplier_invoice_id: invoice.id,
             product_id: line.product_id,
             quantity: line.quantity_to_invoice,
-            unit_price: line.unit_price,
-            discount_amount: line.discount_amount || 0,
-            tax_amount: (line.quantity_to_invoice * line.unit_price - (line.discount_amount || 0)) * (line.tax_rate / 100)
-            // line_total is a generated column - don't include it
+            unit_cost: line.unit_price,
+            discount_percentage: 0,
+            tax_percentage: line.tax_rate
           })
 
         if (lineError) throw lineError
 
-        // Update PO line invoiced_quantity (only if created from PO)
-        if (createMode === 'with-po' && line.po_line_id && !line.po_line_id.startsWith('temp-')) {
-          const { error: updateLineError } = await supabase
-            .from('purchase_order_lines')
-            .update({
-              invoiced_quantity: line.already_invoiced + line.quantity_to_invoice
-            })
-            .eq('id', line.po_line_id)
-
-          if (updateLineError) throw updateLineError
-        }
+        // Note: purchase_order_lines has no invoiced_quantity column — PO fulfillment tracked via supplier_invoices.purchase_order_id
       }
 
-      // 3. Check if PO is fully invoiced (only if created from PO)
+      // 3. Mark PO as partially invoiced
       if (createMode === 'with-po' && selectedPOId) {
-        const { data: allLines, error: checkError } = await supabase
-          .from('purchase_order_lines')
-          .select('quantity, invoiced_quantity')
-          .eq('purchase_order_id', selectedPOId)
-
-        if (checkError) throw checkError
-
-        const allFullyInvoiced = allLines.every(
-          (line: any) => (line.invoiced_quantity || 0) >= line.quantity
-        )
-
-        const newPOStatus = allFullyInvoiced ? 'invoiced' : 'partially_invoiced'
-
-        // 4. Update PO status
         const { error: updatePOError } = await supabase
           .from('purchase_orders')
-          .update({ status: newPOStatus })
+          .update({ status: 'partially_invoiced' })
           .eq('id', selectedPOId)
 
         if (updatePOError) throw updatePOError
@@ -408,61 +387,67 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
     }
   }
 
-  const createGLEntry = async (invoice: any, lines: InvoiceLine[]) => {
+  const createGLEntry = async (invoice: { id: string; invoice_date: string; invoice_number: string; subtotal: number; discount_amount: number; tax_amount: number; total_amount: number; org_id: string }, _lines: InvoiceLine[]) => {
     try {
-      // Get GL accounts from mappings
+      const orgId = invoice.org_id
+
+      // Get GL accounts from mappings (key_type = transaction category, debit/credit_account_code = account codes)
       const { data: mappings, error: mappingsError } = await supabase
         .from('gl_mappings')
         .select('*')
-        .eq('org_id', await resolveOrgIdWithFallback())
+        .eq('org_id', orgId)
 
       if (mappingsError) throw mappingsError
 
-      const inventoryAccountId = mappings?.find((m: any) => m.transaction_type === 'PURCHASE_INVENTORY')?.debit_account_id
-      const taxAccountId = mappings?.find((m: any) => m.transaction_type === 'PURCHASE_TAX')?.debit_account_id
-      const payableAccountId = mappings?.find((m: any) => m.transaction_type === 'PURCHASE_PAYABLE')?.credit_account_id
+      const inventoryCode = mappings?.find((m) => m.key_type === 'PURCHASE_INVENTORY')?.debit_account_code
+      const taxCode = mappings?.find((m) => m.key_type === 'PURCHASE_TAX')?.debit_account_code
+      const payableCode = mappings?.find((m) => m.key_type === 'PURCHASE_PAYABLE')?.credit_account_code
 
-      if (!inventoryAccountId || !payableAccountId) {
+      if (!inventoryCode || !payableCode) {
         console.warn('GL mappings not configured for purchases')
         return
       }
 
-      // Create GL Entry
+      // Create GL Entry using gl_entries (canonical path is rpc_create_journal_entry — TODO Phase 3)
       const entryNumber = `JE-PI-${Date.now()}`
       const { data: glEntry, error: entryError } = await supabase
         .from('gl_entries')
         .insert({
+          org_id: orgId,
           entry_number: entryNumber,
+          entry_type: 'PURCHASE_INVOICE',
           entry_date: invoice.invoice_date,
           description: `فاتورة مشتريات ${invoice.invoice_number}`,
           status: 'posted',
-          source_type: 'PURCHASE_INVOICE',
-          source_id: invoice.id
+          reference_type: 'PURCHASE_INVOICE',
+          reference_id: invoice.id
         })
         .select()
         .single()
 
       if (entryError) throw entryError
 
-      // Debit: Inventory (or Purchases account)
+      // Debit: Inventory
       const inventoryAmount = invoice.subtotal - invoice.discount_amount
       await supabase
         .from('gl_entry_lines')
         .insert({
+          org_id: orgId,
           entry_id: glEntry.id,
-          account_id: inventoryAccountId,
+          account_code: inventoryCode,
           debit: inventoryAmount,
           credit: 0,
           description: `مشتريات - ${invoice.invoice_number}`
         })
 
       // Debit: Tax
-      if (invoice.tax_amount > 0 && taxAccountId) {
+      if (invoice.tax_amount > 0 && taxCode) {
         await supabase
           .from('gl_entry_lines')
           .insert({
+            org_id: orgId,
             entry_id: glEntry.id,
-            account_id: taxAccountId,
+            account_code: taxCode,
             debit: invoice.tax_amount,
             credit: 0,
             description: `ضريبة مشتريات - ${invoice.invoice_number}`
@@ -473,8 +458,9 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
       await supabase
         .from('gl_entry_lines')
         .insert({
+          org_id: orgId,
           entry_id: glEntry.id,
-          account_id: payableAccountId,
+          account_code: payableCode,
           debit: 0,
           credit: invoice.total_amount,
           description: `ذمم موردين - ${invoice.invoice_number}`

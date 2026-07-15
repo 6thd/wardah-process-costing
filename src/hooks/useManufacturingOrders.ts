@@ -5,6 +5,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { manufacturingService } from '@/services/supabase-service'
 import { getSupabase, type ManufacturingOrder } from '@/lib/supabase'
+import type { TablesInsert } from '@/types/database.generated'
 
 export const useManufacturingOrders = () => {
   return useQuery({
@@ -27,7 +28,7 @@ export const useCreateManufacturingOrder = () => {
       if (!supabase) throw new Error('Supabase client not initialized')
       const { data, error } = await supabase
         .from('manufacturing_orders')
-        .insert(order)
+        .insert(order as unknown as TablesInsert<'manufacturing_orders'>)
         .select()
         .single()
       

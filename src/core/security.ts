@@ -3,6 +3,7 @@
  * Tenant ID extraction and validation from Supabase JWT tokens
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { getSupabase } from './supabase'
 
 /**
@@ -175,7 +176,7 @@ export const createSecureRPC = (functionName: string) => {
     
     console.log(`🔐 Calling secure RPC: ${functionName}`, { tenant: tenantId })
     
-    const { data, error } = await client.rpc(functionName, secureParams)
+    const { data, error } = await (client as SupabaseClient).rpc(functionName, secureParams)
     
     if (error) {
       console.error(`🔐 RPC call failed: ${functionName}`, error)
@@ -197,13 +198,14 @@ export const getTenantQuery = async (tableName: string) => {
     throw new Error('Authentication required: No valid tenant context')
   }
   
-  // Return a properly initialized query builder that callers can chain
+  // Cast to untyped client — this module uses dynamic table names for a generic security scanner
+  const dynClient = client as SupabaseClient
   return {
-    select: (columns = '*') => client.from(tableName).select(columns).eq('tenant_id', tenantId),
-    insert: (data: any) => client.from(tableName).insert({ ...data, tenant_id: tenantId }),
-    update: (data: any) => client.from(tableName).update(data).eq('tenant_id', tenantId),
-    delete: () => client.from(tableName).delete().eq('tenant_id', tenantId),
-    upsert: (data: any) => client.from(tableName).upsert({ ...data, tenant_id: tenantId })
+    select: (columns = '*') => dynClient.from(tableName).select(columns).eq('tenant_id', tenantId),
+    insert: (data: Record<string, unknown>) => dynClient.from(tableName).insert({ ...data, tenant_id: tenantId }),
+    update: (data: Record<string, unknown>) => dynClient.from(tableName).update(data).eq('tenant_id', tenantId),
+    delete: () => dynClient.from(tableName).delete().eq('tenant_id', tenantId),
+    upsert: (data: Record<string, unknown>) => dynClient.from(tableName).upsert({ ...data, tenant_id: tenantId })
   }
 }
 

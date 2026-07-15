@@ -235,8 +235,8 @@ function ItemsManagement() {
         itemsService.getAll(),
         categoriesService.getAll(),
       ]);
-      setItems(itemsData || [])
-      setCategories(categoriesData || [])
+      setItems((itemsData || []) as Item[])
+      setCategories((categoriesData || []) as Category[])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('خطأ في تحميل البيانات')
@@ -1182,6 +1182,7 @@ function StockAdjustments() {
           .insert({
             organization_id: userOrg.org_id,
             adjustment_date: newAdjustment.adjustment_date,
+            adjustment_number: `ADJ-${Date.now()}`,
             posting_date: newAdjustment.adjustment_date,
             adjustment_type: newAdjustment.adjustment_type,
             reason: newAdjustment.reason,
@@ -1401,13 +1402,13 @@ function StockAdjustments() {
             .insert({
               org_id: userOrg.org_id,
               entry_date: adjustment.posting_date,
-              voucher_type: 'Stock Adjustment',
-              voucher_number: adjustment.adjustment_number || adjustment.reference_number || `ADJ-${adjustmentId.substring(0, 8)}`,
-              reference: adjustment.reference_number || null,
+              entry_type: 'STOCK_ADJUSTMENT',
+              entry_number: adjustment.adjustment_number || `ADJ-${adjustmentId.substring(0, 8)}`,
+              reference_number: adjustment.reference_number || null,
+              reference_type: 'stock_adjustments',
+              reference_id: adjustmentId,
               description: `تسوية مخزون - ${adjustment.reason}`,
               status: 'posted',
-              total_debit: journalEntries.reduce((sum: number, e: any) => sum + e.debit, 0),
-              total_credit: journalEntries.reduce((sum: number, e: any) => sum + e.credit, 0),
               created_by: user.id
             })
             .select('id')
@@ -1420,9 +1421,10 @@ function StockAdjustments() {
 
           if (glEntry) {
             // Add entry_id to all line items
-            const lineItems = journalEntries.map((entry: any) => ({
+            const lineItems = journalEntries.map((entry: any, idx: number) => ({
               org_id: userOrg.org_id,
               entry_id: glEntry.id,
+              line_number: idx + 1,
               account_id: entry.account_id,
               debit: entry.debit || 0,
               credit: entry.credit || 0,
@@ -2463,7 +2465,7 @@ function CategoriesManagement() {
   const loadCategories = async () => {
     try {
       const data = await categoriesService.getAll()
-      setCategories(data || [])
+      setCategories((data || []) as Category[])
     } catch (error) {
       console.error('Error loading categories:', error)
       toast.error('خطأ في تحميل الفئات')

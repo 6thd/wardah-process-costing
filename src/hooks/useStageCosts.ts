@@ -46,24 +46,6 @@ export const useStageCosts = (moId: string) => {
             .select('*')
             .eq('manufacturing_order_id', moId)
           
-          // If that fails, try mo_id as fallback (for backward compatibility)
-          if (error && (
-            error.code === '42703' || 
-            error.code === 'PGRST116' ||
-            error.code === '400' ||
-            error.message?.includes('manufacturing_order_id') ||
-            error.message?.includes('column') ||
-            error.message?.includes('does not exist')
-          )) {
-            // Debug: manufacturing_order_id failed, trying mo_id
-            const result = await supabase.from('stage_costs')
-              .select('*')
-              .eq('mo_id', moId)
-            
-            data = result.data
-            error = result.error
-          }
-          
           // If still error, try without filter (RLS will handle it)
           if (error?.code === '400') {
             // Debug: Trying without filter, using RLS only
@@ -72,9 +54,9 @@ export const useStageCosts = (moId: string) => {
               .limit(100) // Get all accessible records, filter in memory
             
             if (rlsResult.data && !rlsResult.error) {
-              // Filter in memory by manufacturing_order_id or mo_id
-              data = rlsResult.data.filter((item: Record<string, unknown>) => 
-                (item.manufacturing_order_id === moId) || (item.mo_id === moId)
+              // Filter in memory by manufacturing_order_id
+              data = rlsResult.data.filter((item: Record<string, unknown>) =>
+                item.manufacturing_order_id === moId
               )
               error = null
             } else {
@@ -85,9 +67,9 @@ export const useStageCosts = (moId: string) => {
           
           // If we have data, enrich with work_center and manufacturing_stage
           if (data && !error && data.length > 0) {
-            // Get unique work center IDs (table uses work_center_id, not wc_id)
+            // Get unique work center IDs
             const workCenterIds = [...new Set(data.map((item: Record<string, unknown>) => {
-              const wcId = item.work_center_id || item.wc_id
+              const wcId = item.work_center_id
               return typeof wcId === 'string' ? wcId : null
             }).filter(Boolean) as string[])]
             const stageIds = [...new Set(data.map((item: Record<string, unknown>) => {
@@ -120,18 +102,14 @@ export const useStageCosts = (moId: string) => {
             const stageMap = new Map(stages.map((s) => [s.id, s]))
             
             data = data.map((item: Record<string, unknown>) => {
-              const workCenterId = (item.work_center_id || item.wc_id) as string | undefined
+              const workCenterId = item.work_center_id as string | undefined
               const stageId = item.stage_id as string | undefined
               return {
                 ...item,
-                // Map work center (table uses work_center_id, not wc_id)
                 work_center: workCenterId ? wcMap.get(workCenterId) : undefined,
                 manufacturing_stage: stageId ? stageMap.get(stageId) : undefined,
-                // Normalize column names for consistency
-                manufacturing_order_id: (item.manufacturing_order_id || item.mo_id) as string,
-                work_center_id: workCenterId || (item.wc_id as string | undefined)
               }
-            })
+            }) as typeof data
           }
           
           // Sort in memory if needed (more reliable than database order)
@@ -163,7 +141,7 @@ export const useStageCosts = (moId: string) => {
             // For other errors, also return empty array to prevent UI breakage
             return [] as StageCost[]
           }
-          return (sortedData || []) as StageCost[]
+          return (sortedData || []) as unknown as StageCost[]
         } catch (error: unknown) {
           // If table doesn't exist, return empty array
           const errorObj = error && typeof error === 'object' ? error as { code?: string; message?: string } : null

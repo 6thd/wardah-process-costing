@@ -7,6 +7,7 @@
  */
 
 import { getSupabase, resolveOrgIdWithFallback } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { toast } from 'sonner'
 
 export interface Warehouse {
@@ -483,7 +484,7 @@ export class WarehouseService {
    */
   async getSuggestedAccounts(): Promise<Record<string, unknown>[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as SupabaseClient)
         .from('v_suggested_warehouse_accounts')
         .select('*')
 
@@ -562,7 +563,8 @@ export class WarehouseService {
    */
   async getStockValueByWarehouse(warehouseId?: string): Promise<Record<string, unknown>[]> {
     try {
-      let query = this.supabase
+      // v_stock_by_warehouse: view not yet in public schema — cast to bypass typed client
+      let query = (this.supabase as SupabaseClient)
         .from('v_stock_by_warehouse')
         .select('*')
 
@@ -585,7 +587,7 @@ export class WarehouseService {
    */
   async getWarehouseUtilization(): Promise<Record<string, unknown>[]> {
     try {
-      const { data, error } = await this.supabase
+      const { data, error } = await (this.supabase as SupabaseClient)
         .from('v_warehouse_utilization')
         .select('*')
         .order('code', { ascending: true })

@@ -36,10 +36,10 @@ export function useJournalEntries({ statusFilter, dateFilter, journals }: UseJou
         if (error) {
           console.warn('gl_entries not found, trying journal_entries:', error);
           const entriesWithJournalNames = await fetchFromOldTable(statusFilter, dateFilter, journals);
-          setEntries(entriesWithJournalNames);
+          setEntries(entriesWithJournalNames as unknown as JournalEntry[]);
         } else {
           console.log('✅ Loaded from gl_entries:', data);
-          setEntries(data || []);
+          setEntries((data || []) as unknown as JournalEntry[]);
         }
       } catch (error) {
         console.error('Error fetching entries:', error);

@@ -38,11 +38,11 @@ interface InvoiceLine {
   id: string
   product_id: string
   quantity: number
-  delivered_quantity: number
+  delivered_quantity: number | null
   unit_price: number
-  discount_amount: number
-  tax_amount: number
-  line_total: number
+  discount_percentage: number | null
+  tax_percentage: number | null
+  line_total: number | null
   product?: {
     id: string
     code: string

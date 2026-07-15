@@ -5,6 +5,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getGlassClasses } from '@/lib/wardah-ui-utils';
 
 interface WIPReportProps {
@@ -30,9 +31,8 @@ export const WIPReport: React.FC<WIPReportProps> = ({ dateRange }) => {
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized');
       
-      // For now, we'll fetch from the wip_by_stage view
-      // In a real implementation, this would be a more complex query
-      let query = supabase
+      // wip_by_stage: view not yet in live DB — cast to bypass type check
+      let query = (supabase as SupabaseClient)
         .from('wip_by_stage')
         .select('*');
       

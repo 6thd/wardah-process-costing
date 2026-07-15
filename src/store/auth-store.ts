@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist, createJSONStorage } from 'zustand/middleware'
 import { safeStorageAdapter } from '@/lib/safe-storage'
 import { getSupabase } from '../lib/supabase'
-import type { AuthError, AuthChangeEvent, Session } from '@supabase/supabase-js'
+import type { AuthError, AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js'
 import { loadConfig } from '../lib/config'
 import { DEMO_CREDENTIALS } from '@/config/demo-credentials'
 
@@ -74,7 +74,8 @@ export const useAuthStore = create<AuthState>()(
           }
 
           if (data.user) {
-            const { data: profile, error: profileError } = await client
+            // users: legacy public.users table, not in generated types — cast to bypass
+            const { data: profile, error: profileError } = await (client as SupabaseClient)
               .from('users')
               .select('*')
               .eq('id', data.user.id)
@@ -98,10 +99,10 @@ export const useAuthStore = create<AuthState>()(
               return
             }
 
-            set({ 
-              user: profile, 
-              isAuthenticated: true, 
-              isLoading: false 
+            set({
+              user: profile as AppUser,
+              isAuthenticated: true,
+              isLoading: false
             })
           }
         } catch (error) {
@@ -175,16 +176,17 @@ export const useAuthStore = create<AuthState>()(
           
           if (session?.user) {
             try {
-              const { data: profile, error } = await client
+              const dynClient = client as SupabaseClient
+              const { data: profile, error } = await dynClient
                 .from('users')
                 .select('*')
                 .eq('id', session.user.id)
                 .single()
 
               if (!error && profile) {
-                set({ 
-                  user: profile, 
-                  isAuthenticated: true 
+                set({
+                  user: profile as AppUser,
+                  isAuthenticated: true
                 })
               } else {
                 const newUser: AppUser = {
@@ -195,8 +197,8 @@ export const useAuthStore = create<AuthState>()(
                   created_at: new Date().toISOString(),
                   updated_at: new Date().toISOString()
                 }
-                
-                const { error: insertError } = await client
+
+                const { error: insertError } = await dynClient
                   .from('users')
                   .insert([newUser])
                   

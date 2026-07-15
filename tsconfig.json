@@ -12,9 +12,13 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": false,
+    // P5: تفعيل تدريجي — خطوتان آمنتان بلا كسر
+    // (strict: true يتطلب إزالة 450+ استخدام لـ any و415 catch بلا تحديد نوع أولاً)
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]

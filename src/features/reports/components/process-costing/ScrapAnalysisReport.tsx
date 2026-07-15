@@ -218,8 +218,8 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
         return []
       }
       
-      const wcIds = [...new Set(stageCostsData.map((sc) => sc.wc_id || sc.work_center_id).filter(Boolean) as string[])]
-      const moIds = [...new Set(stageCostsData.map((sc) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean) as string[])]
+      const wcIds = [...new Set(stageCostsData.map((sc) => sc.work_center_id).filter(Boolean) as string[])]
+      const moIds = [...new Set(stageCostsData.map((sc) => sc.manufacturing_order_id).filter(Boolean) as string[])]
       
       const [wcData, moData] = await Promise.all([
         fetchWorkCenters(wcIds),

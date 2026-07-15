@@ -1,8 +1,12 @@
 
 import { createClient, type User, type SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/types/database.generated';
 
 // Re-export the User type for other modules
 export type { User } from '@supabase/supabase-js';
+// Re-export generated DB types for consumers
+export type { Database } from '@/types/database.generated';
+export type { Tables, TablesInsert, TablesUpdate, Enums } from '@/types/database.generated';
 
 // Singleton instance
 const supabaseInstance: SupabaseClient | null = null;
@@ -178,7 +182,7 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 // Create client immediately (synchronous)
 // SECURITY: Do not use fallback values - fail fast if environment variables are missing
-export const supabase: SupabaseClient = createClient(
+export const supabase: SupabaseClient<Database> = createClient<Database>(
   supabaseUrl || '',
   supabaseAnonKey || '',
   {
@@ -198,14 +202,14 @@ export const supabase: SupabaseClient = createClient(
 /**
  * Returns the Supabase client instance (synchronous).
  */
-export const getSupabase = (): SupabaseClient => {
+export const getSupabase = (): SupabaseClient<Database> => {
   return supabase;
 };
 
 /**
  * Legacy async version for backward compatibility
  */
-export const getSupabaseAsync = async (): Promise<SupabaseClient> => {
+export const getSupabaseAsync = async (): Promise<SupabaseClient<Database>> => {
   return supabase;
 };
 
@@ -223,9 +227,10 @@ export const checkSupabaseConnection = async () => {
         
         if (import.meta.env.DEV) console.log("Supabase connection appears to be working.");
         return { status: 'ok', message: 'Supabase connection is active.' };
-    } catch (e: any) {
-        console.error("An exception occurred while checking Supabase connection:", e.message);
-        return { status: 'error', message: e.message };
+    } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error("An exception occurred while checking Supabase connection:", msg);
+        return { status: 'error', message: msg };
     }
 };
 
@@ -332,38 +337,6 @@ export const getAccountById = async (accountId: string): Promise<GLAccount | nul
     }
 };
 
-export const queryGLAccounts = async (query: string): Promise<GLAccount[]> => {
-    const { data, error } = await supabase.from('gl_accounts').select().textSearch('name', query);
-    if (error) {
-        console.error('Error querying GL accounts:', error);
-        return [];
-    }
-    return data || [];
-};
-
-export const getAccountHierarchy = async (): Promise<any[]> => {
-    const { data, error } = await supabase.rpc('get_account_hierarchy');
-    if (error) {
-        console.error('Error fetching account hierarchy:', error);
-        return [];
-    }
-    return data || [];
-};
-
-export const getAccountChildren = async (parentId: string): Promise<any[]> => {
-    const { data, error } = await supabase.rpc('get_account_children', { parent_id: parentId });
-    if (error) {
-        console.error('Error fetching account children:', error);
-        return [];
-    }
-    return data || [];
-};
-
-export const debugGLAccounts = async () => {
-    const { data, error } = await supabase.from('gl_accounts').select('*').limit(10);
-    console.log('Debug GL Accounts:', data, error);
-};
-
 // ===================================================================
 // GL ACCOUNT CRUD OPERATIONS
 // عمليات إدارة دليل الحسابات
@@ -423,9 +396,9 @@ export const createGLAccount = async (input: CreateGLAccountInput): Promise<{ su
         if (error) throw error;
 
         return { success: true, data };
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error creating GL account:', error);
-        return { success: false, error: error.message || 'Failed to create account' };
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to create account' };
     }
 };
 
@@ -436,14 +409,14 @@ export const createGLAccount = async (input: CreateGLAccountInput): Promise<{ su
 export const updateGLAccount = async (input: UpdateGLAccountInput): Promise<{ success: boolean; data?: GLAccount; error?: string }> => {
     try {
         const { id, ...updates } = input;
-        
-        const updateData: any = {
+
+        const updateData: Partial<typeof updates> & { updated_at: string } = {
             ...updates,
             updated_at: new Date().toISOString()
         };
 
         // Remove undefined values
-        Object.keys(updateData).forEach(key => {
+        (Object.keys(updateData) as (keyof typeof updateData)[]).forEach(key => {
             if (updateData[key] === undefined) {
                 delete updateData[key];
             }
@@ -459,9 +432,9 @@ export const updateGLAccount = async (input: UpdateGLAccountInput): Promise<{ su
         if (error) throw error;
 
         return { success: true, data };
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error updating GL account:', error);
-        return { success: false, error: error.message || 'Failed to update account' };
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to update account' };
     }
 };
 
@@ -510,9 +483,9 @@ export const deleteGLAccount = async (id: string): Promise<{ success: boolean; e
         if (error) throw error;
 
         return { success: true };
-    } catch (error: any) {
+    } catch (error) {
         console.error('Error deleting GL account:', error);
-        return { success: false, error: error.message || 'Failed to delete account' };
+        return { success: false, error: error instanceof Error ? error.message : 'Failed to delete account' };
     }
 };
 

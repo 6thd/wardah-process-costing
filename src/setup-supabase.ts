@@ -3,6 +3,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { DEMO_CREDENTIALS } from '@/config/demo-credentials'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export async function setupDemoUser() {
   console.log('🚀 Setting up demo user in Supabase...')
@@ -37,7 +38,7 @@ export async function setupDemoUser() {
     // Step 2: Try to create user profile in users table
     if (signUpData.user) {
       console.log('👤 Creating user profile...')
-      const { data: profileData, error: profileError } = await supabase
+      const { data: profileData, error: profileError } = await (supabase as SupabaseClient)
         .from('users')
         .upsert({
           id: signUpData.user.id,

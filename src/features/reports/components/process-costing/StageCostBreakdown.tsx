@@ -57,7 +57,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
         .select('*')
 
       if (filters.manufacturingOrderId) {
-        query = query.eq('mo_id', filters.manufacturingOrderId)
+        query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
       }
       
       const { data: stageCostsData, error: queryError } = await query
@@ -90,7 +90,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
         // Filter by manufacturing_order_id or mo_id in memory
         const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
           if (!filters.manufacturingOrderId) return true
-          return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
+          return sc.manufacturing_order_id === filters.manufacturingOrderId
         })
         
         return filtered.map((sc: Record<string, unknown>) => ({
@@ -101,7 +101,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
       }
       
       // Fetch work centers separately - support both column names
-      const wcIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.wc_id || sc.work_center_id).filter(Boolean))]
+      const wcIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.work_center_id).filter(Boolean))] as string[]
       
       const wcData: Record<string, { id: string; name?: string; name_ar?: string }> = {}
       if (wcIds.length > 0) {
@@ -118,7 +118,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
       }
       
       // Fetch manufacturing orders separately - support both column names
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
+      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id).filter(Boolean))] as string[]
       
       const moData: Record<string, { id: string; order_number?: string }> = {}
       if (moIds.length > 0) {
@@ -137,8 +137,8 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
       // Join data - support both column names
       return (stageCostsData || []).map((sc: Record<string, unknown>) => ({
         ...sc,
-        manufacturing_orders: moData[(sc.manufacturing_order_id || sc.mo_id) as string],
-        work_centers: wcData[(sc.wc_id || sc.work_center_id) as string]
+        manufacturing_orders: moData[sc.manufacturing_order_id as string],
+        work_centers: wcData[sc.work_center_id as string]
       })) as unknown as StageCostRecord[]
     }
   })
