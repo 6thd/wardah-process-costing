@@ -112,21 +112,22 @@ export interface ProfitabilityParams {
 }
 
 /**
- * قائمة أحداث COGS المعتمدة — كانت الخريطة تُفلتر بـ sale_delivery% بينما مسار
- * التسليم يرحّل بحدث COGS_DELIVERY حصراً (الحساب المدين الحي 544000 وليس
- * 511100 الافتراضي في ملف 85) ⇒ كان COGS يظهر صفراً دائماً. الحساب يُقرأ من
- * الخريطة الحية لا يُفترض. أي حدث COGS جديد يُضاف هنا صراحةً.
+ * قائمة أحداث COGS المعتمدة — كان التقرير يفلتر gl_mappings (جدول بذور قديم)
+ * بـ sale_delivery% بينما مسار التسليم يرحّل عبر بوابة الأحداث بحدث
+ * COGS_DELIVERY المزروع في **gl_event_mappings** (Migration 76 — تحقق حي:
+ * COGS_DELIVERY → مدين 544000 EXPENSE) ⇒ كان COGS يظهر صفراً دائماً.
+ * الحساب يُقرأ من الخريطة الحية لا يُفترض. أي حدث COGS جديد يُضاف هنا صراحةً.
  */
 export const COGS_EVENT_KEYS = ['COGS_DELIVERY'] as const;
 
 /** حسابات COGS القانونية: الطرف المدين لأحداث القائمة، بعد التحقق أنها حسابات مصروف. */
 export async function fetchCogsAccounts(orgId: string): Promise<string[]> {
   const { data: mappings, error } = await supabase
-    .from('gl_mappings')
-    .select('key_value, debit_account_code')
+    .from('gl_event_mappings')
+    .select('event_code, debit_account_code')
     .eq('org_id', orgId)
-    .eq('key_type', 'EVENT')
-    .in('key_value', [...COGS_EVENT_KEYS]);
+    .eq('is_active', true)
+    .in('event_code', [...COGS_EVENT_KEYS]);
   if (error) throw new Error(`تعذّر جلب خريطة COGS: ${error.message}`);
 
   const candidates = [...new Set(

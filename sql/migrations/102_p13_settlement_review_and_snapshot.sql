@@ -103,6 +103,8 @@ AS $$
     WHERE s.id = p_settlement_id;
 $$;
 REVOKE ALL ON FUNCTION public.wardah_settlement_snapshot(UUID) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.wardah_settlement_snapshot(UUID) FROM anon;
+REVOKE ALL ON FUNCTION public.wardah_settlement_snapshot(UUID) FROM authenticated;
 
 -- ===================================================================
 -- 5) rpc_submit_settlement_review — draft → review بتجميد snapshot خادمي

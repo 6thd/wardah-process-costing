@@ -16,7 +16,7 @@ const tableData: Record<string, unknown[]> = {
     { code: '544000', category: 'EXPENSE', normal_balance: 'DEBIT' },
     { code: '1000', category: 'ASSET', normal_balance: 'DEBIT' },
   ],
-  gl_mappings: [{ key_value: 'COGS_DELIVERY', debit_account_code: '544000' }],
+  gl_event_mappings: [{ event_code: 'COGS_DELIVERY', debit_account_code: '544000', is_active: true }],
   gl_entry_lines: [
     { account_code: '4000', credit_amount: 1000, debit_amount: 0 },
     // سطر COGS مرحّل — هو «التكاليف» في اللوحة الآن (كانت أوامر الشراء 400)

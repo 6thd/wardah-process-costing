@@ -21,11 +21,11 @@ const tableData: Record<string, unknown[]> = {
     { account_code: '330000', credit_amount: 1000, debit_amount: 0 },
     { account_code: '9999', debit_amount: 777, credit_amount: 0 }, // غير مطابِق ⇒ يُستبعَد
   ],
-  gl_mappings: [
-    // الحساب الحي 544000 (الافتراضي 511100 غير موجود بشجرة الحسابات الحية)
-    { key_value: 'COGS_DELIVERY', debit_account_code: '544000' },
+  gl_event_mappings: [
+    // الجدول الحي لبوابة الأحداث (76): COGS_DELIVERY → 544000 (تحقق حي)
+    { event_code: 'COGS_DELIVERY', debit_account_code: '544000', is_active: true },
     // خريطة مضبوطة خطأً على حساب غير مصروف — يجب استبعادها من حسابات COGS
-    { key_value: 'COGS_DELIVERY', debit_account_code: '110300' },
+    { event_code: 'COGS_DELIVERY', debit_account_code: '110300', is_active: true },
   ],
   sales_invoices: [
     { total_amount: 5000, status: 'draft' },
