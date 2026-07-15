@@ -438,6 +438,7 @@ export default function OrgAdminRoles() {
                 size="icon"
                 onClick={() => navigate('/org-admin')}
                 className="text-slate-400 hover:text-white"
+                aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -458,6 +459,7 @@ export default function OrgAdminRoles() {
                 size="icon"
                 onClick={loadData}
                 className="border-slate-700 text-slate-400 hover:text-white"
+                aria-label="تحديث قائمة الأدوار"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -555,6 +557,7 @@ export default function OrgAdminRoles() {
                           size="icon"
                           onClick={() => openEditRoleDialog(role)}
                           className="text-slate-400 hover:text-white h-8 w-8"
+                          aria-label={`تعديل دور ${role.name_ar || role.name}`}
                         >
                           <Edit2 className="h-4 w-4" />
                         </Button>
@@ -564,6 +567,7 @@ export default function OrgAdminRoles() {
                               variant="ghost"
                               size="icon"
                               className="text-rose-400 hover:text-rose-300 h-8 w-8"
+                              aria-label={`حذف دور ${role.name_ar || role.name}`}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>

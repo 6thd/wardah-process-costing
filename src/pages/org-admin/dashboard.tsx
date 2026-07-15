@@ -126,6 +126,7 @@ export default function OrgAdminDashboard() {
                 size="icon"
                 onClick={() => navigate('/')}
                 className="text-slate-400 hover:text-white"
+                aria-label="العودة إلى الرئيسية"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>

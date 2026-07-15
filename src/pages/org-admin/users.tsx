@@ -207,6 +207,7 @@ export default function OrgAdminUsers() {
                 size="icon"
                 onClick={() => navigate('/org-admin')}
                 className="text-slate-400 hover:text-white"
+                aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -227,6 +228,7 @@ export default function OrgAdminUsers() {
                 size="icon"
                 onClick={loadData}
                 className="border-slate-700 text-slate-400 hover:text-white"
+                aria-label="تحديث قائمة المستخدمين"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -375,7 +377,7 @@ export default function OrgAdminUsers() {
                     {/* Actions */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="text-slate-400">
+                        <Button variant="ghost" size="icon" className="text-slate-400" aria-label="إجراءات المستخدم">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>

@@ -247,6 +247,7 @@ export default function OrgAdminInvitations() {
                 size="icon"
                 onClick={() => navigate('/org-admin')}
                 className="text-slate-400 hover:text-white"
+                aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
@@ -267,6 +268,7 @@ export default function OrgAdminInvitations() {
                 size="icon"
                 onClick={loadData}
                 className="border-slate-700 text-slate-400 hover:text-white"
+                aria-label="تحديث قائمة الدعوات"
               >
                 <RefreshCw className="h-4 w-4" />
               </Button>
@@ -488,6 +490,7 @@ export default function OrgAdminInvitations() {
                                 onClick={() => copyInviteLink(inv.token)}
                                 className="text-slate-400 hover:text-white"
                                 title="نسخ الرابط"
+                                aria-label="نسخ رابط الدعوة"
                               >
                                 <Copy className="h-4 w-4" />
                               </Button>
@@ -497,6 +500,7 @@ export default function OrgAdminInvitations() {
                                 onClick={() => handleResend(inv.id)}
                                 className="text-slate-400 hover:text-white"
                                 title="إعادة الإرسال"
+                                aria-label="إعادة إرسال الدعوة"
                               >
                                 <RotateCcw className="h-4 w-4" />
                               </Button>
@@ -507,6 +511,7 @@ export default function OrgAdminInvitations() {
                                     size="icon"
                                     className="text-rose-400 hover:text-rose-300"
                                     title="إلغاء"
+                                    aria-label="إلغاء الدعوة"
                                   >
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
