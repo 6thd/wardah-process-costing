@@ -3,6 +3,7 @@
 > **آخر تحديث**: 15 يوليو 2026
 > **المشروع**: `uutfztmqvajmsxnrqeiv` (Manufacturing Process — us-east-1)
 > **الفرع الرئيسي**: `main` — SHA الأخير بعد الدمج: `812eef1`
+> **الفرع الأمني**: `claude/security-audit-p0-fixes-cnfxua` — آخر commit: `8212b86` (Migration 104)
 
 ---
 
@@ -11,7 +12,7 @@
 | المرحلة | الوصف | الحالة |
 |---|---|:---:|
 | 0 | تثبيت خط الأساس | ✅ مكتملة |
-| 1 | P0 — الصلاحيات والتصعيد والدعوات | 🔶 جزئية |
+| 1 | P0 — الصلاحيات والتصعيد والدعوات | 🔶 (1.1–1.5 ✅ ، 1.6 ⬜) |
 | 2 | توحيد GitHub ↔ Supabase | ⬜ لم تبدأ |
 | 3 | تنظيف المخطط وسلامة البيانات | ⬜ لم تبدأ |
 | 4 | الأداء | ⬜ لم تبدأ |
@@ -50,7 +51,7 @@
 - ✅ `rpc_accept_invitation(token)` — تشتق `user_id` من `auth.uid()` خادمياً، قفل `FOR UPDATE`، فحص تطابق البريد، ذرّية كاملة
 - ✅ `signupHandlers.ts` → `acceptInvitation(inviteToken)` بلا `user.id`
 - ✅ `signup.tsx` → تستخدم `rpc_get_invitation_preview` بدل قراءة الجدول مباشرةً
-- ⬜ **متبقّي**: تخزين `token_hash` (SHA-256) بدل التوكن الخام في عمود `invitations.token` + ترحيل الصفوف القائمة (Migration 104)
+- ✅ **Migration 104**: `token_hash` (SHA-256 بـ pgcrypto) + trigger تلقائي + فهرس فريد + `rpc_accept_invitation`/`rpc_get_invitation_preview` تبحث بالهاش
 
 ### 1.4 `DEFAULT_ORG_ID` fallback ✅
 - ✅ حذف `DEFAULT_ORG_ID = '00000000-0000-0000-0000-000000000001'` من `AuthContext.tsx`
@@ -69,32 +70,35 @@
 - ✅ تثبيت `SET search_path = public` لـ 23 دالة ذات مسار متغيّر
 - ✅ سحب `EXECUTE` من `PUBLIC`/`anon` على 18 دالة DEFINER داخلية
 - ✅ تفعيل RLS على `test_init` + سياسة `is_super_admin()` فقط
-- ⬜ **متبقّي**: `rpc_set_org_admin` ما زال قابلاً للاستدعاء من `anon` (المنطق fail-closed لكن الأنظف سحب EXECUTE من anon تحديداً — Migration 104)
+- ✅ **Migration 104**: سحب EXECUTE من `anon` على `rpc_set_org_admin`/`rpc_accept_invitation`/`rpc_create_journal_entry`/`wardah_is_org_admin`
 
-### 1.6 إعدادات Supabase وStorage ⬜
+### 1.6 إعدادات Supabase وStorage 🔶
+- ✅ **Migration 104**: إصلاح `audit_logs.audit_insert` (WITH CHECK(true) → user_id = auth.uid())
+- ✅ **Migration 104**: إصلاح `bill_of_materials_20250905_1900` USING(true) → super_admin فقط
+- ✅ **Migration 104**: إصلاح `users_profiles_20250905_1900` USING(true) → user_id = auth.uid()
+- ✅ **Migration 104**: سحب ALL من `anon` على 7 جداول مالية/إدارية حساسة
 - ⬜ ترقية PostgreSQL (النسخة الحالية `17.4.1.075` — Advisor يُصنّفها قديمة)
 - ⬜ تفعيل Leaked Password Protection (Supabase Dashboard → Auth)
 - ⬜ جعل bucket المستندات المالية خاصًا + Signed URLs
 - ⬜ منع رفع SVG في bucket الشعارات (تعقيم أو حظر MIME)
 - ⬜ تعطيل `pg_graphql` (التطبيق يستخدم REST فقط — GraphQL exposure في Advisor)
-- ⬜ 4 سياسات `USING(true)` متبقية على جداول غير مالية:
-  - `audit_logs` → `audit_insert`
-  - `bill_of_materials_20250905_1900` → `authenticated_all_bill_materials`
-  - `users_profiles_20250905_1900` → `safe_insert_profiles` / `safe_update_profiles`
-- ⬜ مراجعة grants الواسعة لـ `anon` على جداول حساسة (`gl_entries`, `invitations`, `user_organizations`)
 - ⬜ اختبارات تصعيد سلبية pgTAP في `sql/tests/103_authz_negative.sql`
 
-### نتائج التحقق الحي — Migration 103
-| الفحص | النتيجة |
-|---|:---:|
-| سياسات `USING(true)` على الجداول المالية الـ12 | 0 ✅ |
-| `user_orgs_update_own` | محذوفة ✅ |
-| `invitations_by_token USING(true)` | محذوفة ✅ |
-| `rpc_set_org_admin` | موجودة ✅ |
-| `rpc_accept_invitation` | موجودة ✅ |
-| `rpc_get_invitation_preview` | موجودة ✅ |
-| 10 views بـ `security_invoker=on` | ✅ |
-| 3597 اختبار TypeScript | تمر ✅ |
+### نتائج التحقق الحي — Migrations 103 + 104
+| الفحص | Migration | النتيجة |
+|---|---|:---:|
+| سياسات `USING(true)` على الجداول المالية الـ12 | 103 | 0 ✅ |
+| `user_orgs_update_own` | 103 | محذوفة ✅ |
+| `invitations_by_token USING(true)` | 103 | محذوفة ✅ |
+| `rpc_set_org_admin` | 103 | موجودة ✅ |
+| `rpc_accept_invitation` (بالهاش) | 104 | موجودة ✅ |
+| `rpc_get_invitation_preview` (بالهاش) | 104 | موجودة ✅ |
+| 10 views بـ `security_invoker=on` | 103 | ✅ |
+| EXECUTE من anon على RPCs حساسة | 104 | صفر ✅ |
+| منح anon على جداول مالية | 104 | صفر ✅ |
+| `invitations.token_hash` ممتلئ | 104 | 3/3 ✅ |
+| سياسات backup tables مُصلحة | 104 | 3/3 ✅ |
+| 3597 اختبار TypeScript | — | تمر ✅ |
 
 ---
 
@@ -221,22 +225,20 @@
 
 ---
 
-## الخطوة التالية المقترحة — Migration 104
+## الخطوة التالية المقترحة — المرحلة 2 (توحيد GitHub ↔ Supabase)
 
-بنود محددة وقصيرة تُغلق ما تبقّى من المرحلة 1:
+Migration 104 مطبَّقة ✅. البند الوحيد المتبقي من المرحلة 1 يتطلب لوحة Supabase Dashboard:
+- **ترقية PostgreSQL** (Dashboard → Settings → Infrastructure)
+- **Leaked Password Protection** (Dashboard → Auth → Security)
+- **pg_graphql تعطيل** إن لا مستهلك (Dashboard → Database → Extensions)
 
-```sql
--- 1. سحب EXECUTE من anon على rpc_set_org_admin
-REVOKE EXECUTE ON FUNCTION public.rpc_set_org_admin(UUID, UUID, BOOLEAN) FROM anon;
+المرحلة 2 تبدأ بـ:
+```bash
+# سحب Baseline من الإنتاج
+supabase db pull --schema public > supabase/migrations/000_baseline.sql
 
--- 2. إصلاح سياسات USING(true) المتبقية على الجداول غير المالية
-DROP POLICY IF EXISTS "audit_insert" ON audit_logs;
-CREATE POLICY "audit_insert" ON audit_logs
-  FOR INSERT WITH CHECK (org_id = wardah_org_id());
-
--- 3. تخزين token_hash بدل التوكن الخام في invitations
-ALTER TABLE invitations ADD COLUMN IF NOT EXISTS token_hash TEXT;
--- (ترحيل الصفوف القائمة + تحديث rpc_get_invitation_preview/rpc_accept_invitation)
+# إنشاء Staging Branch (عبر MCP أو Dashboard)
+# ثم مقارنة ملفات 1–102 مع الـ Baseline
 ```
 
 ---
@@ -249,6 +251,8 @@ ALTER TABLE invitations ADD COLUMN IF NOT EXISTS token_hash TEXT;
 | `6ab569c` | docs(manifest): إضافة سطر 103، الرقم التالي 104 |
 | `dc627f2` | docs(rollback): rollback script لـ migration 103 |
 | `812eef1` | merge: PR #18 → main |
+| `3fcc18d` | docs: إضافة خطة المعالجة الشاملة (REMEDIATION_PLAN.md) |
+| `8212b86` | security(104): سحب anon grants + إصلاح USING(true) + token_hash |
 
 ---
 
