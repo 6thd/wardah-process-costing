@@ -492,7 +492,8 @@ export default function StorageBinsManagement() {
                   ))}
                 </TableBody>
               </Table>
-            )}
+              );
+            })()}
           </CardContent>
         </Card>
       )}

@@ -12,10 +12,12 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "strict": false,
-    // P5: تفعيل تدريجي — خطوتان آمنتان بلا كسر
+    // P5: تفعيل تدريجي — أربع خطوات آمنة بلا كسر
     // (strict: true يتطلب إزالة 450+ استخدام لـ any و415 catch بلا تحديد نوع أولاً)
     "strictFunctionTypes": true,
     "strictBindCallApply": true,
+    "alwaysStrict": true,
+    "noImplicitThis": true,
     "noFallthroughCasesInSwitch": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -30,15 +32,11 @@
     "node_modules",
     "dist",
     "build",
-    "src/features/inventory/components/**/*",
-    "src/features/testing/**/*",
+    // مشروع فرعي مستقل (له package.json وtsconfig.json خاصان)
     "src/features/reports/proxy-service/**/*",
-    "src/features/reports/routes/**/*",
-    "src/services/warehouse-service.ts",
-    "src/services/stock-adjustment-service.ts",
-    "src/services/valuation/**/*",
-    "src/domain/**/*",
-    "src/utils/**/*"
+    // يستوردان src/domain/inventory-valuation-integration المحذوف — غير موصولين بالتطبيق
+    "src/features/inventory/components/BatchDetails.tsx",
+    "src/features/testing/ValuationTesting.tsx"
   ],
   "references": [
     { "path": "./tsconfig.node.json" }

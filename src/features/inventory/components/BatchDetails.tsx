@@ -236,7 +236,8 @@ export const BatchDetails: React.FC<BatchDetailsProps> = ({
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-gray-50">
                   <tr className="font-bold">
