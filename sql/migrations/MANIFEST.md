@@ -33,6 +33,8 @@
 | **97** | **توحيد المخزون: products مجمّع مرجعي مشتق من bins (الخيار B) — مزامنة products.stock_quantity/cost_price داخل wardah_apply_stock_incoming + تسوية idempotent للـ bins السابقة** | ✅ مطبَّقة + مُختبرة حيّاً (تسوية: products=001(18,200 تام)+RM-042(3,250 خام)=**21,450**؛ استلام 100@8 فوق 500@6.5 ⇒ bins=products=600@6.75، اشتقاق idempotent بلا مضاعفة) |
 | **98** | **جدول org_settings (key/value JSONB لكل مؤسسة) + RLS قياسي + trigger updated_at — خلفية شاشة إعدادات النظام والنسخ الاحتياطي (P11-6)** | ✅ مطبَّقة + مُختبرة حيّاً (upsert مرتين على نفس المفتاح ⇒ صف واحد بالقيمة الأحدث، rollback) |
 | **99** | **تأسيس HR الشرعي (P12-A): سياسات RLS عاملة (wardah_org_id) للجداول الثمانية المقفلة فعلياً (سياستها القديمة تعتمد app.current_org_id الذي لا يضبطه عميل Supabase) + تحصين upsert_attendance_day (عضوية + موظف نفس المؤسسة + رفض شهر مقفل) + تفرّد/idempotency على payroll_runs + توسيع أنواع حسابات الرواتب (GOSI/نهاية خدمة/إضافي) + سياسات GOSI والمعدل اليومي والإضافي واستحقاق الإجازات في hr_policies + employees.is_saudi/contract_end_date. ملاحظة: جداول HR التاريخية (15_hr_module + sql/hr/16 + sql/hr/17) تأكد وجودها حيّاً واستُوعبت قانونياً هنا** | ✅ مطبَّقة + مُختبرة حيّاً (بلا JWT⇒NOT_ORG_MEMBER، عضو⇒upsert يوم يدمج JSONB، شهر مقفل⇒PAYROLL_MONTH_LOCKED، 8 سياسات جديدة، rollback) |
+| **109** | **توحيد Phase 2 — عرض WIP حسب مراحل التصنيع** (`wip_by_stage`): نُقل من `src/database/migrations/002_create_wip_view.sql` إلى المسار القانوني. **⏳ مُرقَّمة — تُطبَّق بعد التحقق من جداول `labor_entries`/`overhead_allocations` على القاعدة الحية** | ⏳ مُرقَّمة، لم تُطبَّق بعد |
+| **108** | **توحيد Phase 2 — دوال انحرافات التصنيع** (`calculate_material_variances`/`calculate_labor_variances`): نُقلت من `src/database/migrations/001_create_variance_functions.sql` إلى المسار القانوني. **⏳ مُرقَّمة — تُطبَّق بعد التحقق من `stock_moves`/`labor_entries`** | ⏳ مُرقَّمة، لم تُطبَّق بعد |
 | **107** | **P4 — فهرسة 108 مفتاح أجنبي بلا فهارس**: CREATE INDEX IF NOT EXISTS على كل الـ FKs المُبلَّغ عنها من Supabase Advisor "unindexed_foreign_keys"؛ تغطّي: GL/المحاسبة (journal_id/reversed_by/profit_center/segment)، HR والرواتب (payroll_details/settlements/locks/runs + فهارس مركّبة للـFKs من migration 101: attendance/employee_leaves/salary_structures/hr_settlements employee_id+org_id)، التصنيع (work_orders/material_consumption/machine_downtime/quality_inspections/scheduling_constraints/routings/stage_wip_log)، المشتريات/المبيعات (supplier_invoices/goods_receipt_lines/payment_vouchers/receipt_vouchers/customer_collections)، المخزون (stock_adjustments/physical_count/storage_locations/bins)، warehouse_gl_mapping، الأدوار/المستخدمون. **لا تأثير على RLS أو الصلاحيات — إضافة فهارس بحتة** | ✅ مطبَّقة + مُختبرة حيّاً (14/14 فهرس أساسي مُتحقَّق منه، IF NOT EXISTS يضمن idempotency) |
 | **106** | **P1 — سحب EXECUTE من PUBLIC على دوال SECURITY DEFINER**: migration 105 سحب من anon مباشرةً لكن المنحة الفعلية كانت عبر PUBLIC (=X/postgres الافتراضية في PostgreSQL)؛ هذا الـ migration يسحب PUBLIC عن كل دالة SECURITY DEFINER في public (ما عدا rpc_get_invitation_preview) — authenticated وservice_role لهما منح صريحة مستقلة لا تتأثر ⇒ صفر دوال DEFINER مكشوفة لـ anon | ✅ مطبَّقة + مُختبرة حيّاً (0 دالة DEFINER متاحة لـ anon بعد التطبيق؛ rpc_get_invitation_preview: anon=✅ auth=✅) |
 | **105** | **P1 — تعطيل pg_graphql وسحب EXECUTE من anon على دوال SECURITY DEFINER**: DROP EXTENSION pg_graphql (التطبيق REST فقط) يُلغي 295 تحذير Advisor (144 anon + 151 authenticated table exposed)؛ DO block يسحب EXECUTE من anon مباشرةً على كل دوال SECURITY DEFINER في public ما عدا rpc_get_invitation_preview | ✅ مطبَّقة + مُختبرة حيّاً (438 تحذير → 143 بعد التطبيق) |
@@ -59,13 +61,30 @@
 | warehouse mgmt | `warehouse_management_system` / `_fixed` | **warehouse_management_system_fixed** |
 | غير مرقّمة | `phase2_stock_ledger_system`, `phase3_valuation_methods`, `migration_add_warehouse_to_goods_receipts`, `fix_view_org_id_error` | تُطبَّق بعد 30 وقبل 50 (نظام المستودعات) — مطبَّقة تاريخياً |
 
+## اتفاقية المسار الوحيد (توحيد Phase 2)
+
+**القاعدة**: كل DDL = ملف مرقّم في هذا المجلد + سطر في هذا الدليل.
+
+| المجلد | الدور |
+|---|---|
+| `sql/migrations/` | ✅ **المصدر الوحيد** — كل الـ migrations الجديدة هنا |
+| `sql/archive/supabase-2024-originals/` | 4 ملفات 2024 أصلية (مؤرشَفة، لا تُطبَّق) |
+| `supabase/migrations/` | فارغ + README — Supabase CLI يقرأ `sql/migrations/` عبر MCP |
+| `src/database/migrations/` | فارغ — نُقل 001/002 إلى 108/109 هنا |
+| `src/migrations/` | TypeScript runner قديم — ليس SQL |
+
+**عند إنشاء migration جديدة**:
+1. `sql/migrations/NNN_description.sql` (NNN = الرقم التالي في هذا الملف)
+2. سطر جديد في جدول «الجوهر المطبَّق» أعلاه
+3. تطبيق عبر `mcp__Supabase__apply_migration` (staging أولاً ثم إنتاج)
+
 ## ملاحظات معمارية مهمة
 
 1. **ثلاثة مخططات GL تاريخية**: `gl_entries/gl_entry_lines` (القانوني — يكتب عبر
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **108**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **110**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
 4. **✅ حُسم تعارض مسار التسليم (Migration 87) ثم تحصينه (88)**: القانوني هو
    **`products`** (كل مفاتيح product_id الأجنبية تشير إليه؛ `items` جدول ميت فارغ)
    و**`org_id`** (112 جدولاً مقابل tenant_id على 13 محاسبياً). 87 واءم الدالة

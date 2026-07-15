@@ -39,6 +39,35 @@ jobs:
         run: npm run test -- --run --coverage.enabled=false
         continue-on-error: false
 
+      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل ملف في MANIFEST)
+      - name: Validate migration numbering
+        run: |
+          set -e
+          MANIFEST="sql/migrations/MANIFEST.md"
+          MIGRATIONS_DIR="sql/migrations"
+
+          # استخرج أعلى رقم migration من أسماء الملفات
+          MAX_NUM=$(ls "$MIGRATIONS_DIR" | grep -E '^[0-9]+_' | \
+                    sed 's/_.*//' | sort -n | tail -1)
+
+          # تحقق من أن كل رقم من 1 إلى MAX_NUM موجود (أو موثَّق في MANIFEST كمتجاوز)
+          MISSING=()
+          for i in $(seq 1 "$MAX_NUM"); do
+            FILE_COUNT=$(ls "$MIGRATIONS_DIR" | grep -cE "^${i}_" || true)
+            if [ "$FILE_COUNT" -eq 0 ]; then
+              # ثغرة — تحقق أنها موثَّقة في MANIFEST كمتجاوزة
+              if ! grep -qE "\b${i}\b" "$MANIFEST"; then
+                MISSING+=("$i")
+              fi
+            fi
+          done
+
+          if [ "${#MISSING[@]}" -gt 0 ]; then
+            echo "❌ أرقام migrations مفقودة وغير موثَّقة في MANIFEST: ${MISSING[*]}"
+            exit 1
+          fi
+          echo "✅ ترقيم migrations سليم (1–${MAX_NUM})"
+
       - name: Build project
         run: npm run build
 
