@@ -4,7 +4,8 @@
  * تنفيذ Repository Pattern للمخزون باستخدام Supabase
  */
 
-import { supabase } from '@/lib/supabase'
+import { supabase as _supabase } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import type {
   IInventoryRepository,
   ProductData,
@@ -14,6 +15,9 @@ import type {
   AvailabilityCheckResult,
 } from '@/domain/interfaces/IInventoryRepository'
 import type { StockBatch } from '@/services/valuation'
+
+// This repository uses a legacy inventory schema; cast to bypass type-checking.
+const supabase = _supabase as SupabaseClient
 
 export class SupabaseInventoryRepository implements IInventoryRepository {
   

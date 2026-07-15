@@ -68,9 +68,9 @@ const buildStageCostsQuery = (filters: DashboardFilters) => {
     query = query.lte('created_at', filters.dateTo)
   }
   if (filters.stageNo) {
-    query = query.eq('stage_no', filters.stageNo)
+    query = query.eq('stage_number', filters.stageNo)
   }
-  
+
   return query
 }
 

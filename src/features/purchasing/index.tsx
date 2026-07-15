@@ -48,7 +48,7 @@ function PurchasingOverview() {
           purchaseOrdersService.getAll()
         ])
         setSuppliers((suppliersData || []) as Supplier[])
-        setOrders((ordersData || []) as PurchaseOrder[])
+        setOrders((ordersData || []) as unknown as PurchaseOrder[])
       } catch (error) {
         console.error('Error loading purchasing data:', error)
         toast.error('خطأ في تحميل بيانات المشتريات')

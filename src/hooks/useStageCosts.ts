@@ -109,7 +109,7 @@ export const useStageCosts = (moId: string) => {
                 work_center: workCenterId ? wcMap.get(workCenterId) : undefined,
                 manufacturing_stage: stageId ? stageMap.get(stageId) : undefined,
               }
-            }) as typeof data
+            }) as unknown as typeof data
           }
           
           // Sort in memory if needed (more reliable than database order)
@@ -170,7 +170,7 @@ export const useCreateStageCost = () => {
   return useMutation({
     mutationFn: async (stageCost: Omit<StageCost, 'id' | 'created_at' | 'updated_at'>) => {
       if (!supabase) throw new Error('Supabase client not initialized')
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as import('@supabase/supabase-js').SupabaseClient)
         .from('stage_costs')
         .insert(stageCost)
         .select()

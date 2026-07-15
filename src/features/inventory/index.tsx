@@ -236,7 +236,7 @@ function ItemsManagement() {
         categoriesService.getAll(),
       ]);
       setItems((itemsData || []) as Item[])
-      setCategories((categoriesData || []) as Category[])
+      setCategories((categoriesData || []) as unknown as Category[])
     } catch (error) {
       console.error('Error loading data:', error)
       toast.error('خطأ في تحميل البيانات')
@@ -2465,7 +2465,7 @@ function CategoriesManagement() {
   const loadCategories = async () => {
     try {
       const data = await categoriesService.getAll()
-      setCategories((data || []) as Category[])
+      setCategories((data || []) as unknown as Category[])
     } catch (error) {
       console.error('Error loading categories:', error)
       toast.error('خطأ في تحميل الفئات')

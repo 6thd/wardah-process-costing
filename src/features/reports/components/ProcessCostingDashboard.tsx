@@ -215,7 +215,7 @@ export function ProcessCostingDashboard() {
       
       // Fetch manufacturing orders separately and join
       // Support both manufacturing_order_id and mo_id
-      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))]
+      const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))] as string[]
       
       const moData: Record<string, { id: string; order_number?: string; item_id?: string; costing_method?: string }> = {}
       if (moIds.length > 0) {
