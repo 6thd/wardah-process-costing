@@ -3,7 +3,7 @@
 > **آخر تحديث**: 15 يوليو 2026
 > **المشروع**: `uutfztmqvajmsxnrqeiv` (Manufacturing Process — us-east-1)
 > **الفرع الرئيسي**: `main` — SHA الأخير بعد الدمج: `812eef1`
-> **الفرع الأمني**: `claude/security-audit-p0-fixes-cnfxua` — آخر commit: `8212b86` (Migration 104)
+> **الفرع الأمني**: `claude/security-audit-p0-fixes-cnfxua` — آخر commit: في التقدم (Migrations 105 + 106)
 
 ---
 
@@ -12,7 +12,7 @@
 | المرحلة | الوصف | الحالة |
 |---|---|:---:|
 | 0 | تثبيت خط الأساس | ✅ مكتملة |
-| 1 | P0 — الصلاحيات والتصعيد والدعوات | 🔶 (1.1–1.5 ✅ ، 1.6 ⬜) |
+| 1 | P0 — الصلاحيات والتصعيد والدعوات | ✅ مكتملة (1.1–1.6) |
 | 2 | توحيد GitHub ↔ Supabase | ⬜ لم تبدأ |
 | 3 | تنظيف المخطط وسلامة البيانات | ⬜ لم تبدأ |
 | 4 | الأداء | ⬜ لم تبدأ |
@@ -33,7 +33,7 @@
 
 ---
 
-## المرحلة 1 — P0 الأمني 🔶
+## المرحلة 1 — P0 الأمني ✅
 
 ### 1.1 ثغرة تصعيد `is_org_admin` ✅
 - ✅ حذف `user_orgs_update_own` من `user_organizations`
@@ -68,11 +68,11 @@
   `v_material_consumption_report`, `v_oee_report`
 - ✅ إزالة `JOIN auth.users` من `v_work_order_status` (كانت تكشف بريد المشغّل)
 - ✅ تثبيت `SET search_path = public` لـ 23 دالة ذات مسار متغيّر
-- ✅ سحب `EXECUTE` من `PUBLIC`/`anon` على 18 دالة DEFINER داخلية
+- ✅ سحب `EXECUTE` من `PUBLIC`/`anon` على 18 دالة DEFINER داخلية (Migration 103) + جميع الباقية (Migrations 105+106 — صفر دوال DEFINER متاحة لـ anon)
 - ✅ تفعيل RLS على `test_init` + سياسة `is_super_admin()` فقط
 - ✅ **Migration 104**: سحب EXECUTE من `anon` على `rpc_set_org_admin`/`rpc_accept_invitation`/`rpc_create_journal_entry`/`wardah_is_org_admin`
 
-### 1.6 إعدادات Supabase وStorage 🔶
+### 1.6 إعدادات Supabase وStorage ✅ (جزئي)
 - ✅ **Migration 104**: إصلاح `audit_logs.audit_insert` (WITH CHECK(true) → user_id = auth.uid())
 - ✅ **Migration 104**: إصلاح `bill_of_materials_20250905_1900` USING(true) → super_admin فقط
 - ✅ **Migration 104**: إصلاح `users_profiles_20250905_1900` USING(true) → user_id = auth.uid()
@@ -81,7 +81,10 @@
 - ⬜ تفعيل Leaked Password Protection (Supabase Dashboard → Auth)
 - ⬜ جعل bucket المستندات المالية خاصًا + Signed URLs
 - ⬜ منع رفع SVG في bucket الشعارات (تعقيم أو حظر MIME)
-- ⬜ تعطيل `pg_graphql` (التطبيق يستخدم REST فقط — GraphQL exposure في Advisor)
+- ✅ **Migration 105**: تعطيل `pg_graphql` (DROP EXTENSION CASCADE) — أزال 295 تحذير Advisor
+- ✅ **Migration 105+106**: سحب EXECUTE من `anon` على كل دوال SECURITY DEFINER في public
+  (105: سحب مباشر من anon؛ 106: سحب من PUBLIC الذي كان يورّث anon الصلاحية)
+  — rpc_get_invitation_preview محفوظة لـ anon (معاينة الدعوة قبل التسجيل)
 - ⬜ اختبارات تصعيد سلبية pgTAP في `sql/tests/103_authz_negative.sql`
 
 ### نتائج التحقق الحي — Migrations 103 + 104
@@ -99,6 +102,9 @@
 | `invitations.token_hash` ممتلئ | 104 | 3/3 ✅ |
 | سياسات backup tables مُصلحة | 104 | 3/3 ✅ |
 | 3597 اختبار TypeScript | — | تمر ✅ |
+| تعطيل pg_graphql (295 تحذير) | 105 | ✅ (438→143 تحذير) |
+| صفر دوال DEFINER متاحة لـ anon | 105+106 | 0 ✅ |
+| rpc_get_invitation_preview: anon=✅ auth=✅ | 105+106 | محفوظة ✅ |
 
 ---
 
