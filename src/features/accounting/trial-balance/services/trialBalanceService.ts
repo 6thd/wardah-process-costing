@@ -20,44 +20,18 @@ export async function fetchTrialBalanceManual(
     if (accountsError) throw accountsError;
     console.log('✅ Accounts fetched:', accounts?.length);
 
-    let lines: any[] = [];
+    const { data: lines, error: linesError } = await supabase
+      .from('gl_entry_lines')
+      .select(`
+        *,
+        entry:gl_entries!inner (
+          status,
+          entry_date
+        )
+      `)
+      .eq('entry.status', 'posted');
 
-    try {
-      const { data: newLines, error: newError } = await supabase
-        .from('gl_entry_lines')
-        .select(`
-          *,
-          entry:gl_entries!inner (
-            status,
-            entry_date
-          )
-        `)
-        .eq('entry.status', 'POSTED');
-
-      if (!newError && newLines) {
-        console.log('✅ Posted lines from gl_entry_lines:', newLines?.length);
-        lines = newLines;
-      } else {
-        throw newError;
-      }
-    } catch (newError) {
-      console.warn('Trying old journal_lines table:', newError);
-      const { data: oldLines, error: linesError } = await supabase
-        .from('journal_lines')
-        .select(`
-          *,
-          journal_entries!inner (
-            status,
-            entry_date,
-            posting_date
-          )
-        `)
-        .eq('journal_entries.status', 'posted');
-
-      if (linesError) throw linesError;
-      console.log('✅ Posted lines fetched from journal_lines:', oldLines?.length);
-      lines = oldLines || [];
-    }
+    if (linesError) throw linesError;
 
     const balanceMap = new Map<string, TrialBalanceRow>();
 
@@ -80,9 +54,7 @@ export async function fetchTrialBalanceManual(
       const balance = balanceMap.get(line.account_id);
       if (!balance) return;
 
-      const entryDate = line.journal_entries?.posting_date || 
-                       line.journal_entries?.entry_date || 
-                       line.entry?.entry_date;
+      const entryDate = line.entry?.entry_date;
 
       if (entryDate && entryDate <= asOfDate) {
         if (entryDate >= fromDate) {

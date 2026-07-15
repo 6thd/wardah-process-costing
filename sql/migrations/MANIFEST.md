@@ -33,6 +33,7 @@
 | **97** | **توحيد المخزون: products مجمّع مرجعي مشتق من bins (الخيار B) — مزامنة products.stock_quantity/cost_price داخل wardah_apply_stock_incoming + تسوية idempotent للـ bins السابقة** | ✅ مطبَّقة + مُختبرة حيّاً (تسوية: products=001(18,200 تام)+RM-042(3,250 خام)=**21,450**؛ استلام 100@8 فوق 500@6.5 ⇒ bins=products=600@6.75، اشتقاق idempotent بلا مضاعفة) |
 | **98** | **جدول org_settings (key/value JSONB لكل مؤسسة) + RLS قياسي + trigger updated_at — خلفية شاشة إعدادات النظام والنسخ الاحتياطي (P11-6)** | ✅ مطبَّقة + مُختبرة حيّاً (upsert مرتين على نفس المفتاح ⇒ صف واحد بالقيمة الأحدث، rollback) |
 | **99** | **تأسيس HR الشرعي (P12-A): سياسات RLS عاملة (wardah_org_id) للجداول الثمانية المقفلة فعلياً (سياستها القديمة تعتمد app.current_org_id الذي لا يضبطه عميل Supabase) + تحصين upsert_attendance_day (عضوية + موظف نفس المؤسسة + رفض شهر مقفل) + تفرّد/idempotency على payroll_runs + توسيع أنواع حسابات الرواتب (GOSI/نهاية خدمة/إضافي) + سياسات GOSI والمعدل اليومي والإضافي واستحقاق الإجازات في hr_policies + employees.is_saudi/contract_end_date. ملاحظة: جداول HR التاريخية (15_hr_module + sql/hr/16 + sql/hr/17) تأكد وجودها حيّاً واستُوعبت قانونياً هنا** | ✅ مطبَّقة + مُختبرة حيّاً (بلا JWT⇒NOT_ORG_MEMBER، عضو⇒upsert يوم يدمج JSONB، شهر مقفل⇒PAYROLL_MONTH_LOCKED، 8 سياسات جديدة، rollback) |
+| **112** | **إصلاح pgcrypto المفقودة في دوال الدعوات**: استبدال `digest(x,'sha256')` من pgcrypto (غير مثبَّتة) بـ`sha256(x::bytea)` المدمجة في PostgreSQL 11+؛ الدوال المُصلَحة: `fn_invitations_set_token_hash` + `rpc_accept_invitation` + `rpc_get_invitation_preview`؛ إعادة حساب `token_hash` للصفوف القائمة. النتيجة: كل INSERT/UPDATE على `invitations` يعمل بلا pgcrypto + `rpc_get_invitation_preview` تحافظ على توقيع TABLE الفعلي | ✅ مطبَّقة (يوليو 2026) |
 | **111** | **تثبيت search_path لدوال انحرافات التصنيع**: إعادة إنشاء `calculate_material_variances` + `calculate_labor_variances` مع `SET search_path = public` لإغلاق تحذيري `function_search_path_mutable` في Supabase Security Advisor | ✅ مطبَّقة (يوليو 2026) |
 | **110** | **تطبيع حالات أوامر التصنيع + التحقق من القيد**: تحويل صفوف بصيغة hyphen قديمة (`in-progress`→`in_progress`، `quality-check`→`quality_check`، `on-hold`→`on_hold`)؛ ثم `VALIDATE CONSTRAINT manufacturing_orders_status_check` (كان NOT VALID) | ✅ مطبَّقة (يوليو 2026) |
 | **109** | **عرض WIP حسب مراحل التصنيع** (`wip_by_stage`، security_invoker): نُقل من `src/database/migrations/002_create_wip_view.sql`؛ **أُعيد كتابته** ليستخدم الجداول الموجودة فعلاً (`manufacturing_orders`+`products`+`work_orders`) بدل `stock_moves`/`labor_entries`/`overhead_allocations` الغائبة عن الإنتاج | ✅ مطبَّقة (يوليو 2026) |
@@ -86,7 +87,7 @@
    `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
    (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **112**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **113**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
    — 108: `calculate_material_variances` / `calculate_labor_variances` (دوال انحرافات).
    — 109: `wip_by_stage` view (security_invoker؛ معاد كتابتها باستخدام الجداول المتوفرة فعلاً).
    — 110: تطبيع حالات MO + VALIDATE CONSTRAINT manufacturing_orders_status_check.
