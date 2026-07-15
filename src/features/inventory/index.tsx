@@ -1394,58 +1394,42 @@ function StockAdjustments() {
           }
         }
 
-        // Insert journal entries if any
+        // Insert journal entries if any — عبر القناة القانونية الوحيدة للكتابة على GL
+        // (كان الرأس يُدرج في gl_entries والسطور في journal_lines القديم ⇒ قيود بلا سطور)
         if (journalEntries.length > 0) {
-          // Create GL Entry header (using gl_entries table)
-          const { data: glEntry, error: glError } = await supabase
-            .from('gl_entries')
-            .insert({
-              org_id: userOrg.org_id,
-              entry_date: adjustment.posting_date,
-              entry_type: 'STOCK_ADJUSTMENT',
-              entry_number: adjustment.adjustment_number || `ADJ-${adjustmentId.substring(0, 8)}`,
-              reference_number: adjustment.reference_number || null,
-              reference_type: 'stock_adjustments',
-              reference_id: adjustmentId,
-              description: `تسوية مخزون - ${adjustment.reason}`,
-              status: 'posted',
-              created_by: user.id
-            })
-            .select('id')
-            .single()
-
-          if (glError) {
-            console.error('Error creating GL entry:', glError)
-            throw new Error('فشل في إنشاء القيد المحاسبي: ' + glError.message)
-          }
-
-          if (glEntry) {
-            // Add entry_id to all line items
-            const lineItems = journalEntries.map((entry: any, idx: number) => ({
-              org_id: userOrg.org_id,
-              entry_id: glEntry.id,
-              line_number: idx + 1,
-              account_id: entry.account_id,
-              debit: entry.debit || 0,
-              credit: entry.credit || 0,
-              description: entry.description || ''
-            }))
-
-            const { error: linesError } = await supabase
-              .from('journal_lines')
-              .insert(lineItems)
-
-            if (linesError) {
-              console.error('Error creating journal lines:', linesError)
-              throw new Error('فشل في إنشاء بنود القيد: ' + linesError.message)
-            } else {
-              console.log('✅ Journal entries created successfully:', {
-                entry_id: glEntry.id,
-                lines_count: lineItems.length,
-                total_debit: lineItems.reduce((sum: number, l: any) => sum + l.debit, 0),
-                total_credit: lineItems.reduce((sum: number, l: any) => sum + l.credit, 0)
-              })
+          const { data: rpcResult, error: rpcError } = await supabase.rpc(
+            'rpc_create_journal_entry',
+            {
+              p_payload: {
+                org_id: userOrg.org_id,
+                entry_date: adjustment.posting_date,
+                entry_type: 'manual',
+                reference_type: 'stock_adjustments',
+                reference_number: adjustment.reference_number
+                  || adjustment.adjustment_number
+                  || `ADJ-${adjustmentId.substring(0, 8)}`,
+                description: `تسوية مخزون - ${adjustment.reason}`,
+                auto_post: true,
+                // نفس مفتاح stock-adjustment-service — تكرار الترحيل من أي مسار = replay
+                idempotency_key: `stock-adj-${adjustmentId}`,
+                lines: journalEntries.map((entry: any, idx: number) => ({
+                  line_number: idx + 1,
+                  account_id: entry.account_id,
+                  debit: entry.debit || 0,
+                  credit: entry.credit || 0,
+                  description: entry.description || ''
+                }))
+              }
             }
+          )
+
+          if (rpcError) {
+            console.error('Error creating GL entry:', rpcError)
+            throw new Error('فشل في إنشاء القيد المحاسبي: ' + rpcError.message)
+          }
+          const glResult = rpcResult as { success?: boolean; error?: string } | null
+          if (!glResult?.success) {
+            throw new Error(glResult?.error || 'فشل في إنشاء القيد المحاسبي')
           }
         } else {
           console.warn('⚠️ No journal entries to create')
