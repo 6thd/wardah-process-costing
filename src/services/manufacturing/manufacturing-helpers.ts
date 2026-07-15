@@ -89,23 +89,13 @@ export async function fetchRelatedItems(
   }
 
   try {
-    const [productsResult, itemsResult] = await Promise.all([
-      fetchProducts(supabase, itemIds),
-      fetchItems(supabase, itemIds)
-    ]);
-
+    const productsResult = await fetchProducts(supabase, itemIds);
     const combinedMap = new Map<string, unknown>();
-    itemsResult.forEach(item => {
-      if (item.id && typeof item.id === 'string') {
-        combinedMap.set(item.id, item);
-      }
-    });
     productsResult.forEach(product => {
       if (product.id && typeof product.id === 'string') {
         combinedMap.set(product.id, product);
       }
     });
-
     return combinedMap;
   } catch {
     console.warn('Could not load related data');
@@ -131,23 +121,6 @@ async function fetchProducts(
   }
 }
 
-/**
- * Fetch items
- */
-async function fetchItems(
-  supabase: SupabaseClient,
-  itemIds: string[]
-): Promise<Array<{ id: string; [key: string]: unknown }>> {
-  try {
-    const res = await supabase
-      .from('items')
-      .select('id, code, name, sku')
-      .in('id', itemIds);
-    return (res.data || []) as Array<{ id: string; [key: string]: unknown }>;
-  } catch {
-    return [];
-  }
-}
 
 /**
  * Attach related items to orders
@@ -168,13 +141,11 @@ export function attachRelatedItems(
 }
 
 /**
- * Normalize order status values
+ * Normalize order status values (done→completed for UI display)
  */
 export function normalizeOrderStatuses(orders: OrderWithItem[]): void {
   orders.forEach(order => {
-    if (order.status === 'in_progress') {
-      order.status = 'in-progress';
-    } else if (order.status === 'done') {
+    if (order.status === 'done') {
       order.status = 'completed';
     }
   });

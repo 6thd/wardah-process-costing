@@ -31,7 +31,7 @@ export function ManufacturingQuickStats({ orders }: QuickStatsProps) {
 
   const stats = [
     {
-      value: orders.filter(o => o.status === 'in-progress').length,
+      value: orders.filter(o => o.status === 'in_progress').length,
       label: t('manufacturing.ordersPage.stats.inProgress'),
       color: 'text-blue-600'
     },

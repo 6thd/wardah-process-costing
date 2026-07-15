@@ -22,8 +22,8 @@ describe('normalizeStatus - Source Function', () => {
     expect(normalizeStatus(undefined)).toBe('draft');
   });
 
-  it('should normalize "in_progress" to "in-progress"', () => {
-    expect(normalizeStatus('in_progress')).toBe('in-progress');
+  it('should normalize "in_progress" to "in_progress"', () => {
+    expect(normalizeStatus('in_progress')).toBe('in_progress');
   });
 
   it('should normalize "done" to "completed"', () => {
@@ -55,9 +55,9 @@ describe('prepareStatusUpdateData - Source Function', () => {
 
   it('should merge provided update data', () => {
     const providedData = { notes: 'Test notes', priority: 'high' };
-    const result = prepareStatusUpdateData('in-progress', providedData);
+    const result = prepareStatusUpdateData('in_progress', providedData);
     
-    expect(result.status).toBe('in-progress');
+    expect(result.status).toBe('in_progress');
     expect(result.notes).toBe('Test notes');
     expect(result.priority).toBe('high');
     expect(result.updated_at).toBeDefined();
@@ -72,7 +72,7 @@ describe('prepareStatusUpdateData - Source Function', () => {
 
   it('should preserve other provided fields', () => {
     const providedData = { quantity: 100, assignee_id: 'user-123' };
-    const result = prepareStatusUpdateData('in-progress', providedData);
+    const result = prepareStatusUpdateData('in_progress', providedData);
     
     expect(result.quantity).toBe(100);
     expect(result.assignee_id).toBe('user-123');
@@ -100,7 +100,7 @@ describe('shouldSetEndDate - Source Function', () => {
 
   it('should return false for non-completed statuses', () => {
     expect(shouldSetEndDate('draft')).toBe(false);
-    expect(shouldSetEndDate('in-progress')).toBe(false);
+    expect(shouldSetEndDate('in_progress')).toBe(false);
     expect(shouldSetEndDate('cancelled')).toBe(false);
   });
 });
@@ -108,9 +108,9 @@ describe('shouldSetEndDate - Source Function', () => {
 // ===================== shouldSetStartDate =====================
 
 describe('shouldSetStartDate - Source Function', () => {
-  it('should return true for "in-progress" status without provided start_date', () => {
-    expect(shouldSetStartDate('in-progress')).toBe(true);
-    expect(shouldSetStartDate('in-progress', {})).toBe(true);
+  it('should return true for "in_progress" status without provided start_date', () => {
+    expect(shouldSetStartDate('in_progress')).toBe(true);
+    expect(shouldSetStartDate('in_progress', {})).toBe(true);
   });
 
   it('should return true for "in_progress" status (underscore variant)', () => {
@@ -118,7 +118,7 @@ describe('shouldSetStartDate - Source Function', () => {
   });
 
   it('should return false when start_date is already provided', () => {
-    expect(shouldSetStartDate('in-progress', { start_date: '2024-01-15' })).toBe(false);
+    expect(shouldSetStartDate('in_progress', { start_date: '2024-01-15' })).toBe(false);
     expect(shouldSetStartDate('in_progress', { start_date: new Date().toISOString() })).toBe(false);
   });
 

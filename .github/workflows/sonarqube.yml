@@ -48,7 +48,7 @@ jobs:
       - name: Run tests with coverage
         if: steps.sonar_cfg.outputs.configured == 'true'
         run: npm run test:coverage
-        continue-on-error: true
+        continue-on-error: false
 
       # SONAR_TOKEN مضبوط الآن → يعمل التحليل فعلاً ويرفع النتائج لـ SonarCloud.
       # لا continue-on-error: الفحص يُحمِّر فقط عند فشل حقيقي (مصادقة/إعداد).
@@ -64,3 +64,4 @@ jobs:
           args: >
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
             -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
+            -Dsonar.qualitygate.wait=true

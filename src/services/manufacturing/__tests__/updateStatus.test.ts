@@ -98,7 +98,7 @@ describe('updateManufacturingOrderStatus', () => {
 
     const updatedData = {
       id: 'mo-1',
-      status: 'in-progress',
+      status: 'in_progress',
       start_date: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -123,12 +123,12 @@ describe('updateManufacturingOrderStatus', () => {
 
     await updateManufacturingOrderStatus(getClient, {
       id: 'mo-1',
-      status: 'in-progress',
+      status: 'in_progress',
     });
 
     expect(mockUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        status: 'in-progress',
+        status: 'in_progress',
         start_date: expect.any(String),
       })
     );
@@ -240,10 +240,10 @@ describe('updateManufacturingOrderStatus', () => {
 
     const result = await updateManufacturingOrderStatus(getClient, {
       id: 'mo-1',
-      status: 'in-progress',
+      status: 'in_progress',
     });
 
-    expect(result?.status).toBe('in-progress'); // Should be normalized to kebab-case
+    expect(result?.status).toBe('in_progress'); // Should be normalized to kebab-case
   });
 
   it('should load related item data after update', async () => {
@@ -327,16 +327,16 @@ describe('updateManufacturingOrderStatus', () => {
 
     const result = await updateManufacturingOrderStatus(getClient, {
       id: 'mo-1',
-      status: 'in-progress',
+      status: 'in_progress',
     });
 
     expect(mockRpc).toHaveBeenCalledWith('rpc_transition_mo_status', expect.objectContaining({
       p_mo_id: 'mo-1',
-      p_status: 'in-progress',
+      p_status: 'in_progress',
     }));
     // لا يجب استدعاء UPDATE المباشر
     expect(mockUpdate).not.toHaveBeenCalled();
-    expect(result?.status).toBe('in-progress'); // normalizeStatus يحوّل in_progress → in-progress
+    expect(result?.status).toBe('in_progress'); // normalizeStatus يحوّل in_progress → in-progress
   });
 
   it('should propagate DB error from rpc_transition_mo_status (invalid transition)', async () => {

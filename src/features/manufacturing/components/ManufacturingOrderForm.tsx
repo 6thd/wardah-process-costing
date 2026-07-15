@@ -54,11 +54,11 @@ const ORDER_STATUS_OPTIONS: ManufacturingOrder['status'][] = [
   'draft',
   'confirmed',
   'pending',
-  'in-progress',
+  'in_progress',
   'completed',
   'cancelled',
-  'on-hold',
-  'quality-check'
+  'on_hold',
+  'quality_check'
 ];
 
 export function ManufacturingOrderForm({

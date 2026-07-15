@@ -12,7 +12,6 @@ export function normalizeStatus(status: string | undefined): string {
   if (!status) return 'draft';
   
   const statusMap: Record<string, string> = {
-    'in_progress': 'in-progress',
     'done': 'completed'
   };
   
@@ -56,7 +55,7 @@ export function shouldSetStartDate(
   status: string,
   providedUpdateData?: Record<string, unknown>
 ): boolean {
-  const inProgressStatuses = ['in-progress', 'in_progress'];
+  const inProgressStatuses = ['in_progress', 'in_progress'];
   const hasProvidedStartDate = providedUpdateData?.start_date;
   
   return inProgressStatuses.includes(status) && !hasProvidedStartDate;
@@ -83,18 +82,6 @@ export async function loadRelatedItemData(
 
     if (product) {
       data.item = product;
-      return;
-    }
-
-    // Fallback to items table
-    const { data: item } = await supabase
-      .from('items')
-      .select('id, code, name, sku')
-      .eq('id', itemId)
-      .single();
-
-    if (item) {
-      data.item = item;
     }
   } catch (e) {
     console.warn('Could not load related data:', e);

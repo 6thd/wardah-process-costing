@@ -128,23 +128,6 @@ export const bomService = {
           })
         }
         
-        // محاولة items إذا لم توجد products
-        const { data: itemsData } = await supabase
-          .from('items')
-          .select('id, code, name, item_code, item_name')
-          .in('id', itemIds)
-        
-        if (itemsData && itemsData.length > 0) {
-          const itemsMap = new Map(itemsData.map(i => [i.id, i]))
-          return data.map(bom => {
-            const item = itemsMap.get(bom.item_id)
-            return {
-              ...bom,
-              item_code: item?.code || item?.item_code,
-              item_name: item?.name || item?.item_name
-            }
-          })
-        }
       }
       
       return data
@@ -187,17 +170,6 @@ export const bomService = {
       if (product) {
         header.item_code = product.code || product.product_code
         header.item_name = product.name || product.product_name
-      } else {
-        const { data: item } = await supabase
-          .from('items')
-          .select('id, code, name, item_code, item_name')
-          .eq('id', header.item_id)
-          .single()
-        
-        if (item) {
-          header.item_code = item.code || item.item_code
-          header.item_name = item.name || item.item_name
-        }
       }
     }
 
@@ -232,26 +204,6 @@ export const bomService = {
               }
             }
           })
-        } else {
-          // محاولة items
-          const { data: itemsData } = await supabase
-            .from('items')
-            .select('id, code, name, item_code, item_name, unit, unit_of_measure')
-            .in('id', lineItemIds)
-          
-          if (itemsData && itemsData.length > 0) {
-            const itemsMap = new Map(itemsData.map(i => [i.id, i]))
-            lines.forEach(line => {
-              const item = itemsMap.get(line.item_id)
-              if (item) {
-                line.item_code = item.code || item.item_code
-                line.item_name = item.name || item.item_name
-                if (!line.unit_of_measure) {
-                  line.unit_of_measure = item.unit || item.unit_of_measure || 'PC'
-                }
-              }
-            })
-          }
         }
       }
     }

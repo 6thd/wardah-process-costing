@@ -62,7 +62,7 @@ export interface ManufacturingOrder {
     item_id: string;
     product_id?: string;
     quantity: number;
-    status: 'pending' | 'in-progress' | 'completed' | 'draft' | 'confirmed' | 'cancelled' | 'on-hold' | 'quality-check';
+    status: 'pending' | 'in_progress' | 'completed' | 'draft' | 'confirmed' | 'cancelled' | 'on_hold' | 'quality_check';
     created_by?: string; 
     order_number?: string;
     product_name?: string;

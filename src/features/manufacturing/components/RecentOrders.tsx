@@ -30,7 +30,7 @@ export const RecentOrders: React.FC<RecentOrdersProps> = ({
     if (status === 'completed') {
       return 'default'
     }
-    if (status === 'in-progress') {
+    if (status === 'in_progress') {
       return 'secondary'
     }
     return 'outline'
@@ -40,7 +40,7 @@ export const RecentOrders: React.FC<RecentOrdersProps> = ({
     if (status === 'completed') {
       return t('manufacturing.overviewPage.latestOrders.status.completed')
     }
-    if (status === 'in-progress') {
+    if (status === 'in_progress') {
       return t('manufacturing.overviewPage.latestOrders.status.inProgress')
     }
     return t('manufacturing.overviewPage.latestOrders.status.pending')

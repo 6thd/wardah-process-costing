@@ -100,17 +100,6 @@ async function loadRelatedProductData(
 
     if (product) {
       data.item = product;
-      return;
-    }
-
-    const { data: item } = await supabase
-      .from('items')
-      .select('id, code, name, sku')
-      .eq('id', itemId)
-      .single();
-
-    if (item) {
-      data.item = item;
     }
   } catch (e) {
     // Ignore errors loading related data

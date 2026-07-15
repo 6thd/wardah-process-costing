@@ -15,18 +15,18 @@ describe('statusHelpers', () => {
   describe('getStatusLabel', () => {
     it('should return English label when isRTL is false', () => {
       expect(getStatusLabel('draft', false)).toBe('Draft');
-      expect(getStatusLabel('in-progress', false)).toBe('In Progress');
+      expect(getStatusLabel('in_progress', false)).toBe('In Progress');
       expect(getStatusLabel('completed', false)).toBe('Completed');
     });
 
     it('should return Arabic label when isRTL is true', () => {
       expect(getStatusLabel('draft', true)).toBe('مسودة');
-      expect(getStatusLabel('in-progress', true)).toBe('قيد التنفيذ');
+      expect(getStatusLabel('in_progress', true)).toBe('قيد التنفيذ');
       expect(getStatusLabel('completed', true)).toBe('مكتمل');
     });
 
     it('should handle all status types', () => {
-      const statuses = ['draft', 'pending', 'confirmed', 'in-progress', 'completed', 'cancelled', 'on-hold', 'quality-check'];
+      const statuses = ['draft', 'pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'on_hold', 'quality_check'];
       statuses.forEach(status => {
         expect(typeof getStatusLabel(status as any, false)).toBe('string');
         expect(typeof getStatusLabel(status as any, true)).toBe('string');
@@ -44,7 +44,7 @@ describe('statusHelpers', () => {
     });
 
     it('should return valid variant for all statuses', () => {
-      const statuses = ['draft', 'pending', 'confirmed', 'in-progress', 'completed', 'cancelled', 'on-hold', 'quality-check'];
+      const statuses = ['draft', 'pending', 'confirmed', 'in_progress', 'completed', 'cancelled', 'on_hold', 'quality_check'];
       const validVariants = ['default', 'secondary', 'destructive', 'outline'];
       
       statuses.forEach(status => {
@@ -70,8 +70,8 @@ describe('statusHelpers', () => {
     });
 
     it('should include valid transitions from in-progress', () => {
-      const options = getStatusOptions('in-progress');
-      expect(options).toContain('in-progress');
+      const options = getStatusOptions('in_progress');
+      expect(options).toContain('in_progress');
     });
   });
 
@@ -104,7 +104,7 @@ describe('statusHelpers', () => {
     });
 
     it('should not allow transition from completed', () => {
-      const result = validateStatusTransition('completed', 'in-progress', false);
+      const result = validateStatusTransition('completed', 'in_progress', false);
       expect(result.valid).toBe(false);
     });
 
@@ -134,19 +134,19 @@ describe('statusHelpers', () => {
 
     it('should handle same status transition', () => {
       // Same status transition may fail validation depending on the implementation
-      const result = prepareStatusUpdate('order-1', 'in-progress', 'in-progress', mockOrderData);
+      const result = prepareStatusUpdate('order-1', 'in_progress', 'in_progress', mockOrderData);
       // Just verify it returns a result with success property
       expect(typeof result.success).toBe('boolean');
     });
 
     it('should handle transition to in-progress', () => {
-      const result = prepareStatusUpdate('order-1', 'confirmed', 'in-progress', mockOrderData);
+      const result = prepareStatusUpdate('order-1', 'confirmed', 'in_progress', mockOrderData);
       expect(result.success).toBe(true);
-      expect(result.updateData?.status).toBe('in-progress');
+      expect(result.updateData?.status).toBe('in_progress');
     });
 
     it('should handle transition to completed', () => {
-      const result = prepareStatusUpdate('order-1', 'quality-check', 'completed', {
+      const result = prepareStatusUpdate('order-1', 'quality_check', 'completed', {
         ...mockOrderData,
         start_date: '2024-01-01'
       });

@@ -7,11 +7,11 @@ export type ManufacturingOrderStatus =
   | 'draft'           // مسودة - تم الإنشاء ولكن لم يتم التأكيد
   | 'pending'         // في الانتظار - تم التأكيد ولكن لم يبدأ التنفيذ
   | 'confirmed'       // مؤكد - جاهز للبدء (مرادف لـ pending)
-  | 'in-progress'     // قيد التنفيذ - بدأ الإنتاج
+  | 'in_progress'     // قيد التنفيذ - بدأ الإنتاج
   | 'completed'       // مكتمل - انتهى الإنتاج
   | 'cancelled'       // ملغي - تم إلغاء الأمر
-  | 'on-hold'        // متوقف - مؤقتاً متوقف
-  | 'quality-check'  // فحص الجودة - في مرحلة الفحص
+  | 'on_hold'        // متوقف - مؤقتاً متوقف
+  | 'quality_check'  // فحص الجودة - في مرحلة الفحص
 
 /**
  * Status workflow definition
@@ -19,11 +19,11 @@ export type ManufacturingOrderStatus =
  */
 export const STATUS_WORKFLOW: Record<ManufacturingOrderStatus, ManufacturingOrderStatus[]> = {
   'draft': ['confirmed', 'pending', 'cancelled'],
-  'pending': ['in-progress', 'confirmed', 'cancelled', 'on-hold'],
-  'confirmed': ['in-progress', 'pending', 'cancelled', 'on-hold'],
-  'in-progress': ['completed', 'quality-check', 'on-hold', 'cancelled'],
-  'quality-check': ['completed', 'in-progress', 'on-hold'],
-  'on-hold': ['in-progress', 'pending', 'cancelled'],
+  'pending': ['in_progress', 'confirmed', 'cancelled', 'on_hold'],
+  'confirmed': ['in_progress', 'pending', 'cancelled', 'on_hold'],
+  'in_progress': ['completed', 'quality_check', 'on_hold', 'cancelled'],
+  'quality_check': ['completed', 'in_progress', 'on_hold'],
+  'on_hold': ['in_progress', 'pending', 'cancelled'],
   'completed': [], // لا يمكن الانتقال من completed
   'cancelled': [] // لا يمكن الانتقال من cancelled
 }
@@ -79,21 +79,21 @@ export const STATUS_INFO: Record<ManufacturingOrderStatus, StatusInfo> = {
     description: 'Order confirmed and ready to start',
     descriptionAr: 'تم تأكيد الأمر وجاهز للبدء'
   },
-  'in-progress': {
+  'in_progress': {
     label: 'In Progress',
     labelAr: 'قيد التنفيذ',
     variant: 'default',
     description: 'Production has started',
     descriptionAr: 'بدأ الإنتاج'
   },
-  'quality-check': {
+  'quality_check': {
     label: 'Quality Check',
     labelAr: 'فحص الجودة',
     variant: 'secondary',
     description: 'Under quality inspection',
     descriptionAr: 'قيد فحص الجودة'
   },
-  'on-hold': {
+  'on_hold': {
     label: 'On Hold',
     labelAr: 'متوقف',
     variant: 'outline',
@@ -168,7 +168,7 @@ export function prepareStatusChange(context: StatusChangeContext): StatusChangeR
 
   // Business logic for specific transitions
   switch (toStatus) {
-    case 'in-progress':
+    case 'in_progress':
       // When starting production, set start_date if not set
       if (!orderData?.start_date) {
         result.shouldUpdateDates = true
@@ -191,12 +191,12 @@ export function prepareStatusChange(context: StatusChangeContext): StatusChangeR
       result.messageAr = 'تم إلغاء الأمر'
       break
 
-    case 'on-hold':
+    case 'on_hold':
       result.message = 'Order put on hold'
       result.messageAr = 'تم إيقاف الأمر مؤقتاً'
       break
 
-    case 'quality-check':
+    case 'quality_check':
       result.message = 'Order sent for quality check'
       result.messageAr = 'تم إرسال الأمر لفحص الجودة'
       break
@@ -214,11 +214,11 @@ export function prepareStatusChange(context: StatusChangeContext): StatusChangeR
  */
 export function getStatusPriority(status: ManufacturingOrderStatus): number {
   const priorities: Record<ManufacturingOrderStatus, number> = {
-    'in-progress': 1,
-    'quality-check': 2,
+    'in_progress': 1,
+    'quality_check': 2,
     'pending': 3,
     'confirmed': 3,
-    'on-hold': 4,
+    'on_hold': 4,
     'draft': 5,
     'completed': 6,
     'cancelled': 7
@@ -230,7 +230,7 @@ export function getStatusPriority(status: ManufacturingOrderStatus): number {
  * Check if order can be edited
  */
 export function canEditOrder(status: ManufacturingOrderStatus): boolean {
-  return ['draft', 'pending', 'confirmed', 'on-hold'].includes(status)
+  return ['draft', 'pending', 'confirmed', 'on_hold'].includes(status)
 }
 
 /**
@@ -245,7 +245,7 @@ export function canCancelOrder(status: ManufacturingOrderStatus): boolean {
  * Includes: in-progress, confirmed (ready to start), and quality-check
  */
 export function isActiveOrder(status: ManufacturingOrderStatus): boolean {
-  return ['in-progress', 'confirmed', 'quality-check'].includes(status)
+  return ['in_progress', 'confirmed', 'quality_check'].includes(status)
 }
 
 /**

@@ -216,19 +216,18 @@ router.get('/inventory', verifyApiKey, async (req: Request, res: Response) => {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) throw new Error('Tenant ID not found');
 
-    // Get inventory items with stock
+    // Get inventory items with stock (products is the canonical table)
     const { data: items, error } = await supabase
-      .from('items')
-      .select('id, code, name, name_ar, stock_quantity, cost_price, selling_price')
+      .from('products')
+      .select('id, code, name, name_ar, cost_price, selling_price')
       .eq('is_active', true)
-      .gt('stock_quantity', 0)
-      .order('stock_quantity', { ascending: false })
+      .order('name', { ascending: true })
       .limit(50);
 
     if (error) throw error;
 
     const inventoryValue = (items || []).reduce(
-      (sum, item) => sum + (Number(item.stock_quantity || 0) * Number(item.cost_price || 0)),
+      (sum, item) => sum + Number(item.cost_price || 0),
       0
     );
 
