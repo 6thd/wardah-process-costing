@@ -110,14 +110,14 @@ export default function OrgAdminDashboard() {
       description: 'تعديل بيانات المنظمة',
       icon: Settings,
       link: '/org-admin/settings',
-      color: 'hover:border-slate-500/50',
+      color: 'hover:border-border',
     },
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-50">
+      <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -125,7 +125,7 @@ export default function OrgAdminDashboard() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/')}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label="العودة إلى الرئيسية"
               >
                 <ArrowLeft className="h-5 w-5" />
@@ -133,11 +133,11 @@ export default function OrgAdminDashboard() {
               <div>
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-cyan-600 flex items-center justify-center">
-                    <Building2 className="h-5 w-5 text-white" />
+                    <Building2 className="h-5 w-5 text-foreground" />
                   </div>
                   <div>
-                    <h1 className="text-xl font-bold text-white">لوحة إدارة المنظمة</h1>
-                    <p className="text-sm text-slate-400">
+                    <h1 className="text-xl font-bold text-foreground">لوحة إدارة المنظمة</h1>
+                    <p className="text-sm text-muted-foreground">
                       {currentOrg?.organization?.name_ar || currentOrg?.organization?.name || 'المنظمة الحالية'}
                     </p>
                   </div>
@@ -153,24 +153,24 @@ export default function OrgAdminDashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {statCards.map((stat) => (
             <Link key={stat.title} to={stat.link}>
-              <Card className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all cursor-pointer group">
+              <Card className="bg-card border-border hover:border-border/80 transition-all cursor-pointer group">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
                       {loading ? (
                         <>
-                          <Skeleton className="h-8 w-20 mb-2 bg-slate-800" />
-                          <Skeleton className="h-4 w-32 bg-slate-800" />
+                          <Skeleton className="h-8 w-20 mb-2 bg-muted" />
+                          <Skeleton className="h-4 w-32 bg-muted" />
                         </>
                       ) : (
                         <>
                           <p className="text-3xl font-bold text-white mb-1">{stat.value}</p>
-                          <p className="text-sm text-slate-400">{stat.title}</p>
+                          <p className="text-sm text-muted-foreground">{stat.title}</p>
                         </>
                       )}
                     </div>
                     <div className={`p-3 rounded-xl bg-gradient-to-br ${stat.color} opacity-80 group-hover:opacity-100 transition-opacity`}>
-                      <stat.icon className="h-6 w-6 text-white" />
+                      <stat.icon className="h-6 w-6 text-foreground" />
                     </div>
                   </div>
                 </CardContent>
@@ -180,13 +180,13 @@ export default function OrgAdminDashboard() {
         </div>
 
         {/* Quick Actions */}
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card className="bg-card border-border">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Activity className="h-5 w-5 text-teal-400" />
               إجراءات سريعة
             </CardTitle>
-            <CardDescription className="text-slate-400">
+            <CardDescription className="text-muted-foreground">
               الوصول السريع لأهم الوظائف الإدارية
             </CardDescription>
           </CardHeader>
@@ -194,14 +194,14 @@ export default function OrgAdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               {quickActions.map((action) => (
                 <Link key={action.title} to={action.link}>
-                  <div className={`p-6 rounded-xl border border-slate-800 ${action.color} transition-all bg-slate-950/50 hover:bg-slate-900/50 group`}>
+                  <div className={`p-6 rounded-xl border border-border ${action.color} transition-all bg-muted/30 hover:bg-muted/30 group`}>
                     <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-lg bg-slate-800 group-hover:bg-slate-700 transition-colors">
-                        <action.icon className="h-5 w-5 text-slate-300" />
+                      <div className="p-3 rounded-lg bg-muted/50 group-hover:bg-muted transition-colors">
+                        <action.icon className="h-5 w-5 text-muted-foreground" />
                       </div>
                       <div>
                         <h3 className="font-semibold text-white mb-1">{action.title}</h3>
-                        <p className="text-xs text-slate-400">{action.description}</p>
+                        <p className="text-xs text-muted-foreground">{action.description}</p>
                       </div>
                     </div>
                   </div>
@@ -219,7 +219,7 @@ export default function OrgAdminDashboard() {
             </div>
             <div>
               <h3 className="text-lg font-semibold text-white mb-2">صلاحياتك كمسؤول منظمة</h3>
-              <ul className="text-slate-300 text-sm space-y-1">
+              <ul className="text-muted-foreground text-sm space-y-1">
                 <li>• إدارة المستخدمين وتفعيل/تعطيل حساباتهم</li>
                 <li>• إنشاء وإرسال الدعوات للمستخدمين الجدد</li>
                 <li>• تعيين الأدوار والصلاحيات للمستخدمين</li>

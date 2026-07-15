@@ -196,9 +196,9 @@ export default function OrgAdminUsers() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-50">
+      <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -206,18 +206,18 @@ export default function OrgAdminUsers() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/org-admin')}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-white" />
+                  <Users className="h-5 w-5 text-foreground" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">إدارة المستخدمين</h1>
-                  <p className="text-sm text-slate-400">{users.length} مستخدم</p>
+                  <h1 className="text-xl font-bold text-foreground">إدارة المستخدمين</h1>
+                  <p className="text-sm text-muted-foreground">{users.length} مستخدم</p>
                 </div>
               </div>
             </div>
@@ -227,7 +227,7 @@ export default function OrgAdminUsers() {
                 variant="outline"
                 size="icon"
                 onClick={loadData}
-                className="border-slate-700 text-slate-400 hover:text-white"
+                className="border-border text-muted-foreground hover:text-foreground"
                 aria-label="تحديث قائمة المستخدمين"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -245,17 +245,17 @@ export default function OrgAdminUsers() {
 
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Filters */}
-        <Card className="bg-slate-900/50 border-slate-800 mb-6">
+        <Card className="bg-card border-border mb-6">
           <CardContent className="p-4">
             <div className="flex flex-wrap items-center gap-4">
               <div className="flex-1 min-w-[200px]">
                 <div className="relative">
-                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="البحث بالاسم أو البريد..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pr-10 bg-slate-950 border-slate-800 text-white"
+                    className="pr-10 bg-input border-border text-foreground"
                   />
                 </div>
               </div>
@@ -268,7 +268,7 @@ export default function OrgAdminUsers() {
                     onClick={() => setFilter(f)}
                     className={filter === f
                       ? 'bg-teal-600'
-                      : 'border-slate-700 text-slate-400 hover:text-white'
+                      : 'border-border text-muted-foreground hover:text-foreground'
                     }
                   >
                     {(() => {
@@ -284,14 +284,14 @@ export default function OrgAdminUsers() {
         </Card>
 
         {/* Users Table */}
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card className="bg-card border-border">
           <CardContent className="p-0">
             {(() => {
               if (loading) {
                 return (
                   <div className="p-6 space-y-4">
                     {[1, 2, 3].map(i => (
-                      <Skeleton key={i} className="h-16 w-full bg-slate-800" />
+                      <Skeleton key={i} className="h-16 w-full bg-muted" />
                     ))}
                   </div>
                 );
@@ -299,9 +299,9 @@ export default function OrgAdminUsers() {
               if (filteredUsers.length === 0) {
                 return (
                   <div className="p-12 text-center">
-                    <Users className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                    <Users className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                     <h3 className="text-lg font-semibold text-white mb-2">لا يوجد مستخدمين</h3>
-                    <p className="text-slate-400 mb-4">
+                    <p className="text-muted-foreground mb-4">
                       {searchTerm ? 'لم يتم العثور على نتائج' : 'قم بدعوة مستخدمين للانضمام للمنظمة'}
                     </p>
                     <Link to="/org-admin/invitations">
@@ -314,14 +314,14 @@ export default function OrgAdminUsers() {
                 );
               }
               return (
-              <div className="divide-y divide-slate-800">
+              <div className="divide-y divide-border">
                 {filteredUsers.map(u => (
                   <div
                     key={u.id}
-                    className="p-4 flex items-center gap-4 hover:bg-slate-800/30 transition-colors"
+                    className="p-4 flex items-center gap-4 hover:bg-muted/30 transition-colors"
                   >
                     {/* Avatar */}
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-slate-700 to-slate-600 flex items-center justify-center text-white font-bold">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-muted to-muted/80 flex items-center justify-center text-foreground font-bold">
                       {u.user_profile?.full_name?.charAt(0) || u.user_profile?.full_name_ar?.charAt(0) || '?'}
                     </div>
 
@@ -343,7 +343,7 @@ export default function OrgAdminUsers() {
                           </Badge>
                         )}
                       </div>
-                      <p className="text-sm text-slate-400 truncate">{u.email}</p>
+                      <p className="text-sm text-muted-foreground truncate">{u.email}</p>
                     </div>
 
                     {/* Roles */}
@@ -352,13 +352,13 @@ export default function OrgAdminUsers() {
                         <Badge
                           key={role.id}
                           variant="outline"
-                          className="border-slate-700 text-slate-300"
+                          className="border-border text-muted-foreground"
                         >
                           {role.name_ar || role.name}
                         </Badge>
                       ))}
                       {(u.roles?.length || 0) > 2 && (
-                        <Badge variant="outline" className="border-slate-700 text-slate-400">
+                        <Badge variant="outline" className="border-border text-muted-foreground">
                           +{(u.roles?.length || 0) - 2}
                         </Badge>
                       )}
@@ -366,7 +366,7 @@ export default function OrgAdminUsers() {
 
                     {/* Status Toggle */}
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-slate-500">{u.is_active ? 'نشط' : 'معطل'}</span>
+                      <span className="text-xs text-muted-foreground">{u.is_active ? 'نشط' : 'معطل'}</span>
                       <Switch
                         checked={u.is_active}
                         onCheckedChange={() => handleToggleStatus(u.user_id, u.is_active)}
@@ -377,27 +377,27 @@ export default function OrgAdminUsers() {
                     {/* Actions */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="text-slate-400" aria-label="إجراءات المستخدم">
+                        <Button variant="ghost" size="icon" className="text-muted-foreground" aria-label="إجراءات المستخدم">
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="bg-slate-900 border-slate-800">
+                      <DropdownMenuContent align="end" className="bg-card border-border">
                         <DropdownMenuItem
                           onClick={() => openRoleDialog(u)}
-                          className="text-slate-300 focus:text-white focus:bg-slate-800"
+                          className="text-muted-foreground focus:text-foreground focus:bg-muted"
                         >
                           <UserCog className="h-4 w-4 ml-2" />
                           إدارة الأدوار
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => handleToggleAdmin(u.user_id, u.is_org_admin)}
-                          className="text-slate-300 focus:text-white focus:bg-slate-800"
+                          className="text-muted-foreground focus:text-foreground focus:bg-muted"
                           disabled={u.user_id === user?.id}
                         >
                           <Shield className="h-4 w-4 ml-2" />
                           {u.is_org_admin ? 'إزالة صلاحية المسؤول' : 'تعيين كمسؤول'}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator className="bg-slate-800" />
+                        <DropdownMenuSeparator className="bg-muted" />
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
                             <DropdownMenuItem
@@ -409,16 +409,16 @@ export default function OrgAdminUsers() {
                               إزالة من المنظمة
                             </DropdownMenuItem>
                           </AlertDialogTrigger>
-                          <AlertDialogContent className="bg-slate-900 border-slate-800">
+                          <AlertDialogContent className="bg-card border-border">
                             <AlertDialogHeader>
-                              <AlertDialogTitle className="text-white">تأكيد الإزالة</AlertDialogTitle>
-                              <AlertDialogDescription className="text-slate-400">
+                              <AlertDialogTitle className="text-foreground">تأكيد الإزالة</AlertDialogTitle>
+                              <AlertDialogDescription className="text-muted-foreground">
                                 هل أنت متأكد من إزالة "{u.user_profile?.full_name_ar || u.user_profile?.full_name}"؟
                                 لن يتمكن من الوصول للمنظمة بعد الإزالة.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter className="gap-2">
-                              <AlertDialogCancel className="bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700">
+                              <AlertDialogCancel className="bg-muted border-border text-muted-foreground hover:bg-muted/80">
                                 إلغاء
                               </AlertDialogCancel>
                               <AlertDialogAction
@@ -443,20 +443,20 @@ export default function OrgAdminUsers() {
 
       {/* Role Assignment Dialog */}
       <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
+        <DialogContent className="bg-card border-border max-w-md">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <Shield className="h-5 w-5 text-purple-400" />
               إدارة أدوار المستخدم
             </DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               {selectedUser?.user_profile?.full_name_ar || selectedUser?.user_profile?.full_name}
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             {roles.length === 0 ? (
-              <p className="text-center text-slate-400 py-4">لا توجد أدوار متاحة</p>
+              <p className="text-center text-muted-foreground py-4">لا توجد أدوار متاحة</p>
             ) : (
               roles.map(role => (
                 <button
@@ -465,7 +465,7 @@ export default function OrgAdminUsers() {
                   className={`p-4 rounded-lg border transition-colors cursor-pointer w-full text-start ${
                     selectedRoleIds.includes(role.id)
                       ? 'border-teal-500 bg-teal-950/30'
-                      : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
+                      : 'border-border bg-muted/30 hover:border-border'
                   }`}
                   onClick={() => {
                     if (selectedRoleIds.includes(role.id)) {
@@ -478,19 +478,19 @@ export default function OrgAdminUsers() {
                   <div className="flex items-center gap-3">
                     <Checkbox
                       checked={selectedRoleIds.includes(role.id)}
-                      className="border-slate-600"
+                      className="border-input"
                     />
                     <div className="flex-1">
                       <Label className="text-white font-medium cursor-pointer">
                         {role.name_ar || role.name}
                       </Label>
                       {role.description_ar || role.description ? (
-                        <p className="text-xs text-slate-400 mt-1">
+                        <p className="text-xs text-muted-foreground mt-1">
                           {role.description_ar || role.description}
                         </p>
                       ) : null}
                     </div>
-                    <Badge variant="outline" className="border-slate-700 text-slate-400">
+                    <Badge variant="outline" className="border-border text-muted-foreground">
                       {role.permissions_count} صلاحية
                     </Badge>
                   </div>
@@ -503,7 +503,7 @@ export default function OrgAdminUsers() {
             <Button
               variant="outline"
               onClick={() => setRoleDialogOpen(false)}
-              className="border-slate-700 text-slate-300"
+              className="border-border text-muted-foreground"
             >
               إلغاء
             </Button>

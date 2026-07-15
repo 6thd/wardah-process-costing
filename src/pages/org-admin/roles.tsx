@@ -111,7 +111,7 @@ function getCategoryColor(category: string): string {
     sales: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
     inventory: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
     hr: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-    general: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+    general: 'bg-slate-500/20 text-muted-foreground border-slate-500/30',
   };
   return colors[category] || colors.general;
 }
@@ -427,9 +427,9 @@ export default function OrgAdminRoles() {
   }, [formData.permission_ids]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-50">
+      <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -437,18 +437,18 @@ export default function OrgAdminRoles() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/org-admin')}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center">
-                  <Shield className="h-5 w-5 text-white" />
+                  <Shield className="h-5 w-5 text-foreground" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">إدارة الأدوار</h1>
-                  <p className="text-sm text-slate-400">{roles.length} دور</p>
+                  <h1 className="text-xl font-bold text-foreground">إدارة الأدوار</h1>
+                  <p className="text-sm text-muted-foreground">{roles.length} دور</p>
                 </div>
               </div>
             </div>
@@ -458,7 +458,7 @@ export default function OrgAdminRoles() {
                 variant="outline"
                 size="icon"
                 onClick={loadData}
-                className="border-slate-700 text-slate-400 hover:text-white"
+                className="border-border text-muted-foreground hover:text-foreground"
                 aria-label="تحديث قائمة الأدوار"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -478,17 +478,17 @@ export default function OrgAdminRoles() {
       <main className="max-w-7xl mx-auto px-6 py-8">
         {/* Tabs */}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'roles' | 'templates')} className="mb-6">
-          <TabsList className="bg-slate-800/50 border border-slate-700">
+          <TabsList className="bg-muted/50 border border-border">
             <TabsTrigger 
               value="roles" 
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-white"
+              className="data-[state=active]:bg-background data-[state=active]:text-foreground"
             >
               <Shield className="h-4 w-4 ml-2" />
               الأدوار ({roles.length})
             </TabsTrigger>
             <TabsTrigger 
               value="templates"
-              className="data-[state=active]:bg-slate-700 data-[state=active]:text-white"
+              className="data-[state=active]:bg-background data-[state=active]:text-foreground"
             >
               <Sparkles className="h-4 w-4 ml-2" />
               قوالب جاهزة ({templates.length})
@@ -500,15 +500,15 @@ export default function OrgAdminRoles() {
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1, 2, 3].map(i => (
-                  <Skeleton key={i} className="h-48 w-full bg-slate-800 rounded-xl" />
+                  <Skeleton key={i} className="h-48 w-full bg-muted rounded-xl" />
                 ))}
               </div>
             ) : roles.length === 0 ? (
-              <Card className="bg-slate-900/50 border-slate-800">
+              <Card className="bg-card border-border">
                 <CardContent className="p-12 text-center">
-                  <Shield className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                  <Shield className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-semibold text-white mb-2">لا توجد أدوار</h3>
-                  <p className="text-slate-400 mb-4">قم بإنشاء دور جديد أو استخدم قالب جاهز</p>
+                  <p className="text-muted-foreground mb-4">قم بإنشاء دور جديد أو استخدم قالب جاهز</p>
                   <div className="flex items-center justify-center gap-3">
                     <Button
                       onClick={openNewRoleDialog}
@@ -520,7 +520,7 @@ export default function OrgAdminRoles() {
                     <Button
                       variant="outline"
                       onClick={() => setActiveTab('templates')}
-                      className="border-slate-700"
+                      className="border-border"
                     >
                       <Sparkles className="h-4 w-4 ml-2" />
                       استخدام قالب
@@ -533,7 +533,7 @@ export default function OrgAdminRoles() {
                 {roles.map(role => (
               <Card
                 key={role.id}
-                className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all group"
+                className="bg-card border-border hover:border-border/80 transition-all group"
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
@@ -545,7 +545,7 @@ export default function OrgAdminRoles() {
                         {role.name_ar || role.name}
                       </CardTitle>
                       {role.description_ar || role.description ? (
-                        <CardDescription className="text-slate-400 mt-1">
+                        <CardDescription className="text-muted-foreground mt-1">
                           {role.description_ar || role.description}
                         </CardDescription>
                       ) : null}
@@ -556,7 +556,7 @@ export default function OrgAdminRoles() {
                           variant="ghost"
                           size="icon"
                           onClick={() => openEditRoleDialog(role)}
-                          className="text-slate-400 hover:text-white h-8 w-8"
+                          className="text-muted-foreground hover:text-foreground h-8 w-8"
                           aria-label={`تعديل دور ${role.name_ar || role.name}`}
                         >
                           <Edit2 className="h-4 w-4" />
@@ -572,16 +572,16 @@ export default function OrgAdminRoles() {
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>
-                          <AlertDialogContent className="bg-slate-900 border-slate-800">
+                          <AlertDialogContent className="bg-card border-border">
                             <AlertDialogHeader>
-                              <AlertDialogTitle className="text-white">حذف الدور</AlertDialogTitle>
-                              <AlertDialogDescription className="text-slate-400">
+                              <AlertDialogTitle className="text-foreground">حذف الدور</AlertDialogTitle>
+                              <AlertDialogDescription className="text-muted-foreground">
                                 هل أنت متأكد من حذف "{role.name_ar || role.name}"؟
                                 سيتم إزالة هذا الدور من جميع المستخدمين.
                               </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter className="gap-2">
-                              <AlertDialogCancel className="bg-slate-800 border-slate-700 text-slate-300">
+                              <AlertDialogCancel className="bg-muted border-border text-muted-foreground">
                                 إلغاء
                               </AlertDialogCancel>
                               <AlertDialogAction
@@ -599,7 +599,7 @@ export default function OrgAdminRoles() {
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-4">
-                    <div className="flex items-center gap-2 text-slate-400">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                       <Key className="h-4 w-4" />
                       <span className="text-sm">{role.permissions_count || 0} صلاحية</span>
                     </div>
@@ -621,27 +621,27 @@ export default function OrgAdminRoles() {
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {[1, 2, 3].map(i => (
-                  <Skeleton key={i} className="h-48 w-full bg-slate-800 rounded-xl" />
+                  <Skeleton key={i} className="h-48 w-full bg-muted rounded-xl" />
                 ))}
               </div>
             ) : templates.length === 0 ? (
-              <Card className="bg-slate-900/50 border-slate-800">
+              <Card className="bg-card border-border">
                 <CardContent className="p-12 text-center">
-                  <Sparkles className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                  <Sparkles className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <h3 className="text-lg font-semibold text-white mb-2">لا توجد قوالب</h3>
-                  <p className="text-slate-400">لم يتم إعداد قوالب أدوار جاهزة بعد</p>
+                  <p className="text-muted-foreground">لم يتم إعداد قوالب أدوار جاهزة بعد</p>
                 </CardContent>
               </Card>
             ) : (
               <div className="space-y-6">
-                <p className="text-slate-400 text-sm">
+                <p className="text-muted-foreground text-sm">
                   اختر قالباً جاهزاً لإنشاء دور بسرعة مع الصلاحيات المناسبة
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {templates.map(template => (
                     <Card
                       key={template.id}
-                      className="bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-all group"
+                      className="bg-card border-border hover:border-border/80 transition-all group"
                     >
                       <CardHeader className="pb-3">
                         <div className="flex items-start justify-between">
@@ -651,7 +651,7 @@ export default function OrgAdminRoles() {
                               {template.name_ar || template.name}
                             </CardTitle>
                             {template.description_ar || template.description ? (
-                              <CardDescription className="text-slate-400 mt-1">
+                              <CardDescription className="text-muted-foreground mt-1">
                                 {template.description_ar || template.description}
                               </CardDescription>
                             ) : null}
@@ -666,7 +666,7 @@ export default function OrgAdminRoles() {
                                 {getCategoryLabel(template.category)}
                               </Badge>
                             )}
-                            <span className="text-xs text-slate-500">
+                            <span className="text-xs text-muted-foreground">
                               {template.permission_keys?.length || 0} صلاحية
                             </span>
                           </div>
@@ -701,60 +701,60 @@ export default function OrgAdminRoles() {
         open={dialogOpen}
         onOpenChange={handleDialogClose}
       >
-        <DialogContent className="bg-slate-900 border-slate-800 max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
+        <DialogContent className="bg-card border-border max-w-3xl max-h-[90vh] flex flex-col p-0 overflow-hidden">
           <form onSubmit={handleSaveRole} className="flex flex-col h-full max-h-[90vh] overflow-hidden">
-            <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b border-slate-800">
+            <DialogHeader className="px-6 pt-6 pb-4 flex-shrink-0 border-b border-border">
               <DialogTitle className="text-white flex items-center gap-2">
                 <Shield className="h-5 w-5 text-purple-400" />
                 {editingRole ? 'تعديل الدور' : 'إنشاء دور جديد'}
               </DialogTitle>
-              <DialogDescription className="text-slate-400">
+              <DialogDescription className="text-muted-foreground">
                 حدد صلاحيات الدور لكل موديول
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 bg-slate-950/30" style={{ maxHeight: 'calc(90vh - 200px)' }}>
+            <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4 bg-muted/20" style={{ maxHeight: 'calc(90vh - 200px)' }}>
               <div className="p-4 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-slate-300">الاسم بالعربية *</Label>
+                  <Label className="text-muted-foreground">الاسم بالعربية *</Label>
                   <Input
                     placeholder="مثال: محاسب"
                     value={formData.name_ar}
                     onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
-                    className="bg-slate-950 border-slate-800 text-white"
+                    className="bg-input border-border text-foreground"
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-slate-300">الاسم بالإنجليزية</Label>
+                  <Label className="text-muted-foreground">الاسم بالإنجليزية</Label>
                   <Input
                     placeholder="e.g. Accountant"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    className="bg-slate-950 border-slate-800 text-white"
+                    className="bg-input border-border text-foreground"
                     dir="ltr"
                   />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label className="text-slate-300">الوصف</Label>
+                <Label className="text-muted-foreground">الوصف</Label>
                 <Textarea
                   placeholder="وصف مختصر للدور..."
                   value={formData.description_ar}
                   onChange={(e) => setFormData({ ...formData, description_ar: e.target.value })}
-                  className="bg-slate-950 border-slate-800 text-white resize-none"
+                  className="bg-input border-border text-foreground resize-none"
                   rows={2}
                 />
               </div>
 
               {/* Permissions Matrix */}
               <div className="space-y-3">
-                <Label className="text-slate-300 flex items-center gap-2">
+                <Label className="text-muted-foreground flex items-center gap-2">
                   <Key className="h-4 w-4" />
                   الصلاحيات
-                  <Badge variant="outline" className="border-slate-700 text-slate-400">
+                  <Badge variant="outline" className="border-border text-muted-foreground">
                     {formData.permission_ids.length} محددة
                   </Badge>
                 </Label>
@@ -768,12 +768,12 @@ export default function OrgAdminRoles() {
                     return (
                       <div
                         key={module.id}
-                        className="border border-slate-800 rounded-lg overflow-hidden"
+                        className="border border-border rounded-lg overflow-hidden"
                       >
                         {/* Module Header */}
                         <button
                           type="button"
-                          className="w-full flex items-center justify-between p-3 bg-slate-950/50 cursor-pointer hover:bg-slate-900/50 transition-colors border-0 bg-transparent text-start"
+                          className="w-full flex items-center justify-between p-3 bg-muted/30 cursor-pointer hover:bg-muted/30 transition-colors border-0 bg-transparent text-start"
                           onClick={() => toggleModule(module.id)}
                         >
                           <div className="flex items-center gap-3">
@@ -784,25 +784,25 @@ export default function OrgAdminRoles() {
                               }}
                               onClick={(e) => e.stopPropagation()}
                               onPointerDown={(e) => e.stopPropagation()}
-                              className="border-slate-600"
+                              className="border-input"
                             />
-                            <span className="font-medium text-white">
+                            <span className="font-medium text-foreground">
                               {module.name_ar || module.name}
                             </span>
-                            <Badge variant="outline" className="border-slate-700 text-slate-400 text-xs">
+                            <Badge variant="outline" className="border-border text-muted-foreground text-xs">
                               {selectedCount}/{module.permissions.length}
                             </Badge>
                           </div>
                           {isExpanded ? (
-                            <ChevronUp className="h-4 w-4 text-slate-400" />
+                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
                           ) : (
-                            <ChevronDown className="h-4 w-4 text-slate-400" />
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
                           )}
                         </button>
 
                         {/* Permissions List */}
                         {isExpanded && (
-                          <div className="p-3 border-t border-slate-800 grid grid-cols-2 gap-2">
+                          <div className="p-3 border-t border-border grid grid-cols-2 gap-2">
                             {module.permissions.map(perm => (
                               <button
                                 key={perm.id}
@@ -810,7 +810,7 @@ export default function OrgAdminRoles() {
                                 className={`w-full text-start flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
-                                    : 'bg-slate-950/50 border border-transparent hover:border-slate-700'
+                                    : 'bg-muted/30 border border-transparent hover:border-border'
                                 }`}
                                 onClick={(e) => {
                                   e.preventDefault();
@@ -847,9 +847,9 @@ export default function OrgAdminRoles() {
                                   }}
                                   onClick={(e) => e.stopPropagation()}
                                   onPointerDown={(e) => e.stopPropagation()}
-                                  className="border-slate-600"
+                                  className="border-input"
                                 />
-                                <span className="text-sm text-slate-300">
+                                <span className="text-sm text-muted-foreground">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
                               </button>
@@ -864,12 +864,12 @@ export default function OrgAdminRoles() {
               </div>
             </div>
 
-            <DialogFooter className="gap-2 px-6 py-4 border-t border-slate-800 bg-slate-900 flex-shrink-0 sticky bottom-0 z-10">
+            <DialogFooter className="gap-2 px-6 py-4 border-t border-border bg-card flex-shrink-0 sticky bottom-0 z-10">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setDialogOpen(false)}
-                className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                className="border-border text-muted-foreground hover:bg-muted"
               >
                 إلغاء
               </Button>

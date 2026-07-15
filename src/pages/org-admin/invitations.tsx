@@ -221,11 +221,11 @@ export default function OrgAdminInvitations() {
       case 'accepted':
         return { icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-600/20', label: 'مقبولة' };
       case 'expired':
-        return { icon: AlertCircle, color: 'text-slate-400', bg: 'bg-slate-600/20', label: 'منتهية' };
+        return { icon: AlertCircle, color: 'text-muted-foreground', bg: 'bg-slate-600/20', label: 'منتهية' };
       case 'revoked':
         return { icon: XCircle, color: 'text-rose-400', bg: 'bg-rose-600/20', label: 'ملغاة' };
       default:
-        return { icon: Clock, color: 'text-slate-400', bg: 'bg-slate-600/20', label: status };
+        return { icon: Clock, color: 'text-muted-foreground', bg: 'bg-slate-600/20', label: status };
     }
   }
 
@@ -236,9 +236,9 @@ export default function OrgAdminInvitations() {
   const pendingCount = invitations.filter(i => i.status === 'pending').length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+    <div className="min-h-screen bg-background">
       {/* Header */}
-      <header className="bg-slate-900/80 backdrop-blur-xl border-b border-slate-800 sticky top-0 z-50">
+      <header className="bg-background/95 backdrop-blur-sm border-b border-border sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -246,18 +246,18 @@ export default function OrgAdminInvitations() {
                 variant="ghost"
                 size="icon"
                 onClick={() => navigate('/org-admin')}
-                className="text-slate-400 hover:text-white"
+                className="text-muted-foreground hover:text-foreground"
                 aria-label="العودة إلى لوحة الإدارة"
               >
                 <ArrowLeft className="h-5 w-5" />
               </Button>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center">
-                  <Mail className="h-5 w-5 text-white" />
+                  <Mail className="h-5 w-5 text-foreground" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-white">الدعوات</h1>
-                  <p className="text-sm text-slate-400">{pendingCount} دعوة معلقة</p>
+                  <h1 className="text-xl font-bold text-foreground">الدعوات</h1>
+                  <p className="text-sm text-muted-foreground">{pendingCount} دعوة معلقة</p>
                 </div>
               </div>
             </div>
@@ -267,7 +267,7 @@ export default function OrgAdminInvitations() {
                 variant="outline"
                 size="icon"
                 onClick={loadData}
-                className="border-slate-700 text-slate-400 hover:text-white"
+                className="border-border text-muted-foreground hover:text-foreground"
                 aria-label="تحديث قائمة الدعوات"
               >
                 <RefreshCw className="h-4 w-4" />
@@ -279,14 +279,14 @@ export default function OrgAdminInvitations() {
                     دعوة جديدة
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="bg-slate-900 border-slate-800 max-w-md">
+                <DialogContent className="bg-card border-border max-w-md">
                   <form onSubmit={handleCreateInvitation}>
                     <DialogHeader>
                       <DialogTitle className="text-white flex items-center gap-2">
                         <Send className="h-5 w-5 text-teal-400" />
                         دعوة مستخدم جديد
                       </DialogTitle>
-                      <DialogDescription className="text-slate-400">
+                      <DialogDescription className="text-muted-foreground">
                         سيتم إرسال رابط دعوة للبريد المحدد
                       </DialogDescription>
                     </DialogHeader>
@@ -294,20 +294,20 @@ export default function OrgAdminInvitations() {
                     <div className="space-y-4 py-6">
                       {/* Email */}
                       <div className="space-y-2">
-                        <Label className="text-slate-300">البريد الإلكتروني *</Label>
+                        <Label className="text-muted-foreground">البريد الإلكتروني *</Label>
                         <Input
                           type="email"
                           placeholder="user@example.com"
                           value={formData.email}
                           onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                          className="bg-slate-950 border-slate-800 text-white"
+                          className="bg-input border-border text-foreground"
                           dir="ltr"
                         />
                       </div>
 
                       {/* Roles */}
                       <div className="space-y-2">
-                        <Label className="text-slate-300">الأدوار</Label>
+                        <Label className="text-muted-foreground">الأدوار</Label>
                         <div className="space-y-2 max-h-[200px] overflow-y-auto pr-2">
                           {roles.map(role => (
                             <button
@@ -316,7 +316,7 @@ export default function OrgAdminInvitations() {
                               className={`w-full text-start p-3 rounded-lg border transition-colors cursor-pointer ${
                                 formData.role_ids.includes(role.id)
                                   ? 'border-teal-500 bg-teal-950/30'
-                                  : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
+                                  : 'border-border bg-muted/30 hover:border-border'
                               }`}
                               onClick={() => {
                                 if (formData.role_ids.includes(role.id)) {
@@ -335,7 +335,7 @@ export default function OrgAdminInvitations() {
                               <div className="flex items-center gap-3">
                                 <Checkbox
                                   checked={formData.role_ids.includes(role.id)}
-                                  className="border-slate-600"
+                                  className="border-input"
                                 />
                                 <span className="text-white text-sm">
                                   {role.name_ar || role.name}
@@ -344,7 +344,7 @@ export default function OrgAdminInvitations() {
                             </button>
                           ))}
                           {roles.length === 0 && (
-                            <p className="text-slate-500 text-sm text-center py-4">
+                            <p className="text-muted-foreground text-sm text-center py-4">
                               لا توجد أدوار متاحة
                             </p>
                           )}
@@ -353,12 +353,12 @@ export default function OrgAdminInvitations() {
 
                       {/* Message */}
                       <div className="space-y-2">
-                        <Label className="text-slate-300">رسالة (اختياري)</Label>
+                        <Label className="text-muted-foreground">رسالة (اختياري)</Label>
                         <Textarea
                           placeholder="رسالة ترحيبية للمستخدم..."
                           value={formData.message}
                           onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                          className="bg-slate-950 border-slate-800 text-white resize-none"
+                          className="bg-input border-border text-foreground resize-none"
                           rows={3}
                         />
                       </div>
@@ -369,7 +369,7 @@ export default function OrgAdminInvitations() {
                         type="button"
                         variant="outline"
                         onClick={() => setDialogOpen(false)}
-                        className="border-slate-700 text-slate-300"
+                        className="border-border text-muted-foreground"
                       >
                         إلغاء
                       </Button>
@@ -400,7 +400,7 @@ export default function OrgAdminInvitations() {
               onClick={() => setFilter(f)}
               className={filter === f
                 ? 'bg-teal-600'
-                : 'border-slate-700 text-slate-400 hover:text-white'
+                : 'border-border text-muted-foreground hover:text-foreground'
               }
             >
               {f === 'all' ? 'الكل' :
@@ -411,19 +411,19 @@ export default function OrgAdminInvitations() {
         </div>
 
         {/* Invitations List */}
-        <Card className="bg-slate-900/50 border-slate-800">
+        <Card className="bg-card border-border">
           <CardContent className="p-0">
             {loading ? (
               <div className="p-6 space-y-4">
                 {[1, 2, 3].map(i => (
-                  <Skeleton key={i} className="h-20 w-full bg-slate-800" />
+                  <Skeleton key={i} className="h-20 w-full bg-muted" />
                 ))}
               </div>
             ) : filteredInvitations.length === 0 ? (
               <div className="p-12 text-center">
-                <Mail className="h-12 w-12 mx-auto text-slate-600 mb-4" />
+                <Mail className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold text-white mb-2">لا توجد دعوات</h3>
-                <p className="text-slate-400 mb-4">قم بإنشاء دعوة لمستخدم جديد</p>
+                <p className="text-muted-foreground mb-4">قم بإنشاء دعوة لمستخدم جديد</p>
                 <Button
                   onClick={() => setDialogOpen(true)}
                   className="bg-gradient-to-r from-teal-600 to-cyan-600"
@@ -433,7 +433,7 @@ export default function OrgAdminInvitations() {
                 </Button>
               </div>
             ) : (
-              <div className="divide-y divide-slate-800">
+              <div className="divide-y divide-border">
                 {filteredInvitations.map(inv => {
                   const statusConfig = getStatusConfig(inv.status);
                   const StatusIcon = statusConfig.icon;
@@ -442,7 +442,7 @@ export default function OrgAdminInvitations() {
                   return (
                     <div
                       key={inv.id}
-                      className="p-4 hover:bg-slate-800/30 transition-colors"
+                      className="p-4 hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex items-start gap-4">
                         {/* Icon */}
@@ -453,7 +453,7 @@ export default function OrgAdminInvitations() {
                         {/* Info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <h3 className="font-semibold text-white" dir="ltr">
+                            <h3 className="font-semibold text-foreground" dir="ltr">
                               {inv.email}
                             </h3>
                             <Badge className={`${statusConfig.bg} ${statusConfig.color} border-0`}>
@@ -466,14 +466,14 @@ export default function OrgAdminInvitations() {
                               <Badge
                                 key={role.id}
                                 variant="outline"
-                                className="border-slate-700 text-slate-300 text-xs"
+                                className="border-border text-muted-foreground text-xs"
                               >
                                 {role.name_ar || role.name}
                               </Badge>
                             ))}
                           </div>
 
-                          <p className="text-xs text-slate-500 mt-2">
+                          <p className="text-xs text-muted-foreground mt-2">
                             أرسلت: {new Date(inv.invited_at).toLocaleDateString('ar-SA')}
                             {' • '}
                             تنتهي: {new Date(inv.expires_at).toLocaleDateString('ar-SA')}
@@ -488,7 +488,7 @@ export default function OrgAdminInvitations() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => copyInviteLink(inv.token)}
-                                className="text-slate-400 hover:text-white"
+                                className="text-muted-foreground hover:text-foreground"
                                 title="نسخ الرابط"
                                 aria-label="نسخ رابط الدعوة"
                               >
@@ -498,7 +498,7 @@ export default function OrgAdminInvitations() {
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleResend(inv.id)}
-                                className="text-slate-400 hover:text-white"
+                                className="text-muted-foreground hover:text-foreground"
                                 title="إعادة الإرسال"
                                 aria-label="إعادة إرسال الدعوة"
                               >
@@ -516,15 +516,15 @@ export default function OrgAdminInvitations() {
                                     <Trash2 className="h-4 w-4" />
                                   </Button>
                                 </AlertDialogTrigger>
-                                <AlertDialogContent className="bg-slate-900 border-slate-800">
+                                <AlertDialogContent className="bg-card border-border">
                                   <AlertDialogHeader>
-                                    <AlertDialogTitle className="text-white">إلغاء الدعوة</AlertDialogTitle>
-                                    <AlertDialogDescription className="text-slate-400">
+                                    <AlertDialogTitle className="text-foreground">إلغاء الدعوة</AlertDialogTitle>
+                                    <AlertDialogDescription className="text-muted-foreground">
                                       هل أنت متأكد من إلغاء الدعوة؟ لن يتمكن المستخدم من استخدام هذه الدعوة.
                                     </AlertDialogDescription>
                                   </AlertDialogHeader>
                                   <AlertDialogFooter className="gap-2">
-                                    <AlertDialogCancel className="bg-slate-800 border-slate-700 text-slate-300">
+                                    <AlertDialogCancel className="bg-muted border-border text-muted-foreground">
                                       تراجع
                                     </AlertDialogCancel>
                                     <AlertDialogAction
@@ -543,7 +543,7 @@ export default function OrgAdminInvitations() {
                               variant="outline"
                               size="sm"
                               onClick={() => handleResend(inv.id)}
-                              className="border-slate-700 text-slate-300 hover:text-white"
+                              className="border-border text-muted-foreground hover:text-foreground"
                             >
                               <RotateCcw className="h-4 w-4 ml-2" />
                               إعادة الإرسال
@@ -562,25 +562,25 @@ export default function OrgAdminInvitations() {
 
       {/* Invite Link Dialog */}
       <Dialog open={showLinkDialog} onOpenChange={setShowLinkDialog}>
-        <DialogContent className="bg-slate-900 border-slate-800 max-w-lg">
+        <DialogContent className="bg-card border-border max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-white flex items-center gap-2">
               <CheckCircle2 className="h-5 w-5 text-emerald-400" />
               تم إنشاء الدعوة بنجاح!
             </DialogTitle>
-            <DialogDescription className="text-slate-400">
+            <DialogDescription className="text-muted-foreground">
               شارك هذا الرابط مع المستخدم للانضمام إلى المنظمة
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
             {/* Link Display */}
-            <div className="bg-slate-950 border border-slate-800 rounded-lg p-3">
+            <div className="bg-muted/30 border border-border rounded-lg p-3">
               <div className="flex items-center gap-2 mb-2">
                 <Link className="h-4 w-4 text-teal-400" />
-                <span className="text-xs text-slate-400">رابط الدعوة</span>
+                <span className="text-xs text-muted-foreground">رابط الدعوة</span>
               </div>
-              <p className="text-sm text-white break-all font-mono bg-slate-900 p-2 rounded" dir="ltr">
+              <p className="text-sm text-white break-all font-mono bg-muted p-2 rounded" dir="ltr">
                 {newInviteLink}
               </p>
             </div>
@@ -612,7 +612,7 @@ export default function OrgAdminInvitations() {
             {typeof navigator !== 'undefined' && navigator.share && (
               <Button
                 variant="outline"
-                className="w-full border-slate-700 text-slate-300 hover:text-white"
+                className="w-full border-border text-muted-foreground hover:text-foreground"
                 onClick={async () => {
                   try {
                     await navigator.share({
@@ -635,7 +635,7 @@ export default function OrgAdminInvitations() {
             <Button
               variant="outline"
               onClick={() => setShowLinkDialog(false)}
-              className="border-slate-700 text-slate-300"
+              className="border-border text-muted-foreground"
             >
               إغلاق
             </Button>
