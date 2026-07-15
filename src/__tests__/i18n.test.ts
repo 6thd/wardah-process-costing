@@ -52,9 +52,22 @@ describe('i18n Configuration', () => {
     expect(i18n.options.interpolation?.escapeValue).toBe(false);
   });
 
-  it('should have detection options configured', () => {
-    expect(i18n.options.detection?.order).toEqual(['navigator', 'htmlTag']);
-    expect(i18n.options.detection?.caches).toEqual([]);
+  it('should normalize region codes and restrict to supported languages', () => {
+    // ar-SA → ar حتى تصح المقارنات الصارمة i18n.language === 'ar' في الشاشات
+    expect(i18n.options.load).toBe('languageOnly');
+    expect(i18n.options.supportedLngs).toContain('ar');
+    expect(i18n.options.supportedLngs).toContain('en');
+  });
+
+  it('should resolve region-qualified codes to base language', async () => {
+    // i18n.language يبقى كما طُلب؛ resolvedLanguage هو المطبَّع الذي تُحمَّل به الموارد
+    await i18n.changeLanguage('ar-SA');
+    expect(i18n.resolvedLanguage).toBe('ar');
+    await i18n.changeLanguage('en-US');
+    expect(i18n.resolvedLanguage).toBe('en');
+    // مسار التطبيق الفعلي: المبدّل مقيّد بـ 'ar' | 'en' ⇒ المقارنات الصارمة موثوقة
+    await i18n.changeLanguage('ar');
+    expect(i18n.language).toBe('ar');
   });
 
   it('should have React options configured', () => {

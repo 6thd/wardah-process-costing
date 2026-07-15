@@ -64,11 +64,11 @@ const TrialBalance = () => {
             </div>
             <div className="flex gap-2">
               <Button onClick={handleExportExcel} variant="outline">
-                <FileSpreadsheet className="h-4 w-4 ml-2" />
+                <FileSpreadsheet className="h-4 w-4 me-2" />
                 {isRTL ? 'تصدير Excel' : 'Export Excel'}
               </Button>
               <Button onClick={handleExportPDF} variant="outline">
-                <FileText className="h-4 w-4 ml-2" />
+                <FileText className="h-4 w-4 me-2" />
                 {isRTL ? 'تصدير PDF' : 'Export PDF'}
               </Button>
             </div>
@@ -116,7 +116,7 @@ const TrialBalance = () => {
 
             <div className="flex items-end">
               <Button onClick={fetchTrialBalance} disabled={loading} className="w-full">
-                <RefreshCw className={`h-4 w-4 ml-2 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-4 w-4 me-2 ${loading ? 'animate-spin' : ''}`} />
                 {(() => {
                   if (loading) {
                     return isRTL ? 'جاري التحميل...' : 'Loading...';
@@ -128,8 +128,8 @@ const TrialBalance = () => {
           </div>
 
           {!isBalanced && balances.length > 0 && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <p className="text-red-800 font-semibold">
+            <div className="mb-4 p-4 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-lg">
+              <p className="text-red-800 dark:text-red-300 font-semibold">
                 {isRTL
                   ? '⚠️ تحذير: ميزان المراجعة غير متوازن! يرجى مراجعة القيود المحاسبية'
                   : '⚠️ Warning: Trial Balance is not balanced! Please review journal entries'}
@@ -140,18 +140,18 @@ const TrialBalance = () => {
           <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
-                <TableRow className="bg-gray-50">
-                  <TableHead rowSpan={2} className="border-r">{isRTL ? 'كود الحساب' : 'Account Code'}</TableHead>
-                  <TableHead rowSpan={2} className="border-r">{isRTL ? 'اسم الحساب' : 'Account Name'}</TableHead>
-                  <TableHead colSpan={2} className="text-center border-r">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</TableHead>
-                  <TableHead colSpan={2} className="text-center border-r">{isRTL ? 'حركة الفترة' : 'Period Movement'}</TableHead>
+                <TableRow className="bg-muted/50">
+                  <TableHead rowSpan={2} className="border-e">{isRTL ? 'كود الحساب' : 'Account Code'}</TableHead>
+                  <TableHead rowSpan={2} className="border-e">{isRTL ? 'اسم الحساب' : 'Account Name'}</TableHead>
+                  <TableHead colSpan={2} className="text-center border-e">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</TableHead>
+                  <TableHead colSpan={2} className="text-center border-e">{isRTL ? 'حركة الفترة' : 'Period Movement'}</TableHead>
                   <TableHead colSpan={2} className="text-center">{isRTL ? 'الرصيد الختامي' : 'Closing Balance'}</TableHead>
                 </TableRow>
-                <TableRow className="bg-gray-50">
+                <TableRow className="bg-muted/50">
                   <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right border-r">{isRTL ? 'دائن' : 'Credit'}</TableHead>
+                  <TableHead className="text-right border-e">{isRTL ? 'دائن' : 'Credit'}</TableHead>
                   <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right border-r">{isRTL ? 'دائن' : 'Credit'}</TableHead>
+                  <TableHead className="text-right border-e">{isRTL ? 'دائن' : 'Credit'}</TableHead>
                   <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
                   <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
                 </TableRow>
@@ -165,73 +165,73 @@ const TrialBalance = () => {
                   </TableRow>
                 ) : filteredBalances.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
                       {isRTL ? 'لا توجد بيانات' : 'No data found'}
                     </TableCell>
                   </TableRow>
                 ) : (
                   <>
                     {filteredBalances.map((row) => (
-                      <TableRow key={`${row.account_code}-${row.account_name}`} className="hover:bg-gray-100 bg-white">
-                        <TableCell className="font-mono font-medium border-r text-gray-900 bg-white">{row.account_code}</TableCell>
-                        <TableCell className="border-r text-gray-900 bg-white">
+                      <TableRow key={`${row.account_code}-${row.account_name}`} className="hover:bg-muted/50">
+                        <TableCell className="font-mono font-medium border-e">{row.account_code}</TableCell>
+                        <TableCell className="border-e">
                           {isRTL ? (row.account_name_ar || row.account_name) : row.account_name}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono" dir="ltr">
                           {row.opening_debit > 0 ? row.opening_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
-                        <TableCell className="text-right font-mono border-r text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono border-e" dir="ltr">
                           {row.opening_credit > 0 ? row.opening_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono" dir="ltr">
                           {row.period_debit > 0 ? row.period_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
-                        <TableCell className="text-right font-mono border-r text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono border-e" dir="ltr">
                           {row.period_credit > 0 ? row.period_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono" dir="ltr">
                           {row.closing_debit > 0 ? row.closing_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-gray-900 bg-white" dir="ltr">
+                        <TableCell className="text-right font-mono" dir="ltr">
                           {row.closing_credit > 0 ? row.closing_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '-'}
                         </TableCell>
                       </TableRow>
                     ))}
 
                     {/* صف الإجماليات */}
-                    <TableRow className="bg-blue-100 font-bold border-t-2 border-blue-200">
-                      <TableCell colSpan={2} className="text-center border-r text-gray-900 bg-blue-100">
+                    <TableRow className="bg-blue-100 dark:bg-blue-950/60 font-bold border-t-2 border-blue-200 dark:border-blue-800">
+                      <TableCell colSpan={2} className="text-center border-e">
                         {isRTL ? 'الإجماليات' : 'TOTALS'}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono" dir="ltr">
                         {totals.opening_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono border-r text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono border-e" dir="ltr">
                         {totals.opening_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono" dir="ltr">
                         {totals.period_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono border-r text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono border-e" dir="ltr">
                         {totals.period_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono" dir="ltr">
                         {totals.closing_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell className="text-right font-mono text-gray-900 bg-blue-100" dir="ltr">
+                      <TableCell className="text-right font-mono" dir="ltr">
                         {totals.closing_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                     </TableRow>
 
                     {/* صف الفروقات */}
-                    <TableRow className={`font-bold ${isBalanced ? 'bg-green-50' : 'bg-red-50'}`}>
-                      <TableCell colSpan={2} className="text-center border-r">
+                    <TableRow className={`font-bold ${isBalanced ? 'bg-green-50 dark:bg-green-950/50' : 'bg-red-50 dark:bg-red-950/50'}`}>
+                      <TableCell colSpan={2} className="text-center border-e">
                         {isRTL ? 'الفرق' : 'Difference'}
                       </TableCell>
-                      <TableCell colSpan={2} className="text-center font-mono border-r" dir="ltr">
+                      <TableCell colSpan={2} className="text-center font-mono border-e" dir="ltr">
                         {Math.abs(totals.opening_debit - totals.opening_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
-                      <TableCell colSpan={2} className="text-center font-mono border-r" dir="ltr">
+                      <TableCell colSpan={2} className="text-center font-mono border-e" dir="ltr">
                         {Math.abs(totals.period_debit - totals.period_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </TableCell>
                       <TableCell colSpan={2} className="text-center font-mono" dir="ltr">
@@ -245,8 +245,8 @@ const TrialBalance = () => {
           </div>
 
           {isBalanced && balances.length > 0 && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-              <p className="text-green-800 font-semibold text-center">
+            <div className="mt-4 p-4 bg-green-50 dark:bg-green-950/50 border border-green-200 dark:border-green-900 rounded-lg">
+              <p className="text-green-800 dark:text-green-300 font-semibold text-center">
                 {(() => {
                   if (isRTL) {
                     return '✓ ميزان المراجعة متوازن';
