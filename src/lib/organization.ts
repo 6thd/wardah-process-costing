@@ -174,9 +174,10 @@ export async function uploadOrganizationLogo(
     }
 
     // التحقق من نوع الملف
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+    // أمني: SVG محذوف — يحمل سكربتات قابلة للتنفيذ ويُقدَّم من bucket عام
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
-      return { success: false, error: 'نوع الملف غير مدعوم. الأنواع المدعومة: JPG, PNG, WebP, SVG' };
+      return { success: false, error: 'نوع الملف غير مدعوم. الأنواع المدعومة: JPG, PNG, WebP' };
     }
 
     // التحقق من حجم الملف (5MB max)

@@ -459,13 +459,13 @@ export function CompanySettings() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/svg+xml"
+              accept="image/jpeg,image/png,image/webp"
               className="hidden"
               onChange={handleLogoUpload}
             />
 
             <p className="text-xs text-muted-foreground text-center">
-              JPG, PNG, WebP أو SVG
+              JPG, PNG أو WebP
               <br />
               الحد الأقصى 5 ميجابايت
             </p>
