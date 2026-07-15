@@ -313,7 +313,7 @@ export default function OrgAdminInvitations() {
                             <button
                               key={role.id}
                               type="button"
-                              className={`w-full text-left p-3 rounded-lg border transition-colors cursor-pointer ${
+                              className={`w-full text-start p-3 rounded-lg border transition-colors cursor-pointer ${
                                 formData.role_ids.includes(role.id)
                                   ? 'border-teal-500 bg-teal-950/30'
                                   : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'

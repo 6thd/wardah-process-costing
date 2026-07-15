@@ -35,7 +35,7 @@ function AccountsTable({ title, rows, total }: {
                 <TableRow>
                   <TableHead className="text-right">الكود</TableHead>
                   <TableHead className="text-right">الحساب</TableHead>
-                  <TableHead className="text-left">الرصيد</TableHead>
+                  <TableHead className="text-start">الرصيد</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -43,14 +43,14 @@ function AccountsTable({ title, rows, total }: {
                   <TableRow key={r.code}>
                     <TableCell className="text-right font-mono text-xs">{r.code}</TableCell>
                     <TableCell className="text-right">{r.name}</TableCell>
-                    <TableCell className="text-left">{fmt(r.balance)}</TableCell>
+                    <TableCell className="text-start">{fmt(r.balance)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
               <TableFooter>
                 <TableRow>
                   <TableCell className="text-right font-bold" colSpan={2}>الإجمالي</TableCell>
-                  <TableCell className="text-left font-bold">{fmt(total)}</TableCell>
+                  <TableCell className="text-start font-bold">{fmt(total)}</TableCell>
                 </TableRow>
               </TableFooter>
             </Table>

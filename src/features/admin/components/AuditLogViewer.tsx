@@ -189,7 +189,7 @@ export function AuditLogViewer() {
           <div className="grid grid-cols-2 gap-4 mb-6">
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-start text-left font-normal">
+                <Button variant="outline" className="w-full justify-start text-start font-normal">
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {filters.start_date ? format(new Date(filters.start_date), 'yyyy-MM-dd') : 'من تاريخ'}
                 </Button>
@@ -205,7 +205,7 @@ export function AuditLogViewer() {
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="outline" className="w-full justify-start text-left font-normal">
+                <Button variant="outline" className="w-full justify-start text-start font-normal">
                   <CalendarIcon className="mr-2 h-4 w-4" />
                   {filters.end_date ? format(new Date(filters.end_date), 'yyyy-MM-dd') : 'إلى تاريخ'}
                 </Button>

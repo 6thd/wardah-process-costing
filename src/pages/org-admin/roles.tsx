@@ -773,7 +773,7 @@ export default function OrgAdminRoles() {
                         {/* Module Header */}
                         <button
                           type="button"
-                          className="w-full flex items-center justify-between p-3 bg-slate-950/50 cursor-pointer hover:bg-slate-900/50 transition-colors border-0 bg-transparent text-left"
+                          className="w-full flex items-center justify-between p-3 bg-slate-950/50 cursor-pointer hover:bg-slate-900/50 transition-colors border-0 bg-transparent text-start"
                           onClick={() => toggleModule(module.id)}
                         >
                           <div className="flex items-center gap-3">
@@ -807,7 +807,7 @@ export default function OrgAdminRoles() {
                               <button
                                 key={perm.id}
                                 type="button"
-                                className={`w-full text-left flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
+                                className={`w-full text-start flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
                                     : 'bg-slate-950/50 border border-transparent hover:border-slate-700'

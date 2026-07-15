@@ -99,16 +99,16 @@ export function PurchasingAnalyticsReport() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">المورد</TableHead>
-                  <TableHead className="text-left">عدد الأوامر</TableHead>
-                  <TableHead className="text-left">إجمالي الإنفاق</TableHead>
+                  <TableHead className="text-start">عدد الأوامر</TableHead>
+                  <TableHead className="text-start">إجمالي الإنفاق</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.vendorSpend.map((v) => (
                   <TableRow key={v.vendorId}>
                     <TableCell className="text-right">{v.vendorName}</TableCell>
-                    <TableCell className="text-left">{v.ordersCount}</TableCell>
-                    <TableCell className="text-left font-medium">{fmt(v.totalSpend)}</TableCell>
+                    <TableCell className="text-start">{v.ordersCount}</TableCell>
+                    <TableCell className="text-start font-medium">{fmt(v.totalSpend)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -128,16 +128,16 @@ export function PurchasingAnalyticsReport() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="text-right">الشهر</TableHead>
-                  <TableHead className="text-left">عدد الأوامر</TableHead>
-                  <TableHead className="text-left">القيمة</TableHead>
+                  <TableHead className="text-start">عدد الأوامر</TableHead>
+                  <TableHead className="text-start">القيمة</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {data.monthly.map((m) => (
                   <TableRow key={m.key}>
                     <TableCell className="text-right">{m.label}</TableCell>
-                    <TableCell className="text-left">{m.ordersCount}</TableCell>
-                    <TableCell className="text-left">{fmt(m.totalValue)}</TableCell>
+                    <TableCell className="text-start">{m.ordersCount}</TableCell>
+                    <TableCell className="text-start">{fmt(m.totalValue)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

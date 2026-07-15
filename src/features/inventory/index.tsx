@@ -2209,7 +2209,7 @@ function StockAdjustments() {
                 key={adj.id}
                 type="button"
                 aria-label={`عرض تفاصيل تسوية المخزون ${adj.id}`}
-                className="w-full text-left p-4 hover:bg-muted/50 cursor-pointer transition-colors border-0 bg-transparent"
+                className="w-full text-start p-4 hover:bg-muted/50 cursor-pointer transition-colors border-0 bg-transparent"
                 onClick={() => {
                   setSelectedAdjustment(adj)
                   setViewMode(true)
@@ -2232,7 +2232,7 @@ function StockAdjustments() {
                     </div>
                     <p className="text-sm mt-2">{adj.reason}</p>
                   </div>
-                  <div className="text-left">
+                  <div className="text-start">
                     <Badge
                       variant={
                         adj.status === 'SUBMITTED'
@@ -2412,7 +2412,7 @@ function StockMovements() {
                       </div>
                     </div>
                     
-                    <div className="text-left shrink-0">
+                    <div className="text-start shrink-0">
                       <div className="flex items-center gap-2 mb-1">
                         <span className={cn(
                           "font-bold text-lg tabular-nums",

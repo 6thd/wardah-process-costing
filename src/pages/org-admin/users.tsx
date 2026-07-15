@@ -462,7 +462,7 @@ export default function OrgAdminUsers() {
                 <button
                   key={role.id}
                   type="button"
-                  className={`p-4 rounded-lg border transition-colors cursor-pointer w-full text-left ${
+                  className={`p-4 rounded-lg border transition-colors cursor-pointer w-full text-start ${
                     selectedRoleIds.includes(role.id)
                       ? 'border-teal-500 bg-teal-950/30'
                       : 'border-slate-800 bg-slate-950/50 hover:border-slate-700'
