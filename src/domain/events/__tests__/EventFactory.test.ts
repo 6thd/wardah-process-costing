@@ -18,7 +18,15 @@ describe('EventFactory', () => {
     // Use existing crypto API without mocking
     const event = EventFactory.stockMovementCreated(
       'agg-1',
-      { productId: 'p1', quantity: 1, direction: 'IN' },
+      {
+        productId: 'p1',
+        warehouseId: 'w1',
+        quantity: 1,
+        movementType: 'receipt',
+        reference: 'GR-001',
+        previousBalance: 0,
+        newBalance: 1
+      },
       1
     )
 
@@ -33,13 +41,13 @@ describe('EventFactory', () => {
   it('generates unique UUIDs for different events', () => {
     const event1 = EventFactory.journalEntryCreated(
       'agg-1',
-      { entryId: 'J1', createdBy: 'u1' },
+      { entryId: 'J1', date: new Date(), description: 'test entry 1', lines: [], totalDebit: 0, totalCredit: 0 },
       1
     )
 
     const event2 = EventFactory.journalEntryCreated(
       'agg-2',
-      { entryId: 'J2', createdBy: 'u2' },
+      { entryId: 'J2', date: new Date(), description: 'test entry 2', lines: [], totalDebit: 0, totalCredit: 0 },
       1
     )
 

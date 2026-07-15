@@ -30,11 +30,11 @@ export interface TableNames {
   sales_orders: string
   sales_order_lines: string
   
-  // General Ledger
+  // General Ledger — القانوني: gl_entries/gl_entry_lines (توحيد P3)
   gl_accounts: string
   journals: string
-  journal_entries: string
-  journal_entry_lines: string
+  gl_entries: string
+  gl_entry_lines: string
 }
 
 export interface AppSettings {

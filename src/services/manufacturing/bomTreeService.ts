@@ -51,8 +51,9 @@ export const bomTreeService = {
 
     if (error) throw error
 
-    // بناء هيكل الشجرة
-    return this.buildTreeStructure(data || [])
+    // بناء هيكل الشجرة — صفوف RPC المولَّدة أوسع من BOMTreeNode
+    // (line_type نص عام وparent_id غير قابل لـ null في النوع المولَّد)
+    return this.buildTreeStructure((data ?? []) as unknown as BOMTreeNode[])
   },
 
   /**

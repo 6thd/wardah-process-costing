@@ -138,17 +138,6 @@ describe('getManufacturingOrderById', () => {
       select: vi.fn(() => ({
         eq: vi.fn(() => ({
           single: vi.fn().mockResolvedValue({
-            data: null, // products table returns null, should fallback to items
-            error: null,
-          }),
-        })),
-      })),
-    };
-
-    const itemsMock = {
-      select: vi.fn(() => ({
-        eq: vi.fn(() => ({
-          single: vi.fn().mockResolvedValue({
             data: { id: 'item-1', code: 'I001', name: 'Item 1' },
             error: null,
           }),
@@ -158,7 +147,6 @@ describe('getManufacturingOrderById', () => {
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'products') return productsMock;
-      if (table === 'items') return itemsMock;
       return { select: mockSelect };
     });
 
@@ -166,8 +154,9 @@ describe('getManufacturingOrderById', () => {
 
     const result = await getManufacturingOrderById(getClient, 'mo-1');
 
+    // جدول items الميت أُزيل — القراءة من products فقط
     expect(mockFrom).toHaveBeenCalledWith('products');
-    expect(mockFrom).toHaveBeenCalledWith('items');
+    expect(mockFrom).not.toHaveBeenCalledWith('items');
     expect(result?.item).toEqual({ id: 'item-1', code: 'I001', name: 'Item 1' });
   });
 

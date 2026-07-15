@@ -72,8 +72,8 @@ export async function loadConfig(): Promise<AppConfig> {
         audit_trail: 'audit_trail',
         gl_accounts: 'gl_accounts',
         journals: 'journals',
-        journal_entries: 'journal_entries',
-        journal_entry_lines: 'journal_entry_lines'
+        gl_entries: 'gl_entries',
+        gl_entry_lines: 'gl_entry_lines'
       },
       APP_SETTINGS: {
         default_currency: 'SAR',

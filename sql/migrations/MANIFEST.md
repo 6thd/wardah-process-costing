@@ -33,6 +33,10 @@
 | **97** | **توحيد المخزون: products مجمّع مرجعي مشتق من bins (الخيار B) — مزامنة products.stock_quantity/cost_price داخل wardah_apply_stock_incoming + تسوية idempotent للـ bins السابقة** | ✅ مطبَّقة + مُختبرة حيّاً (تسوية: products=001(18,200 تام)+RM-042(3,250 خام)=**21,450**؛ استلام 100@8 فوق 500@6.5 ⇒ bins=products=600@6.75، اشتقاق idempotent بلا مضاعفة) |
 | **98** | **جدول org_settings (key/value JSONB لكل مؤسسة) + RLS قياسي + trigger updated_at — خلفية شاشة إعدادات النظام والنسخ الاحتياطي (P11-6)** | ✅ مطبَّقة + مُختبرة حيّاً (upsert مرتين على نفس المفتاح ⇒ صف واحد بالقيمة الأحدث، rollback) |
 | **99** | **تأسيس HR الشرعي (P12-A): سياسات RLS عاملة (wardah_org_id) للجداول الثمانية المقفلة فعلياً (سياستها القديمة تعتمد app.current_org_id الذي لا يضبطه عميل Supabase) + تحصين upsert_attendance_day (عضوية + موظف نفس المؤسسة + رفض شهر مقفل) + تفرّد/idempotency على payroll_runs + توسيع أنواع حسابات الرواتب (GOSI/نهاية خدمة/إضافي) + سياسات GOSI والمعدل اليومي والإضافي واستحقاق الإجازات في hr_policies + employees.is_saudi/contract_end_date. ملاحظة: جداول HR التاريخية (15_hr_module + sql/hr/16 + sql/hr/17) تأكد وجودها حيّاً واستُوعبت قانونياً هنا** | ✅ مطبَّقة + مُختبرة حيّاً (بلا JWT⇒NOT_ORG_MEMBER، عضو⇒upsert يوم يدمج JSONB، شهر مقفل⇒PAYROLL_MONTH_LOCKED، 8 سياسات جديدة، rollback) |
+| **115** | **P4 — إزالة الفهارس المكررة + فهرسة FKs الحية المتبقية**: حذف 12 فهرساً مكرراً عبر 11 مجموعة (تعريفات متطابقة حرفياً، أُبقي الاسم القانوني idx_<table>_<columns>) على audit_logs/gl_entry_lines/sales_invoices/sales_invoice_lines/delivery_note_lines/journal_entries/manufacturing_orders؛ إضافة 4 فهارس FK على الجداول الحية فقط (employee_salary_structures.component_id، journal_approval_rules.journal_id، standard_costs.product_id، warehouses.expense_account_id)؛ جداول legacy `*_20250905_1900` (12 FK) تُركت عمداً لقرار أرشفة/حذف | ✅ مطبَّقة + مُتحقَّق منها (يوليو 2026) |
+| **114** | **إيقاف السرد العام لشعارات المؤسسات (storage)**: حذف سياسة `Public read access for organization logos` (SELECT عامة كانت تتيح لأي مجهول سرد كل ملفات الـ bucket عبر storage API — تسريب org_ids وعدد المؤسسات)؛ استبدالها بسياسة SELECT لأعضاء المؤسسة على مجلد مؤسستهم فقط. العرض عبر getPublicUrl لا يتأثر (الـ bucket العام يتجاوز RLS). كود مرافق: حذف SVG من أنواع رفع الشعار المسموحة (XSS من bucket عام) | ✅ مطبَّقة (يوليو 2026) |
+| **113** | **تصنيف دوال SECURITY DEFINER وسحب EXECUTE عن غير الواجهة (مراجعة كودكس)**: تصنيف الدوال الـ75 المتاحة لـ`authenticated` إلى ثلاث فئات وسحب 20: (أ) 7 دوال Triggers لا تحتاج EXECUTE من المنفِّذ؛ (ب) 12 دالة مساعدة داخلية بلا call sites في الواجهة (تُستدعى من داخل دوال DEFINER فتعمل بصلاحية المالك)؛ (ج) `rpc_upsert_event_mapping` — **بلا بوابة admin**: أي عضو كان يستطيع إعادة توجيه خرائط الأحداث المحاسبية (إغلاق ثغرة فعلي). تحقق ثلاثي: صفر تسريب + دوال RLS السبع سليمة + الاختبارات الأمنية الـ15 تمر. Advisor: 75→55 تحذير DEFINER | ✅ مطبَّقة + مُختبرة حيّاً (يوليو 2026) |
+| **112** | **إصلاح pgcrypto المفقودة في دوال الدعوات**: استبدال `digest(x,'sha256')` من pgcrypto (غير مثبَّتة) بـ`sha256(x::bytea)` المدمجة في PostgreSQL 11+؛ الدوال المُصلَحة: `fn_invitations_set_token_hash` + `rpc_accept_invitation` + `rpc_get_invitation_preview`؛ إعادة حساب `token_hash` للصفوف القائمة. النتيجة: كل INSERT/UPDATE على `invitations` يعمل بلا pgcrypto + `rpc_get_invitation_preview` تحافظ على توقيع TABLE الفعلي | ✅ مطبَّقة (يوليو 2026) |
 | **111** | **تثبيت search_path لدوال انحرافات التصنيع**: إعادة إنشاء `calculate_material_variances` + `calculate_labor_variances` مع `SET search_path = public` لإغلاق تحذيري `function_search_path_mutable` في Supabase Security Advisor | ✅ مطبَّقة (يوليو 2026) |
 | **110** | **تطبيع حالات أوامر التصنيع + التحقق من القيد**: تحويل صفوف بصيغة hyphen قديمة (`in-progress`→`in_progress`، `quality-check`→`quality_check`، `on-hold`→`on_hold`)؛ ثم `VALIDATE CONSTRAINT manufacturing_orders_status_check` (كان NOT VALID) | ✅ مطبَّقة (يوليو 2026) |
 | **109** | **عرض WIP حسب مراحل التصنيع** (`wip_by_stage`، security_invoker): نُقل من `src/database/migrations/002_create_wip_view.sql`؛ **أُعيد كتابته** ليستخدم الجداول الموجودة فعلاً (`manufacturing_orders`+`products`+`work_orders`) بدل `stock_moves`/`labor_entries`/`overhead_allocations` الغائبة عن الإنتاج | ✅ مطبَّقة (يوليو 2026) |
@@ -80,13 +84,31 @@
 2. سطر جديد في جدول «الجوهر المطبَّق» أعلاه
 3. تطبيق عبر `mcp__Supabase__apply_migration` (staging أولاً ثم إنتاج)
 
+### حالة توحيد السجل GitHub ↔ Supabase (يوليو 2026)
+
+- **سجل Supabase** (`supabase_migrations.schema_migrations`) يسجّل **101→115
+  متصلاً** — كل migration مطبَّقة عبر `apply_migration` تُسجَّل تلقائياً،
+  فالسجلان متطابقان منذ 101 وسيبقيان كذلك ما دامت القاعدة أعلاه محترمة.
+- **101 و102 مكرّران في السجل** (طُبِّقا مرتين بتاريخين) — بلا أثر لأنهما
+  idempotent؛ يُتركان كما هما توثيقاً لما حدث فعلاً.
+- **ما قبل 101** طُبِّق تاريخياً عبر SQL Editor قبل اعتماد المسار الموحّد ولا
+  يظهر في سجل Supabase — **هذا الدليل هو السجل القانوني الوحيد له**، وجدول
+  «الجوهر المطبَّق» أعلاه يحسم حالته. لا تُدرج أسطر baseline اصطناعية في سجل
+  Supabase — التطابق من 101 فصاعداً كافٍ، والتاريخ الأقدم موثَّق هنا.
+- **المتبقي من P2** (يتطلب Supabase CLI بمفتاح وصول أو GitHub Action):
+  سحب baseline من الإنتاج + CI يبني قاعدة فارغة ويقارن المخطط الناتج.
+
 ## ملاحظات معمارية مهمة
 
-1. **ثلاثة مخططات GL تاريخية**: `gl_entries/gl_entry_lines` (القانوني — يكتب عبر
-   `rpc_create_journal_entry` فقط منذ P4-B2)، و`journal_entries/journal_entry_lines`
-   (يستخدمه stock-adjustment-service فقط — موثَّق، توحيده مؤجل).
+1. **توحيد GL مكتمل (يوليو 2026)**: `gl_entries/gl_entry_lines` هو القانوني
+   الوحيد — كل الكتابة عبر `rpc_create_journal_entry` وكل القراءة منه مباشرة.
+   **صفر** إشارات للجداول القديمة (`journal_entries`/`journal_lines`) في الكود
+   الحي (آخر موضعين: stock-adjustment-service حُوِّل للـ RPC، وشاشة المخزون كانت
+   تكتب السطور في `journal_lines` — أُصلحت). الجداول القديمة نفسها باقية في
+   القاعدة ببياناتها التاريخية القليلة (journal_lines: صفان) — قرار
+   أرشفتها/حذفها مؤجل مع جداول `*_20250905_1900`.
 2. **rollback scripts**: تحت `sql/rollback/` — حالياً `83_rollback_org_scoped_rls.sql`.
-3. **أرقام جديدة**: التالي هو **112**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
+3. **أرقام جديدة**: التالي هو **116**. أي migration جديدة = ملف جديد مرقّم + سطر هنا.
    — 108: `calculate_material_variances` / `calculate_labor_variances` (دوال انحرافات).
    — 109: `wip_by_stage` view (security_invoker؛ معاد كتابتها باستخدام الجداول المتوفرة فعلاً).
    — 110: تطبيع حالات MO + VALIDATE CONSTRAINT manufacturing_orders_status_check.

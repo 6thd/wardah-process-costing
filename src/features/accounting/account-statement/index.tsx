@@ -175,16 +175,15 @@ export function AccountStatement() {
         p_to_date: toDateStr
       });
 
-      // If RPC fails, try manual query
+      // If RPC fails, fall back to direct gl_entry_lines query
       if (error) {
-        console.warn('RPC function failed, trying manual query:', error);
+        console.warn('RPC function failed, trying direct query:', error);
 
-        // Build query with date filters
-        let query = supabase
-          .from('journal_lines')
+        let fallbackQuery = supabase
+          .from('gl_entry_lines')
           .select(`
             *,
-            journal_entries!inner (
+            entry:gl_entries!inner (
               entry_date,
               entry_number,
               description,
@@ -195,36 +194,28 @@ export function AccountStatement() {
             )
           `)
           .eq('account_id', selectedAccount)
-          .eq('journal_entries.status', 'posted');
+          .eq('entry.status', 'posted');
 
-        // Add date filters
         if (fromDateStr) {
-          query = query.gte('journal_entries.entry_date', fromDateStr);
+          fallbackQuery = fallbackQuery.gte('entry.entry_date', fromDateStr);
         }
-        query = query.lte('journal_entries.entry_date', toDateStr);
+        fallbackQuery = fallbackQuery.lte('entry.entry_date', toDateStr);
 
-        // Order by entry_date and line_number - fix the order syntax
-        const { data: linesData, error: linesError } = await query;
-
+        const { data: linesData, error: linesError } = await fallbackQuery;
         if (linesError) throw linesError;
 
-        // Sort manually since order with nested relation doesn't work well
         const sortedLines = (linesData || []).sort((a: any, b: any) => {
-          const dateA = new Date(a.journal_entries.entry_date);
-          const dateB = new Date(b.journal_entries.entry_date);
-          if (dateA.getTime() !== dateB.getTime()) {
-            return dateA.getTime() - dateB.getTime();
-          }
+          const dateA = new Date(a.entry.entry_date);
+          const dateB = new Date(b.entry.entry_date);
+          if (dateA.getTime() !== dateB.getTime()) return dateA.getTime() - dateB.getTime();
           return (a.line_number || 0) - (b.line_number || 0);
         });
 
-        // Transform data to match expected format
         let runningBalance = 0;
         const transformedLines = sortedLines.map((line: any) => {
-          const entry = line.journal_entries;
+          const entry = line.entry;
           const balance = (line.debit || 0) - (line.credit || 0);
           runningBalance += balance;
-          
           return {
             entry_date: entry.entry_date,
             entry_number: entry.entry_number,
@@ -232,7 +223,7 @@ export function AccountStatement() {
             description_ar: line.description_ar || entry.description_ar,
             debit: line.debit || 0,
             credit: line.credit || 0,
-            balance: balance,
+            balance,
             running_balance: runningBalance,
             reference_type: entry.reference_type,
             reference_number: entry.reference_number
@@ -354,7 +345,7 @@ export function AccountStatement() {
     try {
       // Find entry by entry_number
       const { data: entries, error } = await supabase
-        .from('journal_entries')
+        .from('gl_entries')
         .select('id')
         .eq('entry_number', entryNumber)
         .limit(1);

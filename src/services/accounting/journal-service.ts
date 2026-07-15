@@ -674,7 +674,7 @@ export class JournalService {
   private static async getFallbackEntry(entryId: string): Promise<JournalEntry | null> {
     try {
       const { data: entry } = await supabase
-        .from('journal_entries')
+        .from('gl_entries')
         .select('*')
         .eq('id', entryId)
         .single();

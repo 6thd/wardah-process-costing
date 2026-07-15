@@ -461,7 +461,7 @@ export class WarehouseService {
   /**
    * Get GL accounts by category for account selection
    */
-  async getGLAccountsByCategory(category: string): Promise<Record<string, unknown>[]> {
+  async getGLAccountsByCategory(category: string): Promise<GLAccount[]> {
     try {
       const { data, error } = await this.supabase
         .rpc('get_gl_accounts_by_category', {
@@ -470,7 +470,7 @@ export class WarehouseService {
         })
 
       if (error) throw error
-      return data || []
+      return (data ?? []) as GLAccount[]
     } catch (error: unknown) {
       console.error('Error fetching GL accounts:', error)
       const message = error instanceof Error ? error.message : 'خطأ غير معروف'

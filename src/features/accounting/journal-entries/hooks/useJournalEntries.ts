@@ -6,10 +6,9 @@ import type { JournalEntry } from '../types';
 interface UseJournalEntriesProps {
   statusFilter: string;
   dateFilter: string;
-  journals: any[];
 }
 
-export function useJournalEntries({ statusFilter, dateFilter, journals }: UseJournalEntriesProps) {
+export function useJournalEntries({ statusFilter, dateFilter }: UseJournalEntriesProps) {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -32,59 +31,14 @@ export function useJournalEntries({ statusFilter, dateFilter, journals }: UseJou
         }
 
         const { data, error } = await query;
-
-        if (error) {
-          console.warn('gl_entries not found, trying journal_entries:', error);
-          const entriesWithJournalNames = await fetchFromOldTable(statusFilter, dateFilter, journals);
-          setEntries(entriesWithJournalNames as unknown as JournalEntry[]);
-        } else {
-          console.log('✅ Loaded from gl_entries:', data);
-          setEntries((data || []) as unknown as JournalEntry[]);
-        }
+        if (error) throw error;
+        setEntries((data || []) as unknown as JournalEntry[]);
       } catch (error) {
         console.error('Error fetching entries:', error);
       } finally {
         setLoading(false);
       }
     });
-  };
-
-  const fetchFromOldTable = async (statusFilter: string, dateFilter: string, journals: any[]) => {
-    let oldQuery = supabase
-      .from('journal_entries')
-      .select('*')
-      .order('entry_date', { ascending: false })
-      .order('entry_number', { ascending: false });
-
-    if (statusFilter !== 'all') {
-      oldQuery = oldQuery.eq('status', statusFilter);
-    }
-
-    if (dateFilter) {
-      oldQuery = oldQuery.gte('entry_date', dateFilter);
-    }
-
-    const { data: oldData, error: oldError } = await oldQuery;
-
-    if (oldError) throw oldError;
-
-    const entriesWithJournalNames = await Promise.all((oldData || []).map(async (entry) => {
-      if (entry.journal_id && journals.length > 0) {
-        const journal = journals.find(j => j.id === entry.journal_id);
-        return {
-          ...entry,
-          journal_name: journal?.name || 'General Journal',
-          journal_name_ar: journal?.name_ar || 'قيد عام'
-        };
-      }
-      return {
-        ...entry,
-        journal_name: 'General Journal',
-        journal_name_ar: 'قيد عام'
-      };
-    }));
-
-    return entriesWithJournalNames;
   };
 
   useEffect(() => {

@@ -53,11 +53,7 @@ const JournalEntries = () => {
   });
 
   const { journals, accounts } = useJournalData(isRTL);
-  const { entries, loading, fetchEntries } = useJournalEntries({ 
-    statusFilter, 
-    dateFilter, 
-    journals 
-  });
+  const { entries, loading, fetchEntries } = useJournalEntries({ statusFilter, dateFilter });
 
 
   const addLine = () => {

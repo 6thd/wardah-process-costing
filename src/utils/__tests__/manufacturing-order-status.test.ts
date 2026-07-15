@@ -16,17 +16,17 @@ describe('manufacturing-order-status', () => {
     });
 
     it('should define valid transitions for pending status', () => {
-      expect(STATUS_WORKFLOW['pending']).toContain('in-progress');
+      expect(STATUS_WORKFLOW['pending']).toContain('in_progress');
       expect(STATUS_WORKFLOW['pending']).toContain('confirmed');
       expect(STATUS_WORKFLOW['pending']).toContain('cancelled');
-      expect(STATUS_WORKFLOW['pending']).toContain('on-hold');
+      expect(STATUS_WORKFLOW['pending']).toContain('on_hold');
     });
 
-    it('should define valid transitions for in-progress status', () => {
-      expect(STATUS_WORKFLOW['in-progress']).toContain('completed');
-      expect(STATUS_WORKFLOW['in-progress']).toContain('quality-check');
-      expect(STATUS_WORKFLOW['in-progress']).toContain('on-hold');
-      expect(STATUS_WORKFLOW['in-progress']).toContain('cancelled');
+    it('should define valid transitions for in_progress status', () => {
+      expect(STATUS_WORKFLOW['in_progress']).toContain('completed');
+      expect(STATUS_WORKFLOW['in_progress']).toContain('quality_check');
+      expect(STATUS_WORKFLOW['in_progress']).toContain('on_hold');
+      expect(STATUS_WORKFLOW['in_progress']).toContain('cancelled');
     });
 
     it('should have no transitions from completed status', () => {
@@ -37,10 +37,10 @@ describe('manufacturing-order-status', () => {
       expect(STATUS_WORKFLOW['cancelled']).toEqual([]);
     });
 
-    it('should allow resuming from on-hold', () => {
-      expect(STATUS_WORKFLOW['on-hold']).toContain('in-progress');
-      expect(STATUS_WORKFLOW['on-hold']).toContain('pending');
-      expect(STATUS_WORKFLOW['on-hold']).toContain('cancelled');
+    it('should allow resuming from on_hold', () => {
+      expect(STATUS_WORKFLOW['on_hold']).toContain('in_progress');
+      expect(STATUS_WORKFLOW['on_hold']).toContain('pending');
+      expect(STATUS_WORKFLOW['on_hold']).toContain('cancelled');
     });
   });
 
@@ -62,8 +62,8 @@ describe('manufacturing-order-status', () => {
       expect(nextStatuses).toEqual([]);
     });
 
-    it('should return valid options for in-progress', () => {
-      const nextStatuses = getValidNextStatuses('in-progress');
+    it('should return valid options for in_progress', () => {
+      const nextStatuses = getValidNextStatuses('in_progress');
       expect(nextStatuses.length).toBeGreaterThan(0);
       expect(nextStatuses).toContain('completed');
     });
@@ -88,20 +88,20 @@ describe('manufacturing-order-status', () => {
       expect(isValidStatusTransition('draft', 'cancelled')).toBe(true);
     });
 
-    it('should allow pending -> in-progress', () => {
-      expect(isValidStatusTransition('pending', 'in-progress')).toBe(true);
+    it('should allow pending -> in_progress', () => {
+      expect(isValidStatusTransition('pending', 'in_progress')).toBe(true);
     });
 
-    it('should allow in-progress -> completed', () => {
-      expect(isValidStatusTransition('in-progress', 'completed')).toBe(true);
+    it('should allow in_progress -> completed', () => {
+      expect(isValidStatusTransition('in_progress', 'completed')).toBe(true);
     });
 
-    it('should allow in-progress -> quality-check', () => {
-      expect(isValidStatusTransition('in-progress', 'quality-check')).toBe(true);
+    it('should allow in_progress -> quality_check', () => {
+      expect(isValidStatusTransition('in_progress', 'quality_check')).toBe(true);
     });
 
-    it('should allow quality-check -> completed', () => {
-      expect(isValidStatusTransition('quality-check', 'completed')).toBe(true);
+    it('should allow quality_check -> completed', () => {
+      expect(isValidStatusTransition('quality_check', 'completed')).toBe(true);
     });
 
     // Invalid transitions
@@ -111,13 +111,13 @@ describe('manufacturing-order-status', () => {
 
     it('should not allow completed -> any status', () => {
       expect(isValidStatusTransition('completed', 'draft')).toBe(false);
-      expect(isValidStatusTransition('completed', 'in-progress')).toBe(false);
+      expect(isValidStatusTransition('completed', 'in_progress')).toBe(false);
       expect(isValidStatusTransition('completed', 'cancelled')).toBe(false);
     });
 
     it('should not allow cancelled -> any status', () => {
       expect(isValidStatusTransition('cancelled', 'draft')).toBe(false);
-      expect(isValidStatusTransition('cancelled', 'in-progress')).toBe(false);
+      expect(isValidStatusTransition('cancelled', 'in_progress')).toBe(false);
     });
 
     it('should return false for unknown from status', () => {
@@ -128,8 +128,8 @@ describe('manufacturing-order-status', () => {
   describe('STATUS_INFO', () => {
     it('should have info for all statuses', () => {
       const statuses: ManufacturingOrderStatus[] = [
-        'draft', 'pending', 'confirmed', 'in-progress',
-        'completed', 'cancelled', 'on-hold', 'quality-check'
+        'draft', 'pending', 'confirmed', 'in_progress',
+        'completed', 'cancelled', 'on_hold', 'quality_check'
       ];
 
       statuses.forEach(status => {
@@ -154,7 +154,7 @@ describe('manufacturing-order-status', () => {
       expect(STATUS_INFO['draft'].labelAr).toBe('مسودة');
       expect(STATUS_INFO['pending'].labelAr).toBe('في الانتظار');
       expect(STATUS_INFO['confirmed'].labelAr).toBe('مؤكد');
-      expect(STATUS_INFO['in-progress'].labelAr).toBe('قيد التنفيذ');
+      expect(STATUS_INFO['in_progress'].labelAr).toBe('قيد التنفيذ');
       expect(STATUS_INFO['completed'].labelAr).toBe('مكتمل');
       expect(STATUS_INFO['cancelled'].labelAr).toBe('ملغي');
     });
