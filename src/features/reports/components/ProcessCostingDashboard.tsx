@@ -138,8 +138,7 @@ export function ProcessCostingDashboard() {
       }
       
       if (filters.stageNo) {
-        // Try stage_no first, fallback handled in error handling
-        query = query.eq('stage_no', filters.stageNo)
+        query = query.eq('stage_number', filters.stageNo)
       }
       
       const { data: stageCostsData, error } = await query
