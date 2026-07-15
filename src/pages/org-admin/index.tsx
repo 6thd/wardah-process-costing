@@ -17,24 +17,19 @@ export default function OrgAdminLayout() {
 
   useEffect(() => {
     async function checkAccess() {
-      console.log('🔍 Checking org admin access...', { currentOrgId, isAuthenticated });
-      
+      // إذا لم تُحدَّد مؤسسة بعد، انتظر — لا نمنح الوصول
       if (!currentOrgId) {
-        console.log('⚠️ No currentOrgId, allowing access temporarily');
-        // السماح مؤقتاً إذا لم يتم تحميل org_id بعد
-        setIsOrgAdmin(true);
+        setIsOrgAdmin(false);
         setChecking(false);
         return;
       }
 
       try {
         const result = await checkIsOrgAdmin(currentOrgId);
-        console.log('✅ Org admin check result:', result);
         setIsOrgAdmin(result);
-      } catch (error) {
-        console.error('❌ Error checking org admin access:', error);
-        // السماح بالوصول في حالة الخطأ مؤقتاً
-        setIsOrgAdmin(true);
+      } catch {
+        // أي خطأ = رفض الوصول (fail-closed)
+        setIsOrgAdmin(false);
       } finally {
         setChecking(false);
       }

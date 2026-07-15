@@ -46,22 +46,14 @@ export function SignUpPage() {
   const loadInvitation = useCallback(async (token: string) => {
     setLoadingInvite(true);
     setError('');
-    
+
     try {
       const supabase = getSupabase();
-      
-      const { data, error } = await supabase
-        .from('invitations')
-        .select(`
-          id,
-          email,
-          org_id,
-          status,
-          expires_at,
-          organization:organizations(name, name_ar)
-        `)
-        .eq('token', token)
-        .single();
+
+      // استخدام RPC آمنة — لا تكشف توكن أو role_ids للعميل
+      const { data: rows, error } = await supabase.rpc('rpc_get_invitation_preview', { p_token: token });
+
+      const data = rows?.[0];
 
       if (error || !data) {
         setError('رابط الدعوة غير صالح أو منتهي الصلاحية');
@@ -69,27 +61,25 @@ export function SignUpPage() {
         return;
       }
 
-      if (data.status !== 'pending') {
-        setError('هذه الدعوة تم استخدامها بالفعل أو ملغاة');
-        setLoadingInvite(false);
-        return;
-      }
-
-      if (new Date(data.expires_at) < new Date()) {
-        setError('انتهت صلاحية هذه الدعوة');
+      if (!data.is_valid) {
+        if (data.status !== 'pending') {
+          setError('هذه الدعوة تم استخدامها بالفعل أو ملغاة');
+        } else {
+          setError('انتهت صلاحية هذه الدعوة');
+        }
         setLoadingInvite(false);
         return;
       }
 
       setInvitation({
-        id: data.id,
+        id: '',
         email: data.email,
-        org_id: data.org_id,
-        org_name: (data.organization as any)?.name_ar || (data.organization as any)?.name,
+        org_id: '',
+        org_name: data.org_name_ar || data.org_name,
         status: data.status,
         expires_at: data.expires_at,
       });
-      
+
       setFormData(prev => ({ ...prev, email: data.email }));
       setMode('invite');
     } catch (err) {
