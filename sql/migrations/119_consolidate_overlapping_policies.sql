@@ -1,0 +1,22 @@
+-- ===================================================================
+-- Migration 119: الموحِّد الآلي للسياسات المتداخلة (إتمام دفعة RLS)
+-- ===================================================================
+-- بعد 118 (حذف 62 ميتة) بقي ~30 جدولاً فيه >1 سياسة permissive لنفس
+-- العملية — نمطان: أزواج manage[ALL]+select[SELECT] (جداول HR الثمانية،
+-- departments/positions/gl_accounts/gl_mappings/physical_count_*/modules/
+-- permissions)، ومجموعات admin/own/super_admin (organizations/roles/
+-- role_permissions/user_profiles/user_organizations/audit_logs/stage_costs/
+-- stock_adjustments/bom_*/journal_entry_attachments).
+--
+-- الخوارزمية (نفس نموذج 116 آلياً):
+--   لكل (جدول، عملية) متداخل: سياسة واحدة جديدة شرطها OR حرفي لشروط
+--   السياسات القديمة — نفس الدلالة تماماً. INSERT من with_check
+--   (أو qual للـ ALL)؛ UPDATE يجمع USING وWITH CHECK. ثم حذف القديمة.
+--   التسمية: <table>_{sel|ins|upd|del}_m. كلها TO authenticated.
+--
+-- معالجة خاصة: bill_of_materials_20250905_1900 (نسخة احتياطية) —
+--   حُذفت سياساتها الثلاث الواسعة وبقيت super_admin_only (تشديد لا دمج).
+--
+-- التحقق الحي: صفر (جدول،عملية) متداخل خارج جداول backup؛ الجداول
+--   الحساسة الثمانية محمية؛ smoke: عضو يقرأ عضويته ومؤسسته وأدواره.
+-- النص الكامل المطبَّق: سجل Supabase migrations بنفس الاسم.
