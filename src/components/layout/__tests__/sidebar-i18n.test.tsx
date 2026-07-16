@@ -1,25 +1,26 @@
 /**
- * T5 — اختبار i18n للـSidebar
+ * T5 — اختبار i18n للـSidebar (مُحدَّث بعد إصلاح 121: subItems تُترجَم live)
  *
  * يتحقق من:
- * 1. تغيير اللغة بلا reload يُحدِّث document.dir/lang
- * 2. مفاتيح navigation.* الضرورية موجودة في كلا ملفَي الترجمة (ar/en)
- * 3. النصوص المبنية على مفاتيح t('navigation.*') تتغير عند تبديل اللغة
- * 4. العودة للعربية تُعيد RTL
+ * 1. تغيير اللغة بلا reload يُحدِّث document.dir/lang (والعودة للعربية)
+ * 2. **استخراج آلي** لكل مفاتيح navigation.* المستخدمة في الـsidebar (القوائم
+ *    الرئيسية + كل subItems) من مصدر المكوّن، والتأكد من وجودها في ar وen.
+ * 3. **فتح القوائم الفرعية**: بعد التحويل إلى الإنجليزية لا يبقى أي حرف عربي في
+ *    DOM الـsidebar (يمسك علّة useMemo التي كانت تجمّد تسميات subItems).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act, cleanup } from '@testing-library/react'
+import { render, screen, act, cleanup, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
-// قراءة ملفي الترجمة مباشرة (بلا حاجة لتشغيل i18n)
 import arTranslation from '@/locales/ar/translation.json'
 import enTranslation from '@/locales/en/translation.json'
 
-// الـi18n الحقيقي (مُهيَّأ لمرة واحدة عند استيراده)
-import i18n from '@/i18n'
+// مصدر المكوّن كنص خام — لاستخراج المفاتيح آلياً بدل قائمة يدوية
+import sidebarSource from '@/components/layout/sidebar.tsx?raw'
 
-// المكوّن
+import i18n from '@/i18n'
 import { Sidebar } from '@/components/layout/sidebar'
+import { usePermissions } from '@/hooks/usePermissions'
 
 // ----------------------------------------------------------------
 // Mocks
@@ -48,8 +49,32 @@ vi.mock('@/contexts/AuthContext', () => ({
 }))
 
 // ----------------------------------------------------------------
-// Helper
+// استخراج مفاتيح التنقل آلياً من مصدر sidebar
 // ----------------------------------------------------------------
+
+/** مفاتيح القوائم الرئيسية: key: 'X', يتبعها icon: (بنية عناصر التنقل) */
+function extractTopLevelKeys(src: string): string[] {
+  const re = /key:\s*'([^']+)',\s*[\r\n]+\s*icon:/g
+  const out = new Set<string>()
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src)) !== null) out.add(m[1])
+  return [...out]
+}
+
+/** مفاتيح ترجمة القوائم الفرعية: labelKey: 'navigation.X' */
+function extractSubItemNavKeys(src: string): string[] {
+  const re = /labelKey:\s*'navigation\.([^']+)'/g
+  const out = new Set<string>()
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src)) !== null) out.add(m[1])
+  return [...out]
+}
+
+const TOP_LEVEL_KEYS = extractTopLevelKeys(sidebarSource)
+const SUBITEM_KEYS = extractSubItemNavKeys(sidebarSource)
+const ALL_NAV_KEYS = [...new Set([...TOP_LEVEL_KEYS, ...SUBITEM_KEYS])]
+
+const ARABIC = /[؀-ۿ]/
 
 function renderSidebar() {
   return render(
@@ -75,7 +100,7 @@ describe('Sidebar — i18n', () => {
     vi.clearAllMocks()
   })
 
-  // ---- 1. dir/lang يتغيران بلا reload ----
+  // ---- 1. dir/lang ----
 
   it('Arabic: document.dir=rtl, document.lang=ar', async () => {
     renderSidebar()
@@ -85,110 +110,79 @@ describe('Sidebar — i18n', () => {
 
   it('English switch: document.dir=ltr, document.lang=en (no reload)', async () => {
     renderSidebar()
-
-    await act(async () => {
-      await i18n.changeLanguage('en')
-    })
-
+    await act(async () => { await i18n.changeLanguage('en') })
     expect(document.documentElement.dir).toBe('ltr')
     expect(document.documentElement.lang).toBe('en')
   })
 
   it('Back to Arabic: document.dir=rtl restored', async () => {
     renderSidebar()
-
     await act(async () => { await i18n.changeLanguage('en') })
     await act(async () => { await i18n.changeLanguage('ar') })
-
     expect(document.documentElement.dir).toBe('rtl')
     expect(document.documentElement.lang).toBe('ar')
   })
 
-  // ---- 2. نصوص الـi18n تتغير فعلاً ----
+  // ---- 2. النصوص تتغير ----
 
-  it('navigation.dashboard translates correctly in both languages', async () => {
+  it('navigation.dashboard translates differently in ar vs en', async () => {
     renderSidebar()
-
     const arText = i18n.t('navigation.dashboard')
-    expect(arText).toBeTruthy()
-    expect(arText).not.toBe('navigation.dashboard') // مفتاح لم يُحلَّ
-
     await act(async () => { await i18n.changeLanguage('en') })
-
     const enText = i18n.t('navigation.dashboard')
+    expect(arText).toBeTruthy()
     expect(enText).toBeTruthy()
-    expect(enText).not.toBe('navigation.dashboard')
-
-    // النص العربي يختلف عن الإنجليزي
     expect(arText).not.toBe(enText)
   })
 
-  it('navigation texts rendered in sidebar change on language switch', async () => {
-    renderSidebar()
+  // ---- 3. اكتمال المفاتيح (استخراج آلي) ----
 
-    // في العربية يجب أن نجد النص العربي للـ Dashboard
-    const arLabel = (arTranslation as any)
-      .navigation?.dashboard
-    expect(screen.queryAllByText(arLabel).length).toBeGreaterThan(0)
-
-    await act(async () => { await i18n.changeLanguage('en') })
-
-    // بعد التبديل يجب أن يظهر النص الإنجليزي
-    const enLabel = (enTranslation as any)
-      .navigation?.dashboard
-    expect(screen.queryAllByText(enLabel).length).toBeGreaterThan(0)
+  it('extracts a non-trivial set of navigation keys from sidebar source', () => {
+    // حارس: لو تغيّرت بنية المصدر وفشل الاستخراج، لا نريد اختباراً فارغاً يمر
+    expect(TOP_LEVEL_KEYS.length).toBeGreaterThan(5)
+    expect(SUBITEM_KEYS.length).toBeGreaterThan(20)
   })
 
-  // ---- 3. اكتمال مفاتيح navigation.* في ملفَي الترجمة ----
-
-  it('all navigation.* keys used in sidebar exist in ar translation', () => {
-    const SIDEBAR_KEYS = [
-      // القوائم الرئيسية
-      'dashboard', 'manufacturing', 'inventory', 'purchasing', 'sales',
-      'accounting', 'hr', 'reports', 'settings', 'org-admin', 'super-admin',
-      // عناصر مشتركة
-      'overview', 'analytics', 'performance', 'orders',
-      // تصنيع
-      'process-costing', 'stages', 'wipLog', 'standardCosts', 'workcenters', 'bom', 'quality',
-      // مخزون
-      'items', 'movements', 'adjustments', 'valuation', 'locations',
-      // مشتريات
-      'suppliers', 'receipts', 'invoices', 'payments',
-      // مبيعات
-      'customers', 'delivery', 'collections',
-      // تقارير
-      'financial', 'gemini-dashboard',
-      // إعدادات
-      'company', 'system', 'backup',
-    ] as const
-
+  it('all auto-extracted navigation.* keys exist in ar translation', () => {
     const arNav = (arTranslation as any).navigation ?? {}
-    const missing = SIDEBAR_KEYS.filter(k => !(k in arNav))
+    const missing = ALL_NAV_KEYS.filter(k => !(k in arNav))
     expect(missing, `مفاتيح غائبة في ar/translation.json: ${missing.join(', ')}`).toEqual([])
   })
 
-  it('all navigation.* keys used in sidebar exist in en translation', () => {
-    const SIDEBAR_KEYS = [
-      'dashboard', 'manufacturing', 'inventory', 'purchasing', 'sales',
-      'accounting', 'hr', 'reports', 'settings', 'org-admin', 'super-admin',
-      'overview', 'analytics', 'performance', 'orders',
-      'process-costing', 'stages', 'wipLog', 'standardCosts', 'workcenters', 'bom', 'quality',
-      'items', 'movements', 'adjustments', 'valuation', 'locations',
-      'suppliers', 'receipts', 'invoices', 'payments',
-      'customers', 'delivery', 'collections',
-      'financial', 'gemini-dashboard',
-      'company', 'system', 'backup',
-    ] as const
-
+  it('all auto-extracted navigation.* keys exist in en translation', () => {
     const enNav = (enTranslation as any).navigation ?? {}
-    const missing = SIDEBAR_KEYS.filter(k => !(k in enNav))
+    const missing = ALL_NAV_KEYS.filter(k => !(k in enNav))
     expect(missing, `مفاتيح غائبة في en/translation.json: ${missing.join(', ')}`).toEqual([])
   })
 
-  it('fails (descriptively) when a navigation key is deleted — sentinel test', () => {
-    const nav = (arTranslation as any).navigation ?? {}
-    // التحقق من أن الـsatisfied key موجود فعلاً (الاختبار يفشل لو حُذف 'dashboard')
-    expect('dashboard' in nav).toBe(true)
-    expect('manufacturing' in nav).toBe(true)
+  // ---- 4. القوائم الفرعية تُترجَم عند تبديل اللغة (علّة useMemo) ----
+
+  it('subItem labels are NOT frozen: no Arabic remains in sidebar DOM after switching to English', async () => {
+    // كل الصلاحيات مفعّلة ⇒ كل القوائم (بما فيها org-admin/super-admin) تُعرض وتُفحص
+    ;(usePermissions as any).mockReturnValue({
+      isOrgAdmin: true, isSuperAdmin: true, permissions: [], loading: false, error: null,
+    })
+
+    const { container } = renderSidebar()
+
+    // في العربية: يوجد نص عربي فعلاً (تأكيد أن الفحص ذو معنى)
+    expect(ARABIC.test(container.textContent ?? '')).toBe(true)
+
+    await act(async () => { await i18n.changeLanguage('en') })
+
+    // بعد التحويل إلى الإنجليزية: subItems (المُخزَّنة سابقاً في useMemo) يجب أن
+    // تُترجَم أيضاً ⇒ صفر أحرف عربية في DOM الـsidebar.
+    const leftover = (container.textContent ?? '')
+      .split(/\s+/)
+      .filter(w => ARABIC.test(w))
+    expect(leftover, `نصوص عربية بقيت بعد التبديل للإنجليزية: ${leftover.join(' | ')}`).toEqual([])
+  })
+
+  it('a known subItem (overview) renders its English label after switch', async () => {
+    renderSidebar()
+    await act(async () => { await i18n.changeLanguage('en') })
+    const enOverview = (enTranslation as any).navigation?.overview
+    expect(enOverview).toBeTruthy()
+    expect(screen.queryAllByText(enOverview).length).toBeGreaterThan(0)
   })
 })

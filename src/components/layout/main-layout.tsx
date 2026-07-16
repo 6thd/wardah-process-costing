@@ -12,7 +12,7 @@ interface MainLayoutProps {
 
 export function MainLayout({ children }: MainLayoutProps) {
   
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { sidebarCollapsed, sidebarOpen } = useUIStore()
   const isRTL = i18n.language === 'ar'
 
@@ -71,7 +71,7 @@ export function MainLayout({ children }: MainLayoutProps) {
       {sidebarOpen && (
         <button
           type="button"
-          aria-label="Close sidebar"
+          aria-label={t('common.closeSidebar')}
           className="fixed inset-0 bg-black/50 z-40 lg:hidden border-0 p-0 cursor-default"
           onClick={() => useUIStore.getState().setSidebarOpen(false)}
         />

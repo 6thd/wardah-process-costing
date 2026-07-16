@@ -34,8 +34,7 @@ interface ModuleGuardProps {
 // =====================================
 
 function AccessDeniedPage() {
-  const { i18n } = useTranslation() // Removed unused 't'
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
@@ -48,12 +47,10 @@ function AccessDeniedPage() {
         {/* العنوان */}
         <div className="space-y-2">
           <h1 className="text-2xl font-bold text-foreground">
-            {isRTL ? 'الوصول مرفوض' : 'Access Denied'}
+            {t('auth.accessDenied')}
           </h1>
           <p className="text-muted-foreground">
-            {isRTL 
-              ? 'ليس لديك الصلاحية للوصول إلى هذه الصفحة. يرجى التواصل مع مسؤول النظام.' 
-              : 'You don\'t have permission to access this page. Please contact your administrator.'}
+            {t('auth.accessDeniedDescription')}
           </p>
         </div>
 
@@ -64,12 +61,12 @@ function AccessDeniedPage() {
             onClick={() => globalThis.history.back()} // Prefer globalThis over window
           >
             <Lock className="w-4 h-4 mr-2" />
-            {isRTL ? 'العودة' : 'Go Back'}
+            {t('auth.goBack')}
           </Button>
           <Button
             onClick={() => { globalThis.location.href = '/dashboard'; }} // Prefer globalThis over window
           >
-            {isRTL ? 'الصفحة الرئيسية' : 'Go to Dashboard'}
+            {t('auth.goToDashboard')}
           </Button>
         </div>
       </div>
@@ -82,15 +79,14 @@ function AccessDeniedPage() {
 // =====================================
 
 function LoadingState() {
-  const { i18n } = useTranslation();
-  const isRTL = i18n.language === 'ar';
+  const { t } = useTranslation();
 
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
       <div className="text-center space-y-4">
         <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
         <p className="text-muted-foreground">
-          {isRTL ? 'جاري التحقق من الصلاحيات...' : 'Checking permissions...'}
+          {t('auth.checkingPermissions')}
         </p>
       </div>
     </div>

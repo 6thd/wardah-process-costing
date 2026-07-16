@@ -11,7 +11,7 @@ import {
 import { useUIStore } from "@/store/ui-store"
 
 export function LanguageToggle() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { setLanguage } = useUIStore()
 
   const handleLanguageChange = (lang: 'ar' | 'en') => {
@@ -24,7 +24,7 @@ export function LanguageToggle() {
       <DropdownMenuTrigger asChild>
         <Button {...{variant: "ghost", size: "sm", className: "h-9 w-9 p-0"} as ButtonProps}>
           <Languages className="h-4 w-4" />
-          <span className="sr-only">Toggle language</span>
+          <span className="sr-only">{t('common.toggleLanguage')}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
