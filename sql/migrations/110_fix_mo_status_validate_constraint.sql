@@ -50,6 +50,4 @@ $$;
 ALTER TABLE manufacturing_orders
     VALIDATE CONSTRAINT manufacturing_orders_status_check;
 
-RAISE NOTICE 'VERIFY[110-2] ✓ — manufacturing_orders_status_check أصبح VALID';
-
 COMMIT;
