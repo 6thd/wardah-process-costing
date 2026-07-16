@@ -91,6 +91,35 @@ jobs:
           fi
           echo "✅ ترقيم migrations سليم (1–${MAX_NUM})"
 
+      # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
+      # يتطلب T2 (schema baseline من الإنتاج) — يُفعَّل تلقائياً حين يُودَع الـbaseline
+      - name: Fresh DB chain test
+        run: |
+          if compgen -G "sql/baseline/000_schema_baseline_*.sql" > /dev/null 2>&1; then
+            echo "✅ Baseline موجود — تشغيل اختبار البناء من الصفر"
+            which psql || (sudo apt-get install -y postgresql-client && echo "psql installed")
+            createdb wardah_fresh 2>/dev/null || true
+            psql -d wardah_fresh \
+                 -f scripts/ci/fresh-db/supabase_shim.sql -q 2>&1 | tail -5
+            python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations \
+                    > /tmp/chain_order.txt
+            TOTAL=$(wc -l < /tmp/chain_order.txt)
+            # طبّق baseline أولاً
+            BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql | tail -1)
+            psql -d wardah_fresh -f "$BASELINE" -q 2>&1 | tail -5
+            # طبّق فقط migrations أحدث من الـbaseline
+            BASELINE_TS=$(basename "$BASELINE" | grep -oE '[0-9]{8}' | head -1)
+            REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+                  bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+            echo "Chain result: $?"
+          else
+            echo "⏭ لا baseline بعد (T2 معلق) — تجاوز اختبار البناء من الصفر"
+            echo "   لتفعيله: sql/baseline/000_schema_baseline_YYYYMMDD.sql"
+          fi
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+
       - name: Build project
         run: npm run build
 
