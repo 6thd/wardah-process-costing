@@ -107,7 +107,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
 
         <div className="space-y-4">
           {draftEntries.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               {isRTL ? 'لا توجد قيود مسودة للترحيل' : 'No draft entries to post'}
             </div>
           ) : (
@@ -193,7 +193,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
               </div>
 
               {results && results.length > 0 && (
-                <div className="border rounded-lg p-4 bg-gray-50">
+                <div className="border rounded-lg p-4 bg-muted/50">
                   <h4 className="font-semibold mb-2">
                     {isRTL ? 'نتائج الترحيل' : 'Posting Results'}
                   </h4>
@@ -206,7 +206,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                           <XCircle className="h-4 w-4 text-red-600" />
                         )}
                         <span className="font-mono">{result.entry_id.substring(0, 8)}...</span>
-                        <span className="text-gray-600">
+                        <span className="text-muted-foreground">
                           {result.message || result.error}
                         </span>
                       </div>

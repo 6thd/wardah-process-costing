@@ -132,7 +132,7 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
           </div>
 
           {comments.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
+            <div className="text-center py-8 text-muted-foreground">
               {isRTL ? 'لا توجد تعليقات' : 'No comments'}
             </div>
           ) : (
@@ -140,23 +140,23 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
               {comments.map((comment) => (
                   <div
                   key={comment.id}
-                  className="p-3 border rounded-lg hover:bg-gray-50"
+                  className="p-3 border rounded-lg hover:bg-muted/50"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1">
                       <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-gray-400" />
+                        <User className="h-4 w-4 text-muted-foreground" />
                         <span className="text-sm font-medium">
                           {comment.created_by?.substring(0, 8) || 'System'}...
                         </span>
                         <Badge variant={getTypeBadge(comment.comment_type)}>
                           {getTypeLabel(comment.comment_type)}
                         </Badge>
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-muted-foreground">
                           {format(new Date(comment.created_at), 'dd/MM/yyyy HH:mm')}
                         </span>
                       </div>
-                      <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                      <div className="text-sm text-foreground whitespace-pre-wrap">
                         {comment.comment_text}
                       </div>
                     </div>

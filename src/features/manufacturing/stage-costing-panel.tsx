@@ -512,7 +512,7 @@ export default function StageCostingPanel() {
                 <Badge variant={lastResult.efficiency >= 95 ? 'default' : 'destructive'}>
                   {lastResult.efficiency.toFixed(1)}% كفاءة
                 </Badge>
-                <div className="text-sm text-gray-600 dark:text-gray-300">نسبة الجودة</div>
+                <div className="text-sm text-muted-foreground dark:text-gray-300">نسبة الجودة</div>
               </div>
             </div>
             
@@ -533,10 +533,10 @@ export default function StageCostingPanel() {
               </div>
               
               <div className="text-center">
-                <div className="text-lg font-bold text-gray-700 dark:text-gray-400">
+                <div className="text-lg font-bold text-foreground dark:text-muted-foreground">
                   {(lastResult.totalCost - lastResult.transferredIn - lastResult.laborCost - lastResult.overheadCost).toFixed(2)}
                 </div>
-                <div className="text-sm text-gray-600 dark:text-gray-300">المواد المباشرة</div>
+                <div className="text-sm text-muted-foreground dark:text-gray-300">المواد المباشرة</div>
               </div>
             </div>
             
@@ -552,7 +552,7 @@ export default function StageCostingPanel() {
               </Button>
             </div>
             
-            <div className="text-xs text-gray-500 text-center">
+            <div className="text-xs text-muted-foreground text-center">
               تم الحساب في: {new Date(lastResult.calculatedAt).toLocaleString('en-US')}
             </div>
           </div>
@@ -582,7 +582,7 @@ export default function StageCostingPanel() {
               </thead>
               <tbody>
                 {stageCosts.map((stage, index) => (
-                  <tr key={stage.id || index} className="border-b hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <tr key={stage.id || index} className="border-b hover:bg-muted/50 dark:hover:bg-gray-800">
                     <td className="p-2 font-medium">
                       {stage.manufacturing_stage?.name_ar || 
                        stage.manufacturing_stage?.name || 
@@ -602,7 +602,7 @@ export default function StageCostingPanel() {
                         })()}
                       </Badge>
                     </td>
-                    <td className="p-2 text-sm text-gray-600">
+                    <td className="p-2 text-sm text-muted-foreground">
                       {new Date(stage.updated_at || stage.created_at).toLocaleDateString('en-US')}
                     </td>
                   </tr>
