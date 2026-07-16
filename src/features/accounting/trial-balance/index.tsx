@@ -12,7 +12,7 @@ import { calculateTotals, filterBalancesByType } from './utils/trialBalanceHelpe
 import { exportToExcel, exportToPDF } from './utils/trialBalanceExport';
 
 const TrialBalance = () => {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [asOfDate, setAsOfDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [fromDate, setFromDate] = useState(format(new Date(new Date().getFullYear(), 0, 1), 'yyyy-MM-dd'));
@@ -56,20 +56,20 @@ const TrialBalance = () => {
           <div className="flex justify-between items-center">
             <div>
               <CardTitle className="text-2xl">
-                {isRTL ? 'ميزان المراجعة' : 'Trial Balance'}
+                {t('accounting.trialBalance.title')}
               </CardTitle>
               <CardDescription>
-                {isRTL ? 'عرض أرصدة الحسابات وحركاتها' : 'Display account balances and movements'}
+                {t('accounting.trialBalance.subtitle')}
               </CardDescription>
             </div>
             <div className="flex gap-2">
               <Button onClick={handleExportExcel} variant="outline">
                 <FileSpreadsheet className="h-4 w-4 me-2" />
-                {isRTL ? 'تصدير Excel' : 'Export Excel'}
+                {t('accounting.trialBalance.exportExcel')}
               </Button>
               <Button onClick={handleExportPDF} variant="outline">
                 <FileText className="h-4 w-4 me-2" />
-                {isRTL ? 'تصدير PDF' : 'Export PDF'}
+                {t('accounting.trialBalance.exportPDF')}
               </Button>
             </div>
           </div>
@@ -78,7 +78,7 @@ const TrialBalance = () => {
         <CardContent>
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div>
-              <Label htmlFor="from_date">{isRTL ? 'من تاريخ' : 'From Date'}</Label>
+              <Label htmlFor="from_date">{t('accounting.trialBalance.fromDate')}</Label>
               <Input
                 type="date"
                 id="from_date"
@@ -88,7 +88,7 @@ const TrialBalance = () => {
             </div>
 
             <div>
-              <Label htmlFor="as_of_date">{isRTL ? 'إلى تاريخ' : 'As Of Date'}</Label>
+              <Label htmlFor="as_of_date">{t('accounting.trialBalance.asOfDate')}</Label>
               <Input
                 type="date"
                 id="as_of_date"
@@ -98,31 +98,26 @@ const TrialBalance = () => {
             </div>
 
             <div>
-              <Label htmlFor="account_type">{isRTL ? 'نوع الحساب' : 'Account Type'}</Label>
+              <Label htmlFor="account_type">{t('accounting.trialBalance.accountType')}</Label>
               <select
                 id="account_type"
                 value={accountTypeFilter}
                 onChange={(e) => setAccountTypeFilter(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
               >
-                <option value="all">{isRTL ? 'الكل' : 'All'}</option>
-                <option value="asset">{isRTL ? 'أصول' : 'Assets'}</option>
-                <option value="liability">{isRTL ? 'التزامات' : 'Liabilities'}</option>
-                <option value="equity">{isRTL ? 'حقوق ملكية' : 'Equity'}</option>
-                <option value="revenue">{isRTL ? 'إيرادات' : 'Revenue'}</option>
-                <option value="expense">{isRTL ? 'مصروفات' : 'Expenses'}</option>
+                <option value="all">{t('accounting.trialBalance.all')}</option>
+                <option value="asset">{t('accounting.trialBalance.assets')}</option>
+                <option value="liability">{t('accounting.trialBalance.liabilities')}</option>
+                <option value="equity">{t('accounting.trialBalance.equity')}</option>
+                <option value="revenue">{t('accounting.trialBalance.revenue')}</option>
+                <option value="expense">{t('accounting.trialBalance.expenses')}</option>
               </select>
             </div>
 
             <div className="flex items-end">
               <Button onClick={fetchTrialBalance} disabled={loading} className="w-full">
                 <RefreshCw className={`h-4 w-4 me-2 ${loading ? 'animate-spin' : ''}`} />
-                {(() => {
-                  if (loading) {
-                    return isRTL ? 'جاري التحميل...' : 'Loading...';
-                  }
-                  return isRTL ? 'تحديث' : 'Refresh';
-                })()}
+                {loading ? t('common.loading') : t('common.refresh')}
               </Button>
             </div>
           </div>
@@ -130,9 +125,7 @@ const TrialBalance = () => {
           {!isBalanced && balances.length > 0 && (
             <div className="mb-4 p-4 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-lg">
               <p className="text-red-800 dark:text-red-300 font-semibold">
-                {isRTL
-                  ? '⚠️ تحذير: ميزان المراجعة غير متوازن! يرجى مراجعة القيود المحاسبية'
-                  : '⚠️ Warning: Trial Balance is not balanced! Please review journal entries'}
+                {t('accounting.trialBalance.warning')}
               </p>
             </div>
           )}
@@ -141,32 +134,32 @@ const TrialBalance = () => {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/50">
-                  <TableHead rowSpan={2} className="border-e">{isRTL ? 'كود الحساب' : 'Account Code'}</TableHead>
-                  <TableHead rowSpan={2} className="border-e">{isRTL ? 'اسم الحساب' : 'Account Name'}</TableHead>
-                  <TableHead colSpan={2} className="text-center border-e">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</TableHead>
-                  <TableHead colSpan={2} className="text-center border-e">{isRTL ? 'حركة الفترة' : 'Period Movement'}</TableHead>
-                  <TableHead colSpan={2} className="text-center">{isRTL ? 'الرصيد الختامي' : 'Closing Balance'}</TableHead>
+                  <TableHead rowSpan={2} className="border-e">{t('accounting.trialBalance.accountCode')}</TableHead>
+                  <TableHead rowSpan={2} className="border-e">{t('accounting.trialBalance.accountName')}</TableHead>
+                  <TableHead colSpan={2} className="text-center border-e">{t('accounting.openingBalance')}</TableHead>
+                  <TableHead colSpan={2} className="text-center border-e">{t('accounting.periodMovement')}</TableHead>
+                  <TableHead colSpan={2} className="text-center">{t('accounting.closingBalance')}</TableHead>
                 </TableRow>
                 <TableRow className="bg-muted/50">
-                  <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right border-e">{isRTL ? 'دائن' : 'Credit'}</TableHead>
-                  <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right border-e">{isRTL ? 'دائن' : 'Credit'}</TableHead>
-                  <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
+                  <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                  <TableHead className="text-right border-e">{t('accounting.credit')}</TableHead>
+                  <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                  <TableHead className="text-right border-e">{t('accounting.credit')}</TableHead>
+                  <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                  <TableHead className="text-right">{t('accounting.credit')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {loading ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8">
-                      {isRTL ? 'جاري التحميل...' : 'Loading...'}
+                      {t('common.loading')}
                     </TableCell>
                   </TableRow>
                 ) : filteredBalances.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
-                      {isRTL ? 'لا توجد بيانات' : 'No data found'}
+                      {t('accounting.trialBalance.noData')}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -201,7 +194,7 @@ const TrialBalance = () => {
                     {/* صف الإجماليات */}
                     <TableRow className="bg-blue-100 dark:bg-blue-950/60 font-bold border-t-2 border-blue-200 dark:border-blue-800">
                       <TableCell colSpan={2} className="text-center border-e">
-                        {isRTL ? 'الإجماليات' : 'TOTALS'}
+                        {t('accounting.trialBalance.totals')}
                       </TableCell>
                       <TableCell className="text-right font-mono" dir="ltr">
                         {totals.opening_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -226,7 +219,7 @@ const TrialBalance = () => {
                     {/* صف الفروقات */}
                     <TableRow className={`font-bold ${isBalanced ? 'bg-green-50 dark:bg-green-950/50' : 'bg-red-50 dark:bg-red-950/50'}`}>
                       <TableCell colSpan={2} className="text-center border-e">
-                        {isRTL ? 'الفرق' : 'Difference'}
+                        {t('accounting.trialBalance.difference')}
                       </TableCell>
                       <TableCell colSpan={2} className="text-center font-mono border-e" dir="ltr">
                         {Math.abs(totals.opening_debit - totals.opening_credit).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -247,12 +240,7 @@ const TrialBalance = () => {
           {isBalanced && balances.length > 0 && (
             <div className="mt-4 p-4 bg-green-50 dark:bg-green-950/50 border border-green-200 dark:border-green-900 rounded-lg">
               <p className="text-green-800 dark:text-green-300 font-semibold text-center">
-                {(() => {
-                  if (isRTL) {
-                    return '✓ ميزان المراجعة متوازن';
-                  }
-                  return '✓ Trial Balance is Balanced';
-                })()}
+                {t('accounting.trialBalance.balanced')}
               </p>
             </div>
           )}

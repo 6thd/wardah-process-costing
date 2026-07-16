@@ -29,7 +29,7 @@ import { isValidDecimalInput } from '@/utils/numberValidation';
 import type { JournalEntry, JournalLine } from './types';
 
 const JournalEntries = () => {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
@@ -39,9 +39,8 @@ const JournalEntries = () => {
   const [batchPostDialogOpen, setBatchPostDialogOpen] = useState(false);
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [formLoading, setFormLoading] = useState(false); // Renamed to avoid conflict with loading from useJournalEntries
+  const [formLoading, setFormLoading] = useState(false);
 
-  // Form state
   const [formData, setFormData] = useState({
     journal_id: '',
     entry_date: format(new Date(), 'yyyy-MM-dd'),
@@ -54,7 +53,6 @@ const JournalEntries = () => {
 
   const { journals, accounts } = useJournalData(isRTL);
   const { entries, loading, fetchEntries } = useJournalEntries({ statusFilter, dateFilter });
-
 
   const addLine = () => {
     setFormData({
@@ -87,12 +85,11 @@ const JournalEntries = () => {
     setFormData({ ...formData, lines: newLines });
   };
 
-
   const handleSubmit = async () => {
     try {
       setFormLoading(true);
       const { totalDebit, totalCredit } = calculateTotals(formData.lines);
-      
+
       const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
       if (!validation.valid) {
         toast.error(validation.message);
@@ -129,49 +126,41 @@ const JournalEntries = () => {
       }
     } catch (error: any) {
       console.error('❌ Error saving entry:', error);
-      toast.error(error?.message || (isRTL ? 'حدث خطأ أثناء حفظ القيد' : 'Error saving entry'));
+      toast.error(error?.message || t('accounting.journalEntries.errorSaving'));
     } finally {
       setFormLoading(false);
     }
   };
 
   const handlePost = async (entry: JournalEntry) => {
-    if (!globalThis.window?.confirm(isRTL ? `هل تريد ترحيل القيد ${entry.entry_number}؟` : `Post entry ${entry.entry_number}?`)) {
+    if (!globalThis.window?.confirm(t('accounting.journalEntries.confirmPost', { entryNumber: entry.entry_number }))) {
       return;
     }
-
     setFormLoading(true);
     const success = await postJournalEntry(entry, isRTL);
-    if (success) {
-      fetchEntries();
-    }
+    if (success) fetchEntries();
     setFormLoading(false);
   };
 
   const handleDelete = async (entry: JournalEntry) => {
     if (entry.status === 'posted') {
-      toast.error(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete a posted entry');
+      toast.error(t('accounting.journalEntries.cannotDeletePosted'));
       return;
     }
-
-    if (!globalThis.window?.confirm(isRTL ? `هل تريد حذف القيد ${entry.entry_number}؟` : `Delete entry ${entry.entry_number}?`)) {
+    if (!globalThis.window?.confirm(t('accounting.journalEntries.confirmDelete', { entryNumber: entry.entry_number }))) {
       return;
     }
-
     setFormLoading(true);
     const success = await deleteJournalEntry(entry, isRTL);
-    if (success) {
-      fetchEntries();
-    }
+    if (success) fetchEntries();
     setFormLoading(false);
   };
 
   const handleEdit = async (entry: JournalEntry) => {
     if (entry.status === 'posted') {
-      toast.warning(isRTL ? 'لا يمكن تعديل قيد مرحّل' : 'Cannot edit a posted entry');
+      toast.warning(t('accounting.journalEntries.cannotEditPosted'));
       return;
     }
-
     try {
       setFormLoading(true);
       let lines = await fetchEntryLines(entry.id, accounts);
@@ -185,12 +174,7 @@ const JournalEntries = () => {
       }
 
       if (!lines || lines.length === 0) {
-        toast.error(
-          isRTL
-            ? '⚠️ هذا القيد فارغ (بدون بنود). يُرجى حذفه وإنشاء قيد جديد.'
-            : '⚠️ This entry is empty (no lines). Please delete it and create a new entry.',
-          { duration: 6000 }
-        );
+        toast.error(t('accounting.journalEntries.emptyEntry'), { duration: 6000 });
         return;
       }
 
@@ -207,7 +191,7 @@ const JournalEntries = () => {
       setIsDialogOpen(true);
     } catch (error: any) {
       console.error('Error loading entry for edit:', error);
-      toast.error(error.message || (isRTL ? 'تعذر تحميل بيانات القيد' : 'Failed to load entry details'));
+      toast.error(error.message || t('accounting.journalEntries.failedLoad'));
     } finally {
       setFormLoading(false);
     }
@@ -232,16 +216,9 @@ const JournalEntries = () => {
       posted: 'default',
       reversed: 'destructive'
     };
-
-    const labels: Record<string, { ar: string; en: string }> = {
-      draft: { ar: 'مسودة', en: 'Draft' },
-      posted: { ar: 'مرحّل', en: 'Posted' },
-      reversed: { ar: 'معكوس', en: 'Reversed' }
-    };
-
     return (
       <Badge variant={variants[status]}>
-        {isRTL ? labels[status]?.ar : labels[status]?.en}
+        {t(`accounting.status.${status}`)}
       </Badge>
     );
   };
@@ -251,7 +228,6 @@ const JournalEntries = () => {
       entry.entry_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       entry.description_ar?.includes(searchTerm);
-
     return matchesSearch;
   });
 
@@ -264,10 +240,10 @@ const JournalEntries = () => {
           <div className="flex justify-between items-center">
             <div>
               <CardTitle className="text-2xl">
-                {isRTL ? 'قيود اليومية' : 'Journal Entries'}
+                {t('accounting.journalEntries.title')}
               </CardTitle>
               <CardDescription>
-                {isRTL ? 'إدارة القيود المحاسبية' : 'Manage accounting journal entries'}
+                {t('accounting.journalEntries.subtitle')}
               </CardDescription>
             </div>
             <Dialog open={isDialogOpen} onOpenChange={(open) => {
@@ -277,34 +253,29 @@ const JournalEntries = () => {
               <DialogTrigger asChild>
                 <Button>
                   <Plus className="h-4 w-4 ml-2" />
-                  {isRTL ? 'قيد جديد' : 'New Entry'}
+                  {t('accounting.journalEntries.newEntry')}
                 </Button>
               </DialogTrigger>
               <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
-                    {(() => {
-                      if (editingEntry) {
-                        return isRTL ? 'تعديل القيد' : 'Edit Entry';
-                      }
-                      return isRTL ? 'قيد جديد' : 'New Entry';
-                    })()}
+                    {editingEntry ? t('accounting.journalEntries.editEntry') : t('accounting.journalEntries.newEntry')}
                   </DialogTitle>
                   <DialogDescription>
-                    {isRTL ? 'أدخل تفاصيل القيد' : 'Enter entry details'}
+                    {t('accounting.journalEntries.enterDetails')}
                   </DialogDescription>
                 </DialogHeader>
 
                 <div className="grid gap-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="journal_id">{isRTL ? 'نوع القيد' : 'Journal Type'}</Label>
+                      <Label htmlFor="journal_id">{t('accounting.journalEntries.journalType')}</Label>
                       <Select
                         value={formData.journal_id}
                         onValueChange={(value) => setFormData({ ...formData, journal_id: value })}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder={isRTL ? 'اختر نوع القيد' : 'Select journal type'} />
+                          <SelectValue placeholder={t('accounting.journalEntries.selectJournalType')} />
                         </SelectTrigger>
                         <SelectContent>
                           {journals.map((journal) => (
@@ -317,7 +288,7 @@ const JournalEntries = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="entry_date">{isRTL ? 'التاريخ' : 'Date'}</Label>
+                      <Label htmlFor="entry_date">{t('common.date')}</Label>
                       <Input
                         type="date"
                         id="entry_date"
@@ -329,7 +300,7 @@ const JournalEntries = () => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="description_ar">{isRTL ? 'الوصف بالعربية' : 'Description (Arabic)'}</Label>
+                      <Label htmlFor="description_ar">{t('accounting.journalEntries.descriptionAr')}</Label>
                       <textarea
                         id="description_ar"
                         value={formData.description_ar}
@@ -340,7 +311,7 @@ const JournalEntries = () => {
                     </div>
 
                     <div>
-                      <Label htmlFor="description">{isRTL ? 'الوصف بالإنجليزية' : 'Description (English)'}</Label>
+                      <Label htmlFor="description">{t('accounting.journalEntries.descriptionEn')}</Label>
                       <textarea
                         id="description"
                         value={formData.description}
@@ -353,17 +324,17 @@ const JournalEntries = () => {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="reference_type">{isRTL ? 'نوع المرجع' : 'Reference Type'}</Label>
+                      <Label htmlFor="reference_type">{t('accounting.journalEntries.referenceType')}</Label>
                       <Input
                         id="reference_type"
                         value={formData.reference_type}
                         onChange={(e) => setFormData({ ...formData, reference_type: e.target.value })}
-                        placeholder={isRTL ? 'مثال: فاتورة، سند صرف' : 'e.g., Invoice, Payment'}
+                        placeholder={t('accounting.journalEntries.referenceTypePlaceholder')}
                       />
                     </div>
 
                     <div>
-                      <Label htmlFor="reference_number">{isRTL ? 'رقم المرجع' : 'Reference Number'}</Label>
+                      <Label htmlFor="reference_number">{t('accounting.journalEntries.referenceNumber')}</Label>
                       <Input
                         id="reference_number"
                         value={formData.reference_number}
@@ -372,16 +343,16 @@ const JournalEntries = () => {
                     </div>
                   </div>
 
-                  {/* Tabs for Lines, Attachments, and Comments - Professional Design */}
+                  {/* Tabs for Lines, Attachments, and Comments */}
                   <Tabs defaultValue="lines" className="w-full border-t pt-4">
                     <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="lines">{isRTL ? 'البنود' : 'Lines'}</TabsTrigger>
+                      <TabsTrigger value="lines">{t('accounting.journalEntries.linesTab')}</TabsTrigger>
                       <TabsTrigger value="attachments" disabled={!editingEntry}>
-                        {isRTL ? 'المرفقات' : 'Attachments'}
+                        {t('accounting.journalEntries.attachmentsTab')}
                         {!editingEntry && <span className="text-xs opacity-50 ml-1">*</span>}
                       </TabsTrigger>
                       <TabsTrigger value="comments" disabled={!editingEntry}>
-                        {isRTL ? 'التعليقات' : 'Comments'}
+                        {t('accounting.journalEntries.commentsTab')}
                         {!editingEntry && <span className="text-xs opacity-50 ml-1">*</span>}
                       </TabsTrigger>
                     </TabsList>
@@ -392,11 +363,7 @@ const JournalEntries = () => {
                           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                           </svg>
-                          <span>
-                            {isRTL
-                              ? '* المرفقات والتعليقات ستكون متاحة بعد حفظ القيد'
-                              : '* Attachments and comments will be available after saving the entry'}
-                          </span>
+                          <span>{t('accounting.journalEntries.attachmentsNote')}</span>
                         </p>
                       </div>
                     )}
@@ -404,11 +371,11 @@ const JournalEntries = () => {
                     <TabsContent value="lines" className="space-y-4">
                       <div className="flex justify-between items-center mb-4">
                         <h3 className="text-lg font-semibold">
-                          {isRTL ? 'بنود القيد' : 'Entry Lines'}
+                          {t('accounting.entryLines')}
                         </h3>
                         <Button type="button" onClick={addLine} size="sm">
                           <Plus className="h-4 w-4 ml-1" />
-                          {isRTL ? 'إضافة بند' : 'Add Line'}
+                          {t('accounting.journalEntries.addLine')}
                         </Button>
                       </div>
 
@@ -417,13 +384,13 @@ const JournalEntries = () => {
                           <Card key={`line-${index}-${line.account_id || 'new'}`} className="p-4">
                             <div className="grid grid-cols-12 gap-2 items-end">
                               <div className="col-span-5">
-                                <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
+                                <Label>{t('accounting.account')}</Label>
                                 <Select
                                   value={line.account_id}
                                   onValueChange={(value) => updateLine(index, 'account_id', value)}
                                 >
                                   <SelectTrigger>
-                                    <SelectValue placeholder={isRTL ? 'اختر الحساب' : 'Select account'} />
+                                    <SelectValue placeholder={t('accounting.journalEntries.selectAccount')} />
                                   </SelectTrigger>
                                   <SelectContent>
                                     {accounts.map((account) => (
@@ -436,7 +403,7 @@ const JournalEntries = () => {
                               </div>
 
                               <div className="col-span-2">
-                                <Label>{isRTL ? 'مدين' : 'Debit'}</Label>
+                                <Label>{t('accounting.debit')}</Label>
                                 <Input
                                   type="text"
                                   inputMode="decimal"
@@ -458,7 +425,7 @@ const JournalEntries = () => {
                               </div>
 
                               <div className="col-span-2">
-                                <Label>{isRTL ? 'دائن' : 'Credit'}</Label>
+                                <Label>{t('accounting.credit')}</Label>
                                 <Input
                                   type="text"
                                   inputMode="decimal"
@@ -480,11 +447,11 @@ const JournalEntries = () => {
                               </div>
 
                               <div className="col-span-2">
-                                <Label>{isRTL ? 'الوصف' : 'Description'}</Label>
+                                <Label>{t('common.description')}</Label>
                                 <Input
                                   value={line.description || ''}
                                   onChange={(e) => updateLine(index, 'description', e.target.value)}
-                                  placeholder={isRTL ? 'وصف البند' : 'Line description'}
+                                  placeholder={t('accounting.journalEntries.lineDescPlaceholder')}
                                 />
                               </div>
 
@@ -507,22 +474,17 @@ const JournalEntries = () => {
                         <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                           <div className="grid grid-cols-3 gap-4 text-center">
                             <div>
-                              <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
+                              <p className="text-sm text-muted-foreground">{t('accounting.journalEntries.totalDebit')}</p>
                               <p className="text-lg font-bold">{totalDebit.toFixed(2)}</p>
                             </div>
                             <div>
-                              <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
+                              <p className="text-sm text-muted-foreground">{t('accounting.journalEntries.totalCredit')}</p>
                               <p className="text-lg font-bold">{totalCredit.toFixed(2)}</p>
                             </div>
                             <div>
-                              <p className="text-sm text-muted-foreground">{isRTL ? 'الحالة' : 'Status'}</p>
+                              <p className="text-sm text-muted-foreground">{t('common.status')}</p>
                               <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
-                                {(() => {
-                                  if (balanced) {
-                                    return isRTL ? '✓ متوازن' : '✓ Balanced';
-                                  }
-                                  return isRTL ? '✗ غير متوازن' : '✗ Not Balanced';
-                                })()}
+                                {balanced ? t('accounting.journalEntries.balanced') : t('accounting.journalEntries.notBalanced')}
                               </p>
                             </div>
                           </div>
@@ -541,19 +503,17 @@ const JournalEntries = () => {
                             </svg>
                           </div>
                           <h3 className="text-lg font-semibold text-foreground mb-2">
-                            {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
+                            {t('accounting.journalEntries.saveEntryFirst')}
                           </h3>
                           <p className="text-sm text-muted-foreground max-w-md">
-                            {isRTL
-                              ? 'لإضافة مرفقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة المرفقات.'
-                              : 'To add attachments, you need to save the entry first. After saving, you can edit the entry and add attachments.'}
+                            {t('accounting.journalEntries.saveEntryFirstAttach')}
                           </p>
                           <Button
                             onClick={handleSubmit}
                             disabled={loading || !balanced}
                             className="mt-4"
                           >
-                            {isRTL ? 'احفظ القيد الآن' : 'Save Entry Now'}
+                            {t('accounting.journalEntries.saveEntryNow')}
                           </Button>
                         </div>
                       )}
@@ -570,19 +530,17 @@ const JournalEntries = () => {
                             </svg>
                           </div>
                           <h3 className="text-lg font-semibold text-foreground mb-2">
-                            {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
+                            {t('accounting.journalEntries.saveEntryFirst')}
                           </h3>
                           <p className="text-sm text-muted-foreground max-w-md">
-                            {isRTL
-                              ? 'لإضافة تعليقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة التعليقات.'
-                              : 'To add comments, you need to save the entry first. After saving, you can edit the entry and add comments.'}
+                            {t('accounting.journalEntries.saveEntryFirstComments')}
                           </p>
                           <Button
                             onClick={handleSubmit}
                             disabled={loading || !balanced}
                             className="mt-4"
                           >
-                            {isRTL ? 'احفظ القيد الآن' : 'Save Entry Now'}
+                            {t('accounting.journalEntries.saveEntryNow')}
                           </Button>
                         </div>
                       )}
@@ -591,15 +549,10 @@ const JournalEntries = () => {
 
                   <div className="flex justify-end gap-2 pt-4 border-t">
                     <Button variant="outline" onClick={() => setIsDialogOpen(false)}>
-                      {isRTL ? 'إلغاء' : 'Cancel'}
+                      {t('common.cancel')}
                     </Button>
                     <Button onClick={handleSubmit} disabled={loading || !balanced}>
-                      {(() => {
-                        if (loading) {
-                          return isRTL ? 'جاري الحفظ...' : 'Saving...';
-                        }
-                        return isRTL ? 'حفظ' : 'Save';
-                      })()}
+                      {loading ? t('accounting.journalEntries.saving') : t('common.save')}
                     </Button>
                   </div>
                 </div>
@@ -614,7 +567,7 @@ const JournalEntries = () => {
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
-                  placeholder={isRTL ? 'بحث برقم القيد أو الوصف...' : 'Search by entry number or description...'}
+                  placeholder={t('accounting.journalEntries.searchPlaceholder')}
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pl-10"
@@ -627,10 +580,10 @@ const JournalEntries = () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">{isRTL ? 'جميع الحالات' : 'All Statuses'}</SelectItem>
-                <SelectItem value="draft">{isRTL ? 'مسودة' : 'Draft'}</SelectItem>
-                <SelectItem value="posted">{isRTL ? 'مرحّل' : 'Posted'}</SelectItem>
-                <SelectItem value="reversed">{isRTL ? 'معكوس' : 'Reversed'}</SelectItem>
+                <SelectItem value="all">{t('accounting.journalEntries.allStatuses')}</SelectItem>
+                <SelectItem value="draft">{t('accounting.status.draft')}</SelectItem>
+                <SelectItem value="posted">{t('accounting.status.posted')}</SelectItem>
+                <SelectItem value="reversed">{t('accounting.status.reversed')}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -642,11 +595,11 @@ const JournalEntries = () => {
             />
 
             <Button variant="outline" onClick={() => { setSearchTerm(''); setStatusFilter('all'); setDateFilter(''); fetchEntries(); }}>
-              {isRTL ? 'إعادة تعيين' : 'Reset'}
+              {t('common.reset')}
             </Button>
             <Button variant="outline" onClick={() => setBatchPostDialogOpen(true)}>
               <Layers className="h-4 w-4 mr-2" />
-              {isRTL ? 'ترحيل مجمع' : 'Batch Post'}
+              {t('accounting.journalEntries.batchPost')}
             </Button>
           </div>
 
@@ -654,14 +607,14 @@ const JournalEntries = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>{isRTL ? 'رقم القيد' : 'Entry Number'}</TableHead>
-                  <TableHead>{isRTL ? 'التاريخ' : 'Date'}</TableHead>
-                  <TableHead>{isRTL ? 'نوع القيد' : 'Journal'}</TableHead>
-                  <TableHead>{isRTL ? 'الوصف' : 'Description'}</TableHead>
-                  <TableHead className="text-right">{isRTL ? 'المدين' : 'Debit'}</TableHead>
-                  <TableHead className="text-right">{isRTL ? 'الدائن' : 'Credit'}</TableHead>
-                  <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
-                  <TableHead className="text-center">{isRTL ? 'الإجراءات' : 'Actions'}</TableHead>
+                  <TableHead>{t('accounting.entryNumber')}</TableHead>
+                  <TableHead>{t('common.date')}</TableHead>
+                  <TableHead>{t('accounting.journalEntries.journal')}</TableHead>
+                  <TableHead>{t('common.description')}</TableHead>
+                  <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                  <TableHead className="text-right">{t('accounting.credit')}</TableHead>
+                  <TableHead>{t('common.status')}</TableHead>
+                  <TableHead className="text-center">{t('common.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -676,10 +629,8 @@ const JournalEntries = () => {
                     <TableCell colSpan={8}>
                       <EmptyState
                         icon={<BookOpen aria-hidden="true" />}
-                        title={isRTL ? 'لا توجد قيود' : 'No entries found'}
-                        description={isRTL
-                          ? 'أنشئ قيداً جديداً بزر «قيد جديد»، أو عدّل عوامل التصفية أعلاه'
-                          : 'Create a new entry with the "New Entry" button, or adjust the filters above'}
+                        title={t('accounting.journalEntries.noEntries')}
+                        description={t('accounting.journalEntries.noEntriesDesc')}
                       />
                     </TableCell>
                   </TableRow>
@@ -691,12 +642,7 @@ const JournalEntries = () => {
                         {format(new Date(entry.entry_date), 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })}
                       </TableCell>
                       <TableCell>
-                        {(() => {
-                          if (isRTL) {
-                            return entry.journal_name_ar || entry.journal_name;
-                          }
-                          return entry.journal_name;
-                        })()}
+                        {isRTL ? (entry.journal_name_ar || entry.journal_name) : entry.journal_name}
                       </TableCell>
                       <TableCell>
                         {isRTL ? entry.description_ar : entry.description}
@@ -716,7 +662,7 @@ const JournalEntries = () => {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleEdit(entry)}
-                                title={isRTL ? 'تعديل' : 'Edit'}
+                                title={t('common.edit')}
                               >
                                 <Edit className="h-4 w-4" />
                               </Button>
@@ -724,7 +670,7 @@ const JournalEntries = () => {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handlePost(entry)}
-                                title={isRTL ? 'ترحيل' : 'Post'}
+                                title={t('accounting.journalEntries.post')}
                               >
                                 <CheckCircle className="h-4 w-4 text-green-600" />
                               </Button>
@@ -732,7 +678,7 @@ const JournalEntries = () => {
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => handleDelete(entry)}
-                                title={isRTL ? 'حذف' : 'Delete'}
+                                title={t('common.delete')}
                               >
                                 <Trash2 className="h-4 w-4 text-red-600" />
                               </Button>
@@ -750,7 +696,7 @@ const JournalEntries = () => {
                                     setViewDialogOpen(true);
                                   }
                                 }}
-                                title={isRTL ? 'عرض' : 'View'}
+                                title={t('accounting.journalEntries.view')}
                               >
                                 <FileText className="h-4 w-4 text-blue-600" />
                               </Button>
@@ -759,19 +705,19 @@ const JournalEntries = () => {
                                   size="sm"
                                   variant="ghost"
                                   onClick={async () => {
-                                    if (confirm(isRTL ? 'هل تريد عكس هذا القيد؟' : 'Reverse this entry?')) {
+                                    if (confirm(t('accounting.journalEntries.confirmReverse'))) {
                                       try {
                                         const result = await JournalService.reverseEntry(entry.id);
                                         if (result.success) {
-                                          toast.success(isRTL ? 'تم عكس القيد' : 'Entry reversed');
+                                          toast.success(t('accounting.journalEntries.entryReversed'));
                                           fetchEntries();
                                         }
                                       } catch (error: any) {
-                                        toast.error(error.message || (isRTL ? 'فشل العكس' : 'Reversal failed'));
+                                        toast.error(error.message || t('accounting.journalEntries.reversalFailed'));
                                       }
                                     }
                                   }}
-                                  title={isRTL ? 'عكس' : 'Reverse'}
+                                  title={t('accounting.journalEntries.reverse')}
                                 >
                                   <RotateCcw className="h-4 w-4 text-orange-600" />
                                 </Button>
@@ -802,10 +748,10 @@ const JournalEntries = () => {
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
           <DialogHeader>
             <DialogTitle>
-              {isRTL ? 'تفاصيل القيد' : 'Entry Details'} - {viewingEntry?.entry_number}
+              {t('accounting.entryDetails')} - {viewingEntry?.entry_number}
             </DialogTitle>
             <DialogDescription>
-              {isRTL ? 'عرض تفاصيل القيد والموافقات والمرفقات والتعليقات' : 'View entry details, approvals, attachments, and comments'}
+              {t('accounting.journalEntries.viewEntryDetails')}
             </DialogDescription>
           </DialogHeader>
 
@@ -813,39 +759,39 @@ const JournalEntries = () => {
             <Tabs defaultValue="details" className="w-full">
               <TabsList className="grid w-full grid-cols-4">
                 <TabsTrigger value="details">
-                  {isRTL ? 'التفاصيل' : 'Details'}
+                  {t('accounting.journalEntries.details')}
                 </TabsTrigger>
                 <TabsTrigger value="approvals">
-                  {isRTL ? 'الموافقات' : 'Approvals'}
+                  {t('accounting.journalEntries.approvals')}
                 </TabsTrigger>
                 <TabsTrigger value="attachments">
-                  {isRTL ? 'المرفقات' : 'Attachments'}
+                  {t('accounting.journalEntries.attachmentsTab')}
                 </TabsTrigger>
                 <TabsTrigger value="comments">
-                  {isRTL ? 'التعليقات' : 'Comments'}
+                  {t('accounting.journalEntries.commentsTab')}
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="details" className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label>{isRTL ? 'رقم القيد' : 'Entry Number'}</Label>
+                    <Label>{t('accounting.entryNumber')}</Label>
                     <p className="font-mono">{viewingEntry.entry_number}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'التاريخ' : 'Date'}</Label>
+                    <Label>{t('common.date')}</Label>
                     <p>{format(new Date(viewingEntry.entry_date), 'dd/MM/yyyy')}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
+                    <Label>{t('common.status')}</Label>
                     <div>{getStatusBadge(viewingEntry.status)}</div>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'المدين' : 'Debit'}</Label>
+                    <Label>{t('accounting.debit')}</Label>
                     <p className="font-mono">{viewingEntry.total_debit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'الدائن' : 'Credit'}</Label>
+                    <Label>{t('accounting.credit')}</Label>
                     <p className="font-mono">{viewingEntry.total_credit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                 </div>
@@ -855,10 +801,10 @@ const JournalEntries = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>{isRTL ? 'الحساب' : 'Account'}</TableHead>
-                          <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                          <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
-                          <TableHead>{isRTL ? 'الوصف' : 'Description'}</TableHead>
+                          <TableHead>{t('accounting.account')}</TableHead>
+                          <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                          <TableHead className="text-right">{t('accounting.credit')}</TableHead>
+                          <TableHead>{t('common.description')}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>

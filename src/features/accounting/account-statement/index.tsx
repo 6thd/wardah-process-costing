@@ -43,7 +43,7 @@ interface GLAccount {
 }
 
 export function AccountStatement() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [accounts, setAccounts] = useState<GLAccount[]>([]);
   const [filteredAccounts, setFilteredAccounts] = useState<GLAccount[]>([]);
@@ -69,7 +69,7 @@ export function AccountStatement() {
       setFilteredAccounts(accounts);
     } else {
       const searchLower = accountSearchTerm.toLowerCase();
-      const filtered = accounts.filter(account => 
+      const filtered = accounts.filter(account =>
         account.code.toLowerCase().includes(searchLower) ||
         account.name.toLowerCase().includes(searchLower) ||
         (account.name_ar && account.name_ar.toLowerCase().includes(searchLower))
@@ -97,7 +97,7 @@ export function AccountStatement() {
           .eq('is_active', true)
           .eq('allow_posting', true)
           .order('code');
-        
+
         if (!errorWithoutAr) {
           data = dataWithoutAr;
           error = null;
@@ -113,7 +113,7 @@ export function AccountStatement() {
             .eq('is_active', true)
             .eq('is_leaf', true) // Only leaf accounts
             .order('code');
-          
+
           if (!accountsError && accountsData) {
             // Map account_type to category
             data = accountsData.map((acc: any) => ({
@@ -130,8 +130,7 @@ export function AccountStatement() {
 
       if (error) {
         console.error('Error fetching accounts:', error);
-        // Show user-friendly error
-        toast.error(isRTL ? 'خطأ في جلب الحسابات. تأكد من وجود بيانات.' : 'Error fetching accounts. Please ensure data exists.');
+        toast.error(t('accounting.accountStatement.errorFetchAccounts'));
       } else {
         // Map data to include name_ar as optional (may not exist)
         const mappedData = (data || []).map((account: any) => ({
@@ -146,13 +145,13 @@ export function AccountStatement() {
       }
     } catch (error: any) {
       console.error('Error fetching accounts:', error);
-      toast.error(isRTL ? 'حدث خطأ في جلب الحسابات' : 'An error occurred while fetching accounts');
+      toast.error(t('accounting.accountStatement.errorFetchAccounts2'));
     }
   };
 
   const fetchStatement = async () => {
     if (!selectedAccount) {
-      toast.warning(isRTL ? 'يرجى اختيار حساب' : 'Please select an account');
+      toast.warning(t('accounting.accountStatement.pleaseSelectAccount'));
       return;
     }
 
@@ -165,7 +164,7 @@ export function AccountStatement() {
       // Get account code first
       const account = accounts.find(a => a.id === selectedAccount);
       if (!account) {
-        throw new Error(isRTL ? 'الحساب غير موجود' : 'Account not found');
+        throw new Error(t('accounting.accountStatement.accountNotFound'));
       }
 
       // Try the RPC function first (using account code, not ID)
@@ -238,7 +237,7 @@ export function AccountStatement() {
 
       const lines = (data || []) as AccountStatementLine[];
       setStatementLines(lines);
-      
+
       // Calculate opening balance (first running balance - first balance)
       if (lines.length > 0) {
         setOpeningBalance(lines[0].running_balance - lines[0].balance);
@@ -247,7 +246,7 @@ export function AccountStatement() {
       }
     } catch (error: any) {
       console.error('Error fetching statement:', error);
-      toast.error(error.message || (isRTL ? 'حدث خطأ في جلب كشف الحساب' : 'An error occurred while fetching statement'));
+      toast.error(error.message || t('accounting.accountStatement.errorFetchStatement'));
     } finally {
       setLoading(false);
     }
@@ -258,24 +257,24 @@ export function AccountStatement() {
     if (statementLines.length === 0) return;
 
     const selectedAccountData = accounts.find(a => a.id === selectedAccount);
-    const accountName = isRTL 
+    const accountName = isRTL
       ? (selectedAccountData?.name_ar || selectedAccountData?.name)
       : selectedAccountData?.name;
 
     const wsData = [
-      [isRTL ? 'كشف حساب' : 'Account Statement'],
-      [isRTL ? 'الحساب' : 'Account', `${selectedAccountData?.code} - ${accountName}`],
-      [isRTL ? 'من تاريخ' : 'From Date', fromDate ? format(fromDate, 'dd/MM/yyyy') : (isRTL ? 'البداية' : 'Beginning')],
-      [isRTL ? 'إلى تاريخ' : 'To Date', format(toDate, 'dd/MM/yyyy')],
+      [t('accounting.accountStatement.title')],
+      [t('accounting.account'), `${selectedAccountData?.code} - ${accountName}`],
+      [t('accounting.accountStatement.fromDate'), fromDate ? format(fromDate, 'dd/MM/yyyy') : t('accounting.accountStatement.beginning')],
+      [t('accounting.accountStatement.toDate'), format(toDate, 'dd/MM/yyyy')],
       [],
       [
-        isRTL ? 'التاريخ' : 'Date',
-        isRTL ? 'رقم القيد' : 'Entry Number',
-        isRTL ? 'الوصف' : 'Description',
-        isRTL ? 'مدين' : 'Debit',
-        isRTL ? 'دائن' : 'Credit',
-        isRTL ? 'الرصيد' : 'Balance',
-        isRTL ? 'الرصيد المتحرك' : 'Running Balance'
+        t('common.date'),
+        t('accounting.entryNumber'),
+        t('common.description'),
+        t('accounting.debit'),
+        t('accounting.credit'),
+        t('accounting.balance'),
+        t('accounting.runningBalance')
       ],
       ...statementLines.map(line => [
         format(new Date(line.entry_date), 'dd/MM/yyyy'),
@@ -290,7 +289,7 @@ export function AccountStatement() {
 
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.aoa_to_sheet(wsData);
-    XLSX.utils.book_append_sheet(wb, ws, isRTL ? 'كشف حساب' : 'Statement');
+    XLSX.utils.book_append_sheet(wb, ws, t('accounting.accountStatement.title'));
     XLSX.writeFile(wb, `AccountStatement_${selectedAccountData?.code}_${format(toDate, 'yyyy-MM-dd')}.xlsx`);
   };
 
@@ -299,18 +298,18 @@ export function AccountStatement() {
     if (statementLines.length === 0) return;
 
     const selectedAccountData = accounts.find(a => a.id === selectedAccount);
-    const accountName = isRTL 
+    const accountName = isRTL
       ? (selectedAccountData?.name_ar || selectedAccountData?.name)
       : selectedAccountData?.name;
 
     const doc = new jsPDF();
     doc.setFontSize(16);
-    doc.text(isRTL ? 'كشف حساب' : 'Account Statement', 14, 15);
-    
+    doc.text(t('accounting.accountStatement.title'), 14, 15);
+
     doc.setFontSize(10);
-    doc.text(`${isRTL ? 'الحساب' : 'Account'}: ${selectedAccountData?.code} - ${accountName}`, 14, 25);
-    doc.text(`${isRTL ? 'من تاريخ' : 'From Date'}: ${fromDate ? format(fromDate, 'dd/MM/yyyy') : (isRTL ? 'البداية' : 'Beginning')}`, 14, 30);
-    doc.text(`${isRTL ? 'إلى تاريخ' : 'To Date'}: ${format(toDate, 'dd/MM/yyyy')}`, 14, 35);
+    doc.text(`${t('accounting.account')}: ${selectedAccountData?.code} - ${accountName}`, 14, 25);
+    doc.text(`${t('accounting.accountStatement.fromDate')}: ${fromDate ? format(fromDate, 'dd/MM/yyyy') : t('accounting.accountStatement.beginning')}`, 14, 30);
+    doc.text(`${t('accounting.accountStatement.toDate')}: ${format(toDate, 'dd/MM/yyyy')}`, 14, 35);
 
     const tableData = statementLines.map(line => [
       format(new Date(line.entry_date), 'dd/MM/yyyy'),
@@ -324,13 +323,13 @@ export function AccountStatement() {
 
     (doc as any).autoTable({
       head: [[
-        isRTL ? 'التاريخ' : 'Date',
-        isRTL ? 'رقم القيد' : 'Entry',
-        isRTL ? 'الوصف' : 'Description',
-        isRTL ? 'مدين' : 'Debit',
-        isRTL ? 'دائن' : 'Credit',
-        isRTL ? 'الرصيد' : 'Balance',
-        isRTL ? 'المتحرك' : 'Running'
+        t('common.date'),
+        t('accounting.entryNumber'),
+        t('common.description'),
+        t('accounting.debit'),
+        t('accounting.credit'),
+        t('accounting.balance'),
+        t('accounting.runningBalance')
       ]],
       body: tableData,
       startY: 40,
@@ -353,40 +352,40 @@ export function AccountStatement() {
       if (error) throw error;
 
       if (!entries || entries.length === 0) {
-        toast.error(isRTL ? 'القيد غير موجود' : 'Entry not found');
+        toast.error(t('accounting.accountStatement.entryNotFound'));
         return;
       }
 
       // Get full entry details
       const entryDetails = await JournalService.getEntryWithDetails(entries[0].id);
-      
+
       if (entryDetails) {
         setViewingEntry(entryDetails);
         setEntryDialogOpen(true);
       } else {
-        toast.error(isRTL ? 'فشل جلب تفاصيل القيد' : 'Failed to fetch entry details');
+        toast.error(t('accounting.accountStatement.failedFetchEntry'));
       }
     } catch (error: any) {
       console.error('Error fetching entry:', error);
-      toast.error(error.message || (isRTL ? 'حدث خطأ' : 'An error occurred'));
+      toast.error(error.message || t('accounting.accountStatement.errorOccurred'));
     } finally {
       setLoadingEntry(false);
     }
   };
 
   const getStatusBadge = (status: string) => {
-    const statusMap: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
-      draft: { label: isRTL ? 'مسودة' : 'Draft', variant: 'secondary' },
-      posted: { label: isRTL ? 'مرحّل' : 'Posted', variant: 'default' },
-      reversed: { label: isRTL ? 'معكوس' : 'Reversed', variant: 'outline' }
+    const variants: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
+      draft: 'secondary',
+      posted: 'default',
+      reversed: 'outline'
     };
-    const statusInfo = statusMap[status] || { label: status, variant: 'secondary' };
-    return <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>;
+    const variant = variants[status] || 'secondary';
+    return <Badge variant={variant}>{t(`accounting.status.${status}`)}</Badge>;
   };
 
   const selectedAccountData = accounts.find(a => a.id === selectedAccount);
-  const closingBalance = statementLines.length > 0 
-    ? statementLines[statementLines.length - 1].running_balance 
+  const closingBalance = statementLines.length > 0
+    ? statementLines[statementLines.length - 1].running_balance
     : openingBalance;
 
   return (
@@ -394,10 +393,10 @@ export function AccountStatement() {
       <Card>
         <CardHeader>
           <CardTitle className="text-2xl">
-            {isRTL ? 'كشف حساب' : 'Account Statement'}
+            {t('accounting.accountStatement.title')}
           </CardTitle>
           <CardDescription>
-            {isRTL ? 'عرض تفاصيل حركة حساب معين' : 'View detailed account movement'}
+            {t('accounting.accountStatement.subtitle')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -406,7 +405,7 @@ export function AccountStatement() {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Account Select with Search */}
               <div className="space-y-2">
-                <Label>{isRTL ? 'الحساب' : 'Account'}</Label>
+                <Label>{t('accounting.account')}</Label>
                 <Popover open={isAccountSelectOpen} onOpenChange={setIsAccountSelectOpen}>
                   <PopoverTrigger asChild>
                     <Button
@@ -420,11 +419,11 @@ export function AccountStatement() {
                       {selectedAccount
                         ? (() => {
                             const account = accounts.find(a => a.id === selectedAccount);
-                            return account 
+                            return account
                               ? `${account.code} - ${isRTL ? (account.name_ar || account.name) : account.name}`
-                              : (isRTL ? 'اختر الحساب' : 'Select account');
+                              : t('accounting.accountStatement.selectAccount');
                           })()
-                        : (isRTL ? 'اختر الحساب' : 'Select account')}
+                        : t('accounting.accountStatement.selectAccount')}
                       <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
@@ -434,7 +433,7 @@ export function AccountStatement() {
                         <Search className={`absolute ${isRTL ? 'right-2' : 'left-2'} top-2.5 h-4 w-4 text-muted-foreground`} />
                         <Input
                           type="text"
-                          placeholder={isRTL ? 'ابحث بالكود أو الاسم...' : 'Search by code or name...'}
+                          placeholder={t('accounting.accountStatement.searchByCodeOrName')}
                           value={accountSearchTerm}
                           onChange={(e) => setAccountSearchTerm(e.target.value)}
                           className={isRTL ? 'pr-8' : 'pl-8'}
@@ -452,7 +451,7 @@ export function AccountStatement() {
                     <div className="max-h-[300px] overflow-auto">
                       {filteredAccounts.length === 0 ? (
                         <div className="p-4 text-sm text-muted-foreground text-center">
-                          {isRTL ? 'لا توجد حسابات' : 'No accounts found'}
+                          {t('accounting.accountStatement.noAccounts')}
                         </div>
                       ) : (
                         <div className="p-1">
@@ -480,9 +479,7 @@ export function AccountStatement() {
                     </div>
                     {accountSearchTerm && filteredAccounts.length > 0 && (
                       <div className="p-2 border-t text-xs text-muted-foreground text-center">
-                        {isRTL 
-                          ? `${filteredAccounts.length} من ${accounts.length} حساب`
-                          : `${filteredAccounts.length} of ${accounts.length} accounts`}
+                        {t('accounting.accountStatement.xOfY', { count: filteredAccounts.length, total: accounts.length })}
                       </div>
                     )}
                   </PopoverContent>
@@ -491,7 +488,7 @@ export function AccountStatement() {
 
               {/* From Date Picker */}
               <div className="space-y-2">
-                <Label>{isRTL ? 'من تاريخ' : 'From Date'}</Label>
+                <Label>{t('accounting.accountStatement.fromDate')}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -505,7 +502,7 @@ export function AccountStatement() {
                       {fromDate ? (
                         format(fromDate, 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })
                       ) : (
-                        <span>{isRTL ? 'اختياري' : 'Optional'}</span>
+                        <span>{t('accounting.accountStatement.optional')}</span>
                       )}
                       {fromDate && (
                         <X
@@ -533,7 +530,7 @@ export function AccountStatement() {
 
               {/* To Date Picker */}
               <div className="space-y-2">
-                <Label>{isRTL ? 'إلى تاريخ' : 'To Date'}</Label>
+                <Label>{t('accounting.accountStatement.toDate')}</Label>
                 <Popover>
                   <PopoverTrigger asChild>
                     <Button
@@ -547,7 +544,7 @@ export function AccountStatement() {
                       {toDate ? (
                         format(toDate, 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })
                       ) : (
-                        <span>{isRTL ? 'اختر التاريخ' : 'Select date'}</span>
+                        <span>{t('accounting.accountStatement.selectDate')}</span>
                       )}
                     </Button>
                   </PopoverTrigger>
@@ -567,7 +564,7 @@ export function AccountStatement() {
               <div className="flex items-end">
                 <Button onClick={fetchStatement} disabled={loading || !selectedAccount} className="w-full">
                   <Search className="h-4 w-4 mr-2" />
-                  {loading ? (isRTL ? 'جاري...' : 'Loading...') : (isRTL ? 'عرض' : 'View')}
+                  {loading ? t('accounting.accountStatement.loadingShort') : t('accounting.accountStatement.view')}
                 </Button>
               </div>
             </div>
@@ -576,17 +573,17 @@ export function AccountStatement() {
             {statementLines.length > 0 && (
               <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
-                  <p className="text-sm text-muted-foreground">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</p>
+                  <p className="text-sm text-muted-foreground">{t('accounting.openingBalance')}</p>
                   <p className="text-lg font-bold">{openingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">{isRTL ? 'حركة الفترة' : 'Period Movement'}</p>
+                  <p className="text-sm text-muted-foreground">{t('accounting.periodMovement')}</p>
                   <p className="text-lg font-bold">
                     {(closingBalance - openingBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">{isRTL ? 'الرصيد الختامي' : 'Closing Balance'}</p>
+                  <p className="text-sm text-muted-foreground">{t('accounting.closingBalance')}</p>
                   <p className="text-lg font-bold">{closingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
@@ -610,13 +607,13 @@ export function AccountStatement() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>{isRTL ? 'التاريخ' : 'Date'}</TableHead>
-                        <TableHead>{isRTL ? 'رقم القيد' : 'Entry Number'}</TableHead>
-                        <TableHead>{isRTL ? 'الوصف' : 'Description'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'الرصيد' : 'Balance'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'الرصيد المتحرك' : 'Running Balance'}</TableHead>
+                        <TableHead>{t('common.date')}</TableHead>
+                        <TableHead>{t('accounting.entryNumber')}</TableHead>
+                        <TableHead>{t('common.description')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.credit')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.balance')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.runningBalance')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -627,7 +624,7 @@ export function AccountStatement() {
                             <button
                               onClick={() => handleViewEntry(line.entry_number)}
                               className="font-mono text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline flex items-center gap-1 transition-colors"
-                              title={isRTL ? 'عرض تفاصيل القيد' : 'View entry details'}
+                              title={t('accounting.accountStatement.viewEntryDetails')}
                             >
                               {line.entry_number}
                               <Eye className="h-3 w-3 inline opacity-70" />
@@ -655,7 +652,10 @@ export function AccountStatement() {
             )}
 
             {!loading && statementLines.length === 0 && selectedAccount && (
-              <EmptyState title={isRTL ? 'لا توجد حركات' : 'No transactions found'} description={isRTL ? 'لا حركات لهذا الحساب في الفترة المحددة.' : 'No movements for this account in the selected period.'} />
+              <EmptyState
+                title={t('accounting.accountStatement.noTransactions')}
+                description={t('accounting.accountStatement.noTransactionsDesc')}
+              />
             )}
           </div>
         </CardContent>
@@ -666,10 +666,10 @@ export function AccountStatement() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
           <DialogHeader>
             <DialogTitle>
-              {isRTL ? 'تفاصيل القيد' : 'Entry Details'} - {viewingEntry?.entry_number}
+              {t('accounting.entryDetails')} - {viewingEntry?.entry_number}
             </DialogTitle>
             <DialogDescription>
-              {isRTL ? 'عرض تفاصيل القيد الكاملة' : 'View complete entry details'}
+              {t('accounting.accountStatement.viewCompleteEntry')}
             </DialogDescription>
           </DialogHeader>
 
@@ -682,23 +682,23 @@ export function AccountStatement() {
               {/* Entry Header Info */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 dark:bg-gray-900 rounded-lg">
                 <div>
-                  <Label className="text-xs text-muted-foreground">{isRTL ? 'التاريخ' : 'Date'}</Label>
+                  <Label className="text-xs text-muted-foreground">{t('common.date')}</Label>
                   <p className="font-medium">
                     {format(new Date(viewingEntry.entry_date), 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">{isRTL ? 'الحالة' : 'Status'}</Label>
+                  <Label className="text-xs text-muted-foreground">{t('common.status')}</Label>
                   <div className="mt-1">{getStatusBadge(viewingEntry.status)}</div>
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">{isRTL ? 'المدين' : 'Total Debit'}</Label>
+                  <Label className="text-xs text-muted-foreground">{t('accounting.accountStatement.totalDebit')}</Label>
                   <p className="font-mono font-medium">
                     {Number(viewingEntry.total_debit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-xs text-muted-foreground">{isRTL ? 'الدائن' : 'Total Credit'}</Label>
+                  <Label className="text-xs text-muted-foreground">{t('accounting.accountStatement.totalCredit')}</Label>
                   <p className="font-mono font-medium">
                     {Number(viewingEntry.total_credit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
@@ -708,7 +708,7 @@ export function AccountStatement() {
               {/* Description */}
               {(viewingEntry.description || viewingEntry.description_ar) && (
                 <div>
-                  <Label>{isRTL ? 'الوصف' : 'Description'}</Label>
+                  <Label>{t('common.description')}</Label>
                   <p className="text-sm text-muted-foreground">
                     {isRTL ? (viewingEntry.description_ar || viewingEntry.description) : viewingEntry.description}
                   </p>
@@ -719,16 +719,16 @@ export function AccountStatement() {
               {viewingEntry.lines && viewingEntry.lines.length > 0 && (
                 <div className="border rounded-lg">
                   <div className="p-3 border-b bg-muted/50 dark:bg-gray-900">
-                    <h3 className="font-semibold">{isRTL ? 'بنود القيد' : 'Entry Lines'}</h3>
+                    <h3 className="font-semibold">{t('accounting.entryLines')}</h3>
                   </div>
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>#</TableHead>
-                        <TableHead>{isRTL ? 'الحساب' : 'Account'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'مدين' : 'Debit'}</TableHead>
-                        <TableHead className="text-right">{isRTL ? 'دائن' : 'Credit'}</TableHead>
-                        <TableHead>{isRTL ? 'الوصف' : 'Description'}</TableHead>
+                        <TableHead>{t('accounting.account')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.debit')}</TableHead>
+                        <TableHead className="text-right">{t('accounting.credit')}</TableHead>
+                        <TableHead>{t('common.description')}</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -736,17 +736,17 @@ export function AccountStatement() {
                         <TableRow key={line.id || index}>
                           <TableCell className="font-mono text-xs">{line.line_number || index + 1}</TableCell>
                           <TableCell>
-                            {line.account_code || 'N/A'} - {isRTL 
+                            {line.account_code || 'N/A'} - {isRTL
                               ? (line.account_name_ar || line.account_name || 'N/A')
                               : (line.account_name || 'N/A')}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {Number(line.debit || 0) > 0 
+                            {Number(line.debit || 0) > 0
                               ? Number(line.debit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })
                               : '-'}
                           </TableCell>
                           <TableCell className="text-right font-mono">
-                            {Number(line.credit || 0) > 0 
+                            {Number(line.credit || 0) > 0
                               ? Number(line.credit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })
                               : '-'}
                           </TableCell>
@@ -758,7 +758,7 @@ export function AccountStatement() {
                       {/* Totals Row */}
                       <TableRow className="font-bold bg-muted/50 dark:bg-gray-900">
                         <TableCell colSpan={2} className="text-right">
-                          {isRTL ? 'الإجمالي' : 'Total'}
+                          {t('common.total')}
                         </TableCell>
                         <TableCell className="text-right font-mono">
                           {Number(viewingEntry.total_debit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -776,7 +776,7 @@ export function AccountStatement() {
               {/* Reference Info */}
               {(viewingEntry.reference_type || viewingEntry.reference_number) && (
                 <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                  <Label className="text-xs text-muted-foreground">{isRTL ? 'المرجع' : 'Reference'}</Label>
+                  <Label className="text-xs text-muted-foreground">{t('accounting.accountStatement.reference')}</Label>
                   <p className="text-sm">
                     {viewingEntry.reference_type && (
                       <span className="font-medium">{viewingEntry.reference_type}: </span>
@@ -788,7 +788,7 @@ export function AccountStatement() {
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
-              {isRTL ? 'لا توجد بيانات' : 'No data available'}
+              {t('accounting.accountStatement.noData')}
             </div>
           )}
         </DialogContent>
@@ -796,4 +796,3 @@ export function AccountStatement() {
     </div>
   );
 }
-
