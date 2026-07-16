@@ -93,10 +93,16 @@ export const useUIStore = create<UIState>()(
       setLanguage: (language: Language) => {
         try {
           set({ language })
-          
+
           // Update document attributes
           document.documentElement.lang = language
           document.documentElement.dir = language === 'ar' ? 'rtl' : 'ltr'
+
+          // مزامنة i18n دائماً — المخزن وi18n مصدر واحد للغة، والانفصام بينهما
+          // كان يُظهر الواجهات باللغة المعاكسة (import ديناميكي لتجنب دورة استيراد)
+          import('@/i18n').then(({ default: i18n }) => {
+            if (i18n.language !== language) i18n.changeLanguage(language)
+          }).catch(() => { /* i18n لم يُهيأ بعد — سيقرأ القيمة المثابرة عند التهيئة */ })
         } catch (error) {
           console.error('Error setting language:', error)
         }

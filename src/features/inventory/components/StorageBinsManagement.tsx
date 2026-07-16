@@ -253,12 +253,12 @@ export default function StorageBinsManagement() {
               📦 الهيكل الهرمي الكامل للتخزين
             </h3>
             <div className="text-sm text-purple-800 dark:text-purple-200 space-y-2">
-              <div className="flex items-center gap-2 p-2 bg-white/50 rounded">
+              <div className="flex items-center gap-2 p-2 bg-card/50 rounded">
                 <span className="font-bold">المستوى 1:</span>
                 <span>🏭 المخزن (Warehouse)</span>
                 <Badge variant="secondary" className="text-xs">مثال: WH-001</Badge>
               </div>
-              <div className="flex items-center gap-2 p-2 bg-white/50 rounded">
+              <div className="flex items-center gap-2 p-2 bg-card/50 rounded">
                 <span className="font-bold">المستوى 2:</span>
                 <span>📍 موقع التخزين (Storage Location)</span>
                 <Badge variant="secondary" className="text-xs">مثال: ZONE-A</Badge>

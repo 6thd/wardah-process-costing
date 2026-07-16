@@ -131,7 +131,7 @@ function PostingPage() {
             </Card>
           </div>
 
-          <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+          <div className="mt-6 p-4 bg-muted/50 dark:bg-gray-900 rounded-lg">
             <h3 className="font-semibold mb-2">{isRTL ? 'معلومات الترحيل' : 'Posting Information'}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
               <li>• {isRTL ? 'الترحيل يتم من صفحة القيود' : 'Posting is done from Journal Entries page'}</li>

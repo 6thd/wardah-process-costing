@@ -71,7 +71,7 @@ function StatsCard({ title, value, icon, description, color = 'default' }: Stats
 
 function PlanBadge({ plan }: { plan: string }) {
   const variants: Record<string, { class: string; label: string }> = {
-    trial: { class: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', label: 'تجريبي' },
+    trial: { class: 'bg-muted text-foreground dark:bg-gray-800 dark:text-gray-300', label: 'تجريبي' },
     basic: { class: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', label: 'أساسي' },
     pro: { class: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400', label: 'احترافي' },
     enterprise: { class: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400', label: 'مؤسسي' },
@@ -176,7 +176,7 @@ export function SuperAdminDashboard() {
 
       {/* Plans Distribution */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-gray-50 dark:bg-gray-900/50">
+        <Card className="bg-muted/50 dark:bg-gray-900/50">
           <CardContent className="p-4 text-center">
             <p className="text-2xl font-bold">{stats?.trialOrgs || 0}</p>
             <p className="text-sm text-muted-foreground">تجريبي</p>

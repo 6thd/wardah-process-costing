@@ -241,7 +241,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
     
     if (previewType?.startsWith('text/') && previewUrl) {
       return (
-        <div className="w-full h-full bg-white rounded-md shadow-lg p-6 overflow-auto">
+        <div className="w-full h-full bg-card rounded-md shadow-lg p-6 overflow-auto">
           <iframe 
             src={previewUrl} 
             className="w-full h-full border-0" 
@@ -269,7 +269,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
     const csvFileLabel = isRTL ? 'ملف CSV' : 'CSV File';
 
     return (
-      <div className="w-full h-full bg-white rounded-md shadow-lg overflow-auto">
+      <div className="w-full h-full bg-card rounded-md shadow-lg overflow-auto">
         <div className="p-4">
           <div className="flex items-center gap-2 mb-4 text-green-600">
             <FileSpreadsheet className="h-5 w-5" />
@@ -278,13 +278,13 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
             </span>
           </div>
           <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse border border-gray-300">
+            <table className="min-w-full border-collapse border border-input">
               <thead>
-                <tr className="bg-gray-100">
+                <tr className="bg-muted">
                   {csvData[0]?.map((header) => (
                     <th
                       key={`header-${header}`}
-                      className="border border-gray-300 px-4 py-2 text-left text-sm font-semibold text-gray-700"
+                      className="border border-input px-4 py-2 text-left text-sm font-semibold text-foreground"
                     >
                       {header}
                     </th>
@@ -295,11 +295,11 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                 {csvData.slice(1).map((row) => {
                   const rowKey = row.join('-');
                   return (
-                    <tr key={rowKey} className="hover:bg-gray-50">
+                    <tr key={rowKey} className="hover:bg-muted/50">
                       {row.map((cell) => (
                         <td
                           key={`${rowKey}-${cell}`}
-                          className="border border-gray-300 px-4 py-2 text-sm text-gray-600"
+                          className="border border-input px-4 py-2 text-sm text-muted-foreground"
                         >
                           {cell}
                         </td>
@@ -317,12 +317,12 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
 
   const renderUnsupportedPreview = () => {
     return (
-      <div className="text-center p-8 bg-white rounded-lg shadow-sm">
+      <div className="text-center p-8 bg-card rounded-lg shadow-sm">
         <Paperclip className="h-16 w-16 mx-auto text-gray-300 mb-4" />
-        <p className="text-lg font-medium text-gray-900 mb-2">
+        <p className="text-lg font-medium text-foreground mb-2">
           {isRTL ? 'لا يمكن معاينة هذا الملف' : 'Cannot preview this file'}
         </p>
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-muted-foreground mb-4">
           {isRTL ? 'يرجى تحميل الملف لعرضه' : 'Please download the file to view it'}
         </p>
         <Button onClick={() => previewAttachment && handleDownload(previewAttachment)} disabled={!previewAttachment}>
@@ -365,7 +365,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
             </div>
 
             {attachments.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+              <div className="text-center py-8 text-muted-foreground">
                 {isRTL ? 'لا توجد مرفقات' : 'No attachments'}
               </div>
             ) : (
@@ -373,17 +373,17 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                 {attachments.map((attachment) => (
                   <div
                     key={attachment.id}
-                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
+                    className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50"
                   >
                     <div className="flex items-center gap-3 flex-1">
-                      <Paperclip className="h-4 w-4 text-gray-400" />
+                      <Paperclip className="h-4 w-4 text-muted-foreground" />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium truncate">{attachment.file_name}</div>
-                        <div className="text-sm text-gray-500">
+                        <div className="text-sm text-muted-foreground">
                           {formatFileSize(attachment.file_size)}
                           {attachment.file_type && ` • ${attachment.file_type}`}
                         </div>
-                        <div className="text-xs text-gray-400">
+                        <div className="text-xs text-muted-foreground">
                           {format(new Date(attachment.created_at), 'dd/MM/yyyy HH:mm')}
                         </div>
                       </div>
@@ -462,7 +462,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
               </div>
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 bg-gray-100 p-4 overflow-auto flex items-center justify-center">
+          <div className="flex-1 bg-muted p-4 overflow-auto flex items-center justify-center">
             {renderPreviewContent()}
           </div>
         </DialogContent>

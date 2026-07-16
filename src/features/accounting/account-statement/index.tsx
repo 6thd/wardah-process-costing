@@ -574,19 +574,19 @@ export function AccountStatement() {
 
             {/* Summary */}
             {statementLines.length > 0 && (
-              <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg">
+              <div className="grid grid-cols-3 gap-4 p-4 bg-muted/50 rounded-lg">
                 <div>
-                  <p className="text-sm text-gray-600">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</p>
+                  <p className="text-sm text-muted-foreground">{isRTL ? 'الرصيد الافتتاحي' : 'Opening Balance'}</p>
                   <p className="text-lg font-bold">{openingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">{isRTL ? 'حركة الفترة' : 'Period Movement'}</p>
+                  <p className="text-sm text-muted-foreground">{isRTL ? 'حركة الفترة' : 'Period Movement'}</p>
                   <p className="text-lg font-bold">
                     {(closingBalance - openingBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                   </p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-600">{isRTL ? 'الرصيد الختامي' : 'Closing Balance'}</p>
+                  <p className="text-sm text-muted-foreground">{isRTL ? 'الرصيد الختامي' : 'Closing Balance'}</p>
                   <p className="text-lg font-bold">{closingBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                 </div>
               </div>
@@ -680,7 +680,7 @@ export function AccountStatement() {
           ) : viewingEntry ? (
             <div className="space-y-4">
               {/* Entry Header Info */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 dark:bg-gray-900 rounded-lg">
                 <div>
                   <Label className="text-xs text-muted-foreground">{isRTL ? 'التاريخ' : 'Date'}</Label>
                   <p className="font-medium">
@@ -718,7 +718,7 @@ export function AccountStatement() {
               {/* Entry Lines */}
               {viewingEntry.lines && viewingEntry.lines.length > 0 && (
                 <div className="border rounded-lg">
-                  <div className="p-3 border-b bg-gray-50 dark:bg-gray-900">
+                  <div className="p-3 border-b bg-muted/50 dark:bg-gray-900">
                     <h3 className="font-semibold">{isRTL ? 'بنود القيد' : 'Entry Lines'}</h3>
                   </div>
                   <Table>
@@ -756,7 +756,7 @@ export function AccountStatement() {
                         </TableRow>
                       ))}
                       {/* Totals Row */}
-                      <TableRow className="font-bold bg-gray-50 dark:bg-gray-900">
+                      <TableRow className="font-bold bg-muted/50 dark:bg-gray-900">
                         <TableCell colSpan={2} className="text-right">
                           {isRTL ? 'الإجمالي' : 'Total'}
                         </TableCell>

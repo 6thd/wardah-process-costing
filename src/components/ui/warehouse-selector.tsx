@@ -73,9 +73,9 @@ export function WarehouseSelector({
       )}
       
       {loading ? (
-        <div className="flex items-center justify-center h-10 border rounded-md bg-gray-50">
-          <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-          <span className="mr-2 text-sm text-gray-500">جاري التحميل...</span>
+        <div className="flex items-center justify-center h-10 border rounded-md bg-muted/50">
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          <span className="mr-2 text-sm text-muted-foreground">جاري التحميل...</span>
         </div>
       ) : (
         <Select value={value} onValueChange={onChange} disabled={disabled}>
@@ -83,12 +83,12 @@ export function WarehouseSelector({
             <SelectValue placeholder="اختر المخزن">
               {selectedWarehouse && (
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-sm text-gray-500">
+                  <span className="font-mono text-sm text-muted-foreground">
                     {selectedWarehouse.code}
                   </span>
                   <span>-</span>
                   <span>{selectedWarehouse.name_ar || selectedWarehouse.name}</span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-muted-foreground">
                     ({selectedWarehouse.warehouse_type})
                   </span>
                 </div>
@@ -99,12 +99,12 @@ export function WarehouseSelector({
             {warehouses.map((warehouse) => (
               <SelectItem key={warehouse.id} value={warehouse.id}>
                 <div className="flex items-center gap-2 text-right">
-                  <span className="font-mono text-sm text-gray-500">
+                  <span className="font-mono text-sm text-muted-foreground">
                     {warehouse.code}
                   </span>
                   <span>-</span>
                   <span>{warehouse.name_ar || warehouse.name}</span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-muted-foreground">
                     ({warehouse.warehouse_type})
                   </span>
                 </div>
@@ -115,7 +115,7 @@ export function WarehouseSelector({
       )}
 
       {selectedWarehouse && (
-        <p className="mt-1 text-xs text-gray-500">
+        <p className="mt-1 text-xs text-muted-foreground">
           {selectedWarehouse.warehouse_type === 'Stores' && '📦 مخزن رئيسي'}
           {selectedWarehouse.warehouse_type === 'Transit' && '🚚 مخزن نقل'}
           {selectedWarehouse.warehouse_type === 'Scrap' && '♻️ مخزن مرفوضات'}

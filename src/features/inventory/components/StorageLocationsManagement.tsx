@@ -221,7 +221,7 @@ export default function StorageLocationsManagement() {
               📍 الهيكل الهرمي للتخزين
             </h3>
             <div className="text-sm text-blue-800 dark:text-blue-200 space-y-2">
-              <div className="flex items-center gap-2 p-2 bg-white/50 rounded">
+              <div className="flex items-center gap-2 p-2 bg-card/50 rounded">
                 <span className="font-bold">المستوى 1:</span>
                 <span>🏭 المخزن (Warehouse)</span>
                 <span className="text-xs text-blue-600">← مرتبط بالحسابات المحاسبية</span>
@@ -231,7 +231,7 @@ export default function StorageLocationsManagement() {
                 <span>📍 موقع التخزين (Storage Location)</span>
                 <span className="text-xs text-blue-600">← الصفحة الحالية</span>
               </div>
-              <div className="flex items-center gap-2 p-2 bg-white/50 rounded">
+              <div className="flex items-center gap-2 p-2 bg-card/50 rounded">
                 <span className="font-bold">المستوى 3:</span>
                 <span>📦 صندوق التخزين (Storage Bin)</span>
                 <span className="text-xs text-blue-600">← مع باركود وموقع دقيق</span>

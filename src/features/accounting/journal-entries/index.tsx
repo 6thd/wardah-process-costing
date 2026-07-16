@@ -504,18 +504,18 @@ const JournalEntries = () => {
                       </div>
 
                       {formData.lines.length > 0 && (
-                        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                        <div className="mt-4 p-4 bg-muted/50 rounded-lg">
                           <div className="grid grid-cols-3 gap-4 text-center">
                             <div>
-                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
+                              <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي المدين' : 'Total Debit'}</p>
                               <p className="text-lg font-bold">{totalDebit.toFixed(2)}</p>
                             </div>
                             <div>
-                              <p className="text-sm text-gray-600">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
+                              <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي الدائن' : 'Total Credit'}</p>
                               <p className="text-lg font-bold">{totalCredit.toFixed(2)}</p>
                             </div>
                             <div>
-                              <p className="text-sm text-gray-600">{isRTL ? 'الحالة' : 'Status'}</p>
+                              <p className="text-sm text-muted-foreground">{isRTL ? 'الحالة' : 'Status'}</p>
                               <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
                                 {(() => {
                                   if (balanced) {
@@ -540,10 +540,10 @@ const JournalEntries = () => {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                             </svg>
                           </div>
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                          <h3 className="text-lg font-semibold text-foreground mb-2">
                             {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
                           </h3>
-                          <p className="text-sm text-gray-500 max-w-md">
+                          <p className="text-sm text-muted-foreground max-w-md">
                             {isRTL
                               ? 'لإضافة مرفقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة المرفقات.'
                               : 'To add attachments, you need to save the entry first. After saving, you can edit the entry and add attachments.'}
@@ -569,10 +569,10 @@ const JournalEntries = () => {
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                             </svg>
                           </div>
-                          <h3 className="text-lg font-semibold text-gray-900 mb-2">
+                          <h3 className="text-lg font-semibold text-foreground mb-2">
                             {isRTL ? 'احفظ القيد أولاً' : 'Save Entry First'}
                           </h3>
-                          <p className="text-sm text-gray-500 max-w-md">
+                          <p className="text-sm text-muted-foreground max-w-md">
                             {isRTL
                               ? 'لإضافة تعليقات، يجب عليك حفظ القيد أولاً. بعد الحفظ، يمكنك تعديل القيد وإضافة التعليقات.'
                               : 'To add comments, you need to save the entry first. After saving, you can edit the entry and add comments.'}
@@ -612,7 +612,7 @@ const JournalEntries = () => {
           <div className="flex gap-4 mb-6">
             <div className="flex-1">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                 <Input
                   placeholder={isRTL ? 'بحث برقم القيد أو الوصف...' : 'Search by entry number or description...'}
                   value={searchTerm}
