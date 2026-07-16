@@ -127,14 +127,14 @@ describe('Sidebar — i18n', () => {
     renderSidebar()
 
     // في العربية يجب أن نجد النص العربي للـ Dashboard
-    const arLabel = (arTranslation as Record<string, Record<string, string>>)
+    const arLabel = (arTranslation as any)
       .navigation?.dashboard
     expect(screen.queryAllByText(arLabel).length).toBeGreaterThan(0)
 
     await act(async () => { await i18n.changeLanguage('en') })
 
     // بعد التبديل يجب أن يظهر النص الإنجليزي
-    const enLabel = (enTranslation as Record<string, Record<string, string>>)
+    const enLabel = (enTranslation as any)
       .navigation?.dashboard
     expect(screen.queryAllByText(enLabel).length).toBeGreaterThan(0)
   })
@@ -162,7 +162,7 @@ describe('Sidebar — i18n', () => {
       'company', 'system', 'backup',
     ] as const
 
-    const arNav = (arTranslation as Record<string, Record<string, string>>).navigation ?? {}
+    const arNav = (arTranslation as any).navigation ?? {}
     const missing = SIDEBAR_KEYS.filter(k => !(k in arNav))
     expect(missing, `مفاتيح غائبة في ar/translation.json: ${missing.join(', ')}`).toEqual([])
   })
@@ -180,13 +180,13 @@ describe('Sidebar — i18n', () => {
       'company', 'system', 'backup',
     ] as const
 
-    const enNav = (enTranslation as Record<string, Record<string, string>>).navigation ?? {}
+    const enNav = (enTranslation as any).navigation ?? {}
     const missing = SIDEBAR_KEYS.filter(k => !(k in enNav))
     expect(missing, `مفاتيح غائبة في en/translation.json: ${missing.join(', ')}`).toEqual([])
   })
 
   it('fails (descriptively) when a navigation key is deleted — sentinel test', () => {
-    const nav = (arTranslation as Record<string, Record<string, string>>).navigation ?? {}
+    const nav = (arTranslation as any).navigation ?? {}
     // التحقق من أن الـsatisfied key موجود فعلاً (الاختبار يفشل لو حُذف 'dashboard')
     expect('dashboard' in nav).toBe(true)
     expect('manufacturing' in nav).toBe(true)

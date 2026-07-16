@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   User, UserCog, KeyRound, Building2, Shield, Settings,
   History, Smartphone, HelpCircle
@@ -17,10 +18,11 @@ interface HeaderUserMenuItemsProps {
 }
 
 export function AccountManagementItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
+  const { t } = useTranslation()
   return (
     <DropdownMenuGroup>
       <DropdownMenuLabel className={cn("text-xs text-muted-foreground px-2", isRTL ? "text-right" : "")}>
-        {isRTL ? 'إدارة الحساب' : 'Account Management'}
+        {t('userMenu.accountManagement')}
       </DropdownMenuLabel>
 
       <DropdownMenuItem
@@ -28,7 +30,7 @@ export function AccountManagementItems({ isRTL, navigate }: HeaderUserMenuItemsP
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <User className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'الملف الشخصي' : 'My Profile'}</span>
+        <span className="flex-1">{t('userMenu.profile')}</span>
         <DropdownMenuShortcut>⌘P</DropdownMenuShortcut>
       </DropdownMenuItem>
 
@@ -37,7 +39,7 @@ export function AccountManagementItems({ isRTL, navigate }: HeaderUserMenuItemsP
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <UserCog className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'تفضيلات الحساب' : 'Preferences'}</span>
+        <span className="flex-1">{t('userMenu.preferences')}</span>
       </DropdownMenuItem>
 
       <DropdownMenuItem
@@ -45,17 +47,18 @@ export function AccountManagementItems({ isRTL, navigate }: HeaderUserMenuItemsP
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <KeyRound className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'الأمان وكلمة المرور' : 'Security'}</span>
+        <span className="flex-1">{t('userMenu.security')}</span>
       </DropdownMenuItem>
     </DropdownMenuGroup>
   );
 }
 
 export function OrganizationItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
+  const { t } = useTranslation()
   return (
     <DropdownMenuGroup>
       <DropdownMenuLabel className={cn("text-xs text-muted-foreground px-2", isRTL ? "text-right" : "")}>
-        {isRTL ? 'إدارة المنظمة' : 'Organization'}
+        {t('userMenu.organization')}
       </DropdownMenuLabel>
 
       <DropdownMenuItem
@@ -63,7 +66,7 @@ export function OrganizationItems({ isRTL, navigate }: HeaderUserMenuItemsProps)
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <Building2 className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'إدارة المستخدمين' : 'Manage Users'}</span>
+        <span className="flex-1">{t('userMenu.manageUsers')}</span>
       </DropdownMenuItem>
 
       <DropdownMenuItem
@@ -71,7 +74,7 @@ export function OrganizationItems({ isRTL, navigate }: HeaderUserMenuItemsProps)
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <Shield className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'الأدوار والصلاحيات' : 'Roles & Permissions'}</span>
+        <span className="flex-1">{t('userMenu.rolesPermissions')}</span>
       </DropdownMenuItem>
 
       <DropdownMenuItem
@@ -79,7 +82,7 @@ export function OrganizationItems({ isRTL, navigate }: HeaderUserMenuItemsProps)
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <Settings className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'الإعدادات' : 'Settings'}</span>
+        <span className="flex-1">{t('userMenu.settings')}</span>
         <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
       </DropdownMenuItem>
     </DropdownMenuGroup>
@@ -87,6 +90,7 @@ export function OrganizationItems({ isRTL, navigate }: HeaderUserMenuItemsProps)
 }
 
 export function ActivityItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
+  const { t } = useTranslation()
   return (
     <DropdownMenuGroup>
       <DropdownMenuItem
@@ -94,7 +98,7 @@ export function ActivityItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <History className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'سجل النشاط' : 'Activity Log'}</span>
+        <span className="flex-1">{t('userMenu.activityLog')}</span>
       </DropdownMenuItem>
 
       <DropdownMenuItem
@@ -102,7 +106,7 @@ export function ActivityItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <Smartphone className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'الجلسات النشطة' : 'Active Sessions'}</span>
+        <span className="flex-1">{t('userMenu.activeSessions')}</span>
       </DropdownMenuItem>
 
       <DropdownMenuItem
@@ -110,7 +114,7 @@ export function ActivityItems({ isRTL, navigate }: HeaderUserMenuItemsProps) {
         className={cn("cursor-pointer", isRTL ? "flex-row-reverse" : "")}
       >
         <HelpCircle className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-        <span className="flex-1">{isRTL ? 'المساعدة والدعم' : 'Help & Support'}</span>
+        <span className="flex-1">{t('userMenu.helpSupport')}</span>
       </DropdownMenuItem>
     </DropdownMenuGroup>
   );
