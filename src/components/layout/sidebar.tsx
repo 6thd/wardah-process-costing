@@ -95,7 +95,7 @@ const renderCollapsedItem = (
 
 // Helper function to render expanded sidebar item
 const renderExpandedItem = (
-  item: { key: string; icon: any; href: string; badge: string | null; subItems?: Array<{ key: string; href: string; label: string }> },
+  item: { key: string; icon: any; href: string; badge: string | null; subItems?: Array<{ key: string; href: string; labelKey: string }> },
   isActive: boolean,
   isExpanded: boolean,
   hasSubItems: boolean,
@@ -187,7 +187,7 @@ const renderExpandedItem = (
                     "flex-1 truncate",
                     isRTL ? "text-right" : "text-left"
                   )}>
-                    {subItem.label}
+                    {t(subItem.labelKey)}
                   </span>
                 </NavLink>
               )
@@ -201,7 +201,7 @@ const renderExpandedItem = (
 
 // Helper function to render mobile sidebar item
 const renderMobileItem = (
-  item: { key: string; icon: any; href: string; badge: string | null; subItems?: Array<{ key: string; href: string; label: string }> },
+  item: { key: string; icon: any; href: string; badge: string | null; subItems?: Array<{ key: string; href: string; labelKey: string }> },
   isActive: boolean,
   isExpanded: boolean,
   hasSubItems: boolean,
@@ -302,7 +302,7 @@ const renderMobileItem = (
                     "flex-1 truncate",
                     isRTL ? "text-right" : "text-left"
                   )}>
-                    {subItem.label}
+                    {t(subItem.labelKey)}
                   </span>
                 </NavLink>
               )
@@ -343,9 +343,9 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.DASHBOARD, // لا يحتاج صلاحية - متاح للجميع
       subItems: [
-        { key: 'overview', href: '/dashboard/overview', label: t('navigation.overview') },
-        { key: 'analytics', href: '/dashboard/analytics', label: t('navigation.analytics') },
-        { key: 'performance', href: '/dashboard/performance', label: t('navigation.performance') }
+        { key: 'overview', href: '/dashboard/overview', labelKey: 'navigation.overview' },
+        { key: 'analytics', href: '/dashboard/analytics', labelKey: 'navigation.analytics' },
+        { key: 'performance', href: '/dashboard/performance', labelKey: 'navigation.performance' }
       ]
     },
     {
@@ -355,22 +355,22 @@ export function Sidebar() {
       badge: '2',
       moduleCode: MODULE_CODES.MANUFACTURING,
       subItems: [
-        { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
-        { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
-        { key: 'mes', href: '/manufacturing/mes', label: t('navigation.mes') },
-        { key: 'routing', href: '/manufacturing/routing', label: t('navigation.routing') },
-        { key: 'capacity', href: '/manufacturing/capacity', label: t('navigation.capacity') },
-        { key: 'efficiency', href: '/manufacturing/efficiency', label: t('navigation.efficiency') },
-        { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
-        { key: 'equivalent-units', href: '/manufacturing/equivalent-units', label: t('navigation.equivalent-units') },
-        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: t('navigation.cost-of-production') },
-        { key: 'variance-alerts', href: '/manufacturing/variance-alerts', label: t('navigation.variance-alerts') },
-        { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
-        { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
-        { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },
-        { key: 'workcenters', href: '/manufacturing/workcenters', label: t('navigation.workcenters') },
-        { key: 'bom', href: '/manufacturing/bom', label: t('navigation.bom') },
-        { key: 'quality', href: '/manufacturing/quality', label: t('navigation.quality') }
+        { key: 'overview', href: '/manufacturing/overview', labelKey: 'navigation.overview' },
+        { key: 'orders', href: '/manufacturing/orders', labelKey: 'navigation.orders' },
+        { key: 'mes', href: '/manufacturing/mes', labelKey: 'navigation.mes' },
+        { key: 'routing', href: '/manufacturing/routing', labelKey: 'navigation.routing' },
+        { key: 'capacity', href: '/manufacturing/capacity', labelKey: 'navigation.capacity' },
+        { key: 'efficiency', href: '/manufacturing/efficiency', labelKey: 'navigation.efficiency' },
+        { key: 'process-costing', href: '/manufacturing/process-costing', labelKey: 'navigation.process-costing' },
+        { key: 'equivalent-units', href: '/manufacturing/equivalent-units', labelKey: 'navigation.equivalent-units' },
+        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', labelKey: 'navigation.cost-of-production' },
+        { key: 'variance-alerts', href: '/manufacturing/variance-alerts', labelKey: 'navigation.variance-alerts' },
+        { key: 'stages', href: '/manufacturing/stages', labelKey: 'navigation.stages' },
+        { key: 'wip-log', href: '/manufacturing/wip-log', labelKey: 'navigation.wipLog' },
+        { key: 'standard-costs', href: '/manufacturing/standard-costs', labelKey: 'navigation.standardCosts' },
+        { key: 'workcenters', href: '/manufacturing/workcenters', labelKey: 'navigation.workcenters' },
+        { key: 'bom', href: '/manufacturing/bom', labelKey: 'navigation.bom' },
+        { key: 'quality', href: '/manufacturing/quality', labelKey: 'navigation.quality' }
       ]
     },
     {
@@ -380,16 +380,16 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.INVENTORY,
       subItems: [
-        { key: 'overview', href: '/inventory/overview', label: t('navigation.overview') },
-        { key: 'items', href: '/inventory/items', label: t('navigation.items') },
-        { key: 'categories', href: '/inventory/categories', label: t('navigation.categories') },
-        { key: 'movements', href: '/inventory/movements', label: t('navigation.movements') },
-        { key: 'adjustments', href: '/inventory/adjustments', label: t('navigation.adjustments') },
-        { key: 'valuation', href: '/inventory/valuation', label: t('navigation.valuation') },
-        { key: 'warehouses', href: '/inventory/warehouses', label: t('navigation.warehouses') },
-        { key: 'locations', href: '/inventory/locations', label: t('navigation.locations') },
-        { key: 'bins', href: '/inventory/bins', label: t('navigation.bins') },
-        { key: 'transfers', href: '/inventory/transfers', label: t('navigation.transfers') }
+        { key: 'overview', href: '/inventory/overview', labelKey: 'navigation.overview' },
+        { key: 'items', href: '/inventory/items', labelKey: 'navigation.items' },
+        { key: 'categories', href: '/inventory/categories', labelKey: 'navigation.categories' },
+        { key: 'movements', href: '/inventory/movements', labelKey: 'navigation.movements' },
+        { key: 'adjustments', href: '/inventory/adjustments', labelKey: 'navigation.adjustments' },
+        { key: 'valuation', href: '/inventory/valuation', labelKey: 'navigation.valuation' },
+        { key: 'warehouses', href: '/inventory/warehouses', labelKey: 'navigation.warehouses' },
+        { key: 'locations', href: '/inventory/locations', labelKey: 'navigation.locations' },
+        { key: 'bins', href: '/inventory/bins', labelKey: 'navigation.bins' },
+        { key: 'transfers', href: '/inventory/transfers', labelKey: 'navigation.transfers' }
       ]
     },
     {
@@ -399,12 +399,12 @@ export function Sidebar() {
       badge: '3',
       moduleCode: MODULE_CODES.PURCHASING,
       subItems: [
-        { key: 'overview', href: '/purchasing/overview', label: t('navigation.overview') },
-        { key: 'suppliers', href: '/purchasing/suppliers', label: t('navigation.suppliers') },
-        { key: 'orders', href: '/purchasing/orders', label: t('navigation.orders') },
-        { key: 'receipts', href: '/purchasing/receipts', label: t('navigation.receipts') },
-        { key: 'invoices', href: '/purchasing/invoices', label: t('navigation.invoices') },
-        { key: 'payments', href: '/purchasing/payments', label: t('navigation.payments') }
+        { key: 'overview', href: '/purchasing/overview', labelKey: 'navigation.overview' },
+        { key: 'suppliers', href: '/purchasing/suppliers', labelKey: 'navigation.suppliers' },
+        { key: 'orders', href: '/purchasing/orders', labelKey: 'navigation.orders' },
+        { key: 'receipts', href: '/purchasing/receipts', labelKey: 'navigation.receipts' },
+        { key: 'invoices', href: '/purchasing/invoices', labelKey: 'navigation.invoices' },
+        { key: 'payments', href: '/purchasing/payments', labelKey: 'navigation.payments' }
       ]
     },
     {
@@ -414,12 +414,12 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.SALES,
       subItems: [
-        { key: 'overview', href: '/sales/overview', label: t('navigation.overview') },
-        { key: 'customers', href: '/sales/customers', label: t('navigation.customers') },
-        { key: 'orders', href: '/sales/orders', label: t('navigation.orders') },
-        { key: 'invoices', href: '/sales/invoices', label: t('navigation.invoices') },
-        { key: 'delivery', href: '/sales/delivery', label: t('navigation.delivery') },
-        { key: 'collections', href: '/sales/collections', label: t('navigation.collections') }
+        { key: 'overview', href: '/sales/overview', labelKey: 'navigation.overview' },
+        { key: 'customers', href: '/sales/customers', labelKey: 'navigation.customers' },
+        { key: 'orders', href: '/sales/orders', labelKey: 'navigation.orders' },
+        { key: 'invoices', href: '/sales/invoices', labelKey: 'navigation.invoices' },
+        { key: 'delivery', href: '/sales/delivery', labelKey: 'navigation.delivery' },
+        { key: 'collections', href: '/sales/collections', labelKey: 'navigation.collections' }
       ]
     },
     {
@@ -429,13 +429,13 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.ACCOUNTING,
       subItems: [
-        { key: 'overview', href: '/accounting/overview', label: t('navigation.overview') },
-        { key: 'chart-of-accounts', href: '/general-ledger/accounts', label: t('navigation.chart-of-accounts') },
-        { key: 'journal-entries', href: '/accounting/journal-entries', label: t('navigation.journal-entries') },
-        { key: 'trial-balance', href: '/accounting/trial-balance', label: t('navigation.trial-balance') },
-        { key: 'account-statement', href: '/accounting/account-statement', label: t('navigation.account-statement') },
-        { key: 'posting', href: '/accounting/posting', label: t('navigation.posting') },
-        { key: 'reconciliation', href: '/accounting/reconciliation', label: t('navigation.reconciliation') }
+        { key: 'overview', href: '/accounting/overview', labelKey: 'navigation.overview' },
+        { key: 'chart-of-accounts', href: '/general-ledger/accounts', labelKey: 'navigation.chart-of-accounts' },
+        { key: 'journal-entries', href: '/accounting/journal-entries', labelKey: 'navigation.journal-entries' },
+        { key: 'trial-balance', href: '/accounting/trial-balance', labelKey: 'navigation.trial-balance' },
+        { key: 'account-statement', href: '/accounting/account-statement', labelKey: 'navigation.account-statement' },
+        { key: 'posting', href: '/accounting/posting', labelKey: 'navigation.posting' },
+        { key: 'reconciliation', href: '/accounting/reconciliation', labelKey: 'navigation.reconciliation' }
       ]
     },
     // قائمة «دفتر الأستاذ» المكرّرة حُذفت: عنصراها موجودان في قائمة المحاسبة،
@@ -447,14 +447,14 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.HR,
       subItems: [
-        { key: 'overview', href: '/hr/overview', label: t('navigation.hr-dashboard') },
-        { key: 'employees', href: '/hr/employees', label: t('navigation.employees') },
-        { key: 'attendance', href: '/hr/attendance', label: t('navigation.attendance') },
-        { key: 'payroll', href: '/hr/payroll', label: t('navigation.payroll') },
-        { key: 'leaves', href: '/hr/leaves', label: t('navigation.leaves') },
-        { key: 'settlements', href: '/hr/settlements', label: t('navigation.settlements') },
-        { key: 'reports', href: '/hr/reports', label: t('navigation.reports') },
-        { key: 'settings', href: '/hr/settings', label: t('navigation.settings') }
+        { key: 'overview', href: '/hr/overview', labelKey: 'navigation.hr-dashboard' },
+        { key: 'employees', href: '/hr/employees', labelKey: 'navigation.employees' },
+        { key: 'attendance', href: '/hr/attendance', labelKey: 'navigation.attendance' },
+        { key: 'payroll', href: '/hr/payroll', labelKey: 'navigation.payroll' },
+        { key: 'leaves', href: '/hr/leaves', labelKey: 'navigation.leaves' },
+        { key: 'settlements', href: '/hr/settlements', labelKey: 'navigation.settlements' },
+        { key: 'reports', href: '/hr/reports', labelKey: 'navigation.reports' },
+        { key: 'settings', href: '/hr/settings', labelKey: 'navigation.settings' }
       ]
     },
     {
@@ -464,15 +464,15 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.REPORTS,
       subItems: [
-        { key: 'financial', href: '/reports/financial', label: t('navigation.financial') },
-        { key: 'inventory', href: '/reports/inventory', label: t('navigation.inventory') },
-        { key: 'manufacturing', href: '/reports/manufacturing', label: t('navigation.manufacturing') },
-        { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', label: t('navigation.process-costing-dashboard') },
-        { key: 'sales', href: '/reports/sales', label: t('navigation.sales') },
-        { key: 'purchasing', href: '/reports/purchasing', label: t('navigation.purchasing') },
-        { key: 'advanced', href: '/reports/advanced', label: t('navigation.advanced') },
-        { key: 'analytics', href: '/reports/analytics', label: t('navigation.analytics') },
-        { key: 'gemini-dashboard', href: '/reports/gemini', label: t('navigation.gemini-dashboard') }
+        { key: 'financial', href: '/reports/financial', labelKey: 'navigation.financial' },
+        { key: 'inventory', href: '/reports/inventory', labelKey: 'navigation.inventory' },
+        { key: 'manufacturing', href: '/reports/manufacturing', labelKey: 'navigation.manufacturing' },
+        { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', labelKey: 'navigation.process-costing-dashboard' },
+        { key: 'sales', href: '/reports/sales', labelKey: 'navigation.sales' },
+        { key: 'purchasing', href: '/reports/purchasing', labelKey: 'navigation.purchasing' },
+        { key: 'advanced', href: '/reports/advanced', labelKey: 'navigation.advanced' },
+        { key: 'analytics', href: '/reports/analytics', labelKey: 'navigation.analytics' },
+        { key: 'gemini-dashboard', href: '/reports/gemini', labelKey: 'navigation.gemini-dashboard' }
       ]
     },
     {
@@ -482,11 +482,11 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.SETTINGS,
       subItems: [
-        { key: 'company', href: '/settings/company', label: t('navigation.company') },
+        { key: 'company', href: '/settings/company', labelKey: 'navigation.company' },
         // users/permissions حُذفا: مجرد redirect لإدارة المؤسسة المكرَّرة في قائمتها.
         // integrations مخفيّة حتى تُبنى تكاملات فعلية (قرار المالك).
-        { key: 'system', href: '/settings/system', label: t('navigation.system') },
-        { key: 'backup', href: '/settings/backup', label: t('navigation.backup') }
+        { key: 'system', href: '/settings/system', labelKey: 'navigation.system' },
+        { key: 'backup', href: '/settings/backup', labelKey: 'navigation.backup' }
       ]
     },
     {
@@ -497,11 +497,11 @@ export function Sidebar() {
       moduleCode: MODULE_CODES.ORG_ADMIN,
       requireOrgAdmin: true, // يتطلب صلاحية Org Admin
       subItems: [
-        { key: 'dashboard', href: '/org-admin/dashboard', label: t('navigation.orgAdminDashboard') },
-        { key: 'users', href: '/org-admin/users', label: t('navigation.users') },
-        { key: 'invitations', href: '/org-admin/invitations', label: t('navigation.invitations') },
-        { key: 'roles', href: '/org-admin/roles', label: t('navigation.roles') },
-        { key: 'audit-log', href: '/org-admin/audit-log', label: t('navigation.audit-log') }
+        { key: 'dashboard', href: '/org-admin/dashboard', labelKey: 'navigation.orgAdminDashboard' },
+        { key: 'users', href: '/org-admin/users', labelKey: 'navigation.users' },
+        { key: 'invitations', href: '/org-admin/invitations', labelKey: 'navigation.invitations' },
+        { key: 'roles', href: '/org-admin/roles', labelKey: 'navigation.roles' },
+        { key: 'audit-log', href: '/org-admin/audit-log', labelKey: 'navigation.audit-log' }
       ]
     },
     {
@@ -512,8 +512,8 @@ export function Sidebar() {
       moduleCode: MODULE_CODES.SUPER_ADMIN,
       requireSuperAdmin: true, // يتطلب صلاحية Super Admin
       subItems: [
-        { key: 'dashboard', href: '/super-admin/dashboard', label: t('navigation.orgAdminDashboard') },
-        { key: 'organizations', href: '/super-admin/organizations', label: t('navigation.organizations') }
+        { key: 'dashboard', href: '/super-admin/dashboard', labelKey: 'navigation.orgAdminDashboard' },
+        { key: 'organizations', href: '/super-admin/organizations', labelKey: 'navigation.organizations' }
       ]
     },
   ]
@@ -573,7 +573,7 @@ export function Sidebar() {
         <>
           <button
             type="button"
-            aria-label="إغلاق القائمة الجانبية"
+            aria-label={t('common.closeSidebar')}
             className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden transition-opacity duration-300 border-0 p-0 cursor-pointer"
             onClick={() => setSidebarOpen(false)}
           />

@@ -152,7 +152,9 @@
     "month": "الشهر",
     "year": "السنة",
     "notes": "ملاحظات",
-    "openInNewTab": "فتح في علامة تبويب جديدة"
+    "openInNewTab": "فتح في علامة تبويب جديدة",
+    "toggleLanguage": "تبديل اللغة",
+    "closeSidebar": "إغلاق القائمة الجانبية"
   },
   "manufacturing": {
     "title": "إدارة التصنيع",
@@ -473,7 +475,12 @@
     "rememberMe": "تذكرني",
     "forgotPassword": "نسيت كلمة المرور؟",
     "loginError": "خطأ في بيانات تسجيل الدخول",
-    "welcome": "مرحباً بك"
+    "welcome": "مرحباً بك",
+    "accessDenied": "الوصول مرفوض",
+    "accessDeniedDescription": "ليس لديك الصلاحية للوصول إلى هذه الصفحة. يرجى التواصل مع مسؤول النظام.",
+    "goBack": "العودة",
+    "goToDashboard": "الصفحة الرئيسية",
+    "checkingPermissions": "جاري التحقق من الصلاحيات..."
   },
   "validation": {
     "required": "هذا الحقل مطلوب",

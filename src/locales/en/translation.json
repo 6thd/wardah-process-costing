@@ -149,7 +149,9 @@
     "amount": "Amount",
     "total": "Total",
     "currency": "SAR",
-    "openInNewTab": "Open in new tab"
+    "openInNewTab": "Open in new tab",
+    "toggleLanguage": "Toggle language",
+    "closeSidebar": "Close sidebar"
   },
   "manufacturing": {
     "title": "Manufacturing Management",
@@ -796,7 +798,12 @@
     "rememberMe": "Remember Me",
     "forgotPassword": "Forgot Password?",
     "loginError": "Login credentials error",
-    "welcome": "Welcome"
+    "welcome": "Welcome",
+    "accessDenied": "Access Denied",
+    "accessDeniedDescription": "You don't have permission to access this page. Please contact your administrator.",
+    "goBack": "Go Back",
+    "goToDashboard": "Go to Dashboard",
+    "checkingPermissions": "Checking permissions..."
   },
   "validation": {
     "required": "This field is required",
