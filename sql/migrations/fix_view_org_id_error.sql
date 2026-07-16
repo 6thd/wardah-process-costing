@@ -31,5 +31,5 @@ FROM pg_views
 WHERE schemaname = 'public'
 ORDER BY viewname;
 
-RAISE NOTICE 'Script completed successfully';
+DO $$ BEGIN RAISE NOTICE 'Script completed successfully'; END $$;
 

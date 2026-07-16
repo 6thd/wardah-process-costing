@@ -55,6 +55,13 @@ jobs:
         run: npm run test -- --run --coverage.enabled=false
         continue-on-error: false
 
+      # فحص صياغة migrations بمحلل PostgreSQL الحقيقي (libpg_query) —
+      # يمسك RAISE العارية وصياغة SQL Server المتسللة وأي SQL مرفوض
+      - name: Migration SQL syntax check (pglast)
+        run: |
+          pip install --quiet pglast
+          python3 scripts/ci/check_migration_syntax.py
+
       # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل ملف في MANIFEST)
       - name: Validate migration numbering
         run: |
