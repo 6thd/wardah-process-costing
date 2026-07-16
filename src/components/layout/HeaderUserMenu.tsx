@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { LogOut, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +33,7 @@ interface HeaderUserMenuProps {
 
 export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const userFullName = (user as any)?.user_metadata?.full_name || user?.email?.split('@')[0] || 'مستخدم';
   const userEmail = user?.email || '';
   const userAvatarFallback = userFullName?.charAt(0)?.toUpperCase();
@@ -72,7 +74,7 @@ export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
               <span className="text-xs text-muted-foreground">{userEmail}</span>
               <Badge variant="secondary" className="mt-1 text-[10px]">
                 <Shield className="h-3 w-3 mr-1" />
-                {isRTL ? 'مسؤول المنظمة' : 'Org Admin'}
+                {t('userMenu.orgAdmin')}
               </Badge>
             </div>
           </div>
@@ -100,7 +102,7 @@ export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
           )}
         >
           <LogOut className={cn("h-4 w-4", isRTL ? "ml-2" : "mr-2")} />
-          <span className="flex-1">{isRTL ? 'تسجيل الخروج' : 'Sign Out'}</span>
+          <span className="flex-1">{t('userMenu.signOut')}</span>
           <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>

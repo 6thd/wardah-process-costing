@@ -357,14 +357,14 @@ export function Sidebar() {
       subItems: [
         { key: 'overview', href: '/manufacturing/overview', label: t('navigation.overview') },
         { key: 'orders', href: '/manufacturing/orders', label: t('navigation.orders') },
-        { key: 'mes', href: '/manufacturing/mes', label: isRTL ? 'تنفيذ التصنيع (MES)' : 'MES Dashboard' },
-        { key: 'routing', href: '/manufacturing/routing', label: isRTL ? 'مسارات التصنيع' : 'Routings' },
-        { key: 'capacity', href: '/manufacturing/capacity', label: isRTL ? 'تخطيط الطاقة' : 'Capacity Planning' },
-        { key: 'efficiency', href: '/manufacturing/efficiency', label: isRTL ? 'الكفاءة والأداء' : 'Efficiency & OEE' },
+        { key: 'mes', href: '/manufacturing/mes', label: t('navigation.mes') },
+        { key: 'routing', href: '/manufacturing/routing', label: t('navigation.routing') },
+        { key: 'capacity', href: '/manufacturing/capacity', label: t('navigation.capacity') },
+        { key: 'efficiency', href: '/manufacturing/efficiency', label: t('navigation.efficiency') },
         { key: 'process-costing', href: '/manufacturing/process-costing', label: t('navigation.process-costing') },
-        { key: 'equivalent-units', href: '/manufacturing/equivalent-units', label: isRTL ? 'الوحدات المكافئة' : 'Equivalent Units' },
-        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report' },
-        { key: 'variance-alerts', href: '/manufacturing/variance-alerts', label: isRTL ? 'تنبيهات الانحرافات' : 'Variance Alerts' },
+        { key: 'equivalent-units', href: '/manufacturing/equivalent-units', label: t('navigation.equivalent-units') },
+        { key: 'cost-of-production', href: '/manufacturing/cost-of-production', label: t('navigation.cost-of-production') },
+        { key: 'variance-alerts', href: '/manufacturing/variance-alerts', label: t('navigation.variance-alerts') },
         { key: 'stages', href: '/manufacturing/stages', label: t('navigation.stages', { defaultValue: 'مراحل التصنيع' }) },
         { key: 'wip-log', href: '/manufacturing/wip-log', label: t('navigation.wipLog', { defaultValue: 'سجلات WIP' }) },
         { key: 'standard-costs', href: '/manufacturing/standard-costs', label: t('navigation.standardCosts', { defaultValue: 'التكاليف القياسية' }) },
@@ -382,14 +382,14 @@ export function Sidebar() {
       subItems: [
         { key: 'overview', href: '/inventory/overview', label: t('navigation.overview') },
         { key: 'items', href: '/inventory/items', label: t('navigation.items') },
-        { key: 'categories', href: '/inventory/categories', label: isRTL ? 'فئات المنتجات' : 'Categories' },
+        { key: 'categories', href: '/inventory/categories', label: t('navigation.categories') },
         { key: 'movements', href: '/inventory/movements', label: t('navigation.movements') },
         { key: 'adjustments', href: '/inventory/adjustments', label: t('navigation.adjustments') },
         { key: 'valuation', href: '/inventory/valuation', label: t('navigation.valuation') },
-        { key: 'warehouses', href: '/inventory/warehouses', label: isRTL ? 'المخازن' : 'Warehouses' },
+        { key: 'warehouses', href: '/inventory/warehouses', label: t('navigation.warehouses') },
         { key: 'locations', href: '/inventory/locations', label: t('navigation.locations') },
-        { key: 'bins', href: '/inventory/bins', label: isRTL ? 'صناديق التخزين' : 'Storage Bins' },
-        { key: 'transfers', href: '/inventory/transfers', label: isRTL ? 'تحويلات البضاعة' : 'Stock Transfers' }
+        { key: 'bins', href: '/inventory/bins', label: t('navigation.bins') },
+        { key: 'transfers', href: '/inventory/transfers', label: t('navigation.transfers') }
       ]
     },
     {
@@ -429,13 +429,13 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.ACCOUNTING,
       subItems: [
-        { key: 'overview', href: '/accounting/overview', label: isRTL ? 'نظرة عامة' : 'Overview' },
-        { key: 'chart-of-accounts', href: '/general-ledger/accounts', label: isRTL ? 'دليل الحسابات' : 'Chart of Accounts' },
-        { key: 'journal-entries', href: '/accounting/journal-entries', label: isRTL ? 'قيود اليومية' : 'Journal Entries' },
-        { key: 'trial-balance', href: '/accounting/trial-balance', label: isRTL ? 'ميزان المراجعة' : 'Trial Balance' },
-        { key: 'account-statement', href: '/accounting/account-statement', label: isRTL ? 'كشف حساب' : 'Account Statement' },
-        { key: 'posting', href: '/accounting/posting', label: isRTL ? 'الترحيل' : 'Posting' },
-        { key: 'reconciliation', href: '/accounting/reconciliation', label: isRTL ? 'تسوية الدفاتر مع GL' : 'Subledger ↔ GL Reconciliation' }
+        { key: 'overview', href: '/accounting/overview', label: t('navigation.overview') },
+        { key: 'chart-of-accounts', href: '/general-ledger/accounts', label: t('navigation.chart-of-accounts') },
+        { key: 'journal-entries', href: '/accounting/journal-entries', label: t('navigation.journal-entries') },
+        { key: 'trial-balance', href: '/accounting/trial-balance', label: t('navigation.trial-balance') },
+        { key: 'account-statement', href: '/accounting/account-statement', label: t('navigation.account-statement') },
+        { key: 'posting', href: '/accounting/posting', label: t('navigation.posting') },
+        { key: 'reconciliation', href: '/accounting/reconciliation', label: t('navigation.reconciliation') }
       ]
     },
     // قائمة «دفتر الأستاذ» المكرّرة حُذفت: عنصراها موجودان في قائمة المحاسبة،
@@ -447,14 +447,14 @@ export function Sidebar() {
       badge: null,
       moduleCode: MODULE_CODES.HR,
       subItems: [
-        { key: 'overview', href: '/hr/overview', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
-        { key: 'employees', href: '/hr/employees', label: isRTL ? 'الموظفون' : 'Employees' },
-        { key: 'attendance', href: '/hr/attendance', label: isRTL ? 'الحضور' : 'Attendance' },
-        { key: 'payroll', href: '/hr/payroll', label: isRTL ? 'الرواتب' : 'Payroll' },
-        { key: 'leaves', href: '/hr/leaves', label: isRTL ? 'الإجازات' : 'Leaves' },
-        { key: 'settlements', href: '/hr/settlements', label: isRTL ? 'التسويات' : 'Settlements' },
-        { key: 'reports', href: '/hr/reports', label: isRTL ? 'التقارير' : 'Reports' },
-        { key: 'settings', href: '/hr/settings', label: isRTL ? 'الإعدادات' : 'Settings' }
+        { key: 'overview', href: '/hr/overview', label: t('navigation.hr-dashboard') },
+        { key: 'employees', href: '/hr/employees', label: t('navigation.employees') },
+        { key: 'attendance', href: '/hr/attendance', label: t('navigation.attendance') },
+        { key: 'payroll', href: '/hr/payroll', label: t('navigation.payroll') },
+        { key: 'leaves', href: '/hr/leaves', label: t('navigation.leaves') },
+        { key: 'settlements', href: '/hr/settlements', label: t('navigation.settlements') },
+        { key: 'reports', href: '/hr/reports', label: t('navigation.reports') },
+        { key: 'settings', href: '/hr/settings', label: t('navigation.settings') }
       ]
     },
     {
@@ -467,10 +467,10 @@ export function Sidebar() {
         { key: 'financial', href: '/reports/financial', label: t('navigation.financial') },
         { key: 'inventory', href: '/reports/inventory', label: t('navigation.inventory') },
         { key: 'manufacturing', href: '/reports/manufacturing', label: t('navigation.manufacturing') },
-        { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', label: isRTL ? 'لوحة تكاليف المراحل' : 'Process Costing Dashboard' },
+        { key: 'process-costing-dashboard', href: '/reports/process-costing-dashboard', label: t('navigation.process-costing-dashboard') },
         { key: 'sales', href: '/reports/sales', label: t('navigation.sales') },
         { key: 'purchasing', href: '/reports/purchasing', label: t('navigation.purchasing') },
-        { key: 'advanced', href: '/reports/advanced', label: isRTL ? 'التقارير المتقدمة' : 'Advanced Reports' },
+        { key: 'advanced', href: '/reports/advanced', label: t('navigation.advanced') },
         { key: 'analytics', href: '/reports/analytics', label: t('navigation.analytics') },
         { key: 'gemini-dashboard', href: '/reports/gemini', label: t('navigation.gemini-dashboard') }
       ]
@@ -497,11 +497,11 @@ export function Sidebar() {
       moduleCode: MODULE_CODES.ORG_ADMIN,
       requireOrgAdmin: true, // يتطلب صلاحية Org Admin
       subItems: [
-        { key: 'dashboard', href: '/org-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
-        { key: 'users', href: '/org-admin/users', label: isRTL ? 'المستخدمين' : 'Users' },
-        { key: 'invitations', href: '/org-admin/invitations', label: isRTL ? 'الدعوات' : 'Invitations' },
-        { key: 'roles', href: '/org-admin/roles', label: isRTL ? 'الأدوار' : 'Roles' },
-        { key: 'audit-log', href: '/org-admin/audit-log', label: isRTL ? 'سجل التدقيق' : 'Audit Log' }
+        { key: 'dashboard', href: '/org-admin/dashboard', label: t('navigation.orgAdminDashboard') },
+        { key: 'users', href: '/org-admin/users', label: t('navigation.users') },
+        { key: 'invitations', href: '/org-admin/invitations', label: t('navigation.invitations') },
+        { key: 'roles', href: '/org-admin/roles', label: t('navigation.roles') },
+        { key: 'audit-log', href: '/org-admin/audit-log', label: t('navigation.audit-log') }
       ]
     },
     {
@@ -512,8 +512,8 @@ export function Sidebar() {
       moduleCode: MODULE_CODES.SUPER_ADMIN,
       requireSuperAdmin: true, // يتطلب صلاحية Super Admin
       subItems: [
-        { key: 'dashboard', href: '/super-admin/dashboard', label: isRTL ? 'لوحة التحكم' : 'Dashboard' },
-        { key: 'organizations', href: '/super-admin/organizations', label: isRTL ? 'المنظمات' : 'Organizations' }
+        { key: 'dashboard', href: '/super-admin/dashboard', label: t('navigation.orgAdminDashboard') },
+        { key: 'organizations', href: '/super-admin/organizations', label: t('navigation.organizations') }
       ]
     },
   ]
