@@ -232,34 +232,34 @@ BEGIN
 
     -- ---------------------------------------------------------------
     -- 7b. إنشاء أمر التصنيع
+    -- أعمدة الجدول الحية: order_number/quantity/product_id/item_id/start_date/
+    -- due_date (وليست mo_number/qty_planned/uom_id… التي كانت في الجسد القديم —
+    -- مخطط قديم عُدّل بعد كتابة الدالة فصارت تشير لأعمدة غائبة؛ صُحِّح في 121
+    -- ليطابق المخطط الحي وعقد الواجهة ManufacturingOrderInput).
     -- ---------------------------------------------------------------
     v_init_status := normalize_mo_status(COALESCE(p_order->>'status', 'draft'));
 
-    -- توليد رقم أمر التصنيع إن لم يُزوَّد
+    -- توليد رقم الأمر إن لم يُزوَّد
     v_mo_number := COALESCE(
-        p_order->>'mo_number',
+        NULLIF(p_order->>'order_number', ''),
         'MO-' || to_char(NOW(), 'YYYYMMDD') || '-' ||
         lpad(nextval('mo_seq')::TEXT, 4, '0')
     );
 
     INSERT INTO manufacturing_orders (
-        org_id, mo_number, product_id, qty_planned, uom_id,
-        location_id, bom_id, work_center, priority,
-        date_planned, notes, status
+        org_id, order_number, product_id, item_id, quantity,
+        status, notes, start_date, due_date
     )
     VALUES (
         v_org,
         v_mo_number,
-        (p_order->>'product_id')::UUID,
-        (p_order->>'qty_planned')::NUMERIC,
-        (p_order->>'uom_id')::UUID,
-        (p_order->>'location_id')::UUID,
-        (p_order->>'bom_id')::UUID,
-        p_order->>'work_center',
-        COALESCE((p_order->>'priority')::INT, 3),
-        (p_order->>'date_planned')::TIMESTAMPTZ,
-        p_order->>'notes',
-        v_init_status
+        NULLIF(p_order->>'product_id', '')::UUID,
+        NULLIF(p_order->>'item_id', '')::UUID,
+        COALESCE(NULLIF(p_order->>'quantity', '')::NUMERIC, 0),
+        v_init_status,
+        NULLIF(p_order->>'notes', ''),
+        NULLIF(p_order->>'start_date', '')::DATE,
+        NULLIF(p_order->>'due_date', '')::DATE
     )
     RETURNING id INTO v_mo_id;
 
