@@ -1,0 +1,147 @@
+FAIL 00_check_stage_costs_structure.sql :: psql:/tmp/wardah_sql/migrations/00_check_stage_costs_structure.sql:21: ERROR:  relation "public.stage_costs" does not exist
+FAIL 00_critical_schema_fixes.sql :: psql:/tmp/wardah_sql/migrations/00_critical_schema_fixes.sql:83: ERROR:  relation "gl_accounts" does not exist
+PASS 00a_pre_fix_drop_views.sql
+PASS 01_fix_immediate_errors.sql
+FAIL 01_gl_foundation.sql :: psql:/tmp/wardah_sql/migrations/01_gl_foundation.sql:61: ERROR:  column "tenant_id" does not exist
+FAIL 02_complete_phaseB_fixes.sql :: psql:/tmp/wardah_sql/migrations/02_complete_phaseB_fixes.sql:34: ERROR:  relation "sales_invoices" does not exist
+PASS 03_create_storage_buckets.sql
+FAIL 03_general_ledger_enhancements.sql :: psql:/tmp/wardah_sql/migrations/03_general_ledger_enhancements.sql:100: ERROR:  relation "journal_entries" does not exist
+PASS 03_operational_gl_integration.sql
+FAIL 04_period_closing.sql :: psql:/tmp/wardah_sql/migrations/04_period_closing.sql:450: ERROR:  relation "work_centers" does not exist
+FAIL 04_rls_policies_enhancements.sql :: psql:/tmp/wardah_sql/migrations/04_rls_policies_enhancements.sql:12: ERROR:  relation "journal_entry_approvals" does not exist
+PASS 05_fix_account_statement.sql
+FAIL 05_fix_journal_errors.sql :: psql:/tmp/wardah_sql/migrations/05_fix_journal_errors.sql:114: ERROR:  relation "gl_entry_lines" does not exist
+FAIL 06_check_journal_tables.sql :: psql:/tmp/wardah_sql/migrations/06_check_journal_tables.sql:162: NOTICE:    - journal_entries: ERROR - relation "journal_entries" does not exist
+FAIL 06_process_costing_schema.sql :: psql:/tmp/wardah_sql/migrations/06_process_costing_schema.sql:331: ERROR:  relation "public.manufacturing_orders" does not exist
+PASS 06_sales_tables_fix.sql
+PASS 07_fix_attachments_rls.sql
+FAIL 07_rls_policies.sql :: psql:/tmp/wardah_sql/migrations/07_rls_policies.sql:93: ERROR:  relation "public.users" does not exist
+PASS 07_sales_schema_fix.sql
+PASS 08_check_attachments_table.sql
+FAIL 09_check_entry_lines.sql :: psql:/tmp/wardah_sql/migrations/09_check_entry_lines.sql:36: ERROR:  syntax error at or near "line_number"
+FAIL 09_complete_schema.sql :: psql:/tmp/wardah_sql/migrations/09_complete_schema.sql:436: ERROR:  column "transaction_date" does not exist
+FAIL 09_payment_vouchers_system.sql :: psql:/tmp/wardah_sql/migrations/09_payment_vouchers_system.sql:433: ERROR:  relation "customer_collections" does not exist
+PASS 10_migrate_journal_lines_to_gl.sql
+PASS 11_final_comprehensive_fix.sql
+FAIL 12_create_default_journals.sql :: psql:/tmp/wardah_sql/migrations/12_create_default_journals.sql:178: ERROR:  column "sequence_prefix" does not exist
+FAIL 12_equivalent_units_schema.sql :: psql:/tmp/wardah_sql/migrations/12_equivalent_units_schema.sql:155: ERROR:  column "mo_id" does not exist
+FAIL 12a_check_journals.sql :: psql:/tmp/wardah_sql/migrations/12a_check_journals.sql:13: ERROR:  column "journal_type" does not exist
+FAIL 12b_insert_one_journal.sql :: psql:/tmp/wardah_sql/migrations/12b_insert_one_journal.sql:8: ERROR:  column "journal_type" of relation "journals" does not exist
+FAIL 12c_update_existing_journals.sql :: psql:/tmp/wardah_sql/migrations/12c_update_existing_journals.sql:65: ERROR:  column "journal_type" of relation "journals" does not exist
+FAIL 12d_simple_insert_journals.sql :: psql:/tmp/wardah_sql/migrations/12d_simple_insert_journals.sql:13: ERROR:  column "journal_type" of relation "journals" does not exist
+FAIL 12e_check_and_fix.sql :: psql:/tmp/wardah_sql/migrations/12e_check_and_fix.sql:56: ERROR:  column "sequence_prefix" does not exist
+PASS 12f_fix_journals_rls.sql
+FAIL 13_add_missing_gl_entries_columns.sql :: psql:/tmp/wardah_sql/migrations/13_add_missing_gl_entries_columns.sql:16: ERROR:  relation "gl_entries" does not exist
+PASS 14_backup_checklist_fixed.sql
+FAIL 14_check_entry_type_constraint.sql :: psql:/tmp/wardah_sql/migrations/14_check_entry_type_constraint.sql:9: ERROR:  relation "gl_entries" does not exist
+PASS 15_check_attachments_schema.sql
+PASS 15_gl_mappings_and_periods.sql
+FAIL 15_hr_module.sql :: psql:/tmp/wardah_sql/migrations/15_hr_module.sql:271: ERROR:  relation "user_organizations" does not exist
+FAIL 15_process_costing_enhancement.sql :: psql:/tmp/wardah_sql/migrations/15_process_costing_enhancement.sql:53: ERROR:  relation "gl_accounts" does not exist
+FAIL 16_migrate_stage_costs_to_wip_log.sql :: psql:/tmp/wardah_sql/migrations/16_migrate_stage_costs_to_wip_log.sql:64: ERROR:  column "org_id" does not exist
+FAIL 16_unify_org_id_attachments.sql :: psql:/tmp/wardah_sql/migrations/16_unify_org_id_attachments.sql:5: ERROR:  column "tenant_id" of relation "journal_entry_attachments" does not exist
+FAIL 17_fix_attachments_foreign_key.sql :: psql:/tmp/wardah_sql/migrations/17_fix_attachments_foreign_key.sql:24: ERROR:  relation "gl_entries" does not exist
+FAIL 17_rollback_phase1.sql :: psql:/tmp/wardah_sql/migrations/17_rollback_phase1.sql:43: ERROR:  relation "public.stage_wip_log" does not exist
+FAIL 18_debug_entry_lines.sql :: psql:/tmp/wardah_sql/migrations/18_debug_entry_lines.sql:19: ERROR:  relation "gl_entries" does not exist
+PASS 18_notification_tables.sql
+PASS 18_verify_phase1_tables.sql
+PASS 19_check_gl_entry_lines_schema.sql
+PASS 19_complete_verification.sql
+FAIL 20_check_missing_lines.sql :: psql:/tmp/wardah_sql/migrations/20_check_missing_lines.sql:48: ERROR:  relation "gl_entries" does not exist
+PASS 20_quick_verification_summary.sql
+FAIL 21_delete_empty_entries.sql :: psql:/tmp/wardah_sql/migrations/21_delete_empty_entries.sql:47: ERROR:  relation "gl_entries" does not exist
+PASS 21_diagnose_failed_checks.sql
+FAIL 22_fix_gl_entry_lines_columns.sql :: psql:/tmp/wardah_sql/migrations/22_fix_gl_entry_lines_columns.sql:83: ERROR:  relation "gl_entry_lines" does not exist
+FAIL 22_fix_missing_components.sql :: psql:/tmp/wardah_sql/migrations/22_fix_missing_components.sql:52: ERROR:  relation "public.manufacturing_stages" does not exist
+PASS 23_check_attachments_data.sql
+PASS 23_final_verification.sql
+PASS 24_final_verification_table.sql
+FAIL 25_create_sample_manufacturing_stages.sql :: psql:/tmp/wardah_sql/migrations/25_create_sample_manufacturing_stages.sql:146: ERROR:  relation "manufacturing_stages" does not exist
+FAIL 26_verify_manufacturing_stages.sql :: psql:/tmp/wardah_sql/migrations/26_verify_manufacturing_stages.sql:19: ERROR:  relation "manufacturing_stages" does not exist
+FAIL 27_check_manufacturing_stages_data.sql :: psql:/tmp/wardah_sql/migrations/27_check_manufacturing_stages_data.sql:19: ERROR:  relation "manufacturing_stages" does not exist
+FAIL 28_fix_manufacturing_stages_rls.sql :: psql:/tmp/wardah_sql/migrations/28_fix_manufacturing_stages_rls.sql:46: ERROR:  relation "public.manufacturing_stages" does not exist
+FAIL 29_fix_rls_simple.sql :: psql:/tmp/wardah_sql/migrations/29_fix_rls_simple.sql:30: ERROR:  relation "public.manufacturing_stages" does not exist
+FAIL 30_fix_rls_allow_default_org.sql :: psql:/tmp/wardah_sql/migrations/30_fix_rls_allow_default_org.sql:31: ERROR:  relation "public.manufacturing_stages" does not exist
+FAIL phase2_stock_ledger_system.sql :: psql:/tmp/wardah_sql/migrations/phase2_stock_ledger_system.sql:98: ERROR:  relation "products" does not exist
+FAIL phase3_valuation_methods.sql :: psql:/tmp/wardah_sql/migrations/phase3_valuation_methods.sql:24: ERROR:  relation "products" does not exist
+FAIL migration_add_warehouse_to_goods_receipts.sql :: psql:/tmp/wardah_sql/migrations/migration_add_warehouse_to_goods_receipts.sql:9: ERROR:  relation "goods_receipts" does not exist
+PASS fix_view_org_id_error.sql
+FAIL warehouse_accounting_fixed.sql :: psql:/tmp/wardah_sql/migrations/warehouse_accounting_fixed.sql:82: ERROR:  relation "warehouse_gl_mapping" does not exist
+FAIL warehouse_management_system_fixed.sql :: psql:/tmp/wardah_sql/migrations/warehouse_management_system_fixed.sql:213: ERROR:  relation "products" does not exist
+FAIL 31_test_data_setup.sql :: psql:/tmp/wardah_sql/migrations/31_test_data_setup.sql:199: ERROR:  relation "products" does not exist
+PASS 32_fix_manufacturing_orders_rls.sql
+PASS 33_update_manufacturing_orders_status_constraint.sql
+FAIL 40_multi_tenant_rbac_schema.sql :: psql:/tmp/wardah_sql/migrations/40_multi_tenant_rbac_schema.sql:190: ERROR:  relation "user_organizations" does not exist
+FAIL 41_multi_tenant_rls_policies.sql :: psql:/tmp/wardah_sql/migrations/41_multi_tenant_rls_policies.sql:15: ERROR:  relation "super_admins" does not exist
+PASS 50_add_test_user_org.sql
+FAIL 51_fix_rls_user_organizations.sql :: psql:/tmp/wardah_sql/migrations/51_fix_rls_user_organizations.sql:14: ERROR:  relation "user_organizations" does not exist
+FAIL 52_fix_rls_recursion.sql :: psql:/tmp/wardah_sql/migrations/52_fix_rls_recursion.sql:43: ERROR:  relation "user_organizations" does not exist
+FAIL 53_seed_permissions_data.sql :: psql:/tmp/wardah_sql/migrations/53_seed_permissions_data.sql:29: ERROR:  relation "modules" does not exist
+FAIL 54_create_invitations_userprofiles.sql :: psql:/tmp/wardah_sql/migrations/54_create_invitations_userprofiles.sql:71: ERROR:  relation "super_admins" does not exist
+FAIL 55_add_general_ledger_module.sql :: psql:/tmp/wardah_sql/migrations/55_add_general_ledger_module.sql:15: ERROR:  relation "modules" does not exist
+FAIL 56_activity_tracking_triggers.sql :: psql:/tmp/wardah_sql/migrations/56_activity_tracking_triggers.sql:119: ERROR:  relation "roles" does not exist
+FAIL 57_fix_audit_trigger.sql :: psql:/tmp/wardah_sql/migrations/57_fix_audit_trigger.sql:8: ERROR:  relation "audit_logs" does not exist
+PASS 58_security_audit_report.sql
+FAIL 59_fix_rls_policies.sql :: psql:/tmp/wardah_sql/migrations/59_fix_rls_policies.sql:85: ERROR:  relation "user_organizations" does not exist
+FAIL 60_create_audit_logs_table.sql :: psql:/tmp/wardah_sql/migrations/60_create_audit_logs_table.sql:109: ERROR:  function auth_org_id() does not exist
+FAIL 61_add_material_reservations.sql :: psql:/tmp/wardah_sql/migrations/61_add_material_reservations.sql:66: ERROR:  function auth_org_id() does not exist
+FAIL 62_fix_security_linter_issues.sql :: psql:/tmp/wardah_sql/migrations/62_fix_security_linter_issues.sql:105: ERROR:  column "org_id" does not exist
+PASS 62_verify_security_fixes.sql
+FAIL 63_fix_stage_costs_rls.sql :: psql:/tmp/wardah_sql/migrations/63_fix_stage_costs_rls.sql:106: ERROR:  relation "user_organizations" does not exist
+PASS 64_check_stage_costs_structure.sql
+FAIL 65_fix_stage_costs_complete_v2.sql :: psql:/tmp/wardah_sql/migrations/65_fix_stage_costs_complete_v2.sql:160: ERROR:  relation "super_admins" does not exist
+PASS 66_add_wip_fields_to_stage_costs.sql
+PASS 66_fix_all_function_search_paths.sql
+PASS 67_fix_view_security_invoker.sql
+PASS 67_implement_eup_weighted_average.sql
+PASS 68_add_scrap_accounting.sql
+PASS 69_implement_fifo_method.sql
+PASS 70_organization_profile_enhancement.sql
+FAIL 71_create_organization_logos_bucket.sql :: psql:/tmp/wardah_sql/migrations/71_create_organization_logos_bucket.sql:57: ERROR:  relation "user_organizations" does not exist
+FAIL 72_manufacturing_routings.sql :: psql:/tmp/wardah_sql/migrations/72_manufacturing_routings.sql:148: ERROR:  relation "bom_headers" does not exist
+FAIL 73_manufacturing_mes.sql :: psql:/tmp/wardah_sql/migrations/73_manufacturing_mes.sql:426: ERROR:  relation "user_organizations" does not exist
+FAIL 74_capacity_planning.sql :: psql:/tmp/wardah_sql/migrations/74_capacity_planning.sql:275: ERROR:  relation "user_organizations" does not exist
+FAIL 75_manufacturing_integration.sql :: psql:/tmp/wardah_sql/migrations/75_manufacturing_integration.sql:335: ERROR:  column wc.default_labor_rate does not exist
+PASS 76_p0_atomic_journal_and_gl_event_posting.sql
+PASS 77_seed_gl_event_mappings.sql
+PASS 78_p1_mo_state_machine_and_atomic_reservation.sql
+PASS 79_p1_period_enforcement_and_management.sql
+PASS 80_cost_of_production_report.sql
+PASS 81_subledger_gl_reconciliation.sql
+PASS 82_p4_security_hardening.sql
+FAIL 83_p4_org_scoped_rls.sql :: psql:/tmp/wardah_sql/migrations/83_p4_org_scoped_rls.sql:76: ERROR:  column "org_id" does not exist
+FAIL 84_p4_gr_receipt_event_mapping.sql :: psql:/tmp/wardah_sql/migrations/84_p4_gr_receipt_event_mapping.sql:70: ERROR:  relation "gl_accounts" does not exist
+PASS 85_p4_atomic_delivery_note.sql
+PASS 86_p4_close_anon_rls_holes.sql
+PASS 87_p4_fix_delivery_note_schema.sql
+FAIL 88_p5_harden_delivery_note.sql :: psql:/tmp/wardah_sql/migrations/88_p5_harden_delivery_note.sql:15: ERROR:  relation "delivery_notes" does not exist
+FAIL 89_p5_atomic_goods_receipt.sql :: psql:/tmp/wardah_sql/migrations/89_p5_atomic_goods_receipt.sql:17: ERROR:  relation "goods_receipts" does not exist
+PASS 90_p5_harden_goods_receipt.sql
+PASS 91_p5_delivery_idem_race_and_admin_gate.sql
+PASS 92_p6_fix_mo_status_machine_drift.sql
+PASS 93_p6_atomic_mo_completion_costing.sql
+PASS 94_p7_atomic_inventory_ledger_on_receipt.sql
+PASS 95_p8_harden_receipt_idempotency_security_and_zero_cost.sql
+FAIL 96_p8_admin_gate_zero_cost_and_idempotency_request_hash.sql :: psql:/tmp/wardah_sql/migrations/96_p8_admin_gate_zero_cost_and_idempotency_request_hash.sql:20: ERROR:  relation "public.goods_receipts" does not exist
+FAIL 97_p10_unify_inventory_products_from_bins.sql :: psql:/tmp/wardah_sql/migrations/97_p10_unify_inventory_products_from_bins.sql:172: ERROR:  relation "products" does not exist
+PASS 98_p11_org_settings.sql
+FAIL 99_p12_hr_foundation_hardening.sql :: psql:/tmp/wardah_sql/migrations/99_p12_hr_foundation_hardening.sql:38: ERROR:  HR_PREREQ_MISSING: table hr_policies غائب — طبّق 15_hr_module + sql/hr/16 + sql/hr/17 أولاً
+FAIL 100_p12_atomic_payroll_and_settlement_posting.sql :: psql:/tmp/wardah_sql/migrations/100_p12_atomic_payroll_and_settlement_posting.sql:29: ERROR:  relation "hr_settlements" does not exist
+FAIL 101_p13_payroll_rbac_and_consistency.sql :: psql:/tmp/wardah_sql/migrations/101_p13_payroll_rbac_and_consistency.sql:59: ERROR:  PREREQ_MISSING: table hr_payroll_locks غائب — طبّق 15/98/99/100 أولاً
+FAIL 102_p13_settlement_review_and_snapshot.sql :: psql:/tmp/wardah_sql/migrations/102_p13_settlement_review_and_snapshot.sql:42: ERROR:  PREREQ_MISSING: hr_settlements/hr_settlement_lines — طبّق sql/hr/16 أولاً
+FAIL 103_p0_close_rls_escalation_invitations_views.sql :: psql:/tmp/wardah_sql/migrations/103_p0_close_rls_escalation_invitations_views.sql:135: ERROR:  relation "invitations" does not exist
+FAIL 104_p1_anon_grants_token_hash.sql :: psql:/tmp/wardah_sql/migrations/104_p1_anon_grants_token_hash.sql:6: ERROR:  function public.rpc_set_org_admin(uuid, uuid, boolean) does not exist
+PASS 105_p1_disable_graphql_revoke_anon_functions.sql
+PASS 106_p1_revoke_public_execute_definer.sql
+FAIL 107_p4_fk_indexes.sql :: psql:/tmp/wardah_sql/migrations/107_p4_fk_indexes.sql:14: ERROR:  relation "public.gl_entries" does not exist
+PASS 108_manufacturing_variance_functions.sql
+FAIL 109_manufacturing_wip_view.sql :: psql:/tmp/wardah_sql/migrations/109_manufacturing_wip_view.sql:44: ERROR:  relation "products" does not exist
+PASS 110_fix_mo_status_validate_constraint.sql
+PASS 111_fix_variance_functions_search_path.sql
+FAIL 112_fix_token_hash_no_pgcrypto.sql :: psql:/tmp/wardah_sql/migrations/112_fix_token_hash_no_pgcrypto.sql:18: ERROR:  relation "public.invitations" does not exist
+FAIL 113_revoke_definer_functions_not_client_facing.sql :: psql:/tmp/wardah_sql/migrations/113_revoke_definer_functions_not_client_facing.sql:76: ERROR:  FAIL[113-0] — المتوقع ≥20 دالة، وُجد 8 فقط
+FAIL 114_storage_logos_stop_public_listing.sql :: psql:/tmp/wardah_sql/migrations/114_storage_logos_stop_public_listing.sql:33: ERROR:  relation "public.user_organizations" does not exist
+FAIL 115_dedupe_indexes_and_live_fk_indexes.sql :: psql:/tmp/wardah_sql/migrations/115_dedupe_indexes_and_live_fk_indexes.sql:34: ERROR:  relation "public.journal_approval_rules" does not exist
+FAIL 116_consolidate_user_roles_policies.sql :: psql:/tmp/wardah_sql/migrations/116_consolidate_user_roles_policies.sql:27: ERROR:  relation "public.user_roles" does not exist
+FAIL 117_variance_functions_graceful_empty.sql :: psql:/tmp/wardah_sql/migrations/117_variance_functions_graceful_empty.sql:93: ERROR:  relation "products" does not exist
+FAIL 118_replace_dead_org_isolation_policies.sql :: psql:/tmp/wardah_sql/migrations/118_replace_dead_org_isolation_policies.sql:41: ERROR:  FAIL[118-1] المتوقع ≥60، حُذف 1
