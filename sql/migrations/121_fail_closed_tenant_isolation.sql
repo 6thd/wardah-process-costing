@@ -19,7 +19,8 @@
 --     يُفجّر كل استعلام بخطأ 500 بدل الإغلاق الصامت. NULL ⇒ org_id = NULL ⇒
 --     لا صف يطابق (قراءةً) و WITH CHECK يرفض (كتابةً) = fail-closed صحيح.
 --   • get_current_tenant_id بلا مؤسسة افتراضية إطلاقاً؛ تقبل claim الـJWT
---     فقط بعد تأكيد العضوية؛ وإلا العضوية الوحيدة النشطة؛ وإلا NULL.
+--     فقط بعد تأكيد العضوية؛ وإلا عضوية نشطة واحدة بترتيب حتمي (الأقدم، يشمل
+--     متعدد المؤسسات — لا تكسرهم بـNULL)؛ وإلا NULL إن لا عضوية.
 --   • لأن 16/17 دالة RPC حساسة تحتوي أصلاً على IF v_org IS NULL THEN RAISE،
 --     وكلها تشتق org عبر wardah_org_id، فإن تحصين الجذر يُغلق الوصول
 --     العابر للمؤسسات وعديم-العضوية فيها جميعاً دفعة واحدة. الدالة الوحيدة
@@ -71,7 +72,6 @@ DECLARE
     v_claims     jsonb;
     v_claim_org  uuid;
     v_org        uuid;
-    v_count      integer;
 BEGIN
     -- بلا مصادقة ⇒ بلا مؤسسة (لا سقوط لمؤسسة افتراضية)
     IF v_uid IS NULL THEN
@@ -96,21 +96,20 @@ BEGIN
         END IF;
     END IF;
 
-    -- بلا claim صالح: تُستخدم العضوية النشطة فقط إن كانت واحدة بالضبط.
-    -- تعدد العضويات يُلزم العميل بتمرير org_id في JWT (تُحقَّق أعلاه) بدل
-    -- اختيار عشوائي بـ LIMIT 1.
-    SELECT count(*) INTO v_count
+    -- بلا claim صالح: تُستخدم عضوية نشطة واحدة بترتيب حتمي (الأقدم). هذا يشمل
+    -- حالة تعدد العضويات: fallback حتمي بدل NULL الذي كان يكسر متعدد المؤسسات
+    -- (RLS يستدعي wardah_org_id(NULL) والواجهة تخزّن المؤسسة المختارة في
+    -- localStorage لا في JWT، فلا قناة توصلها للخادم بعد). آمن أمنياً لأنه
+    -- يقتصر على مؤسسات المستخدم نفسه — لا مؤسسة افتراضية ولا مؤسسة غير عضو فيها.
+    -- لاحترام اختيار الواجهة فعلياً لمتعدد المؤسسات: متابعة FU-6 (تمرير المؤسسة
+    -- عبر JWT claim أو session GUC مُتحقَّق من العضوية).
+    SELECT org_id INTO v_org
     FROM public.user_organizations
-    WHERE user_id = v_uid AND COALESCE(is_active, TRUE);
+    WHERE user_id = v_uid AND COALESCE(is_active, TRUE)
+    ORDER BY created_at NULLS LAST, org_id
+    LIMIT 1;
 
-    IF v_count = 1 THEN
-        SELECT org_id INTO v_org
-        FROM public.user_organizations
-        WHERE user_id = v_uid AND COALESCE(is_active, TRUE);
-        RETURN v_org;
-    END IF;
-
-    RETURN NULL;
+    RETURN v_org;  -- NULL فقط إذا لا عضوية نشطة إطلاقاً
 EXCEPTION WHEN OTHERS THEN
     -- fail-closed مطلقاً: لا مؤسسة افتراضية على أي خطأ
     RETURN NULL;

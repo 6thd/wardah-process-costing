@@ -11,7 +11,8 @@
 --
 -- الهويات الوهمية:
 --   • A = aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa  (بلا أي عضوية)
---   • تُنشأ داخل المعاملة Org B + عضو B مؤقتان لاختبار العبور بين المؤسسات.
+--   • تُنشأ داخل المعاملة Org B/C + عضو B مؤقتان لاختبار العبور بين المؤسسات
+--     وحالة متعدد المؤسسات (11 تأكيداً).
 -- ============================================================================
 
 BEGIN;
@@ -21,7 +22,9 @@ DECLARE
     c_default   constant uuid := '00000000-0000-0000-0000-000000000001';
     v_no_member constant uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
     v_org_b     uuid;
+    v_org_c     uuid;
     v_user_b    uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    v_multi     uuid;
     v_resolved  uuid;
     v_products  bigint;
     v_written   bigint;
@@ -118,7 +121,29 @@ BEGIN
     END IF;
 
     RESET ROLE;
-    RAISE NOTICE 'PASS: كل اختبارات عزل المؤسسات السلبية (10/10) نجحت';
+
+    -- ==== متعدد المؤسسات: عضو في Org B + Org C ⇒ يحصل على وصول (لا NULL) =====
+    INSERT INTO organizations (id, name, code)
+    VALUES (gen_random_uuid(), 'TEST_ORG_C_ephemeral', 'TSTC_' || substr(gen_random_uuid()::text,1,8))
+    RETURNING id INTO v_org_c;
+    INSERT INTO user_organizations (user_id, org_id, is_active)
+    VALUES (v_user_b, v_org_c, true);
+
+    PERFORM set_config('request.jwt.claims',
+        json_build_object('sub', v_user_b, 'role', 'authenticated')::text, true);
+
+    -- (11) العضو في مؤسستين بلا JWT claim ⇒ لا يفقد الوصول (fallback حتمي)،
+    -- والنتيجة إحدى مؤسستيه فقط (لا default ولا مؤسسة غير عضو فيها).
+    v_multi := wardah_org_id(NULL);
+    IF v_multi IS NULL THEN
+        RAISE EXCEPTION 'FAIL[11] عضو متعدد المؤسسات فقد الوصول (NULL)';
+    END IF;
+    IF v_multi NOT IN (v_org_b, v_org_c) THEN
+        RAISE EXCEPTION 'FAIL[11] متعدد المؤسسات حُلّ لمؤسسة ليست عضواً فيها: %', v_multi;
+    END IF;
+
+    RESET ROLE;
+    RAISE NOTICE 'PASS: كل اختبارات عزل المؤسسات (11/11) نجحت';
 END;
 $test$;
 
