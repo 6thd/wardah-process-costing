@@ -4,21 +4,17 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Factory } from 'lucide-react'
 
-interface WorkOrdersEmptyStateProps {
-  isRTL: boolean
-}
-
-export const WorkOrdersEmptyState: React.FC<WorkOrdersEmptyStateProps> = ({
-  isRTL
-}) => {
+export const WorkOrdersEmptyState: React.FC = () => {
+  const { t } = useTranslation()
   return (
     <div className="text-center py-12">
       <Factory className="mx-auto h-12 w-12 text-muted-foreground" />
-      <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد أوامر عمل' : 'No Work Orders'}</h3>
+      <h3 className="mt-2 text-lg font-medium">{t('wcDashboard.empty.title')}</h3>
       <p className="mt-1 text-muted-foreground">
-        {isRTL ? 'لا توجد أوامر عمل نشطة لمركز العمل هذا' : 'No active work orders for this work center'}
+        {t('wcDashboard.empty.subtitle')}
       </p>
     </div>
   )
