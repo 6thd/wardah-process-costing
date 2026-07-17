@@ -15,7 +15,7 @@ interface CommentsSectionProps {
 }
 
 export function CommentsSection({ entryId }: CommentsSectionProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [comments, setComments] = useState<JournalComment[]>([]);
   const [newComment, setNewComment] = useState('');
@@ -37,7 +37,7 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
 
   const handleAddComment = async () => {
     if (!newComment.trim()) {
-      toast.error(isRTL ? 'يرجى إدخال تعليق' : 'Please enter a comment');
+      toast.error(t('comments.enterComment'));
       return;
     }
 
@@ -46,35 +46,35 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
       const comment = await JournalService.addComment(entryId, newComment, commentType);
       setComments([comment, ...comments]);
       setNewComment('');
-      toast.success(isRTL ? 'تم إضافة التعليق' : 'Comment added');
+      toast.success(t('comments.added'));
     } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'فشل إضافة التعليق' : 'Failed to add comment'));
+      toast.error(error.message || t('comments.addFailed'));
     } finally {
       setLoading(false);
     }
   };
 
   const handleDelete = async (commentId: string) => {
-    if (!confirm(isRTL ? 'هل تريد حذف هذا التعليق؟' : 'Delete this comment?')) {
+    if (!confirm(t('comments.deleteConfirm'))) {
       return;
     }
 
     try {
       await JournalService.deleteComment(commentId);
       setComments(comments.filter(c => c.id !== commentId));
-      toast.success(isRTL ? 'تم حذف التعليق' : 'Comment deleted');
+      toast.success(t('comments.deleted'));
     } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'فشل الحذف' : 'Delete failed'));
+      toast.error(error.message || t('comments.deleteFailed'));
     }
   };
 
   const getTypeLabel = (type: string) => {
-    const labels = {
-      note: { ar: 'ملاحظة', en: 'Note' },
-      comment: { ar: 'تعليق', en: 'Comment' },
-      internal: { ar: 'داخلي', en: 'Internal' }
+    const typeKeys: Record<string, string> = {
+      note: 'comments.type.note',
+      comment: 'comments.type.comment',
+      internal: 'comments.type.internal'
     };
-    return isRTL ? labels[type as keyof typeof labels]?.ar : labels[type as keyof typeof labels]?.en;
+    return typeKeys[type] ? t(typeKeys[type]) : type;
   };
 
   const getTypeBadge = (type: string) => {
@@ -91,10 +91,10 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <MessageSquare className="h-5 w-5" />
-          {isRTL ? 'التعليقات والملاحظات' : 'Comments & Notes'}
+          {t('comments.title')}
         </CardTitle>
         <CardDescription>
-          {isRTL ? 'إضافة تعليقات وملاحظات على القيد' : 'Add comments and notes to the entry'}
+          {t('comments.description')}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -106,34 +106,31 @@ export function CommentsSection({ entryId }: CommentsSectionProps) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="comment">
-                  {isRTL ? 'تعليق' : 'Comment'}
+                  {t('comments.type.comment')}
                 </SelectItem>
                 <SelectItem value="note">
-                  {isRTL ? 'ملاحظة' : 'Note'}
+                  {t('comments.type.note')}
                 </SelectItem>
                 <SelectItem value="internal">
-                  {isRTL ? 'داخلي' : 'Internal'}
+                  {t('comments.type.internal')}
                 </SelectItem>
               </SelectContent>
             </Select>
             <Textarea
               value={newComment}
               onChange={(e) => setNewComment(e.target.value)}
-              placeholder={isRTL ? 'أضف تعليقاً أو ملاحظة...' : 'Add a comment or note...'}
+              placeholder={t('comments.placeholder')}
               rows={3}
             />
             <Button onClick={handleAddComment} disabled={loading || !newComment.trim()}>
               <Send className="h-4 w-4 mr-2" />
-              {(() => {
-                if (loading) return isRTL ? 'جاري الإضافة...' : 'Adding...';
-                return isRTL ? 'إضافة' : 'Add';
-              })()}
+              {loading ? t('comments.adding') : t('comments.add')}
             </Button>
           </div>
 
           {comments.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {isRTL ? 'لا توجد تعليقات' : 'No comments'}
+              {t('comments.noComments')}
             </div>
           ) : (
             <div className="space-y-3">
