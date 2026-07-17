@@ -11,8 +11,9 @@
  *   node scripts/i18n/count-hardcoded.mjs            # ملخّص + إجمالي
  *   node scripts/i18n/count-hardcoded.mjs --json     # ناتج JSON (للـCI)
  *   node scripts/i18n/count-hardcoded.mjs --list     # كل موضع مع الملف/السطر
+ *   node scripts/i18n/count-hardcoded.mjs --ci       # بوابة CI: يخرج بـ 1 عند إجمالي > 0
  *
- * كود الخروج: 0 دائماً (تقرير فقط) — يُحوَّل لبوابة CI لاحقاً عند بلوغ الصفر.
+ * كود الخروج: 0 إن كان الإجمالي صفرًا أو لم يُمرَّر --ci؛ 1 عند --ci مع إجمالي > 0.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -28,6 +29,7 @@ const PATTERN = /isRTL\s*\?\s*(['"`])\s*[؀-ۿ]/g
 const args = new Set(process.argv.slice(2))
 const asJson = args.has('--json')
 const asList = args.has('--list')
+const asCI = args.has('--ci')
 
 /** جميع ملفات المصدر ذات الامتداد المعني */
 function walk(dir) {
@@ -72,6 +74,14 @@ if (asJson) {
 } else if (asList) {
   for (const h of hits) console.log(`${h.file}:${h.line}  ${h.text}`)
   console.log(`\nإجمالي: ${total} موضع في ${fileCount} ملف`)
+} else if (asCI) {
+  if (total === 0) {
+    console.log('✅ i18n gate: 0 نص مشفَّر — ممتاز')
+  } else {
+    console.error(`❌ i18n gate: ${total} نص مشفَّر في ${fileCount} ملف — يجب استبدالها بـ t() قبل الدمج`)
+    for (const h of hits) console.error(`  ${h.file}:${h.line}  ${h.text}`)
+    process.exit(1)
+  }
 } else {
   const sorted = Object.entries(perFile).sort((a, b) => b[1] - a[1])
   console.log('النصوص المشفَّرة (isRTL ? \'عربي\' : \'إنجليزي\') — أعلى الملفات:')

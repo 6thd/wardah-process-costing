@@ -41,6 +41,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # i18n gate: يمنع عودة النصوص المشفَّرة (isRTL ? 'عربي' : 'إنجليزي') بعد T6 م3
+      - name: i18n hardcoded-text gate
+        run: node scripts/i18n/count-hardcoded.mjs --ci
+
       # P5: التحقق من أن ملف الأنواع المولَّدة محدَّث مع المخطط المُودَع
       # (يكشف تناقضاً بين database.generated.ts المُودَع والأنواع التي سيولّدها CLI
       #  عبر مقارنة بسيطة لحجم الملف — تحديث كامل يتطلب بيانات اعتماد Supabase)
