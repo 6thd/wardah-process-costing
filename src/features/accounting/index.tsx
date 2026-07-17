@@ -50,7 +50,6 @@ function AccountingOverview() {
             color={module.color}
             bgColor={module.bgColor}
             features={module.features}
-            isRTL={isRTL}
           />
         ))}
       </div>

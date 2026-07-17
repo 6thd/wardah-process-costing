@@ -2,7 +2,12 @@
  * Tests for features/accounting/journal-entries/utils/journalHelpers.ts - REAL COVERAGE TESTS
  * These tests import and test actual source code functions
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('i18next', () => ({
+  default: { t: (key: string) => key }
+}));
+
 import { normalizeLines, calculateTotals, validateEntry } from '../journalHelpers';
 import type { Account, JournalLine } from '../../types';
 
@@ -163,31 +168,17 @@ describe('journalHelpers', () => {
 
   describe('validateEntry', () => {
     it('should return invalid when journalId is empty', () => {
-      const result = validateEntry('', [{ debit: 100, credit: 0 }], false);
-      
-      expect(result.valid).toBe(false);
-      expect(result.message).toBe('Please select a journal type');
-    });
+      const result = validateEntry('', [{ debit: 100, credit: 0 }]);
 
-    it('should return invalid when journalId is empty (RTL)', () => {
-      const result = validateEntry('', [], true);
-      
       expect(result.valid).toBe(false);
-      expect(result.message).toBe('يجب اختيار نوع القيد');
+      expect(result.message).toBe('accounting.journalEntries.validation.selectJournalType');
     });
 
     it('should return invalid when lines is empty', () => {
-      const result = validateEntry('journal-1', [], false);
-      
-      expect(result.valid).toBe(false);
-      expect(result.message).toBe('Please add lines to the entry');
-    });
+      const result = validateEntry('journal-1', []);
 
-    it('should return invalid when lines is empty (RTL)', () => {
-      const result = validateEntry('journal-1', [], true);
-      
       expect(result.valid).toBe(false);
-      expect(result.message).toBe('يجب إضافة بنود للقيد');
+      expect(result.message).toBe('accounting.journalEntries.validation.addLines');
     });
 
     it('should return invalid when entry is not balanced', () => {
@@ -195,21 +186,10 @@ describe('journalHelpers', () => {
         { debit: 100, credit: 0 },
         { debit: 0, credit: 50 }
       ];
-      const result = validateEntry('journal-1', lines, false);
-      
-      expect(result.valid).toBe(false);
-      expect(result.message).toBe('Entry not balanced! Debit and Credit must be equal');
-    });
+      const result = validateEntry('journal-1', lines);
 
-    it('should return invalid when entry is not balanced (RTL)', () => {
-      const lines: Partial<JournalLine>[] = [
-        { debit: 100, credit: 0 },
-        { debit: 0, credit: 50 }
-      ];
-      const result = validateEntry('journal-1', lines, true);
-      
       expect(result.valid).toBe(false);
-      expect(result.message).toBe('القيد غير متوازن! يجب تساوي المدين والدائن');
+      expect(result.message).toBe('accounting.journalEntries.validation.notBalanced');
     });
 
     it('should return valid for balanced entry', () => {
@@ -217,8 +197,8 @@ describe('journalHelpers', () => {
         { debit: 100, credit: 0 },
         { debit: 0, credit: 100 }
       ];
-      const result = validateEntry('journal-1', lines, false);
-      
+      const result = validateEntry('journal-1', lines);
+
       expect(result.valid).toBe(true);
       expect(result.message).toBeUndefined();
     });

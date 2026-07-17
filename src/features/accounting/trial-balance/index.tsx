@@ -18,7 +18,7 @@ const TrialBalance = () => {
   const [fromDate, setFromDate] = useState(format(new Date(new Date().getFullYear(), 0, 1), 'yyyy-MM-dd'));
   const [accountTypeFilter, setAccountTypeFilter] = useState<string>('all');
 
-  const { balances, loading, fetchTrialBalance } = useTrialBalance(fromDate, asOfDate, isRTL);
+  const { balances, loading, fetchTrialBalance } = useTrialBalance(fromDate, asOfDate);
   const filteredBalances = filterBalancesByType(balances, accountTypeFilter);
   const totals = calculateTotals(filteredBalances);
 

@@ -154,7 +154,8 @@
     "notes": "ملاحظات",
     "openInNewTab": "فتح في علامة تبويب جديدة",
     "toggleLanguage": "تبديل اللغة",
-    "closeSidebar": "إغلاق القائمة الجانبية"
+    "closeSidebar": "إغلاق القائمة الجانبية",
+    "open": "فتح"
   },
   "manufacturing": {
     "title": "إدارة التصنيع",
@@ -948,7 +949,14 @@
         "postFailed": "فشل ترحيل القيد",
         "postError": "خطأ في ترحيل القيد",
         "deleteSuccess": "تم حذف القيد بنجاح",
-        "deleteError": "خطأ في حذف القيد"
+        "deleteError": "خطأ في حذف القيد",
+        "noJournalTypes": "لم يتم العثور على أنواع قيود. يرجى إنشاؤها أولاً.",
+        "loadJournalTypesError": "خطأ في تحميل أنواع القيود"
+      },
+      "validation": {
+        "selectJournalType": "يجب اختيار نوع القيد",
+        "addLines": "يجب إضافة بنود للقيد",
+        "notBalanced": "القيد غير متوازن! يجب تساوي المدين والدائن"
       }
     },
     "accountStatement": {
@@ -1002,7 +1010,8 @@
       "noData": "لا توجد بيانات",
       "totals": "الإجماليات",
       "difference": "الفرق",
-      "balanced": "✓ ميزان المراجعة متوازن"
+      "balanced": "✓ ميزان المراجعة متوازن",
+      "fetchError": "حدث خطأ في جلب البيانات"
     }
   },
   "efficiency": {
@@ -1059,7 +1068,9 @@
     "materialConsumptionReport": "تقرير استهلاك المواد",
     "item": "الصنف",
     "consumed": "المستهلك",
-    "cost": "التكلفة"
+    "cost": "التكلفة",
+    "loading": "جاري التحميل...",
+    "noDataPeriod": "لا توجد بيانات للفترة المحددة"
   },
   "export": {
     "sales": {
@@ -1661,5 +1672,82 @@
     "ohCost": "الأوفرهيد",
     "totalCost": "إجمالي التكلفة",
     "unitCost": "تكلفة الوحدة"
+  },
+  "salesReports": {
+    "title": "تقارير المبيعات",
+    "subtitle": "أداء المبيعات وتحليل العملاء والمنتجات",
+    "tabs": {
+      "performance": "أداء المبيعات",
+      "customers": "تحليل العملاء",
+      "products": "تحليل المنتجات",
+      "profitability": "الربحية"
+    },
+    "dateFilter": "فلترة التاريخ",
+    "fromDate": "من تاريخ",
+    "toDate": "إلى تاريخ",
+    "pickDate": "اختر التاريخ",
+    "view": "عرض",
+    "loading": "جاري التحميل...",
+    "noData": "لا توجد بيانات",
+    "selectDates": "يرجى اختيار تاريخ البداية والنهاية",
+    "fetchError": "حدث خطأ في جلب البيانات",
+    "totalSales": "إجمالي المبيعات",
+    "totalInvoices": "عدد الفواتير",
+    "avgOrderValue": "متوسط قيمة الطلب",
+    "collectionRate": "معدل التحصيل",
+    "totalCollections": "إجمالي التحصيلات",
+    "outstandingAmount": "المبلغ المعلق",
+    "customerAnalysis": "تحليل العملاء",
+    "productAnalysis": "تحليل المنتجات",
+    "code": "كود",
+    "customerName": "اسم العميل",
+    "invoices": "عدد الفواتير",
+    "avgInvoice": "متوسط الفاتورة",
+    "outstanding": "المعلق",
+    "collectionRatePct": "معدل التحصيل %",
+    "productName": "اسم المنتج",
+    "qtySold": "الكمية المباعة",
+    "revenue": "الإيرادات",
+    "profit": "الربح",
+    "profitMarginPct": "هامش الربح %",
+    "sales": "المبيعات",
+    "topCustomers": "أفضل العملاء حسب الربحية",
+    "topProducts": "أفضل المنتجات حسب الربحية",
+    "totalRevenue": "إجمالي الإيرادات",
+    "totalCOGS": "إجمالي COGS",
+    "grossProfit": "الربح الإجمالي",
+    "grossProfitMarginPct": "هامش الربح الإجمالي %",
+    "netProfit": "الربح الصافي",
+    "netProfitMarginPct": "هامش الربح الصافي %"
+  },
+  "wipReport": {
+    "loading": "جارٍ تحميل البيانات...",
+    "error": "حدث خطأ",
+    "title": "تقرير تقييم WIP",
+    "totalValue": "إجمالي قيمة WIP",
+    "mo": "أمر التصنيع",
+    "stage": "المرحلة",
+    "endWipQty": "كمية WIP النهاية",
+    "dmPct": "% إتمام المواد",
+    "ccPct": "% إتمام التحويل",
+    "unitCost": "تكلفة الوحدة",
+    "wipValue": "قيمة WIP",
+    "noWip": "لا توجد WIP حالياً"
+  },
+  "copOverview": {
+    "loading": "جارٍ تحميل البيانات...",
+    "error": "حدث خطأ",
+    "title": "تقرير تكلفة الإنتاج",
+    "totalCost": "إجمالي التكلفة",
+    "goodQty": "الكمية الجيدة",
+    "avgUnitCost": "متوسط التكلفة للوحدة",
+    "note": "هذا التقرير يعرض نظرة عامة على تكلفة الإنتاج. استخدم التبويبات الأخرى للحصول على تفاصيل أكثر."
+  },
+  "fifoCompare": {
+    "loading": "جارٍ تحميل البيانات...",
+    "error": "حدث خطأ",
+    "title": "مقارنة FIFO مقابل المتوسط المرجح",
+    "note": "هذه المقارنة تعرض الفروقات بين طريقة FIFO والمتوسط المرجح في حساب تكلفة الوحدة.",
+    "underDevelopment": "قيد التطوير - سيتم إضافة المقارنة التفصيلية قريباً"
   }
 }

@@ -21,7 +21,7 @@ interface DashboardFilters {
 }
 
 export function CostOfProductionReport({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data, isLoading, error } = useQuery({
@@ -82,14 +82,14 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
     return <div className="flex items-center justify-center min-h-[400px]">
       <div className="text-center space-y-4">
         <BarChart3 className="h-8 w-8 animate-pulse mx-auto text-primary" />
-        <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+        <p className="text-muted-foreground">{t('copOverview.loading')}</p>
       </div>
     </div>
   }
 
   if (error) {
     return <Alert variant="destructive" className={getGlassClasses()}>
-      <AlertDescription>{isRTL ? 'حدث خطأ' : 'Error'}: {error.message}</AlertDescription>
+      <AlertDescription>{t('copOverview.error')}: {error.message}</AlertDescription>
     </Alert>
   }
 
@@ -107,14 +107,14 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <BarChart3 className="h-5 w-5" />
-            {isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
+            {t('copOverview.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">{isRTL ? 'إجمالي التكلفة' : 'Total Cost'}</CardTitle>
+                <CardTitle className="text-sm">{t('copOverview.totalCost')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{totals.totalCost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
@@ -122,7 +122,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
             </Card>
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">{isRTL ? 'الكمية الجيدة' : 'Good Quantity'}</CardTitle>
+                <CardTitle className="text-sm">{t('copOverview.goodQty')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{totals.goodQty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
@@ -130,7 +130,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
             </Card>
             <Card>
               <CardHeader className="pb-3">
-                <CardTitle className="text-sm">{isRTL ? 'متوسط التكلفة للوحدة' : 'Avg Unit Cost'}</CardTitle>
+                <CardTitle className="text-sm">{t('copOverview.avgUnitCost')}</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
@@ -143,10 +143,7 @@ export function CostOfProductionReport({ filters }: { readonly filters: Dashboar
           <Alert>
             <Info className="h-4 w-4" />
             <AlertDescription className={cn(isRTL && "text-right")}>
-              {isRTL 
-                ? 'هذا التقرير يعرض نظرة عامة على تكلفة الإنتاج. استخدم التبويبات الأخرى للحصول على تفاصيل أكثر.'
-                : 'This report provides an overview of production costs. Use other tabs for more details.'
-              }
+              {t('copOverview.note')}
             </AlertDescription>
           </Alert>
         </CardContent>

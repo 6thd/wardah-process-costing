@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -23,7 +24,8 @@ interface Account {
   is_active: boolean;
 }
 
-export function useJournalData(isRTL: boolean) {
+export function useJournalData() {
+  const { t } = useTranslation();
   const [journals, setJournals] = useState<Journal[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -45,13 +47,13 @@ export function useJournalData(isRTL: boolean) {
 
       if (!data || data.length === 0) {
         console.warn('⚠️ No journals found in database');
-        toast.error(isRTL ? 'لم يتم العثور على أنواع قيود. يرجى إنشاؤها أولاً.' : 'No journal types found. Please create them first.');
+        toast.error(t('accounting.journalEntries.svc.noJournalTypes'));
       }
 
       setJournals(data || []);
     } catch (error: any) {
       console.error('❌ Error fetching journals:', error);
-      toast.error(isRTL ? 'خطأ في تحميل أنواع القيود' : 'Error loading journal types');
+      toast.error(t('accounting.journalEntries.svc.loadJournalTypesError'));
     }
   };
 

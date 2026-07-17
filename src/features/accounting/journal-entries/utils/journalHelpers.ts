@@ -1,4 +1,7 @@
+import i18next from 'i18next';
 import type { JournalLine, Account } from '../types';
+
+const t = (key: string) => i18next.t(key);
 
 export function normalizeLines(rawLines: any[], entryId: string | undefined, accounts: Account[]): JournalLine[] {
   if (!rawLines || rawLines.length === 0) return [];
@@ -43,20 +46,19 @@ export function calculateTotals(lines: Partial<JournalLine>[]): { totalDebit: nu
 
 export function validateEntry(
   journalId: string,
-  lines: Partial<JournalLine>[],
-  isRTL: boolean
+  lines: Partial<JournalLine>[]
 ): { valid: boolean; message?: string } {
   if (!journalId) {
     return {
       valid: false,
-      message: isRTL ? 'يجب اختيار نوع القيد' : 'Please select a journal type'
+      message: t('accounting.journalEntries.validation.selectJournalType')
     };
   }
 
   if (lines.length === 0) {
     return {
       valid: false,
-      message: isRTL ? 'يجب إضافة بنود للقيد' : 'Please add lines to the entry'
+      message: t('accounting.journalEntries.validation.addLines')
     };
   }
 
@@ -64,7 +66,7 @@ export function validateEntry(
   if (!balanced) {
     return {
       valid: false,
-      message: isRTL ? 'القيد غير متوازن! يجب تساوي المدين والدائن' : 'Entry not balanced! Debit and Credit must be equal'
+      message: t('accounting.journalEntries.validation.notBalanced')
     };
   }
 

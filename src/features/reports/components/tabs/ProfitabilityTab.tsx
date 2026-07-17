@@ -11,16 +11,16 @@ interface ProfitabilityTabProps {
 
 export function ProfitabilityTab({ loading, profitability, isRTL }: ProfitabilityTabProps) {
   if (loading) {
-    return renderLoadingState(isRTL);
+    return renderLoadingState();
   }
 
   if (!profitability) {
-    return renderEmptyState(isRTL);
+    return renderEmptyState();
   }
 
   return (
     <div className="space-y-4">
-      <ProfitabilityMetrics profitability={profitability} isRTL={isRTL} />
+      <ProfitabilityMetrics profitability={profitability} />
       <ProfitabilityTables profitability={profitability} isRTL={isRTL} />
     </div>
   );
