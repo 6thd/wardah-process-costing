@@ -74,9 +74,9 @@ describe('ReconciliationPage', () => {
   it('يعرض العنوان وحقل التاريخ وأزرار التحكم', async () => {
     render(<ReconciliationPage />)
 
-    expect(screen.getByText('تسوية الدفاتر الفرعية مع الأستاذ العام')).toBeInTheDocument()
+    expect(screen.getByText('reconciliation.title')).toBeInTheDocument()
     expect(screen.getByTestId('as-of-date')).toBeInTheDocument()
-    expect(screen.getByText('طباعة')).toBeInTheDocument()
+    expect(screen.getByText('reconciliation.print')).toBeInTheDocument()
   })
 
   it('يعرض قسمي المخزون وWIP مع حالة كل قسم', async () => {
@@ -88,10 +88,10 @@ describe('ReconciliationPage', () => {
 
     expect(screen.getByText('المخزون (مواد خام + إنتاج تام)')).toBeInTheDocument()
     expect(screen.getByText('الإنتاج تحت التشغيل')).toBeInTheDocument()
-    expect(screen.getByText('متوازن')).toBeInTheDocument()
-    expect(screen.getByText('يوجد فرق!')).toBeInTheDocument()
+    expect(screen.getByText('reconciliation.balanced')).toBeInTheDocument()
+    expect(screen.getByText('reconciliation.unbalanced')).toBeInTheDocument()
     // الشارة الكلية تعكس وجود فرق
-    expect(screen.getByText('توجد فروق تحتاج مراجعة')).toBeInTheDocument()
+    expect(screen.getByText('reconciliation.diffsFound')).toBeInTheDocument()
   })
 
   it('يعرض رسالة الخطأ عند غياب Migration 81', async () => {

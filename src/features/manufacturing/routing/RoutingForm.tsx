@@ -27,7 +27,7 @@ import { toast } from 'sonner'
 export function RoutingForm() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const isEditMode = !!id
 
@@ -76,22 +76,22 @@ export function RoutingForm() {
     e.preventDefault()
 
     if (!formData.routing_code || !formData.routing_name) {
-      toast.error(isRTL ? 'يرجى إدخال كود واسم المسار' : 'Please enter routing code and name')
+      toast.error(t('routingForm.validationError'))
       return
     }
 
     try {
       if (isEditMode && id) {
         await updateRouting.mutateAsync({ id, data: formData })
-        toast.success(isRTL ? 'تم تحديث المسار بنجاح' : 'Routing updated successfully')
+        toast.success(t('routingForm.updateSuccess'))
       } else {
         await createRouting.mutateAsync(formData)
-        toast.success(isRTL ? 'تم إنشاء المسار بنجاح' : 'Routing created successfully')
+        toast.success(t('routingForm.createSuccess'))
       }
       navigate('/manufacturing/routing')
     } catch (error) {
       const err = error as { message?: string }
-      toast.error(err.message || (isRTL ? 'حدث خطأ' : 'An error occurred'))
+      toast.error(err.message || t('routingForm.error'))
     }
   }
 
@@ -100,7 +100,7 @@ export function RoutingForm() {
       <div className="flex justify-center items-center h-64">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-2 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
+          <p className="mt-2 text-muted-foreground">{t('routingForm.loading')}</p>
         </div>
       </div>
     )
@@ -112,29 +112,24 @@ export function RoutingForm() {
       <div className="flex items-center gap-4">
         <Button variant="ghost" onClick={() => navigate('/manufacturing/routing')}>
           <ArrowLeft className="w-4 h-4 mr-2" />
-          {isRTL ? 'رجوع' : 'Back'}
+          {t('routingForm.back')}
         </Button>
         <h1 className="text-3xl font-bold wardah-text-gradient-google">
-          {(() => {
-            if (isEditMode) {
-              return isRTL ? 'تعديل مسار التصنيع' : 'Edit Manufacturing Routing'
-            }
-            return isRTL ? 'مسار تصنيع جديد' : 'New Manufacturing Routing'
-          })()}
+          {isEditMode ? t('routingForm.editTitle') : t('routingForm.newTitle')}
         </h1>
       </div>
 
       {/* Form */}
       <Card className="wardah-glass-card">
         <CardHeader>
-          <CardTitle>{isRTL ? 'معلومات المسار' : 'Routing Information'}</CardTitle>
+          <CardTitle>{t('routingForm.cardTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="routing_code">
-                  {isRTL ? 'كود المسار' : 'Routing Code'} *
+                  {t('routingForm.code')} *
                 </Label>
                 <Input
                   id="routing_code"
@@ -149,7 +144,7 @@ export function RoutingForm() {
 
               <div>
                 <Label htmlFor="routing_name">
-                  {isRTL ? 'اسم المسار (إنجليزي)' : 'Routing Name (English)'} *
+                  {t('routingForm.nameEn')} *
                 </Label>
                 <Input
                   id="routing_name"
@@ -163,7 +158,7 @@ export function RoutingForm() {
 
               <div>
                 <Label htmlFor="routing_name_ar">
-                  {isRTL ? 'اسم المسار (عربي)' : 'Routing Name (Arabic)'}
+                  {t('routingForm.nameAr')}
                 </Label>
                 <Input
                   id="routing_name_ar"
@@ -175,7 +170,7 @@ export function RoutingForm() {
               </div>
 
               <div>
-                <Label htmlFor="status">{isRTL ? 'الحالة' : 'Status'}</Label>
+                <Label htmlFor="status">{t('routingForm.status')}</Label>
                 <Select
                   value={formData.status}
                   onValueChange={(value) =>
@@ -189,16 +184,16 @@ export function RoutingForm() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="DRAFT">{isRTL ? 'مسودة' : 'Draft'}</SelectItem>
-                    <SelectItem value="APPROVED">{isRTL ? 'معتمد' : 'Approved'}</SelectItem>
-                    <SelectItem value="OBSOLETE">{isRTL ? 'قديم' : 'Obsolete'}</SelectItem>
+                    <SelectItem value="DRAFT">{t('routingForm.statusDraft')}</SelectItem>
+                    <SelectItem value="APPROVED">{t('routingForm.statusApproved')}</SelectItem>
+                    <SelectItem value="OBSOLETE">{t('routingForm.statusObsolete')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
                 <Label htmlFor="effective_date">
-                  {isRTL ? 'تاريخ السريان' : 'Effective Date'}
+                  {t('routingForm.effectiveDate')}
                 </Label>
                 <Input
                   id="effective_date"
@@ -212,7 +207,7 @@ export function RoutingForm() {
 
               <div>
                 <Label htmlFor="expiry_date">
-                  {isRTL ? 'تاريخ الانتهاء' : 'Expiry Date'}
+                  {t('routingForm.expiryDate')}
                 </Label>
                 <Input
                   id="expiry_date"
@@ -230,7 +225,7 @@ export function RoutingForm() {
 
             <div>
               <Label htmlFor="description">
-                {isRTL ? 'الوصف (إنجليزي)' : 'Description (English)'}
+                {t('routingForm.descEn')}
               </Label>
               <Textarea
                 id="description"
@@ -244,7 +239,7 @@ export function RoutingForm() {
 
             <div>
               <Label htmlFor="description_ar">
-                {isRTL ? 'الوصف (عربي)' : 'Description (Arabic)'}
+                {t('routingForm.descAr')}
               </Label>
               <Textarea
                 id="description_ar"
@@ -267,7 +262,7 @@ export function RoutingForm() {
                 className="h-4 w-4"
               />
               <Label htmlFor="is_active" className="cursor-pointer">
-                {isRTL ? 'نشط' : 'Active'}
+                {t('routingForm.active')}
               </Label>
             </div>
 
@@ -277,19 +272,14 @@ export function RoutingForm() {
                 variant="outline"
                 onClick={() => navigate('/manufacturing/routing')}
               >
-                {isRTL ? 'إلغاء' : 'Cancel'}
+                {t('routingForm.cancel')}
               </Button>
               <Button
                 type="submit"
                 disabled={createRouting.isPending || updateRouting.isPending}
               >
                 <Save className="w-4 h-4 mr-2" />
-                {(() => {
-                  if (createRouting.isPending || updateRouting.isPending) {
-                    return isRTL ? 'جاري الحفظ...' : 'Saving...'
-                  }
-                  return isRTL ? 'حفظ' : 'Save'
-                })()}
+                {createRouting.isPending || updateRouting.isPending ? t('routingForm.saving') : t('routingForm.save')}
               </Button>
             </div>
           </form>
