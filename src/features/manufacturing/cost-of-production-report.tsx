@@ -33,21 +33,23 @@ const qf = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 })
 function money(v: number): string { return nf.format(v ?? 0) }
 function qty(v: number): string { return qf.format(v ?? 0) }
 
-function BalanceBadge({ balanced, isRTL }: { readonly balanced: boolean; readonly isRTL: boolean }) {
+function BalanceBadge({ balanced }: { readonly balanced: boolean }) {
+  const { t } = useTranslation()
   return balanced ? (
     <Badge variant="default" className="bg-green-600 hover:bg-green-600 gap-1">
       <CheckCircle2 className="h-3 w-3" />
-      {isRTL ? 'متوازن' : 'Balanced'}
+      {t('cop.balanced')}
     </Badge>
   ) : (
     <Badge variant="destructive" className="gap-1">
       <AlertTriangle className="h-3 w-3" />
-      {isRTL ? 'غير متوازن' : 'Unbalanced'}
+      {t('cop.unbalanced')}
     </Badge>
   )
 }
 
-function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly isRTL: boolean }) {
+function StageSection({ stage }: { readonly stage: StageReport }) {
+  const { t } = useTranslation()
   const qs = stage.quantity_schedule
   const eu = stage.equivalent_units
   const ca = stage.costs_to_account
@@ -55,18 +57,18 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
   const asg = stage.cost_assignment
   const rec = stage.reconciliation
   const methodLabel = stage.costing_method === 'fifo'
-    ? (isRTL ? 'الوارد أولاً صادر أولاً (FIFO)' : 'FIFO')
-    : (isRTL ? 'المتوسط المرجّح' : 'Weighted Average')
+    ? t('cop.fifo')
+    : t('cop.weightedAverage')
 
   return (
     <Card className="print:shadow-none print:border-black break-inside-avoid">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg">
-            {isRTL ? `المرحلة ${stage.stage_no}` : `Stage ${stage.stage_no}`}
+            {t('cop.stageNo', { no: stage.stage_no })}
             <span className="text-sm font-normal text-muted-foreground mx-2">({methodLabel})</span>
           </CardTitle>
-          <BalanceBadge balanced={rec.is_balanced && qs.is_balanced} isRTL={isRTL} />
+          <BalanceBadge balanced={rec.is_balanced && qs.is_balanced} />
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -74,52 +76,52 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
         {/* ===== الخطوة 1: جدول الكميات ===== */}
         <section>
           <h4 className="font-semibold mb-2 text-sm">
-            {isRTL ? '١) جدول الكميات' : '1) Quantity Schedule'}
+            {t('cop.step1Qty')}
           </h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
                 <TableRow>
-                  <TableCell>{isRTL ? 'وحدات تحت التشغيل أول المدة' : 'Beginning WIP'}</TableCell>
+                  <TableCell>{t('cop.beginningWip')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.wip_beginning_qty)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'وحدات بدأ تشغيلها' : 'Units started'}</TableCell>
+                  <TableCell>{t('cop.unitsStarted')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.units_started)}</TableCell>
                 </TableRow>
                 <TableRow className="border-t-2 font-semibold bg-muted/50">
-                  <TableCell>{isRTL ? 'الوحدات الواجب حسابها' : 'Units to account for'}</TableCell>
+                  <TableCell>{t('cop.unitsToAccount')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.units_to_account)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'وحدات مكتملة ومحوَّلة' : 'Completed & transferred'}</TableCell>
+                  <TableCell>{t('cop.unitsCompleted')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.units_completed)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'وحدات تحت التشغيل آخر المدة' : 'Ending WIP'}</TableCell>
+                  <TableCell>{t('cop.endingWip')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.wip_ending_qty)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'تالف طبيعي' : 'Normal scrap'}</TableCell>
+                  <TableCell>{t('cop.normalScrap')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.normal_scrap_qty)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'تالف غير طبيعي' : 'Abnormal scrap'}</TableCell>
+                  <TableCell>{t('cop.abnormalScrap')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.abnormal_scrap_qty)}</TableCell>
                 </TableRow>
                 {qs.rework_qty > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? 'إعادة تشغيل' : 'Rework'}</TableCell>
+                    <TableCell>{t('cop.rework')}</TableCell>
                     <TableCell className="text-end font-mono">{qty(qs.rework_qty)}</TableCell>
                   </TableRow>
                 )}
                 <TableRow className="border-t-2 font-semibold bg-muted/50">
-                  <TableCell>{isRTL ? 'الوحدات المحسوبة' : 'Units accounted for'}</TableCell>
+                  <TableCell>{t('cop.unitsAccounted')}</TableCell>
                   <TableCell className="text-end font-mono">{qty(qs.units_accounted)}</TableCell>
                 </TableRow>
                 {!qs.is_balanced && (
                   <TableRow className="text-destructive font-semibold">
-                    <TableCell>{isRTL ? '⚠ فرق كميات' : '⚠ Quantity difference'}</TableCell>
+                    <TableCell>{t('cop.qtyDifference')}</TableCell>
                     <TableCell className="text-end font-mono">{qty(qs.qty_difference)}</TableCell>
                   </TableRow>
                 )}
@@ -131,25 +133,25 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
         {/* ===== الخطوة 2: الوحدات المكافئة ===== */}
         <section>
           <h4 className="font-semibold mb-2 text-sm">
-            {isRTL ? '٢) الوحدات المكافئة (EUP)' : '2) Equivalent Units (EUP)'}
+            {t('cop.step2Eup')}
           </h4>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-start">{isRTL ? 'عنصر التكلفة' : 'Cost element'}</TableHead>
-                  <TableHead className="text-end">{isRTL ? 'نسبة إتمام WIP النهائي' : 'Ending WIP %'}</TableHead>
-                  <TableHead className="text-end">{isRTL ? 'الوحدات المكافئة' : 'EUP'}</TableHead>
+                  <TableHead className="text-start">{t('cop.costElement')}</TableHead>
+                  <TableHead className="text-end">{t('cop.endingWipPct')}</TableHead>
+                  <TableHead className="text-end">{t('cop.eupLabel')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 <TableRow>
-                  <TableCell>{isRTL ? 'مواد مباشرة' : 'Direct materials'}</TableCell>
+                  <TableCell>{t('cop.directMaterials')}</TableCell>
                   <TableCell className="text-end font-mono">{eu.wip_end_dm_completion_pct}%</TableCell>
                   <TableCell className="text-end font-mono">{qty(eu.eup_dm)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'تكاليف تحويل (عمالة + أوفرهيد)' : 'Conversion costs'}</TableCell>
+                  <TableCell>{t('cop.conversionCosts')}</TableCell>
                   <TableCell className="text-end font-mono">{eu.wip_end_cc_completion_pct}%</TableCell>
                   <TableCell className="text-end font-mono">{qty(eu.eup_cc)}</TableCell>
                 </TableRow>
@@ -161,49 +163,49 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
         {/* ===== الخطوة 3: التكاليف الواجب حسابها ===== */}
         <section>
           <h4 className="font-semibold mb-2 text-sm">
-            {isRTL ? '٣) التكاليف الواجب حسابها' : '3) Costs to Account For'}
+            {t('cop.step3Costs')}
           </h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
                 {ca.wip_beginning_cost > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? 'تكلفة WIP أول المدة' : 'Beginning WIP cost'}</TableCell>
+                    <TableCell>{t('cop.wipBeginningCost')}</TableCell>
                     <TableCell className="text-end font-mono">{money(ca.wip_beginning_cost)}</TableCell>
                   </TableRow>
                 )}
                 {ca.transferred_in > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? 'محوَّل وارد من المرحلة السابقة' : 'Transferred in'}</TableCell>
+                    <TableCell>{t('cop.transferredIn')}</TableCell>
                     <TableCell className="text-end font-mono">{money(ca.transferred_in)}</TableCell>
                   </TableRow>
                 )}
                 <TableRow>
-                  <TableCell>{isRTL ? 'مواد مباشرة' : 'Direct materials'}</TableCell>
+                  <TableCell>{t('cop.directMaterials')}</TableCell>
                   <TableCell className="text-end font-mono">{money(ca.direct_materials)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'عمالة مباشرة' : 'Direct labor'}</TableCell>
+                  <TableCell>{t('cop.directLabor')}</TableCell>
                   <TableCell className="text-end font-mono">{money(ca.direct_labor)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'أوفرهيد محمَّل' : 'Overhead applied'}</TableCell>
+                  <TableCell>{t('cop.overheadApplied')}</TableCell>
                   <TableCell className="text-end font-mono">{money(ca.overhead_applied)}</TableCell>
                 </TableRow>
                 {ca.regrind_cost > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? 'تكلفة إعادة طحن' : 'Regrind cost'}</TableCell>
+                    <TableCell>{t('cop.regrindCost')}</TableCell>
                     <TableCell className="text-end font-mono">{money(ca.regrind_cost)}</TableCell>
                   </TableRow>
                 )}
                 {ca.waste_credit > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? '(−) رصيد بيع خردة' : '(−) Waste credit'}</TableCell>
+                    <TableCell>{t('cop.wasteCredit')}</TableCell>
                     <TableCell className="text-end font-mono">({money(ca.waste_credit)})</TableCell>
                   </TableRow>
                 )}
                 <TableRow className="border-t-2 font-semibold bg-muted/50">
-                  <TableCell>{isRTL ? 'إجمالي التكاليف الواجب حسابها' : 'Total costs to account for'}</TableCell>
+                  <TableCell>{t('cop.totalCostsIn')}</TableCell>
                   <TableCell className="text-end font-mono">{money(ca.total_costs_in)}</TableCell>
                 </TableRow>
               </TableBody>
@@ -214,27 +216,27 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
         {/* ===== الخطوة 4: تكلفة الوحدة المكافئة ===== */}
         <section>
           <h4 className="font-semibold mb-2 text-sm">
-            {isRTL ? '٤) تكلفة الوحدة المكافئة' : '4) Cost per Equivalent Unit'}
+            {t('cop.step4CostPerEu')}
           </h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
                 {pe.transferred_in_per_eu > 0 && (
                   <TableRow>
-                    <TableCell>{isRTL ? 'محوَّل وارد / وحدة' : 'Transferred-in per EU'}</TableCell>
+                    <TableCell>{t('cop.transferredInPerEu')}</TableCell>
                     <TableCell className="text-end font-mono">{money(pe.transferred_in_per_eu)}</TableCell>
                   </TableRow>
                 )}
                 <TableRow>
-                  <TableCell>{isRTL ? 'مواد / وحدة مكافئة' : 'DM per EU'}</TableCell>
+                  <TableCell>{t('cop.dmPerEu')}</TableCell>
                   <TableCell className="text-end font-mono">{money(pe.dm_per_eu)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'تحويل / وحدة مكافئة' : 'CC per EU'}</TableCell>
+                  <TableCell>{t('cop.ccPerEu')}</TableCell>
                   <TableCell className="text-end font-mono">{money(pe.cc_per_eu)}</TableCell>
                 </TableRow>
                 <TableRow className="border-t-2 font-semibold bg-muted/50">
-                  <TableCell>{isRTL ? 'إجمالي تكلفة الوحدة' : 'Total per EU'}</TableCell>
+                  <TableCell>{t('cop.totalPerEu')}</TableCell>
                   <TableCell className="text-end font-mono">{money(pe.total_per_eu)}</TableCell>
                 </TableRow>
               </TableBody>
@@ -245,40 +247,40 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
         {/* ===== الخطوة 5: توزيع التكاليف + التسوية ===== */}
         <section>
           <h4 className="font-semibold mb-2 text-sm">
-            {isRTL ? '٥) توزيع التكاليف والتسوية' : '5) Cost Assignment & Reconciliation'}
+            {t('cop.step5Assignment')}
           </h4>
           <div className="overflow-x-auto">
             <Table>
               <TableBody>
                 <TableRow>
-                  <TableCell>{isRTL ? 'مكتمل ومحوَّل للمرحلة التالية / مخزون تام' : 'Completed & transferred out'}</TableCell>
+                  <TableCell>{t('cop.completedTransferredOut')}</TableCell>
                   <TableCell className="text-end font-mono">{money(asg.completed_and_transferred)}</TableCell>
                 </TableRow>
                 <TableRow>
-                  <TableCell>{isRTL ? 'تحت التشغيل آخر المدة' : 'Ending WIP'}</TableCell>
+                  <TableCell>{t('cop.endingWip')}</TableCell>
                   <TableCell className="text-end font-mono">{money(asg.ending_wip)}</TableCell>
                 </TableRow>
                 <TableRow>
                   <TableCell>
-                    {isRTL ? 'خسارة تالف غير طبيعي (مصروف فترة)' : 'Abnormal scrap loss (period expense)'}
+                    {t('cop.abnormalScrapLoss')}
                   </TableCell>
                   <TableCell className="text-end font-mono">{money(asg.abnormal_scrap_loss)}</TableCell>
                 </TableRow>
                 {asg.normal_scrap_absorbed > 0 && (
                   <TableRow className="text-muted-foreground text-sm">
                     <TableCell>
-                      {isRTL ? '(للعلم: تالف طبيعي مُمتص في تكلفة الوحدات الجيدة)' : '(Memo: normal scrap absorbed by good units)'}
+                      {t('cop.normalScrapAbsorbed')}
                     </TableCell>
                     <TableCell className="text-end font-mono">{money(asg.normal_scrap_absorbed)}</TableCell>
                   </TableRow>
                 )}
                 <TableRow className="border-t-2 font-semibold bg-muted/50">
-                  <TableCell>{isRTL ? 'إجمالي التكاليف الموزَّعة' : 'Total costs accounted for'}</TableCell>
+                  <TableCell>{t('cop.totalCostsOut')}</TableCell>
                   <TableCell className="text-end font-mono">{money(asg.total_costs_out)}</TableCell>
                 </TableRow>
                 <TableRow className={cn('font-semibold', rec.is_balanced ? 'text-green-700' : 'text-destructive')}>
                   <TableCell>
-                    {isRTL ? 'التسوية: داخل − خارج' : 'Reconciliation: in − out'}
+                    {t('cop.reconciliation')}
                   </TableCell>
                   <TableCell className="text-end font-mono">
                     {money(rec.difference)} {rec.is_balanced ? '✓' : '✗'}
@@ -294,8 +296,7 @@ function StageSection({ stage, isRTL }: { readonly stage: StageReport; readonly 
 }
 
 export function CostOfProductionReportView() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
   const { orders, loading: ordersLoading } = useManufacturingOrders()
   const [selectedMoId, setSelectedMoId] = useState<string>('')
 
@@ -321,7 +322,7 @@ export function CostOfProductionReportView() {
             <div className="min-w-64">
               <Select value={selectedMoId} onValueChange={setSelectedMoId} disabled={ordersLoading}>
                 <SelectTrigger data-testid="mo-select">
-                  <SelectValue placeholder={isRTL ? 'اختر أمر التصنيع…' : 'Select MO…'} />
+                  <SelectValue placeholder={t('cop.selectMo')} />
                 </SelectTrigger>
                 <SelectContent>
                   {orders.map((mo) => (
@@ -339,7 +340,7 @@ export function CostOfProductionReportView() {
               className="gap-2"
             >
               <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
-              {isRTL ? 'تحديث' : 'Refresh'}
+              {t('cop.refresh')}
             </Button>
             <Button
               onClick={() => window.print()}
@@ -347,7 +348,7 @@ export function CostOfProductionReportView() {
               className="gap-2"
             >
               <Printer className="h-4 w-4" />
-              {isRTL ? 'طباعة' : 'Print'}
+              {t('cop.print')}
             </Button>
           </div>
         </CardContent>
@@ -356,10 +357,10 @@ export function CostOfProductionReportView() {
       {/* حالات: خطأ / فارغ / التقرير */}
       {error && (
         <ErrorState
-          title={isRTL ? 'تعذر توليد التقرير' : 'Could not generate report'}
+          title={t('cop.errorTitle')}
           message={error.message}
           onRetry={() => refetch()}
-          retryLabel={isRTL ? 'إعادة المحاولة' : 'Retry'}
+          retryLabel={t('cop.retry')}
         />
       )}
 
@@ -367,10 +368,8 @@ export function CostOfProductionReportView() {
         <Card>
           <EmptyState
             icon={<FileBarChart aria-hidden="true" />}
-            title={isRTL ? 'لم يُحدَّد أمر تصنيع بعد' : 'No manufacturing order selected'}
-            description={isRTL
-              ? 'اختر أمر تصنيع من القائمة أعلاه لعرض تقرير تكلفة الإنتاج بالوحدات المكافئة بخطواته الخمس'
-              : 'Select a manufacturing order above to view the five-step Cost of Production Report'}
+            title={t('cop.noMoSelected')}
+            description={t('cop.noMoDesc')}
           />
         </Card>
       )}
@@ -385,34 +384,34 @@ export function CostOfProductionReportView() {
               <div className="flex items-start justify-between flex-wrap gap-3">
                 <div>
                   <h2 className="text-2xl font-bold">
-                    {isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
+                    {t('cop.reportTitle')}
                   </h2>
                   <p className="text-muted-foreground mt-1">
-                    {isRTL ? 'أمر التصنيع' : 'MO'}: <span className="font-mono font-semibold">{report.manufacturing_order.order_number}</span>
+                    {t('cop.moLabel')}: <span className="font-mono font-semibold">{report.manufacturing_order.order_number}</span>
                     {' · '}
-                    {isRTL ? 'الحالة' : 'Status'}: {report.manufacturing_order.status}
+                    {t('cop.statusLabel')}: {report.manufacturing_order.status}
                     {' · '}
-                    {isRTL ? 'الكمية المخططة' : 'Planned qty'}: {qty(report.manufacturing_order.qty_planned)}
+                    {t('cop.plannedQty')}: {qty(report.manufacturing_order.qty_planned)}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString('en-US')}
+                    {t('cop.generated')}: {new Date(report.generated_at).toLocaleString('en-US')}
                   </p>
                 </div>
-                <BalanceBadge balanced={report.totals.all_stages_balanced} isRTL={isRTL} />
+                <BalanceBadge balanced={report.totals.all_stages_balanced} />
               </div>
             </CardContent>
           </Card>
 
           {/* المراحل */}
           {report.stages.map((stage) => (
-            <StageSection key={stage.stage_no} stage={stage} isRTL={isRTL} />
+            <StageSection key={stage.stage_no} stage={stage} />
           ))}
 
           {/* الإجماليات */}
           <Card className="print:shadow-none print:border-black break-inside-avoid">
             <CardHeader className="pb-3">
               <CardTitle className="text-lg">
-                {isRTL ? 'إجمالي أمر التصنيع (كل المراحل)' : 'Grand Totals (all stages)'}
+                {t('cop.grandTotals')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -420,19 +419,19 @@ export function CostOfProductionReportView() {
                 <Table>
                   <TableBody>
                     <TableRow>
-                      <TableCell>{isRTL ? 'إجمالي التكاليف الداخلة' : 'Total costs in'}</TableCell>
+                      <TableCell>{t('cop.totalCostsInGrand')}</TableCell>
                       <TableCell className="text-end font-mono">{money(report.totals.total_costs_in)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>{isRTL ? 'مكتمل ومحوَّل' : 'Completed & transferred'}</TableCell>
+                      <TableCell>{t('cop.completedTransferredGrand')}</TableCell>
                       <TableCell className="text-end font-mono">{money(report.totals.total_completed)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>{isRTL ? 'تحت التشغيل آخر المدة' : 'Ending WIP'}</TableCell>
+                      <TableCell>{t('cop.endingWip')}</TableCell>
                       <TableCell className="text-end font-mono">{money(report.totals.total_ending_wip)}</TableCell>
                     </TableRow>
                     <TableRow>
-                      <TableCell>{isRTL ? 'خسائر تالف غير طبيعي' : 'Abnormal scrap losses'}</TableCell>
+                      <TableCell>{t('cop.abnormalScrapLossGrand')}</TableCell>
                       <TableCell className="text-end font-mono">{money(report.totals.total_abnormal_scrap_loss)}</TableCell>
                     </TableRow>
                   </TableBody>

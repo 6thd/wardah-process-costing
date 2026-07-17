@@ -198,7 +198,7 @@ function transformToEUPData(
 
 // eslint-disable-next-line complexity
 export function EUPCalculationBreakdown({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data: eupData, isLoading, error } = useQuery({
@@ -269,7 +269,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Calculator className="h-8 w-8 animate-pulse mx-auto text-primary" />
-          <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+          <p className="text-muted-foreground">{t('eup.loading')}</p>
         </div>
       </div>
     )
@@ -279,7 +279,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
     return (
       <Alert variant="destructive" className={getGlassClasses()}>
         <AlertDescription>
-          {isRTL ? 'حدث خطأ أثناء تحميل البيانات' : 'Error loading data'}: {error.message}
+          {t('eup.loadError')}: {error.message}
         </AlertDescription>
       </Alert>
     )
@@ -290,7 +290,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
       <Alert className={getGlassClasses()}>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          {isRTL ? 'لا توجد بيانات لعرضها' : 'No data available'}
+          {t('eup.noData')}
         </AlertDescription>
       </Alert>
     )
@@ -313,23 +313,20 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Info className="h-5 w-5" />
-            {isRTL ? 'معلومات عن حساب EUP' : 'About EUP Calculation'}
+            {t('eup.aboutTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent className={cn("space-y-2 text-sm", isRTL ? "text-right" : "text-left")}>
           <p>
-            <strong>{isRTL ? 'الوحدات المكافئة (EUP)' : 'Equivalent Units of Production (EUP)'}</strong>:
-            {isRTL 
-              ? ' هي طريقة لحساب الوحدات المكتملة مع الأخذ في الاعتبار العمل قيد التنفيذ (WIP).'
-              : ' is a method to calculate completed units considering Work-In-Process (WIP).'
-            }
+            <strong>{t('eup.term')}</strong>:
+            {t('eup.definition')}
           </p>
           <div className="space-y-1 mt-4">
-            <p><strong>{isRTL ? 'طريقة المتوسط المرجح:' : 'Weighted-Average Method:'}</strong></p>
+            <p><strong>{t('eup.weightedAvgMethod')}</strong></p>
             <p className="text-muted-foreground font-mono text-xs">
               EUP = Good Qty + (Ending WIP × Completion %)
             </p>
-            <p className="mt-2"><strong>{isRTL ? 'طريقة FIFO:' : 'FIFO Method:'}</strong></p>
+            <p className="mt-2"><strong>{t('eup.fifoMethod')}</strong></p>
             <p className="text-muted-foreground font-mono text-xs">
               EUP = Good Qty + (Ending WIP × Completion %) - (Beginning WIP × Completion %)
             </p>
@@ -342,7 +339,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Calculator className="h-5 w-5" />
-            {isRTL ? 'تفصيل حساب EUP' : 'EUP Calculation Breakdown'}
+            {t('eup.breakdownTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -350,15 +347,15 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'أمر التصنيع' : 'MO'}</TableHead>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'المرحلة' : 'Stage'}</TableHead>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'الطريقة' : 'Method'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'الكمية الجيدة' : 'Good Qty'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'WIP البداية' : 'Beg WIP'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'WIP النهاية' : 'End WIP'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'EUP (مواد)' : 'EUP (DM)'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'EUP (تحويل)' : 'EUP (CC)'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('eup.mo')}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('eup.stage')}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('eup.method')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.goodQty')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.begWip')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.endWip')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.eupDm')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.eupCc')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('eup.unitCost')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -418,7 +415,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
           <CardHeader>
             <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
               <TrendingUp className="h-5 w-5" />
-              {isRTL ? 'مقارنة EUP (مواد مقابل تحويل)' : 'EUP Comparison (DM vs CC)'}
+              {t('eup.comparisonTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -429,8 +426,8 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="eupDm" name={isRTL ? 'EUP (مواد)' : 'EUP (DM)'} fill="#8884d8" />
-                <Bar dataKey="eupCc" name={isRTL ? 'EUP (تحويل)' : 'EUP (CC)'} fill="#82ca9d" />
+                <Bar dataKey="eupDm" name={t('eup.eupDm')} fill="#8884d8" />
+                <Bar dataKey="eupCc" name={t('eup.eupCc')} fill="#82ca9d" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -441,7 +438,7 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
           <CardHeader>
             <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
               <TrendingUp className="h-5 w-5" />
-              {isRTL ? 'تدفق WIP' : 'WIP Flow'}
+              {t('eup.wipFlowTitle')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -452,9 +449,9 @@ export function EUPCalculationBreakdown({ filters }: { readonly filters: Dashboa
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="wipBeg" name={isRTL ? 'WIP البداية' : 'Beg WIP'} stroke="#8884d8" />
-                <Line type="monotone" dataKey="wipEnd" name={isRTL ? 'WIP النهاية' : 'End WIP'} stroke="#82ca9d" />
-                <Line type="monotone" dataKey="goodQty" name={isRTL ? 'الكمية الجيدة' : 'Good Qty'} stroke="#ffc658" />
+                <Line type="monotone" dataKey="wipBeg" name={t('eup.begWip')} stroke="#8884d8" />
+                <Line type="monotone" dataKey="wipEnd" name={t('eup.endWip')} stroke="#82ca9d" />
+                <Line type="monotone" dataKey="goodQty" name={t('eup.goodQty')} stroke="#ffc658" />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>

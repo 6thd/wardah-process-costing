@@ -21,7 +21,7 @@ interface DashboardMetrics {
 }
 
 export function EnhancedGeminiDashboard() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -65,10 +65,10 @@ export function EnhancedGeminiDashboard() {
           monthlyData
         });
 
-        toast.success(isRTL ? 'تم مزامنة البيانات بنجاح' : 'Data synced successfully');
+        toast.success(t('geminiDashboard.syncSuccess'));
       } catch (error: any) {
         console.error('Error syncing data:', error);
-        toast.error(error.message || (isRTL ? 'فشل في مزامنة البيانات' : 'Failed to sync data'));
+        toast.error(error.message || t('geminiDashboard.syncFailed'));
       } finally {
         setLoading(false);
       }
@@ -119,12 +119,10 @@ export function EnhancedGeminiDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-2xl">
-                {isRTL ? 'لوحة Gemini المالية الذكية' : 'Gemini AI Financial Dashboard'}
+                {t('geminiDashboard.enhancedTitle')}
               </CardTitle>
               <CardDescription>
-                {isRTL
-                  ? 'تحليل مالي متقدم مع Google Gemini AI - بيانات حقيقية من وردة ERP'
-                  : 'Advanced financial analysis with Google Gemini AI - Real data from Wardah ERP'}
+                {t('geminiDashboard.enhancedDescription')}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -134,11 +132,11 @@ export function EnhancedGeminiDashboard() {
                 className={cn(autoRefresh && 'bg-primary text-primary-foreground')}
               >
                 <RefreshCw className={cn('h-4 w-4 mr-2', autoRefresh && 'animate-spin')} />
-                {isRTL ? 'تحديث تلقائي' : 'Auto Refresh'}
+                {t('geminiDashboard.autoRefresh')}
               </Button>
               <Button onClick={syncWithWardah} disabled={loading}>
                 <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
-                {isRTL ? 'مزامنة الآن' : 'Sync Now'}
+                {t('geminiDashboard.syncNow')}
               </Button>
             </div>
           </div>
@@ -151,7 +149,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{isRTL ? 'إجمالي المبيعات' : 'Total Sales'}</p>
+                      <p className="text-sm opacity-90">{t('geminiDashboard.totalSales')}</p>
                       <p className="text-2xl font-bold">{metrics.kpis.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </div>
                     <DollarSign className="h-8 w-8 opacity-80" />
@@ -163,7 +161,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{isRTL ? 'صافي الربح' : 'Net Profit'}</p>
+                      <p className="text-sm opacity-90">{t('geminiDashboard.netProfit')}</p>
                       <p className="text-2xl font-bold">{metrics.kpis.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                       <p className="text-xs opacity-80">{metrics.kpis.profitMargin.toFixed(2)}%</p>
                     </div>
@@ -180,10 +178,10 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{isRTL ? 'نقطة التعادل' : 'Break-Even Point'}</p>
+                      <p className="text-sm opacity-90">{t('geminiDashboard.breakEvenPoint')}</p>
                       <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                       <p className="text-xs opacity-80">
-                        {isRTL ? 'هامش الأمان' : 'Margin of Safety'}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
+                        {t('geminiDashboard.marginOfSafety')}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
                       </p>
                     </div>
                     <Target className="h-8 w-8 opacity-80" />
@@ -195,7 +193,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{isRTL ? 'هامش المساهمة' : 'Contribution Margin'}</p>
+                      <p className="text-sm opacity-90">{t('geminiDashboard.contributionMargin')}</p>
                       <p className="text-2xl font-bold">{(metrics.kpis.contributionMarginRatio * 100).toFixed(2)}%</p>
                       <p className="text-xs opacity-80">
                         {metrics.kpis.contributionMargin.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -214,24 +212,24 @@ export function EnhancedGeminiDashboard() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Target className="h-5 w-5" />
-                  {isRTL ? 'تحليل نقطة التعادل' : 'Break-Even Analysis'}
+                  {t('geminiDashboard.breakEvenAnalysis')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{isRTL ? 'نقطة التعادل (مبيعات)' : 'Break-Even (Sales)'}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.breakEvenSales')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{isRTL ? 'هامش الأمان' : 'Margin of Safety'}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.marginOfSafety')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {metrics.breakEven.marginOfSafety.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </p>
                   </div>
                   <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{isRTL ? 'التكاليف الثابتة' : 'Fixed Costs'}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.fixedCosts')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.fixedCosts.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                 </div>
@@ -241,9 +239,7 @@ export function EnhancedGeminiDashboard() {
                   <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600" />
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      {isRTL
-                        ? 'تحذير: هامش الأمان منخفض. يجب زيادة المبيعات أو تقليل التكاليف.'
-                        : 'Warning: Low margin of safety. Consider increasing sales or reducing costs.'}
+                      {t('geminiDashboard.lowMarginWarning')}
                     </p>
                   </div>
                 )}
@@ -260,7 +256,7 @@ export function EnhancedGeminiDashboard() {
                     <div className="flex flex-col items-center gap-4">
                       <RefreshCw className="h-8 w-8 animate-spin text-primary" />
                       <p className="text-muted-foreground">
-                        {isRTL ? 'جاري تحميل لوحة Gemini...' : 'Loading Gemini Dashboard...'}
+                        {t('geminiDashboard.loadingEnhanced')}
                       </p>
                     </div>
                   </div>

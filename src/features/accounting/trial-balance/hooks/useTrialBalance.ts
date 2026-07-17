@@ -5,7 +5,7 @@ import { PerformanceMonitor } from '@/lib/performance-monitor';
 import type { TrialBalanceRow } from '../types';
 import { fetchTrialBalanceManual } from '../services/trialBalanceService';
 
-export function useTrialBalance(fromDate: string, asOfDate: string, isRTL: boolean) {
+export function useTrialBalance(fromDate: string, asOfDate: string) {
   const [balances, setBalances] = useState<TrialBalanceRow[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -54,7 +54,7 @@ export function useTrialBalance(fromDate: string, asOfDate: string, isRTL: boole
 
         if (error) {
           console.error('❌ RPC Error, falling back to manual:', error);
-          const manualData = await fetchTrialBalanceManual(fromDate, asOfDate, isRTL);
+          const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
           setBalances(manualData);
         } else {
           console.log('✅ RPC Data received:', data?.length, 'rows');
@@ -62,7 +62,7 @@ export function useTrialBalance(fromDate: string, asOfDate: string, isRTL: boole
         }
       } catch (error) {
         console.error('❌ Exception, falling back to manual:', error);
-        const manualData = await fetchTrialBalanceManual(fromDate, asOfDate, isRTL);
+        const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
         setBalances(manualData);
       } finally {
         setLoading(false);

@@ -36,7 +36,7 @@ interface StageCostRecord {
 // NOSONAR - Complex report component required for stage cost breakdown
 // eslint-disable-next-line complexity
 export function StageCostBreakdown({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   // Helper function to get stage name
@@ -147,14 +147,14 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
     return <div className="flex items-center justify-center min-h-[400px]">
       <div className="text-center space-y-4">
         <Layers className="h-8 w-8 animate-pulse mx-auto text-primary" />
-        <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+        <p className="text-muted-foreground">{t('stageCost.loading')}</p>
       </div>
     </div>
   }
 
   if (error) {
     return <Alert variant="destructive" className={getGlassClasses()}>
-      <AlertDescription>{isRTL ? 'حدث خطأ' : 'Error'}: {error.message}</AlertDescription>
+      <AlertDescription>{t('stageCost.error')}: {error.message}</AlertDescription>
     </Alert>
   }
 
@@ -164,7 +164,7 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Layers className="h-5 w-5" />
-            {isRTL ? 'تفصيل التكاليف حسب المرحلة' : 'Stage-by-Stage Cost Breakdown'}
+            {t('stageCost.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -172,14 +172,14 @@ export function StageCostBreakdown({ filters }: { readonly filters: DashboardFil
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'أمر التصنيع' : 'MO'}</TableHead>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'المرحلة' : 'Stage'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'الكمية الجيدة' : 'Good Qty'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'المواد المباشرة' : 'DM Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'العمالة المباشرة' : 'DL Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'الأوفرهيد' : 'OH Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'إجمالي التكلفة' : 'Total Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('stageCost.mo')}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('stageCost.stage')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.goodQty')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.dmCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.dlCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.ohCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.totalCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('stageCost.unitCost')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

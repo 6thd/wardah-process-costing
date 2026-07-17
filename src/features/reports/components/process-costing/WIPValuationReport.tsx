@@ -22,7 +22,7 @@ interface DashboardFilters {
 }
 
 export function WIPValuationReport({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   // Helper function to get stage name
@@ -143,14 +143,14 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
     return <div className="flex items-center justify-center min-h-[400px]">
       <div className="text-center space-y-4">
         <Factory className="h-8 w-8 animate-pulse mx-auto text-primary" />
-        <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+        <p className="text-muted-foreground">{t('wipReport.loading')}</p>
       </div>
     </div>
   }
 
   if (error) {
     return <Alert variant="destructive" className={getGlassClasses()}>
-      <AlertDescription>{isRTL ? 'حدث خطأ' : 'Error'}: {error.message}</AlertDescription>
+      <AlertDescription>{t('wipReport.error')}: {error.message}</AlertDescription>
     </Alert>
   }
 
@@ -178,7 +178,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Factory className="h-5 w-5" />
-            {isRTL ? 'تقرير تقييم WIP' : 'WIP Valuation Report'}
+            {t('wipReport.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -186,7 +186,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
             <>
               <div className="mb-6 p-4 bg-muted rounded-lg">
                 <div className="text-2xl font-bold text-center">
-                  {isRTL ? 'إجمالي قيمة WIP' : 'Total WIP Value'}: {totalWipValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                  {t('wipReport.totalValue')}: {totalWipValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
                 </div>
               </div>
               
@@ -194,13 +194,13 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'أمر التصنيع' : 'MO'}</TableHead>
-                      <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'المرحلة' : 'Stage'}</TableHead>
-                      <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'كمية WIP النهاية' : 'End WIP Qty'}</TableHead>
-                      <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? '% إتمام المواد' : 'DM %'}</TableHead>
-                      <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? '% إتمام التحويل' : 'CC %'}</TableHead>
-                      <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'تكلفة الوحدة' : 'Unit Cost'}</TableHead>
-                      <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'قيمة WIP' : 'WIP Value'}</TableHead>
+                      <TableHead className={cn(isRTL && "text-right")}>{t('wipReport.mo')}</TableHead>
+                      <TableHead className={cn(isRTL && "text-right")}>{t('wipReport.stage')}</TableHead>
+                      <TableHead className={cn("text-right", isRTL && "text-right")}>{t('wipReport.endWipQty')}</TableHead>
+                      <TableHead className={cn("text-right", isRTL && "text-right")}>{t('wipReport.dmPct')}</TableHead>
+                      <TableHead className={cn("text-right", isRTL && "text-right")}>{t('wipReport.ccPct')}</TableHead>
+                      <TableHead className={cn("text-right", isRTL && "text-right")}>{t('wipReport.unitCost')}</TableHead>
+                      <TableHead className={cn("text-right", isRTL && "text-right")}>{t('wipReport.wipValue')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -226,7 +226,7 @@ export function WIPValuationReport({ filters }: { readonly filters: DashboardFil
             <Alert>
               <Info className="h-4 w-4" />
               <AlertDescription className={cn(isRTL && "text-right")}>
-                {isRTL ? 'لا توجد WIP حالياً' : 'No WIP currently'}
+                {t('wipReport.noWip')}
               </AlertDescription>
             </Alert>
           )}

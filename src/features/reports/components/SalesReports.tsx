@@ -17,7 +17,7 @@ import { ProductAnalysisTab } from './tabs/ProductAnalysisTab';
 import { ProfitabilityTab } from './tabs/ProfitabilityTab';
 
 export function SalesReports() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
 
   const [fromDate, setFromDate] = useState<Date | undefined>(() => {
@@ -35,7 +35,7 @@ export function SalesReports() {
     productAnalysis,
     profitability,
     fetchData
-  } = useSalesReportsData({ fromDate, toDate, activeTab, isRTL });
+  } = useSalesReportsData({ fromDate, toDate, activeTab });
 
   const handleExportExcel = () => {
     exportToExcel({
@@ -64,10 +64,10 @@ export function SalesReports() {
       <div className={cn("flex items-center justify-between", isRTL ? "flex-row-reverse" : "")}>
         <div>
           <h1 className="text-3xl font-bold">
-            {isRTL ? 'تقارير المبيعات' : 'Sales Reports'}
+            {t('salesReports.title')}
           </h1>
           <p className="text-muted-foreground mt-2">
-            {isRTL ? 'أداء المبيعات وتحليل العملاء والمنتجات' : 'Sales performance, customer and product analysis'}
+            {t('salesReports.subtitle')}
           </p>
         </div>
       </div>
@@ -88,24 +88,24 @@ export function SalesReports() {
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="performance">
             <TrendingUp className="h-4 w-4 mr-2" />
-            {isRTL ? 'أداء المبيعات' : 'Performance'}
+            {t('salesReports.tabs.performance')}
           </TabsTrigger>
           <TabsTrigger value="customers">
             <Users className="h-4 w-4 mr-2" />
-            {isRTL ? 'تحليل العملاء' : 'Customers'}
+            {t('salesReports.tabs.customers')}
           </TabsTrigger>
           <TabsTrigger value="products">
             <Package className="h-4 w-4 mr-2" />
-            {isRTL ? 'تحليل المنتجات' : 'Products'}
+            {t('salesReports.tabs.products')}
           </TabsTrigger>
           <TabsTrigger value="profitability">
             <DollarSign className="h-4 w-4 mr-2" />
-            {isRTL ? 'الربحية' : 'Profitability'}
+            {t('salesReports.tabs.profitability')}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="performance">
-          <SalesPerformanceTab loading={loading} performance={performance} isRTL={isRTL} />
+          <SalesPerformanceTab loading={loading} performance={performance} />
         </TabsContent>
 
         <TabsContent value="customers">

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProfitabilityAnalysis } from '@/services/sales-reports-service';
@@ -9,21 +10,22 @@ interface ProfitabilityTablesProps {
 
 // eslint-disable-next-line complexity
 export function ProfitabilityTables({ profitability, isRTL }: ProfitabilityTablesProps) {
+  const { t } = useTranslation();
   return (
     <>
       {profitability.byCustomer.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>{isRTL ? 'أفضل العملاء حسب الربحية' : 'Top Customers by Profitability'}</CardTitle>
+            <CardTitle>{t('salesReports.topCustomers')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'المبيعات' : 'Sales'}</th>
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'معدل التحصيل %' : 'Collection Rate %'}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.customerName')}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.sales')}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.collectionRatePct')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -44,17 +46,17 @@ export function ProfitabilityTables({ profitability, isRTL }: ProfitabilityTable
       {profitability.byProduct.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>{isRTL ? 'أفضل المنتجات حسب الربحية' : 'Top Products by Profitability'}</CardTitle>
+            <CardTitle>{t('salesReports.topProducts')}</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'اسم المنتج' : 'Product Name'}</th>
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الإيرادات' : 'Revenue'}</th>
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الربح' : 'Profit'}</th>
-                    <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'هامش الربح %' : 'Profit Margin %'}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.productName')}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.revenue')}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.profit')}</th>
+                    <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.profitMarginPct')}</th>
                   </tr>
                 </thead>
                 <tbody>

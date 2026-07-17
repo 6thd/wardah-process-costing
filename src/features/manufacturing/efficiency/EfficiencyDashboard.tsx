@@ -170,7 +170,7 @@ const getVarianceColor = (variance: number | undefined): string => {
 
 // eslint-disable-next-line complexity
 export const EfficiencyDashboard: React.FC = () => {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   // State
@@ -184,35 +184,35 @@ export const EfficiencyDashboard: React.FC = () => {
   // Queries
   const { data: dashboardStats, refetch: refetchStats, isError: statsError } = useDashboardStats()
   const { data: workCenters } = useWorkCenters()
-  
+
   const { data: laborEfficiency, isLoading: loadingLabor, isError: laborError } = useLaborEfficiencyReport({
     workCenterId: selectedWorkCenter || undefined,
     fromDate: dateRange.from,
     toDate: dateRange.to
   })
-  
+
   const { data: wcEfficiency, isLoading: loadingWcEfficiency } = useWorkCenterEfficiencySummary({
     workCenterId: selectedWorkCenter || undefined,
     fromDate: dateRange.from,
     toDate: dateRange.to
   })
-  
+
   const { data: costVariances, isLoading: loadingVariances } = useCostVarianceReport({
     workCenterId: selectedWorkCenter || undefined,
     fromDate: dateRange.from,
     toDate: dateRange.to
   })
-  
+
   const { data: totalVariances } = useTotalVariances(dateRange.from, dateRange.to)
-  
+
   const { data: oeeData, isLoading: loadingOEE } = useOEEReport({
     workCenterId: selectedWorkCenter || undefined,
     fromDate: dateRange.from,
     toDate: dateRange.to
   })
-  
+
   const { data: overallOEE } = useOverallOEE(dateRange.from, dateRange.to)
-  
+
   const { data: materialConsumption, isLoading: loadingMaterials } = useMaterialConsumptionReport({
     fromDate: dateRange.from,
     toDate: dateRange.to
@@ -224,10 +224,10 @@ export const EfficiencyDashboard: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">
-            {isRTL ? 'لوحة تحكم الكفاءة والأداء' : 'Efficiency & Performance Dashboard'}
+            {t('efficiency.title')}
           </h1>
           <p className="text-muted-foreground">
-            {isRTL ? 'تحليل شامل لأداء الإنتاج وكفاءة العمليات' : 'Comprehensive analysis of production performance and operational efficiency'}
+            {t('efficiency.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -236,7 +236,7 @@ export const EfficiencyDashboard: React.FC = () => {
           </Button>
           <Button variant="outline">
             <Download className="h-4 w-4 mr-2" />
-            {isRTL ? 'تصدير التقرير' : 'Export Report'}
+            {t('efficiency.exportReport')}
           </Button>
         </div>
       </div>
@@ -246,18 +246,12 @@ export const EfficiencyDashboard: React.FC = () => {
         <Alert className="border-yellow-500 bg-yellow-50 dark:bg-yellow-950">
           <AlertTriangle className="h-4 w-4 text-yellow-600" />
           <AlertTitle className="text-yellow-800 dark:text-yellow-200">
-            {isRTL ? 'تحذير: Views غير موجودة' : 'Warning: Views Not Found'}
+            {t('efficiency.viewsNotFound')}
           </AlertTitle>
           <AlertDescription className="text-yellow-700 dark:text-yellow-300">
-            {isRTL ? (
-              <>
-                يرجى تنفيذ ملف SQL Migration <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900 rounded">75_manufacturing_integration.sql</code> على Supabase لإنشاء الـ Views المطلوبة لتقارير الكفاءة.
-              </>
-            ) : (
-              <>
-                Please run SQL Migration file <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900 rounded">75_manufacturing_integration.sql</code> on Supabase to create the required Views for efficiency reports.
-              </>
-            )}
+            {t('efficiency.viewsNotFoundDescPre')}{' '}
+            <code className="px-1 py-0.5 bg-yellow-100 dark:bg-yellow-900 rounded">75_manufacturing_integration.sql</code>
+            {' '}{t('efficiency.viewsNotFoundDescPost')}
           </AlertDescription>
         </Alert>
       )}
@@ -267,7 +261,7 @@ export const EfficiencyDashboard: React.FC = () => {
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label>{isRTL ? 'من تاريخ' : 'From Date'}</Label>
+              <Label>{t('efficiency.fromDate')}</Label>
               <Input
                 type="date"
                 value={dateRange.from}
@@ -275,7 +269,7 @@ export const EfficiencyDashboard: React.FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label>{isRTL ? 'إلى تاريخ' : 'To Date'}</Label>
+              <Label>{t('efficiency.toDate')}</Label>
               <Input
                 type="date"
                 value={dateRange.to}
@@ -283,13 +277,13 @@ export const EfficiencyDashboard: React.FC = () => {
               />
             </div>
             <div className="space-y-2">
-              <Label>{isRTL ? 'مركز العمل' : 'Work Center'}</Label>
+              <Label>{t('efficiency.workCenter')}</Label>
               <Select value={selectedWorkCenter || 'all'} onValueChange={(value) => setSelectedWorkCenter(value === 'all' ? '' : value)}>
                 <SelectTrigger>
-                  <SelectValue placeholder={isRTL ? 'جميع مراكز العمل' : 'All Work Centers'} />
+                  <SelectValue placeholder={t('efficiency.allWorkCenters')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{isRTL ? 'جميع مراكز العمل' : 'All Work Centers'}</SelectItem>
+                  <SelectItem value="all">{t('efficiency.allWorkCenters')}</SelectItem>
                   {workCenters?.map(wc => (
                     <SelectItem key={wc.id} value={wc.id}>
                       {isRTL ? wc.name_ar || wc.name : wc.name}
@@ -305,27 +299,27 @@ export const EfficiencyDashboard: React.FC = () => {
       {/* Overview Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
-          title={isRTL ? 'كفاءة اليوم' : "Today's Efficiency"}
+          title={t('efficiency.todaysEfficiency')}
           value={`${dashboardStats?.today_efficiency?.toFixed(1) || 0}%`}
           icon={<Activity className="h-5 w-5 text-primary" />}
           trend={getEfficiencyTrend(dashboardStats?.today_efficiency, 100)}
           trendValue={getEfficiencyTrendValue(dashboardStats?.today_efficiency, 100)}
         />
         <StatCard
-          title={isRTL ? 'OEE اليوم' : "Today's OEE"}
+          title={t('efficiency.todaysOEE')}
           value={`${dashboardStats?.today_oee?.toFixed(1) || 0}%`}
           icon={<Gauge className="h-5 w-5 text-primary" />}
           trend={getEfficiencyTrend(dashboardStats?.today_oee, 85)}
           description={getOEEStatus(dashboardStats?.today_oee, 85)}
         />
         <StatCard
-          title={isRTL ? 'نسبة الخردة' : 'Scrap Rate'}
+          title={t('efficiency.scrapRate')}
           value={`${dashboardStats?.today_scrap_rate?.toFixed(2) || 0}%`}
           icon={<AlertTriangle className="h-5 w-5 text-yellow-500" />}
           trend={getScrapTrend(dashboardStats?.today_scrap_rate, 1)}
         />
         <StatCard
-          title={isRTL ? 'أوامر العمل النشطة' : 'Active Work Orders'}
+          title={t('efficiency.activeWorkOrders')}
           value={dashboardStats?.active_work_orders || 0}
           icon={<Factory className="h-5 w-5 text-primary" />}
         />
@@ -334,11 +328,11 @@ export const EfficiencyDashboard: React.FC = () => {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid grid-cols-5 w-full max-w-2xl">
-          <TabsTrigger value="overview">{isRTL ? 'نظرة عامة' : 'Overview'}</TabsTrigger>
+          <TabsTrigger value="overview">{t('navigation.overview')}</TabsTrigger>
           <TabsTrigger value="oee">OEE</TabsTrigger>
-          <TabsTrigger value="labor">{isRTL ? 'العمالة' : 'Labor'}</TabsTrigger>
-          <TabsTrigger value="variance">{isRTL ? 'التباين' : 'Variance'}</TabsTrigger>
-          <TabsTrigger value="materials">{isRTL ? 'المواد' : 'Materials'}</TabsTrigger>
+          <TabsTrigger value="labor">{t('efficiency.labor')}</TabsTrigger>
+          <TabsTrigger value="variance">{t('efficiency.varianceTab')}</TabsTrigger>
+          <TabsTrigger value="materials">{t('efficiency.materials')}</TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -349,38 +343,38 @@ export const EfficiencyDashboard: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Gauge className="h-5 w-5" />
-                  {isRTL ? 'ملخص OEE' : 'OEE Summary'}
+                  {t('efficiency.oeeSummary')}
                 </CardTitle>
                 <CardDescription>
-                  {isRTL ? 'فعالية المعدات الشاملة' : 'Overall Equipment Effectiveness'}
+                  {t('efficiency.overallEquipmentEffectiveness')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <OEEGauge
-                  label={isRTL ? 'التوافر' : 'Availability'}
+                  label={t('efficiency.availability')}
                   value={overallOEE?.avg_availability || 0}
                   target={90}
                   isWorldClass={overallOEE?.world_class_comparison?.availability}
                 />
                 <OEEGauge
-                  label={isRTL ? 'الأداء' : 'Performance'}
+                  label={t('efficiency.performance')}
                   value={overallOEE?.avg_performance || 0}
                   target={95}
                   isWorldClass={overallOEE?.world_class_comparison?.performance}
                 />
                 <OEEGauge
-                  label={isRTL ? 'الجودة' : 'Quality'}
+                  label={t('efficiency.quality')}
                   value={overallOEE?.avg_quality || 0}
                   target={99}
                   isWorldClass={overallOEE?.world_class_comparison?.quality}
                 />
                 <div className="pt-4 border-t">
                   <div className="flex justify-between items-center">
-                    <span className="text-lg font-semibold">{isRTL ? 'OEE الإجمالي' : 'Overall OEE'}</span>
+                    <span className="text-lg font-semibold">{t('efficiency.overallOEE')}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-2xl font-bold">{overallOEE?.avg_oee?.toFixed(1) || 0}%</span>
                       {overallOEE?.world_class_comparison?.oee && (
-                        <Badge className="bg-green-500">{isRTL ? 'عالمي' : 'World Class'}</Badge>
+                        <Badge className="bg-green-500">{t('efficiency.worldClass')}</Badge>
                       )}
                     </div>
                   </div>
@@ -393,17 +387,17 @@ export const EfficiencyDashboard: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <CircleDollarSign className="h-5 w-5" />
-                  {isRTL ? 'ملخص التباين' : 'Variance Summary'}
+                  {t('efficiency.varianceSummary')}
                 </CardTitle>
                 <CardDescription>
-                  {isRTL ? 'تباين التكاليف للفترة المحددة' : 'Cost variances for selected period'}
+                  {t('efficiency.varianceSummaryDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">
-                      {isRTL ? 'تباين العمالة' : 'Labor Variance'}
+                      {t('efficiency.laborVariance')}
                     </div>
                     <div className={cn(
                       'text-xl font-bold',
@@ -414,7 +408,7 @@ export const EfficiencyDashboard: React.FC = () => {
                   </div>
                   <div className="p-4 bg-muted rounded-lg">
                     <div className="text-sm text-muted-foreground mb-1">
-                      {isRTL ? 'تباين المصاريف' : 'Overhead Variance'}
+                      {t('efficiency.overheadVariance')}
                     </div>
                     <div className={cn(
                       'text-xl font-bold',
@@ -426,7 +420,7 @@ export const EfficiencyDashboard: React.FC = () => {
                 </div>
                 <div className="p-4 bg-primary/10 rounded-lg">
                   <div className="text-sm text-muted-foreground mb-1">
-                    {isRTL ? 'إجمالي التباين' : 'Total Variance'}
+                    {t('efficiency.totalVariance')}
                   </div>
                   <div className={cn(
                     'text-2xl font-bold',
@@ -438,11 +432,11 @@ export const EfficiencyDashboard: React.FC = () => {
                 <div className="flex justify-between text-sm">
                   <div className="flex items-center gap-2">
                     <CheckCircle className="h-4 w-4 text-green-500" />
-                    <span>{isRTL ? 'مفضل:' : 'Favorable:'} {totalVariances?.favorable_count || 0}</span>
+                    <span>{t('efficiency.favorable')} {totalVariances?.favorable_count || 0}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-red-500" />
-                    <span>{isRTL ? 'غير مفضل:' : 'Unfavorable:'} {totalVariances?.unfavorable_count || 0}</span>
+                    <span>{t('efficiency.unfavorable')} {totalVariances?.unfavorable_count || 0}</span>
                   </div>
                 </div>
               </CardContent>
@@ -452,18 +446,18 @@ export const EfficiencyDashboard: React.FC = () => {
           {/* Work Center Efficiency Table */}
           <Card>
             <CardHeader>
-              <CardTitle>{isRTL ? 'كفاءة مراكز العمل' : 'Work Center Efficiency'}</CardTitle>
+              <CardTitle>{t('efficiency.workCenterEfficiency')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{isRTL ? 'مركز العمل' : 'Work Center'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'العمليات المكتملة' : 'Completed Ops'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الكمية المنتجة' : 'Produced'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'كفاءة الإعداد' : 'Setup Eff.'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'كفاءة التشغيل' : 'Run Eff.'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الكفاءة الإجمالية' : 'Overall Eff.'}</TableHead>
+                    <TableHead>{t('efficiency.workCenter')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.completedOps')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.produced')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.setupEff')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.runEff')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.overallEff')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -482,17 +476,17 @@ export const EfficiencyDashboard: React.FC = () => {
         <TabsContent value="oee" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isRTL ? 'تقرير OEE التفصيلي' : 'Detailed OEE Report'}</CardTitle>
+              <CardTitle>{t('efficiency.detailedOEEReport')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{isRTL ? 'التاريخ' : 'Date'}</TableHead>
-                    <TableHead>{isRTL ? 'مركز العمل' : 'Work Center'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'التوافر' : 'Availability'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الأداء' : 'Performance'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الجودة' : 'Quality'}</TableHead>
+                    <TableHead>{t('common.date')}</TableHead>
+                    <TableHead>{t('efficiency.workCenter')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.availability')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.performance')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.quality')}</TableHead>
                     <TableHead className="text-center">OEE</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -500,7 +494,6 @@ export const EfficiencyDashboard: React.FC = () => {
                   <OEETable
                     data={oeeData}
                     isLoading={loadingOEE}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -512,25 +505,24 @@ export const EfficiencyDashboard: React.FC = () => {
         <TabsContent value="labor" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isRTL ? 'تقرير كفاءة العمالة' : 'Labor Efficiency Report'}</CardTitle>
+              <CardTitle>{t('efficiency.laborEfficiencyReport')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{isRTL ? 'رقم الأمر' : 'Order #'}</TableHead>
-                    <TableHead>{isRTL ? 'العملية' : 'Operation'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'المخطط' : 'Planned'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الفعلي' : 'Actual'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الكفاءة' : 'Efficiency'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'الخردة' : 'Scrap %'}</TableHead>
+                    <TableHead>{t('efficiency.orderNo')}</TableHead>
+                    <TableHead>{t('efficiency.operation')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.planned')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.actual')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.efficiencyCol')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.scrapPct')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <LaborEfficiencyTable
                     data={laborEfficiency}
                     isLoading={loadingLabor}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -542,24 +534,23 @@ export const EfficiencyDashboard: React.FC = () => {
         <TabsContent value="variance" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isRTL ? 'تقرير تباين التكاليف' : 'Cost Variance Report'}</CardTitle>
+              <CardTitle>{t('efficiency.costVarianceReport')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{isRTL ? 'أمر العمل' : 'Work Order'}</TableHead>
-                    <TableHead>{isRTL ? 'العملية' : 'Operation'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'تكلفة مخططة' : 'Planned Cost'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'تكلفة فعلية' : 'Actual Cost'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'التباين' : 'Variance'}</TableHead>
+                    <TableHead>{t('efficiency.workOrder')}</TableHead>
+                    <TableHead>{t('efficiency.operation')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.plannedCost')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.actualCost')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.varianceCol')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <CostVarianceTable
                     data={costVariances}
                     isLoading={loadingVariances}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -571,25 +562,24 @@ export const EfficiencyDashboard: React.FC = () => {
         <TabsContent value="materials" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>{isRTL ? 'تقرير استهلاك المواد' : 'Material Consumption Report'}</CardTitle>
+              <CardTitle>{t('efficiency.materialConsumptionReport')}</CardTitle>
             </CardHeader>
             <CardContent>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{isRTL ? 'أمر العمل' : 'Work Order'}</TableHead>
-                    <TableHead>{isRTL ? 'الصنف' : 'Item'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'المخطط' : 'Planned'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'المستهلك' : 'Consumed'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'التباين' : 'Variance'}</TableHead>
-                    <TableHead className="text-center">{isRTL ? 'التكلفة' : 'Cost'}</TableHead>
+                    <TableHead>{t('efficiency.workOrder')}</TableHead>
+                    <TableHead>{t('efficiency.item')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.planned')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.consumed')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.varianceCol')}</TableHead>
+                    <TableHead className="text-center">{t('efficiency.cost')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   <MaterialConsumptionTable
                     data={materialConsumption}
                     isLoading={loadingMaterials}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -602,4 +592,3 @@ export const EfficiencyDashboard: React.FC = () => {
 }
 
 export default EfficiencyDashboard
-

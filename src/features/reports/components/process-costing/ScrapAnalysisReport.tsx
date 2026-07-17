@@ -5,6 +5,7 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import i18next from 'i18next'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -55,9 +56,9 @@ const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042']
 // Helper functions to reduce cognitive complexity
 const buildStageCostsQuery = (filters: DashboardFilters) => {
   if (!supabase) throw new Error('Supabase client not initialized')
-  
+
   let query = supabase.from('stage_costs').select('*')
-  
+
   if (filters.manufacturingOrderId) {
     query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
   }
@@ -83,30 +84,30 @@ const sortStageCostsData = (data: Record<string, unknown>[] | null) => {
   })
 }
 
-const processFallbackData = async (filters: DashboardFilters, isRTL: boolean): Promise<ScrapData[]> => {
+const processFallbackData = async (filters: DashboardFilters): Promise<ScrapData[]> => {
   if (!supabase) throw new Error('Supabase client not initialized')
-  
+
   const { data: fallbackData, error: fallbackError } = await supabase
     .from('stage_costs')
     .select('*')
     .limit(100)
-  
+
   if (fallbackError) {
     throw new Error(`Failed to fetch scrap data: ${fallbackError.message}`)
   }
-  
+
   const filtered = (fallbackData || []).filter((sc: Record<string, unknown>) => {
     if (!filters.manufacturingOrderId) return true
     return sc.manufacturing_order_id === filters.manufacturingOrderId || sc.mo_id === filters.manufacturingOrderId
   })
-  
+
   if (filtered.length === 0) {
     return []
   }
-  
+
   return filtered.map((sc: Record<string, unknown>) => ({
     stage_no: Number(sc.stage_no || sc.stage_number || 0),
-    stage_name: isRTL ? `المرحلة ${sc.stage_no || sc.stage_number || 0}` : `Stage ${sc.stage_no || sc.stage_number || 0}`,
+    stage_name: i18next.t('scrap.stageLabel', { no: sc.stage_no || sc.stage_number || 0 }),
     good_qty: Number(sc.good_qty) || 0,
     scrap_qty: Number(sc.scrap_qty) || 0,
     normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
@@ -123,37 +124,37 @@ const processFallbackData = async (filters: DashboardFilters, isRTL: boolean): P
 
 const fetchWorkCenters = async (wcIds: string[]) => {
   if (!supabase || wcIds.length === 0) return {}
-  
+
   const { data: wcs, error: wcError } = await supabase
     .from('work_centers')
     .select('id, name, name_ar, normal_scrap_rate')
     .in('id', wcIds)
-  
+
   if (wcError || !wcs) return {}
-  
+
   const wcData: Record<string, { id: string; name?: string; name_ar?: string; normal_scrap_rate?: number }> = {}
   wcs.forEach((wc) => {
     wcData[wc.id] = wc
   })
-  
+
   return wcData
 }
 
 const fetchManufacturingOrders = async (moIds: string[]) => {
   if (!supabase || moIds.length === 0) return {}
-  
+
   const { data: mos, error: moError } = await supabase
     .from('manufacturing_orders')
     .select('id, order_number')
     .in('id', moIds)
-  
+
   if (moError || !mos) return {}
-  
+
   const moData: Record<string, { id: string; order_number?: string }> = {}
   mos.forEach((mo) => {
     moData[mo.id] = mo
   })
-  
+
   return moData
 }
 
@@ -169,12 +170,12 @@ const transformToScrapData = (
     const moId = (sc.manufacturing_order_id || sc.mo_id) as string
     const workCenters = wcData[wcId]
     const manufacturingOrders = moData[moId]
-    
+
     return {
       stage_no: stageNo,
-      stage_name: isRTL 
-        ? (workCenters?.name_ar || workCenters?.name || `المرحلة ${stageNo}`) 
-        : (workCenters?.name || `Stage ${stageNo}`),
+      stage_name: isRTL
+        ? (workCenters?.name_ar || workCenters?.name || i18next.t('scrap.stageLabel', { no: stageNo }))
+        : (workCenters?.name || i18next.t('scrap.stageLabel', { no: stageNo })),
       good_qty: Number(sc.good_qty) || 0,
       scrap_qty: Number(sc.scrap_qty) || 0,
       normal_scrap_qty: Number(sc.normal_scrap_qty) || 0,
@@ -194,7 +195,7 @@ const transformToScrapData = (
 // NOSONAR - Complex report component with detailed scrap analysis and visualizations
 // eslint-disable-next-line complexity
 export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { data: scrapData, isLoading, error } = useQuery<ScrapData[]>({
@@ -202,7 +203,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
     queryFn: async (): Promise<ScrapData[]> => {
       const query = buildStageCostsQuery(filters)
       const { data: stageCostsData, error: queryError } = await query
-      
+
       sortStageCostsData(stageCostsData)
 
       if (queryError) {
@@ -211,21 +212,21 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           code: queryError.code,
           details: queryError.details
         })
-        return processFallbackData(filters, isRTL)
+        return processFallbackData(filters)
       }
-      
+
       if (!stageCostsData || stageCostsData.length === 0) {
         return []
       }
-      
+
       const wcIds = [...new Set(stageCostsData.map((sc) => sc.work_center_id).filter(Boolean) as string[])]
       const moIds = [...new Set(stageCostsData.map((sc) => sc.manufacturing_order_id).filter(Boolean) as string[])]
-      
+
       const [wcData, moData] = await Promise.all([
         fetchWorkCenters(wcIds),
         fetchManufacturingOrders(moIds)
       ])
-      
+
       return transformToScrapData(stageCostsData, wcData, moData, isRTL)
     }
   })
@@ -235,7 +236,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Scissors className="h-8 w-8 animate-pulse mx-auto text-primary" />
-          <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+          <p className="text-muted-foreground">{t('scrap.loading')}</p>
         </div>
       </div>
     )
@@ -245,7 +246,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
     return (
       <Alert variant="destructive" className={getGlassClasses()}>
         <AlertDescription>
-          {isRTL ? 'حدث خطأ أثناء تحميل البيانات' : 'Error loading data'}: {error.message}
+          {t('scrap.errorLoading')}: {error.message}
         </AlertDescription>
       </Alert>
     )
@@ -256,7 +257,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
       <Alert className={getGlassClasses()}>
         <Info className="h-4 w-4" />
         <AlertDescription>
-          {isRTL ? 'لا توجد بيانات لعرضها' : 'No data available'}
+          {t('scrap.noData')}
         </AlertDescription>
       </Alert>
     )
@@ -285,8 +286,8 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
 
   // Prepare chart data
   const pieData = [
-    { name: isRTL ? 'هالك طبيعي' : 'Normal Scrap', value: totals.normal_scrap_qty, cost: totals.normal_scrap_cost },
-    { name: isRTL ? 'هالك غير طبيعي' : 'Abnormal Scrap', value: totals.abnormal_scrap_qty, cost: totals.abnormal_scrap_cost }
+    { name: t('scrap.normalScrap'), value: totals.normal_scrap_qty, cost: totals.normal_scrap_cost },
+    { name: t('scrap.abnormalScrap'), value: totals.abnormal_scrap_qty, cost: totals.abnormal_scrap_cost }
   ]
 
   const barData = scrapData.map(item => ({
@@ -304,23 +305,17 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Info className="h-5 w-5" />
-            {isRTL ? 'معلومات عن تحليل الهالك' : 'About Scrap Analysis'}
+            {t('scrap.aboutTitle')}
           </CardTitle>
         </CardHeader>
         <CardContent className={cn("space-y-2 text-sm", isRTL ? "text-right" : "text-left")}>
           <p>
-            <strong>{isRTL ? 'الهالك الطبيعي' : 'Normal Scrap'}</strong>:
-            {isRTL 
-              ? ' هو الهالك المتوقع في العملية الإنتاجية ويتم تخصيص تكلفته على الوحدات الجيدة.'
-              : ' is expected scrap in the production process and its cost is allocated to good units.'
-            }
+            <strong>{t('scrap.normalScrapDef')}</strong>:
+            {t('scrap.normalScrapDesc')}
           </p>
           <p>
-            <strong>{isRTL ? 'الهالك غير الطبيعي' : 'Abnormal Scrap'}</strong>:
-            {isRTL 
-              ? ' هو الهالك غير المتوقع ويتم تحميل تكلفته على حساب الخسائر (Expense).'
-              : ' is unexpected scrap and its cost is charged to expense account.'
-            }
+            <strong>{t('scrap.abnormalScrapDef')}</strong>:
+            {t('scrap.abnormalScrapDesc')}
           </p>
         </CardContent>
       </Card>
@@ -331,7 +326,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-green-500" />
-              {isRTL ? 'الهالك الطبيعي' : 'Normal Scrap'}
+              {t('scrap.normalScrap')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -346,7 +341,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <AlertTriangle className="h-4 w-4 text-red-500" />
-              {isRTL ? 'الهالك غير الطبيعي' : 'Abnormal Scrap'}
+              {t('scrap.abnormalScrap')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -361,13 +356,13 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <Scissors className="h-4 w-4 text-blue-500" />
-              {isRTL ? 'إعادة المعالجة' : 'Regrind Cost'}
+              {t('scrap.regrindCostCard')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.regrind_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {isRTL ? 'تكلفة إعادة المعالجة' : 'Reprocessing cost'}
+              {t('scrap.regrindCostSub')}
             </p>
           </CardContent>
         </Card>
@@ -376,13 +371,13 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
               <CheckCircle className="h-4 w-4 text-green-500" />
-              {isRTL ? 'ائتمان النفايات' : 'Waste Credit'}
+              {t('scrap.wasteCredit')}
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{totals.waste_credit_amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س</div>
             <p className="text-xs text-muted-foreground mt-1">
-              {isRTL ? 'ائتمان من بيع النفايات' : 'Credit from waste sales'}
+              {t('scrap.wasteCreditSub')}
             </p>
           </CardContent>
         </Card>
@@ -393,7 +388,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Scissors className="h-5 w-5" />
-            {isRTL ? 'تفصيل الهالك' : 'Scrap Breakdown'}
+            {t('scrap.breakdown')}
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -401,15 +396,15 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'أمر التصنيع' : 'MO'}</TableHead>
-                  <TableHead className={cn(isRTL && "text-right")}>{isRTL ? 'المرحلة' : 'Stage'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'الكمية الجيدة' : 'Good Qty'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'إجمالي الهالك' : 'Total Scrap'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'هالك طبيعي' : 'Normal'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'هالك غير طبيعي' : 'Abnormal'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'تكلفة طبيعي' : 'Normal Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'تكلفة غير طبيعي' : 'Abnormal Cost'}</TableHead>
-                  <TableHead className={cn("text-right", isRTL && "text-right")}>{isRTL ? 'معدل الطبيعي' : 'Normal Rate'}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('scrap.mo')}</TableHead>
+                  <TableHead className={cn(isRTL && "text-right")}>{t('scrap.stage')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.goodQty')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.totalScrap')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.normalScrap')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.abnormalScrap')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.normalCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.abnormalCost')}</TableHead>
+                  <TableHead className={cn("text-right", isRTL && "text-right")}>{t('scrap.normalRate')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -442,7 +437,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
                 ))}
                 {/* Totals Row */}
                 <TableRow className="font-bold bg-muted/50">
-                  <TableCell colSpan={2}>{isRTL ? 'الإجمالي' : 'Total'}</TableCell>
+                  <TableCell colSpan={2}>{t('scrap.total')}</TableCell>
                   <TableCell className="text-right font-mono">
                     {totals.good_qty.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </TableCell>
@@ -476,7 +471,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader>
             <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
               <Scissors className="h-5 w-5" />
-              {isRTL ? 'توزيع الهالك' : 'Scrap Distribution'}
+              {t('scrap.distribution')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -509,7 +504,7 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
           <CardHeader>
             <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
               <Scissors className="h-5 w-5" />
-              {isRTL ? 'الهالك حسب المرحلة' : 'Scrap by Stage'}
+              {t('scrap.byStage')}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -520,8 +515,8 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="normal" name={isRTL ? 'هالك طبيعي' : 'Normal'} fill="#00C49F" />
-                <Bar dataKey="abnormal" name={isRTL ? 'هالك غير طبيعي' : 'Abnormal'} fill="#FF8042" />
+                <Bar dataKey="normal" name={t('scrap.normalBar')} fill="#00C49F" />
+                <Bar dataKey="abnormal" name={t('scrap.abnormalBar')} fill="#FF8042" />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -530,4 +525,3 @@ export function ScrapAnalysisReport({ filters }: { readonly filters: DashboardFi
     </div>
   )
 }
-

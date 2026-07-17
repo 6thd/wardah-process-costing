@@ -37,19 +37,19 @@ import {
   Zap,
   CalendarDays,
 } from 'lucide-react'
-import { 
-  useBottlenecks, 
-  useCapacitySummary, 
+import {
+  useBottlenecks,
+  useCapacitySummary,
   useWeeklyScheduleSummary,
-  usePredictDelays 
+  usePredictDelays
 } from '@/hooks/manufacturing/useCapacity'
-import { 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
   ResponsiveContainer,
   Cell,
   PieChart,
@@ -70,10 +70,10 @@ export function CapacityDashboard() {
 
   const [period, setPeriod] = useState<'week' | 'month'>('week')
 
-  const startDate = period === 'week' 
+  const startDate = period === 'week'
     ? startOfWeek.toISOString().split('T')[0]
     : new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
-  
+
   const endDate = period === 'week'
     ? endOfWeek.toISOString().split('T')[0]
     : new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0]
@@ -92,8 +92,8 @@ export function CapacityDashboard() {
       utilization: b.utilization_pct,
       available: b.available_hours,
       planned: b.planned_hours,
-      fill: b.utilization_pct > 100 ? '#ef4444' : 
-            b.utilization_pct > 85 ? '#f59e0b' : 
+      fill: b.utilization_pct > 100 ? '#ef4444' :
+            b.utilization_pct > 85 ? '#f59e0b' :
             b.utilization_pct > 50 ? '#22c55e' : '#3b82f6'
     }))
   }, [bottlenecks])
@@ -101,30 +101,30 @@ export function CapacityDashboard() {
   const statusDistribution = useMemo(() => {
     if (!weeklySummary) return []
     return [
-      { name: isRTL ? 'مكتمل' : 'Completed', value: weeklySummary.completed, color: '#22c55e' },
-      { name: isRTL ? 'قيد التنفيذ' : 'In Progress', value: weeklySummary.in_progress, color: '#3b82f6' },
-      { name: isRTL ? 'متأخر' : 'Delayed', value: weeklySummary.delayed, color: '#ef4444' },
-      { name: isRTL ? 'مجدول' : 'Scheduled', value: weeklySummary.total_scheduled - weeklySummary.completed - weeklySummary.in_progress - weeklySummary.delayed, color: '#9ca3af' },
+      { name: t('capacity.completed'), value: weeklySummary.completed, color: '#22c55e' },
+      { name: t('capacity.inProgress'), value: weeklySummary.in_progress, color: '#3b82f6' },
+      { name: t('capacity.delayed'), value: weeklySummary.delayed, color: '#ef4444' },
+      { name: t('capacity.scheduled'), value: weeklySummary.total_scheduled - weeklySummary.completed - weeklySummary.in_progress - weeklySummary.delayed, color: '#9ca3af' },
     ].filter(d => d.value > 0)
-  }, [weeklySummary, isRTL])
+  }, [weeklySummary, i18n.language])
 
   const getUtilizationBadge = (pct: number) => {
-    if (pct > 100) return <Badge variant="destructive">{isRTL ? 'محمّل فوق الطاقة' : 'Overloaded'}</Badge>
-    if (pct > 85) return <Badge className="bg-yellow-500">{isRTL ? 'حمل عالي' : 'High Load'}</Badge>
-    if (pct > 50) return <Badge className="bg-green-500">{isRTL ? 'طبيعي' : 'Normal'}</Badge>
-    return <Badge variant="secondary">{isRTL ? 'حمل منخفض' : 'Low Load'}</Badge>
+    if (pct > 100) return <Badge variant="destructive">{t('capacity.overloaded')}</Badge>
+    if (pct > 85) return <Badge className="bg-yellow-500">{t('capacity.highLoad')}</Badge>
+    if (pct > 50) return <Badge className="bg-green-500">{t('capacity.normal')}</Badge>
+    return <Badge variant="secondary">{t('capacity.lowLoad')}</Badge>
   }
 
   const getSeverityBadge = (severity: string) => {
     switch (severity) {
       case 'CRITICAL':
-        return <Badge variant="destructive">{isRTL ? 'حرج' : 'Critical'}</Badge>
+        return <Badge variant="destructive">{t('capacity.critical')}</Badge>
       case 'HIGH':
-        return <Badge className="bg-orange-500">{isRTL ? 'عالي' : 'High'}</Badge>
+        return <Badge className="bg-orange-500">{t('capacity.high')}</Badge>
       case 'MEDIUM':
-        return <Badge className="bg-yellow-500">{isRTL ? 'متوسط' : 'Medium'}</Badge>
+        return <Badge className="bg-yellow-500">{t('capacity.medium')}</Badge>
       default:
-        return <Badge variant="secondary">{isRTL ? 'منخفض' : 'Low'}</Badge>
+        return <Badge variant="secondary">{t('capacity.low')}</Badge>
     }
   }
 
@@ -135,10 +135,10 @@ export function CapacityDashboard() {
         <div>
           <h1 className="text-3xl font-bold wardah-text-gradient-google">
             <Gauge className="inline-block w-8 h-8 mr-2" />
-            {isRTL ? 'تخطيط الطاقة الإنتاجية' : 'Capacity Planning'}
+            {t('capacity.planningTitle')}
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isRTL ? 'تحليل الطاقة وتحديد الاختناقات وجدولة الإنتاج' : 'Capacity analysis, bottleneck identification, and production scheduling'}
+            {t('capacity.planningSubtitle')}
           </p>
         </div>
         <div className="flex gap-2 items-center">
@@ -147,8 +147,8 @@ export function CapacityDashboard() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="week">{isRTL ? 'هذا الأسبوع' : 'This Week'}</SelectItem>
-              <SelectItem value="month">{isRTL ? 'هذا الشهر' : 'This Month'}</SelectItem>
+              <SelectItem value="week">{t('capacity.thisWeek')}</SelectItem>
+              <SelectItem value="month">{t('capacity.thisMonth')}</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -163,7 +163,7 @@ export function CapacityDashboard() {
                 <CalendarDays className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'أوامر مجدولة' : 'Scheduled Orders'}</p>
+                <p className="text-sm text-muted-foreground">{t('capacity.scheduledOrders')}</p>
                 <p className="text-2xl font-bold">{weeklySummary?.total_scheduled || 0}</p>
               </div>
             </div>
@@ -177,7 +177,7 @@ export function CapacityDashboard() {
                 <TrendingUp className="w-6 h-6 text-green-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'متوسط الاستخدام' : 'Avg Utilization'}</p>
+                <p className="text-sm text-muted-foreground">{t('capacity.avgUtilization')}</p>
                 <p className="text-2xl font-bold">{weeklySummary?.utilization_avg || 0}%</p>
               </div>
             </div>
@@ -191,7 +191,7 @@ export function CapacityDashboard() {
                 <AlertTriangle className="w-6 h-6 text-red-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'اختناقات' : 'Bottlenecks'}</p>
+                <p className="text-sm text-muted-foreground">{t('capacity.bottlenecksLabel')}</p>
                 <p className="text-2xl font-bold">
                   {bottlenecks?.filter(b => b.is_bottleneck).length || 0}
                 </p>
@@ -207,7 +207,7 @@ export function CapacityDashboard() {
                 <Clock className="w-6 h-6 text-yellow-600" />
               </div>
               <div>
-                <p className="text-sm text-muted-foreground">{isRTL ? 'تأخيرات متوقعة' : 'Predicted Delays'}</p>
+                <p className="text-sm text-muted-foreground">{t('capacity.predictedDelays')}</p>
                 <p className="text-2xl font-bold">{predictions?.length || 0}</p>
               </div>
             </div>
@@ -220,15 +220,15 @@ export function CapacityDashboard() {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="overview">
             <BarChart3 className="w-4 h-4 mr-2" />
-            {isRTL ? 'نظرة عامة' : 'Overview'}
+            {t('capacity.overview')}
           </TabsTrigger>
           <TabsTrigger value="bottlenecks">
             <AlertTriangle className="w-4 h-4 mr-2" />
-            {isRTL ? 'الاختناقات' : 'Bottlenecks'}
+            {t('capacity.bottlenecksTab')}
           </TabsTrigger>
           <TabsTrigger value="predictions">
             <Target className="w-4 h-4 mr-2" />
-            {isRTL ? 'التنبؤات' : 'Predictions'}
+            {t('capacity.predictions')}
           </TabsTrigger>
         </TabsList>
 
@@ -238,7 +238,7 @@ export function CapacityDashboard() {
             {/* Utilization Chart */}
             <Card className="wardah-glass-card">
               <CardHeader>
-                <CardTitle>{isRTL ? 'استخدام مراكز العمل' : 'Work Center Utilization'}</CardTitle>
+                <CardTitle>{t('capacity.workCenterUtil')}</CardTitle>
               </CardHeader>
               <CardContent>
                 {loadingBottlenecks ? (
@@ -251,8 +251,8 @@ export function CapacityDashboard() {
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis type="number" domain={[0, 120]} />
                       <YAxis dataKey="name" type="category" width={100} />
-                      <Tooltip 
-                        formatter={(value: number) => [`${value}%`, isRTL ? 'الاستخدام' : 'Utilization']}
+                      <Tooltip
+                        formatter={(value: number) => [`${value}%`, t('capacity.utilizationLabel')]}
                       />
                       <Bar dataKey="utilization" radius={[0, 4, 4, 0]}>
                         {chartData.map((entry, index) => (
@@ -268,12 +268,12 @@ export function CapacityDashboard() {
             {/* Schedule Status */}
             <Card className="wardah-glass-card">
               <CardHeader>
-                <CardTitle>{isRTL ? 'حالة الجدولة' : 'Schedule Status'}</CardTitle>
+                <CardTitle>{t('capacity.scheduleStatus')}</CardTitle>
               </CardHeader>
               <CardContent>
                 {statusDistribution.length === 0 ? (
                   <div className="flex justify-center items-center h-64">
-                    <p className="text-muted-foreground">{isRTL ? 'لا توجد بيانات' : 'No data available'}</p>
+                    <p className="text-muted-foreground">{t('capacity.noData')}</p>
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={300}>
@@ -304,7 +304,7 @@ export function CapacityDashboard() {
           {/* Capacity Summary Table */}
           <Card className="wardah-glass-card">
             <CardHeader>
-              <CardTitle>{isRTL ? 'ملخص الطاقة' : 'Capacity Summary'}</CardTitle>
+              <CardTitle>{t('capacity.capacitySummary')}</CardTitle>
             </CardHeader>
             <CardContent>
               {loadingSummary ? (
@@ -315,11 +315,11 @@ export function CapacityDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{isRTL ? 'مركز العمل' : 'Work Center'}</TableHead>
-                      <TableHead>{isRTL ? 'الآلات' : 'Machines'}</TableHead>
-                      <TableHead>{isRTL ? 'ساعات/يوم' : 'Hours/Day'}</TableHead>
-                      <TableHead>{isRTL ? 'الاستخدام' : 'Utilization'}</TableHead>
-                      <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
+                      <TableHead>{t('capacity.workCenter')}</TableHead>
+                      <TableHead>{t('capacity.machines')}</TableHead>
+                      <TableHead>{t('capacity.hoursPerDay')}</TableHead>
+                      <TableHead>{t('capacity.utilizationLabel')}</TableHead>
+                      <TableHead>{t('capacity.statusLabel')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -350,13 +350,10 @@ export function CapacityDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-yellow-500" />
-                {isRTL ? 'تحليل الاختناقات' : 'Bottleneck Analysis'}
+                {t('capacity.bottleneckAnalysis')}
               </CardTitle>
               <CardDescription>
-                {isRTL 
-                  ? 'مراكز العمل التي تتجاوز طاقتها 85% تعتبر اختناقات محتملة'
-                  : 'Work centers exceeding 85% capacity are considered potential bottlenecks'
-                }
+                {t('capacity.bottleneckDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -367,20 +364,20 @@ export function CapacityDashboard() {
               ) : bottlenecks?.length === 0 ? (
                 <div className="text-center py-12">
                   <Zap className="mx-auto h-12 w-12 text-green-500" />
-                  <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد اختناقات' : 'No Bottlenecks'}</h3>
+                  <h3 className="mt-2 text-lg font-medium">{t('capacity.noBottlenecks')}</h3>
                   <p className="mt-1 text-muted-foreground">
-                    {isRTL ? 'جميع مراكز العمل تعمل ضمن الطاقة المتاحة' : 'All work centers are operating within capacity'}
+                    {t('capacity.noBottlenecksDesc')}
                   </p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{isRTL ? 'مركز العمل' : 'Work Center'}</TableHead>
-                      <TableHead>{isRTL ? 'الساعات المتاحة' : 'Available Hours'}</TableHead>
-                      <TableHead>{isRTL ? 'الساعات المخططة' : 'Planned Hours'}</TableHead>
-                      <TableHead>{isRTL ? 'الاستخدام' : 'Utilization'}</TableHead>
-                      <TableHead>{isRTL ? 'الشدة' : 'Severity'}</TableHead>
+                      <TableHead>{t('capacity.workCenter')}</TableHead>
+                      <TableHead>{t('capacity.availableHours')}</TableHead>
+                      <TableHead>{t('capacity.plannedHours')}</TableHead>
+                      <TableHead>{t('capacity.utilizationLabel')}</TableHead>
+                      <TableHead>{t('capacity.severity')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -391,8 +388,8 @@ export function CapacityDashboard() {
                         <TableCell>{item.planned_hours.toFixed(1)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <Progress 
-                              value={Math.min(item.utilization_pct, 100)} 
+                            <Progress
+                              value={Math.min(item.utilization_pct, 100)}
                               className="w-24 h-2"
                             />
                             <span className="text-sm font-medium text-red-600">
@@ -430,32 +427,29 @@ export function CapacityDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Target className="w-5 h-5" />
-                {isRTL ? 'التنبؤ بالتأخيرات' : 'Delay Predictions'}
+                {t('capacity.delayPredictions')}
               </CardTitle>
               <CardDescription>
-                {isRTL 
-                  ? 'تنبؤات بالتأخيرات المحتملة خلال الأيام السبعة القادمة'
-                  : 'Predicted delays for the next 7 days based on historical performance'
-                }
+                {t('capacity.delayPredictionsDesc')}
               </CardDescription>
             </CardHeader>
             <CardContent>
               {predictions?.length === 0 ? (
                 <div className="text-center py-12">
                   <TrendingUp className="mx-auto h-12 w-12 text-green-500" />
-                  <h3 className="mt-2 text-lg font-medium">{isRTL ? 'لا توجد تأخيرات متوقعة' : 'No Delays Predicted'}</h3>
+                  <h3 className="mt-2 text-lg font-medium">{t('capacity.noDelays')}</h3>
                   <p className="mt-1 text-muted-foreground">
-                    {isRTL ? 'جميع الأوامر من المتوقع أن تكتمل في الوقت المحدد' : 'All orders are expected to complete on time'}
+                    {t('capacity.noDelaysDesc')}
                   </p>
                 </div>
               ) : (
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>{isRTL ? 'رقم أمر العمل' : 'Work Order'}</TableHead>
-                      <TableHead>{isRTL ? 'الانتهاء المجدول' : 'Scheduled End'}</TableHead>
-                      <TableHead>{isRTL ? 'التأخير المتوقع' : 'Predicted Delay'}</TableHead>
-                      <TableHead>{isRTL ? 'السبب' : 'Reason'}</TableHead>
+                      <TableHead>{t('capacity.workOrder')}</TableHead>
+                      <TableHead>{t('capacity.scheduledEnd')}</TableHead>
+                      <TableHead>{t('capacity.predictedDelay')}</TableHead>
+                      <TableHead>{t('capacity.reason')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -467,7 +461,7 @@ export function CapacityDashboard() {
                         </TableCell>
                         <TableCell>
                           <Badge variant="destructive">
-                            +{pred.predicted_delay_hours} {isRTL ? 'ساعة' : 'hours'}
+                            +{pred.predicted_delay_hours} {t('capacity.hours')}
                           </Badge>
                         </TableCell>
                         <TableCell>{pred.reason}</TableCell>
@@ -485,4 +479,3 @@ export function CapacityDashboard() {
 }
 
 export default CapacityDashboard
-

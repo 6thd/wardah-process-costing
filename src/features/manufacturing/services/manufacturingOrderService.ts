@@ -54,7 +54,7 @@ export async function updateOrderStatus(
   currentStatus: ManufacturingOrderStatus,
   targetStatus: ManufacturingOrderStatus,
   updateData: any,
-  isRTL: boolean
+  t: any
 ): Promise<boolean> {
   try {
     if (targetStatus === currentStatus) {
@@ -65,7 +65,7 @@ export async function updateOrderStatus(
     return true;
   } catch (error: any) {
     console.error('Error changing status:', error);
-    toast.error(error.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'));
+    toast.error(error.message || t('manufacturing.ordersPage.statusUpdateFailed'));
     return false;
   }
 }
