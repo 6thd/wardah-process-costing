@@ -18,7 +18,7 @@ interface BatchPostDialogProps {
 
 // eslint-disable-next-line complexity
 export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPostDialogProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [selectedEntries, setSelectedEntries] = useState<Set<string>>(new Set());
   const [posting, setPosting] = useState(false);
@@ -52,7 +52,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
 
   const handleBatchPost = async () => {
     if (selectedEntries.size === 0) {
-      toast.error(isRTL ? 'يرجى اختيار قيود للترحيل' : 'Please select entries to post');
+      toast.error(t('batchPost.selectEntries'));
       return;
     }
 
@@ -67,9 +67,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
       
       if (result.success) {
         toast.success(
-          isRTL 
-            ? `تم ترحيل ${result.success_count} من ${result.total} قيد بنجاح`
-            : `Successfully posted ${result.success_count} of ${result.total} entries`
+          t('batchPost.postSuccess', { success: result.success_count, total: result.total })
         );
         onSuccess();
         setTimeout(() => {
@@ -79,13 +77,11 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
         }, 2000);
       } else {
         toast.warning(
-          isRTL
-            ? `تم ترحيل ${result.success_count} من ${result.total} قيد. فشل ${result.fail_count}`
-            : `Posted ${result.success_count} of ${result.total} entries. ${result.fail_count} failed`
+          t('batchPost.postPartial', { success: result.success_count, total: result.total, failed: result.fail_count })
         );
       }
     } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'فشل الترحيل المجمع' : 'Batch posting failed'));
+      toast.error(error.message || t('batchPost.postFailed'));
     } finally {
       setPosting(false);
     }
@@ -96,35 +92,28 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
         <DialogHeader>
           <DialogTitle>
-            {isRTL ? 'ترحيل قيود متعددة' : 'Batch Post Entries'}
+            {t('batchPost.title')}
           </DialogTitle>
           <DialogDescription>
-            {isRTL 
-              ? 'اختر القيود التي تريد ترحيلها دفعة واحدة'
-              : 'Select entries to post in batch'}
+            {t('batchPost.description')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
           {draftEntries.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
-              {isRTL ? 'لا توجد قيود مسودة للترحيل' : 'No draft entries to post'}
+              {t('batchPost.noDrafts')}
             </div>
           ) : (
             <>
               <div className="flex justify-between items-center">
                 <Button variant="outline" size="sm" onClick={selectAll}>
-                  {/* eslint-disable-next-line complexity */}
-                  {(() => {
-                    const isAllSelected = selectedEntries.size === draftEntries.length;
-                    if (isAllSelected) {
-                      return isRTL ? 'إلغاء التحديد الكامل' : 'Deselect All';
-                    }
-                    return isRTL ? 'تحديد الكل' : 'Select All';
-                  })()}
+                  {selectedEntries.size === draftEntries.length
+                    ? t('batchPost.deselectAll')
+                    : t('batchPost.selectAll')}
                 </Button>
                 <Badge variant="secondary">
-                  {selectedEntries.size} / {draftEntries.length} {isRTL ? 'محدد' : 'selected'}
+                  {selectedEntries.size} / {draftEntries.length} {t('batchPost.selected')}
                 </Badge>
               </div>
 
@@ -133,9 +122,9 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                   <TableHeader>
                     <TableRow>
                       <TableHead className="w-12"></TableHead>
-                      <TableHead>{isRTL ? 'رقم القيد' : 'Entry Number'}</TableHead>
-                      <TableHead className="text-right">{isRTL ? 'المبلغ' : 'Amount'}</TableHead>
-                      <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
+                      <TableHead>{t('batchPost.entryNumber')}</TableHead>
+                      <TableHead className="text-right">{t('batchPost.amount')}</TableHead>
+                      <TableHead>{t('batchPost.status')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -165,7 +154,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                               if (!result) {
                                 return (
                                   <Badge variant="secondary">
-                                    {isRTL ? 'مسودة' : 'Draft'}
+                                    {t('batchPost.draft')}
                                   </Badge>
                                 );
                               }
@@ -173,14 +162,14 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                                 return (
                                   <Badge variant="default" className="bg-green-600">
                                     <CheckCircle className="h-3 w-3 mr-1" />
-                                    {isRTL ? 'تم' : 'Posted'}
+                                    {t('batchPost.posted')}
                                   </Badge>
                                 );
                               }
                               return (
                                 <Badge variant="destructive">
                                   <XCircle className="h-3 w-3 mr-1" />
-                                  {isRTL ? 'فشل' : 'Failed'}
+                                  {t('batchPost.failed')}
                                 </Badge>
                               );
                             })()}
@@ -195,7 +184,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
               {results && results.length > 0 && (
                 <div className="border rounded-lg p-4 bg-muted/50">
                   <h4 className="font-semibold mb-2">
-                    {isRTL ? 'نتائج الترحيل' : 'Posting Results'}
+                    {t('batchPost.results')}
                   </h4>
                   <div className="space-y-1 text-sm">
                     {results.map((result) => (
@@ -217,7 +206,7 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
 
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={onClose} disabled={posting}>
-                  {isRTL ? 'إلغاء' : 'Cancel'}
+                  {t('batchPost.cancel')}
                 </Button>
                 <Button 
                   onClick={handleBatchPost} 
@@ -226,11 +215,11 @@ export function BatchPostDialog({ isOpen, onClose, entries, onSuccess }: BatchPo
                   {posting ? (
                     <>
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      {isRTL ? 'جاري الترحيل...' : 'Posting...'}
+                      {t('batchPost.posting')}
                     </>
                   ) : (
                     <>
-                      {isRTL ? 'ترحيل المحدد' : 'Post Selected'}
+                      {t('batchPost.postSelected')}
                     </>
                   )}
                 </Button>

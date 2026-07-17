@@ -33,7 +33,7 @@ import { RoutingForm } from './RoutingForm'
 
 function RoutingList() {
   const navigate = useNavigate()
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAuthStore()
   const [orgId, setOrgId] = useState<string>('')
@@ -79,7 +79,7 @@ function RoutingList() {
   }
 
   const handleDelete = async (id: string) => {
-    if (confirm(isRTL ? 'هل أنت متأكد من حذف هذا المسار؟' : 'Are you sure you want to delete this routing?')) {
+    if (confirm(t('routingMgmt.deleteConfirm'))) {
       deleteRouting.mutate(id)
     }
   }
@@ -97,15 +97,15 @@ function RoutingList() {
 
   const getStatusBadge = (status: string, isActive: boolean) => {
     if (!isActive) {
-      return <Badge variant="secondary">{isRTL ? 'غير نشط' : 'Inactive'}</Badge>
+      return <Badge variant="secondary">{t('routingMgmt.inactive')}</Badge>
     }
     switch (status) {
       case 'DRAFT':
-        return <Badge variant="outline">{isRTL ? 'مسودة' : 'Draft'}</Badge>
+        return <Badge variant="outline">{t('routingMgmt.draft')}</Badge>
       case 'APPROVED':
-        return <Badge className="bg-green-500">{isRTL ? 'معتمد' : 'Approved'}</Badge>
+        return <Badge className="bg-green-500">{t('routingMgmt.approved')}</Badge>
       case 'OBSOLETE':
-        return <Badge variant="destructive">{isRTL ? 'قديم' : 'Obsolete'}</Badge>
+        return <Badge variant="destructive">{t('routingMgmt.obsolete')}</Badge>
       default:
         return <Badge>{status}</Badge>
     }
@@ -118,26 +118,26 @@ function RoutingList() {
         <div>
           <h1 className="text-3xl font-bold wardah-text-gradient-google">
             <RouteIcon className="inline-block w-8 h-8 mr-2" />
-            {isRTL ? 'مسارات التصنيع' : 'Manufacturing Routings'}
+            {t('routingMgmt.title')}
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isRTL ? 'إدارة مسارات وعمليات التصنيع' : 'Manage manufacturing routings and operations'}
+            {t('routingMgmt.subtitle')}
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => refetch()}>
             <RefreshCw className="w-4 h-4 mr-2" />
-            {isRTL ? 'تحديث' : 'Refresh'}
+            {t('routingMgmt.refresh')}
           </Button>
           <Button onClick={() => navigate('/manufacturing/routing/new')}>
             <Plus className="w-4 h-4 mr-2" />
-            {isRTL ? 'مسار جديد' : 'New Routing'}
+            {t('routingMgmt.newRouting')}
           </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <RoutingStats routings={routings} isRTL={isRTL} />
+      <RoutingStats routings={routings} />
 
       {/* Filters */}
       <Card className="wardah-glass-card">
@@ -146,7 +146,7 @@ function RoutingList() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder={isRTL ? 'البحث في المسارات...' : 'Search routings...'}
+                placeholder={t('routingMgmt.searchPlaceholder')}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -154,13 +154,13 @@ function RoutingList() {
             </div>
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}>
               <SelectTrigger className="w-40">
-                <SelectValue placeholder={isRTL ? 'الحالة' : 'Status'} />
+                <SelectValue placeholder={t('routingMgmt.status')} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">{isRTL ? 'الكل' : 'All'}</SelectItem>
-                <SelectItem value="DRAFT">{isRTL ? 'مسودة' : 'Draft'}</SelectItem>
-                <SelectItem value="APPROVED">{isRTL ? 'معتمد' : 'Approved'}</SelectItem>
-                <SelectItem value="OBSOLETE">{isRTL ? 'قديم' : 'Obsolete'}</SelectItem>
+                <SelectItem value="ALL">{t('routingMgmt.all')}</SelectItem>
+                <SelectItem value="DRAFT">{t('routingMgmt.draft')}</SelectItem>
+                <SelectItem value="APPROVED">{t('routingMgmt.approved')}</SelectItem>
+                <SelectItem value="OBSOLETE">{t('routingMgmt.obsolete')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -170,18 +170,17 @@ function RoutingList() {
       {/* Routings Table */}
       <Card className="wardah-glass-card">
         <CardHeader>
-          <CardTitle>{isRTL ? 'قائمة المسارات' : 'Routings List'}</CardTitle>
+          <CardTitle>{t('routingMgmt.listTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           {isLoading && (
             <div className="flex justify-center items-center h-32">
               <RefreshCw className="w-6 h-6 animate-spin" />
-              <span className="ml-2">{isRTL ? 'جاري التحميل...' : 'Loading...'}</span>
+              <span className="ml-2">{t('routingMgmt.loading')}</span>
             </div>
           )}
           {!isLoading && (!filteredRoutings || filteredRoutings.length === 0) && (
             <RoutingEmptyState
-              isRTL={isRTL}
               onCreateNew={() => navigate('/manufacturing/routing/new')}
             />
           )}

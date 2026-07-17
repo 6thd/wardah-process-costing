@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -38,16 +39,17 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
   onView,
   getStatusBadge
 }) => {
+  const { t } = useTranslation()
   return (
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>{isRTL ? 'رمز المسار' : 'Routing Code'}</TableHead>
-          <TableHead>{isRTL ? 'الاسم' : 'Name'}</TableHead>
-          <TableHead>{isRTL ? 'الإصدار' : 'Version'}</TableHead>
-          <TableHead>{isRTL ? 'الحالة' : 'Status'}</TableHead>
-          <TableHead>{isRTL ? 'تاريخ الفعالية' : 'Effective Date'}</TableHead>
-          <TableHead className="text-center">{isRTL ? 'الإجراءات' : 'Actions'}</TableHead>
+          <TableHead>{t('routingMgmt.table.code')}</TableHead>
+          <TableHead>{t('routingMgmt.table.name')}</TableHead>
+          <TableHead>{t('routingMgmt.table.version')}</TableHead>
+          <TableHead>{t('routingMgmt.table.status')}</TableHead>
+          <TableHead>{t('routingMgmt.table.effectiveDate')}</TableHead>
+          <TableHead className="text-center">{t('routingMgmt.table.actions')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
