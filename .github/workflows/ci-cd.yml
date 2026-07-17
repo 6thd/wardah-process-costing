@@ -11,6 +11,22 @@ jobs:
     name: Test & Build
     runs-on: ubuntu-latest
 
+    # T3: خدمة PostgreSQL للـfresh-DB chain test (تُشغَّل دائماً، تُستخدم عند وجود baseline)
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -92,33 +108,63 @@ jobs:
           echo "✅ ترقيم migrations سليم (1–${MAX_NUM})"
 
       # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
-      # يتطلب T2 (schema baseline من الإنتاج) — يُفعَّل تلقائياً حين يُودَع الـbaseline
+      # يتطلب T2 — يُفعَّل تلقائياً حين يُودَع sql/baseline/000_schema_baseline_*.sql
+      # لتوليد الـbaseline: شغّل .github/workflows/generate-baseline.yml يدوياً
       - name: Fresh DB chain test
         run: |
-          if compgen -G "sql/baseline/000_schema_baseline_*.sql" > /dev/null 2>&1; then
-            echo "✅ Baseline موجود — تشغيل اختبار البناء من الصفر"
-            which psql || (sudo apt-get install -y postgresql-client && echo "psql installed")
-            createdb wardah_fresh 2>/dev/null || true
-            psql -d wardah_fresh \
-                 -f scripts/ci/fresh-db/supabase_shim.sql -q 2>&1 | tail -5
-            python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations \
-                    > /tmp/chain_order.txt
-            TOTAL=$(wc -l < /tmp/chain_order.txt)
-            # طبّق baseline أولاً
-            BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql | tail -1)
-            psql -d wardah_fresh -f "$BASELINE" -q 2>&1 | tail -5
-            # طبّق فقط migrations أحدث من الـbaseline
-            BASELINE_TS=$(basename "$BASELINE" | grep -oE '[0-9]{8}' | head -1)
-            REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
-                  bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
-            echo "Chain result: $?"
-          else
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          if [ -z "$BASELINE" ]; then
             echo "⏭ لا baseline بعد (T2 معلق) — تجاوز اختبار البناء من الصفر"
-            echo "   لتفعيله: sql/baseline/000_schema_baseline_YYYYMMDD.sql"
+            echo "   لتفعيله: شغّل generate-baseline.yml بعد إضافة SUPABASE_DB_URL للـsecrets"
+            exit 0
           fi
+
+          echo "✅ Baseline موجود: $BASELINE"
+
+          # استخرج migration_cutoff من أول سطر الـbaseline
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+                   | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+          echo "   migration_cutoff = $CUTOFF"
+
+          # أنشئ قاعدة فارغة
+          createdb wardah_fresh
+
+          # طبّق shim (roles + auth + storage)
+          psql -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q 2>&1 | tail -3
+
+          # طبّق baseline
+          psql -d wardah_fresh -f "$BASELINE" -q 2>&1 | tail -3
+
+          # ابنِ قائمة المهاجرات الأحدث من الـbaseline فقط
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+
+          TOTAL=$(wc -l < /tmp/chain_order.txt)
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "✅ لا migrations جديدة بعد baseline (cutoff=$CUTOFF) — اكتمل"
+            exit 0
+          fi
+
+          echo "   تطبيق $TOTAL migration(s) بعد cutoff $CUTOFF …"
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+          STATUS=$?
+
+          # اطبع ملخص التقرير
+          tail -5 /tmp/chain_report.txt
+
+          # فشل إن وجد FAIL أو NOT_RUN
+          if [ $STATUS -ne 0 ]; then
+            echo "❌ fresh-db chain test فشل"
+            grep -E '^(FAIL|NOT_RUN) ' /tmp/chain_report.txt || true
+            exit 1
+          fi
+          echo "✅ fresh-db chain test اجتاز بنجاح"
         env:
           PGHOST: localhost
           PGUSER: postgres
+          PGPASSWORD: postgres
 
       - name: Build project
         run: npm run build
