@@ -98,10 +98,10 @@ jobs:
           git add sql/baseline/
           git diff --cached --quiet && echo "لا تغييرات" && exit 0
 
-          git commit -m "sql(baseline): schema baseline $(date +%Y%m%d) — migration_cutoff ${MAX}
-
-Generated from production (uutfztmqvajmsxnrqeiv) after migration ${MAX}.
-Reason: ${{ github.event.inputs.reason }}"
+          git commit \
+            -m "sql(baseline): schema baseline $(date +%Y%m%d) — migration_cutoff ${MAX}" \
+            -m "Generated from production (uutfztmqvajmsxnrqeiv) after migration ${MAX}." \
+            -m "Reason: ${{ github.event.inputs.reason }}"
 
           git push origin HEAD
           echo "✅ Baseline مُودَع ومُرفوع"
