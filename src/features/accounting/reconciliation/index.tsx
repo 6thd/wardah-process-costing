@@ -29,30 +29,32 @@ function money(v: number | null): string {
   return v === null || v === undefined ? '—' : nf.format(v)
 }
 
-function StatusBadge({ status, isRTL }: { readonly status: ReconciliationSection['status']; readonly isRTL: boolean }) {
+function StatusBadge({ status }: { readonly status: ReconciliationSection['status'] }) {
+  const { t } = useTranslation()
   switch (status) {
     case 'balanced':
       return (
         <Badge variant="default" className="bg-green-600 hover:bg-green-600 gap-1">
           <CheckCircle2 className="h-3 w-3" />
-          {isRTL ? 'متوازن' : 'Balanced'}
+          {t('reconciliation.balanced')}
         </Badge>
       )
     case 'unbalanced':
       return (
         <Badge variant="destructive" className="gap-1">
           <AlertTriangle className="h-3 w-3" />
-          {isRTL ? 'يوجد فرق!' : 'Difference!'}
+          {t('reconciliation.unbalanced')}
         </Badge>
       )
     case 'gl_unavailable':
-      return <Badge variant="secondary">{isRTL ? 'GL غير متاح' : 'GL unavailable'}</Badge>
+      return <Badge variant="secondary">{t('reconciliation.glUnavailable')}</Badge>
     default:
-      return <Badge variant="secondary">{isRTL ? 'دفتر فرعي غير متاح' : 'Subledger unavailable'}</Badge>
+      return <Badge variant="secondary">{t('reconciliation.subledgerUnavailable')}</Badge>
   }
 }
 
-function SectionCard({ section, isRTL }: { readonly section: ReconciliationSection; readonly isRTL: boolean }) {
+function SectionCard({ section }: { readonly section: ReconciliationSection }) {
+  const { t } = useTranslation()
   return (
     <Card className={cn(
       'print:shadow-none print:border-black break-inside-avoid',
@@ -61,7 +63,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <CardTitle className="text-lg">{section.title_ar}</CardTitle>
-          <StatusBadge status={section.status} isRTL={isRTL} />
+          <StatusBadge status={section.status} />
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -71,7 +73,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
             <TableBody>
               <TableRow>
                 <TableCell>
-                  {isRTL ? 'رصيد الأستاذ العام' : 'GL balance'}
+                  {t('reconciliation.glBalance')}
                   <span className="text-xs text-muted-foreground mx-1">
                     ({section.gl_prefixes.join('*, ')}*)
                   </span>
@@ -80,7 +82,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
               </TableRow>
               <TableRow>
                 <TableCell>
-                  {isRTL ? 'رصيد الدفتر الفرعي' : 'Subledger balance'}
+                  {t('reconciliation.subledgerBalance')}
                   {section.subledger_source && (
                     <span className="text-xs text-muted-foreground mx-1">
                       ({section.subledger_source})
@@ -88,7 +90,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
                   )}
                   {typeof section.open_mo_count === 'number' && section.open_mo_count > 0 && (
                     <span className="text-xs text-muted-foreground mx-1">
-                      · {isRTL ? `${section.open_mo_count} أمر مفتوح` : `${section.open_mo_count} open MOs`}
+                      · {t('reconciliation.openMos', { count: section.open_mo_count })}
                     </span>
                   )}
                 </TableCell>
@@ -99,7 +101,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
                 section.status === 'balanced' && 'text-green-700',
                 section.status === 'unbalanced' && 'text-destructive'
               )}>
-                <TableCell>{isRTL ? 'الفرق' : 'Difference'}</TableCell>
+                <TableCell>{t('reconciliation.difference')}</TableCell>
                 <TableCell className="text-end font-mono">
                   {money(section.difference)} {section.status === 'balanced' ? '✓' : section.status === 'unbalanced' ? '✗' : ''}
                 </TableCell>
@@ -112,15 +114,15 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
         {section.gl_accounts.length > 0 && (
           <div>
             <h4 className="font-semibold mb-2 text-sm text-muted-foreground">
-              {isRTL ? 'تفصيل حسابات الأستاذ العام' : 'GL account detail'}
+              {t('reconciliation.glDetail')}
             </h4>
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="text-start">{isRTL ? 'الكود' : 'Code'}</TableHead>
-                    <TableHead className="text-start">{isRTL ? 'الحساب' : 'Account'}</TableHead>
-                    <TableHead className="text-end">{isRTL ? 'الرصيد' : 'Balance'}</TableHead>
+                    <TableHead className="text-start">{t('reconciliation.code')}</TableHead>
+                    <TableHead className="text-start">{t('reconciliation.account')}</TableHead>
+                    <TableHead className="text-end">{t('reconciliation.balance')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -140,9 +142,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
         {/* إرشاد عند وجود فرق */}
         {section.status === 'unbalanced' && (
           <p className="text-sm text-destructive">
-            {isRTL
-              ? 'الفرق يعني قيداً يدوياً شارداً على حسابات هذا القسم أو حركة فرعية لم تُرحَّل — راجع قيود اليومية على هذه الحسابات بنفس التاريخ'
-              : 'A difference means a stray manual entry on these accounts or an unposted subledger movement — review journal entries on these accounts as of this date'}
+            {t('reconciliation.diffNote')}
           </p>
         )}
       </CardContent>
@@ -151,7 +151,7 @@ function SectionCard({ section, isRTL }: { readonly section: ReconciliationSecti
 }
 
 export function ReconciliationPage() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const [asOfDate, setAsOfDate] = useState<string>(new Date().toISOString().slice(0, 10))
 
@@ -171,10 +171,8 @@ export function ReconciliationPage() {
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <PageHeader
         icon={<Scale />}
-        title={isRTL ? 'تسوية الدفاتر الفرعية مع الأستاذ العام' : 'Subledger ↔ GL Reconciliation'}
-        description={isRTL
-          ? 'مقارنة أرصدة المخزون والإنتاج تحت التشغيل الفرعية مع حسابات الأستاذ العام — أي فرق يظهر فوراً'
-          : 'Compare inventory and WIP subledger balances against GL accounts — any difference surfaces immediately'}
+        title={t('reconciliation.title')}
+        description={t('reconciliation.description')}
       />
 
       {/* شريط التحكم */}
@@ -198,23 +196,23 @@ export function ReconciliationPage() {
               className="gap-2"
             >
               <RefreshCw className={cn('h-4 w-4', isFetching && 'animate-spin')} />
-              {isRTL ? 'تحديث' : 'Refresh'}
+              {t('reconciliation.refresh')}
             </Button>
             <Button onClick={() => window.print()} disabled={!report} className="gap-2">
               <Printer className="h-4 w-4" />
-              {isRTL ? 'طباعة' : 'Print'}
+              {t('reconciliation.print')}
             </Button>
             {report && (
               <div className="ms-auto">
                 {report.all_balanced ? (
                   <Badge variant="default" className="bg-green-600 hover:bg-green-600 gap-1">
                     <CheckCircle2 className="h-3 w-3" />
-                    {isRTL ? 'كل الأقسام متوازنة' : 'All sections balanced'}
+                    {t('reconciliation.allBalanced')}
                   </Badge>
                 ) : (
                   <Badge variant="destructive" className="gap-1">
                     <AlertTriangle className="h-3 w-3" />
-                    {isRTL ? 'توجد فروق تحتاج مراجعة' : 'Differences need review'}
+                    {t('reconciliation.diffsFound')}
                   </Badge>
                 )}
               </div>
@@ -225,10 +223,10 @@ export function ReconciliationPage() {
 
       {error && (
         <ErrorState
-          title={isRTL ? 'تعذر توليد تقرير التسوية' : 'Could not generate reconciliation report'}
+          title={t('reconciliation.errorTitle')}
           message={error.message}
           onRetry={() => refetch()}
-          retryLabel={isRTL ? 'إعادة المحاولة' : 'Retry'}
+          retryLabel={t('reconciliation.retry')}
         />
       )}
 
@@ -237,12 +235,12 @@ export function ReconciliationPage() {
       {report && (
         <div className="space-y-6" data-testid="reconciliation-report">
           {report.sections.map((section) => (
-            <SectionCard key={section.section} section={section} isRTL={isRTL} />
+            <SectionCard key={section.section} section={section} />
           ))}
           <p className="text-xs text-muted-foreground">
-            {isRTL ? 'حتى تاريخ' : 'As of'}: {report.as_of_date}
+            {t('reconciliation.asOf')}: {report.as_of_date}
             {' · '}
-            {isRTL ? 'أُنشئ في' : 'Generated'}: {new Date(report.generated_at).toLocaleString('en-US')}
+            {t('reconciliation.generated')}: {new Date(report.generated_at).toLocaleString('en-US')}
           </p>
         </div>
       )}

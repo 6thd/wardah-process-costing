@@ -115,27 +115,11 @@ const formatDate = (dateString: string, isRTL: boolean) => {
   });
 };
 
-const getActionLabel = (action: string, isRTL: boolean) => {
-  const labels: Record<string, { ar: string; en: string }> = {
-    create: { ar: 'إنشاء', en: 'Create' },
-    insert: { ar: 'إضافة', en: 'Insert' },
-    update: { ar: 'تحديث', en: 'Update' },
-    edit: { ar: 'تعديل', en: 'Edit' },
-    delete: { ar: 'حذف', en: 'Delete' },
-    remove: { ar: 'إزالة', en: 'Remove' },
-    login: { ar: 'تسجيل دخول', en: 'Login' },
-    logout: { ar: 'تسجيل خروج', en: 'Logout' },
-    approve: { ar: 'اعتماد', en: 'Approve' },
-    reject: { ar: 'رفض', en: 'Reject' },
-  };
-  const label = labels[action.toLowerCase()];
-  if (!label) {
-    return action;
-  }
-  if (isRTL) {
-    return label.ar;
-  }
-  return label.en;
+const KNOWN_ACTIONS = ['create', 'insert', 'update', 'edit', 'delete', 'remove', 'login', 'logout', 'approve', 'reject'];
+
+const getActionLabel = (action: string, t: (key: string) => string) => {
+  const lower = action.toLowerCase();
+  return KNOWN_ACTIONS.includes(lower) ? t(`auditLog.action.${lower}`) : action;
 };
 
 // =====================================
@@ -143,7 +127,7 @@ const getActionLabel = (action: string, isRTL: boolean) => {
 // =====================================
 
 export default function OrgAdminAuditLog() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { currentOrgId } = useAuth();
   const isRTL = i18n.language === 'ar';
 
@@ -212,7 +196,7 @@ export default function OrgAdminAuditLog() {
       setTotalPages(Math.ceil((count || 0) / pageSize));
     } catch (err: any) {
       console.error('Error loading audit logs:', err);
-      setError(err.message || 'فشل تحميل سجل التدقيق');
+      setError(err.message || t('auditLog.loadError'));
       // Set empty logs on error
       setLogs([]);
     } finally {
@@ -262,10 +246,10 @@ export default function OrgAdminAuditLog() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-white">
-              {isRTL ? 'سجل التدقيق' : 'Audit Log'}
+              {t('auditLog.title')}
             </h1>
             <p className="text-slate-400 text-sm">
-              {isRTL ? 'تتبع جميع الأنشطة والتغييرات في النظام' : 'Track all activities and changes in the system'}
+              {t('auditLog.subtitle')}
             </p>
           </div>
         </div>
@@ -279,7 +263,7 @@ export default function OrgAdminAuditLog() {
             className="border-slate-700"
           >
             <RefreshCw className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'} ${loading ? 'animate-spin' : ''}`} />
-            {isRTL ? 'تحديث' : 'Refresh'}
+            {t('auditLog.refresh')}
           </Button>
           <Button
             variant="outline"
@@ -289,7 +273,7 @@ export default function OrgAdminAuditLog() {
             className="border-slate-700"
           >
             <Download className={`h-4 w-4 ${isRTL ? 'ml-2' : 'mr-2'}`} />
-            {isRTL ? 'تصدير' : 'Export'}
+            {t('auditLog.export')}
           </Button>
         </div>
       </div>
@@ -302,7 +286,7 @@ export default function OrgAdminAuditLog() {
             <div className="relative flex-1">
               <Search className={`absolute top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 ${isRTL ? 'right-3' : 'left-3'}`} />
               <Input
-                placeholder={isRTL ? 'بحث...' : 'Search...'}
+                placeholder={t('auditLog.search')}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className={`bg-slate-800 border-slate-700 ${isRTL ? 'pr-10' : 'pl-10'}`}
@@ -313,29 +297,29 @@ export default function OrgAdminAuditLog() {
             {/* Action Filter */}
             <Select value={actionFilter} onValueChange={setActionFilter}>
               <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
-                <SelectValue placeholder={isRTL ? 'الإجراء' : 'Action'} />
+                <SelectValue placeholder={t('auditLog.filterAction')} />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="all">{isRTL ? 'الكل' : 'All'}</SelectItem>
-                <SelectItem value="create">{isRTL ? 'إنشاء' : 'Create'}</SelectItem>
-                <SelectItem value="update">{isRTL ? 'تحديث' : 'Update'}</SelectItem>
-                <SelectItem value="delete">{isRTL ? 'حذف' : 'Delete'}</SelectItem>
-                <SelectItem value="login">{isRTL ? 'تسجيل دخول' : 'Login'}</SelectItem>
+                <SelectItem value="all">{t('auditLog.filterAll')}</SelectItem>
+                <SelectItem value="create">{t('auditLog.filterCreate')}</SelectItem>
+                <SelectItem value="update">{t('auditLog.filterUpdate')}</SelectItem>
+                <SelectItem value="delete">{t('auditLog.filterDelete')}</SelectItem>
+                <SelectItem value="login">{t('auditLog.filterLogin')}</SelectItem>
               </SelectContent>
             </Select>
 
             {/* Entity Filter */}
             <Select value={entityFilter} onValueChange={setEntityFilter}>
               <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
-                <SelectValue placeholder={isRTL ? 'النوع' : 'Entity'} />
+                <SelectValue placeholder={t('auditLog.filterEntity')} />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="all">{isRTL ? 'الكل' : 'All'}</SelectItem>
-                <SelectItem value="user">{isRTL ? 'المستخدمين' : 'Users'}</SelectItem>
-                <SelectItem value="role">{isRTL ? 'الأدوار' : 'Roles'}</SelectItem>
-                <SelectItem value="inventory">{isRTL ? 'المخزون' : 'Inventory'}</SelectItem>
-                <SelectItem value="sales">{isRTL ? 'المبيعات' : 'Sales'}</SelectItem>
-                <SelectItem value="settings">{isRTL ? 'الإعدادات' : 'Settings'}</SelectItem>
+                <SelectItem value="all">{t('auditLog.filterAll')}</SelectItem>
+                <SelectItem value="user">{t('auditLog.filterUsers')}</SelectItem>
+                <SelectItem value="role">{t('auditLog.filterRoles')}</SelectItem>
+                <SelectItem value="inventory">{t('auditLog.filterInventory')}</SelectItem>
+                <SelectItem value="sales">{t('auditLog.filterSales')}</SelectItem>
+                <SelectItem value="settings">{t('auditLog.filterSettings')}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -346,10 +330,10 @@ export default function OrgAdminAuditLog() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="1">{isRTL ? 'اليوم' : 'Today'}</SelectItem>
-                <SelectItem value="7">{isRTL ? 'آخر 7 أيام' : 'Last 7 days'}</SelectItem>
-                <SelectItem value="30">{isRTL ? 'آخر 30 يوم' : 'Last 30 days'}</SelectItem>
-                <SelectItem value="90">{isRTL ? 'آخر 3 أشهر' : 'Last 3 months'}</SelectItem>
+                <SelectItem value="1">{t('auditLog.dateToday')}</SelectItem>
+                <SelectItem value="7">{t('auditLog.date7Days')}</SelectItem>
+                <SelectItem value="30">{t('auditLog.date30Days')}</SelectItem>
+                <SelectItem value="90">{t('auditLog.date3Months')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -378,7 +362,7 @@ export default function OrgAdminAuditLog() {
                     onClick={loadAuditLogs}
                     className="mt-4 border-slate-700"
                   >
-                    {isRTL ? 'إعادة المحاولة' : 'Retry'}
+                    {t('auditLog.retry')}
                   </Button>
                 </div>
               );
@@ -388,10 +372,10 @@ export default function OrgAdminAuditLog() {
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <FileText className="h-12 w-12 text-slate-600 mb-4" />
                   <p className="text-slate-400">
-                    {isRTL ? 'لا توجد سجلات' : 'No logs found'}
+                    {t('auditLog.noLogs')}
                   </p>
                   <p className="text-slate-500 text-sm mt-1">
-                    {isRTL ? 'سيتم عرض الأنشطة هنا عند حدوثها' : 'Activities will appear here when they occur'}
+                    {t('auditLog.noLogsDesc')}
                   </p>
                 </div>
               );
@@ -416,7 +400,7 @@ export default function OrgAdminAuditLog() {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <Badge className={`${getActionColor(log.action)} border`}>
-                                {getActionLabel(log.action, isRTL)}
+                                {getActionLabel(log.action, t)}
                               </Badge>
                               <span className="text-white font-medium">
                                 {log.entity_type}
@@ -451,7 +435,7 @@ export default function OrgAdminAuditLog() {
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between p-4 border-t border-slate-800">
                     <p className="text-sm text-slate-400">
-                      {isRTL ? `صفحة ${page} من ${totalPages}` : `Page ${page} of ${totalPages}`}
+                      {t('auditLog.page', { page, totalPages })}
                     </p>
                     <div className="flex items-center gap-2">
                       <Button
