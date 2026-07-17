@@ -51,24 +51,22 @@ describe('CostOfProductionReportView', () => {
   it('يعرض الشاشة بدون أخطاء مع حالة فارغة موجِّهة', async () => {
     render(<CostOfProductionReportView />)
 
-    expect(screen.getByText('لم يُحدَّد أمر تصنيع بعد')).toBeInTheDocument()
-    expect(
-      screen.getByText(/اختر أمر تصنيع من القائمة أعلاه/)
-    ).toBeInTheDocument()
+    expect(screen.getByText('cop.noMoSelected')).toBeInTheDocument()
+    expect(screen.getByText('cop.noMoDesc')).toBeInTheDocument()
   })
 
   it('يعرض قائمة اختيار أوامر التصنيع وأزرار التحكم', async () => {
     render(<CostOfProductionReportView />)
 
     expect(screen.getByTestId('mo-select')).toBeInTheDocument()
-    expect(screen.getByText('طباعة')).toBeInTheDocument()
-    expect(screen.getByText('تحديث')).toBeInTheDocument()
+    expect(screen.getByText('cop.print')).toBeInTheDocument()
+    expect(screen.getByText('cop.refresh')).toBeInTheDocument()
   })
 
   it('زر الطباعة معطَّل قبل توليد التقرير', () => {
     render(<CostOfProductionReportView />)
 
-    const printBtn = screen.getByText('طباعة').closest('button')
+    const printBtn = screen.getByText('cop.print').closest('button')
     expect(printBtn).toBeDisabled()
   })
 })

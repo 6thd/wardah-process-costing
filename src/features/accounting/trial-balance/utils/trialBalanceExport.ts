@@ -1,7 +1,10 @@
 import { format } from 'date-fns';
+import i18next from 'i18next';
 // P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط — لا تُشحنان بالحزمة الأولى
 import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import type { TrialBalanceRow, TrialBalanceTotals } from '../types';
+
+const t = (key: string) => i18next.t(key);
 
 interface ExportData {
   balances: TrialBalanceRow[];
@@ -14,32 +17,32 @@ interface ExportData {
 export async function exportToExcel({ balances, totals, fromDate, asOfDate, isRTL }: ExportData) {
   const XLSX = await loadXLSX();
   const excelData = balances.map(row => ({
-    [isRTL ? 'كود الحساب' : 'Account Code']: row.account_code,
-    [isRTL ? 'اسم الحساب' : 'Account Name']: isRTL ? (row.account_name_ar || row.account_name) : row.account_name,
-    [isRTL ? 'نوع الحساب' : 'Account Type']: row.account_type,
-    [isRTL ? 'رصيد افتتاحي - مدين' : 'Opening Balance - Debit']: row.opening_debit.toFixed(2),
-    [isRTL ? 'رصيد افتتاحي - دائن' : 'Opening Balance - Credit']: row.opening_credit.toFixed(2),
-    [isRTL ? 'حركة الفترة - مدين' : 'Period Movement - Debit']: row.period_debit.toFixed(2),
-    [isRTL ? 'حركة الفترة - دائن' : 'Period Movement - Credit']: row.period_credit.toFixed(2),
-    [isRTL ? 'رصيد ختامي - مدين' : 'Closing Balance - Debit']: row.closing_debit.toFixed(2),
-    [isRTL ? 'رصيد ختامي - دائن' : 'Closing Balance - Credit']: row.closing_credit.toFixed(2)
+    [t('tbExport.accountCode')]: row.account_code,
+    [t('tbExport.accountName')]: isRTL ? (row.account_name_ar || row.account_name) : row.account_name,
+    [t('tbExport.accountType')]: row.account_type,
+    [t('tbExport.openDebit')]: row.opening_debit.toFixed(2),
+    [t('tbExport.openCredit')]: row.opening_credit.toFixed(2),
+    [t('tbExport.periodDebit')]: row.period_debit.toFixed(2),
+    [t('tbExport.periodCredit')]: row.period_credit.toFixed(2),
+    [t('tbExport.closeDebit')]: row.closing_debit.toFixed(2),
+    [t('tbExport.closeCredit')]: row.closing_credit.toFixed(2)
   }));
 
   excelData.push({
-    [isRTL ? 'كود الحساب' : 'Account Code']: '',
-    [isRTL ? 'اسم الحساب' : 'Account Name']: isRTL ? 'الإجماليات' : 'TOTALS',
-    [isRTL ? 'نوع الحساب' : 'Account Type']: '',
-    [isRTL ? 'رصيد افتتاحي - مدين' : 'Opening Balance - Debit']: totals.opening_debit.toFixed(2),
-    [isRTL ? 'رصيد افتتاحي - دائن' : 'Opening Balance - Credit']: totals.opening_credit.toFixed(2),
-    [isRTL ? 'حركة الفترة - مدين' : 'Period Movement - Debit']: totals.period_debit.toFixed(2),
-    [isRTL ? 'حركة الفترة - دائن' : 'Period Movement - Credit']: totals.period_credit.toFixed(2),
-    [isRTL ? 'رصيد ختامي - مدين' : 'Closing Balance - Debit']: totals.closing_debit.toFixed(2),
-    [isRTL ? 'رصيد ختامي - دائن' : 'Closing Balance - Credit']: totals.closing_credit.toFixed(2)
+    [t('tbExport.accountCode')]: '',
+    [t('tbExport.accountName')]: t('tbExport.totals'),
+    [t('tbExport.accountType')]: '',
+    [t('tbExport.openDebit')]: totals.opening_debit.toFixed(2),
+    [t('tbExport.openCredit')]: totals.opening_credit.toFixed(2),
+    [t('tbExport.periodDebit')]: totals.period_debit.toFixed(2),
+    [t('tbExport.periodCredit')]: totals.period_credit.toFixed(2),
+    [t('tbExport.closeDebit')]: totals.closing_debit.toFixed(2),
+    [t('tbExport.closeCredit')]: totals.closing_credit.toFixed(2)
   });
 
   const worksheet = XLSX.utils.json_to_sheet(excelData);
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, isRTL ? 'ميزان المراجعة' : 'Trial Balance');
+  XLSX.utils.book_append_sheet(workbook, worksheet, t('tbExport.sheetName'));
   XLSX.writeFile(workbook, `trial-balance-${asOfDate}.xlsx`);
 }
 
@@ -52,11 +55,11 @@ export async function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL 
   }
 
   doc.setFontSize(16);
-  doc.text(isRTL ? 'ميزان المراجعة' : 'Trial Balance', doc.internal.pageSize.width / 2, 15, { align: 'center' });
+  doc.text(t('tbExport.sheetName'), doc.internal.pageSize.width / 2, 15, { align: 'center' });
 
   doc.setFontSize(10);
   doc.text(
-    `${isRTL ? 'من تاريخ' : 'From'}: ${format(new Date(fromDate), 'dd/MM/yyyy')} ${isRTL ? 'إلى' : 'To'}: ${format(new Date(asOfDate), 'dd/MM/yyyy')}`,
+    `${t('tbExport.from')}: ${format(new Date(fromDate), 'dd/MM/yyyy')} ${t('tbExport.to')}: ${format(new Date(asOfDate), 'dd/MM/yyyy')}`,
     doc.internal.pageSize.width / 2,
     22,
     { align: 'center' }
@@ -75,7 +78,7 @@ export async function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL 
 
   tableData.push([
     '',
-    isRTL ? 'الإجماليات' : 'TOTALS',
+    t('tbExport.totals'),
     totals.opening_debit.toFixed(2),
     totals.opening_credit.toFixed(2),
     totals.period_debit.toFixed(2),
@@ -87,14 +90,14 @@ export async function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL 
   (doc as any).autoTable({
     startY: 30,
     head: [[
-      isRTL ? 'كود الحساب' : 'Code',
-      isRTL ? 'اسم الحساب' : 'Account Name',
-      isRTL ? 'افتتاحي مدين' : 'Open. Debit',
-      isRTL ? 'افتتاحي دائن' : 'Open. Credit',
-      isRTL ? 'فترة مدين' : 'Per. Debit',
-      isRTL ? 'فترة دائن' : 'Per. Credit',
-      isRTL ? 'ختامي مدين' : 'Clos. Debit',
-      isRTL ? 'ختامي دائن' : 'Clos. Credit'
+      t('tbExport.accountCodeShort'),
+      t('tbExport.accountName'),
+      t('tbExport.openDebitShort'),
+      t('tbExport.openCreditShort'),
+      t('tbExport.periodDebitShort'),
+      t('tbExport.periodCreditShort'),
+      t('tbExport.closeDebitShort'),
+      t('tbExport.closeCreditShort')
     ]],
     body: tableData,
     theme: 'grid',
@@ -116,4 +119,3 @@ export async function exportToPDF({ balances, totals, fromDate, asOfDate, isRTL 
 
   doc.save(`trial-balance-${asOfDate}.pdf`);
 }
-
