@@ -8,9 +8,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
-import { 
-    GLAccount, 
-    getAllGLAccounts, 
+import {
+    GLAccount,
+    getAllGLAccounts,
     getEffectiveTenantId,
     createGLAccount,
     updateGLAccount,
@@ -48,7 +48,7 @@ export function GeneralLedgerModule() {
 
 // Account Form Modal Component
 function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: { readonly isOpen: boolean, readonly onClose: () => void, readonly onSave: (data: Partial<GLAccount>) => void, readonly account?: GLAccount | null, readonly parentAccount?: GLAccount | null }) {
-    const { i18n } = useTranslation();
+    const { t, i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
     const [formData, setFormData] = useState<Partial<GLAccount>>({});
 
@@ -70,7 +70,7 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
             }
         }
     }, [isOpen, account, parentAccount]);
-    
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value, type } = e.target;
         const checked = (e.target as HTMLInputElement).checked;
@@ -92,40 +92,40 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
         <Dialog open={isOpen} onOpenChange={onClose}>
             <DialogContent className="sm:max-w-[425px]" dir={isRTL ? "rtl" : "ltr"}>
                 <DialogHeader>
-                    <DialogTitle>{account ? (isRTL ? 'تعديل حساب' : 'Edit Account') : (isRTL ? 'إضافة حساب جديد' : 'Add New Account')}</DialogTitle>
+                    <DialogTitle>{account ? t('gl.editAccount') : t('gl.addNewAccount')}</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handleSubmit} className="space-y-4 py-4">
-                    <Input name="code" value={formData.code || ''} onChange={handleInputChange} placeholder={isRTL ? "رمز الحساب" : "Account Code"} required />
-                    <Input name="name" value={formData.name || ''} onChange={handleInputChange} placeholder={isRTL ? "اسم الحساب (انجليزي)" : "Account Name (English)"} required />
-                    <Input name="name_ar" value={formData.name_ar || ''} onChange={handleInputChange} placeholder={isRTL ? "اسم الحساب (عربي)" : "Account Name (Arabic)"} />
+                    <Input name="code" value={formData.code || ''} onChange={handleInputChange} placeholder={t('gl.accountCode')} required />
+                    <Input name="name" value={formData.name || ''} onChange={handleInputChange} placeholder={t('gl.accountNameEn')} required />
+                    <Input name="name_ar" value={formData.name_ar || ''} onChange={handleInputChange} placeholder={t('gl.accountNameAr')} />
                     <Select name="category" value={formData.category || ''} onValueChange={(value) => handleSelectChange('category', value)}>
-                        <SelectTrigger><SelectValue placeholder={isRTL ? "نوع الحساب" : "Account Type"} /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={t('gl.accountType')} /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="ASSET">{isRTL ? 'الأصول' : 'Assets'}</SelectItem>
-                            <SelectItem value="LIABILITY">{isRTL ? 'الخصوم' : 'Liabilities'}</SelectItem>
-                            <SelectItem value="EQUITY">{isRTL ? 'حقوق الملكية' : 'Equity'}</SelectItem>
-                            <SelectItem value="REVENUE">{isRTL ? 'الإيرادات' : 'Revenue'}</SelectItem>
-                            <SelectItem value="EXPENSE">{isRTL ? 'المصروفات' : 'Expenses'}</SelectItem>
+                            <SelectItem value="ASSET">{t('gl.assets')}</SelectItem>
+                            <SelectItem value="LIABILITY">{t('gl.liabilities')}</SelectItem>
+                            <SelectItem value="EQUITY">{t('gl.equity')}</SelectItem>
+                            <SelectItem value="REVENUE">{t('gl.revenue')}</SelectItem>
+                            <SelectItem value="EXPENSE">{t('gl.expenses')}</SelectItem>
                         </SelectContent>
                     </Select>
                     <Select name="normal_balance" value={formData.normal_balance || ''} onValueChange={(value) => handleSelectChange('normal_balance', value)}>
-                        <SelectTrigger><SelectValue placeholder={isRTL ? "الرصيد الطبيعي" : "Normal Balance"} /></SelectTrigger>
+                        <SelectTrigger><SelectValue placeholder={t('gl.normalBalance')} /></SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="Debit">{isRTL ? 'مدين' : 'Debit'}</SelectItem>
-                            <SelectItem value="Credit">{isRTL ? 'دائن' : 'Credit'}</SelectItem>
+                            <SelectItem value="Debit">{t('gl.debit')}</SelectItem>
+                            <SelectItem value="Credit">{t('gl.credit')}</SelectItem>
                         </SelectContent>
                     </Select>
                     <div className="flex items-center space-x-2 rtl:space-x-reverse">
                         <Checkbox id="allow_posting" name="allow_posting" checked={!!formData.allow_posting} onCheckedChange={(checked) => handleSelectChange('allow_posting', !!checked)} />
-                        <label htmlFor="allow_posting" className="text-sm cursor-pointer">{isRTL ? 'يقبل الترحيل' : 'Allow Posting'}</label>
+                        <label htmlFor="allow_posting" className="text-sm cursor-pointer">{t('gl.allowPosting')}</label>
                     </div>
                      <div className="flex items-center space-x-2 rtl:space-x-reverse">
                         <Checkbox id="is_active" name="is_active" checked={!!formData.is_active} onCheckedChange={(checked) => handleSelectChange('is_active', !!checked)} />
-                        <label htmlFor="is_active" className="text-sm cursor-pointer">{isRTL ? 'نشط' : 'Active'}</label>
+                        <label htmlFor="is_active" className="text-sm cursor-pointer">{t('common.active')}</label>
                     </div>
                     <DialogFooter>
-                        <DialogClose asChild><Button type="button" variant="outline">{isRTL ? 'إلغاء' : 'Cancel'}</Button></DialogClose>
-                        <Button type="submit">{isRTL ? 'حفظ' : 'Save'}</Button>
+                        <DialogClose asChild><Button type="button" variant="outline">{t('common.cancel')}</Button></DialogClose>
+                        <Button type="submit">{t('common.save')}</Button>
                     </DialogFooter>
                 </form>
             </DialogContent>
@@ -134,35 +134,36 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
 }
 
 // New AccountTreeItem Component for Collapsible Tree with Enhanced Design
-const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts }: { 
-  account: any, 
-  level: number, 
-  isRTL: boolean, 
-  expandedNodes: Set<string>, 
-  onToggleNode: (code: string) => void, 
-  onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void, 
+const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts }: {
+  account: any,
+  level: number,
+  isRTL: boolean,
+  expandedNodes: Set<string>,
+  onToggleNode: (code: string) => void,
+  onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void,
   onDeleteAccount: (account: any) => void,
   searchTerm: string,
   categoryFilter: string,
   showInactiveAccounts: boolean
 }) => {
+    const { t } = useTranslation();
     const isExpanded = expandedNodes.has(account.code);
     const hasChildren = account.children && account.children.length > 0;
 
     // Helper function to check if account or any child matches filters
     const matchesFilters = (acc: any): boolean => {
         // Check search term
-        const matchesSearch = !searchTerm || 
+        const matchesSearch = !searchTerm ||
             acc.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
             (acc.name && acc.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
             (acc.name_ar && acc.name_ar.toLowerCase().includes(searchTerm.toLowerCase()));
-        
+
         // Check category filter
         const matchesCategory = categoryFilter === 'all' || acc.category === categoryFilter;
-        
+
         // Check active status
         const matchesActive = showInactiveAccounts || acc.is_active;
-        
+
         return matchesSearch && matchesCategory && matchesActive;
     };
 
@@ -181,11 +182,11 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
 
     const getCategoryBadge = (category: string) => {
         const badges: any = {
-            'ASSET': { label: isRTL ? 'أصول' : 'Asset', variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-            'LIABILITY': { label: isRTL ? 'خصوم' : 'Liability', variant: 'secondary', className: 'bg-red-100 text-red-800 border-red-200' },
-            'EQUITY': { label: isRTL ? 'حقوق ملكية' : 'Equity', variant: 'outline', className: 'bg-purple-100 text-purple-800 border-purple-200' },
-            'REVENUE': { label: isRTL ? 'إيرادات' : 'Revenue', variant: 'default', className: 'bg-green-100 text-green-800 border-green-200' },
-            'EXPENSE': { label: isRTL ? 'مصروفات' : 'Expense', variant: 'destructive', className: 'bg-orange-100 text-orange-800 border-orange-200' }
+            'ASSET': { label: t('gl.asset'), variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-200' },
+            'LIABILITY': { label: t('gl.liability'), variant: 'secondary', className: 'bg-red-100 text-red-800 border-red-200' },
+            'EQUITY': { label: t('gl.equity'), variant: 'outline', className: 'bg-purple-100 text-purple-800 border-purple-200' },
+            'REVENUE': { label: t('gl.revenue'), variant: 'default', className: 'bg-green-100 text-green-800 border-green-200' },
+            'EXPENSE': { label: t('gl.expense'), variant: 'destructive', className: 'bg-orange-100 text-orange-800 border-orange-200' }
         };
         const badge = badges[category] || { label: category, variant: 'outline', className: '' };
         return <Badge variant="outline" className={`text-xs ${badge.className}`}>{badge.label}</Badge>;
@@ -193,9 +194,9 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
 
     const getNormalBalanceBadge = (normalBalance: string) => {
         if (normalBalance === 'Debit') {
-            return <Badge variant="outline" className="text-xs bg-sky-50 text-sky-700 border-sky-200">{isRTL ? 'مدين' : 'Dr'}</Badge>;
+            return <Badge variant="outline" className="text-xs bg-sky-50 text-sky-700 border-sky-200">{t('gl.debitShort')}</Badge>;
         } else {
-            return <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{isRTL ? 'دائن' : 'Cr'}</Badge>;
+            return <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{t('gl.creditShort')}</Badge>;
         }
     };
 
@@ -207,8 +208,8 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                 } ${
                     level === 0 ? 'font-semibold' : ''
                 }`}
-                style={{ 
-                    paddingRight: isRTL ? `${level * 24 + 12}px` : '12px', 
+                style={{
+                    paddingRight: isRTL ? `${level * 24 + 12}px` : '12px',
                     paddingLeft: isRTL ? '12px' : `${level * 24 + 12}px`,
                     paddingTop: '10px',
                     paddingBottom: '10px'
@@ -222,8 +223,8 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                         onClick={() => hasChildren && onToggleNode(account.code)}
                     >
                         {hasChildren ? (
-                            isExpanded ? 
-                                <ChevronDown className="h-4 w-4 text-primary" /> : 
+                            isExpanded ?
+                                <ChevronDown className="h-4 w-4 text-primary" /> :
                                 <ChevronRight className="h-4 w-4 text-muted-foreground" />
                         ) : (
                             <span className="w-4 h-4 flex items-center justify-center">
@@ -231,7 +232,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                             </span>
                         )}
                     </button>
-                    
+
                     <div className="flex items-center gap-2 flex-1">
                         <code className={`text-sm font-mono px-2 py-0.5 rounded bg-muted/50 ${level === 0 ? 'font-bold' : ''}`}>
                             {account.code}
@@ -240,49 +241,49 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                             {isRTL ? (account.name_ar || account.name) : (account.name_en || account.name)}
                         </span>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                         {getCategoryBadge(account.category)}
                         {getNormalBalanceBadge(account.normal_balance)}
                         {account.allow_posting && (
                             <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                                {isRTL ? 'قابل للترحيل' : 'Postable'}
+                                {t('gl.postable')}
                             </Badge>
                         )}
                         {!account.is_active && (
                             <Badge variant="outline" className="text-xs bg-gray-100 text-gray-600 border-gray-300">
-                                {isRTL ? 'غير نشط' : 'Inactive'}
+                                {t('common.inactive')}
                             </Badge>
                         )}
                     </div>
                 </div>
-                
+
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
                     {!account.allow_posting && (
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
+                        <Button
+                            variant="ghost"
+                            size="icon"
                             className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                            title={isRTL ? "إضافة حساب فرعي" : "Add sub-account"}
+                            title={t('gl.addSubAccount')}
                             onClick={() => onOpenModal('add', undefined, account)}
                         >
                             <Plus className="h-4 w-4" />
                         </Button>
                     )}
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700"
-                        title={isRTL ? "تعديل الحساب" : "Edit account"}
+                        title={t('gl.editAccountBtn')}
                         onClick={() => onOpenModal('edit', account)}
                     >
                         <Pencil className="h-4 w-4" />
                     </Button>
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
+                    <Button
+                        variant="ghost"
+                        size="icon"
                         className="h-8 w-8 hover:bg-red-100 hover:text-red-700"
-                        title={isRTL ? "حذف الحساب" : "Delete account"}
+                        title={t('gl.deleteAccountBtn')}
                         onClick={() => onDeleteAccount(account)}
                     >
                         <Trash2 className="h-4 w-4" />
@@ -313,7 +314,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
 };
 
 function ChartOfAccounts() {
-    const { i18n } = useTranslation();
+    const { t, i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
     const [accounts, setAccounts] = useState<GLAccount[]>([]);
     const [loading, setLoading] = useState(true);
@@ -384,11 +385,11 @@ function ChartOfAccounts() {
     const handleSaveAccount = async (formData: Partial<GLAccount>) => {
         try {
             const org_id = await getEffectiveTenantId();
-            if (!org_id) throw new Error(isRTL ? "معرف المؤسسة غير موجود" : "Organization ID not found");
+            if (!org_id) throw new Error(t('gl.orgIdNotFound'));
 
             // Validate required fields
             if (!formData.code || !formData.name || !formData.category) {
-                toast.error(isRTL ? "الرجاء ملء جميع الحقول المطلوبة" : "Please fill all required fields");
+                toast.error(t('gl.requiredFields'));
                 return;
             }
 
@@ -396,7 +397,7 @@ function ChartOfAccounts() {
             if (modalType === 'add' || (modalType === 'edit' && selectedAccount && formData.code !== selectedAccount.code)) {
                 const codeExists = await checkAccountCodeExists(formData.code as string, org_id);
                 if (codeExists) {
-                    toast.error(isRTL ? `رمز الحساب "${formData.code}" موجود بالفعل` : `Account code "${formData.code}" already exists`);
+                    toast.error(t('gl.duplicateCode', { code: formData.code }));
                     return;
                 }
             }
@@ -404,7 +405,7 @@ function ChartOfAccounts() {
             // Convert category to account_type for CreateGLAccountInput
             const accountType = formData.category as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE' | undefined;
             if (!accountType) {
-                toast.error(isRTL ? "نوع الحساب مطلوب" : "Account type is required");
+                toast.error(t('gl.accountTypeRequired'));
                 return;
             }
 
@@ -422,7 +423,7 @@ function ChartOfAccounts() {
                 };
                 const result = await updateGLAccount(updateData);
                 if (result.success) {
-                    toast.success(isRTL ? 'تم تحديث الحساب بنجاح' : 'Account updated successfully');
+                    toast.success(t('gl.updatedSuccess'));
                 } else {
                     throw new Error(result.error || 'Update failed');
                 }
@@ -439,7 +440,7 @@ function ChartOfAccounts() {
                 };
                 const result = await createGLAccount(createData);
                 if (result.success) {
-                    toast.success(isRTL ? 'تمت إضافة الحساب بنجاح' : 'Account created successfully');
+                    toast.success(t('gl.createdSuccess'));
                 } else {
                     throw new Error(result.error || 'Create failed');
                 }
@@ -449,31 +450,27 @@ function ChartOfAccounts() {
             await loadAccounts();
         } catch (err: any) {
             console.error('Error saving account:', err);
-            toast.error(isRTL ? `فشل حفظ الحساب: ${err.message}` : `Failed to save account: ${err.message}`);
+            toast.error(t('gl.saveFailed', { error: err.message }));
         }
     };
-    
+
     const handleDeleteAccount = async (account: GLAccount) => {
         const accountName = isRTL ? (account.name_ar || account.name) : (account.name_en || account.name);
-        const confirmMessage = isRTL 
-            ? `هل أنت متأكد من حذف الحساب "${accountName}"؟`
-            : `Are you sure you want to delete account "${accountName}"?`;
-            
+        const confirmMessage = t('gl.deleteConfirm', { name: accountName });
+
         if (window.confirm(confirmMessage)) {
             try {
                 const result = await deleteGLAccount(account.id);
-                
+
                 if (result.success) {
-                    toast.success(isRTL ? 'تم حذف الحساب بنجاح' : 'Account deleted successfully');
+                    toast.success(t('gl.deletedSuccess'));
                     await loadAccounts();
                 } else {
                     // Check if error indicates soft delete (has transactions)
                     if (result.error && result.error.includes('transactions')) {
                         toast.success(
-                            isRTL 
-                                ? 'تم إلغاء تفعيل الحساب (يحتوي على معاملات)'
-                                : 'Account deactivated (has transactions)',
-                            { description: isRTL ? 'الحساب تم إخفاؤه وليس حذفه نهائياً' : 'Account was hidden, not permanently deleted' }
+                            t('gl.deactivatedSuccess'),
+                            { description: t('gl.deactivatedDesc') }
                         );
                         await loadAccounts();
                     } else {
@@ -482,13 +479,11 @@ function ChartOfAccounts() {
                 }
             } catch (err: any) {
                 console.error('Error deleting account:', err);
-                toast.error(
-                    isRTL ? `فشل حذف الحساب: ${err.message}` : `Failed to delete account: ${err.message}`
-                );
+                toast.error(t('gl.deleteFailed', { error: err.message }));
             }
         }
     };
-    
+
     const buildTree = (list: GLAccount[]): any[] => {
         if (!list || list.length === 0) return [];
         const map = new Map<string, any>();
@@ -545,9 +540,6 @@ function ChartOfAccounts() {
     const handleExportToPdf = async () => {
         const jsPDF = await loadJsPDF();
         const doc = new jsPDF();
-        // Add a font that supports Arabic
-        // doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-        // doc.setFont('Amiri');
         const tree = buildTree(accounts);
         const flatData = flattenForExport(tree);
         const accountNameField = isRTL ? 'name_ar' : 'name_en';
@@ -558,7 +550,7 @@ function ChartOfAccounts() {
         ]);
 
         (doc as any).autoTable({
-            head: [[isRTL ? 'رمز الحساب' : 'Account Code', isRTL ? 'اسم الحساب' : 'Account Name', isRTL ? 'النوع' : 'Category']],
+            head: [[t('gl.pdfAccountCode'), t('gl.pdfAccountName'), t('gl.pdfCategory')]],
             body: tableData,
             styles: { font: 'Arial', halign: isRTL ? 'right' : 'left' },
             headStyles: { halign: isRTL ? 'right' : 'left' },
@@ -566,9 +558,9 @@ function ChartOfAccounts() {
 
         doc.save('ChartOfAccounts.pdf');
     };
-    
+
     const accountTree = buildTree(accounts);
-    
+
     // Function to expand/collapse all nodes
     const handleExpandAll = () => {
         const allCodes = new Set<string>();
@@ -601,17 +593,16 @@ function ChartOfAccounts() {
             EXPENSE: accounts.filter(a => a.category === 'EXPENSE').length,
         }
     };
-    
+
     return (
         <div className="space-y-4 p-4 md:p-6" dir={isRTL ? "rtl" : "ltr"}>
             <div className="flex justify-between items-center">
                 <div>
                     <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-primary/60 bg-clip-text text-transparent">
-                        {isRTL ? 'شجرة الحسابات' : 'Chart of Accounts'}
+                        {t('gl.chartOfAccounts')}
                     </h1>
                     <p className="text-sm text-muted-foreground mt-1">
-                        {isRTL ? `إجمالي ${stats.total} حساب - ${stats.active} نشط - ${stats.postable} قابل للترحيل` : 
-                                 `Total ${stats.total} accounts - ${stats.active} active - ${stats.postable} postable`}
+                        {t('gl.statsDesc', { total: stats.total, active: stats.active, postable: stats.postable })}
                     </p>
                 </div>
                 <div className="flex gap-2">
@@ -625,7 +616,7 @@ function ChartOfAccounts() {
                     </Button>
                     <Button onClick={() => handleOpenModal('add')} size="sm">
                         <Plus className="me-2 h-4 w-4"/>
-                        {isRTL ? 'إضافة حساب' : 'Add Account'}
+                        {t('gl.addAccount')}
                     </Button>
                 </div>
             </div>
@@ -637,7 +628,7 @@ function ChartOfAccounts() {
                         <div className="relative">
                             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
                             <Input
-                                placeholder={isRTL ? 'بحث برقم أو اسم الحساب...' : 'Search by code or name...'}
+                                placeholder={t('gl.searchPlaceholder')}
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                                 className="pl-10"
@@ -652,53 +643,53 @@ function ChartOfAccounts() {
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                                <SelectItem value="all">{isRTL ? 'جميع الأنواع' : 'All Types'}</SelectItem>
-                                <SelectItem value="ASSET">{isRTL ? 'أصول' : 'Assets'} ({stats.byCategory.ASSET})</SelectItem>
-                                <SelectItem value="LIABILITY">{isRTL ? 'خصوم' : 'Liabilities'} ({stats.byCategory.LIABILITY})</SelectItem>
-                                <SelectItem value="EQUITY">{isRTL ? 'حقوق ملكية' : 'Equity'} ({stats.byCategory.EQUITY})</SelectItem>
-                                <SelectItem value="REVENUE">{isRTL ? 'إيرادات' : 'Revenue'} ({stats.byCategory.REVENUE})</SelectItem>
-                                <SelectItem value="EXPENSE">{isRTL ? 'مصروفات' : 'Expenses'} ({stats.byCategory.EXPENSE})</SelectItem>
+                                <SelectItem value="all">{t('gl.allTypes')}</SelectItem>
+                                <SelectItem value="ASSET">{t('gl.assets')} ({stats.byCategory.ASSET})</SelectItem>
+                                <SelectItem value="LIABILITY">{t('gl.liabilities')} ({stats.byCategory.LIABILITY})</SelectItem>
+                                <SelectItem value="EQUITY">{t('gl.equity')} ({stats.byCategory.EQUITY})</SelectItem>
+                                <SelectItem value="REVENUE">{t('gl.revenue')} ({stats.byCategory.REVENUE})</SelectItem>
+                                <SelectItem value="EXPENSE">{t('gl.expenses')} ({stats.byCategory.EXPENSE})</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
 
                     <div className="flex gap-2">
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
+                        <Button
+                            variant="outline"
+                            size="sm"
                             onClick={handleExpandAll}
                             className="flex-1"
                         >
                             <Maximize2 className="h-4 w-4 mr-2" />
-                            {isRTL ? 'توسيع الكل' : 'Expand All'}
+                            {t('gl.expandAll')}
                         </Button>
-                        <Button 
-                            variant="outline" 
-                            size="sm" 
+                        <Button
+                            variant="outline"
+                            size="sm"
                             onClick={handleCollapseAll}
                             className="flex-1"
                         >
                             <Minimize2 className="h-4 w-4 mr-2" />
-                            {isRTL ? 'طي الكل' : 'Collapse All'}
+                            {t('gl.collapseAll')}
                         </Button>
                     </div>
                 </div>
 
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
-                        <Checkbox 
+                        <Checkbox
                             id="show_inactive"
                             checked={showInactiveAccounts}
                             onCheckedChange={(checked) => setShowInactiveAccounts(!!checked)}
                         />
                         <label htmlFor="show_inactive" className="text-sm cursor-pointer">
-                            {isRTL ? 'إظهار الحسابات غير النشطة' : 'Show inactive accounts'}
+                            {t('gl.showInactive')}
                         </label>
                     </div>
-                    
+
                     {(searchTerm || categoryFilter !== 'all' || showInactiveAccounts) && (
-                        <Button 
-                            variant="ghost" 
+                        <Button
+                            variant="ghost"
                             size="sm"
                             onClick={() => {
                                 setSearchTerm('');
@@ -706,7 +697,7 @@ function ChartOfAccounts() {
                                 setShowInactiveAccounts(false);
                             }}
                         >
-                            {isRTL ? 'إعادة تعيين الفلاتر' : 'Reset Filters'}
+                            {t('gl.resetFilters')}
                         </Button>
                     )}
                 </div>
@@ -717,16 +708,16 @@ function ChartOfAccounts() {
                  {loading ? (
                      <div className="p-8 text-center">
                          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-                         <p className="mt-4 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
+                         <p className="mt-4 text-muted-foreground">{t('common.loading')}</p>
                      </div>
                  ) : error ? (
                      <div className="p-8 text-center text-red-500">{error}</div>
                  ) : accountTree.length > 0 ? (
                     accountTree.map(account => (
-                        <AccountTreeItem 
+                        <AccountTreeItem
                             key={account.code}
-                            account={account} 
-                            level={0} 
+                            account={account}
+                            level={0}
                             isRTL={isRTL}
                             expandedNodes={expandedNodes}
                             onToggleNode={handleToggleNode}
@@ -738,11 +729,11 @@ function ChartOfAccounts() {
                         />
                     ))
                  ) : (
-                     <EmptyState title={isRTL ? 'لا توجد حسابات لعرضها' : 'No accounts to display'} description={isRTL ? 'أضف حساباً جديداً أو عدّل الفلاتر.' : 'Add an account or adjust filters.'} />
+                     <EmptyState title={t('gl.noAccounts')} description={t('gl.noAccountsDesc')} />
                  )}
             </div>
 
-            <AccountFormModal 
+            <AccountFormModal
                 isOpen={isModalOpen}
                 onClose={handleCloseModal}
                 onSave={handleSaveAccount}
