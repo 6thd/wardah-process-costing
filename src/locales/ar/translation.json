@@ -260,6 +260,7 @@
       },
       "orderNotFound": "الطلب غير موجود",
       "statusUpdateError": "فشل تحديث الحالة",
+      "invalidTransition": "لا يمكن الانتقال من \"{{from}}\" إلى \"{{to}}\"",
       "unavailable": "غير متاح",
       "detailsTitle": "تفاصيل أمر التصنيع",
       "detailsSubtitle": "عرض تفاصيل أمر التصنيع الكاملة",

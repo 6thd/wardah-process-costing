@@ -53,17 +53,20 @@ let total = 0
 
 for (const file of walk(SRC)) {
   const text = readFileSync(file, 'utf8')
-  const lines = text.split('\n')
+  const linesArr = text.split('\n')
   let count = 0
-  lines.forEach((line, idx) => {
-    PATTERN.lastIndex = 0
-    let m
-    while ((m = PATTERN.exec(line)) !== null) {
-      count++
-      total++
-      hits.push({ file: relative(ROOT, file), line: idx + 1, text: line.trim().slice(0, 120) })
-    }
-  })
+  // مسح على النص الكامل لاصطياد النمط متعدد الأسطر مثل:
+  //   isRTL
+  //     ? 'نص عربي'
+  PATTERN.lastIndex = 0
+  let m
+  while ((m = PATTERN.exec(text)) !== null) {
+    const lineNum = text.slice(0, m.index).split('\n').length
+    const lineText = linesArr[lineNum - 1] ?? ''
+    count++
+    total++
+    hits.push({ file: relative(ROOT, file), line: lineNum, text: lineText.trim().slice(0, 120) })
+  }
   if (count > 0) perFile[relative(ROOT, file)] = count
 }
 

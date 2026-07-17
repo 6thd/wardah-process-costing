@@ -257,6 +257,7 @@
       },
       "orderNotFound": "Order not found",
       "statusUpdateError": "Failed to update status",
+      "invalidTransition": "Cannot transition from \"{{from}}\" to \"{{to}}\"",
       "unavailable": "unavailable",
       "detailsTitle": "Manufacturing Order Details",
       "detailsSubtitle": "View complete manufacturing order details",

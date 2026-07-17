@@ -336,7 +336,7 @@ function ManufacturingOrdersManagement() {
       const currentStatus = currentOrder.status as ManufacturingOrderStatus
       const targetStatus = newStatus as ManufacturingOrderStatus
 
-      const validation = validateStatusTransition(currentStatus, targetStatus, isRTL)
+      const validation = validateStatusTransition(currentStatus, targetStatus)
       if (!validation.valid) {
         toast.error(validation.message)
         return
