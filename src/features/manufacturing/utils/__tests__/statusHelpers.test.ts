@@ -2,14 +2,18 @@
  * Tests for features/manufacturing/utils/statusHelpers.ts - REAL COVERAGE TESTS
  * These tests import and test actual source code functions
  */
-import { describe, it, expect } from 'vitest';
-import { 
-  getStatusLabel, 
-  getStatusBadgeVariant, 
-  getStatusOptions, 
+import { describe, it, expect, vi } from 'vitest';
+import {
+  getStatusLabel,
+  getStatusBadgeVariant,
+  getStatusOptions,
   validateStatusTransition,
   prepareStatusUpdate
 } from '../statusHelpers';
+
+vi.mock('i18next', () => ({
+  default: { t: (key: string) => key, language: 'en' }
+}));
 
 describe('statusHelpers', () => {
   describe('getStatusLabel', () => {
@@ -77,39 +81,29 @@ describe('statusHelpers', () => {
 
   describe('validateStatusTransition', () => {
     it('should return valid for same status', () => {
-      const result = validateStatusTransition('draft', 'draft', false);
+      const result = validateStatusTransition('draft', 'draft');
       expect(result.valid).toBe(true);
       expect(result.message).toBeUndefined();
     });
 
     it('should return valid for allowed transition', () => {
-      const result = validateStatusTransition('draft', 'pending', false);
+      const result = validateStatusTransition('draft', 'pending');
       expect(result.valid).toBe(true);
     });
 
-    it('should return invalid for disallowed transition (English)', () => {
-      const result = validateStatusTransition('draft', 'completed', false);
+    it('should return invalid for disallowed transition', () => {
+      const result = validateStatusTransition('draft', 'completed');
       expect(result.valid).toBe(false);
-      expect(result.message).toContain('Cannot transition from');
-      expect(result.message).toContain('Draft');
-      expect(result.message).toContain('Completed');
-    });
-
-    it('should return invalid for disallowed transition (Arabic)', () => {
-      const result = validateStatusTransition('draft', 'completed', true);
-      expect(result.valid).toBe(false);
-      expect(result.message).toContain('لا يمكن الانتقال');
-      expect(result.message).toContain('مسودة');
-      expect(result.message).toContain('مكتمل');
+      expect(result.message).toBe('manufacturing.manufacturingOrders.invalidTransition');
     });
 
     it('should not allow transition from completed', () => {
-      const result = validateStatusTransition('completed', 'in_progress', false);
+      const result = validateStatusTransition('completed', 'in_progress');
       expect(result.valid).toBe(false);
     });
 
     it('should not allow transition from cancelled', () => {
-      const result = validateStatusTransition('cancelled', 'draft', false);
+      const result = validateStatusTransition('cancelled', 'draft');
       expect(result.valid).toBe(false);
     });
   });

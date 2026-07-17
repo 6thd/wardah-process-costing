@@ -1,3 +1,4 @@
+import i18next from 'i18next';
 import type { ManufacturingOrder } from '@/lib/supabase';
 import {
   getStatusInfo,
@@ -24,8 +25,7 @@ export function getStatusOptions(currentStatus: ManufacturingOrder['status']): M
 
 export function validateStatusTransition(
   currentStatus: ManufacturingOrderStatus,
-  targetStatus: ManufacturingOrderStatus,
-  isRTL: boolean
+  targetStatus: ManufacturingOrderStatus
 ): { valid: boolean; message?: string } {
   if (targetStatus === currentStatus) {
     return { valid: true };
@@ -34,11 +34,13 @@ export function validateStatusTransition(
   if (!isValidStatusTransition(currentStatus, targetStatus)) {
     const currentInfo = getStatusInfo(currentStatus);
     const targetInfo = getStatusInfo(targetStatus);
+    const isAr = i18next.language === 'ar';
     return {
       valid: false,
-      message: isRTL
-        ? `لا يمكن الانتقال من "${currentInfo.labelAr}" إلى "${targetInfo.labelAr}"`
-        : `Cannot transition from "${currentInfo.label}" to "${targetInfo.label}"`
+      message: i18next.t('manufacturing.manufacturingOrders.invalidTransition', {
+        from: isAr ? currentInfo.labelAr : currentInfo.label,
+        to:   isAr ? targetInfo.labelAr  : targetInfo.label
+      })
     };
   }
 
