@@ -1,41 +1,42 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type { ProfitabilityAnalysis } from '@/services/sales-reports-service';
 
 interface ProfitabilityMetricsProps {
   readonly profitability: ProfitabilityAnalysis;
-  readonly isRTL: boolean;
 }
 
-export function ProfitabilityMetrics({ profitability, isRTL }: ProfitabilityMetricsProps) {
+export function ProfitabilityMetrics({ profitability }: ProfitabilityMetricsProps) {
+  const { t } = useTranslation();
   const metrics = [
     {
-      label: isRTL ? 'إجمالي الإيرادات' : 'Total Revenue',
+      label: t('salesReports.totalRevenue'),
       value: profitability.totalRevenue.toFixed(2),
       color: ''
     },
     {
-      label: isRTL ? 'إجمالي COGS' : 'Total COGS',
+      label: t('salesReports.totalCOGS'),
       value: profitability.totalCOGS.toFixed(2),
       color: 'text-red-600'
     },
     {
-      label: isRTL ? 'الربح الإجمالي' : 'Gross Profit',
+      label: t('salesReports.grossProfit'),
       value: profitability.grossProfit.toFixed(2),
       color: 'text-green-600'
     },
     {
-      label: isRTL ? 'هامش الربح الإجمالي %' : 'Gross Profit Margin %',
+      label: t('salesReports.grossProfitMarginPct'),
       value: `${profitability.grossProfitMargin.toFixed(2)}%`,
       color: ''
     },
     {
-      label: isRTL ? 'الربح الصافي' : 'Net Profit',
+      label: t('salesReports.netProfit'),
       value: profitability.netProfit.toFixed(2),
       color: 'text-green-600'
     },
     {
-      label: isRTL ? 'هامش الربح الصافي %' : 'Net Profit Margin %',
+      label: t('salesReports.netProfitMarginPct'),
       value: `${profitability.netProfitMargin.toFixed(2)}%`,
       color: ''
     }

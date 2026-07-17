@@ -21,7 +21,7 @@ interface DashboardFilters {
 }
 
 export function FIFOComparisonReport({ filters }: { readonly filters: DashboardFilters }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   const { isLoading, error } = useQuery({
@@ -39,14 +39,14 @@ export function FIFOComparisonReport({ filters }: { readonly filters: DashboardF
     return <div className="flex items-center justify-center min-h-[400px]">
       <div className="text-center space-y-4">
         <ArrowUpDown className="h-8 w-8 animate-pulse mx-auto text-primary" />
-        <p className="text-muted-foreground">{isRTL ? 'جارٍ تحميل البيانات...' : 'Loading data...'}</p>
+        <p className="text-muted-foreground">{t('fifoCompare.loading')}</p>
       </div>
     </div>
   }
 
   if (error) {
     return <Alert variant="destructive" className={getGlassClasses()}>
-      <AlertDescription>{isRTL ? 'حدث خطأ' : 'Error'}: {error.message}</AlertDescription>
+      <AlertDescription>{t('fifoCompare.error')}: {error.message}</AlertDescription>
     </Alert>
   }
 
@@ -56,22 +56,19 @@ export function FIFOComparisonReport({ filters }: { readonly filters: DashboardF
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <ArrowUpDown className="h-5 w-5" />
-            {isRTL ? 'مقارنة FIFO مقابل المتوسط المرجح' : 'FIFO vs Weighted-Average Comparison'}
+            {t('fifoCompare.title')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <Alert className="mb-4">
             <Info className="h-4 w-4" />
             <AlertDescription className={cn(isRTL && "text-right")}>
-              {isRTL 
-                ? 'هذه المقارنة تعرض الفروقات بين طريقة FIFO والمتوسط المرجح في حساب تكلفة الوحدة.'
-                : 'This comparison shows the differences between FIFO and Weighted-Average methods in unit cost calculation.'
-              }
+              {t('fifoCompare.note')}
             </AlertDescription>
           </Alert>
           
           <div className="text-center py-8 text-muted-foreground">
-            {isRTL ? 'قيد التطوير - سيتم إضافة المقارنة التفصيلية قريباً' : 'Under Development - Detailed comparison coming soon'}
+            {t('fifoCompare.underDevelopment')}
           </div>
         </CardContent>
       </Card>

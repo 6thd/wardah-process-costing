@@ -51,7 +51,7 @@ const JournalEntries = () => {
     lines: [] as Partial<JournalLine>[]
   });
 
-  const { journals, accounts } = useJournalData(isRTL);
+  const { journals, accounts } = useJournalData();
   const { entries, loading, fetchEntries } = useJournalEntries({ statusFilter, dateFilter });
 
   const addLine = () => {
@@ -90,7 +90,7 @@ const JournalEntries = () => {
       setFormLoading(true);
       const { totalDebit, totalCredit } = calculateTotals(formData.lines);
 
-      const validation = validateEntry(formData.journal_id, formData.lines, isRTL);
+      const validation = validateEntry(formData.journal_id, formData.lines);
       if (!validation.valid) {
         toast.error(validation.message);
         setFormLoading(false);

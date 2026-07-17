@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { format } from 'date-fns'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -17,17 +18,14 @@ import {
 import { cn } from '@/lib/utils'
 import type { LaborEfficiency, WorkCenterEfficiencySummary, CostVariance, OEEReport, MaterialConsumptionReport } from '@/services/manufacturing/efficiencyService'
 
-interface TableProps {
-  isRTL: boolean
-}
-
 // =====================================================
 // Work Center Efficiency Table
 // =====================================================
 
-interface WorkCenterEfficiencyTableProps extends TableProps {
+interface WorkCenterEfficiencyTableProps {
   data: WorkCenterEfficiencySummary[] | undefined
   isLoading: boolean
+  isRTL: boolean
 }
 
 export const WorkCenterEfficiencyTable: React.FC<WorkCenterEfficiencyTableProps> = ({
@@ -35,11 +33,12 @@ export const WorkCenterEfficiencyTable: React.FC<WorkCenterEfficiencyTableProps>
   isLoading,
   isRTL
 }) => {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8">
-          {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          {t('efficiency.loading')}
         </TableCell>
       </TableRow>
     )
@@ -49,7 +48,7 @@ export const WorkCenterEfficiencyTable: React.FC<WorkCenterEfficiencyTableProps>
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
+          {t('efficiency.noDataPeriod')}
         </TableCell>
       </TableRow>
     )
@@ -89,21 +88,21 @@ export const WorkCenterEfficiencyTable: React.FC<WorkCenterEfficiencyTableProps>
 // OEE Report Table
 // =====================================================
 
-interface OEETableProps extends TableProps {
+interface OEETableProps {
   data: OEEReport[] | undefined
   isLoading: boolean
 }
 
 export const OEETable: React.FC<OEETableProps> = ({
   data,
-  isLoading,
-  isRTL
+  isLoading
 }) => {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8">
-          {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          {t('efficiency.loading')}
         </TableCell>
       </TableRow>
     )
@@ -113,7 +112,7 @@ export const OEETable: React.FC<OEETableProps> = ({
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
+          {t('efficiency.noDataPeriod')}
         </TableCell>
       </TableRow>
     )
@@ -160,21 +159,21 @@ export const OEETable: React.FC<OEETableProps> = ({
 // Labor Efficiency Table
 // =====================================================
 
-interface LaborEfficiencyTableProps extends TableProps {
+interface LaborEfficiencyTableProps {
   data: LaborEfficiency[] | undefined
   isLoading: boolean
 }
 
 export const LaborEfficiencyTable: React.FC<LaborEfficiencyTableProps> = ({
   data,
-  isLoading,
-  isRTL
+  isLoading
 }) => {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8">
-          {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          {t('efficiency.loading')}
         </TableCell>
       </TableRow>
     )
@@ -184,7 +183,7 @@ export const LaborEfficiencyTable: React.FC<LaborEfficiencyTableProps> = ({
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
+          {t('efficiency.noDataPeriod')}
         </TableCell>
       </TableRow>
     )
@@ -227,21 +226,21 @@ export const LaborEfficiencyTable: React.FC<LaborEfficiencyTableProps> = ({
 // Cost Variance Table
 // =====================================================
 
-interface CostVarianceTableProps extends TableProps {
+interface CostVarianceTableProps {
   data: CostVariance[] | undefined
   isLoading: boolean
 }
 
 export const CostVarianceTable: React.FC<CostVarianceTableProps> = ({
   data,
-  isLoading,
-  isRTL
+  isLoading
 }) => {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <TableRow>
         <TableCell colSpan={5} className="text-center py-8">
-          {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          {t('efficiency.loading')}
         </TableCell>
       </TableRow>
     )
@@ -251,7 +250,7 @@ export const CostVarianceTable: React.FC<CostVarianceTableProps> = ({
     return (
       <TableRow>
         <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
+          {t('efficiency.noDataPeriod')}
         </TableCell>
       </TableRow>
     )
@@ -289,21 +288,21 @@ export const CostVarianceTable: React.FC<CostVarianceTableProps> = ({
 // Material Consumption Table
 // =====================================================
 
-interface MaterialConsumptionTableProps extends TableProps {
+interface MaterialConsumptionTableProps {
   data: MaterialConsumptionReport[] | undefined
   isLoading: boolean
 }
 
 export const MaterialConsumptionTable: React.FC<MaterialConsumptionTableProps> = ({
   data,
-  isLoading,
-  isRTL
+  isLoading
 }) => {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8">
-          {isRTL ? 'جاري التحميل...' : 'Loading...'}
+          {t('efficiency.loading')}
         </TableCell>
       </TableRow>
     )
@@ -313,7 +312,7 @@ export const MaterialConsumptionTable: React.FC<MaterialConsumptionTableProps> =
     return (
       <TableRow>
         <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات للفترة المحددة' : 'No data for selected period'}
+          {t('efficiency.noDataPeriod')}
         </TableCell>
       </TableRow>
     )

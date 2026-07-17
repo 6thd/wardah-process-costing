@@ -1,11 +1,13 @@
+import i18next from 'i18next';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import type { TrialBalanceRow } from '../types';
 
+const t = (key: string) => i18next.t(key);
+
 export async function fetchTrialBalanceManual(
   fromDate: string,
-  asOfDate: string,
-  isRTL: boolean
+  asOfDate: string
 ): Promise<TrialBalanceRow[]> {
   try {
     console.log('📊 Fetching manual trial balance...');
@@ -96,7 +98,7 @@ export async function fetchTrialBalanceManual(
   } catch (error) {
     console.error('❌ Error fetching manual trial balance:', error);
     // توست غير حاجب بدل alert() المتصفح (لا حوارات نظام في طبقة الخدمات)
-    toast.error(isRTL ? 'حدث خطأ في جلب البيانات' : 'Error fetching data');
+    toast.error(t('accounting.trialBalance.fetchError'));
     return [];
   }
 }

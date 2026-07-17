@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { ProductSalesAnalysis } from '@/services/sales-reports-service';
 import { renderLoadingState, renderEmptyState } from '../utils/renderHelpers';
@@ -10,18 +11,19 @@ interface ProductAnalysisTabProps {
 }
 
 export function ProductAnalysisTab({ loading, productAnalysis, isRTL }: ProductAnalysisTabProps) {
+  const { t } = useTranslation();
   if (loading) {
-    return renderLoadingState(isRTL);
+    return renderLoadingState();
   }
 
   if (productAnalysis.length === 0) {
-    return renderEmptyState(isRTL);
+    return renderEmptyState();
   }
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{isRTL ? 'تحليل المنتجات' : 'Product Analysis'}</CardTitle>
+        <CardTitle>{t('salesReports.productAnalysis')}</CardTitle>
       </CardHeader>
       <CardContent>
         <ProductAnalysisTable productAnalysis={productAnalysis} isRTL={isRTL} />

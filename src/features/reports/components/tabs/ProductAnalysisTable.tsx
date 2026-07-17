@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { ProductSalesAnalysis } from '@/services/sales-reports-service';
 
@@ -7,18 +8,19 @@ interface ProductAnalysisTableProps {
 }
 
 export function ProductAnalysisTable({ productAnalysis, isRTL }: ProductAnalysisTableProps) {
+  const { t } = useTranslation();
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className="border-b">
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'كود' : 'Code'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'اسم المنتج' : 'Product Name'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الكمية المباعة' : 'Qty Sold'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الإيرادات' : 'Revenue'}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.code')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.productName')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.qtySold')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.revenue')}</th>
             <th className={cn("text-left p-2", isRTL && "text-right")}>COGS</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'الربح' : 'Profit'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'هامش الربح %' : 'Profit Margin %'}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.profit')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.profitMarginPct')}</th>
           </tr>
         </thead>
         <tbody>

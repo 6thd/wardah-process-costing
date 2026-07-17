@@ -494,7 +494,6 @@ export const EfficiencyDashboard: React.FC = () => {
                   <OEETable
                     data={oeeData}
                     isLoading={loadingOEE}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -524,7 +523,6 @@ export const EfficiencyDashboard: React.FC = () => {
                   <LaborEfficiencyTable
                     data={laborEfficiency}
                     isLoading={loadingLabor}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -553,7 +551,6 @@ export const EfficiencyDashboard: React.FC = () => {
                   <CostVarianceTable
                     data={costVariances}
                     isLoading={loadingVariances}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>
@@ -583,7 +580,6 @@ export const EfficiencyDashboard: React.FC = () => {
                   <MaterialConsumptionTable
                     data={materialConsumption}
                     isLoading={loadingMaterials}
-                    isRTL={isRTL}
                   />
                 </TableBody>
               </Table>

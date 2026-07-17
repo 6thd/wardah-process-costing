@@ -151,7 +151,8 @@
     "currency": "SAR",
     "openInNewTab": "Open in new tab",
     "toggleLanguage": "Toggle language",
-    "closeSidebar": "Close sidebar"
+    "closeSidebar": "Close sidebar",
+    "open": "Open"
   },
   "manufacturing": {
     "title": "Manufacturing Management",
@@ -952,7 +953,14 @@
         "postFailed": "Failed to post entry",
         "postError": "Error posting entry",
         "deleteSuccess": "Entry deleted successfully",
-        "deleteError": "Error deleting entry"
+        "deleteError": "Error deleting entry",
+        "noJournalTypes": "No journal types found. Please create them first.",
+        "loadJournalTypesError": "Error loading journal types"
+      },
+      "validation": {
+        "selectJournalType": "Please select a journal type",
+        "addLines": "Please add lines to the entry",
+        "notBalanced": "Entry not balanced! Debit and Credit must be equal"
       }
     },
     "accountStatement": {
@@ -1006,7 +1014,8 @@
       "noData": "No data found",
       "totals": "TOTALS",
       "difference": "Difference",
-      "balanced": "✓ Trial Balance is Balanced"
+      "balanced": "✓ Trial Balance is Balanced",
+      "fetchError": "Error fetching data"
     }
   },
   "efficiency": {
@@ -1063,7 +1072,9 @@
     "materialConsumptionReport": "Material Consumption Report",
     "item": "Item",
     "consumed": "Consumed",
-    "cost": "Cost"
+    "cost": "Cost",
+    "loading": "Loading...",
+    "noDataPeriod": "No data for selected period"
   },
   "export": {
     "sales": {
@@ -1665,5 +1676,82 @@
     "ohCost": "OH Cost",
     "totalCost": "Total Cost",
     "unitCost": "Unit Cost"
+  },
+  "salesReports": {
+    "title": "Sales Reports",
+    "subtitle": "Sales performance, customer and product analysis",
+    "tabs": {
+      "performance": "Performance",
+      "customers": "Customers",
+      "products": "Products",
+      "profitability": "Profitability"
+    },
+    "dateFilter": "Date Filter",
+    "fromDate": "From Date",
+    "toDate": "To Date",
+    "pickDate": "Pick a date",
+    "view": "View",
+    "loading": "Loading...",
+    "noData": "No data available",
+    "selectDates": "Please select start and end dates",
+    "fetchError": "Error fetching data",
+    "totalSales": "Total Sales",
+    "totalInvoices": "Total Invoices",
+    "avgOrderValue": "Average Order Value",
+    "collectionRate": "Collection Rate",
+    "totalCollections": "Total Collections",
+    "outstandingAmount": "Outstanding Amount",
+    "customerAnalysis": "Customer Analysis",
+    "productAnalysis": "Product Analysis",
+    "code": "Code",
+    "customerName": "Customer Name",
+    "invoices": "Invoices",
+    "avgInvoice": "Avg Invoice",
+    "outstanding": "Outstanding",
+    "collectionRatePct": "Collection Rate %",
+    "productName": "Product Name",
+    "qtySold": "Qty Sold",
+    "revenue": "Revenue",
+    "profit": "Profit",
+    "profitMarginPct": "Profit Margin %",
+    "sales": "Sales",
+    "topCustomers": "Top Customers by Profitability",
+    "topProducts": "Top Products by Profitability",
+    "totalRevenue": "Total Revenue",
+    "totalCOGS": "Total COGS",
+    "grossProfit": "Gross Profit",
+    "grossProfitMarginPct": "Gross Profit Margin %",
+    "netProfit": "Net Profit",
+    "netProfitMarginPct": "Net Profit Margin %"
+  },
+  "wipReport": {
+    "loading": "Loading data...",
+    "error": "Error",
+    "title": "WIP Valuation Report",
+    "totalValue": "Total WIP Value",
+    "mo": "MO",
+    "stage": "Stage",
+    "endWipQty": "End WIP Qty",
+    "dmPct": "DM %",
+    "ccPct": "CC %",
+    "unitCost": "Unit Cost",
+    "wipValue": "WIP Value",
+    "noWip": "No WIP currently"
+  },
+  "copOverview": {
+    "loading": "Loading data...",
+    "error": "Error",
+    "title": "Cost of Production Report",
+    "totalCost": "Total Cost",
+    "goodQty": "Good Quantity",
+    "avgUnitCost": "Avg Unit Cost",
+    "note": "This report provides an overview of production costs. Use other tabs for more details."
+  },
+  "fifoCompare": {
+    "loading": "Loading data...",
+    "error": "Error",
+    "title": "FIFO vs Weighted-Average Comparison",
+    "note": "This comparison shows the differences between FIFO and Weighted-Average methods in unit cost calculation.",
+    "underDevelopment": "Under Development - Detailed comparison coming soon"
   }
 }

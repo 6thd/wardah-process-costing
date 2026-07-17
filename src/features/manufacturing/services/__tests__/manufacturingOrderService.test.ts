@@ -185,7 +185,7 @@ describe('Manufacturing Order Service', () => {
         { value: 'draft' } as any,
         { value: 'in_progress' } as any,
         mockUpdateData,
-        false
+        mockT
       );
 
       expect(result).toBe(true);
@@ -201,7 +201,7 @@ describe('Manufacturing Order Service', () => {
         sameStatus,
         sameStatus,
         mockUpdateData,
-        false
+        mockT
       );
 
       expect(result).toBe(true);
@@ -217,14 +217,14 @@ describe('Manufacturing Order Service', () => {
         { value: 'draft' } as any,
         { value: 'completed' } as any,
         mockUpdateData,
-        false
+        mockT
       );
 
       expect(result).toBe(false);
       expect(mockToast.error).toHaveBeenCalledWith('Status transition not allowed');
     });
 
-    it('should handle API errors with Arabic message when RTL', async () => {
+    it('should handle API errors with translated fallback message', async () => {
       mockUpdateStatus.mockRejectedValue(new Error());
 
       const result = await updateOrderStatus(
@@ -233,27 +233,11 @@ describe('Manufacturing Order Service', () => {
         { value: 'draft' } as any,
         { value: 'completed' } as any,
         mockUpdateData,
-        true
+        mockT
       );
 
       expect(result).toBe(false);
-      expect(mockToast.error).toHaveBeenCalledWith('فشل تحديث الحالة');
-    });
-
-    it('should handle API errors with English fallback when not RTL', async () => {
-      mockUpdateStatus.mockRejectedValue(new Error());
-
-      const result = await updateOrderStatus(
-        'order-1',
-        'completed',
-        { value: 'draft' } as any,
-        { value: 'completed' } as any,
-        mockUpdateData,
-        false
-      );
-
-      expect(result).toBe(false);
-      expect(mockToast.error).toHaveBeenCalledWith('Failed to update status');
+      expect(mockToast.error).toHaveBeenCalledWith('manufacturing.ordersPage.statusUpdateFailed');
     });
 
     it('should pass update data to service', async () => {
