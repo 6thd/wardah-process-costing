@@ -941,7 +941,19 @@
       "confirmReverse": "Reverse this entry?",
       "entryReversed": "Entry reversed",
       "reversalFailed": "Reversal failed",
-      "errorSaving": "Error saving entry"
+      "errorSaving": "Error saving entry",
+      "svc": {
+        "orgNotFound": "Organization context not found",
+        "saveSuccess": "Entry saved successfully",
+        "saveError": "Error saving entry",
+        "updateSuccess": "Entry updated successfully",
+        "updateError": "Error updating entry",
+        "postSuccess": "Entry posted successfully",
+        "postFailed": "Failed to post entry",
+        "postError": "Error posting entry",
+        "deleteSuccess": "Entry deleted successfully",
+        "deleteError": "Error deleting entry"
+      }
     },
     "accountStatement": {
       "title": "Account Statement",
@@ -1553,5 +1565,105 @@
     "adding": "Adding...",
     "add": "Add",
     "noComments": "No comments"
+  },
+  "accountingHome": {
+    "title": "Financial Accounting",
+    "subtitle": "Comprehensive financial and accounting management",
+    "posting": {
+      "title": "Posting",
+      "description": "Post entries to general ledger",
+      "tip": "💡 You can use the \"Batch Post\" button in Journal Entries page to post multiple entries at once.",
+      "journalEntries": "Journal Entries",
+      "journalEntriesDesc": "Manage entries and posting",
+      "openEntries": "Open Entries",
+      "trialBalance": "Trial Balance",
+      "trialBalanceDesc": "View balances after posting",
+      "openTrialBalance": "Open Trial Balance",
+      "infoTitle": "Posting Information",
+      "info1": "Posting is done from Journal Entries page",
+      "info2": "Multiple entries can be posted at once",
+      "info3": "Entry must be balanced before posting",
+      "info4": "After posting, entry cannot be modified"
+    }
+  },
+  "approvalWf": {
+    "approvedAtLevel": "Approved at level {{level}}",
+    "approvalFailed": "Approval failed",
+    "errorOccurred": "An error occurred",
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
+    "title": "Approval Workflow",
+    "levelsInfo": "Required: {{required}} | Approved: {{current}}",
+    "level": "Level {{level}}",
+    "approve": "Approve",
+    "moreApprovals": "Requires {{n}} more approval(s)",
+    "dialogTitle": "Approve Entry",
+    "dialogDescription": "Approve entry {{entry}} - Level {{level}}",
+    "commentsLabel": "Comments (Optional)",
+    "commentsPlaceholder": "Add comments...",
+    "cancel": "Cancel",
+    "processing": "Processing..."
+  },
+  "wcDashboard": {
+    "title": "Work Center Dashboard",
+    "subtitle": "Manufacturing Execution System (MES)",
+    "selectWorkCenter": "Select Work Center",
+    "activeOrders": "Active Work Orders",
+    "workCenter": "Work Center: {{name}}",
+    "status": {
+      "pending": "Pending",
+      "ready": "Ready",
+      "inSetup": "Setup",
+      "inProgress": "In Progress",
+      "onHold": "On Hold",
+      "completed": "Completed"
+    },
+    "reportOutput": "Report Production Output",
+    "workOrderNumber": "Work Order: {{number}}",
+    "goodQtyProduced": "Good Quantity Produced",
+    "scrappedQty": "Scrapped Quantity",
+    "notes": "Notes",
+    "notesPlaceholder": "Any additional notes...",
+    "scrapWarning": "{{n}} unit(s) will be recorded as scrap",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "card": {
+      "progress": "Progress",
+      "setup": "Setup:",
+      "run": "Run:",
+      "min": "min",
+      "startSetup": "Start Setup",
+      "startProduction": "Start Production",
+      "pause": "Pause",
+      "reportOutput": "Report Output",
+      "resume": "Resume"
+    },
+    "summary": {
+      "pending": "Pending",
+      "inProgress": "In Progress",
+      "completedToday": "Completed Today",
+      "producedToday": "Produced Today",
+      "efficiency": "Efficiency"
+    },
+    "empty": {
+      "title": "No Work Orders",
+      "subtitle": "No active work orders for this work center"
+    }
+  },
+  "stageCost": {
+    "loading": "Loading data...",
+    "error": "Error",
+    "title": "Stage-by-Stage Cost Breakdown",
+    "mo": "MO",
+    "stage": "Stage",
+    "goodQty": "Good Qty",
+    "dmCost": "DM Cost",
+    "dlCost": "DL Cost",
+    "ohCost": "OH Cost",
+    "totalCost": "Total Cost",
+    "unitCost": "Unit Cost"
   }
 }

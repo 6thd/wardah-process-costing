@@ -110,14 +110,14 @@ const JournalEntries = () => {
       };
 
       if (editingEntry) {
-        const success = await updateJournalEntry({ ...entryData, id: editingEntry.id }, isRTL);
+        const success = await updateJournalEntry({ ...entryData, id: editingEntry.id });
         if (success) {
           setIsDialogOpen(false);
           resetForm();
           fetchEntries();
         }
       } else {
-        const entryId = await createJournalEntry(entryData, isRTL);
+        const entryId = await createJournalEntry(entryData);
         if (entryId) {
           setIsDialogOpen(false);
           resetForm();
@@ -137,7 +137,7 @@ const JournalEntries = () => {
       return;
     }
     setFormLoading(true);
-    const success = await postJournalEntry(entry, isRTL);
+    const success = await postJournalEntry(entry);
     if (success) fetchEntries();
     setFormLoading(false);
   };
@@ -151,7 +151,7 @@ const JournalEntries = () => {
       return;
     }
     setFormLoading(true);
-    const success = await deleteJournalEntry(entry, isRTL);
+    const success = await deleteJournalEntry(entry);
     if (success) fetchEntries();
     setFormLoading(false);
   };

@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Clock, Activity, CheckCircle, Package, TrendingUp } from 'lucide-react'
 
@@ -15,10 +16,10 @@ interface WorkCenterSummaryProps {
     total_produced_today?: number
     efficiency?: number
   } | undefined
-  isRTL: boolean
 }
 
-export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, isRTL }) => {
+export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary }) => {
+  const { t } = useTranslation()
   return (
     <div className="grid gap-4 md:grid-cols-5">
       <Card className="wardah-glass-card">
@@ -28,7 +29,7 @@ export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, i
               <Clock className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'في الانتظار' : 'Pending'}</p>
+              <p className="text-sm text-muted-foreground">{t('wcDashboard.summary.pending')}</p>
               <p className="text-2xl font-bold">{summary?.pending || 0}</p>
             </div>
           </div>
@@ -42,7 +43,7 @@ export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, i
               <Activity className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'قيد التنفيذ' : 'In Progress'}</p>
+              <p className="text-sm text-muted-foreground">{t('wcDashboard.summary.inProgress')}</p>
               <p className="text-2xl font-bold">{summary?.in_progress || 0}</p>
             </div>
           </div>
@@ -56,7 +57,7 @@ export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, i
               <CheckCircle className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'مكتمل اليوم' : 'Completed Today'}</p>
+              <p className="text-sm text-muted-foreground">{t('wcDashboard.summary.completedToday')}</p>
               <p className="text-2xl font-bold">{summary?.completed_today || 0}</p>
             </div>
           </div>
@@ -70,7 +71,7 @@ export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, i
               <Package className="w-6 h-6 text-yellow-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'الإنتاج اليوم' : 'Produced Today'}</p>
+              <p className="text-sm text-muted-foreground">{t('wcDashboard.summary.producedToday')}</p>
               <p className="text-2xl font-bold">{summary?.total_produced_today || 0}</p>
             </div>
           </div>
@@ -84,7 +85,7 @@ export const WorkCenterSummary: React.FC<WorkCenterSummaryProps> = ({ summary, i
               <TrendingUp className="w-6 h-6 text-cyan-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'الكفاءة' : 'Efficiency'}</p>
+              <p className="text-sm text-muted-foreground">{t('wcDashboard.summary.efficiency')}</p>
               <p className="text-2xl font-bold">{summary?.efficiency || 100}%</p>
             </div>
           </div>

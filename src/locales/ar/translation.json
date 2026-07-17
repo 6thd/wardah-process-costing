@@ -937,7 +937,19 @@
       "confirmReverse": "هل تريد عكس هذا القيد؟",
       "entryReversed": "تم عكس القيد",
       "reversalFailed": "فشل العكس",
-      "errorSaving": "حدث خطأ أثناء حفظ القيد"
+      "errorSaving": "حدث خطأ أثناء حفظ القيد",
+      "svc": {
+        "orgNotFound": "لم يتم تحديد المؤسسة الحالية",
+        "saveSuccess": "تم حفظ القيد بنجاح",
+        "saveError": "خطأ في حفظ القيد",
+        "updateSuccess": "تم تحديث القيد بنجاح",
+        "updateError": "خطأ في تحديث القيد",
+        "postSuccess": "تم ترحيل القيد بنجاح",
+        "postFailed": "فشل ترحيل القيد",
+        "postError": "خطأ في ترحيل القيد",
+        "deleteSuccess": "تم حذف القيد بنجاح",
+        "deleteError": "خطأ في حذف القيد"
+      }
     },
     "accountStatement": {
       "title": "كشف حساب",
@@ -1549,5 +1561,105 @@
     "adding": "جاري الإضافة...",
     "add": "إضافة",
     "noComments": "لا توجد تعليقات"
+  },
+  "accountingHome": {
+    "title": "المحاسبة المالية",
+    "subtitle": "إدارة شاملة للنظام المحاسبي والمالي",
+    "posting": {
+      "title": "الترحيل",
+      "description": "ترحيل القيود إلى دفتر الأستاذ",
+      "tip": "💡 يمكنك استخدام زر \"ترحيل مجمع\" في صفحة القيود لترحيل قيود متعددة دفعة واحدة.",
+      "journalEntries": "قيود اليومية",
+      "journalEntriesDesc": "إدارة القيود والترحيل",
+      "openEntries": "فتح القيود",
+      "trialBalance": "ميزان المراجعة",
+      "trialBalanceDesc": "عرض الأرصدة بعد الترحيل",
+      "openTrialBalance": "فتح الميزان",
+      "infoTitle": "معلومات الترحيل",
+      "info1": "الترحيل يتم من صفحة القيود",
+      "info2": "يمكن ترحيل قيود متعددة دفعة واحدة",
+      "info3": "يجب أن يكون القيد متوازن قبل الترحيل",
+      "info4": "بعد الترحيل لا يمكن تعديل القيد"
+    }
+  },
+  "approvalWf": {
+    "approvedAtLevel": "تمت الموافقة على المستوى {{level}}",
+    "approvalFailed": "فشلت الموافقة",
+    "errorOccurred": "حدث خطأ",
+    "status": {
+      "pending": "قيد الانتظار",
+      "approved": "موافق",
+      "rejected": "مرفوض"
+    },
+    "title": "سير عمل الموافقات",
+    "levelsInfo": "المستوى المطلوب: {{required}} | المعتمد: {{current}}",
+    "level": "المستوى {{level}}",
+    "approve": "موافقة",
+    "moreApprovals": "يحتاج {{n}} موافقة إضافية",
+    "dialogTitle": "الموافقة على القيد",
+    "dialogDescription": "الموافقة على القيد {{entry}} - المستوى {{level}}",
+    "commentsLabel": "تعليقات (اختياري)",
+    "commentsPlaceholder": "أضف تعليقات...",
+    "cancel": "إلغاء",
+    "processing": "جاري..."
+  },
+  "wcDashboard": {
+    "title": "لوحة تحكم مركز العمل",
+    "subtitle": "نظام تنفيذ التصنيع (MES)",
+    "selectWorkCenter": "اختر مركز العمل",
+    "activeOrders": "أوامر العمل النشطة",
+    "workCenter": "مركز العمل: {{name}}",
+    "status": {
+      "pending": "في الانتظار",
+      "ready": "جاهز",
+      "inSetup": "إعداد",
+      "inProgress": "قيد التنفيذ",
+      "onHold": "معلق",
+      "completed": "مكتمل"
+    },
+    "reportOutput": "تسجيل الإنتاج",
+    "workOrderNumber": "أمر العمل: {{number}}",
+    "goodQtyProduced": "الكمية المنتجة (جيدة)",
+    "scrappedQty": "الكمية التالفة (خردة)",
+    "notes": "ملاحظات",
+    "notesPlaceholder": "أي ملاحظات إضافية...",
+    "scrapWarning": "سيتم تسجيل {{n}} وحدة كخردة",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "card": {
+      "progress": "التقدم",
+      "setup": "إعداد:",
+      "run": "تشغيل:",
+      "min": "د",
+      "startSetup": "بدء الإعداد",
+      "startProduction": "بدء الإنتاج",
+      "pause": "إيقاف",
+      "reportOutput": "تسجيل إنتاج",
+      "resume": "استئناف"
+    },
+    "summary": {
+      "pending": "في الانتظار",
+      "inProgress": "قيد التنفيذ",
+      "completedToday": "مكتمل اليوم",
+      "producedToday": "الإنتاج اليوم",
+      "efficiency": "الكفاءة"
+    },
+    "empty": {
+      "title": "لا توجد أوامر عمل",
+      "subtitle": "لا توجد أوامر عمل نشطة لمركز العمل هذا"
+    }
+  },
+  "stageCost": {
+    "loading": "جارٍ تحميل البيانات...",
+    "error": "حدث خطأ",
+    "title": "تفصيل التكاليف حسب المرحلة",
+    "mo": "أمر التصنيع",
+    "stage": "المرحلة",
+    "goodQty": "الكمية الجيدة",
+    "dmCost": "المواد المباشرة",
+    "dlCost": "العمالة المباشرة",
+    "ohCost": "الأوفرهيد",
+    "totalCost": "إجمالي التكلفة",
+    "unitCost": "تكلفة الوحدة"
   }
 }

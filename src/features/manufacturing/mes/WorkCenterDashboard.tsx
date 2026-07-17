@@ -43,7 +43,7 @@ import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
 
 // eslint-disable-next-line complexity
 export function WorkCenterDashboard() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   
   const [selectedWorkCenter, setSelectedWorkCenter] = useState<string>('')
@@ -138,21 +138,22 @@ export function WorkCenterDashboard() {
 
   // Helper function to reduce cognitive complexity
   const getStatusConfig = (status: string) => {
-    const statusMap: Record<string, { variant?: string; className?: string; label: { ar: string; en: string } }> = {
-      'PENDING': { variant: 'secondary', label: { ar: 'في الانتظار', en: 'Pending' } },
-      'READY': { className: 'bg-blue-500', label: { ar: 'جاهز', en: 'Ready' } },
-      'IN_SETUP': { className: 'bg-yellow-500', label: { ar: 'إعداد', en: 'Setup' } },
-      'IN_PROGRESS': { className: 'bg-green-500', label: { ar: 'قيد التنفيذ', en: 'In Progress' } },
-      'ON_HOLD': { className: 'bg-orange-500', label: { ar: 'معلق', en: 'On Hold' } },
-      'COMPLETED': { className: 'bg-purple-500', label: { ar: 'مكتمل', en: 'Completed' } }
+    const statusMap: Record<string, { variant?: string; className?: string; labelKey: string }> = {
+      'PENDING': { variant: 'secondary', labelKey: 'wcDashboard.status.pending' },
+      'READY': { className: 'bg-blue-500', labelKey: 'wcDashboard.status.ready' },
+      'IN_SETUP': { className: 'bg-yellow-500', labelKey: 'wcDashboard.status.inSetup' },
+      'IN_PROGRESS': { className: 'bg-green-500', labelKey: 'wcDashboard.status.inProgress' },
+      'ON_HOLD': { className: 'bg-orange-500', labelKey: 'wcDashboard.status.onHold' },
+      'COMPLETED': { className: 'bg-purple-500', labelKey: 'wcDashboard.status.completed' }
     }
-    return statusMap[status] || { label: { ar: status, en: status } }
+    return statusMap[status]
   }
 
   const getStatusBadge = (status: string) => {
     const config = getStatusConfig(status)
-    const label = isRTL ? config.label.ar : config.label.en
-    
+    if (!config) return <Badge>{status}</Badge>
+    const label = t(config.labelKey)
+
     if (config.variant) {
       return <Badge variant={config.variant as 'default' | 'secondary' | 'destructive' | 'outline'}>{label}</Badge>
     }
@@ -177,16 +178,16 @@ export function WorkCenterDashboard() {
         <div>
           <h1 className="text-3xl font-bold wardah-text-gradient-google">
             <Factory className="inline-block w-8 h-8 mr-2" />
-            {isRTL ? 'لوحة تحكم مركز العمل' : 'Work Center Dashboard'}
+            {t('wcDashboard.title')}
           </h1>
           <p className="text-muted-foreground mt-1">
-            {isRTL ? 'نظام تنفيذ التصنيع (MES)' : 'Manufacturing Execution System (MES)'}
+            {t('wcDashboard.subtitle')}
           </p>
         </div>
         <div className="flex gap-2 items-center">
           <Select value={selectedWorkCenter} onValueChange={setSelectedWorkCenter}>
             <SelectTrigger className="w-64">
-              <SelectValue placeholder={isRTL ? 'اختر مركز العمل' : 'Select Work Center'} />
+              <SelectValue placeholder={t('wcDashboard.selectWorkCenter')} />
             </SelectTrigger>
             <SelectContent>
               {workCenters?.map(wc => (
@@ -203,20 +204,19 @@ export function WorkCenterDashboard() {
       </div>
 
       {/* Summary Cards */}
-      <WorkCenterSummary summary={summary} isRTL={isRTL} />
+      <WorkCenterSummary summary={summary} />
 
       {/* Active Work Orders */}
       <Card className="wardah-glass-card">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Wrench className="w-5 h-5" />
-            {isRTL ? 'أوامر العمل النشطة' : 'Active Work Orders'}
+            {t('wcDashboard.activeOrders')}
           </CardTitle>
           <CardDescription>
-            {isRTL 
-              ? `مركز العمل: ${currentWorkCenter?.name_ar || currentWorkCenter?.name || '-'}`
-              : `Work Center: ${currentWorkCenter?.name || '-'}`
-            }
+            {t('wcDashboard.workCenter', {
+              name: (isRTL ? currentWorkCenter?.name_ar || currentWorkCenter?.name : currentWorkCenter?.name) || '-'
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -226,7 +226,7 @@ export function WorkCenterDashboard() {
             </div>
           ) : (() => {
             if (!workOrders || workOrders.length === 0) {
-              return <WorkOrdersEmptyState isRTL={isRTL} />
+              return <WorkOrdersEmptyState />
             }
             return (
               <div className="space-y-4">
@@ -259,18 +259,15 @@ export function WorkCenterDashboard() {
       <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{isRTL ? 'تسجيل الإنتاج' : 'Report Production Output'}</DialogTitle>
+            <DialogTitle>{t('wcDashboard.reportOutput')}</DialogTitle>
             <DialogDescription>
-              {isRTL 
-                ? `أمر العمل: ${selectedWorkOrder?.work_order_number}`
-                : `Work Order: ${selectedWorkOrder?.work_order_number}`
-              }
+              {t('wcDashboard.workOrderNumber', { number: selectedWorkOrder?.work_order_number })}
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>{isRTL ? 'الكمية المنتجة (جيدة)' : 'Good Quantity Produced'}</Label>
+              <Label>{t('wcDashboard.goodQtyProduced')}</Label>
               <Input
                 type="number"
                 value={quantityProduced}
@@ -281,7 +278,7 @@ export function WorkCenterDashboard() {
             </div>
             
             <div className="space-y-2">
-              <Label>{isRTL ? 'الكمية التالفة (خردة)' : 'Scrapped Quantity'}</Label>
+              <Label>{t('wcDashboard.scrappedQty')}</Label>
               <Input
                 type="number"
                 value={quantityScrapped}
@@ -291,11 +288,11 @@ export function WorkCenterDashboard() {
             </div>
 
             <div className="space-y-2">
-              <Label>{isRTL ? 'ملاحظات' : 'Notes'}</Label>
+              <Label>{t('wcDashboard.notes')}</Label>
               <Textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder={isRTL ? 'أي ملاحظات إضافية...' : 'Any additional notes...'}
+                placeholder={t('wcDashboard.notesPlaceholder')}
               />
             </div>
 
@@ -303,12 +300,7 @@ export function WorkCenterDashboard() {
               <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 text-yellow-600" />
                 <span className="text-sm text-yellow-700 dark:text-yellow-400">
-                  {(() => {
-                    if (isRTL) {
-                      return `سيتم تسجيل ${quantityScrapped} وحدة كخردة`
-                    }
-                    return `${quantityScrapped} unit(s) will be recorded as scrap`
-                  })()}
+                  {t('wcDashboard.scrapWarning', { n: quantityScrapped })}
                 </span>
               </div>
             )}
@@ -316,7 +308,7 @@ export function WorkCenterDashboard() {
 
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCompleteDialog(false)}>
-              {isRTL ? 'إلغاء' : 'Cancel'}
+              {t('wcDashboard.cancel')}
             </Button>
             <Button 
               onClick={handleComplete}
@@ -327,7 +319,7 @@ export function WorkCenterDashboard() {
               ) : (
                 <CheckCircle className="w-4 h-4 mr-2" />
               )}
-              {isRTL ? 'تأكيد' : 'Confirm'}
+              {t('wcDashboard.confirm')}
             </Button>
           </DialogFooter>
         </DialogContent>
