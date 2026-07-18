@@ -16,6 +16,16 @@
 - `YYYYMMDD` = تاريخ التوليد
 - السطر الأول يحوي: `-- migration_cutoff: N` حيث N هو رقم أعلى مهاجرة مشمولة
 
+## الـBaseline الحالي
+
+| الملف | تاريخ التوليد | migration_cutoff | الحجم |
+|---|---|---|---|
+| `000_schema_baseline_20260717.sql` | 2026-07-17 | 121 | 611 KB / 13 521 سطر |
+
+المحتوى: 125 جدول · 216 PK/UNIQUE · 237 FK · 470 فهرس · 164 دالة · 17 view · 72 trigger · 125 RLS ENABLE · 333 policy
+
+---
+
 ## توليد الـBaseline
 
 ### الطريقة المُوصى بها — GitHub Actions (تلقائي)
@@ -50,6 +60,19 @@ pg_dump "$SUPABASE_DB_URL" \
 MAX=$(ls sql/migrations/ | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
 sed -i "1s/^/-- migration_cutoff: $MAX\n/" sql/baseline/000_schema_baseline_$(date +%Y%m%d).sql
 ```
+
+### بديل — Supabase MCP (عند تعذّر `pg_dump`)
+
+إذا كان Direct Connection IPv6-only (لا يدعمه `psql` محلياً)، يمكن إعادة بناء
+الـbaseline من `pg_catalog` عبر Supabase MCP أو Transaction Pooler:
+
+```
+postgresql://postgres.uutfztmqvajmsxnrqeiv:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
+```
+
+الـbaseline الحالي (`20260717`) مُولَّد بهذه الطريقة بالاستعلام من:
+`pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`, `pg_trigger`, `pg_policy`
+مع `pg_get_functiondef()`, `pg_get_indexdef()`, `pg_get_viewdef()`, `pg_get_triggerdef()`.
 
 ## استخدام CI
 

@@ -4,6 +4,7 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -17,7 +18,6 @@ interface ModuleCardProps {
   color: string;
   bgColor: string;
   features: string[];
-  isRTL: boolean;
 }
 
 export function ModuleCard({
@@ -27,9 +27,9 @@ export function ModuleCard({
   href,
   color,
   bgColor,
-  features,
-  isRTL
+  features
 }: ModuleCardProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   return (
@@ -63,7 +63,7 @@ export function ModuleCard({
             navigate(href);
           }}
         >
-          {isRTL ? 'فتح' : 'Open'}
+          {t('common.open')}
         </Button>
       </CardContent>
     </Card>

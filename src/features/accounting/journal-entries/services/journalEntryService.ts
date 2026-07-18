@@ -1,7 +1,10 @@
+import i18next from 'i18next';
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { JournalService } from '@/services/accounting/journal-service';
 import { toast } from 'sonner';
 import type { JournalEntry, JournalLine } from '../types';
+
+const t = (key: string) => i18next.t(key);
 
 interface CreateEntryData {
   journal_id: string;
@@ -19,11 +22,11 @@ interface UpdateEntryData extends CreateEntryData {
   id: string;
 }
 
-export async function createJournalEntry(data: CreateEntryData, isRTL: boolean): Promise<string | null> {
+export async function createJournalEntry(data: CreateEntryData): Promise<string | null> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) {
-      toast.error(isRTL ? 'لم يتم تحديد المؤسسة الحالية' : 'Organization context not found');
+      toast.error(t('accounting.journalEntries.svc.orgNotFound'));
       return null;
     }
 
@@ -89,20 +92,20 @@ export async function createJournalEntry(data: CreateEntryData, isRTL: boolean):
 
     if (linesError) throw linesError;
 
-    toast.success(isRTL ? 'تم حفظ القيد بنجاح' : 'Entry saved successfully');
+    toast.success(t('accounting.journalEntries.svc.saveSuccess'));
     return entry.id;
   } catch (error: any) {
     console.error('Error creating entry:', error);
-    toast.error(error.message || (isRTL ? 'خطأ في حفظ القيد' : 'Error saving entry'));
+    toast.error(error.message || t('accounting.journalEntries.svc.saveError'));
     return null;
   }
 }
 
-export async function updateJournalEntry(data: UpdateEntryData, isRTL: boolean): Promise<boolean> {
+export async function updateJournalEntry(data: UpdateEntryData): Promise<boolean> {
   try {
     const tenantId = await getEffectiveTenantId();
     if (!tenantId) {
-      toast.error(isRTL ? 'لم يتم تحديد المؤسسة الحالية' : 'Organization context not found');
+      toast.error(t('accounting.journalEntries.svc.orgNotFound'));
       return false;
     }
 
@@ -149,35 +152,35 @@ export async function updateJournalEntry(data: UpdateEntryData, isRTL: boolean):
 
     if (linesError) throw linesError;
 
-    toast.success(isRTL ? 'تم تحديث القيد بنجاح' : 'Entry updated successfully');
+    toast.success(t('accounting.journalEntries.svc.updateSuccess'));
     return true;
   } catch (error: any) {
     console.error('Error updating entry:', error);
-    toast.error(error.message || (isRTL ? 'خطأ في تحديث القيد' : 'Error updating entry'));
+    toast.error(error.message || t('accounting.journalEntries.svc.updateError'));
     return false;
   }
 }
 
-export async function postJournalEntry(entry: JournalEntry, isRTL: boolean): Promise<boolean> {
+export async function postJournalEntry(entry: JournalEntry): Promise<boolean> {
   try {
     const result = await JournalService.postJournalEntry(entry.id);
     if (result.success) {
-      toast.success(isRTL ? 'تم ترحيل القيد بنجاح' : 'Entry posted successfully');
+      toast.success(t('accounting.journalEntries.svc.postSuccess'));
       return true;
     }
-    toast.error(result.error || (isRTL ? 'فشل ترحيل القيد' : 'Failed to post entry'));
+    toast.error(result.error || t('accounting.journalEntries.svc.postFailed'));
     return false;
   } catch (error: any) {
     console.error('Error posting entry:', error);
-    toast.error(error.message || (isRTL ? 'خطأ في ترحيل القيد' : 'Error posting entry'));
+    toast.error(error.message || t('accounting.journalEntries.svc.postError'));
     return false;
   }
 }
 
-export async function deleteJournalEntry(entry: JournalEntry, isRTL: boolean): Promise<boolean> {
+export async function deleteJournalEntry(entry: JournalEntry): Promise<boolean> {
   try {
     if (entry.status === 'posted') {
-      toast.error(isRTL ? 'لا يمكن حذف قيد مرحّل' : 'Cannot delete posted entry');
+      toast.error(t('accounting.journalEntries.cannotDeletePosted'));
       return false;
     }
 
@@ -193,11 +196,11 @@ export async function deleteJournalEntry(entry: JournalEntry, isRTL: boolean): P
 
     if (error) throw error;
 
-    toast.success(isRTL ? 'تم حذف القيد بنجاح' : 'Entry deleted successfully');
+    toast.success(t('accounting.journalEntries.svc.deleteSuccess'));
     return true;
   } catch (error: any) {
     console.error('Error deleting entry:', error);
-    toast.error(error.message || (isRTL ? 'خطأ في حذف القيد' : 'Error deleting entry'));
+    toast.error(error.message || t('accounting.journalEntries.svc.deleteError'));
     return false;
   }
 }

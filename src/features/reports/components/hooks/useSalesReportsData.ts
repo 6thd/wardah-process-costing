@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
 import {
@@ -16,10 +17,10 @@ interface UseSalesReportsDataProps {
   fromDate: Date | undefined;
   toDate: Date | undefined;
   activeTab: string;
-  isRTL: boolean;
 }
 
-export function useSalesReportsData({ fromDate, toDate, activeTab, isRTL }: UseSalesReportsDataProps) {
+export function useSalesReportsData({ fromDate, toDate, activeTab }: UseSalesReportsDataProps) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [performance, setPerformance] = useState<SalesPerformanceMetrics | null>(null);
   const [customerAnalysis, setCustomerAnalysis] = useState<CustomerSalesAnalysis[]>([]);
@@ -28,7 +29,7 @@ export function useSalesReportsData({ fromDate, toDate, activeTab, isRTL }: UseS
 
   const fetchData = async () => {
     if (!fromDate || !toDate) {
-      toast.error(isRTL ? 'يرجى اختيار تاريخ البداية والنهاية' : 'Please select start and end dates');
+      toast.error(t('salesReports.selectDates'));
       return;
     }
 
@@ -52,7 +53,7 @@ export function useSalesReportsData({ fromDate, toDate, activeTab, isRTL }: UseS
       }
     } catch (error: any) {
       console.error('Error fetching sales reports:', error);
-      toast.error(error.message || (isRTL ? 'حدث خطأ في جلب البيانات' : 'Error fetching data'));
+      toast.error(error.message || t('salesReports.fetchError'));
     } finally {
       setLoading(false);
     }

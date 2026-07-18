@@ -4,16 +4,17 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Route, CheckCircle, Edit, Settings } from 'lucide-react'
 import type { Routing } from '@/services/manufacturing/routingService'
 
 interface RoutingStatsProps {
   routings: Routing[] | undefined
-  isRTL: boolean
 }
 
-export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings, isRTL }) => {
+export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings }) => {
+  const { t } = useTranslation()
   const totalRoutings = routings?.length || 0
   const approvedCount = routings?.filter((r: Routing) => r.status === 'APPROVED').length || 0
   const draftCount = routings?.filter((r: Routing) => r.status === 'DRAFT').length || 0
@@ -28,7 +29,7 @@ export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings, isRTL }) =
               <Route className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'إجمالي المسارات' : 'Total Routings'}</p>
+              <p className="text-sm text-muted-foreground">{t('routingMgmt.stats.total')}</p>
               <p className="text-2xl font-bold">{totalRoutings}</p>
             </div>
           </div>
@@ -42,7 +43,7 @@ export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings, isRTL }) =
               <CheckCircle className="w-6 h-6 text-green-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'معتمدة' : 'Approved'}</p>
+              <p className="text-sm text-muted-foreground">{t('routingMgmt.stats.approved')}</p>
               <p className="text-2xl font-bold">{approvedCount}</p>
             </div>
           </div>
@@ -56,7 +57,7 @@ export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings, isRTL }) =
               <Edit className="w-6 h-6 text-yellow-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'مسودات' : 'Drafts'}</p>
+              <p className="text-sm text-muted-foreground">{t('routingMgmt.stats.drafts')}</p>
               <p className="text-2xl font-bold">{draftCount}</p>
             </div>
           </div>
@@ -70,7 +71,7 @@ export const RoutingStats: React.FC<RoutingStatsProps> = ({ routings, isRTL }) =
               <Settings className="w-6 h-6 text-purple-600" />
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{isRTL ? 'نشطة' : 'Active'}</p>
+              <p className="text-sm text-muted-foreground">{t('routingMgmt.stats.active')}</p>
               <p className="text-2xl font-bold">{activeCount}</p>
             </div>
           </div>

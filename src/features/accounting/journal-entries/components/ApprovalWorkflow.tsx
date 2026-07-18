@@ -17,7 +17,7 @@ interface ApprovalWorkflowProps {
 }
 
 export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: ApprovalWorkflowProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [approvals, setApprovals] = useState<JournalApproval[]>([]);
   const [approvalInfo, setApprovalInfo] = useState<{
@@ -64,20 +64,16 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
       );
 
       if (result.success) {
-        toast.success(
-          isRTL 
-            ? `تمت الموافقة على المستوى ${approvingLevel}`
-            : `Approved at level ${approvingLevel}`
-        );
+        toast.success(t('approvalWf.approvedAtLevel', { level: approvingLevel }));
         await loadApprovals();
         setApproveDialogOpen(false);
         setApprovalComments('');
         setApprovingLevel(null);
       } else {
-        toast.error(isRTL ? 'فشلت الموافقة' : 'Approval failed');
+        toast.error(t('approvalWf.approvalFailed'));
       }
     } catch (error: any) {
-      toast.error(error.message || (isRTL ? 'حدث خطأ' : 'An error occurred'));
+      toast.error(error.message || t('approvalWf.errorOccurred'));
     } finally {
       setLoading(false);
     }
@@ -95,10 +91,10 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
   };
 
   const getStatusBadge = (status: string) => {
-    const labels = {
-      pending: { ar: 'قيد الانتظار', en: 'Pending' },
-      approved: { ar: 'موافق', en: 'Approved' },
-      rejected: { ar: 'مرفوض', en: 'Rejected' }
+    const labelKeys: Record<string, string> = {
+      pending: 'approvalWf.status.pending',
+      approved: 'approvalWf.status.approved',
+      rejected: 'approvalWf.status.rejected'
     };
 
     const variants: Record<string, 'default' | 'secondary' | 'destructive'> = {
@@ -109,7 +105,7 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
 
     return (
       <Badge variant={variants[status]}>
-        {isRTL ? labels[status as keyof typeof labels]?.ar : labels[status as keyof typeof labels]?.en}
+        {labelKeys[status] ? t(labelKeys[status]) : status}
       </Badge>
     );
   };
@@ -121,11 +117,12 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
   return (
     <Card dir={isRTL ? 'rtl' : 'ltr'}>
       <CardHeader>
-        <CardTitle>{isRTL ? 'سير عمل الموافقات' : 'Approval Workflow'}</CardTitle>
+        <CardTitle>{t('approvalWf.title')}</CardTitle>
         <CardDescription>
-          {isRTL 
-            ? `المستوى المطلوب: ${approvalInfo?.required_levels || 0} | المعتمد: ${approvalInfo?.current_levels || 0}`
-            : `Required: ${approvalInfo?.required_levels || 0} | Approved: ${approvalInfo?.current_levels || 0}`}
+          {t('approvalWf.levelsInfo', {
+            required: approvalInfo?.required_levels || 0,
+            current: approvalInfo?.current_levels || 0
+          })}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -139,7 +136,7 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
                 {getStatusIcon(approval.status)}
                 <div>
                   <div className="font-medium">
-                    {isRTL ? `المستوى ${approval.approval_level}` : `Level ${approval.approval_level}`}
+                    {t('approvalWf.level', { level: approval.approval_level })}
                   </div>
                   <div className="text-sm text-gray-500">
                     {approval.approver_id.substring(0, 8)}...
@@ -164,7 +161,7 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
                     variant="outline"
                     onClick={() => handleApprove(approval.approval_level)}
                   >
-                    {isRTL ? 'موافقة' : 'Approve'}
+                    {t('approvalWf.approve')}
                   </Button>
                 )}
               </div>
@@ -175,9 +172,9 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
         {approvalInfo?.required && approvalInfo.current_levels < approvalInfo.required_levels && (
           <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
             <p className="text-sm text-yellow-800">
-              {isRTL
-                ? `يحتاج ${approvalInfo.required_levels - approvalInfo.current_levels} موافقة إضافية`
-                : `Requires ${approvalInfo.required_levels - approvalInfo.current_levels} more approval(s)`}
+              {t('approvalWf.moreApprovals', {
+                n: approvalInfo.required_levels - approvalInfo.current_levels
+              })}
             </p>
           </div>
         )}
@@ -187,35 +184,30 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
         <DialogContent dir={isRTL ? 'rtl' : 'ltr'}>
           <DialogHeader>
             <DialogTitle>
-              {isRTL ? 'الموافقة على القيد' : 'Approve Entry'}
+              {t('approvalWf.dialogTitle')}
             </DialogTitle>
             <DialogDescription>
-              {isRTL
-                ? `الموافقة على القيد ${entryNumber} - المستوى ${approvingLevel}`
-                : `Approve entry ${entryNumber} - Level ${approvingLevel}`}
+              {t('approvalWf.dialogDescription', { entry: entryNumber, level: approvingLevel })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-medium">
-                {isRTL ? 'تعليقات (اختياري)' : 'Comments (Optional)'}
+                {t('approvalWf.commentsLabel')}
               </label>
               <Textarea
                 value={approvalComments}
                 onChange={(e) => setApprovalComments(e.target.value)}
                 rows={3}
-                placeholder={isRTL ? 'أضف تعليقات...' : 'Add comments...'}
+                placeholder={t('approvalWf.commentsPlaceholder')}
               />
             </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>
-                {isRTL ? 'إلغاء' : 'Cancel'}
+                {t('approvalWf.cancel')}
               </Button>
               <Button onClick={confirmApprove} disabled={loading}>
-                {(() => {
-                  if (loading) return isRTL ? 'جاري...' : 'Processing...';
-                  return isRTL ? 'موافقة' : 'Approve';
-                })()}
+                {loading ? t('approvalWf.processing') : t('approvalWf.approve')}
               </Button>
             </div>
           </div>

@@ -1,19 +1,20 @@
+import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader } from '@/components/ui/card';
 import type { SalesPerformanceMetrics } from '@/services/sales-reports-service';
 
 interface SalesPerformanceTabProps {
   readonly loading: boolean;
   readonly performance: SalesPerformanceMetrics | null;
-  readonly isRTL: boolean;
 }
 
-export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerformanceTabProps) {
+export function SalesPerformanceTab({ loading, performance }: SalesPerformanceTabProps) {
+  const { t } = useTranslation();
   if (loading) {
     return (
       <Card>
         <CardContent className="py-8 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
-          <p className="mt-4 text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
+          <p className="mt-4 text-muted-foreground">{t('salesReports.loading')}</p>
         </CardContent>
       </Card>
     );
@@ -23,7 +24,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
     return (
       <Card>
         <CardContent className="py-8 text-center text-muted-foreground">
-          {isRTL ? 'لا توجد بيانات' : 'No data available'}
+          {t('salesReports.noData')}
         </CardContent>
       </Card>
     );
@@ -33,7 +34,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'إجمالي المبيعات' : 'Total Sales'}</CardDescription>
+          <CardDescription>{t('salesReports.totalSales')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{performance.totalSales.toFixed(2)}</div>
@@ -41,7 +42,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
       </Card>
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'عدد الفواتير' : 'Total Invoices'}</CardDescription>
+          <CardDescription>{t('salesReports.totalInvoices')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{performance.totalInvoices}</div>
@@ -49,7 +50,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
       </Card>
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'متوسط قيمة الطلب' : 'Average Order Value'}</CardDescription>
+          <CardDescription>{t('salesReports.avgOrderValue')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{performance.averageOrderValue.toFixed(2)}</div>
@@ -57,7 +58,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
       </Card>
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'معدل التحصيل' : 'Collection Rate'}</CardDescription>
+          <CardDescription>{t('salesReports.collectionRate')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{performance.collectionRate.toFixed(2)}%</div>
@@ -65,7 +66,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
       </Card>
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'إجمالي التحصيلات' : 'Total Collections'}</CardDescription>
+          <CardDescription>{t('salesReports.totalCollections')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold">{performance.totalCollections.toFixed(2)}</div>
@@ -73,7 +74,7 @@ export function SalesPerformanceTab({ loading, performance, isRTL }: SalesPerfor
       </Card>
       <Card>
         <CardHeader className="pb-2">
-          <CardDescription>{isRTL ? 'المبلغ المعلق' : 'Outstanding Amount'}</CardDescription>
+          <CardDescription>{t('salesReports.outstandingAmount')}</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-orange-600">{performance.outstandingAmount.toFixed(2)}</div>

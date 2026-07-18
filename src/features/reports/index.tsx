@@ -3,23 +3,19 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { VarianceAnalysisReport } from './components/VarianceAnalysisReport'
 import { WIPReport } from './components/WIPReport'
 import { useManufacturingOrders } from '@/features/manufacturing/hooks/useManufacturingOrders'
-import { 
-  BarChart3, 
-  TrendingUp, 
-  FileText, 
-  Download, 
+import {
+  BarChart3,
+  TrendingUp,
+  FileText,
   DollarSign,
   Package,
   Factory,
   ShoppingCart,
-  Eye,
   Calculator,
   Brain
 } from 'lucide-react'
@@ -57,17 +53,6 @@ function ReportsOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
-  // Helper function to get badge variant based on status
-  const getStatusVariant = (status: string): 'default' | 'secondary' | 'destructive' => {
-    if (status === 'مكتمل') {
-      return 'default'
-    }
-    if (status === 'جاري') {
-      return 'secondary'
-    }
-    return 'destructive'
-  }
-  
   const reportCategories = [
     {
       title: 'التقارير المالية',
@@ -156,22 +141,18 @@ function ReportsOverview() {
     <div className="space-y-8">
       <PageHeader title={t('reports.title')} description="تقارير وتحليلات شاملة لعمليات الشركة" hideOnPrint={false} />
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Quick Stats — مشتقة من reportCategories، لا أرقام مشفَّرة */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">25</div>
+          <div className="text-2xl font-bold text-blue-600">
+            {reportCategories.reduce((s, c) => s + c.reports.length, 0)}
+          </div>
           <div className="text-sm text-muted-foreground">التقارير المتاحة</div>
         </div>
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">145</div>
-          <div className="text-sm text-muted-foreground">تقرير منجز هذا الشهر</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">12</div>
-          <div className="text-sm text-muted-foreground">تقارير مجدولة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-orange-600">7</div>
+          <div className="text-2xl font-bold text-orange-600">
+            {reportCategories.length}
+          </div>
           <div className="text-sm text-muted-foreground">فئات التقارير</div>
         </div>
       </div>
@@ -208,43 +189,6 @@ function ReportsOverview() {
         })}
       </div>
 
-      {/* Recent Reports */}
-      <div className="bg-card rounded-lg border">
-        <div className="p-6 border-b">
-          <h3 className="text-lg font-semibold">أحدث التقارير</h3>
-        </div>
-        <div className="divide-y">
-          {[
-            { name: 'تقرير المبيعات الشهرية', type: 'مبيعات', date: 'منذ يومين', status: 'مكتمل' },
-            { name: 'تقييم المخزون', type: 'مخزون', date: 'منذ 3 أيام', status: 'جاري' },
-            { name: 'تحليل تكاليف الإنتاج', type: 'تصنيع', date: 'منذ أسبوع', status: 'مكتمل' },
-            { name: 'تحليل الانحرافات', type: 'متقدم', date: 'اليوم', status: 'جديد' }
-          ].map((report) => {
-            return (
-            <div key={`${report.name}-${report.date}`} className="p-4 flex justify-between items-center hover:bg-accent/50 transition-colors">
-              <div className="flex-1">
-                <h4 className="font-medium">{report.name}</h4>
-                <div className="flex items-center gap-2 mt-1">
-                  <Badge variant="outline">{report.type}</Badge>
-                  <span className="text-sm text-muted-foreground">{report.date}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant={getStatusVariant(report.status)}>
-                  {report.status}
-                </Badge>
-                <Button variant="ghost" size="sm">
-                  <Eye className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm">
-                  <Download className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            )
-          })}
-        </div>
-      </div>
     </div>
   )
 }

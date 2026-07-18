@@ -23,7 +23,7 @@ function LoadingSpinner() {
 
 // Accounting Overview Page - Refactored for reduced complexity
 function AccountingOverview() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
 
   const localizedModules = accountingModules.map(m => getLocalizedModule(m, isRTL));
@@ -32,12 +32,10 @@ function AccountingOverview() {
     <div className="container mx-auto p-6 space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <div>
         <h1 className="text-3xl font-bold mb-2">
-          {isRTL ? 'المحاسبة المالية' : 'Financial Accounting'}
+          {t('accountingHome.title')}
         </h1>
         <p className="text-muted-foreground">
-          {isRTL 
-            ? 'إدارة شاملة للنظام المحاسبي والمالي'
-            : 'Comprehensive financial and accounting management'}
+          {t('accountingHome.subtitle')}
         </p>
       </div>
 
@@ -52,7 +50,6 @@ function AccountingOverview() {
             color={module.color}
             bgColor={module.bgColor}
             features={module.features}
-            isRTL={isRTL}
           />
         ))}
       </div>
@@ -64,7 +61,7 @@ function AccountingOverview() {
 
 // Posting Page
 function PostingPage() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const navigate = useNavigate();
 
@@ -72,17 +69,15 @@ function PostingPage() {
     <div className="container mx-auto p-6" dir={isRTL ? 'rtl' : 'ltr'}>
       <Card>
         <CardHeader>
-          <CardTitle>{isRTL ? 'الترحيل' : 'Posting'}</CardTitle>
+          <CardTitle>{t('accountingHome.posting.title')}</CardTitle>
           <CardDescription>
-            {isRTL ? 'ترحيل القيود إلى دفتر الأستاذ' : 'Post entries to general ledger'}
+            {t('accountingHome.posting.description')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
             <p className="text-sm text-blue-800 dark:text-blue-200">
-              {isRTL 
-                ? '💡 يمكنك استخدام زر "ترحيل مجمع" في صفحة القيود لترحيل قيود متعددة دفعة واحدة.'
-                : '💡 You can use the "Batch Post" button in Journal Entries page to post multiple entries at once.'}
+              {t('accountingHome.posting.tip')}
             </p>
           </div>
 
@@ -100,23 +95,23 @@ function PostingPage() {
               }}
             >
               <CardHeader>
-                <CardTitle className="text-lg">{isRTL ? 'قيود اليومية' : 'Journal Entries'}</CardTitle>
+                <CardTitle className="text-lg">{t('accountingHome.posting.journalEntries')}</CardTitle>
                 <CardDescription>
-                  {isRTL ? 'إدارة القيود والترحيل' : 'Manage entries and posting'}
+                  {t('accountingHome.posting.journalEntriesDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <Button className="w-full" variant="outline">
-                  {isRTL ? 'فتح القيود' : 'Open Entries'}
+                  {t('accountingHome.posting.openEntries')}
                 </Button>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">{isRTL ? 'ميزان المراجعة' : 'Trial Balance'}</CardTitle>
+                <CardTitle className="text-lg">{t('accountingHome.posting.trialBalance')}</CardTitle>
                 <CardDescription>
-                  {isRTL ? 'عرض الأرصدة بعد الترحيل' : 'View balances after posting'}
+                  {t('accountingHome.posting.trialBalanceDesc')}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -125,19 +120,19 @@ function PostingPage() {
                   variant="outline"
                   onClick={() => navigate('/accounting/trial-balance')}
                 >
-                  {isRTL ? 'فتح الميزان' : 'Open Trial Balance'}
+                  {t('accountingHome.posting.openTrialBalance')}
                 </Button>
               </CardContent>
             </Card>
           </div>
 
           <div className="mt-6 p-4 bg-muted/50 dark:bg-gray-900 rounded-lg">
-            <h3 className="font-semibold mb-2">{isRTL ? 'معلومات الترحيل' : 'Posting Information'}</h3>
+            <h3 className="font-semibold mb-2">{t('accountingHome.posting.infoTitle')}</h3>
             <ul className="space-y-2 text-sm text-muted-foreground">
-              <li>• {isRTL ? 'الترحيل يتم من صفحة القيود' : 'Posting is done from Journal Entries page'}</li>
-              <li>• {isRTL ? 'يمكن ترحيل قيود متعددة دفعة واحدة' : 'Multiple entries can be posted at once'}</li>
-              <li>• {isRTL ? 'يجب أن يكون القيد متوازن قبل الترحيل' : 'Entry must be balanced before posting'}</li>
-              <li>• {isRTL ? 'بعد الترحيل لا يمكن تعديل القيد' : 'After posting, entry cannot be modified'}</li>
+              <li>• {t('accountingHome.posting.info1')}</li>
+              <li>• {t('accountingHome.posting.info2')}</li>
+              <li>• {t('accountingHome.posting.info3')}</li>
+              <li>• {t('accountingHome.posting.info4')}</li>
             </ul>
           </div>
         </CardContent>

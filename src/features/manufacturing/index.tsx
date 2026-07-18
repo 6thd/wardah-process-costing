@@ -149,16 +149,13 @@ function EquivalentUnitsPage() {
 }
 
 function CostOfProductionPage() {
-  const { i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
+  const { t } = useTranslation()
 
   return (
     <div className="space-y-6">
       <PageHeader
-        title={isRTL ? 'تقرير تكلفة الإنتاج' : 'Cost of Production Report'}
-        description={isRTL
-          ? 'الخطوات الخمس القياسية: الكميات، الوحدات المكافئة، التكاليف، تكلفة الوحدة، التوزيع والتسوية'
-          : 'The five standard steps: quantities, EUP, costs, cost per EU, assignment & reconciliation'}
+        title={t('manufacturing.costOfProductionPage.title')}
+        description={t('manufacturing.costOfProductionPage.subtitle')}
       />
 
       <CostOfProductionReportView />
@@ -332,14 +329,14 @@ function ManufacturingOrdersManagement() {
     try {
       const currentOrder = orders.find(o => o.id === orderId)
       if (!currentOrder) {
-        toast.error(isRTL ? 'الطلب غير موجود' : 'Order not found')
+        toast.error(t('manufacturing.ordersPage.orderNotFound'))
         return
       }
 
       const currentStatus = currentOrder.status as ManufacturingOrderStatus
       const targetStatus = newStatus as ManufacturingOrderStatus
 
-      const validation = validateStatusTransition(currentStatus, targetStatus, isRTL)
+      const validation = validateStatusTransition(currentStatus, targetStatus)
       if (!validation.valid) {
         toast.error(validation.message)
         return
@@ -372,7 +369,7 @@ function ManufacturingOrdersManagement() {
     } catch (error: unknown) {
       const err = error as { message?: string }
       console.error('Error changing status:', error)
-      toast.error(err.message || (isRTL ? 'فشل تحديث الحالة' : 'Failed to update status'))
+      toast.error(err.message || t('manufacturing.ordersPage.statusUpdateError'))
     }
   }
 
@@ -526,7 +523,7 @@ function ManufacturingOrdersManagement() {
                                     <span>{isRTL ? info.labelAr : info.label}</span>
                                     {!isValid && status !== order.status && (
                                       <span className="text-xs text-muted-foreground">
-                                        ({isRTL ? 'غير متاح' : 'unavailable'})
+                                        ({t('manufacturing.ordersPage.unavailable')})
                                       </span>
                                     )}
                                   </div>
@@ -553,10 +550,10 @@ function ManufacturingOrdersManagement() {
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
           <DialogHeader>
             <DialogTitle>
-              {isRTL ? 'تفاصيل أمر التصنيع' : 'Manufacturing Order Details'} - {selectedOrder?.order_number || '—'}
+              {t('manufacturing.ordersPage.detailsTitle')} - {selectedOrder?.order_number || '—'}
             </DialogTitle>
             <DialogDescription>
-              {isRTL ? 'عرض تفاصيل أمر التصنيع الكاملة' : 'View complete manufacturing order details'}
+              {t('manufacturing.ordersPage.detailsSubtitle')}
             </DialogDescription>
           </DialogHeader>
 
@@ -576,15 +573,15 @@ function ManufacturingOrdersManagement() {
               {/* Basic Information */}
               <Card>
                 <CardHeader>
-                  <h3 className="text-lg font-semibold">{isRTL ? 'المعلومات الأساسية' : 'Basic Information'}</h3>
+                  <h3 className="text-lg font-semibold">{t('manufacturing.ordersPage.basicInfo')}</h3>
                 </CardHeader>
                 <CardContent className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label>{isRTL ? 'رقم الأمر' : 'Order Number'}</Label>
+                    <Label>{t('manufacturing.manufacturingOrder.number')}</Label>
                     <p className="font-medium">{selectedOrder.order_number || '—'}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'الحالة' : 'Status'}</Label>
+                    <Label>{t('common.status')}</Label>
                     <div className="mt-1">
                       <Badge variant={getStatusBadgeVariant(selectedOrder.status)}>
                         {getStatusLabel(selectedOrder.status, isRTL)}
@@ -592,7 +589,7 @@ function ManufacturingOrdersManagement() {
                     </div>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'المنتج' : 'Product'}</Label>
+                    <Label>{t('manufacturing.manufacturingOrder.product')}</Label>
                     <p className="font-medium">
                       {(() => {
                         const orderWithItem = selectedOrder as ManufacturingOrderWithItem
@@ -601,26 +598,26 @@ function ManufacturingOrdersManagement() {
                     </p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'الكمية المطلوبة' : 'Quantity to Produce'}</Label>
+                    <Label>{t('manufacturing.manufacturingOrder.quantityToProduce')}</Label>
                     <p className="font-medium">{selectedOrder.quantity ?? 0}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'تاريخ البدء المخطط' : 'Planned Start Date'}</Label>
+                    <Label>{t('manufacturing.manufacturingOrder.plannedStart')}</Label>
                     <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).start_date) || '—'}</p>
                   </div>
                   <div>
-                    <Label>{isRTL ? 'تاريخ الانتهاء المخطط' : 'Planned End Date'}</Label>
+                    <Label>{t('manufacturing.manufacturingOrder.plannedEnd')}</Label>
                     <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).due_date) || '—'}</p>
                   </div>
                   {(selectedOrder as ManufacturingOrderWithItem).created_at && (
                     <div>
-                      <Label>{isRTL ? 'تاريخ الإنشاء' : 'Created At'}</Label>
+                      <Label>{t('manufacturing.ordersPage.createdAt')}</Label>
                       <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).created_at)}</p>
                     </div>
                   )}
                   {(selectedOrder as ManufacturingOrderWithItem).updated_at && (
                     <div>
-                      <Label>{isRTL ? 'آخر تحديث' : 'Last Updated'}</Label>
+                      <Label>{t('manufacturing.ordersPage.lastUpdated')}</Label>
                       <p className="font-medium">{formatDate((selectedOrder as ManufacturingOrderWithItem).updated_at)}</p>
                     </div>
                   )}
@@ -631,7 +628,7 @@ function ManufacturingOrdersManagement() {
               {selectedOrder.notes && (
                 <Card>
                   <CardHeader>
-                    <h3 className="text-lg font-semibold">{isRTL ? 'ملاحظات' : 'Notes'}</h3>
+                    <h3 className="text-lg font-semibold">{t('manufacturing.ordersPage.notes')}</h3>
                   </CardHeader>
                   <CardContent>
                     <p className="text-sm text-muted-foreground whitespace-pre-wrap">{selectedOrder.notes}</p>
@@ -645,15 +642,15 @@ function ManufacturingOrdersManagement() {
                 return orderWithItem.item ? (
                   <Card>
                     <CardHeader>
-                      <h3 className="text-lg font-semibold">{isRTL ? 'تفاصيل المنتج' : 'Product Details'}</h3>
+                      <h3 className="text-lg font-semibold">{t('manufacturing.ordersPage.productDetails')}</h3>
                     </CardHeader>
                     <CardContent className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label>{isRTL ? 'رمز المنتج' : 'Product Code'}</Label>
+                        <Label>{t('manufacturing.ordersPage.productCode')}</Label>
                         <p className="font-medium">{orderWithItem.item?.code || '—'}</p>
                       </div>
                       <div>
-                        <Label>{isRTL ? 'اسم المنتج' : 'Product Name'}</Label>
+                        <Label>{t('manufacturing.ordersPage.productName')}</Label>
                         <p className="font-medium">{orderWithItem.item?.name || '—'}</p>
                       </div>
                     </CardContent>

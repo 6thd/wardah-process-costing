@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -27,29 +28,30 @@ export function SalesReportsDateFilter({
   loading,
   isRTL
 }: SalesReportsDateFilterProps) {
+  const { t } = useTranslation();
   return (
     <Card>
       <CardHeader>
-        <CardTitle>{isRTL ? 'فلترة التاريخ' : 'Date Filter'}</CardTitle>
+        <CardTitle>{t('salesReports.dateFilter')}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className={cn("flex gap-4 items-end", isRTL ? "flex-row-reverse" : "")}>
           <DatePicker
             date={fromDate}
             onDateChange={onFromDateChange}
-            label={isRTL ? 'من تاريخ' : 'From Date'}
-            placeholder={isRTL ? 'اختر التاريخ' : 'Pick a date'}
+            label={t('salesReports.fromDate')}
+            placeholder={t('salesReports.pickDate')}
             isRTL={isRTL}
           />
           <DatePicker
             date={toDate}
             onDateChange={onToDateChange}
-            label={isRTL ? 'إلى تاريخ' : 'To Date'}
-            placeholder={isRTL ? 'اختر التاريخ' : 'Pick a date'}
+            label={t('salesReports.toDate')}
+            placeholder={t('salesReports.pickDate')}
             isRTL={isRTL}
           />
           <Button onClick={onViewClick} disabled={loading || !fromDate || !toDate}>
-            {isRTL ? 'عرض' : 'View'}
+            {t('salesReports.view')}
           </Button>
           <Button variant="outline" onClick={onExportExcel} disabled={loading}>
             <Download className="h-4 w-4 mr-2" />

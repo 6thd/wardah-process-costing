@@ -15,7 +15,7 @@ interface AttachmentsSectionProps {
 }
 
 export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [attachments, setAttachments] = useState<JournalAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -51,11 +51,9 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       await JournalService.uploadAttachment(entryId, file);
       // Reload list to ensure signed URLs handled consistently
       await loadAttachments();
-      toast.success(
-        isRTL ? 'تم رفع الملف بنجاح' : 'File uploaded successfully'
-      );
+      toast.success(t('attachments.uploadSuccess'));
     } catch (error: unknown) {
-      const defaultMessage = isRTL ? 'فشل رفع الملف' : 'Upload failed';
+      const defaultMessage = t('attachments.uploadFailed');
       const errorMessage = error instanceof Error ? error.message : defaultMessage;
       toast.error(errorMessage);
     } finally {
@@ -66,16 +64,16 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
   };
 
   const handleDelete = async (attachmentId: string) => {
-    if (!confirm(isRTL ? 'هل تريد حذف هذا الملف؟' : 'Delete this file?')) {
+    if (!confirm(t('attachments.confirmDelete'))) {
       return;
     }
 
     try {
       await JournalService.deleteAttachment(attachmentId);
       setAttachments(attachments.filter(a => a.id !== attachmentId));
-      toast.success(isRTL ? 'تم حذف الملف' : 'File deleted');
+      toast.success(t('attachments.deleteSuccess'));
     } catch (error: unknown) {
-      const defaultMessage = isRTL ? 'فشل الحذف' : 'Delete failed';
+      const defaultMessage = t('attachments.deleteFailed');
       const errorMessage = error instanceof Error ? error.message : defaultMessage;
       toast.error(errorMessage);
     }
@@ -83,7 +81,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
 
   const resolveAttachmentUrl = async (attachment: JournalAttachment) => {
     if (!attachment.file_path) {
-      throw new Error(isRTL ? 'مسار الملف غير معروف' : 'File path missing');
+      throw new Error(t('attachments.fileMissing'));
     }
 
     // If it's already a full URL, return it
@@ -97,11 +95,11 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       .createSignedUrl(attachment.file_path, 60 * 60); // 1 hour
 
     if (error) {
-      throw new Error(error?.message || (isRTL ? 'تعذر إنشاء رابط مؤقت' : 'Failed to create signed URL'));
+      throw new Error(error?.message || t('attachments.signedUrlFailed'));
     }
 
     if (!data?.signedUrl) {
-      throw new Error(isRTL ? 'تعذر إنشاء رابط مؤقت' : 'Failed to create signed URL');
+      throw new Error(t('attachments.signedUrlFailed'));
     }
 
     return data.signedUrl;
@@ -130,7 +128,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       } catch (fallbackError: unknown) {
         // eslint-disable-next-line no-console
         console.error('Fallback download failed:', fallbackError);
-        toast.error(isRTL ? 'تعذر تحميل الملف' : 'Failed to download file');
+        toast.error(t('attachments.downloadFailed'));
       }
     } finally {
       setDownloadingId(null);
@@ -182,10 +180,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
 
   // Helper functions to reduce cognitive complexity
   const getUploadButtonText = (): string => {
-    if (uploading) {
-      return isRTL ? 'جاري الرفع...' : 'Uploading...';
-    }
-    return isRTL ? 'رفع ملف' : 'Upload File';
+    return uploading ? t('attachments.uploading') : t('attachments.uploadButton');
   };
 
   const handlePreviewClick = async (attachment: JournalAttachment) => {
@@ -205,7 +200,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
         setCsvData(null);
       }
     } catch (error: unknown) {
-      const defaultMessage = isRTL ? 'تعذر عرض الملف' : 'Failed to preview file';
+      const defaultMessage = t('attachments.previewFailed');
       const errorMessage = error instanceof Error ? error.message : defaultMessage;
       toast.error(errorMessage);
     } finally {
@@ -265,8 +260,8 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
     }
 
     const rowCount = csvData.length;
-    const rowLabel = isRTL ? 'صف' : 'rows';
-    const csvFileLabel = isRTL ? 'ملف CSV' : 'CSV File';
+    const rowLabel = t('attachments.csvRows');
+    const csvFileLabel = t('attachments.csvFile');
 
     return (
       <div className="w-full h-full bg-card rounded-md shadow-lg overflow-auto">
@@ -320,13 +315,13 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
       <div className="text-center p-8 bg-card rounded-lg shadow-sm">
         <Paperclip className="h-16 w-16 mx-auto text-gray-300 mb-4" />
         <p className="text-lg font-medium text-foreground mb-2">
-          {isRTL ? 'لا يمكن معاينة هذا الملف' : 'Cannot preview this file'}
+          {t('attachments.unsupportedTitle')}
         </p>
         <p className="text-sm text-muted-foreground mb-4">
-          {isRTL ? 'يرجى تحميل الملف لعرضه' : 'Please download the file to view it'}
+          {t('attachments.unsupportedDesc')}
         </p>
         <Button onClick={() => previewAttachment && handleDownload(previewAttachment)} disabled={!previewAttachment}>
-          {isRTL ? 'تحميل الملف' : 'Download File'}
+          {t('attachments.downloadFile')}
         </Button>
       </div>
     );
@@ -338,10 +333,10 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Paperclip className="h-5 w-5" />
-            {isRTL ? 'المرفقات' : 'Attachments'}
+            {t('attachments.title')}
           </CardTitle>
           <CardDescription>
-            {isRTL ? 'رفع وإدارة ملفات القيد' : 'Upload and manage entry files'}
+            {t('attachments.description')}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -366,7 +361,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
 
             {attachments.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground">
-                {isRTL ? 'لا توجد مرفقات' : 'No attachments'}
+                {t('attachments.empty')}
               </div>
             ) : (
               <div className="space-y-2">
@@ -393,7 +388,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                         size="sm"
                         variant="ghost"
                         onClick={() => handlePreviewClick(attachment)}
-                        title={isRTL ? 'معاينة' : 'Preview'}
+                        title={t('attachments.preview')}
                         disabled={previewLoading || downloadingId === attachment.id}
                       >
                         {previewLoading ? (
@@ -406,7 +401,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                         size="sm"
                         variant="ghost"
                         onClick={() => handleDownload(attachment)}
-                        title={isRTL ? 'تحميل' : 'Download'}
+                        title={t('attachments.download')}
                         disabled={downloadingId === attachment.id}
                       >
                         {downloadingId === attachment.id ? (
@@ -419,7 +414,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                         size="sm"
                         variant="ghost"
                         onClick={() => handleDelete(attachment.id)}
-                        title={isRTL ? 'حذف' : 'Delete'}
+                        title={t('attachments.delete')}
                       >
                         <X className="h-4 w-4 text-red-600" />
                       </Button>
@@ -457,7 +452,7 @@ export function AttachmentsSection({ entryId }: AttachmentsSectionProps) {
                   disabled={!previewAttachment}
                 >
                   <Download className="h-4 w-4 mr-2" />
-                  {isRTL ? 'تحميل' : 'Download'}
+                  {t('attachments.download')}
                 </Button>
               </div>
             </DialogTitle>

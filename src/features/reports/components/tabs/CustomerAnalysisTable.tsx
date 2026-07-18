@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import type { CustomerSalesAnalysis } from '@/services/sales-reports-service';
 
@@ -7,18 +8,19 @@ interface CustomerAnalysisTableProps {
 }
 
 export function CustomerAnalysisTable({ customerAnalysis, isRTL }: CustomerAnalysisTableProps) {
+  const { t } = useTranslation();
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
           <tr className="border-b">
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'كود' : 'Code'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'اسم العميل' : 'Customer Name'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'إجمالي المبيعات' : 'Total Sales'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'عدد الفواتير' : 'Invoices'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'متوسط الفاتورة' : 'Avg Invoice'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'المعلق' : 'Outstanding'}</th>
-            <th className={cn("text-left p-2", isRTL && "text-right")}>{isRTL ? 'معدل التحصيل %' : 'Collection Rate %'}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.code')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.customerName')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.totalSales')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.invoices')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.avgInvoice')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.outstanding')}</th>
+            <th className={cn("text-left p-2", isRTL && "text-right")}>{t('salesReports.collectionRatePct')}</th>
           </tr>
         </thead>
         <tbody>

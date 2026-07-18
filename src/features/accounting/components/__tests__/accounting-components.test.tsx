@@ -19,6 +19,13 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+    i18n: { language: 'en' },
+  }),
+}));
+
 describe('ModuleCard', () => {
   const defaultProps = {
     title: 'Journal Entries',
@@ -28,7 +35,6 @@ describe('ModuleCard', () => {
     color: 'text-blue-600',
     bgColor: 'bg-blue-100',
     features: ['Create entries', 'View entries', 'Post entries'],
-    isRTL: false,
   };
 
   beforeEach(() => {
@@ -67,24 +73,14 @@ describe('ModuleCard', () => {
     expect(screen.getByText('Post entries')).toBeInTheDocument();
   });
 
-  it('should show Open button in English', () => {
+  it('should show Open button', () => {
     render(
       <BrowserRouter>
-        <ModuleCard {...defaultProps} isRTL={false} />
+        <ModuleCard {...defaultProps} />
       </BrowserRouter>
     );
 
-    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument();
-  });
-
-  it('should show فتح button in Arabic', () => {
-    render(
-      <BrowserRouter>
-        <ModuleCard {...defaultProps} isRTL={true} />
-      </BrowserRouter>
-    );
-
-    expect(screen.getByRole('button', { name: 'فتح' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'common.open' })).toBeInTheDocument();
   });
 
   it('should navigate on card click', () => {
@@ -107,7 +103,7 @@ describe('ModuleCard', () => {
       </BrowserRouter>
     );
 
-    const button = screen.getByRole('button', { name: 'Open' });
+    const button = screen.getByRole('button', { name: 'common.open' });
     fireEvent.click(button);
 
     expect(mockNavigate).toHaveBeenCalledWith('/accounting/journal');

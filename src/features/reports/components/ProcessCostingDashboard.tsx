@@ -1,7 +1,7 @@
 /**
  * Process Costing Dashboard
  * لوحة تحكم شاملة لتكاليف المراحل (Process Costing)
- * 
+ *
  * Features:
  * - EUP Calculation Breakdown
  * - Scrap Analysis (Normal vs Abnormal)
@@ -9,7 +9,7 @@
  * - Stage-by-Stage Cost Breakdown
  * - WIP Valuation
  * - Cost of Production Report
- * 
+ *
  * @author Wardah ERP Team
  * @date 2025-12-25
  */
@@ -85,7 +85,7 @@ interface DashboardFilters {
 
 // NOSONAR - Dashboard component with complex filtering logic
 export function ProcessCostingDashboard() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
 
   // State
@@ -99,13 +99,13 @@ export function ProcessCostingDashboard() {
     queryKey: ['manufacturing-orders-for-dashboard'],
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
-      
+
       const { data, error } = await supabase
         .from('manufacturing_orders')
         .select('id, order_number, item_id, quantity, status, costing_method, created_at')
         .order('created_at', { ascending: false })
         .limit(100)
-      
+
       if (error) throw error
       return data as ManufacturingOrder[]
     }
@@ -116,33 +116,33 @@ export function ProcessCostingDashboard() {
     queryKey: ['process-costing-summary', filters],
     queryFn: async () => {
       if (!supabase) throw new Error('Supabase client not initialized')
-      
+
       // Build query - use mo_id (not manufacturing_order_id)
       // Use select('*') to avoid column name issues - RLS will filter by org_id/tenant_id
       let query = supabase
         .from('stage_costs')
         .select('*')
-      
+
       // Apply filters
       // Try manufacturing_order_id first (actual column name), then mo_id as fallback
       if (filters.manufacturingOrderId) {
         query = query.eq('manufacturing_order_id', filters.manufacturingOrderId)
       }
-      
+
       if (filters.dateFrom) {
         query = query.gte('created_at', filters.dateFrom)
       }
-      
+
       if (filters.dateTo) {
         query = query.lte('created_at', filters.dateTo)
       }
-      
+
       if (filters.stageNo) {
         query = query.eq('stage_number', filters.stageNo)
       }
-      
+
       const { data: stageCostsData, error } = await query
-      
+
       if (error) {
         // Log error for debugging (NOSONAR - needed for troubleshooting)
         // eslint-disable-next-line no-console
@@ -153,7 +153,7 @@ export function ProcessCostingDashboard() {
           hint: error.hint,
           query: 'stage_costs select'
         })
-        
+
         // Try fallback: query without filter first, then filter in memory
         // eslint-disable-next-line no-console
         console.log('🔄 Trying fallback query...')
@@ -161,16 +161,16 @@ export function ProcessCostingDashboard() {
           .from('stage_costs')
           .select('*')
           .limit(100)
-        
+
         // Don't add filter here - fetch all and filter in memory
-        
+
         const { data: fallbackData, error: fallbackError } = await fallbackQuery
-        
+
         if (fallbackError) {
           console.error('❌ Fallback query also failed:', fallbackError)
           throw new Error(`Failed to fetch stage costs: ${error.message}. Fallback also failed: ${fallbackError.message}`)
         }
-        
+
         // Use fallback data - calculate summary
         // Filter by manufacturing_order_id or mo_id in memory
         const fallbackStageCosts = (fallbackData || []).filter((sc: Record<string, unknown>) => {
@@ -197,7 +197,7 @@ export function ProcessCostingDashboard() {
         }, 0)
         const fallbackNormalScrapCost = fallbackStageCosts.reduce((sum: number, sc: Record<string, unknown>) => sum + (Number(sc.normal_scrap_cost) || 0), 0)
         const fallbackAbnormalScrapCost = fallbackStageCosts.reduce((sum: number, sc: Record<string, unknown>) => sum + (Number(sc.abnormal_scrap_cost) || 0), 0)
-        
+
         return {
           total_orders: fallbackTotalOrders,
           total_stages: fallbackTotalStages,
@@ -211,32 +211,32 @@ export function ProcessCostingDashboard() {
           abnormal_scrap_cost: fallbackAbnormalScrapCost
         } as ProcessCostingSummary
       }
-      
+
       // Fetch manufacturing orders separately and join
       // Support both manufacturing_order_id and mo_id
       const moIds = [...new Set((stageCostsData || []).map((sc: Record<string, unknown>) => sc.manufacturing_order_id || sc.mo_id).filter(Boolean))] as string[]
-      
+
       const moData: Record<string, { id: string; order_number?: string; item_id?: string; costing_method?: string }> = {}
       if (moIds.length > 0) {
         let moQuery = supabase
           .from('manufacturing_orders')
           .select('id, order_number, item_id, costing_method')
           .in('id', moIds)
-        
+
         // Apply costing method filter if specified
         if (filters.costingMethod && filters.costingMethod !== 'all') {
           moQuery = moQuery.eq('costing_method', filters.costingMethod)
         }
-        
+
         const { data: mos, error: moError } = await moQuery
-        
+
         if (!moError && mos) {
           mos.forEach((mo: { id: string; order_number?: string; item_id?: string; costing_method?: string }) => {
             moData[mo.id] = mo
           })
         }
       }
-      
+
       // Filter stage costs by MO if costing method filter is applied
       const data = (stageCostsData || []).filter((sc: Record<string, unknown>) => {
         if (filters.costingMethod && filters.costingMethod !== 'all') {
@@ -248,7 +248,7 @@ export function ProcessCostingDashboard() {
         ...sc,
         manufacturing_orders: moData[(sc.manufacturing_order_id || sc.mo_id) as string]
       }))
-      
+
       // Calculate summary
       interface StageCostRecord {
         mo_id?: string
@@ -263,7 +263,7 @@ export function ProcessCostingDashboard() {
         abnormal_scrap_cost: number | string
         manufacturing_orders?: { id: string; order_number?: string; item_id?: string; costing_method?: string }
       }
-      
+
       const stageCosts = (data || []) as StageCostRecord[]
       const totalOrders = new Set(stageCosts.map((sc) => {
         const scRecord = sc as unknown as Record<string, unknown>
@@ -288,7 +288,7 @@ export function ProcessCostingDashboard() {
       }, 0)
       const normalScrapCost = stageCosts.reduce((sum: number, sc) => sum + (Number(sc.normal_scrap_cost) || 0), 0)
       const abnormalScrapCost = stageCosts.reduce((sum: number, sc) => sum + (Number(sc.abnormal_scrap_cost) || 0), 0)
-      
+
       return {
         total_orders: totalOrders,
         total_stages: totalStages,
@@ -311,18 +311,18 @@ export function ProcessCostingDashboard() {
   }
 
   const handleExportPDF = () => {
-    toast.info('جارٍ إعداد التقرير للتصدير...')
+    toast.info(t('pcd.preparing'))
     // PDF export will be implemented in future update
   }
 
   const handleExportExcel = () => {
-    toast.info('جارٍ إعداد التقرير للتصدير...')
+    toast.info(t('pcd.preparing'))
     // Excel export will be implemented in future update
   }
 
   const handleRefresh = () => {
     refetchSummary()
-    toast.success('تم تحديث البيانات')
+    toast.success(t('pcd.refreshSuccess'))
   }
 
   // Loading state
@@ -331,7 +331,7 @@ export function ProcessCostingDashboard() {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <RefreshCw className="h-8 w-8 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">جارٍ تحميل البيانات...</p>
+          <p className="text-muted-foreground">{t('pcd.loading')}</p>
         </div>
       </div>
     )
@@ -344,27 +344,24 @@ export function ProcessCostingDashboard() {
         <div className={cn(isRTL ? "text-right" : "text-left")}>
           <h1 className="text-3xl font-bold wardah-text-gradient-google flex items-center gap-2">
             <Calculator className="h-8 w-8" />
-            {isRTL ? 'لوحة تحكم تكاليف المراحل' : 'Process Costing Dashboard'}
+            {t('pcd.title')}
           </h1>
           <p className="text-muted-foreground mt-2">
-            {isRTL 
-              ? 'تحليل شامل لتكاليف المراحل مع حساب الوحدات المكافئة وتحليل الهالك'
-              : 'Comprehensive process costing analysis with EUP calculation and scrap analysis'
-            }
+            {t('pcd.subtitle')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={handleRefresh} size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
-            {isRTL ? 'تحديث' : 'Refresh'}
+            {t('pcd.refresh')}
           </Button>
           <Button variant="outline" onClick={handleExportExcel} size="sm">
             <Download className="h-4 w-4 mr-2" />
-            {isRTL ? 'تصدير Excel' : 'Export Excel'}
+            {t('pcd.exportExcel')}
           </Button>
           <Button variant="outline" onClick={handleExportPDF} size="sm">
             <FileText className="h-4 w-4 mr-2" />
-            {isRTL ? 'تصدير PDF' : 'Export PDF'}
+            {t('pcd.exportPdf')}
           </Button>
         </div>
       </div>
@@ -374,23 +371,23 @@ export function ProcessCostingDashboard() {
         <CardHeader>
           <CardTitle className={cn("flex items-center gap-2", isRTL && "flex-row-reverse")}>
             <Filter className="h-5 w-5" />
-            {isRTL ? 'الفلاتر' : 'Filters'}
+            {t('pcd.filters')}
           </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Manufacturing Order Filter */}
             <div className="space-y-2">
-              <Label htmlFor="mo-filter">{isRTL ? 'أمر التصنيع' : 'Manufacturing Order'}</Label>
+              <Label htmlFor="mo-filter">{t('pcd.manufacturingOrder')}</Label>
               <Select
                 value={filters.manufacturingOrderId || 'all'}
                 onValueChange={(value) => handleFilterChange('manufacturingOrderId', value === 'all' ? undefined : value)}
               >
                 <SelectTrigger id="mo-filter">
-                  <SelectValue placeholder={isRTL ? 'جميع الأوامر' : 'All Orders'} />
+                  <SelectValue placeholder={t('pcd.allOrders')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{isRTL ? 'جميع الأوامر' : 'All Orders'}</SelectItem>
+                  <SelectItem value="all">{t('pcd.allOrders')}</SelectItem>
                   {manufacturingOrders?.map((mo: ManufacturingOrder) => (
                     <SelectItem key={mo.id} value={mo.id}>
                       {mo.order_number} {mo.item_name && `- ${mo.item_name}`}
@@ -402,7 +399,7 @@ export function ProcessCostingDashboard() {
 
             {/* Date From */}
             <div className="space-y-2">
-              <Label htmlFor="date-from">{isRTL ? 'من تاريخ' : 'From Date'}</Label>
+              <Label htmlFor="date-from">{t('pcd.fromDate')}</Label>
               <Input
                 id="date-from"
                 type="date"
@@ -413,7 +410,7 @@ export function ProcessCostingDashboard() {
 
             {/* Date To */}
             <div className="space-y-2">
-              <Label htmlFor="date-to">{isRTL ? 'إلى تاريخ' : 'To Date'}</Label>
+              <Label htmlFor="date-to">{t('pcd.toDate')}</Label>
               <Input
                 id="date-to"
                 type="date"
@@ -424,7 +421,7 @@ export function ProcessCostingDashboard() {
 
             {/* Costing Method */}
             <div className="space-y-2">
-              <Label htmlFor="costing-method">{isRTL ? 'طريقة التكلفة' : 'Costing Method'}</Label>
+              <Label htmlFor="costing-method">{t('pcd.costingMethod')}</Label>
               <Select
                 value={filters.costingMethod || 'all'}
                 onValueChange={(value) => handleFilterChange('costingMethod', value as 'weighted_average' | 'fifo' | 'all')}
@@ -433,9 +430,9 @@ export function ProcessCostingDashboard() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">{isRTL ? 'الكل' : 'All'}</SelectItem>
-                  <SelectItem value="weighted_average">{isRTL ? 'المتوسط المرجح' : 'Weighted Average'}</SelectItem>
-                  <SelectItem value="fifo">{isRTL ? 'أول وارد أول صادر' : 'FIFO'}</SelectItem>
+                  <SelectItem value="all">{t('pcd.all')}</SelectItem>
+                  <SelectItem value="weighted_average">{t('pcd.weightedAverage')}</SelectItem>
+                  <SelectItem value="fifo">{t('pcd.fifo')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -450,13 +447,13 @@ export function ProcessCostingDashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Factory className="h-4 w-4" />
-                {isRTL ? 'إجمالي الأوامر' : 'Total Orders'}
+                {t('pcd.totalOrders')}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{summary.total_orders}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'أمر تصنيع' : 'Manufacturing Orders'}
+                {t('pcd.manufacturingOrders')}
               </p>
             </CardContent>
           </Card>
@@ -465,7 +462,7 @@ export function ProcessCostingDashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <DollarSign className="h-4 w-4" />
-                {isRTL ? 'إجمالي التكلفة' : 'Total Cost'}
+                {t('pcd.totalCost')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -473,7 +470,7 @@ export function ProcessCostingDashboard() {
                 {summary.total_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'متوسط التكلفة للوحدة' : 'Avg Unit Cost'}: {summary.avg_unit_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
+                {t('pcd.avgUnitCost')}: {summary.avg_unit_cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </p>
             </CardContent>
           </Card>
@@ -482,7 +479,7 @@ export function ProcessCostingDashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Package className="h-4 w-4" />
-                {isRTL ? 'الوحدات المكافئة (EUP)' : 'Equivalent Units (EUP)'}
+                {t('pcd.eup')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -490,7 +487,7 @@ export function ProcessCostingDashboard() {
                 {summary.eup_calculated.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'إجمالي الوحدات الجيدة' : 'Total Good Qty'}: {summary.total_good_qty.toLocaleString('en-US')}
+                {t('pcd.totalGoodQty')}: {summary.total_good_qty.toLocaleString('en-US')}
               </p>
             </CardContent>
           </Card>
@@ -499,7 +496,7 @@ export function ProcessCostingDashboard() {
             <CardHeader className="pb-3">
               <CardTitle className="text-sm font-medium text-muted-foreground flex items-center gap-2">
                 <Layers className="h-4 w-4" />
-                {isRTL ? 'قيمة WIP' : 'WIP Value'}
+                {t('pcd.wipValue')}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -507,7 +504,7 @@ export function ProcessCostingDashboard() {
                 {summary.total_wip_value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ر.س
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {isRTL ? 'قيمة العمل قيد التنفيذ' : 'Work in Process Value'}
+                {t('pcd.workInProcess')}
               </p>
             </CardContent>
           </Card>
@@ -519,27 +516,27 @@ export function ProcessCostingDashboard() {
         <TabsList className={cn("grid w-full grid-cols-3 lg:grid-cols-6", isRTL && "flex-row-reverse")}>
           <TabsTrigger value="overview">
             <BarChart3 className="h-4 w-4 mr-2" />
-            {isRTL ? 'نظرة عامة' : 'Overview'}
+            {t('pcd.overview')}
           </TabsTrigger>
           <TabsTrigger value="eup">
             <Calculator className="h-4 w-4 mr-2" />
-            {isRTL ? 'حساب EUP' : 'EUP Calculation'}
+            {t('pcd.eupCalc')}
           </TabsTrigger>
           <TabsTrigger value="scrap">
             <Scissors className="h-4 w-4 mr-2" />
-            {isRTL ? 'تحليل الهالك' : 'Scrap Analysis'}
+            {t('pcd.scrapAnalysis')}
           </TabsTrigger>
           <TabsTrigger value="fifo">
             <ArrowUpDown className="h-4 w-4 mr-2" />
-            {isRTL ? 'مقارنة FIFO' : 'FIFO Comparison'}
+            {t('pcd.fifoComparison')}
           </TabsTrigger>
           <TabsTrigger value="stages">
             <Layers className="h-4 w-4 mr-2" />
-            {isRTL ? 'تفصيل المراحل' : 'Stage Breakdown'}
+            {t('pcd.stageBreakdown')}
           </TabsTrigger>
           <TabsTrigger value="wip">
             <Factory className="h-4 w-4 mr-2" />
-            {isRTL ? 'تقييم WIP' : 'WIP Valuation'}
+            {t('pcd.wipValuation')}
           </TabsTrigger>
         </TabsList>
 
@@ -576,4 +573,3 @@ export function ProcessCostingDashboard() {
     </div>
   )
 }
-

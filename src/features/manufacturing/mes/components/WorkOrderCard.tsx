@@ -4,6 +4,7 @@
  */
 
 import React from 'react'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -46,6 +47,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
   getProgressPercentage,
   isPending
 }) => {
+  const { t } = useTranslation()
   const progress = getProgressPercentage(workOrder)
   const canStartSetup = workOrder.status === 'READY' || workOrder.status === 'PENDING'
   const canStartProduction = workOrder.status === 'IN_SETUP'
@@ -69,7 +71,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
             {/* Progress */}
             <div className="mt-3">
               <div className="flex justify-between text-sm mb-1">
-                <span>{isRTL ? 'التقدم' : 'Progress'}</span>
+                <span>{t('wcDashboard.card.progress')}</span>
                 <span>{workOrder.completed_quantity} / {workOrder.planned_quantity}</span>
               </div>
               <Progress value={progress} className="h-2" />
@@ -79,11 +81,11 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
             <div className="flex gap-4 mt-3 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Timer className="w-4 h-4" />
-                <span>{isRTL ? 'إعداد:' : 'Setup:'} {workOrder.actual_setup_time || 0}/{workOrder.planned_setup_time} {isRTL ? 'د' : 'min'}</span>
+                <span>{t('wcDashboard.card.setup')} {workOrder.actual_setup_time || 0}/{workOrder.planned_setup_time} {t('wcDashboard.card.min')}</span>
               </div>
               <div className="flex items-center gap-1">
                 <Clock className="w-4 h-4" />
-                <span>{isRTL ? 'تشغيل:' : 'Run:'} {workOrder.actual_run_time || 0}/{workOrder.planned_run_time} {isRTL ? 'د' : 'min'}</span>
+                <span>{t('wcDashboard.card.run')} {workOrder.actual_run_time || 0}/{workOrder.planned_run_time} {t('wcDashboard.card.min')}</span>
               </div>
             </div>
           </div>
@@ -97,7 +99,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
                 className="bg-blue-500 hover:bg-blue-600"
               >
                 <Play className="w-4 h-4 mr-2" />
-                {isRTL ? 'بدء الإعداد' : 'Start Setup'}
+                {t('wcDashboard.card.startSetup')}
               </Button>
             )}
             {canStartProduction && (
@@ -108,7 +110,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
                   className="bg-green-500 hover:bg-green-600"
                 >
                   <Play className="w-4 h-4 mr-2" />
-                  {isRTL ? 'بدء الإنتاج' : 'Start Production'}
+                  {t('wcDashboard.card.startProduction')}
                 </Button>
                 <Button
                   variant="outline"
@@ -116,14 +118,14 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
                   disabled={isPending?.pause}
                 >
                   <Pause className="w-4 h-4 mr-2" />
-                  {isRTL ? 'إيقاف' : 'Pause'}
+                  {t('wcDashboard.card.pause')}
                 </Button>
                 <Button
                   onClick={() => onComplete(workOrder)}
                   className="bg-purple-500 hover:bg-purple-600"
                 >
                   <CheckCircle className="w-4 h-4 mr-2" />
-                  {isRTL ? 'تسجيل إنتاج' : 'Report Output'}
+                  {t('wcDashboard.card.reportOutput')}
                 </Button>
               </>
             )}
@@ -134,7 +136,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
                 className="bg-green-500 hover:bg-green-600"
               >
                 <Play className="w-4 h-4 mr-2" />
-                {isRTL ? 'استئناف' : 'Resume'}
+                {t('wcDashboard.card.resume')}
               </Button>
             )}
           </div>
