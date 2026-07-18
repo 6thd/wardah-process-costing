@@ -66,6 +66,9 @@ test.describe('Routes smoke — regular user', () => {
       // No inline "404 Not Found" page rendered by the SPA router
       await expect(body).not.toContainText('404');
 
+      // No page-level 404 responses from the SPA host
+      expect(notFound, `Page-level 404 on ${route}: ${notFound.join(', ')}`).toHaveLength(0);
+
       // No Supabase 4xx/5xx
       expect(errors, `Supabase errors on ${route}: ${errors.join(', ')}`).toHaveLength(0);
 
