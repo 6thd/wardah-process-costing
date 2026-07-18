@@ -1,4 +1,5 @@
 import { getSupabase } from '@/lib/supabase'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type ManualStockMovementType = 'in' | 'out' | 'adjustment'
 
@@ -29,7 +30,7 @@ export const manualStockMovementService = {
       throw new Error('Quantity must be a non-negative number')
     }
 
-    const supabase = getSupabase()
+    const supabase = getSupabase() as SupabaseClient
     const { data, error } = await supabase.rpc('rpc_manual_stock_movement', {
       p_product_id: input.productId,
       p_quantity: input.quantity,
