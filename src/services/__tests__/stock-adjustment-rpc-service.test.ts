@@ -32,6 +32,7 @@ describe('stockAdjustmentService atomic write flow', () => {
       requires_approval: false,
       inventory_account_id: 'inventory-account',
       expense_account_id: 'expense-account',
+      gain_account_id: 'gain-account',
       items: [
         {
           product_id: 'product-id',
@@ -50,7 +51,8 @@ describe('stockAdjustmentService atomic write flow', () => {
       'rpc_create_stock_adjustment',
       expect.objectContaining({
         p_payload: expect.objectContaining({
-          increase_account_id: 'inventory-account',
+          inventory_account_id: 'inventory-account',
+          increase_account_id: 'gain-account',
           decrease_account_id: 'expense-account',
           items: expect.any(Array),
         }),
@@ -107,12 +109,12 @@ describe('stockAdjustmentService atomic write flow', () => {
 
   it('rejects a logical RPC failure even when transport has no error', async () => {
     rpc.mockResolvedValue({
-      data: { success: false, error: 'ADJUSTMENT_ACCOUNTS_REQUIRED' },
+      data: { success: false, error: 'INVENTORY_ACCOUNT_REQUIRED' },
       error: null,
     })
 
     await expect(
       stockAdjustmentService.submitAdjustment('adjustment-id', 'user-id'),
-    ).rejects.toThrow('ADJUSTMENT_ACCOUNTS_REQUIRED')
+    ).rejects.toThrow('INVENTORY_ACCOUNT_REQUIRED')
   })
 })
