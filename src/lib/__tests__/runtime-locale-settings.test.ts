@@ -1,41 +1,52 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
   applyRuntimeLocaleSettings,
-  formatRuntimeDate,
   formatRuntimeNumber,
+  getDateLocale,
+  getNumberLocale,
 } from '@/lib/runtime-locale-settings';
 
 describe('organization runtime locale settings', () => {
   beforeEach(() => {
     window.localStorage.clear();
-    applyRuntimeLocaleSettings({ currency: 'SAR', numberFormat: 'en-US', dateFormat: 'en-US' });
+    applyRuntimeLocaleSettings({
+      currency: 'SAR',
+      numberFormat: 'en-US',
+      dateFormat: 'en-US',
+    });
   });
 
   it('uses Latin digits when en-US number format is selected', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US' });
-    expect(formatRuntimeNumber(1234.56)).toMatch(/1/);
+    const formatter = new Intl.NumberFormat(getNumberLocale());
+
+    expect(formatter.resolvedOptions().numberingSystem).toBe('latn');
     expect(formatRuntimeNumber(1234.56)).not.toMatch(/[٠-٩]/);
   });
 
   it('uses Arabic-Indic digits when ar-SA number format is selected', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'ar-SA' });
+    const formatter = new Intl.NumberFormat(getNumberLocale());
+
+    expect(formatter.resolvedOptions().numberingSystem).toBe('arab');
     expect(formatRuntimeNumber(1234.56)).toMatch(/[٠-٩]/);
   });
 
-  it('keeps Latin digits with the Hijri calendar when requested', () => {
+  it('selects Umm al-Qura independently from the digit system', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US', dateFormat: 'ar-SA' });
-    const output = formatRuntimeDate(new Date('2026-07-18T00:00:00Z'), {
-      year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC',
-    });
-    expect(output).not.toMatch(/[٠-٩]/);
-    expect(output).not.toContain('2026');
+    const formatter = new Intl.DateTimeFormat(getDateLocale());
+    const resolved = formatter.resolvedOptions();
+
+    expect(resolved.calendar).toBe('islamic-umalqura');
+    expect(resolved.numberingSystem).toBe('latn');
   });
 
-  it('uses the Gregorian calendar independently from UI language', () => {
+  it('selects Gregorian calendar with Latin digits', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US', dateFormat: 'en-US' });
-    const output = formatRuntimeDate(new Date('2026-07-18T00:00:00Z'), {
-      year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC',
-    });
-    expect(output).toContain('2026');
+    const formatter = new Intl.DateTimeFormat(getDateLocale());
+    const resolved = formatter.resolvedOptions();
+
+    expect(resolved.calendar).toBe('gregory');
+    expect(resolved.numberingSystem).toBe('latn');
   });
 });
