@@ -88,34 +88,47 @@ jobs:
           pip install --quiet pglast
           python3 scripts/ci/check_migration_syntax.py
 
-      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل ملف في MANIFEST)
+      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل فجوة موثَّقة)
+      # يقرأ sql/migrations/skipped_migration_numbers.yml (مقارنة دقيقة بالأرقام لا grep)
       - name: Validate migration numbering
         run: |
-          set -e
-          MANIFEST="sql/migrations/MANIFEST.md"
-          MIGRATIONS_DIR="sql/migrations"
+          pip install --quiet pyyaml
+          python3 - <<'PYEOF'
+          import yaml, sys, pathlib
 
-          # استخرج أعلى رقم migration من أسماء الملفات
-          MAX_NUM=$(ls "$MIGRATIONS_DIR" | grep -E '^[0-9]+_' | \
-                    sed 's/_.*//' | sort -n | tail -1)
+          MIGRATIONS_DIR = pathlib.Path("sql/migrations")
+          SKIPPED_FILE = MIGRATIONS_DIR / "skipped_migration_numbers.yml"
 
-          # تحقق من أن كل رقم من 1 إلى MAX_NUM موجود (أو موثَّق في MANIFEST كمتجاوز)
-          MISSING=()
-          for i in $(seq 1 "$MAX_NUM"); do
-            FILE_COUNT=$(ls "$MIGRATIONS_DIR" | grep -cE "^${i}_" || true)
-            if [ "$FILE_COUNT" -eq 0 ]; then
-              # ثغرة — تحقق أنها موثَّقة في MANIFEST كمتجاوزة
-              if ! grep -qE "\b${i}\b" "$MANIFEST"; then
-                MISSING+=("$i")
-              fi
-            fi
-          done
+          if not SKIPPED_FILE.exists():
+              print(f"❌ {SKIPPED_FILE} مفقود — أنشئه لتوثيق أرقام migrations المتجاوزة")
+              sys.exit(1)
 
-          if [ "${#MISSING[@]}" -gt 0 ]; then
-            echo "❌ أرقام migrations مفقودة وغير موثَّقة في MANIFEST: ${MISSING[*]}"
-            exit 1
-          fi
-          echo "✅ ترقيم migrations سليم (1–${MAX_NUM})"
+          with open(SKIPPED_FILE, encoding="utf-8") as f:
+              data = yaml.safe_load(f)
+          skipped = {int(e["number"]) for e in (data or {}).get("skipped", [])}
+
+          nums = []
+          for p in MIGRATIONS_DIR.iterdir():
+              parts = p.stem.split("_")
+              if parts[0].isdigit():
+                  nums.append(int(parts[0]))
+
+          if not nums:
+              print("❌ لا ملفات migrations مرقّمة في sql/migrations/", file=sys.stderr)
+              sys.exit(1)
+
+          max_num = max(nums)
+          existing = set(nums)
+          missing = [i for i in range(1, max_num + 1)
+                     if i not in existing and i not in skipped]
+
+          if missing:
+              print(f"❌ أرقام migrations مفقودة وغير موثَّقة في skipped_migration_numbers.yml: {missing}",
+                    file=sys.stderr)
+              sys.exit(1)
+
+          print(f"✅ ترقيم migrations سليم (1–{max_num})، {len(skipped)} رقم موثَّق كمتجاوز")
+          PYEOF
 
       # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
       # يتطلب T2 — يُفعَّل تلقائياً حين يُودَع sql/baseline/000_schema_baseline_*.sql
