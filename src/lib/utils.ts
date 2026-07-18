@@ -14,15 +14,14 @@ export function cn(...inputs: ClassValue[]) {
 export function formatCurrency(amount: number, currency?: string): string {
   const settings = getRuntimeLocaleSettings()
   const effectiveCurrency = currency || settings.currency || 'SAR'
-  return new Intl.NumberFormat(
-    `${settings.numberFormat}-u-nu-${settings.numberFormat === 'ar-SA' ? 'arab' : 'latn'}`,
-    {
-      style: 'currency',
-      currency: effectiveCurrency,
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 2,
-    },
-  ).format(amount)
+  const formattedAmount = formatRuntimeNumber(amount, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })
+
+  // Preserve the established application contract (amount then label) while
+  // allowing the active organization to control the displayed digits.
+  return `${formattedAmount} ${effectiveCurrency === 'SAR' ? 'ريال' : effectiveCurrency}`
 }
 
 export function formatNumber(number: number, options?: Intl.NumberFormatOptions): string {
