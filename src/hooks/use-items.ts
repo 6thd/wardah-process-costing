@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { itemsService } from '../services/supabase-service'
+import { manualStockMovementService } from '../services/manual-stock-movement-service'
 import type { Item } from '../lib/supabase'
-import { useAuthStore } from '../store/auth-store'
 
 export function useItems() {
   return useQuery({
@@ -21,15 +21,15 @@ export function useItem(id: string) {
   return useQuery({
     queryKey: ['items', id],
     queryFn: () => itemsService.getById(id),
-    enabled: !!id,
+    enabled: Boolean(id),
   })
 }
 
 export function useCreateItem() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
-    mutationFn: (item: Omit<Item, 'id' | 'created_at' | 'updated_at'>) => 
+    mutationFn: (item: Omit<Item, 'id' | 'created_at' | 'updated_at'>) =>
       itemsService.create(item),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] })
@@ -39,9 +39,9 @@ export function useCreateItem() {
 
 export function useUpdateItem() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
-    mutationFn: ({ id, ...item }: { id: string } & Partial<Item>) => 
+    mutationFn: ({ id, ...item }: { id: string } & Partial<Item>) =>
       itemsService.update(id, item),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] })
@@ -51,30 +51,40 @@ export function useUpdateItem() {
 
 export function useUpdateStock() {
   const queryClient = useQueryClient()
-  const { user } = useAuthStore()
-  
+
   return useMutation({
-    mutationFn: ({ 
-      itemId, 
-      quantity, 
-      movementType, 
-      notes 
-    }: { 
+    mutationFn: ({
+      itemId,
+      quantity,
+      movementType,
+      warehouseId,
+      notes,
+    }: {
       itemId: string
       quantity: number
       movementType: 'in' | 'out' | 'adjustment'
-      notes?: string 
-    }) => itemsService.updateStock(itemId, quantity, movementType, user?.id || '', notes),
+      warehouseId?: string
+      notes?: string
+    }) =>
+      manualStockMovementService.apply({
+        productId: itemId,
+        quantity,
+        movementType,
+        warehouseId,
+        notes,
+      }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['items'] })
       queryClient.invalidateQueries({ queryKey: ['stock-movements'] })
+      queryClient.invalidateQueries({ queryKey: ['stock-ledger'] })
+      queryClient.invalidateQueries({ queryKey: ['bins'] })
     },
   })
 }
 
 export function useDeleteItem() {
   const queryClient = useQueryClient()
-  
+
   return useMutation({
     mutationFn: itemsService.delete,
     onSuccess: () => {
