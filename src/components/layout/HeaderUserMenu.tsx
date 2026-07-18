@@ -41,7 +41,12 @@ export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-9 px-2 hover:bg-accent/50 transition-colors">
+        <Button
+          variant="ghost"
+          className="h-9 px-2 hover:bg-accent/50 transition-colors"
+          data-testid="user-menu"
+          aria-label="Open user menu"
+        >
           <Avatar className="h-7 w-7 ring-2 ring-primary/20">
             <AvatarImage src={(user as any)?.user_metadata?.avatar_url || undefined} />
             <AvatarFallback className="text-xs bg-gradient-to-br from-primary to-primary/60 text-primary-foreground">
@@ -81,21 +86,16 @@ export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
         </DropdownMenuLabel>
 
         <DropdownMenuSeparator />
-
         <AccountManagementItems isRTL={isRTL} navigate={navigate} />
-
         <DropdownMenuSeparator />
-
         <OrganizationItems isRTL={isRTL} navigate={navigate} />
-
         <DropdownMenuSeparator />
-
         <ActivityItems isRTL={isRTL} navigate={navigate} />
-
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
           onClick={onLogout}
+          data-testid="logout-btn"
           className={cn(
             "cursor-pointer text-destructive focus:text-destructive focus:bg-destructive/10",
             isRTL ? "flex-row-reverse" : ""
@@ -109,4 +109,3 @@ export function HeaderUserMenu({ user, onLogout, isRTL }: HeaderUserMenuProps) {
     </DropdownMenu>
   );
 }
-
