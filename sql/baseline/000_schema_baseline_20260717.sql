@@ -188,16 +188,8 @@ CREATE TABLE public.bom_cost_analysis (
   labor_variance numeric(18,4) DEFAULT 0,
   overhead_variance numeric(18,4) DEFAULT 0,
   total_variance numeric(18,4) DEFAULT 0,
-  material_variance_pct numeric(5,2) DEFAULT
-CASE
-    WHEN (standard_material_cost > (0)::numeric) THEN (((actual_material_cost - standard_material_cost) / standard_material_cost) * (100)::numeric)
-    ELSE (0)::numeric
-END,
-  labor_variance_pct numeric(5,2) DEFAULT
-CASE
-    WHEN (standard_labor_cost > (0)::numeric) THEN (((actual_labor_cost - standard_labor_cost) / standard_labor_cost) * (100)::numeric)
-    ELSE (0)::numeric
-END,
+  material_variance_pct numeric(5,2) DEFAULT 0,
+  labor_variance_pct numeric(5,2) DEFAULT 0,
   status character varying(20) DEFAULT 'DRAFT'::character varying,
   notes text,
   org_id uuid NOT NULL,
@@ -217,11 +209,7 @@ CREATE TABLE public.bom_cost_details (
   actual_unit_cost numeric(18,4) DEFAULT 0,
   actual_total_cost numeric(18,4) DEFAULT 0,
   variance numeric(18,4) DEFAULT 0,
-  variance_pct numeric(5,2) DEFAULT
-CASE
-    WHEN (standard_total_cost > (0)::numeric) THEN (((actual_total_cost - standard_total_cost) / standard_total_cost) * (100)::numeric)
-    ELSE (0)::numeric
-END,
+  variance_pct numeric(5,2) DEFAULT 0,
   org_id uuid NOT NULL,
   created_at timestamp with time zone DEFAULT now()
 );
