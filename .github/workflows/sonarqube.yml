@@ -51,10 +51,8 @@ jobs:
         continue-on-error: false
 
       # SONAR_TOKEN مضبوط الآن → يعمل التحليل فعلاً ويرفع النتائج لـ SonarCloud.
-      # لا continue-on-error: الفحص يُحمِّر فقط عند فشل حقيقي (مصادقة/إعداد).
-      # بوابة الجودة غير حاجزة هنا (sonar.qualitygate.wait غير مضبوط)؛ الماسح
-      # يخرج 0 بعد الرفع، ونتيجة البوابة تظهر في لوحة SonarCloud وتزيين الـ PR.
-      # لجعل البوابة تحجب الدمج: أضِف sonar.qualitygate.wait=true.
+      # sonar.qualitygate.wait=true: الخطوة تنتظر نتيجة البوابة وتفشل إن لم تمرّ.
+      # لجعل السكان غير حاجز (reporting فقط): احذف -Dsonar.qualitygate.wait=true.
       - name: SonarCloud Scan
         if: steps.sonar_cfg.outputs.configured == 'true'
         uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0

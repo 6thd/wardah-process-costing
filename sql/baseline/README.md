@@ -64,13 +64,16 @@ sed -i "1s/^/-- migration_cutoff: $MAX\n/" sql/baseline/000_schema_baseline_$(da
 ### بديل — Supabase MCP (عند تعذّر `pg_dump`)
 
 إذا كان Direct Connection IPv6-only (لا يدعمه `psql` محلياً)، يمكن إعادة بناء
-الـbaseline من `pg_catalog` عبر Supabase MCP أو Transaction Pooler:
+الـbaseline من `pg_catalog` عبر **Supabase MCP** مباشرةً (بدون Connection URL).
 
+بديل Transaction Pooler (يتطلب صلاحيات كاملة):
 ```
 postgresql://postgres.uutfztmqvajmsxnrqeiv:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
 ```
+**تحذير**: منطقة المجمّع (`eu-central-1`) قد تختلف — تحقق من لوحة Supabase →
+Project Settings → Database → Connection Pooling.
 
-الـbaseline الحالي (`20260717`) مُولَّد بهذه الطريقة بالاستعلام من:
+الـbaseline الحالي (`20260717`) مُولَّد عبر **Supabase MCP** بالاستعلام من:
 `pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`, `pg_trigger`, `pg_policy`
 مع `pg_get_functiondef()`, `pg_get_indexdef()`, `pg_get_viewdef()`, `pg_get_triggerdef()`.
 

@@ -21,3 +21,8 @@ export async function loadJsPDF(): Promise<typeof import('jspdf').default> {
   ])
   return jspdfModule.default
 }
+
+/** تحميل ApexCharts عند الحاجة (~584KB) — يُستدعى فقط حين يُرسم مكوّن رسم بياني */
+export async function loadApexCharts(): Promise<typeof import('apexcharts')> {
+  return (await import('apexcharts')).default as unknown as typeof import('apexcharts')
+}

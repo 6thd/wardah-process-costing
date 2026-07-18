@@ -45,6 +45,12 @@ jobs:
       - name: i18n hardcoded-text gate
         run: node scripts/i18n/count-hardcoded.mjs --ci
 
+      # تقرير إعلامي للأنماط الأشمل (placeholder/aria-label + نصوص JSX مباشرة)
+      # غير حاجز — يُظهر العداد الحالي لتتبع التقدم نحو صفر عبر مهام i18n المستقبلية
+      - name: i18n extended report (informational)
+        run: node scripts/i18n/count-hardcoded.mjs --extended
+        continue-on-error: true
+
       # P5: التحقق من أن ملف الأنواع المولَّدة محدَّث مع المخطط المُودَع
       # (يكشف تناقضاً بين database.generated.ts المُودَع والأنواع التي سيولّدها CLI
       #  عبر مقارنة بسيطة لحجم الملف — تحديث كامل يتطلب بيانات اعتماد Supabase)
@@ -82,34 +88,47 @@ jobs:
           pip install --quiet pglast
           python3 scripts/ci/check_migration_syntax.py
 
-      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل ملف في MANIFEST)
+      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل فجوة موثَّقة)
+      # يقرأ sql/migrations/skipped_migration_numbers.yml (مقارنة دقيقة بالأرقام لا grep)
       - name: Validate migration numbering
         run: |
-          set -e
-          MANIFEST="sql/migrations/MANIFEST.md"
-          MIGRATIONS_DIR="sql/migrations"
+          pip install --quiet pyyaml
+          python3 - <<'PYEOF'
+          import yaml, sys, pathlib
 
-          # استخرج أعلى رقم migration من أسماء الملفات
-          MAX_NUM=$(ls "$MIGRATIONS_DIR" | grep -E '^[0-9]+_' | \
-                    sed 's/_.*//' | sort -n | tail -1)
+          MIGRATIONS_DIR = pathlib.Path("sql/migrations")
+          SKIPPED_FILE = MIGRATIONS_DIR / "skipped_migration_numbers.yml"
 
-          # تحقق من أن كل رقم من 1 إلى MAX_NUM موجود (أو موثَّق في MANIFEST كمتجاوز)
-          MISSING=()
-          for i in $(seq 1 "$MAX_NUM"); do
-            FILE_COUNT=$(ls "$MIGRATIONS_DIR" | grep -cE "^${i}_" || true)
-            if [ "$FILE_COUNT" -eq 0 ]; then
-              # ثغرة — تحقق أنها موثَّقة في MANIFEST كمتجاوزة
-              if ! grep -qE "\b${i}\b" "$MANIFEST"; then
-                MISSING+=("$i")
-              fi
-            fi
-          done
+          if not SKIPPED_FILE.exists():
+              print(f"❌ {SKIPPED_FILE} مفقود — أنشئه لتوثيق أرقام migrations المتجاوزة")
+              sys.exit(1)
 
-          if [ "${#MISSING[@]}" -gt 0 ]; then
-            echo "❌ أرقام migrations مفقودة وغير موثَّقة في MANIFEST: ${MISSING[*]}"
-            exit 1
-          fi
-          echo "✅ ترقيم migrations سليم (1–${MAX_NUM})"
+          with open(SKIPPED_FILE, encoding="utf-8") as f:
+              data = yaml.safe_load(f)
+          skipped = {int(e["number"]) for e in (data or {}).get("skipped", [])}
+
+          nums = []
+          for p in MIGRATIONS_DIR.iterdir():
+              parts = p.stem.split("_")
+              if parts[0].isdigit():
+                  nums.append(int(parts[0]))
+
+          if not nums:
+              print("❌ لا ملفات migrations مرقّمة في sql/migrations/", file=sys.stderr)
+              sys.exit(1)
+
+          max_num = max(nums)
+          existing = set(nums)
+          missing = [i for i in range(1, max_num + 1)
+                     if i not in existing and i not in skipped]
+
+          if missing:
+              print(f"❌ أرقام migrations مفقودة وغير موثَّقة في skipped_migration_numbers.yml: {missing}",
+                    file=sys.stderr)
+              sys.exit(1)
+
+          print(f"✅ ترقيم migrations سليم (1–{max_num})، {len(skipped)} رقم موثَّق كمتجاوز")
+          PYEOF
 
       # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
       # يتطلب T2 — يُفعَّل تلقائياً حين يُودَع sql/baseline/000_schema_baseline_*.sql
@@ -134,11 +153,35 @@ jobs:
           # أنشئ قاعدة فارغة
           createdb wardah_fresh
 
-          # طبّق shim (roles + auth + storage)
-          psql -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q 2>&1 | tail -3
+          # طبّق shim (roles + auth + storage) — أوقف عند أي خطأ SQL
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
 
-          # طبّق baseline
-          psql -d wardah_fresh -f "$BASELINE" -q 2>&1 | tail -3
+          # طبّق baseline — أوقف عند أي خطأ SQL
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f "$BASELINE" -q
+
+          # تحقق من أعداد الكائنات بعد التطبيق
+          TABLES=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+          SEQS=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid \
+             WHERE n.nspname='public' AND c.relkind='S'")
+          FUNCS=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid \
+             WHERE n.nspname='public' AND p.prokind='f'")
+          POLICIES=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
+
+          echo "   Schema counts after baseline: tables=$TABLES seqs=$SEQS funcs=$FUNCS policies=$POLICIES"
+
+          # الحدود الدنيا المتوقعة (تتسامح مع ±10 للتكيف مع تغييرات مستقبلية)
+          if [ "$TABLES" -lt 120 ] || [ "$SEQS" -lt 10 ] || \
+             [ "$FUNCS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
+            echo "❌ عدد كائنات ما بعد الـbaseline أقل من الحد الأدنى المتوقع"
+            exit 1
+          fi
+          echo "✅ Schema counts سليمة"
 
           # ابنِ قائمة المهاجرات الأحدث من الـbaseline فقط
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
@@ -196,7 +239,7 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Deploy to Server
-        run: echo "Add your deployment script here"
-        # يمكنك إضافة deployment script هنا
-        # مثل: rsync, AWS S3, Vercel, Netlify, etc.
+      # TODO: replace with real deploy (Vercel CLI, rsync, AWS S3, etc.)
+      # Until then this step is a placeholder — the job still gates on `test`.
+      - name: Deploy to Server (placeholder)
+        run: echo "⚠️ Deploy step is a placeholder — wire up a real deployment target."

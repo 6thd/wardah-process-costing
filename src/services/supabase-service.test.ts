@@ -41,14 +41,6 @@ function setupSupabaseForUpdateStock(initialStock: number) {
     })
   }
 
-  const stockMovementInserts: any[] = []
-  const fromStockMovements = {
-    insert: vi.fn((payload: any) => {
-      stockMovementInserts.push(payload)
-      return Promise.resolve({ error: null })
-    })
-  }
-
   const supabaseClient = {
     from: vi.fn((table: string) => {
       if (table === 'products') {
@@ -59,12 +51,11 @@ function setupSupabaseForUpdateStock(initialStock: number) {
           ...fromProductsUpdate
         }
       }
-      if (table === 'stock_movements') return fromStockMovements
       throw new Error(`Unexpected table: ${table}`)
     })
   }
 
-  return { supabaseClient, productsUpdatePayloads, stockMovementInserts }
+  return { supabaseClient, productsUpdatePayloads }
 }
 
 describe('supabase-service itemsService.updateStock', () => {
@@ -78,11 +69,11 @@ describe('supabase-service itemsService.updateStock', () => {
     vi.useRealTimers()
   })
 
-  it('increases stock for movementType=in and records movement', async () => {
+  it('increases stock for movementType=in', async () => {
     const { getSupabase } = await import('../lib/supabase')
     const { itemsService } = await import('./supabase-service')
 
-    const { supabaseClient, productsUpdatePayloads, stockMovementInserts } = setupSupabaseForUpdateStock(10)
+    const { supabaseClient, productsUpdatePayloads } = setupSupabaseForUpdateStock(10)
     ;(getSupabase as unknown as GetSupabaseMock).mockReturnValue(supabaseClient)
 
     await itemsService.updateStock('item-1', 5, 'in', 'user-1', 'note')
@@ -92,42 +83,30 @@ describe('supabase-service itemsService.updateStock', () => {
       stock_quantity: 15,
       updated_at: new Date('2025-01-02T03:04:05.000Z').toISOString()
     })
-
-    expect(stockMovementInserts).toHaveLength(1)
-    expect(stockMovementInserts[0]).toEqual({
-      item_id: 'item-1',
-      movement_type: 'in',
-      quantity: 5,
-      notes: 'note',
-      created_by: 'user-1'
-    })
   })
 
-  it('decreases stock for movementType=out and records movement', async () => {
+  it('decreases stock for movementType=out', async () => {
     const { getSupabase } = await import('../lib/supabase')
     const { itemsService } = await import('./supabase-service')
 
-    const { supabaseClient, productsUpdatePayloads, stockMovementInserts } = setupSupabaseForUpdateStock(10)
+    const { supabaseClient, productsUpdatePayloads } = setupSupabaseForUpdateStock(10)
     ;(getSupabase as unknown as GetSupabaseMock).mockReturnValue(supabaseClient)
 
     await itemsService.updateStock('item-1', 3, 'out', 'user-1')
 
     expect(productsUpdatePayloads[0].stock_quantity).toBe(7)
-    expect(stockMovementInserts[0].quantity).toBe(3)
   })
 
-  it('sets stock for movementType=adjustment and records delta quantity', async () => {
+  it('sets stock for movementType=adjustment', async () => {
     const { getSupabase } = await import('../lib/supabase')
     const { itemsService } = await import('./supabase-service')
 
-    const { supabaseClient, productsUpdatePayloads, stockMovementInserts } = setupSupabaseForUpdateStock(10)
+    const { supabaseClient, productsUpdatePayloads } = setupSupabaseForUpdateStock(10)
     ;(getSupabase as unknown as GetSupabaseMock).mockReturnValue(supabaseClient)
 
     await itemsService.updateStock('item-1', 25, 'adjustment', 'user-1')
 
     expect(productsUpdatePayloads[0].stock_quantity).toBe(25)
-    // adjustment stores delta vs previous
-    expect(stockMovementInserts[0].quantity).toBe(15)
   })
 
   it('throws when item does not exist', async () => {

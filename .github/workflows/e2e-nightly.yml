@@ -29,6 +29,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Preflight — verify required secrets are set
+        run: |
+          missing=()
+          [ -z "$STAGING_URL" ]          && missing+=("STAGING_URL")
+          [ -z "$E2E_USER_EMAIL" ]       && missing+=("E2E_USER_EMAIL")
+          [ -z "$E2E_USER_PASSWORD" ]    && missing+=("E2E_USER_PASSWORD")
+          [ -z "$E2E_ORG_ADMIN_EMAIL" ]  && missing+=("E2E_ORG_ADMIN_EMAIL")
+          [ -z "$E2E_ORG_ADMIN_PASSWORD" ] && missing+=("E2E_ORG_ADMIN_PASSWORD")
+          [ -z "$E2E_SUPER_ADMIN_EMAIL" ]  && missing+=("E2E_SUPER_ADMIN_EMAIL")
+          [ -z "$E2E_SUPER_ADMIN_PASSWORD" ] && missing+=("E2E_SUPER_ADMIN_PASSWORD")
+          [ -z "$E2E_ORG_B_USER_EMAIL" ] && missing+=("E2E_ORG_B_USER_EMAIL")
+          [ -z "$E2E_ORG_B_USER_PASSWORD" ] && missing+=("E2E_ORG_B_USER_PASSWORD")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "❌ Missing required secrets: ${missing[*]}"
+            echo "   Add them in Settings → Secrets → Actions before running E2E."
+            exit 1
+          fi
+          echo "✅ All required secrets are set"
+        env:
+          STAGING_URL: ${{ secrets.STAGING_URL }}
+          E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
+          E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          E2E_ORG_ADMIN_EMAIL: ${{ secrets.E2E_ORG_ADMIN_EMAIL }}
+          E2E_ORG_ADMIN_PASSWORD: ${{ secrets.E2E_ORG_ADMIN_PASSWORD }}
+          E2E_SUPER_ADMIN_EMAIL: ${{ secrets.E2E_SUPER_ADMIN_EMAIL }}
+          E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+          E2E_ORG_B_USER_EMAIL: ${{ secrets.E2E_ORG_B_USER_EMAIL }}
+          E2E_ORG_B_USER_PASSWORD: ${{ secrets.E2E_ORG_B_USER_PASSWORD }}
+
       - name: Install Playwright browsers (Chromium only)
         run: npx playwright install chromium --with-deps
 

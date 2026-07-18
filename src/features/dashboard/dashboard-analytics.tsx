@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { LoadingSpinner } from '@/components/ui/loading-state'
-import ApexCharts from 'apexcharts'
+import { loadApexCharts } from '@/lib/export-libs'
 import { ErrorState } from '@/components/ui/error-state'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -16,7 +16,7 @@ export function DashboardAnalytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
-  const chartInstanceRef = useRef<ApexCharts | null>(null)
+  const chartInstanceRef = useRef<InstanceType<Awaited<ReturnType<typeof loadApexCharts>>> | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -36,23 +36,30 @@ export function DashboardAnalytics() {
 
   useEffect(() => {
     if (!data || !chartRef.current) return
+    let cancelled = false
+    const el = chartRef.current
 
-    const chart = new ApexCharts(chartRef.current, {
-      chart: { type: 'line', height: 350, background: 'transparent' },
-      series: [
-        { name: 'المبيعات', data: data.charts.revenue },
-        { name: 'التكاليف', data: data.charts.costs },
-        { name: 'الأرباح', data: data.charts.profit },
-      ],
-      xaxis: { categories: data.charts.months },
-      stroke: { curve: 'smooth', width: 3 },
-      colors: ['#4285f4', '#ea4335', '#34a853'],
-      tooltip: { theme: 'dark' },
-    })
-    chart.render()
-    chartInstanceRef.current = chart
+    ;(async () => {
+      const ApexCharts = await loadApexCharts()
+      if (cancelled || !el) return
+      const chart = new ApexCharts(el, {
+        chart: { type: 'line', height: 350, background: 'transparent' },
+        series: [
+          { name: 'المبيعات', data: data.charts.revenue },
+          { name: 'التكاليف', data: data.charts.costs },
+          { name: 'الأرباح', data: data.charts.profit },
+        ],
+        xaxis: { categories: data.charts.months },
+        stroke: { curve: 'smooth', width: 3 },
+        colors: ['#4285f4', '#ea4335', '#34a853'],
+        tooltip: { theme: 'dark' },
+      })
+      chart.render()
+      chartInstanceRef.current = chart
+    })()
 
     return () => {
+      cancelled = true
       chartInstanceRef.current?.destroy()
       chartInstanceRef.current = null
     }
