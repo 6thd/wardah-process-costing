@@ -1,8 +1,9 @@
 /**
  * OrganizationSelector component tests
  */
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@/test/test-utils'
+import { beforeEach, describe, expect, fireEvent, it, vi } from 'vitest'
+import { act, render, screen } from '@/test/test-utils'
+import i18n from '@/i18n'
 import { OrganizationSelector } from '../organization-selector'
 
 vi.mock('@/contexts/AuthContext', () => ({
@@ -14,6 +15,7 @@ vi.mock('@/contexts/AuthContext', () => ({
         organization: {
           name: 'Org One',
           name_ar: 'المنظمة الأولى',
+          name_en: 'Organization One',
           code: 'ORG1',
           logo_url: null,
         },
@@ -24,6 +26,7 @@ vi.mock('@/contexts/AuthContext', () => ({
         organization: {
           name: 'Org Two',
           name_ar: 'المنظمة الثانية',
+          name_en: 'Organization Two',
           code: 'ORG2',
           logo_url: 'https://example.com/logo.png',
         },
@@ -35,20 +38,35 @@ vi.mock('@/contexts/AuthContext', () => ({
 }))
 
 describe('OrganizationSelector', () => {
-  it('renders current organization name', () => {
-    render(<OrganizationSelector />)
-    expect(screen.getByText(/المنظمة الأولى|Org One/)).toBeInTheDocument()
+  beforeEach(async () => {
+    await act(async () => {
+      await i18n.changeLanguage('ar')
+    })
   })
 
-  it('shows dropdown and allows selection', () => {
+  it('renders the current organization name in Arabic', () => {
+    render(<OrganizationSelector />)
+    expect(screen.getByText('المنظمة الأولى')).toBeInTheDocument()
+  })
+
+  it('shows the Arabic organization names in the dropdown', () => {
     render(<OrganizationSelector />)
 
-    // The trigger is a combobox, not a regular button
-    const trigger = screen.getByRole('combobox')
-    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('combobox'))
 
-    // The second organization displays Arabic name "المنظمة الثانية"
-    expect(screen.getByText(/المنظمة الثانية/)).toBeInTheDocument()
+    expect(screen.getByText('المنظمة الثانية')).toBeInTheDocument()
+  })
+
+  it('renders English organization names after switching language', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('en')
+    })
+
+    render(<OrganizationSelector />)
+    fireEvent.click(screen.getByRole('combobox'))
+
+    expect(screen.getByText('Organization One')).toBeInTheDocument()
+    expect(screen.getByText('Organization Two')).toBeInTheDocument()
+    expect(screen.queryByText('المنظمة الثانية')).not.toBeInTheDocument()
   })
 })
-
