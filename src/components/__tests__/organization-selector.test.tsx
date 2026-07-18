@@ -46,7 +46,7 @@ describe('OrganizationSelector', () => {
 
   it('renders the current organization name in Arabic', () => {
     render(<OrganizationSelector />)
-    expect(screen.getByText('المنظمة الأولى')).toBeInTheDocument()
+    expect(screen.getByRole('combobox')).toHaveTextContent('المنظمة الأولى')
   })
 
   it('shows the Arabic organization names in the dropdown', () => {
@@ -54,7 +54,7 @@ describe('OrganizationSelector', () => {
 
     fireEvent.click(screen.getByRole('combobox'))
 
-    expect(screen.getByText('المنظمة الثانية')).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /المنظمة الثانية/ })).toBeInTheDocument()
   })
 
   it('renders English organization names after switching language', async () => {
@@ -63,10 +63,13 @@ describe('OrganizationSelector', () => {
     })
 
     render(<OrganizationSelector />)
-    fireEvent.click(screen.getByRole('combobox'))
+    const trigger = screen.getByRole('combobox')
+    expect(trigger).toHaveTextContent('Organization One')
 
-    expect(screen.getByText('Organization One')).toBeInTheDocument()
-    expect(screen.getByText('Organization Two')).toBeInTheDocument()
+    fireEvent.click(trigger)
+
+    expect(screen.getByRole('option', { name: /Organization One/ })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: /Organization Two/ })).toBeInTheDocument()
     expect(screen.queryByText('المنظمة الثانية')).not.toBeInTheDocument()
   })
 })
