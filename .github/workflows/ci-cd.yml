@@ -134,11 +134,35 @@ jobs:
           # أنشئ قاعدة فارغة
           createdb wardah_fresh
 
-          # طبّق shim (roles + auth + storage)
-          psql -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q 2>&1 | tail -3
+          # طبّق shim (roles + auth + storage) — أوقف عند أي خطأ SQL
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
 
-          # طبّق baseline
-          psql -d wardah_fresh -f "$BASELINE" -q 2>&1 | tail -3
+          # طبّق baseline — أوقف عند أي خطأ SQL
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f "$BASELINE" -q
+
+          # تحقق من أعداد الكائنات بعد التطبيق
+          TABLES=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+          SEQS=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid \
+             WHERE n.nspname='public' AND c.relkind='S'")
+          FUNCS=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid \
+             WHERE n.nspname='public' AND p.prokind='f'")
+          POLICIES=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
+
+          echo "   Schema counts after baseline: tables=$TABLES seqs=$SEQS funcs=$FUNCS policies=$POLICIES"
+
+          # الحدود الدنيا المتوقعة (تتسامح مع ±10 للتكيف مع تغييرات مستقبلية)
+          if [ "$TABLES" -lt 120 ] || [ "$SEQS" -lt 10 ] || \
+             [ "$FUNCS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
+            echo "❌ عدد كائنات ما بعد الـbaseline أقل من الحد الأدنى المتوقع"
+            exit 1
+          fi
+          echo "✅ Schema counts سليمة"
 
           # ابنِ قائمة المهاجرات الأحدث من الـbaseline فقط
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \

@@ -104,11 +104,14 @@ test.describe('Org isolation — Org A vs Org B', () => {
         collectVisibleIds(browser, orgBStatePath, route, rowSelector, idAttr),
       ]);
 
-      // If either org has no data yet, the test is inconclusive — pass with a warning
-      if (idsA.size === 0 || idsB.size === 0) {
-        console.warn(`[isolation] ${route}: one org has no data — cannot assert isolation`);
-        return;
-      }
+      expect(
+        idsA.size,
+        `[isolation] ${route}: Org A returned 0 rows — seed data or fix the selector before running isolation checks`
+      ).toBeGreaterThan(0);
+      expect(
+        idsB.size,
+        `[isolation] ${route}: Org B returned 0 rows — seed data or fix the selector before running isolation checks`
+      ).toBeGreaterThan(0);
 
       const leaked = [...idsA].filter(id => idsB.has(id));
       expect(
