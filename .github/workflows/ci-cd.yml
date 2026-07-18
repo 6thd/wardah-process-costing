@@ -187,6 +187,26 @@ jobs:
           fi
           echo "✅ Schema counts سليمة"
 
+          # تحقق من الأعمدة المحسوبة (GENERATED ALWAYS AS STORED)
+          # يفشل إذا كان أي عمود محسوب معروف قد تحول إلى عمود عادي
+          GENERATED=$(psql -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_attribute a
+             JOIN pg_class c ON a.attrelid = c.oid
+             JOIN pg_namespace n ON c.relnamespace = n.oid
+             WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped")
+          echo "   Generated columns: $GENERATED (expected ≥22)"
+          if [ "$GENERATED" -lt 22 ]; then
+            echo "❌ الأعمدة المحسوبة (GENERATED ALWAYS AS STORED) أقل من المتوقع — تحقق من الـbaseline"
+            psql -d wardah_fresh -c \
+              "SELECT c.relname, a.attname FROM pg_attribute a
+               JOIN pg_class c ON a.attrelid = c.oid
+               JOIN pg_namespace n ON c.relnamespace = n.oid
+               WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped
+               ORDER BY c.relname, a.attname"
+            exit 1
+          fi
+          echo "✅ Generated columns سليمة ($GENERATED)"
+
           # ابنِ قائمة المهاجرات الأحدث من الـbaseline فقط
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > /tmp/chain_order.txt

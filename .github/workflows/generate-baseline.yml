@@ -20,7 +20,7 @@ jobs:
           # نحتاج push لاحقاً — استخدم token كامل الصلاحيات
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install pg_dump (PostgreSQL 16 client)
+      - name: Install pg_dump (PostgreSQL 17 client)
         run: |
           sudo apt-get install -y gnupg curl lsb-release
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
