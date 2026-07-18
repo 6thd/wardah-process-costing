@@ -33,8 +33,10 @@ DEFINER_FUNC_RE = re.compile(
     re.IGNORECASE,
 )
 
+# REVOKE FROM PUBLIC is the only grant that actually prevents authenticated access.
+# REVOKE FROM authenticated alone still leaves the PUBLIC grant active.
 REVOKE_RE = re.compile(
-    r"REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+.*?\s+FROM\s+(?:PUBLIC|authenticated)",
+    r"REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+.*?\s+FROM\s+PUBLIC\b",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -47,11 +49,20 @@ def get_cutoff() -> int:
 
 
 def extract_function_body(sql: str, func_start: int) -> str:
-    """Return text from func_start to the end of the $function$; block."""
-    end = sql.find("$function$\n;", func_start)
-    if end == -1:
-        end = sql.find("$function$;", func_start)
-    return sql[func_start: end + 12] if end != -1 else sql[func_start: func_start + 4000]
+    """Return text from func_start to the closing dollar-quote block.
+
+    Detects the actual delimiter (e.g. $function$, $$) so that the guard
+    search is confined to the target function's body and cannot bleed into
+    a subsequent guarded function in the same migration file.
+    """
+    delim_m = re.search(r"AS\s+(\$\w*\$)", sql[func_start:], re.IGNORECASE)
+    if delim_m:
+        delim = delim_m.group(1)
+        body_start = func_start + delim_m.end()
+        end = sql.find(delim, body_start)
+        if end != -1:
+            return sql[func_start: end + len(delim)]
+    return sql[func_start: func_start + 4000]
 
 
 def check_file(path: pathlib.Path) -> list[str]:
