@@ -11,10 +11,12 @@ Exemptions:
   - Functions listed in KNOWN_EXEMPT (intentionally open to authenticated, documented)
 """
 
-import re, sys, pathlib
+import pathlib
+import re
+import sys
 
 MIGRATIONS_DIR = pathlib.Path("sql/migrations")
-BASELINE_FILE  = next(pathlib.Path("sql/baseline").glob("000_schema_baseline_*.sql"), None)
+BASELINE_FILE = next(pathlib.Path("sql/baseline").glob("000_schema_baseline_*.sql"), None)
 
 KNOWN_EXEMPT = {
     # Documented in SECURITY_DEFINER_AUDIT.md — open to anon deliberately
