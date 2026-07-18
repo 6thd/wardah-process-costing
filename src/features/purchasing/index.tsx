@@ -13,6 +13,7 @@ import {
   newPurchaseOrdersService
 } from '@/services/supabase-service'
 import { supabase, type Supplier, type PurchaseOrder } from '@/lib/supabase'
+import { getAllGoodsReceipts } from '@/services/purchasing-service'
 import { toast } from 'sonner'
 import { PurchaseOrderForm } from '@/components/forms/PurchaseOrderForm'
 import { GoodsReceiptForm } from '@/components/forms/GoodsReceiptForm'
@@ -461,7 +462,6 @@ function GoodsReceiptManagement() {
   const loadReceipts = async () => {
     setLoading(true)
     try {
-      const { getAllGoodsReceipts } = await import('@/services/purchasing-service')
       const res = await getAllGoodsReceipts()
       if (!res.success) throw res.error
       setReceipts(res.data || [])

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import ApexCharts from 'apexcharts';
+import { loadApexCharts } from '@/lib/export-libs';
 import { useWardahTheme } from '@/components/wardah-theme-provider';
 
 // Interfaces for financial data
@@ -156,34 +156,39 @@ const GeminiDashboard: React.FC = () => {
   // Effect to initialize charts after data is loaded and DOM is ready
   useEffect(() => {
     if (data && !chartsInitializedRef.current) {
+      let cancelled = false;
       let retryCount = 0;
       const maxRetries = 5;
-      
-      const attemptInitializeCharts = () => {
-        if (initializeCharts(data)) {
+
+      const attemptInitializeCharts = async () => {
+        if (cancelled) return;
+        const done = await initializeCharts(data);
+        if (done) {
           chartsInitializedRef.current = true;
         } else if (retryCount < maxRetries) {
           retryCount++;
           setTimeout(attemptInitializeCharts, 200);
         }
       };
-      
-      // Initial attempt after a small delay to ensure DOM is rendered
+
       const timer = setTimeout(attemptInitializeCharts, 100);
-      
-      return () => clearTimeout(timer);
+
+      return () => {
+        cancelled = true;
+        clearTimeout(timer);
+      };
     }
   }, [data]);
 
-  const initializeCharts = (data: DashboardData) => {
+  const initializeCharts = async (data: DashboardData): Promise<boolean> => {
     // Check if the chart elements exist in the DOM
     if (revenueChartRef.current && costDistributionRef.current) {
       // Ensure elements are actually mounted in the DOM
-      if (!document.contains(revenueChartRef.current) || 
+      if (!document.contains(revenueChartRef.current) ||
           !document.contains(costDistributionRef.current)) {
         return false;
       }
-      
+
       // Clean up any existing charts
       if (revenueChartRef.current.innerHTML) {
         revenueChartRef.current.innerHTML = '';
@@ -191,7 +196,9 @@ const GeminiDashboard: React.FC = () => {
       if (costDistributionRef.current.innerHTML) {
         costDistributionRef.current.innerHTML = '';
       }
-      
+
+      const ApexCharts = await loadApexCharts();
+
       // تهيئة الشارت الخطي
       const revenueChart = new ApexCharts(revenueChartRef.current, {
         chart: {
@@ -226,7 +233,7 @@ const GeminiDashboard: React.FC = () => {
           theme: 'dark'
         }
       });
-      
+
       revenueChart.render();
       chartInstancesRef.current.push(revenueChart);
 
@@ -244,13 +251,13 @@ const GeminiDashboard: React.FC = () => {
           position: 'bottom'
         }
       });
-      
+
       costDistributionChart.render();
       chartInstancesRef.current.push(costDistributionChart);
-      
+
       return true;
     }
-    
+
     return false;
   };
 

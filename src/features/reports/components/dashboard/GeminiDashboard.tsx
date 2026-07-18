@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import ApexCharts from 'apexcharts';
+import { loadApexCharts } from '@/lib/export-libs';
 import axios from 'axios';
 import './styles.css';
 
@@ -104,7 +104,7 @@ const GeminiDashboard: React.FC = () => {
       try {
         const response = await axios.get('/api/wardah/financial/dashboard');
         setData(response.data);
-        initializeCharts(response.data);
+        await initializeCharts(response.data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'حدث خطأ غير معروف');
       } finally {
@@ -115,10 +115,11 @@ const GeminiDashboard: React.FC = () => {
     fetchData();
   }, []);
 
-  const initializeCharts = (data: DashboardData) => {
+  const initializeCharts = async (data: DashboardData) => {
+    const ApexCharts = await loadApexCharts();
+
     // تهيئة الشارت الخطي
     new ApexCharts(document.querySelector("#revenue-chart"), {
-      // إعدادات الشارت
       chart: {
         type: 'line',
         height: 350,
@@ -133,7 +134,6 @@ const GeminiDashboard: React.FC = () => {
         name: 'المبيعات',
         data: data.revenue
       }],
-      // المزيد من الإعدادات...
     }).render();
 
     // تهيئة شارت الدائرة
@@ -145,7 +145,6 @@ const GeminiDashboard: React.FC = () => {
       },
       series: data.costs,
       labels: ['تكاليف مباشرة', 'تكاليف غير مباشرة', 'مصاريف إدارية'],
-      // المزيد من الإعدادات...
     }).render();
   };
 
