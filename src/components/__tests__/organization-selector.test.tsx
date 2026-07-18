@@ -1,8 +1,8 @@
 /**
  * OrganizationSelector component tests
  */
-import { beforeEach, describe, expect, fireEvent, it, vi } from 'vitest'
-import { act, render, screen } from '@/test/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@/test/test-utils'
 import i18n from '@/i18n'
 import { OrganizationSelector } from '../organization-selector'
 
