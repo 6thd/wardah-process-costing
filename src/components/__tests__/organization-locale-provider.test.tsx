@@ -8,13 +8,12 @@ const mocks = vi.hoisted(() => ({
   applyRuntimeLocaleSettings: vi.fn(),
   subscribeRuntimeLocaleSettings: vi.fn(),
   unsubscribe: vi.fn(),
+  defaultSettings: {
+    currency: 'SAR',
+    numberFormat: 'en-US',
+    dateFormat: 'en-US',
+  },
 }));
-
-const defaultSettings = {
-  currency: 'SAR',
-  numberFormat: 'en-US',
-  dateFormat: 'en-US',
-};
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: mocks.useAuth,
@@ -25,7 +24,7 @@ vi.mock('@/services/org-settings-service', () => ({
 }));
 
 vi.mock('@/lib/runtime-locale-settings', () => ({
-  DEFAULT_RUNTIME_LOCALE_SETTINGS: defaultSettings,
+  DEFAULT_RUNTIME_LOCALE_SETTINGS: mocks.defaultSettings,
   applyRuntimeLocaleSettings: mocks.applyRuntimeLocaleSettings,
   subscribeRuntimeLocaleSettings: mocks.subscribeRuntimeLocaleSettings,
 }));
@@ -71,7 +70,7 @@ describe('OrganizationLocaleProvider', () => {
     );
 
     await waitFor(() => {
-      expect(mocks.applyRuntimeLocaleSettings).toHaveBeenCalledWith(defaultSettings);
+      expect(mocks.applyRuntimeLocaleSettings).toHaveBeenCalledWith(mocks.defaultSettings);
     });
     expect(mocks.getSystemSettings).not.toHaveBeenCalled();
   });
@@ -124,19 +123,19 @@ describe('OrganizationLocaleProvider', () => {
         'Failed to load organization locale settings:',
         error,
       );
-      expect(mocks.applyRuntimeLocaleSettings).toHaveBeenCalledWith(defaultSettings);
+      expect(mocks.applyRuntimeLocaleSettings).toHaveBeenCalledWith(mocks.defaultSettings);
     });
   });
 
   it('does not apply settings after the provider is unmounted', async () => {
-    let resolveSettings: ((value: typeof defaultSettings) => void) | undefined;
+    let resolveSettings: ((value: typeof mocks.defaultSettings) => void) | undefined;
     mocks.useAuth.mockReturnValue({
       user: { id: 'user-1' },
       currentOrgId: 'org-1',
       loading: false,
     });
     mocks.getSystemSettings.mockReturnValue(
-      new Promise<typeof defaultSettings>((resolve) => {
+      new Promise<typeof mocks.defaultSettings>((resolve) => {
         resolveSettings = resolve;
       }),
     );
@@ -151,7 +150,7 @@ describe('OrganizationLocaleProvider', () => {
     unmount();
 
     await act(async () => {
-      resolveSettings?.(defaultSettings);
+      resolveSettings?.(mocks.defaultSettings);
       await Promise.resolve();
     });
 
