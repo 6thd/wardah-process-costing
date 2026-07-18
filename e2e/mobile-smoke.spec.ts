@@ -62,7 +62,7 @@ test.describe('Mobile smoke (390×844)', () => {
     });
   }
 
-  test('sidebar toggle is accessible on mobile', async ({ browser }) => {
+  test('hamburger opens sidebar navigation on mobile', async ({ browser }) => {
     const skip = skipIfMissingEnv(['regularUser']);
     if (skip) { test.skip(true, skip); return; }
 
@@ -72,13 +72,20 @@ test.describe('Mobile smoke (390×844)', () => {
     });
     const page = await ctx.newPage();
 
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+    await page.goto('/dashboard', { waitUntil: 'networkidle', timeout: 20_000 });
 
-    // Mobile sidebar should have a toggle button (hamburger / close)
+    // The hamburger toggle must be visible before interaction
     const toggle = page.locator(
       '[data-testid="sidebar-toggle"], button[aria-label*="menu"], button[aria-label*="sidebar"]'
     );
     await expect(toggle.first()).toBeVisible();
+
+    // Click it — the sidebar nav must become visible
+    await toggle.first().click();
+
+    // At least one navigation link must now appear in the viewport
+    const navLink = page.locator('nav a, [role="navigation"] a').first();
+    await expect(navLink).toBeVisible({ timeout: 5_000 });
 
     await ctx.close();
   });

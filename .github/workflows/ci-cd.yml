@@ -220,7 +220,7 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Deploy to Server
-        run: echo "Add your deployment script here"
-        # يمكنك إضافة deployment script هنا
-        # مثل: rsync, AWS S3, Vercel, Netlify, etc.
+      # TODO: replace with real deploy (Vercel CLI, rsync, AWS S3, etc.)
+      # Until then this step is a placeholder — the job still gates on `test`.
+      - name: Deploy to Server (placeholder)
+        run: echo "⚠️ Deploy step is a placeholder — wire up a real deployment target."
