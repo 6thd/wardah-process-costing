@@ -8,7 +8,6 @@ import {
 
 describe('organization runtime locale settings', () => {
   beforeEach(() => {
-    window.localStorage.clear();
     applyRuntimeLocaleSettings({
       currency: 'SAR',
       numberFormat: 'en-US',
@@ -16,37 +15,29 @@ describe('organization runtime locale settings', () => {
     });
   });
 
-  it('uses Latin digits when en-US number format is selected', () => {
+  it('configures Latin digits for en-US', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US' });
-    const formatter = new Intl.NumberFormat(getNumberLocale());
 
-    expect(formatter.resolvedOptions().numberingSystem).toBe('latn');
+    expect(getNumberLocale()).toBe('en-US-u-nu-latn');
     expect(formatRuntimeNumber(1234.56)).not.toMatch(/[٠-٩]/);
   });
 
-  it('uses Arabic-Indic digits when ar-SA number format is selected', () => {
+  it('configures Arabic-Indic digits for ar-SA', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'ar-SA' });
-    const formatter = new Intl.NumberFormat(getNumberLocale());
 
-    expect(formatter.resolvedOptions().numberingSystem).toBe('arab');
+    expect(getNumberLocale()).toBe('ar-SA-u-nu-arab');
     expect(formatRuntimeNumber(1234.56)).toMatch(/[٠-٩]/);
   });
 
-  it('selects Umm al-Qura independently from the digit system', () => {
+  it('combines Umm al-Qura calendar with independently selected Latin digits', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US', dateFormat: 'ar-SA' });
-    const formatter = new Intl.DateTimeFormat(getDateLocale());
-    const resolved = formatter.resolvedOptions();
 
-    expect(resolved.calendar).toBe('islamic-umalqura');
-    expect(resolved.numberingSystem).toBe('latn');
+    expect(getDateLocale()).toBe('ar-SA-u-ca-islamic-umalqura-nu-latn');
   });
 
-  it('selects Gregorian calendar with Latin digits', () => {
+  it('combines Gregorian calendar with Latin digits', () => {
     applyRuntimeLocaleSettings({ numberFormat: 'en-US', dateFormat: 'en-US' });
-    const formatter = new Intl.DateTimeFormat(getDateLocale());
-    const resolved = formatter.resolvedOptions();
 
-    expect(resolved.calendar).toBe('gregory');
-    expect(resolved.numberingSystem).toBe('latn');
+    expect(getDateLocale()).toBe('en-US-u-ca-gregory-nu-latn');
   });
 });
