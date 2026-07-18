@@ -130,6 +130,10 @@ jobs:
           print(f"✅ ترقيم migrations سليم (1–{max_num})، {len(skipped)} رقم موثَّق كمتجاوز")
           PYEOF
 
+      # T1 CI guard: منع دوال SECURITY DEFINER جديدة بلا حارس عضوية مؤسسة
+      - name: DEFINER guard check (no new unguarded DEFINER functions)
+        run: python3 scripts/ci/check_definer_guards.py
+
       # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
       # يتطلب T2 — يُفعَّل تلقائياً حين يُودَع sql/baseline/000_schema_baseline_*.sql
       # لتوليد الـbaseline: شغّل .github/workflows/generate-baseline.yml يدوياً
