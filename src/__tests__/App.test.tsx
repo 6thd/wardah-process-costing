@@ -36,6 +36,12 @@ vi.mock('@/contexts/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => <div data-testid="auth-provider">{children}</div>,
 }));
 
+vi.mock('@/components/organization-locale-provider', () => ({
+  OrganizationLocaleProvider: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="organization-locale-provider">{children}</div>
+  ),
+}));
+
 vi.mock('@/pages/routes', () => ({
   appRouter: {},
 }));
@@ -58,5 +64,10 @@ describe('App Component', () => {
     render(<App />);
     const authProvider = screen.getByTestId('auth-provider');
     expect(authProvider).toBeInTheDocument();
+  });
+
+  it('should apply organization locale settings around the app', () => {
+    render(<App />);
+    expect(screen.getByTestId('organization-locale-provider')).toBeInTheDocument();
   });
 });
