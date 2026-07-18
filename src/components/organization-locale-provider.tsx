@@ -14,7 +14,7 @@ import {
  * up the new number/calendar format immediately without a page reload.
  */
 export function OrganizationLocaleProvider({ children }: PropsWithChildren) {
-  const { user, currentOrgId, isLoading } = useAuth();
+  const { user, currentOrgId, loading } = useAuth();
   const [, setRevision] = useState(0);
 
   useEffect(() => subscribeRuntimeLocaleSettings(() => {
@@ -25,7 +25,7 @@ export function OrganizationLocaleProvider({ children }: PropsWithChildren) {
     let cancelled = false;
 
     async function loadSettings() {
-      if (isLoading) return;
+      if (loading) return;
       if (!user || !currentOrgId) {
         applyRuntimeLocaleSettings(DEFAULT_RUNTIME_LOCALE_SETTINGS);
         return;
@@ -44,7 +44,7 @@ export function OrganizationLocaleProvider({ children }: PropsWithChildren) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, currentOrgId, isLoading]);
+  }, [user?.id, currentOrgId, loading]);
 
   return children;
 }
