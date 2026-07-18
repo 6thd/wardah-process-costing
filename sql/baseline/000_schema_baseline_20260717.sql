@@ -7,7 +7,6 @@
 -- Apply with: psql -f supabase_shim.sql && psql -f this_file
 -- ============================================================
 
-
 -- ============================================================
 -- Extensions
 -- ============================================================
@@ -16,14 +15,12 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-
 -- ============================================================
 -- Custom types / enums
 -- ============================================================
 
 -- Enums
 CREATE TYPE public.valuation_method_enum AS ENUM ('Weighted Average', 'FIFO', 'LIFO', 'Moving Average');
-
 
 -- ============================================================
 -- Sequences (12)
@@ -2385,7 +2382,6 @@ ALTER TABLE public.work_centers ADD CONSTRAINT work_centers_pkey PRIMARY KEY (id
 ALTER TABLE public.work_orders ADD CONSTRAINT work_orders_org_id_work_order_number_key UNIQUE (org_id, work_order_number);
 ALTER TABLE public.work_orders ADD CONSTRAINT work_orders_pkey PRIMARY KEY (id);
 
-
 -- ============================================================
 -- Foreign key constraints
 -- ============================================================
@@ -2654,9 +2650,6 @@ CREATE INDEX idx_audit_logs_entity ON public.audit_logs USING btree (entity_type
 CREATE INDEX idx_audit_logs_org_created ON public.audit_logs USING btree (org_id, created_at DESC);
 CREATE INDEX idx_audit_logs_user ON public.audit_logs USING btree (user_id);
 CREATE INDEX idx_audit_user_created ON public.audit_logs USING btree (user_id, created_at DESC);
-CREATE INDEX idx_bill_materials_created_at_new ON public.bill_of_materials_20250905_1900 USING btree (created_at);
-CREATE INDEX idx_bill_materials_name_new ON public.bill_of_materials_20250905_1900 USING btree (name);
-CREATE INDEX idx_bill_materials_status_new ON public.bill_of_materials_20250905_1900 USING btree (status);
 CREATE INDEX idx_bins_org ON public.bins USING btree (org_id);
 CREATE INDEX idx_bins_product ON public.bins USING btree (product_id);
 CREATE UNIQUE INDEX idx_bins_product_warehouse ON public.bins USING btree (product_id, warehouse_id);
@@ -3105,7 +3098,6 @@ CREATE INDEX idx_work_orders_operation ON public.work_orders USING btree (operat
 CREATE INDEX idx_work_orders_org ON public.work_orders USING btree (org_id);
 CREATE INDEX idx_work_orders_status ON public.work_orders USING btree (status);
 CREATE INDEX idx_work_orders_work_center ON public.work_orders USING btree (work_center_id);
-
 
 -- ============================================================
 -- Functions (164)
@@ -6538,7 +6530,7 @@ CREATE OR REPLACE FUNCTION public.handle_new_user()
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 BEGIN
-  INSERT INTO public.users_profiles_20250905_1900 (user_id, full_name, email)
+  INSERT INTO public.user_profiles (user_id, full_name, email)
   VALUES (
     NEW.id, 
     COALESCE(NEW.raw_user_meta_data ->> 'full_name', ''),
@@ -11683,7 +11675,6 @@ END;
 $function$
 ;
 
-
 -- ============================================================
 -- Views (17)
 -- ============================================================
@@ -12116,7 +12107,6 @@ CREATE OR REPLACE VIEW public.wip_by_stage AS
   WHERE mo.status::text = ANY (ARRAY['in_progress'::character varying, 'quality_check'::character varying, 'on_hold'::character varying]::text[])
   GROUP BY mo.id, mo.org_id, mo.order_number, mo.product_id, p.name, mo.status, mo.quantity, mo.completed_quantity, mo.total_cost, mo.unit_cost, mo.start_date, mo.due_date;
 
-
 -- ============================================================
 -- Triggers (72)
 -- ============================================================
@@ -12193,7 +12183,6 @@ CREATE TRIGGER audit_user_roles AFTER INSERT OR DELETE OR UPDATE ON public.user_
 CREATE TRIGGER trigger_auto_backflush AFTER UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION auto_backflush_materials();
 CREATE TRIGGER trigger_update_mo_status AFTER UPDATE ON public.work_orders FOR EACH ROW WHEN (((old.status)::text IS DISTINCT FROM (new.status)::text)) EXECUTE FUNCTION update_mo_status_from_work_orders();
 CREATE TRIGGER trigger_work_order_load_update AFTER INSERT OR DELETE OR UPDATE ON public.work_orders FOR EACH ROW EXECUTE FUNCTION trigger_update_load_on_work_order_change();
-
 
 -- ============================================================
 -- Row Level Security — enable
@@ -12325,7 +12314,6 @@ ALTER TABLE public.work_center_load ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.work_centers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.work_orders ENABLE ROW LEVEL SECURITY;
 
-
 -- ============================================================
 -- RLS Policies (333)
 -- ============================================================
@@ -12353,12 +12341,6 @@ CREATE POLICY audit_logs_ins_m ON public.audit_logs FOR INSERT TO authenticated 
 CREATE POLICY audit_logs_sel_m ON public.audit_logs FOR SELECT TO authenticated USING (((org_id = auth_org_id()) OR is_super_admin() OR is_super_admin() OR is_org_admin(org_id) OR (user_id = auth.uid()) OR is_super_admin()));
 
 CREATE POLICY audit_logs_upd_m ON public.audit_logs FOR UPDATE TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
-
-CREATE POLICY bom_backup_super_admin_only ON public.bill_of_materials_20250905_1900 FOR ALL TO authenticated USING ((EXISTS ( SELECT 1
-   FROM super_admins sa
-  WHERE ((sa.user_id = auth.uid()) AND (sa.is_active = true))))) WITH CHECK ((EXISTS ( SELECT 1
-   FROM super_admins sa
-  WHERE ((sa.user_id = auth.uid()) AND (sa.is_active = true)))));
 
 CREATE POLICY bins_org_read ON public.bins FOR SELECT TO authenticated USING ((org_id = wardah_org_id(NULL::uuid)));
 
@@ -12438,36 +12420,6 @@ CREATE POLICY categories_org_update ON public.categories FOR UPDATE TO authentic
 
 CREATE POLICY cost_centers_tenant_isolation ON public.cost_centers FOR ALL USING ((tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid));
 
-CREATE POLICY "Accountants and admins can update cost entries" ON public.cost_entries_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text]))))));
-
-CREATE POLICY "Users can create cost entries for accessible projects" ON public.cost_entries_20250905_1900 FOR INSERT WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = cost_entries_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text])))))))))));
-
-CREATE POLICY "Users can view cost entries for accessible projects" ON public.cost_entries_20250905_1900 FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = cost_entries_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text, 'analyst'::text]))))))))));
-
-CREATE POLICY "Analysts and admins can create predictions" ON public.cost_predictions_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'analyst'::text]))))));
-
-CREATE POLICY "Analysts and admins can update predictions" ON public.cost_predictions_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'analyst'::text]))))));
-
-CREATE POLICY "Users can view predictions for accessible projects" ON public.cost_predictions_20250905_1900 FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = cost_predictions_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text, 'analyst'::text]))))))))));
-
 CREATE POLICY currency_exchange_rates_tenant_isolation ON public.currency_exchange_rates FOR ALL USING ((tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid));
 
 CREATE POLICY currency_translations_tenant_isolation ON public.currency_translations FOR ALL USING ((tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid));
@@ -12535,16 +12487,6 @@ CREATE POLICY "Managers can update employees" ON public.employees FOR UPDATE USI
 CREATE POLICY "Users can view org employees" ON public.employees FOR SELECT USING ((org_id = ( SELECT uo.org_id
    FROM user_organizations uo
   WHERE ((uo.user_id = auth.uid()) AND (uo.is_active = true)))));
-
-CREATE POLICY "Admins and project managers can create products" ON public.final_products_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'project_manager'::text]))))));
-
-CREATE POLICY "Admins and project managers can update products" ON public.final_products_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'project_manager'::text]))))));
-
-CREATE POLICY "Authenticated users can view products" ON public.final_products_20250905_1900 FOR SELECT USING ((auth.uid() IS NOT NULL));
 
 CREATE POLICY gl_accounts_del_m ON public.gl_accounts FOR DELETE TO authenticated USING ((org_id = auth_org_id()));
 
@@ -12888,14 +12830,6 @@ CREATE POLICY modules_sel_m ON public.modules FOR SELECT TO authenticated USING 
 
 CREATE POLICY modules_upd_m ON public.modules FOR UPDATE TO authenticated USING (is_super_admin()) WITH CHECK (is_super_admin());
 
-CREATE POLICY "System can create notifications for users" ON public.notifications_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE (users_profiles_20250905_1900.user_id = notifications_20250905_1900.user_id))));
-
-CREATE POLICY "Users can update their own notifications" ON public.notifications_20250905_1900 FOR UPDATE USING ((auth.uid() = user_id));
-
-CREATE POLICY "Users can view their own notifications" ON public.notifications_20250905_1900 FOR SELECT USING ((auth.uid() = user_id));
-
 CREATE POLICY operation_execution_logs_delete_policy ON public.operation_execution_logs FOR DELETE USING ((org_id IN ( SELECT user_organizations.org_id
    FROM user_organizations
   WHERE (user_organizations.user_id = auth.uid()))));
@@ -13058,16 +12992,6 @@ CREATE POLICY positions_upd_m ON public.positions FOR UPDATE TO authenticated US
    FROM user_organizations uo
   WHERE ((uo.user_id = auth.uid()) AND (uo.is_active = true) AND ((uo.role)::text = ANY (ARRAY[('admin'::character varying)::text, ('manager'::character varying)::text]))))));
 
-CREATE POLICY "Admins can insert categories" ON public.product_categories_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = 'admin'::text)))));
-
-CREATE POLICY "Admins can update categories" ON public.product_categories_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = 'admin'::text)))));
-
-CREATE POLICY "Authenticated users can view categories" ON public.product_categories_20250905_1900 FOR SELECT USING ((auth.uid() IS NOT NULL));
-
 CREATE POLICY production_schedules_delete_policy ON public.production_schedules FOR DELETE USING ((org_id IN ( SELECT user_organizations.org_id
    FROM user_organizations
   WHERE (user_organizations.user_id = auth.uid()))));
@@ -13094,36 +13018,6 @@ CREATE POLICY products_org_update ON public.products FOR UPDATE TO authenticated
 
 CREATE POLICY profit_centers_tenant_isolation ON public.profit_centers FOR ALL USING ((tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid));
 
-CREATE POLICY "Project managers and admins can create stages" ON public.project_stages_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = project_stages_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = 'admin'::text)))))))));
-
-CREATE POLICY "Project managers and admins can update stages" ON public.project_stages_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = project_stages_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = 'admin'::text)))))))));
-
-CREATE POLICY "Users can view stages for accessible projects" ON public.project_stages_20250905_1900 FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = project_stages_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text, 'analyst'::text]))))))))));
-
-CREATE POLICY "Project managers and admins can create projects" ON public.projects_20250905_1900 FOR INSERT WITH CHECK (((auth.uid() = created_by) AND (EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'project_manager'::text])))))));
-
-CREATE POLICY "Project managers and admins can update projects" ON public.projects_20250905_1900 FOR UPDATE USING (((auth.uid() = created_by) OR (auth.uid() = project_manager_id) OR (EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = 'admin'::text))))));
-
-CREATE POLICY "Users can view projects they are assigned to" ON public.projects_20250905_1900 FOR SELECT USING (((auth.uid() = created_by) OR (auth.uid() = project_manager_id) OR (EXISTS ( SELECT 1
-   FROM users_profiles_20250905_1900
-  WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text, 'analyst'::text])))))));
-
 CREATE POLICY purchase_order_lines_org_read ON public.purchase_order_lines FOR SELECT TO authenticated USING ((org_id = wardah_org_id(NULL::uuid)));
 
 CREATE POLICY purchase_orders_org_read ON public.purchase_orders FOR SELECT TO authenticated USING ((org_id = wardah_org_id(NULL::uuid)));
@@ -13147,24 +13041,6 @@ CREATE POLICY quality_inspections_update_policy ON public.quality_inspections FO
 CREATE POLICY receipt_vouchers_org_read ON public.receipt_vouchers FOR SELECT TO authenticated USING ((org_id = wardah_org_id(NULL::uuid)));
 
 CREATE POLICY reconciliation_items_tenant_isolation ON public.reconciliation_items FOR ALL USING ((tenant_id = (current_setting('app.current_tenant_id'::text, true))::uuid));
-
-CREATE POLICY "Project managers and admins can create risks" ON public.risk_assessments_20250905_1900 FOR INSERT WITH CHECK ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = risk_assessments_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'analyst'::text]))))))))));
-
-CREATE POLICY "Project managers and admins can update risks" ON public.risk_assessments_20250905_1900 FOR UPDATE USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = risk_assessments_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'analyst'::text]))))))))));
-
-CREATE POLICY "Users can view risks for accessible projects" ON public.risk_assessments_20250905_1900 FOR SELECT USING ((EXISTS ( SELECT 1
-   FROM projects_20250905_1900 p
-  WHERE ((p.id = risk_assessments_20250905_1900.project_id) AND ((auth.uid() = p.created_by) OR (auth.uid() = p.project_manager_id) OR (EXISTS ( SELECT 1
-           FROM users_profiles_20250905_1900
-          WHERE ((users_profiles_20250905_1900.user_id = auth.uid()) AND (users_profiles_20250905_1900.role = ANY (ARRAY['admin'::text, 'accountant'::text, 'analyst'::text]))))))))));
 
 CREATE POLICY role_permissions_del_m ON public.role_permissions FOR DELETE TO authenticated USING (((role_id IN ( SELECT roles.id
    FROM roles
@@ -13465,8 +13341,6 @@ CREATE POLICY user_roles_insert ON public.user_roles FOR INSERT TO authenticated
 CREATE POLICY user_roles_select ON public.user_roles FOR SELECT TO authenticated USING (((user_id = ( SELECT auth.uid() AS uid)) OR is_org_admin(org_id) OR ( SELECT is_super_admin() AS is_super_admin)));
 
 CREATE POLICY user_roles_update ON public.user_roles FOR UPDATE TO authenticated USING ((is_org_admin(org_id) OR ( SELECT is_super_admin() AS is_super_admin))) WITH CHECK ((is_org_admin(org_id) OR ( SELECT is_super_admin() AS is_super_admin)));
-
-CREATE POLICY profiles_backup_self ON public.users_profiles_20250905_1900 FOR ALL TO authenticated USING ((user_id = auth.uid())) WITH CHECK ((user_id = auth.uid()));
 
 CREATE POLICY vendors_org_read ON public.vendors FOR SELECT TO authenticated USING ((org_id = wardah_org_id(NULL::uuid)));
 
