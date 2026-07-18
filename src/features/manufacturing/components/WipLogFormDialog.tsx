@@ -104,8 +104,8 @@ export function WipLogFormDialog({
       if (values.period_end < values.period_start) {
         throw new Error('نهاية الفترة قبل بدايتها')
       }
-      const derived = computeWipDerived(values)
-      const payload = { ...values, ...derived }
+      const { cost_total: _ct, ...derivedToSave } = computeWipDerived(values)
+      const payload = { ...values, ...derivedToSave }
       if (editing?.id) {
         return stageWipLogService.update(editing.id, payload)
       }
