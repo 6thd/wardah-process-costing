@@ -176,7 +176,7 @@ export const itemsService = {
     return data
   },
 
-  updateStock: async (itemId: string, quantity: number, movementType: 'in' | 'out' | 'adjustment', userId: string, notes?: string) => {
+  updateStock: async (itemId: string, quantity: number, movementType: 'in' | 'out' | 'adjustment', _userId: string, _notes?: string) => {
     const supabase = await getClient()
     const { data: item } = await supabase
       .from('products')
@@ -204,19 +204,9 @@ export const itemsService = {
       .eq('id', itemId)
 
     if (updateError) throw updateError
-
-    // Record stock movement
-    const { error: movementError } = await supabase
-      .from('stock_movements')
-      .insert({
-        item_id: itemId,
-        movement_type: movementType,
-        quantity: movementType === 'adjustment' ? quantity - item.stock_quantity : quantity,
-        notes,
-        created_by: userId
-      })
-
-    if (movementError) throw movementError
+    // stock_ledger_entries is written by RPC functions (wardah_apply_stock_incoming, etc.)
+    // Manual adjustments from the UI update products.stock_quantity only; the ledger
+    // entry is created by the relevant RPC when called through the proper flow.
   },
 
   delete: async (id: string) => {
@@ -418,67 +408,28 @@ export const processCostService = {
   }
 }
 
-// Stock Movements Service
+// Stock Movements Service — reads from stock_ledger_entries (the live ledger)
 export const stockMovementsService = {
   getAll: async () => {
     const supabase = await getClient()
-    // First try to get stock movements with user data
     const { data, error } = await supabase
-      .from('stock_movements')
-      .select(`
-        *,
-        item:products(*),
-        user:users(full_name)
-      `)
-      .order('created_at', { ascending: false })
-
-    // If there's an error related to the user not being found, try without user data
-    if (error?.message.includes('404')) {
-      console.warn('User not found for stock movements, fetching without user data')
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('stock_movements')
-        .select(`
-          *,
-          item:products(*)
-        `)
-        .order('created_at', { ascending: false })
-
-      if (fallbackError) throw fallbackError
-      return fallbackData
-    }
+      .from('stock_ledger_entries')
+      .select('*, item:products(name, code, unit_of_measure)')
+      .order('posting_date', { ascending: false })
+      .order('posting_time', { ascending: false })
 
     if (error) throw error
     return data
   },
 
-  getByItemId: async (itemId: string) => {
+  getByItemId: async (productId: string) => {
     const supabase = await getClient()
-    // First try to get stock movements with user data
     const { data, error } = await supabase
-      .from('stock_movements')
-      .select(`
-        *,
-        item:products(*),
-        user:users(full_name)
-      `)
-      .eq('item_id', itemId)
-      .order('created_at', { ascending: false })
-
-    // If there's an error related to the user not being found, try without user data
-    if (error?.message.includes('404')) {
-      console.warn('User not found for stock movements, fetching without user data for item:', itemId)
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from('stock_movements')
-        .select(`
-          *,
-          item:products(*)
-        `)
-        .eq('item_id', itemId)
-        .order('created_at', { ascending: false })
-
-      if (fallbackError) throw fallbackError
-      return fallbackData
-    }
+      .from('stock_ledger_entries')
+      .select('*, item:products(name, code, unit_of_measure)')
+      .eq('product_id', productId)
+      .order('posting_date', { ascending: false })
+      .order('posting_time', { ascending: false })
 
     if (error) throw error
     return data

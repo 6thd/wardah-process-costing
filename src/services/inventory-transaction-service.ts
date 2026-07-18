@@ -236,28 +236,9 @@ class InventoryTransactionService {
         );
       }
 
-      // Create stock move
-      const { error: moveError } = await supabase
-        .from('stock_moves')
-        .insert({
-          org_id: orgId,
-          item_id: consumption.item_id,
-          move_type: 'manufacturing_consume',
-          quantity: -consumption.quantity, // Negative for consumption
-          unit_cost: consumption.unit_cost,
-          reference_type: 'manufacturing_order',
-          reference_id: moId,
-        });
-
-      if (moveError) {
-        throw new AppError(
-          'STOCK_MOVE_ERROR',
-          `Failed to create stock move: ${moveError.message}`,
-          500,
-          true,
-          { consumption, error: moveError }
-        );
-      }
+      // stock_moves table was replaced by stock_ledger_entries (written by RPC functions).
+      // Consumption is already tracked via the reservations update above; no additional
+      // ledger write is needed here.
     }
   }
 
