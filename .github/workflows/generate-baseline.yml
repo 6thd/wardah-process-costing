@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       reason:
-        description: 'سبب التوليد (مثال: "بعد migration 121")'
+        description: 'سبب التوليد (مثال: "بعد تطبيق migration 123 على الإنتاج")'
         required: false
         default: 'توليد baseline يدوي'
 
@@ -17,11 +17,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          # نحتاج push لاحقاً — استخدم token كامل الصلاحيات
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install pg_dump (PostgreSQL 17 client)
+      - name: Install PostgreSQL 17 client
         run: |
+          set -Eeuo pipefail
           sudo apt-get install -y gnupg curl lsb-release
           curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
             | sudo gpg --dearmor -o /usr/share/keyrings/postgresql.gpg
@@ -29,33 +29,85 @@ jobs:
             https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -q
-          # نثبّت نفس إصدار الخادم (Supabase يعمل على PG17)
           sudo apt-get install -y postgresql-client-17
           pg_dump --version
 
-      - name: Determine migration cutoff
-        id: cutoff
+      - name: Validate database secret
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          MAX=$(ls sql/migrations/ | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
-          echo "max_migration=$MAX" >> "$GITHUB_OUTPUT"
-          echo "✅ أعلى migration: $MAX"
+          set -Eeuo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "❌ SUPABASE_DB_URL غير مضبوط في GitHub Actions secrets"
+            exit 1
+          fi
+
+      - name: Determine production migration cutoff
+        id: cutoff
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -Eeuo pipefail
+
+          REPO_MAX=$(find sql/migrations -maxdepth 1 -type f -printf '%f\n' \
+            | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
+          if [ -z "${REPO_MAX:-}" ]; then
+            echo "❌ لم أجد migrations مرقمة في المستودع"
+            exit 1
+          fi
+
+          LIVE_NAME=$(psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -tAc \
+            "SELECT name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 1")
+          LIVE_NAME=$(echo "$LIVE_NAME" | xargs)
+          if [ -z "${LIVE_NAME:-}" ]; then
+            echo "❌ تعذر قراءة آخر migration مطبقة من production"
+            exit 1
+          fi
+
+          LIVE_FILE=$(find sql/migrations -maxdepth 1 -type f \
+            -name "*_${LIVE_NAME}.sql" -printf '%f\n' | sort | tail -1)
+          if [ -z "${LIVE_FILE:-}" ]; then
+            echo "❌ آخر migration في production (${LIVE_NAME}) لا تطابق ملفًا في sql/migrations/"
+            echo "   أوقف التوليد حتى تُوثَّق المطابقة؛ لن نكتب cutoff تخمينيًا."
+            exit 1
+          fi
+
+          LIVE_CUTOFF=$(echo "$LIVE_FILE" | grep -oE '^[0-9]+')
+          if [ "$LIVE_CUTOFF" -gt "$REPO_MAX" ]; then
+            echo "❌ production متقدمة على المستودع: live=$LIVE_CUTOFF repo=$REPO_MAX"
+            exit 1
+          fi
+
+          if [ "$REPO_MAX" -gt "$LIVE_CUTOFF" ]; then
+            echo "⚠️ توجد migrations في المستودع لم تُطبق بعد على production:"
+            find sql/migrations -maxdepth 1 -type f -printf '%f\n' | sort -V \
+              | awk -F_ -v cutoff="$LIVE_CUTOFF" '$1 ~ /^[0-9]+$/ && $1 > cutoff {print "   - " $0}'
+            echo "   سيُستخدم cutoff الحي $LIVE_CUTOFF ولن تُعتبر الملفات المعلقة مشمولة."
+          fi
+
+          echo "live_cutoff=$LIVE_CUTOFF" >> "$GITHUB_OUTPUT"
+          echo "live_name=$LIVE_NAME" >> "$GITHUB_OUTPUT"
+          echo "repo_max=$REPO_MAX" >> "$GITHUB_OUTPUT"
+          echo "✅ production cutoff=$LIVE_CUTOFF (${LIVE_NAME}); repo max=$REPO_MAX"
 
       - name: Generate baseline from production
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          DATE=$(date +%Y%m%d)
-          BASELINE="sql/baseline/000_schema_baseline_${DATE}.sql"
-          MAX="${{ steps.cutoff.outputs.max_migration }}"
+          set -Eeuo pipefail
+          STAMP=$(date -u +%Y%m%d_%H%M%S)
+          BASELINE="sql/baseline/000_schema_baseline_${STAMP}.sql"
+          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
+          LIVE_NAME="${{ steps.cutoff.outputs.live_name }}"
 
           mkdir -p sql/baseline
 
           {
-            echo "-- migration_cutoff: $MAX"
+            echo "-- migration_cutoff: $CUTOFF"
             echo "-- ============================================================"
             echo "-- Schema Baseline — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "-- Project: uutfztmqvajmsxnrqeiv"
-            echo "-- Migrations covered: 1–$MAX"
+            echo "-- Production migration: $CUTOFF ($LIVE_NAME)"
             echo "-- Generated by: .github/workflows/generate-baseline.yml"
             echo "-- Apply with: psql -f supabase_shim.sql && psql -f this_file"
             echo "-- ============================================================"
@@ -69,40 +121,47 @@ jobs:
               --no-tablespaces
           } > "$BASELINE"
 
+          echo "baseline_path=$BASELINE" >> "$GITHUB_ENV"
           LINES=$(wc -l < "$BASELINE")
           echo "✅ Baseline generated: $BASELINE ($LINES سطر)"
 
-      - name: Verify baseline (smoke test)
+      - name: Verify baseline
         run: |
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql | sort | tail -1)
-          # التحقق من وجود migration_cutoff
-          if ! grep -q '^-- migration_cutoff:' "$BASELINE"; then
-            echo "❌ migration_cutoff مفقود من أول سطر"
+          set -Eeuo pipefail
+          BASELINE="$baseline_path"
+          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
+
+          FIRST_LINE=$(head -1 "$BASELINE")
+          if [ "$FIRST_LINE" != "-- migration_cutoff: $CUTOFF" ]; then
+            echo "❌ migration_cutoff في الملف لا يطابق production: $FIRST_LINE"
             exit 1
           fi
-          # التحقق من حجم معقول (> 500 سطر)
+
           LINES=$(wc -l < "$BASELINE")
           if [ "$LINES" -lt 500 ]; then
-            echo "❌ الـbaseline يبدو قصيراً جداً ($LINES سطر) — تحقق من SUPABASE_DB_URL"
+            echo "❌ الـbaseline يبدو قصيراً جداً ($LINES سطر) — تحقق من الاتصال والصلاحيات"
             exit 1
           fi
-          echo "✅ Baseline سليم ($LINES سطر)"
+
+          grep -q '^CREATE TABLE' "$BASELINE" || { echo "❌ لا توجد CREATE TABLE في baseline"; exit 1; }
+          grep -q 'CREATE.*FUNCTION' "$BASELINE" || { echo "❌ لا توجد functions في baseline"; exit 1; }
+          echo "✅ Baseline سليم وموسوم بآخر migration حية ($CUTOFF)"
 
       - name: Commit and push baseline
         run: |
+          set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql | sort | tail -1)
-          MAX="${{ steps.cutoff.outputs.max_migration }}"
-
-          git add sql/baseline/
+          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
+          LIVE_NAME="${{ steps.cutoff.outputs.live_name }}"
+          git add "$baseline_path"
           git diff --cached --quiet && echo "لا تغييرات" && exit 0
 
           git commit \
-            -m "sql(baseline): schema baseline $(date +%Y%m%d) — migration_cutoff ${MAX}" \
-            -m "Generated from production (uutfztmqvajmsxnrqeiv) after migration ${MAX}." \
+            -m "sql(baseline): production schema cutoff ${CUTOFF}" \
+            -m "Generated from production after ${LIVE_NAME}; repository migrations newer than ${CUTOFF} are intentionally excluded." \
             -m "Reason: ${{ github.event.inputs.reason }}"
 
           git push origin HEAD
-          echo "✅ Baseline مُودَع ومُرفوع"
+          echo "✅ Baseline جديد أُضيف دون حذف اللقطات السابقة"
