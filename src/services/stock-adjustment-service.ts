@@ -53,15 +53,14 @@ export interface StockAdjustment {
   status: 'DRAFT' | 'SUBMITTED' | 'CANCELLED'
   items: StockAdjustmentItem[]
 
-  // Canonical account names used by the current schema.
+  // Canonical accounts: inventory asset + gain on increase + loss on decrease.
+  inventory_account_id?: string
   increase_account_id?: string
   decrease_account_id?: string
 
-  // Legacy caller aliases are retained for compatibility; they are mapped to
-  // the canonical increase/decrease accounts before the RPC call.
+  // Legacy aliases remain supported for callers that still use the old names.
   expense_account_id?: string
   gain_account_id?: string
-  inventory_account_id?: string
 
   requires_approval: boolean
   approved_by?: string
@@ -104,20 +103,16 @@ function assertRpcSuccess(result: RpcResult | null, fallback: string): RpcResult
 }
 
 function resolveAccounts(adjustment: StockAdjustment): {
+  inventory_account_id?: string
   increase_account_id?: string
   decrease_account_id?: string
 } {
-  const total = adjustment.items.reduce(
-    (sum, item) => sum + Number(item.value_difference || 0),
-    0,
-  )
-
   return {
+    inventory_account_id: adjustment.inventory_account_id,
     increase_account_id:
-      adjustment.increase_account_id || adjustment.inventory_account_id,
+      adjustment.increase_account_id || adjustment.gain_account_id,
     decrease_account_id:
-      adjustment.decrease_account_id ||
-      (total >= 0 ? adjustment.gain_account_id : adjustment.expense_account_id),
+      adjustment.decrease_account_id || adjustment.expense_account_id,
   }
 }
 
@@ -146,6 +141,7 @@ export const stockAdjustmentService = {
         warehouse_id: adjustment.warehouse_id,
         requires_approval:
           adjustment.requires_approval || Math.abs(totalValueDifference) > 10000,
+        inventory_account_id: accounts.inventory_account_id,
         increase_account_id: accounts.increase_account_id,
         decrease_account_id: accounts.decrease_account_id,
         items: adjustment.items,
