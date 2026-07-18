@@ -1,18 +1,19 @@
 /**
  * Stock Adjustment Service
- * Based on ERPNext, SAP, and Oracle best practices
- * Handles inventory adjustments with proper accounting integration
+ *
+ * Write operations are delegated to PostgreSQL RPCs so the adjustment header,
+ * stock ledger, bins, product aggregate, and canonical GL entry commit or roll
+ * back as one transaction. Read-only/reporting helpers remain client-side.
  */
 
 import { getSupabase as _getSupabase } from '../lib/supabase'
-const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
-// Helper function to get supabase client
+const getSupabase = () =>
+  _getSupabase() as import('@supabase/supabase-js').SupabaseClient
+
 const getClient = async () => {
   const client = getSupabase()
-  if (!client) {
-    throw new Error('Supabase client not initialized')
-  }
+  if (!client) throw new Error('Supabase client not initialized')
   return client
 }
 
@@ -23,6 +24,7 @@ export interface StockAdjustmentItem {
   new_qty: number
   difference_qty: number
   current_rate: number
+  new_rate?: number
   value_difference: number
   reason?: string
   warehouse_id?: string
@@ -32,26 +34,37 @@ export interface StockAdjustmentItem {
 
 export interface StockAdjustment {
   id?: string
+  org_id?: string
+  adjustment_number?: string
   adjustment_date: string
-  adjustment_type: 'PHYSICAL_COUNT' | 'DAMAGE' | 'THEFT' | 'EXPIRY' | 'QUALITY_ISSUE' | 'REVALUATION' | 'OTHER'
+  posting_date?: string
+  adjustment_type:
+    | 'PHYSICAL_COUNT'
+    | 'DAMAGE'
+    | 'THEFT'
+    | 'EXPIRY'
+    | 'QUALITY_ISSUE'
+    | 'REVALUATION'
+    | 'OTHER'
   reason: string
   reference_number?: string
   warehouse_id?: string
   total_value_difference: number
   status: 'DRAFT' | 'SUBMITTED' | 'CANCELLED'
   items: StockAdjustmentItem[]
-  
-  // Accounting Integration
-  expense_account_id?: string  // For losses (e.g., 5950 - Inventory Adjustments)
-  gain_account_id?: string     // For gains (e.g., 4900 - Other Income)
-  inventory_account_id?: string // Inventory GL account
-  
-  // Approval
+
+  // Canonical accounts: inventory asset + gain on increase + loss on decrease.
+  inventory_account_id?: string
+  increase_account_id?: string
+  decrease_account_id?: string
+
+  // Legacy aliases remain supported for callers that still use the old names.
+  expense_account_id?: string
+  gain_account_id?: string
+
   requires_approval: boolean
   approved_by?: string
   approved_at?: string
-  
-  // Audit
   created_by?: string
   created_at?: string
   posted_by?: string
@@ -65,240 +78,132 @@ export interface PhysicalCountSession {
   warehouse_id?: string
   counted_by: string
   status: 'IN_PROGRESS' | 'COMPLETED' | 'ADJUSTED'
-  items: {
+  items: Array<{
     product_id: string
     system_qty: number
     counted_qty: number
     difference: number
-  }[]
+  }>
   created_at?: string
 }
 
+type RpcResult = {
+  success?: boolean
+  error?: string
+  adjustment_id?: string
+  adjustment_number?: string
+  duplicate?: boolean
+  gl_entry_id?: string | null
+  reversal_gl_entry_id?: string | null
+}
+
+function assertRpcSuccess(result: RpcResult | null, fallback: string): RpcResult {
+  if (!result?.success) throw new Error(result?.error || fallback)
+  return result
+}
+
+function resolveAccounts(adjustment: StockAdjustment): {
+  inventory_account_id?: string
+  increase_account_id?: string
+  decrease_account_id?: string
+} {
+  return {
+    inventory_account_id: adjustment.inventory_account_id,
+    increase_account_id:
+      adjustment.increase_account_id || adjustment.gain_account_id,
+    decrease_account_id:
+      adjustment.decrease_account_id || adjustment.expense_account_id,
+  }
+}
+
 export const stockAdjustmentService = {
-  
-  /**
-   * Create a new stock adjustment (Draft)
-   */
   createAdjustment: async (adjustment: StockAdjustment) => {
-    const supabase = await getClient()
-    
-    // Validate
-    if (!adjustment.items || adjustment.items.length === 0) {
+    if (!adjustment.items?.length) {
       throw new Error('يجب إضافة منتج واحد على الأقل')
     }
-    
-    // Calculate total value difference
-    const totalValueDiff = adjustment.items.reduce((sum, item) => 
-      sum + item.value_difference, 0
+
+    const supabase = await getClient()
+    const accounts = resolveAccounts(adjustment)
+    const totalValueDifference = adjustment.items.reduce(
+      (sum, item) => sum + Number(item.value_difference || 0),
+      0,
     )
-    
-    // Create adjustment header
-    const { data: headerData, error: headerError } = await supabase
-      .from('stock_adjustments')
-      .insert({
+
+    const { data, error } = await supabase.rpc('rpc_create_stock_adjustment', {
+      p_payload: {
+        org_id: adjustment.org_id,
+        adjustment_number: adjustment.adjustment_number,
         adjustment_date: adjustment.adjustment_date,
+        posting_date: adjustment.posting_date || adjustment.adjustment_date,
         adjustment_type: adjustment.adjustment_type,
         reason: adjustment.reason,
         reference_number: adjustment.reference_number,
         warehouse_id: adjustment.warehouse_id,
-        total_value_difference: totalValueDiff,
-        status: 'DRAFT',
-        requires_approval: Math.abs(totalValueDiff) > 10000, // Require approval for large adjustments
-        expense_account_id: adjustment.expense_account_id,
-        gain_account_id: adjustment.gain_account_id,
-        inventory_account_id: adjustment.inventory_account_id,
-        remarks: adjustment.remarks
-      })
-      .select()
-      .single()
-    
-    if (headerError) throw headerError
-    
-    // Create adjustment items
-    const itemsData = adjustment.items.map(item => ({
-      adjustment_id: headerData.id,
-      product_id: item.product_id,
-      current_qty: item.current_qty,
-      new_qty: item.new_qty,
-      difference_qty: item.difference_qty,
-      current_rate: item.current_rate,
-      value_difference: item.value_difference,
-      reason: item.reason,
-      warehouse_id: item.warehouse_id,
-      batch_no: item.batch_no,
-      serial_nos: item.serial_nos
-    }))
-    
-    const { error: itemsError } = await supabase
-      .from('stock_adjustment_items')
-      .insert(itemsData)
-    
-    if (itemsError) throw itemsError
-    
-    return headerData
+        requires_approval:
+          adjustment.requires_approval || Math.abs(totalValueDifference) > 10000,
+        inventory_account_id: accounts.inventory_account_id,
+        increase_account_id: accounts.increase_account_id,
+        decrease_account_id: accounts.decrease_account_id,
+        items: adjustment.items,
+      },
+    })
+
+    if (error) throw error
+    const result = assertRpcSuccess(
+      data as RpcResult | null,
+      'فشل إنشاء تسوية المخزون',
+    )
+
+    return {
+      id: result.adjustment_id,
+      adjustment_number: result.adjustment_number,
+      status: 'DRAFT' as const,
+    }
   },
-  
-  /**
-   * Submit and post adjustment (creates stock ledger entries)
-   */
-  submitAdjustment: async (adjustmentId: string, userId: string) => {
+
+  submitAdjustment: async (adjustmentId: string, _userId: string) => {
     const supabase = await getClient()
-    
-    // Get adjustment with items
-    const { data: adjustment, error: fetchError } = await supabase
-      .from('stock_adjustments')
-      .select(`
-        *,
-        items:stock_adjustment_items(*)
-      `)
-      .eq('id', adjustmentId)
-      .single()
-    
-    if (fetchError) throw fetchError
-    
-    // Check if requires approval
-    if (adjustment.requires_approval && !adjustment.approved_by) {
-      throw new Error('هذه التسوية تتطلب موافقة المدير')
+    const { data, error } = await supabase.rpc('rpc_submit_stock_adjustment', {
+      p_adjustment_id: adjustmentId,
+    })
+    if (error) throw error
+    const result = assertRpcSuccess(
+      data as RpcResult | null,
+      'فشل ترحيل تسوية المخزون',
+    )
+    return {
+      success: true,
+      duplicate: Boolean(result.duplicate),
+      glEntryId: result.gl_entry_id || null,
+      message: result.duplicate
+        ? 'التسوية مرحلة مسبقاً'
+        : 'تم ترحيل التسوية بنجاح',
     }
-    
-    // Check status
-    if (adjustment.status !== 'DRAFT') {
-      throw new Error('يمكن ترحيل التسويات بحالة مسودة فقط')
-    }
-    
-    // Begin transaction: Create stock ledger entries
-    for (const item of adjustment.items) {
-      // Get current product valuation
-      const { data: product } = await supabase
-        .from('products')
-        .select('stock_quantity, cost_price, stock_value, valuation_method')
-        .eq('id', item.product_id)
-        .single()
-      
-      if (!product) {
-        throw new Error(`المنتج غير موجود: ${item.product_id}`)
-      }
-      
-      // Create stock ledger entry
-      const { error: sleError } = await supabase
-        .from('stock_ledger_entries')
-        .insert({
-          voucher_type: 'Stock Adjustment',
-          voucher_id: adjustmentId,
-          voucher_number: adjustment.reference_number,
-          product_id: item.product_id,
-          warehouse_id: item.warehouse_id || adjustment.warehouse_id,
-          posting_date: adjustment.adjustment_date,
-          actual_qty: item.difference_qty,
-          qty_after_transaction: product.stock_quantity + item.difference_qty,
-          incoming_rate: item.difference_qty > 0 ? item.current_rate : 0,
-          outgoing_rate: item.difference_qty < 0 ? item.current_rate : 0,
-          valuation_rate: item.current_rate,
-          stock_value: (product.stock_quantity + item.difference_qty) * item.current_rate,
-          stock_value_difference: item.value_difference,
-          batch_no: item.batch_no,
-          serial_nos: item.serial_nos,
-          docstatus: 1
-        })
-      
-      if (sleError) throw sleError
-      
-      // Update product stock
-      const { error: updateError } = await supabase
-        .from('products')
-        .update({
-          stock_quantity: product.stock_quantity + item.difference_qty,
-          stock_value: product.stock_value + item.value_difference,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', item.product_id)
-      
-      if (updateError) throw updateError
-    }
-    
-    // Create accounting entries
-    await createAdjustmentAccountingEntries(supabase, adjustment)
-    
-    // Update adjustment status
-    const { error: statusError } = await supabase
-      .from('stock_adjustments')
-      .update({
-        status: 'SUBMITTED',
-        posted_by: userId,
-        posted_at: new Date().toISOString()
-      })
-      .eq('id', adjustmentId)
-    
-    if (statusError) throw statusError
-    
-    return { success: true, message: 'تم ترحيل التسوية بنجاح' }
   },
-  
-  /**
-   * Cancel adjustment
-   */
+
   cancelAdjustment: async (adjustmentId: string, reason: string) => {
+    if (!reason.trim()) throw new Error('سبب الإلغاء مطلوب')
+
     const supabase = await getClient()
-    
-    // Get adjustment
-    const { data: adjustment, error: fetchError } = await supabase
-      .from('stock_adjustments')
-      .select('*')
-      .eq('id', adjustmentId)
-      .single()
-    
-    if (fetchError) throw fetchError
-    
-    if (adjustment.status !== 'SUBMITTED') {
-      throw new Error('يمكن إلغاء التسويات المرحلة فقط')
+    const { data, error } = await supabase.rpc('rpc_cancel_stock_adjustment', {
+      p_adjustment_id: adjustmentId,
+      p_reason: reason,
+    })
+    if (error) throw error
+    const result = assertRpcSuccess(
+      data as RpcResult | null,
+      'فشل إلغاء تسوية المخزون',
+    )
+    return {
+      success: true,
+      duplicate: Boolean(result.duplicate),
+      reversalGlEntryId: result.reversal_gl_entry_id || null,
+      message: result.duplicate
+        ? 'التسوية ملغاة مسبقاً'
+        : 'تم إلغاء التسوية وعكس آثارها بنجاح',
     }
-    
-    // Cancel stock ledger entries
-    const { error: cancelSleError } = await supabase
-      .from('stock_ledger_entries')
-      .update({ is_cancelled: true })
-      .eq('voucher_type', 'Stock Adjustment')
-      .eq('voucher_id', adjustmentId)
-    
-    if (cancelSleError) throw cancelSleError
-    
-    // Create reversal entries
-    const { data: originalEntries } = await supabase
-      .from('stock_ledger_entries')
-      .select('*')
-      .eq('voucher_type', 'Stock Adjustment')
-      .eq('voucher_id', adjustmentId)
-    
-    for (const entry of originalEntries || []) {
-      await supabase
-        .from('stock_ledger_entries')
-        .insert({
-          ...entry,
-          id: undefined,
-          actual_qty: -entry.actual_qty,
-          stock_value_difference: -entry.stock_value_difference,
-          voucher_number: `CANCEL-${entry.voucher_number}`,
-          remarks: `إلغاء: ${reason}`
-        })
-    }
-    
-    // Update adjustment status
-    const { error: statusError } = await supabase
-      .from('stock_adjustments')
-      .update({
-        status: 'CANCELLED',
-        remarks: `إلغاء: ${reason}`
-      })
-      .eq('id', adjustmentId)
-    
-    if (statusError) throw statusError
-    
-    return { success: true, message: 'تم إلغاء التسوية بنجاح' }
   },
-  
-  /**
-   * Get all adjustments
-   */
+
   getAll: async (filters?: {
     status?: string
     adjustment_type?: string
@@ -314,212 +219,115 @@ export const stockAdjustmentService = {
           *,
           product:products(name, code)
         ),
-        warehouse:warehouses(name),
-        created_by_user:users!created_by(name)
+        warehouse:warehouses(name)
       `)
       .order('adjustment_date', { ascending: false })
-    
-    if (filters?.status) {
-      query = query.eq('status', filters.status)
-    }
-    
+
+    if (filters?.status) query = query.eq('status', filters.status)
     if (filters?.adjustment_type) {
       query = query.eq('adjustment_type', filters.adjustment_type)
     }
-    
-    if (filters?.from_date) {
-      query = query.gte('adjustment_date', filters.from_date)
-    }
-    
-    if (filters?.to_date) {
-      query = query.lte('adjustment_date', filters.to_date)
-    }
-    
+    if (filters?.from_date) query = query.gte('adjustment_date', filters.from_date)
+    if (filters?.to_date) query = query.lte('adjustment_date', filters.to_date)
+
     const { data, error } = await query
-    
     if (error) throw error
     return data
   },
-  
-  /**
-   * Start physical count session
-   */
+
   startPhysicalCount: async (session: PhysicalCountSession) => {
     const supabase = await getClient()
-    
     const { data, error } = await supabase
       .from('physical_count_sessions')
       .insert({
         count_date: session.count_date,
         warehouse_id: session.warehouse_id,
         counted_by: session.counted_by,
-        status: 'IN_PROGRESS'
+        status: 'IN_PROGRESS',
       })
       .select()
       .single()
-    
+
     if (error) throw error
     return data
   },
-  
-  /**
-   * Convert physical count to adjustment
-   */
+
   convertCountToAdjustment: async (sessionId: string) => {
     const supabase = await getClient()
-    
-    // Get count session with items
     const { data: session, error: fetchError } = await supabase
       .from('physical_count_sessions')
-      .select(`
-        *,
-        items:physical_count_items(*)
-      `)
+      .select('*, items:physical_count_items(*)')
       .eq('id', sessionId)
       .single()
-    
+
     if (fetchError) throw fetchError
-    
-    // Get products with current stock
-    const productIds = session.items.map((i: any) => i.product_id)
-    const { data: products } = await supabase
+
+    const productIds = (session.items || []).map(
+      (item: { product_id: string }) => item.product_id,
+    )
+    const { data: products, error: productsError } = await supabase
       .from('products')
       .select('id, stock_quantity, cost_price')
       .in('id', productIds)
-    
-    const productsMap = new Map(products?.map(p => [p.id, p]))
-    
-    // Create adjustment items
-    const adjustmentItems: StockAdjustmentItem[] = session.items
-      .map((item: any) => {
-        const product = productsMap.get(item.product_id)
-        if (!product) return null
-        
-        const difference = item.counted_qty - item.system_qty
-        if (difference === 0) return null // No adjustment needed
-        
-        return {
-          product_id: item.product_id,
-          current_qty: item.system_qty,
-          new_qty: item.counted_qty,
-          difference_qty: difference,
-          current_rate: product.cost_price,
-          value_difference: difference * product.cost_price
-        }
-      })
-      .filter(Boolean) as StockAdjustmentItem[]
-    
-    if (adjustmentItems.length === 0) {
+    if (productsError) throw productsError
+
+    const productsMap = new Map(
+      (products || []).map((product) => [product.id, product]),
+    )
+    const adjustmentItems = (session.items || [])
+      .map(
+        (item: {
+          product_id: string
+          system_qty: number
+          counted_qty: number
+        }): StockAdjustmentItem | null => {
+          const product = productsMap.get(item.product_id)
+          if (!product) return null
+          const difference = item.counted_qty - item.system_qty
+          if (difference === 0) return null
+          return {
+            product_id: item.product_id,
+            current_qty: item.system_qty,
+            new_qty: item.counted_qty,
+            difference_qty: difference,
+            current_rate: Number(product.cost_price || 0),
+            value_difference: difference * Number(product.cost_price || 0),
+            warehouse_id: session.warehouse_id,
+          }
+        },
+      )
+      .filter((item: StockAdjustmentItem | null): item is StockAdjustmentItem =>
+        Boolean(item),
+      )
+
+    if (!adjustmentItems.length) {
       throw new Error('لا توجد فروقات تتطلب تسوية')
     }
-    
-    // Create adjustment
-    const adjustment: StockAdjustment = {
+
+    const createdAdjustment = await stockAdjustmentService.createAdjustment({
       adjustment_date: session.count_date,
       adjustment_type: 'PHYSICAL_COUNT',
       reason: `جرد فعلي - ${new Date(session.count_date).toLocaleDateString('ar-SA')}`,
       reference_number: `PC-${sessionId.slice(0, 8)}`,
       warehouse_id: session.warehouse_id,
-      total_value_difference: adjustmentItems.reduce((sum, i) => sum + i.value_difference, 0),
+      total_value_difference: adjustmentItems.reduce(
+        (sum, item) => sum + item.value_difference,
+        0,
+      ),
       status: 'DRAFT',
       requires_approval: true,
       items: adjustmentItems,
-      remarks: `تسوية من جرد فعلي #${sessionId}`
-    }
-    
-    const createdAdjustment = await stockAdjustmentService.createAdjustment(adjustment)
-    
-    // Update session status
-    await supabase
+      remarks: `تسوية من جرد فعلي #${sessionId}`,
+    })
+
+    const { error: updateError } = await supabase
       .from('physical_count_sessions')
-      .update({ 
-        status: 'ADJUSTED',
-        adjustment_id: createdAdjustment.id
-      })
+      .update({ status: 'ADJUSTED', adjustment_id: createdAdjustment.id })
       .eq('id', sessionId)
-    
+    if (updateError) throw updateError
+
     return createdAdjustment
-  }
-}
-
-/**
- * Create accounting entries for stock adjustment
- * Following double-entry accounting principles
- */
-async function createAdjustmentAccountingEntries(
-  supabase: any, 
-  adjustment: any
-) {
-  const totalValueDiff = adjustment.total_value_difference
-  
-  if (totalValueDiff === 0) return // No accounting impact
-  
-  const entries = []
-  
-  if (totalValueDiff > 0) {
-    // Stock increase: Dr increase_account_id (inventory asset) / Cr decrease_account_id (adjustment/gain)
-    entries.push({
-      account_id: adjustment.increase_account_id,
-      debit: totalValueDiff,
-      credit: 0,
-      description: `تسوية مخزون - زيادة: ${adjustment.reference_number}`
-    })
-    entries.push({
-      account_id: adjustment.decrease_account_id,
-      debit: 0,
-      credit: totalValueDiff,
-      description: `ربح تسوية مخزون: ${adjustment.reference_number}`
-    })
-  } else {
-    // Stock decrease: Dr decrease_account_id (adjustment/loss) / Cr increase_account_id (inventory asset)
-    entries.push({
-      account_id: adjustment.decrease_account_id,
-      debit: Math.abs(totalValueDiff),
-      credit: 0,
-      description: `خسارة تسوية مخزون: ${adjustment.reference_number}`
-    })
-    entries.push({
-      account_id: adjustment.increase_account_id,
-      debit: 0,
-      credit: Math.abs(totalValueDiff),
-      description: `تسوية مخزون - نقص: ${adjustment.reference_number}`
-    })
-  }
-  
-  // Create GL entry via canonical RPC (atomic, idempotent)
-  const { data: rpcResult, error: rpcError } = await supabase.rpc(
-    'rpc_create_journal_entry',
-    {
-      p_payload: {
-        org_id: adjustment.org_id,
-        entry_date: adjustment.adjustment_date,
-        entry_type: 'manual',
-        reference_type: 'Stock Adjustment',
-        reference_number: adjustment.reference_number,
-        description: adjustment.reason || `تسوية مخزون ${adjustment.reference_number}`,
-        auto_post: true,
-        idempotency_key: `stock-adj-${adjustment.id}`,
-        lines: entries.map((e, i) => ({
-          line_number: i + 1,
-          account_id: e.account_id,
-          debit: e.debit,
-          credit: e.credit,
-          description: e.description,
-        })),
-      },
-    }
-  )
-
-  if (rpcError) throw rpcError
-  if (!rpcResult?.success) throw new Error(rpcResult?.error || 'فشل إنشاء القيد المحاسبي')
-
-  // Store GL entry reference on the adjustment record
-  if (rpcResult.entry_id) {
-    await supabase
-      .from('stock_adjustments')
-      .update({ journal_entry_id: rpcResult.entry_id })
-      .eq('id', adjustment.id)
-  }
+  },
 }
 
 export default stockAdjustmentService

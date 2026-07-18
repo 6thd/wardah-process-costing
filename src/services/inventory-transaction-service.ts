@@ -1,172 +1,153 @@
 /**
  * Inventory Transaction Service
- * 
- * Handles all inventory transactions including:
- * - Material reservations
- * - Material consumption
- * - Reservation releases
- * - Stock availability checks
+ *
+ * Reservations remain simple RLS-scoped writes. Material consumption is routed
+ * through rpc_consume_reserved_materials so reservation state, bins, product
+ * aggregates, and stock ledger entries are updated in one database transaction.
  */
 
-import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
-import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError';
-import { AppError } from '@/lib/errors/AppError';
-const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
+import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { InsufficientInventoryError } from '@/lib/errors/InsufficientInventoryError'
+import { AppError } from '@/lib/errors/AppError'
 
-/**
- * Material reservation
- */
+const supabase =
+  _supabase as import('@supabase/supabase-js').SupabaseClient
+
 export interface MaterialReservation {
-  id: string;
-  org_id: string;
-  mo_id: string;
-  item_id: string;
-  quantity_reserved: number;
-  quantity_consumed: number;
-  quantity_released: number;
-  status: 'reserved' | 'consumed' | 'released' | 'expired' | 'cancelled';
-  reserved_at: string;
-  consumed_at?: string;
-  released_at?: string;
-  expires_at?: string;
-  notes?: string;
+  id: string
+  org_id: string
+  mo_id: string
+  item_id: string
+  quantity_reserved: number
+  quantity_consumed: number
+  quantity_released: number
+  status: 'reserved' | 'consumed' | 'released' | 'expired' | 'cancelled'
+  reserved_at: string
+  consumed_at?: string
+  released_at?: string
+  expires_at?: string
+  notes?: string
 }
 
-/**
- * Material requirement for reservation
- */
 export interface MaterialRequirement {
-  item_id: string;
-  quantity: number;
-  location_id?: string;
-  unit_cost?: number;
+  item_id: string
+  quantity: number
+  location_id?: string
+  unit_cost?: number
 }
 
-/**
- * Material consumption record
- */
 export interface MaterialConsumption {
-  item_id: string;
-  quantity: number;
-  quantity_reserved: number;
-  unit_cost: number;
-  location_id?: string;
+  item_id: string
+  quantity: number
+  quantity_reserved: number
+  unit_cost: number
+  location_id?: string
+  warehouse_id?: string
 }
 
-/**
- * Stock availability check result
- */
 export interface StockAvailability {
-  item_id: string;
-  item_name?: string;
-  required: number;
-  available: number;
-  on_hand: number;
-  reserved: number;
-  sufficient: boolean;
+  item_id: string
+  item_name?: string
+  required: number
+  available: number
+  on_hand: number
+  reserved: number
+  sufficient: boolean
 }
 
-/**
- * Inventory Transaction Service
- */
 class InventoryTransactionService {
-  /**
-   * Check stock availability for materials
-   */
-  async checkAvailability(
-    requirements: MaterialRequirement[]
-  ): Promise<StockAvailability[]> {
-    const orgId = await getEffectiveTenantId();
+  private async requireOrgId(): Promise<string> {
+    const orgId = await getEffectiveTenantId()
     if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
+      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400)
     }
+    return orgId
+  }
 
-    const results: StockAvailability[] = [];
+  async checkAvailability(
+    requirements: MaterialRequirement[],
+  ): Promise<StockAvailability[]> {
+    const orgId = await this.requireOrgId()
+    const results: StockAvailability[] = []
 
-    for (const req of requirements) {
+    for (const requirement of requirements) {
       const { data, error } = await supabase.rpc('get_available_quantity', {
         p_org_id: orgId,
-        p_item_id: req.item_id,
-        p_location_id: req.location_id || null,
-      });
-
+        p_item_id: requirement.item_id,
+        p_location_id: requirement.location_id || null,
+      })
       if (error) {
         throw new AppError(
           'STOCK_CHECK_ERROR',
-          `Failed to check stock for item ${req.item_id}: ${error.message}`,
+          `Failed to check stock for item ${requirement.item_id}: ${error.message}`,
           500,
           true,
-          { item_id: req.item_id, error }
-        );
+          { item_id: requirement.item_id, error },
+        )
       }
 
-      const available = data || 0;
-
-      // Get reserved quantity
-      const { data: reservedData } = await supabase
+      const { data: reservations, error: reservationError } = await supabase
         .from('material_reservations')
         .select('quantity_reserved, quantity_consumed, quantity_released')
         .eq('org_id', orgId)
-        .eq('item_id', req.item_id)
-        .eq('status', 'reserved');
+        .eq('item_id', requirement.item_id)
+        .eq('status', 'reserved')
+      if (reservationError) throw reservationError
 
-      const reserved = reservedData?.reduce((sum, r) => {
-        return sum + (r.quantity_reserved - (r.quantity_consumed || 0) - (r.quantity_released || 0));
-      }, 0) || 0;
+      const reserved = (reservations || []).reduce(
+        (sum, reservation) =>
+          sum +
+          Number(reservation.quantity_reserved || 0) -
+          Number(reservation.quantity_consumed || 0) -
+          Number(reservation.quantity_released || 0),
+        0,
+      )
 
-      // Get on-hand quantity
-      const { data: stockData } = await supabase
-        .from('stock_quants')
-        .select('quantity')
+      const { data: bins, error: binsError } = await supabase
+        .from('bins')
+        .select('actual_qty')
         .eq('org_id', orgId)
-        .eq('item_id', req.item_id)
-        .maybeSingle();
+        .eq('product_id', requirement.item_id)
+      if (binsError) throw binsError
 
-      const on_hand = stockData?.quantity || 0;
+      const onHand = (bins || []).reduce(
+        (sum, bin) => sum + Number(bin.actual_qty || 0),
+        0,
+      )
+      const available = Number(data ?? Math.max(onHand - reserved, 0))
 
       results.push({
-        item_id: req.item_id,
-        required: req.quantity,
+        item_id: requirement.item_id,
+        required: requirement.quantity,
         available,
-        on_hand,
+        on_hand: onHand,
         reserved,
-        sufficient: available >= req.quantity,
-      });
+        sufficient: available >= requirement.quantity,
+      })
     }
 
-    return results;
+    return results
   }
 
-  /**
-   * Reserve materials for a manufacturing order
-   */
   async reserveMaterials(
     moId: string,
     materials: MaterialRequirement[],
-    expiresAt?: Date
+    expiresAt?: Date,
   ): Promise<MaterialReservation[]> {
-    const orgId = await getEffectiveTenantId();
-    if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
-    }
+    const orgId = await this.requireOrgId()
+    const availability = await this.checkAvailability(materials)
+    const insufficient = availability.find((item) => !item.sufficient)
 
-    // Check availability first
-    const availability = await this.checkAvailability(materials);
-    const insufficient = availability.filter(a => !a.sufficient);
-
-    if (insufficient.length > 0) {
-      const item = insufficient[0];
+    if (insufficient) {
       throw new InsufficientInventoryError(
-        item.item_id,
-        item.required,
-        item.available,
-        item.item_name
-      );
+        insufficient.item_id,
+        insufficient.required,
+        insufficient.available,
+        insufficient.item_name,
+      )
     }
 
-    // Create reservations
-    const reservations: MaterialReservation[] = [];
-
+    const reservations: MaterialReservation[] = []
     for (const material of materials) {
       const { data, error } = await supabase
         .from('material_reservations')
@@ -179,7 +160,7 @@ class InventoryTransactionService {
           expires_at: expiresAt?.toISOString() || null,
         })
         .select()
-        .single();
+        .single()
 
       if (error) {
         throw new AppError(
@@ -187,99 +168,101 @@ class InventoryTransactionService {
           `Failed to reserve material: ${error.message}`,
           500,
           true,
-          { material, error }
-        );
+          { material, error },
+        )
       }
-
-      reservations.push(data as MaterialReservation);
+      reservations.push(data as MaterialReservation)
     }
-
-    return reservations;
+    return reservations
   }
 
-  /**
-   * Consume reserved materials
-   */
   async consumeReservedMaterials(
     moId: string,
-    consumptions: MaterialConsumption[]
+    consumptions: MaterialConsumption[],
   ): Promise<void> {
-    const orgId = await getEffectiveTenantId();
-    if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
+    await this.requireOrgId()
+    if (!consumptions.length) return
+
+    const { data, error } = await supabase.rpc(
+      'rpc_consume_reserved_materials',
+      {
+        p_mo_id: moId,
+        p_consumptions: consumptions.map((consumption) => ({
+          item_id: consumption.item_id,
+          quantity: consumption.quantity,
+          warehouse_id: consumption.warehouse_id,
+          location_id: consumption.location_id,
+        })),
+      },
+    )
+
+    if (error) {
+      throw new AppError(
+        'CONSUMPTION_ERROR',
+        `Failed to consume reserved materials: ${error.message}`,
+        500,
+        true,
+        { moId, consumptions, error },
+      )
     }
 
-    // Use transaction to ensure atomicity
-    // Note: For now, we'll execute operations sequentially
-    // In production, use database transactions via RPC functions
-    for (const consumption of consumptions) {
-      // Update reservation
-      const { error: updateError } = await supabase
-        .from('material_reservations')
-        .update({
-          status: 'consumed',
-          quantity_consumed: consumption.quantity,
-          consumed_at: new Date().toISOString(),
-        })
-        .eq('org_id', orgId)
-        .eq('mo_id', moId)
-        .eq('item_id', consumption.item_id)
-        .eq('status', 'reserved');
-
-      if (updateError) {
-        throw new AppError(
-          'CONSUMPTION_ERROR',
-          `Failed to consume material: ${updateError.message}`,
-          500,
-          true,
-          { consumption, error: updateError }
-        );
-      }
-
-      // stock_moves table was replaced by stock_ledger_entries (written by RPC functions).
-      // Consumption is already tracked via the reservations update above; no additional
-      // ledger write is needed here.
+    const result = data as { success?: boolean; error?: string } | null
+    if (!result?.success) {
+      throw new AppError(
+        'CONSUMPTION_ERROR',
+        result?.error || 'Material consumption transaction failed',
+        500,
+        true,
+        { moId, consumptions, result },
+      )
     }
   }
 
-  /**
-   * Release reservation
-   */
   async releaseReservation(
     reservationId: string,
-    quantity?: number
+    quantity?: number,
   ): Promise<void> {
-    const orgId = await getEffectiveTenantId();
-    if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
-    }
-
-    const reservation = await supabase
+    const orgId = await this.requireOrgId()
+    const { data: reservation, error: fetchError } = await supabase
       .from('material_reservations')
       .select('*')
       .eq('id', reservationId)
       .eq('org_id', orgId)
-      .single();
+      .single()
 
-    if (reservation.error || !reservation.data) {
-      throw new AppError(
-        'RESERVATION_NOT_FOUND',
-        'Reservation not found',
-        404
-      );
+    if (fetchError || !reservation) {
+      throw new AppError('RESERVATION_NOT_FOUND', 'Reservation not found', 404)
     }
 
-    const releaseQty = quantity || (reservation.data.quantity_reserved - (reservation.data.quantity_consumed || 0));
+    const remaining =
+      Number(reservation.quantity_reserved || 0) -
+      Number(reservation.quantity_consumed || 0) -
+      Number(reservation.quantity_released || 0)
+    const releaseQuantity = quantity ?? remaining
+
+    if (releaseQuantity <= 0 || releaseQuantity > remaining) {
+      throw new AppError(
+        'INVALID_RELEASE_QUANTITY',
+        'Release quantity must be positive and no greater than the remaining reservation',
+        400,
+      )
+    }
+
+    const newReleased =
+      Number(reservation.quantity_released || 0) + releaseQuantity
+    const fullyClosed =
+      newReleased + Number(reservation.quantity_consumed || 0) >=
+      Number(reservation.quantity_reserved || 0)
 
     const { error } = await supabase
       .from('material_reservations')
       .update({
-        status: 'released',
-        quantity_released: releaseQty,
+        status: fullyClosed ? 'released' : 'reserved',
+        quantity_released: newReleased,
         released_at: new Date().toISOString(),
       })
       .eq('id', reservationId)
-      .eq('org_id', orgId);
+      .eq('org_id', orgId)
 
     if (error) {
       throw new AppError(
@@ -287,69 +270,38 @@ class InventoryTransactionService {
         `Failed to release reservation: ${error.message}`,
         500,
         true,
-        { reservationId, error }
-      );
+        { reservationId, error },
+      )
     }
   }
 
-  /**
-   * Release all reservations for a manufacturing order
-   */
   async releaseAllReservations(moId: string): Promise<void> {
-    const orgId = await getEffectiveTenantId();
-    if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
-    }
-
-    // Get current values first, then update
-    const { data: reservations } = await supabase
+    const orgId = await this.requireOrgId()
+    const { data: reservations, error: fetchError } = await supabase
       .from('material_reservations')
-      .select('id, quantity_reserved, quantity_consumed')
+      .select('id, quantity_reserved, quantity_consumed, quantity_released')
       .eq('org_id', orgId)
       .eq('mo_id', moId)
-      .eq('status', 'reserved');
+      .eq('status', 'reserved')
+    if (fetchError) throw fetchError
 
-    if (reservations && reservations.length > 0) {
-      for (const reservation of reservations) {
-        const quantityReleased = (reservation.quantity_reserved || 0) - (reservation.quantity_consumed || 0);
-        
-        const { error } = await supabase
-          .from('material_reservations')
-          .update({
-            status: 'released',
-            quantity_released: quantityReleased,
-            released_at: new Date().toISOString(),
-          })
-          .eq('id', reservation.id);
-        
-        if (error) {
-          throw new AppError(
-            'RELEASE_ERROR',
-            `Failed to release reservation: ${error.message}`,
-            500,
-            true,
-            { reservationId: reservation.id, error }
-          );
-        }
-      }
+    for (const reservation of reservations || []) {
+      const remaining =
+        Number(reservation.quantity_reserved || 0) -
+        Number(reservation.quantity_consumed || 0) -
+        Number(reservation.quantity_released || 0)
+      if (remaining > 0) await this.releaseReservation(reservation.id, remaining)
     }
   }
 
-  /**
-   * Get reservations for a manufacturing order
-   */
   async getReservations(moId: string): Promise<MaterialReservation[]> {
-    const orgId = await getEffectiveTenantId();
-    if (!orgId) {
-      throw new AppError('TENANT_ERROR', 'Organization ID not found', 400);
-    }
-
+    const orgId = await this.requireOrgId()
     const { data, error } = await supabase
       .from('material_reservations')
       .select('*')
       .eq('org_id', orgId)
       .eq('mo_id', moId)
-      .order('created_at', { ascending: true });
+      .order('created_at', { ascending: true })
 
     if (error) {
       throw new AppError(
@@ -357,16 +309,12 @@ class InventoryTransactionService {
         `Failed to fetch reservations: ${error.message}`,
         500,
         true,
-        { moId, error }
-      );
+        { moId, error },
+      )
     }
-
-    return (data || []) as MaterialReservation[];
+    return (data || []) as MaterialReservation[]
   }
 }
 
-// Export singleton instance
-export const inventoryTransactionService = new InventoryTransactionService();
-
-export default inventoryTransactionService;
-
+export const inventoryTransactionService = new InventoryTransactionService()
+export default inventoryTransactionService

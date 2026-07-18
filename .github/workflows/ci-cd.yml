@@ -11,10 +11,10 @@ jobs:
     name: Test & Build
     runs-on: ubuntu-latest
 
-    # T3: خدمة PostgreSQL للـfresh-DB chain test (تُشغَّل دائماً، تُستخدم عند وجود baseline)
+    # Fresh DB uses the same PostgreSQL major version as Supabase Production.
     services:
       postgres:
-        image: postgres:16
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -34,26 +34,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          # Node 18/20 انتهى دعمهما — موحَّد مع sonarqube.yml على 24 LTS
           node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
-      # i18n gate: يمنع عودة النصوص المشفَّرة (isRTL ? 'عربي' : 'إنجليزي') بعد T6 م3
       - name: i18n hardcoded-text gate
         run: node scripts/i18n/count-hardcoded.mjs --ci
 
-      # تقرير إعلامي للأنماط الأشمل (placeholder/aria-label + نصوص JSX مباشرة)
-      # غير حاجز — يُظهر العداد الحالي لتتبع التقدم نحو صفر عبر مهام i18n المستقبلية
       - name: i18n extended report (informational)
         run: node scripts/i18n/count-hardcoded.mjs --extended
         continue-on-error: true
 
-      # P5: التحقق من أن ملف الأنواع المولَّدة محدَّث مع المخطط المُودَع
-      # (يكشف تناقضاً بين database.generated.ts المُودَع والأنواع التي سيولّدها CLI
-      #  عبر مقارنة بسيطة لحجم الملف — تحديث كامل يتطلب بيانات اعتماد Supabase)
       - name: Check generated types are committed
         run: |
           if [ ! -f "src/types/database.generated.ts" ]; then
@@ -75,21 +68,15 @@ jobs:
         run: npm run lint
         continue-on-error: false
 
-      # P4-C1: الاختبارات حاجز حقيقي — أي فشل يمنع الدمج والنشر
-      # (coverage معطَّل هنا للسرعة — SonarQube يتولى قياس التغطية)
       - name: Unit & integration tests
         run: npm run test -- --run --coverage.enabled=false
         continue-on-error: false
 
-      # فحص صياغة migrations بمحلل PostgreSQL الحقيقي (libpg_query) —
-      # يمسك RAISE العارية وصياغة SQL Server المتسللة وأي SQL مرفوض
       - name: Migration SQL syntax check (pglast)
         run: |
           pip install --quiet pglast
           python3 scripts/ci/check_migration_syntax.py
 
-      # P2: التحقق من اتساق ترقيم الـ migrations (لا ثغرات في الأرقام، كل فجوة موثَّقة)
-      # يقرأ sql/migrations/skipped_migration_numbers.yml (مقارنة دقيقة بالأرقام لا grep)
       - name: Validate migration numbering
         run: |
           pip install --quiet pyyaml
@@ -130,42 +117,32 @@ jobs:
           print(f"✅ ترقيم migrations سليم (1–{max_num})، {len(skipped)} رقم موثَّق كمتجاوز")
           PYEOF
 
-      # T1 CI guard: منع دوال SECURITY DEFINER جديدة بلا حارس عضوية مؤسسة
       - name: DEFINER guard check (no new unguarded DEFINER functions)
         run: python3 scripts/ci/check_definer_guards.py
 
-      # T3: اختبار بناء القاعدة من الصفر (يُشغَّل فقط عند وجود baseline)
-      # يتطلب T2 — يُفعَّل تلقائياً حين يُودَع sql/baseline/000_schema_baseline_*.sql
-      # لتوليد الـbaseline: شغّل .github/workflows/generate-baseline.yml يدوياً
       - name: Fresh DB chain test
         run: |
+          set -Eeuo pipefail
           BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
           if [ -z "$BASELINE" ]; then
-            echo "⏭ لا baseline بعد (T2 معلق) — تجاوز اختبار البناء من الصفر"
-            echo "   لتفعيله: شغّل generate-baseline.yml بعد إضافة SUPABASE_DB_URL للـsecrets"
+            echo "⏭ لا baseline بعد — تجاوز اختبار البناء من الصفر"
             exit 0
           fi
 
           echo "✅ Baseline موجود: $BASELINE"
-
-          # استخرج migration_cutoff من أول سطر الـbaseline
           CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
                    | grep -oE '[0-9]+$' | head -1)
           CUTOFF=${CUTOFF:-0}
           echo "   migration_cutoff = $CUTOFF"
+          echo "   PostgreSQL client: $(psql --version)"
 
-          # أنشئ قاعدة فارغة
           createdb wardah_fresh
 
-          # طبّق shim (roles + auth + storage) — أوقف عند أي خطأ SQL
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
-
-          # طبّق baseline — أوقف عند أي خطأ SQL
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f "$BASELINE" -q
 
-          # تحقق من أعداد الكائنات بعد التطبيق
           TABLES=$(psql -d wardah_fresh -tAc \
             "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
           SEQS=$(psql -d wardah_fresh -tAc \
@@ -178,17 +155,12 @@ jobs:
             "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
 
           echo "   Schema counts after baseline: tables=$TABLES seqs=$SEQS funcs=$FUNCS policies=$POLICIES"
-
-          # الحدود الدنيا المتوقعة (تتسامح مع ±10 للتكيف مع تغييرات مستقبلية)
           if [ "$TABLES" -lt 120 ] || [ "$SEQS" -lt 10 ] || \
              [ "$FUNCS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
             echo "❌ عدد كائنات ما بعد الـbaseline أقل من الحد الأدنى المتوقع"
             exit 1
           fi
-          echo "✅ Schema counts سليمة"
 
-          # تحقق من الأعمدة المحسوبة (GENERATED ALWAYS AS STORED)
-          # يفشل إذا كان أي عمود محسوب معروف قد تحول إلى عمود عادي
           GENERATED=$(psql -d wardah_fresh -tAc \
             "SELECT count(*) FROM pg_attribute a
              JOIN pg_class c ON a.attrelid = c.oid
@@ -196,7 +168,7 @@ jobs:
              WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped")
           echo "   Generated columns: $GENERATED (expected ≥22)"
           if [ "$GENERATED" -lt 22 ]; then
-            echo "❌ الأعمدة المحسوبة (GENERATED ALWAYS AS STORED) أقل من المتوقع — تحقق من الـbaseline"
+            echo "❌ الأعمدة المحسوبة أقل من المتوقع"
             psql -d wardah_fresh -c \
               "SELECT c.relname, a.attname FROM pg_attribute a
                JOIN pg_class c ON a.attrelid = c.oid
@@ -205,9 +177,7 @@ jobs:
                ORDER BY c.relname, a.attname"
             exit 1
           fi
-          echo "✅ Generated columns سليمة ($GENERATED)"
 
-          # ابنِ قائمة المهاجرات الأحدث من الـbaseline فقط
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > /tmp/chain_order.txt
 
@@ -221,17 +191,14 @@ jobs:
           REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
           STATUS=$?
-
-          # اطبع ملخص التقرير
           tail -5 /tmp/chain_report.txt
 
-          # فشل إن وجد FAIL أو NOT_RUN
           if [ $STATUS -ne 0 ]; then
             echo "❌ fresh-db chain test فشل"
             grep -E '^(FAIL|NOT_RUN) ' /tmp/chain_report.txt || true
             exit 1
           fi
-          echo "✅ fresh-db chain test اجتاز بنجاح"
+          echo "✅ fresh-db chain test اجتاز بنجاح على PostgreSQL 17"
         env:
           PGHOST: localhost
           PGUSER: postgres
@@ -263,7 +230,7 @@ jobs:
           name: dist
           path: dist/
 
-      # TODO: replace with real deploy (Vercel CLI, rsync, AWS S3, etc.)
-      # Until then this step is a placeholder — the job still gates on `test`.
+      # External Vercel/Netlify integrations currently perform deployment.
+      # This job remains an explicit placeholder and does not mutate production.
       - name: Deploy to Server (placeholder)
-        run: echo "⚠️ Deploy step is a placeholder — wire up a real deployment target."
+        run: echo "⚠️ Deploy step is a placeholder — deployment is handled externally."
