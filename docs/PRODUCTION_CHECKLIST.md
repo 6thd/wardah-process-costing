@@ -1,7 +1,38 @@
 # قائمة فحص الإنتاج — Wardah ERP
 
-> آخر تحديث: P4 (9 يوليو 2026). هذه القائمة هي بوابة الانتقال للإنتاج —
+> آخر تحديث: P14 (17 يوليو 2026). هذه القائمة هي بوابة الانتقال للإنتاج —
 > كل بند يُشطب بعد التحقق الفعلي، لا بالافتراض.
+
+## 0) CI/CD Pipeline — حالة 17 يوليو 2026
+
+| البند | الحالة |
+|---|---|
+| **T1** `ci-cd.yml` — lint + type-check + migration numbering | ✅ فعّال |
+| **T2** `generate-baseline.yml` — توليد baseline من الإنتاج | ✅ workflow جاهز — يحتاج `SUPABASE_DB_URL` secret |
+| **T3** Fresh DB chain test (`ci-cd.yml` § 3) | ✅ **فُعِّل** — `000_schema_baseline_20260717.sql` مودَع (cutoff 121) |
+| **T4** E2E nightly (`e2e-nightly.yml`) — 4 أدوار × عزل org | ⏳ يحتاج 9 secrets (انظر أدناه) |
+
+### Secrets المطلوبة لـT4
+
+أضف في `Settings → Secrets and variables → Actions`:
+
+| Secret | القيمة |
+|---|---|
+| `STAGING_URL` | رابط التطبيق المنشور (Vercel) |
+| `E2E_USER_EMAIL` | إيميل مستخدم عادي |
+| `E2E_USER_PASSWORD` | كلمته |
+| `E2E_ORG_ADMIN_EMAIL` | إيميل org admin |
+| `E2E_ORG_ADMIN_PASSWORD` | كلمته |
+| `E2E_SUPER_ADMIN_EMAIL` | إيميل super admin |
+| `E2E_SUPER_ADMIN_PASSWORD` | كلمته |
+| `E2E_ORG_B_USER_EMAIL` | إيميل مستخدم المؤسسة B (عزل البيانات) |
+| `E2E_ORG_B_USER_PASSWORD` | كلمته |
+
+> **ملاحظة staging**: لا تحتاج دمج الفرع في main قبل تشغيل E2E —
+> الاختبارات تعمل على `STAGING_URL` (Supabase + Vercel مستقل عن الفرع).
+> يُنصح بالدمج لتفعيل T3 على main branch CI.
+
+---
 
 ## 1) قاعدة البيانات — Migrations ✅ مطبَّقة على الإنتاج (10 يوليو 2026)
 

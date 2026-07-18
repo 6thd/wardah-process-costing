@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [P14] - 2026-07-17 — CI/CD pipeline كامل + Schema Baseline (migration_cutoff 121)
+
+### Added — T2: توليد Baseline تلقائي
+- `generate-baseline.yml` — workflow يدوي يُولّد `sql/baseline/000_schema_baseline_YYYYMMDD.sql`
+  عبر `pg_dump` من `SUPABASE_DB_URL` ويودعه تلقائياً (T2)
+
+### Added — T3: Fresh DB chain test (فُعِّل تلقائياً)
+- `sql/baseline/000_schema_baseline_20260717.sql` — baseline كامل (611 KB, 13 521 سطراً)
+  يُغطي: 125 جدول · 216 PK/UNIQUE · 237 FK · 470 فهرس · 164 دالة · 17 view
+          72 trigger · 125 RLS ENABLE · 333 policy · ENUM valuation_method_enum
+- مُولَّد عبر **Supabase MCP** (بديل `pg_dump` لأن Direct Connection IPv6-only لا يدعمه psql)
+- بمجرد وجود الملف، تُفعَّل خطوة `Fresh DB chain test` في `ci-cd.yml` تلقائياً
+
+### Added — T4: E2E Playwright نايتلي
+- `e2e-nightly.yml` — matrix: 4 أدوار (user · org_admin · super_admin · org_b_user)
+  × عزل بيانات بين المؤسسات — يعمل ليلاً (00:00 UTC) وعند dispatch يدوي
+- يحتاج 9 secrets في GitHub: `STAGING_URL` + 8 بيانات اعتماد E2E (انظر الأسفل)
+
+### Infrastructure
+- `scripts/ci/fresh-db/supabase_shim.sql` — محاكاة roles/auth/storage لقاعدة CI
+- `scripts/ci/fresh-db/build_apply_order.py` — يُرتّب المهاجرات بعد الـcutoff
+- `scripts/ci/fresh-db/run_chain.sh` — يُطبّق السلسلة ويُنتج تقرير PASS/FAIL
+
+### Pending — Secrets مطلوبة لتشغيل E2E
+أضف في `Settings → Secrets → Actions`:
+`STAGING_URL`, `E2E_USER_EMAIL/PASSWORD`, `E2E_ORG_ADMIN_EMAIL/PASSWORD`,
+`E2E_SUPER_ADMIN_EMAIL/PASSWORD`, `E2E_ORG_B_USER_EMAIL/PASSWORD`
+
+---
+
 ## [P13] - 2026-07-12 — إغلاق مراجعة كودكس (أمان الرواتب وRBAC والتقارير)
 
 سجل متابعة الملاحظات (السجل الأمني التفصيلي مع نتائج التحقق الحي:
