@@ -37,6 +37,11 @@ jobs:
               raise SystemExit('Embedded codemod payload was not found')
           script = base64.b64decode(match.group(1)).decode('utf-8')
           script = script.replace("R=Path(__file__).resolve().parents[2]", "R=Path.cwd()")
+          guarded = "s=one(s,'<div className=\"space-y-6\">','<div className=\"space-y-6\" dir={isRTL ? \\\'rtl\\\' : \\\'ltr\\\'}>','dir')"
+          scoped = "s=s.replace('<div className=\"space-y-6\">','<div className=\"space-y-6\" dir={isRTL ? \\\'rtl\\\' : \\\'ltr\\\'}>',1)"
+          if guarded not in script:
+              raise SystemExit('Expected direction assertion was not found in codemod')
+          script = script.replace(guarded, scoped)
           Path('/tmp/fix.py').write_text(script, encoding='utf-8')
           PY
           python /tmp/fix.py > /tmp/fix.log 2>&1
