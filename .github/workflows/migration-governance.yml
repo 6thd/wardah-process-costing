@@ -1,0 +1,82 @@
+name: Migration Governance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/**'
+      - 'sql/baseline/**'
+      - 'scripts/ci/validate_migration_ledger.py'
+      - 'scripts/ci/test_validate_migration_ledger.py'
+      - '.github/workflows/generate-baseline.yml'
+      - '.github/workflows/migration-governance.yml'
+      - 'CLAUDE.md'
+  push:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/**'
+      - 'sql/baseline/**'
+      - 'scripts/ci/validate_migration_ledger.py'
+      - 'scripts/ci/test_validate_migration_ledger.py'
+      - '.github/workflows/generate-baseline.yml'
+      - '.github/workflows/migration-governance.yml'
+      - 'CLAUDE.md'
+
+permissions:
+  contents: read
+
+jobs:
+  repository-contract:
+    name: Repository migration contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate repository migration names and exception targets
+        run: >-
+          python3 scripts/ci/validate_migration_ledger.py
+          --summary-json migration-governance/repository-summary.json
+
+      - name: Run migration-ledger unit tests
+        run: python3 scripts/ci/test_validate_migration_ledger.py
+
+      - name: Validate baseline metadata against repository
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(find sql/baseline -maxdepth 1 -type f \
+            -name '000_schema_baseline_*.sql' -printf '%f\n' | sort | tail -1)
+          test -n "$BASELINE" || { echo '❌ no schema baseline found'; exit 1; }
+
+          CUTOFF=$(grep -oE '^-- migration_cutoff: [0-9]+' "sql/baseline/$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          test -n "$CUTOFF" || { echo "❌ missing migration_cutoff in $BASELINE"; exit 1; }
+
+          REPO_MAX=$(find sql/migrations -maxdepth 1 -type f -printf '%f\n' \
+            | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
+          if [ "$CUTOFF" -gt "$REPO_MAX" ]; then
+            echo "❌ baseline cutoff $CUTOFF is ahead of repository max $REPO_MAX"
+            exit 1
+          fi
+
+          if ! awk -F'|' -v file="$BASELINE" -v cutoff="$CUTOFF" \
+            '$0 ~ file && $4 ~ ("[[:space:]]" cutoff "[[:space:]]") { found=1 } END { exit !found }' \
+            sql/baseline/README.md; then
+            echo "❌ sql/baseline/README.md has no row for $BASELINE with cutoff $CUTOFF"
+            exit 1
+          fi
+
+          mkdir -p migration-governance
+          printf '{"baseline":"%s","cutoff":%s,"repo_max":%s}\n' \
+            "$BASELINE" "$CUTOFF" "$REPO_MAX" \
+            > migration-governance/baseline-summary.json
+          echo "✅ baseline=$BASELINE cutoff=$CUTOFF repo_max=$REPO_MAX"
+
+      - name: Upload migration governance diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-governance-${{ github.run_id }}
+          path: migration-governance/
+          if-no-files-found: warn
+          retention-days: 30
