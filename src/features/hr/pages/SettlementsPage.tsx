@@ -58,6 +58,7 @@ import {
 } from '@/services/hr/settlement-service';
 import { checkIsPayrollAdmin } from '@/services/hr/payroll-admin-service';
 import { STATUS_BADGES } from '../types';
+import { formatCurrency, formatDate, formatNumber } from '@/lib/utils';
 
 const TERMINATION_TYPES: { id: TerminationType; name: string; color: string }[] = [
   { id: 'resignation', name: 'استقالة', color: 'text-blue-500' },
@@ -214,7 +215,7 @@ export const SettlementsPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-amber-400">مسودة</p>
-                <p className="text-2xl font-bold text-amber-300">{stats.draft}</p>
+                <p className="text-2xl font-bold text-amber-300">{formatNumber(stats.draft)}</p>
               </div>
               <Clock className="h-8 w-8 text-amber-500" />
             </div>
@@ -225,7 +226,7 @@ export const SettlementsPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-blue-400">معتمدة</p>
-                <p className="text-2xl font-bold text-blue-300">{stats.approved}</p>
+                <p className="text-2xl font-bold text-blue-300">{formatNumber(stats.approved)}</p>
               </div>
               <CheckCircle2 className="h-8 w-8 text-blue-500" />
             </div>
@@ -236,7 +237,7 @@ export const SettlementsPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-emerald-400">مدفوعة</p>
-                <p className="text-2xl font-bold text-emerald-300">{stats.paid}</p>
+                <p className="text-2xl font-bold text-emerald-300">{formatNumber(stats.paid)}</p>
               </div>
               <DollarSign className="h-8 w-8 text-emerald-500" />
             </div>
@@ -247,7 +248,7 @@ export const SettlementsPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-400">الإجمالي</p>
-                <p className="text-2xl font-bold text-slate-300">{stats.total}</p>
+                <p className="text-2xl font-bold text-slate-300">{formatNumber(stats.total)}</p>
               </div>
               <Briefcase className="h-8 w-8 text-slate-500" />
             </div>
@@ -259,7 +260,7 @@ export const SettlementsPage: React.FC = () => {
               <div>
                 <p className="text-sm text-purple-400">إجمالي المبالغ</p>
                 <p className="text-xl font-bold text-purple-300">
-                  {stats.totalAmount.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س
+                  {formatCurrency(stats.totalAmount)}
                 </p>
               </div>
               <Calculator className="h-8 w-8 text-purple-500" />
@@ -293,8 +294,8 @@ export const SettlementsPage: React.FC = () => {
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="draft">مسودة ({stats.draft})</TabsTrigger>
-              <TabsTrigger value="review">قيد المراجعة ({stats.review})</TabsTrigger>
+              <TabsTrigger value="draft">مسودة ({formatNumber(stats.draft)})</TabsTrigger>
+              <TabsTrigger value="review">قيد المراجعة ({formatNumber(stats.review)})</TabsTrigger>
               <TabsTrigger value="approved">معتمدة</TabsTrigger>
               <TabsTrigger value="paid">مدفوعة</TabsTrigger>
               <TabsTrigger value="all">الكل</TabsTrigger>
@@ -325,9 +326,7 @@ export const SettlementsPage: React.FC = () => {
                     {filteredSettlements.map((s) => {
                       const emp = Array.isArray(s.employee) ? s.employee[0] : s.employee;
                       const tt = getTermType(s.termination_type ?? s.settlement_type);
-                      const years = s.service_days
-                        ? (s.service_days / 365.25).toFixed(1)
-                        : '—';
+                      const years = s.service_days ? s.service_days / 365.25 : null;
                       return (
                         <TableRow key={s.id}>
                           <TableCell>
@@ -336,15 +335,12 @@ export const SettlementsPage: React.FC = () => {
                           <TableCell>
                             <span className={tt.color}>{tt.name}</span>
                           </TableCell>
-                          <TableCell dir="ltr">{s.service_end ?? '—'}</TableCell>
+                          <TableCell>{s.service_end ? formatDate(s.service_end) : '—'}</TableCell>
                           <TableCell>
-                            <Badge variant="outline">{years} سنة</Badge>
+                            <Badge variant="outline">{years === null ? '—' : `${formatNumber(years, { minimumFractionDigits: 1, maximumFractionDigits: 1 })} سنة`}</Badge>
                           </TableCell>
                           <TableCell className="font-semibold">
-                            {s.payable_amount.toLocaleString('ar-SA', {
-                              maximumFractionDigits: 0,
-                            })}{' '}
-                            ر.س
+                            {formatCurrency(s.payable_amount)}
                           </TableCell>
                           <TableCell>
                             <Badge
@@ -501,18 +497,16 @@ export const SettlementsPage: React.FC = () => {
                   </div>
                   <div className="flex justify-between">
                     <span>بداية الخدمة:</span>
-                    <span dir="ltr">{selectedSettlement.service_start ?? '—'}</span>
+                    <span>{selectedSettlement.service_start ? formatDate(selectedSettlement.service_start) : '—'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>نهاية الخدمة:</span>
-                    <span dir="ltr">{selectedSettlement.service_end ?? '—'}</span>
+                    <span>{selectedSettlement.service_end ? formatDate(selectedSettlement.service_end) : '—'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>سنوات الخدمة:</span>
                     <span className="font-medium">
-                      {selectedSettlement.service_days
-                        ? (selectedSettlement.service_days / 365.25).toFixed(2)
-                        : '—'}
+                      {selectedSettlement.service_days ? formatNumber(selectedSettlement.service_days / 365.25, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
                     </span>
                   </div>
                 </div>
@@ -523,19 +517,19 @@ export const SettlementsPage: React.FC = () => {
                       {previewResult.eos_amount > 0 && (
                         <div className="flex justify-between">
                           <span>مكافأة نهاية الخدمة:</span>
-                          <span>{previewResult.eos_amount.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س</span>
+                          <span>{formatCurrency(previewResult.eos_amount)}</span>
                         </div>
                       )}
                       {previewResult.leave_encashment > 0 && (
                         <div className="flex justify-between">
                           <span>رصيد الإجازات:</span>
-                          <span>{previewResult.leave_encashment.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س</span>
+                          <span>{formatCurrency(previewResult.leave_encashment)}</span>
                         </div>
                       )}
                       {previewResult.art77_compensation > 0 && (
                         <div className="flex justify-between text-rose-400">
                           <span>تعويض م77:</span>
-                          <span>{previewResult.art77_compensation.toLocaleString('ar-SA', { maximumFractionDigits: 0 })} ر.س</span>
+                          <span>{formatCurrency(previewResult.art77_compensation)}</span>
                         </div>
                       )}
                     </>
@@ -551,10 +545,7 @@ export const SettlementsPage: React.FC = () => {
                 <div className="flex justify-between items-center">
                   <span className="font-semibold text-teal-300">إجمالي التسوية:</span>
                   <span className="text-2xl font-bold text-teal-400">
-                    {selectedSettlement.payable_amount.toLocaleString('ar-SA', {
-                      maximumFractionDigits: 0,
-                    })}{' '}
-                    ر.س
+                    {formatCurrency(selectedSettlement.payable_amount)}
                   </span>
                 </div>
               </div>

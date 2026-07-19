@@ -2,9 +2,9 @@ name: SonarQube Analysis
 
 on:
   push:
-    branches: [ main, 'feature/**' ]
+    branches: [main, 'feature/**']
   pull_request:
-    branches: [ main ]
+    branches: [main]
     types: [opened, synchronize, reopened]
 
 jobs:
@@ -15,15 +15,13 @@ jobs:
       SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
-      # يتخطّى الوظيفة كاملةً بأمان حين لا يكون SONAR_TOKEN مضبوطاً في أسرار
-      # المستودع — فلا يظهر فحص أحمر على كل PR بينما SonarCloud غير مُهيّأ.
-      # اضبط السرّ SONAR_TOKEN (Settings → Secrets) ليعمل التحليل تلقائياً.
       - name: Check SonarCloud configuration
         id: sonar_cfg
+        shell: bash
         run: |
           if [ -z "$SONAR_TOKEN" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::تخطّي SonarCloud — SONAR_TOKEN غير مضبوط في أسرار المستودع"
+            echo "::notice::Skipping SonarCloud because SONAR_TOKEN is not configured"
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
           fi
@@ -32,14 +30,14 @@ jobs:
         if: steps.sonar_cfg.outputs.configured == 'true'
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for better analysis
+          fetch-depth: 0
 
       - name: Setup Node.js
         if: steps.sonar_cfg.outputs.configured == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: 'npm'
+          cache: npm
 
       - name: Install dependencies
         if: steps.sonar_cfg.outputs.configured == 'true'
@@ -48,14 +46,10 @@ jobs:
       - name: Run tests with coverage
         if: steps.sonar_cfg.outputs.configured == 'true'
         run: npm run test:coverage
-        continue-on-error: false
 
-      # SONAR_TOKEN مضبوط الآن → يعمل التحليل فعلاً ويرفع النتائج لـ SonarCloud.
-      # sonar.qualitygate.wait=true: الخطوة تنتظر نتيجة البوابة وتفشل إن لم تمرّ.
-      # لجعل السكان غير حاجز (reporting فقط): احذف -Dsonar.qualitygate.wait=true.
       - name: SonarCloud Scan
         if: steps.sonar_cfg.outputs.configured == 'true'
-        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
+        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -63,3 +57,85 @@ jobs:
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info
             -Dsonar.typescript.lcov.reportPaths=coverage/lcov.info
             -Dsonar.qualitygate.wait=true
+
+      - name: Collect Sonar diagnostics
+        if: always() && steps.sonar_cfg.outputs.configured == 'true'
+        shell: bash
+        run: |
+          set -u
+          mkdir -p sonar-diagnostics
+
+          if [ ! -f .scannerwork/report-task.txt ]; then
+            printf '%s\n' '{"error":".scannerwork/report-task.txt was not created"}' > sonar-diagnostics/summary.json
+            exit 0
+          fi
+
+          cp .scannerwork/report-task.txt sonar-diagnostics/report-task.txt
+          ce_task_url="$(sed -n 's/^ceTaskUrl=//p' .scannerwork/report-task.txt)"
+          dashboard_url="$(sed -n 's/^dashboardUrl=//p' .scannerwork/report-task.txt)"
+
+          if [ -z "$ce_task_url" ]; then
+            printf '%s\n' '{"error":"ceTaskUrl is missing from report-task.txt"}' > sonar-diagnostics/summary.json
+            exit 0
+          fi
+
+          for attempt in $(seq 1 30); do
+            curl --fail --silent --show-error \
+              --user "$SONAR_TOKEN:" \
+              "$ce_task_url" \
+              --output sonar-diagnostics/ce-task.json || true
+
+            ce_status="$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('sonar-diagnostics/ce-task.json','utf8'));process.stdout.write(j.task?.status||'')}catch{}")"
+            if [ "$ce_status" = "SUCCESS" ] || [ "$ce_status" = "FAILED" ] || [ "$ce_status" = "CANCELED" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          analysis_id="$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('sonar-diagnostics/ce-task.json','utf8'));process.stdout.write(j.task?.analysisId||'')}catch{}")"
+
+          if [ -n "$analysis_id" ]; then
+            curl --fail --silent --show-error \
+              --user "$SONAR_TOKEN:" \
+              "https://sonarcloud.io/api/qualitygates/project_status?analysisId=$analysis_id" \
+              --output sonar-diagnostics/quality-gate.json || true
+          fi
+
+          node <<'NODE'
+          const fs = require('fs')
+          const readJson = (path) => {
+            try { return JSON.parse(fs.readFileSync(path, 'utf8')) } catch { return null }
+          }
+          const ce = readJson('sonar-diagnostics/ce-task.json')
+          const gate = readJson('sonar-diagnostics/quality-gate.json')
+          const conditions = gate?.projectStatus?.conditions ?? []
+          const failed = conditions.filter((condition) => condition.status !== 'OK')
+          const summary = {
+            computeEngineStatus: ce?.task?.status ?? null,
+            computeEngineError: ce?.task?.errorMessage ?? null,
+            analysisId: ce?.task?.analysisId ?? null,
+            qualityGateStatus: gate?.projectStatus?.status ?? null,
+            failedConditions: failed.map((condition) => ({
+              metricKey: condition.metricKey,
+              comparator: condition.comparator,
+              errorThreshold: condition.errorThreshold,
+              actualValue: condition.actualValue,
+              status: condition.status,
+            })),
+          }
+          fs.writeFileSync('sonar-diagnostics/summary.json', JSON.stringify(summary, null, 2))
+          console.log(JSON.stringify(summary, null, 2))
+          NODE
+
+          if [ -n "$dashboard_url" ]; then
+            echo "Sonar dashboard: $dashboard_url"
+          fi
+
+      - name: Upload Sonar diagnostics
+        if: always() && steps.sonar_cfg.outputs.configured == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-diagnostics-${{ github.run_id }}
+          path: sonar-diagnostics/
+          if-no-files-found: warn
+          retention-days: 14

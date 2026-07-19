@@ -69,8 +69,20 @@ jobs:
         continue-on-error: false
 
       - name: Unit & integration tests
-        run: npm run test -- --run --coverage.enabled=false
+        run: >-
+          npm run test -- --run --coverage.enabled=false
+          --reporter=default --reporter=junit
+          --outputFile.junit=reports/vitest-junit.xml
         continue-on-error: false
+
+      - name: Upload Vitest JUnit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-junit-${{ github.run_id }}
+          path: reports/vitest-junit.xml
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Migration SQL syntax check (pglast)
         run: |
