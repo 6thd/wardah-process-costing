@@ -48,7 +48,7 @@ export function SystemSettingsPage() {
       } catch (error) {
         if (!cancelled) {
           console.error('Error loading system settings:', error)
-          toast.error(error instanceof Error ? error.message : 'Failed to load system settings')
+          toast.error(error instanceof Error ? error.message : tr('فشل تحميل إعدادات النظام', 'Failed to load system settings'))
         }
       } finally {
         if (!cancelled) setLoading(false)
