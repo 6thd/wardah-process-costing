@@ -81,7 +81,7 @@ jobs:
             --summary-json baseline-diagnostics/ledger-summary.json \
             --github-output "$GITHUB_OUTPUT"
 
-          echo "✅ live cutoff=${{ steps.ledger.outputs.live_cutoff }} file=${{ steps.ledger.outputs.live_file }}"
+          cat baseline-diagnostics/ledger-summary.json
 
       - name: Generate baseline from Production
         shell: bash
@@ -178,23 +178,27 @@ jobs:
         env:
           CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
           LIVE_NAME: ${{ steps.ledger.outputs.live_name }}
+          REPO_MAX: ${{ steps.ledger.outputs.repo_max }}
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           import os
           import re
+          from datetime import datetime, timezone
           from pathlib import Path
 
           baseline = Path(os.environ['baseline_path'])
           cutoff = os.environ['CUTOFF']
           live_name = os.environ['LIVE_NAME']
+          repo_max = os.environ['REPO_MAX']
           size_kb = baseline.stat().st_size // 1024
           lines = sum(1 for _ in baseline.open(encoding='utf-8'))
+          generated_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
 
           readme = Path('sql/baseline/README.md')
           text = readme.read_text(encoding='utf-8')
-          row = f"| `{baseline.name}` | {baseline.name.split('_')[3][:8]} | {cutoff} | {size_kb} KB / {lines:,} سطر |"
+          row = f"| `{baseline.name}` | {generated_date} | {cutoff} | {size_kb} KB / {lines:,} سطر |"
           text, count = re.subn(
               r"\| `000_schema_baseline_[^`]+\.sql` \|[^\n]+\|",
               row,
@@ -207,27 +211,25 @@ jobs:
 
           claude = Path('CLAUDE.md')
           text = claude.read_text(encoding='utf-8')
-          old_pattern = re.compile(
-              r"عند بداية PR #32:\n\n"
-              r"- Baseline: `[^`]+`, cutoff \d+\.\n"
-              r"- Production: مطبقة حتى \d+\.\n"
-              r"- Repository: يحتوي .*?\n"
-              r"- لا تعتبر أي migration مطبقة حيًا لمجرد نجاح Fresh DB\.\n\n"
-              r"الترتيب القانوني المقترح بعد الدمج:\n\n"
-              r"```text\n.*?\n```",
-              re.S,
-          )
-          replacement = (
-              "الحالة الحية الموثقة بعد آخر Baseline:\n\n"
-              f"- Baseline: `{baseline.name}`, cutoff {cutoff}.\n"
+          start = '<!-- DATABASE_STATE_START -->'
+          end = '<!-- DATABASE_STATE_END -->'
+          if text.count(start) != 1 or text.count(end) != 1:
+              raise SystemExit('CLAUDE.md database-state markers are missing or duplicated')
+
+          state = (
+              f"{start}\n"
+              f"الحالة الحية الموثقة بعد Baseline المولد في {generated_date}:\n\n"
+              f"- Baseline الحالي: `{baseline.name}`, cutoff {cutoff}.\n"
               f"- Production: مطبقة حتى {cutoff} (`{live_name}`).\n"
-              f"- Repository: أعلى migration مرقمة هي {cutoff}.\n"
+              f"- Repository: أعلى migration مرقمة هي {repo_max}.\n"
               "- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.\n"
-              "- لا تعتبر أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع."
+              "- لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.\n"
+              f"{end}"
           )
-          text, count = old_pattern.subn(replacement, text, count=1)
+          pattern = re.compile(re.escape(start) + r'.*?' + re.escape(end), re.S)
+          text, count = pattern.subn(state, text, count=1)
           if count != 1:
-              raise SystemExit('Expected exactly one historical database-state block in CLAUDE.md')
+              raise SystemExit('Failed to replace CLAUDE.md database-state block')
           claude.write_text(text, encoding='utf-8')
           PY
 
@@ -252,11 +254,30 @@ jobs:
             -m "Reason: ${{ github.event.inputs.reason }}"
           git push --set-upstream origin "$BRANCH"
 
-          gh pr create \
+          PR_BODY="## Generated baseline
+          - Production cutoff: ${CUTOFF}
+          - Live migration: ${LIVE_NAME}
+          - Migration ledger validation: passed
+          - Clean PostgreSQL 17 rebuild: passed
+          - CLAUDE.md and baseline README updated automatically
+
+          This workflow never writes directly to main or Production. Review and merge through normal CI."
+
+          if gh pr create \
             --base main \
             --head "$BRANCH" \
             --title "sql(baseline): production schema cutoff ${CUTOFF}" \
-            --body "## Generated baseline\n- Production cutoff: ${CUTOFF}\n- Live migration: ${LIVE_NAME}\n- Migration ledger validation: passed\n- Clean PostgreSQL 17 rebuild: passed\n- CLAUDE.md and baseline README updated automatically\n\nThis workflow never writes directly to main or Production. Review and merge through normal CI."
+            --body "$PR_BODY"; then
+            echo "✅ baseline pull request created"
+          else
+            COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+            echo "::warning::Branch pushed but GitHub token could not create a PR. Open: $COMPARE_URL"
+            {
+              echo '## Baseline branch created; PR creation needs manual confirmation'
+              echo "- Branch: \`$BRANCH\`"
+              echo "- Open PR: $COMPARE_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload baseline diagnostics
         if: always()
