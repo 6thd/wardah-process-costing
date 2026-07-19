@@ -35,7 +35,9 @@ jobs:
           match = re.search(r"echo '([A-Za-z0-9+/=]+)' \| base64 -d > /tmp/fix\.py", workflow)
           if not match:
               raise SystemExit('Embedded codemod payload was not found')
-          Path('/tmp/fix.py').write_bytes(base64.b64decode(match.group(1)))
+          script = base64.b64decode(match.group(1)).decode('utf-8')
+          script = script.replace("R=Path(__file__).resolve().parents[2]", "R=Path.cwd()")
+          Path('/tmp/fix.py').write_text(script, encoding='utf-8')
           PY
           python /tmp/fix.py > /tmp/fix.log 2>&1
       - name: Upload codemod diagnostics
