@@ -4,6 +4,14 @@ import { describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { SettingsModule } from '../index'
 
+vi.mock('@/components/ui/page-header', () => ({
+  PageHeader: ({ title, description }: { title: string; description?: string }) => (
+    <header>
+      <h1>{title}</h1>
+      {description && <p>{description}</p>}
+    </header>
+  ),
+}))
 vi.mock('../CompanySettings', () => ({ CompanySettings: () => <div>Company settings page</div> }))
 vi.mock('../SystemSettingsPage', () => ({ SystemSettingsPage: () => <div>System settings page</div> }))
 vi.mock('../BackupSettingsPage', () => ({ BackupSettingsPage: () => <div>Data export page</div> }))
@@ -27,8 +35,8 @@ describe('Settings overview', () => {
     renderSettings()
 
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Data Export' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Data Export/ })).toHaveAttribute('href', '/settings/backup')
+    const exportHeading = screen.getByRole('heading', { name: 'Data Export' })
+    expect(exportHeading.closest('a')).toHaveAttribute('href', '/settings/backup')
     expect(screen.queryByText('Integrations')).not.toBeInTheDocument()
     expect(screen.queryByText('Active users')).not.toBeInTheDocument()
     expect(screen.queryByText('System Status')).not.toBeInTheDocument()
