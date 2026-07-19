@@ -78,7 +78,8 @@ describe('CompanySettings localization', () => {
 
     activateTab('Settings');
     expect(screen.getByText('Visual Identity')).toBeInTheDocument();
-    expect(screen.getByLabelText('Default Currency')).toBeInTheDocument();
+    expect(screen.getByText('Default Currency')).toBeInTheDocument();
+    expect(screen.getAllByRole('combobox').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Fiscal Year Start')).toBeInTheDocument();
   });
 
