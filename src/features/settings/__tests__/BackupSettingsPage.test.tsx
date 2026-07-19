@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import i18n from '@/i18n'
 import { BackupSettingsPage } from '../BackupSettingsPage'
 
@@ -35,6 +35,11 @@ describe('BackupSettingsPage data export', () => {
       revokeObjectURL: vi.fn(),
     })
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('renders accurate English export scope and exports one table', async () => {
