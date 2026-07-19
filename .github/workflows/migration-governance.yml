@@ -59,8 +59,10 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q "migration_cutoff.*$CUTOFF" sql/baseline/README.md; then
-            echo "❌ sql/baseline/README.md does not document current cutoff $CUTOFF"
+          if ! awk -F'|' -v file="$BASELINE" -v cutoff="$CUTOFF" \
+            '$0 ~ file && $4 ~ ("[[:space:]]" cutoff "[[:space:]]") { found=1 } END { exit !found }' \
+            sql/baseline/README.md; then
+            echo "❌ sql/baseline/README.md has no row for $BASELINE with cutoff $CUTOFF"
             exit 1
           fi
 
