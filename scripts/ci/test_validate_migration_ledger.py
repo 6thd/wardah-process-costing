@@ -90,7 +90,7 @@ class MigrationLedgerValidatorTests(unittest.TestCase):
 
     def test_rejects_new_duplicate_name(self) -> None:
         ledger = self.canonical_ledger()
-        ledger.insert(-1, {"version": "3500", "name": "121_fail_closed_tenant_isolation"})
+        ledger.insert(-1, {"version": "3500", "name": "127_latest"})
         result = self.run_validator(ledger)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("unexpected duplicates", result.stderr)
