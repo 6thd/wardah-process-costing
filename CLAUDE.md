@@ -26,6 +26,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 2. **Fresh DB:** Baseline + migrations الأحدث من cutoff.
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
+<!-- DATABASE_STATE_START -->
 الحالة الحية الموثقة في 19 يوليو 2026:
 
 - Baseline الحالي: `000_schema_baseline_20260717.sql`, cutoff 121.
@@ -34,6 +35,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - Fresh DB: يطبق 122→127 بعد Baseline 121.
 - تحديث Baseline إلى 127 يجب أن يتم عبر `Generate Schema Baseline`؛ الـworkflow يقرأ سجل Production، يرفض drift غير موثق، يعيد بناء PostgreSQL 17 نظيفًا، ثم يفتح PR ولا يكتب مباشرة إلى `main`.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
+<!-- DATABASE_STATE_END -->
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
 `sql/migrations/migration_ledger_exceptions.json`:
