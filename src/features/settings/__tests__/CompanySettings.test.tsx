@@ -44,6 +44,13 @@ const organization = {
   updated_at: '2026-01-01T00:00:00.000Z',
 };
 
+const activateTab = (name: string) => {
+  fireEvent.mouseDown(screen.getByRole('tab', { name }), {
+    button: 0,
+    ctrlKey: false,
+  });
+};
+
 describe('CompanySettings localization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,15 +68,15 @@ describe('CompanySettings localization', () => {
     expect(screen.getByText('Basic Information')).toBeInTheDocument();
     expect(screen.getByText('Tax & Registration Information')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Contact' }));
+    activateTab('Contact');
     expect(screen.getByText('Contact Information')).toBeInTheDocument();
     expect(screen.getByLabelText('Email Address')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Address' }));
+    activateTab('Address');
     expect(screen.getByLabelText('Detailed Address')).toBeInTheDocument();
     expect(screen.getByLabelText('Country')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Settings' }));
+    activateTab('Settings');
     expect(screen.getByText('Visual Identity')).toBeInTheDocument();
     expect(screen.getByLabelText('Default Currency')).toBeInTheDocument();
     expect(screen.getByText('Fiscal Year Start')).toBeInTheDocument();
