@@ -38,7 +38,7 @@ jobs:
           --summary-json migration-governance/repository-summary.json
 
       - name: Run migration-ledger unit tests
-        run: python3 -m unittest scripts.ci.test_validate_migration_ledger
+        run: python3 scripts/ci/test_validate_migration_ledger.py
 
       - name: Validate baseline metadata against repository
         shell: bash
