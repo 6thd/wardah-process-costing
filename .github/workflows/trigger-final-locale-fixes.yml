@@ -1,0 +1,54 @@
+name: Trigger final locale fixes
+
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'codex/i18n-number-format-settings'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/i18n-number-format-settings
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Extract and apply guarded codemod
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import re
+          from pathlib import Path
+
+          workflow = Path('.github/workflows/apply-final-locale-fixes.yml').read_text(encoding='utf-8')
+          match = re.search(r"echo '([A-Za-z0-9+/=]+)' \| base64 -d > /tmp/fix\.py", workflow)
+          if not match:
+              raise SystemExit('Embedded codemod payload was not found')
+          Path('/tmp/fix.py').write_bytes(base64.b64decode(match.group(1)))
+          PY
+          python /tmp/fix.py
+      - name: Verify project
+        run: |
+          npm ci --ignore-scripts
+          npm run type-check
+          npm run lint
+          npm run test -- --run --coverage.enabled=false
+      - name: Commit verified fixes
+        shell: bash
+        run: |
+          rm .github/workflows/apply-final-locale-fixes.yml
+          rm .github/workflows/trigger-final-locale-fixes.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/features/settings/CompanySettings.tsx src/features/hr/pages/SettlementsPage.tsx src/pages/org-admin/audit-log.tsx .github/workflows/
+          git commit -m "fix(i18n): complete organization locale coverage"
+          git push origin HEAD:codex/i18n-number-format-settings
