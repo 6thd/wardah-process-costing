@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@/test/test-utils';
+import { act, fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import i18n from '@/i18n';
 import { CompanySettings } from '../CompanySettings';
@@ -55,6 +55,7 @@ describe('CompanySettings localization', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.getOrganizationProfile.mockResolvedValue({ success: true, data: organization });
+    mocks.updateOrganizationProfile.mockResolvedValue({ success: true, data: organization });
   });
 
   it('renders every company settings tab in English', async () => {
@@ -81,6 +82,24 @@ describe('CompanySettings localization', () => {
     expect(screen.getByText('Default Currency')).toBeInTheDocument();
     expect(screen.getAllByRole('combobox').length).toBeGreaterThanOrEqual(4);
     expect(screen.getByText('Fiscal Year Start')).toBeInTheDocument();
+  });
+
+  it('saves only changed company fields', async () => {
+    await act(async () => {
+      await i18n.changeLanguage('en');
+    });
+
+    render(<CompanySettings />);
+
+    const nameInput = await screen.findByLabelText('Company Name');
+    fireEvent.change(nameInput, { target: { value: 'Wardah Manufacturing' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+
+    await waitFor(() => {
+      expect(mocks.updateOrganizationProfile).toHaveBeenCalledWith({
+        name: 'Wardah Manufacturing',
+      });
+    });
   });
 
   it('treats ar-SA as an Arabic RTL locale', async () => {
