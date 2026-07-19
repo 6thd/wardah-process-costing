@@ -1,0 +1,41 @@
+name: Apply sidebar RTL fix
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'codex/settings-localization-cleanup'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Apply guarded fix
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('src/components/layout/sidebar.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = "  const isRTL = i18n.language === 'ar'"
+          new = "  const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')"
+          if text.count(old) != 1:
+              raise SystemExit(f'Expected exactly one sidebar RTL match, found {text.count(old)}')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          Path('.github/workflows/apply-sidebar-rtl-fix.yml').unlink()
+          PY
+      - name: Commit fix
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/components/layout/sidebar.tsx .github/workflows/apply-sidebar-rtl-fix.yml
+          git commit -m "fix(i18n): normalize sidebar RTL locale"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
