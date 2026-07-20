@@ -48,6 +48,13 @@ describe('uom-service', () => {
     expect(rpc).not.toHaveBeenCalled()
   })
 
+  it('rejects malformed conversion responses', async () => {
+    rpc.mockResolvedValue({ data: null, error: null })
+    await expect(convertProductQuantity({
+      productId: 'product-1', quantity: 1, uomId: 'piece-uom',
+    })).rejects.toThrow('INVALID_UOM_CONVERSION_RESPONSE')
+  })
+
   it('returns the legal base UoM before product conversions', async () => {
     const chain: Record<string, ReturnType<typeof vi.fn>> = {
       select: vi.fn(), eq: vi.fn(), single: vi.fn(),
@@ -111,6 +118,13 @@ describe('uom-service', () => {
     expect(from).not.toHaveBeenCalled()
   })
 
+  it('fails closed when the versioned save RPC does not confirm success', async () => {
+    rpc.mockResolvedValue({ data: { success: false }, error: null })
+    await expect(saveProductUomConversion({
+      orgId: 'org-1', productId: 'product-1', uomId: 'kg-uom', factorToBase: 0.2,
+    })).rejects.toThrow('UOM_CONVERSION_SAVE_FAILED')
+  })
+
   it('declares physical product weight through the guarded RPC', async () => {
     rpc.mockResolvedValue({ data: { success: true, product_id: 'product-1' }, error: null })
 
@@ -122,6 +136,13 @@ describe('uom-service', () => {
       p_product_id: 'product-1', p_net_weight: 5.4,
       p_gross_weight: 5.65, p_weight_uom_id: 'kg-uom',
     })
+  })
+
+  it('rejects a gross weight below net weight before calling the RPC', async () => {
+    await expect(setProductPhysicalWeight({
+      productId: 'product-1', netWeight: 5.4, grossWeight: 5.2, weightUomId: 'kg-uom',
+    })).rejects.toThrow('GROSS_WEIGHT_BELOW_NET_WEIGHT')
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   it('returns derived weight for entered quantities', async () => {
@@ -138,6 +159,13 @@ describe('uom-service', () => {
 
     expect(result.net_weight).toBe(16.2)
     expect(result.gross_weight).toBe(16.95)
+  })
+
+  it('rejects negative weight lookup quantities before calling the RPC', async () => {
+    await expect(getProductWeight({
+      productId: 'product-1', quantity: -0.1, uomId: 'carton-uom',
+    })).rejects.toThrow('UOM_QUANTITY_MUST_BE_NONNEGATIVE')
+    expect(rpc).not.toHaveBeenCalled()
   })
 
   it('rejects non-positive product-specific factors', async () => {
