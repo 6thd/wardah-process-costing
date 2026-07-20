@@ -119,9 +119,12 @@ SELECT bl.org_id, 'bom_lines', bl.id, bl.uom, 'BOM_UOM_UNRESOLVED',
        jsonb_build_object('bom_id',bl.bom_id,'item_id',bl.item_id)
 FROM public.bom_lines bl WHERE bl.uom_id IS NULL ON CONFLICT DO NOTHING;
 
--- This view is the only direct dependency on the target quantity columns in the
--- assessed schema. Recreate it around the widening operation to preserve semantics.
+-- Preserve dependent generated expressions and the valuation view around the widening.
 DROP VIEW IF EXISTS public.vw_stock_valuation_by_method;
+ALTER TABLE public.bins DROP COLUMN IF EXISTS projected_qty;
+ALTER TABLE public.purchase_order_lines DROP COLUMN IF EXISTS line_total;
+ALTER TABLE public.sales_invoice_lines DROP COLUMN IF EXISTS line_total;
+ALTER TABLE public.sales_invoice_lines DROP COLUMN IF EXISTS cogs;
 
 DO $$
 DECLARE v_target record;
@@ -135,7 +138,7 @@ BEGIN
     ('delivery_note_lines','invoiced_quantity'), ('delivery_note_lines','delivered_quantity'),
     ('delivery_note_lines','quantity_delivered'),
     ('stock_adjustment_items','current_qty'), ('stock_adjustment_items','new_qty'), ('stock_adjustment_items','difference_qty'),
-    ('bins','actual_qty'), ('bins','reserved_qty'), ('bins','ordered_qty'), ('bins','planned_qty'), ('bins','projected_qty'),
+    ('bins','actual_qty'), ('bins','reserved_qty'), ('bins','ordered_qty'), ('bins','planned_qty'),
     ('stock_ledger_entries','actual_qty'), ('stock_ledger_entries','qty_after_transaction')
   ) AS x(table_name,column_name)
   LOOP
@@ -156,6 +159,18 @@ BEGIN
   END LOOP;
 END
 $$;
+
+ALTER TABLE public.bins
+  ADD COLUMN projected_qty numeric(18,6)
+  GENERATED ALWAYS AS (((actual_qty-reserved_qty)+ordered_qty)+planned_qty) STORED;
+ALTER TABLE public.purchase_order_lines
+  ADD COLUMN line_total numeric(18,2)
+  GENERATED ALWAYS AS (((quantity*unit_price)*(1-discount_percentage/100))*(1+tax_percentage/100)) STORED;
+ALTER TABLE public.sales_invoice_lines
+  ADD COLUMN line_total numeric(18,2)
+  GENERATED ALWAYS AS (((quantity*unit_price)*(1-discount_percentage/100))*(1+tax_percentage/100)) STORED,
+  ADD COLUMN cogs numeric(18,2)
+  GENERATED ALWAYS AS (quantity*COALESCE(unit_cost_at_sale,0)) STORED;
 
 CREATE VIEW public.vw_stock_valuation_by_method AS
 SELECT org_id,
