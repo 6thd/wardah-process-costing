@@ -142,17 +142,20 @@ export async function saveProductUomConversion(input: {
   if (!Number.isFinite(input.factorToBase) || input.factorToBase <= 0) {
     throw new Error('UOM_FACTOR_MUST_BE_POSITIVE')
   }
-  const { error } = await supabase.from('product_uom_conversions').upsert({
-    org_id: input.orgId,
-    product_id: input.productId,
-    uom_id: input.uomId,
-    factor_to_base: input.factorToBase,
-    use_for_purchase: input.useForPurchase ?? false,
-    use_for_sale: input.useForSale ?? false,
-    barcode: input.barcode ?? null,
-    notes: input.notes ?? null,
-    is_active: true,
-    valid_to: null,
-  }, { onConflict: 'org_id,product_id,uom_id' })
+
+  const { data, error } = await supabase.rpc('rpc_set_product_uom_conversion', {
+    p_org_id: input.orgId,
+    p_product_id: input.productId,
+    p_uom_id: input.uomId,
+    p_factor_to_base: input.factorToBase,
+    p_use_for_purchase: input.useForPurchase ?? false,
+    p_use_for_sale: input.useForSale ?? false,
+    p_barcode: input.barcode ?? null,
+    p_notes: input.notes ?? null,
+  })
+
   if (error) throw error
+  if (!data || typeof data !== 'object' || (data as Record<string, unknown>).success !== true) {
+    throw new Error('UOM_CONVERSION_SAVE_FAILED')
+  }
 }
