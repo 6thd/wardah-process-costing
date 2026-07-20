@@ -119,6 +119,10 @@ SELECT bl.org_id, 'bom_lines', bl.id, bl.uom, 'BOM_UOM_UNRESOLVED',
        jsonb_build_object('bom_id',bl.bom_id,'item_id',bl.item_id)
 FROM public.bom_lines bl WHERE bl.uom_id IS NULL ON CONFLICT DO NOTHING;
 
+-- This view is the only direct dependency on the target quantity columns in the
+-- assessed schema. Recreate it around the widening operation to preserve semantics.
+DROP VIEW IF EXISTS public.vw_stock_valuation_by_method;
+
 DO $$
 DECLARE v_target record;
 BEGIN
@@ -135,13 +139,37 @@ BEGIN
     ('stock_ledger_entries','actual_qty'), ('stock_ledger_entries','qty_after_transaction')
   ) AS x(table_name,column_name)
   LOOP
-    IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=v_target.table_name AND column_name=v_target.column_name) THEN
-      EXECUTE format('ALTER TABLE public.%I ALTER COLUMN %I TYPE numeric(18,6) USING %I::numeric(18,6)',
-        v_target.table_name, v_target.column_name, v_target.column_name);
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public'
+        AND table_name=v_target.table_name
+        AND column_name=v_target.column_name
+        AND data_type='numeric'
+        AND is_generated='NEVER'
+        AND (numeric_precision IS DISTINCT FROM 18 OR numeric_scale IS DISTINCT FROM 6)
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.%I ALTER COLUMN %I TYPE numeric(18,6) USING %I::numeric(18,6)',
+        v_target.table_name, v_target.column_name, v_target.column_name
+      );
     END IF;
   END LOOP;
 END
 $$;
+
+CREATE VIEW public.vw_stock_valuation_by_method AS
+SELECT org_id,
+       valuation_method,
+       count(*) AS product_count,
+       sum(stock_quantity) AS total_quantity,
+       sum(stock_value) AS total_value,
+       avg(cost_price) AS avg_unit_cost,
+       min(cost_price) AS min_unit_cost,
+       max(cost_price) AS max_unit_cost
+FROM public.products
+WHERE stock_quantity > 0::numeric
+GROUP BY org_id, valuation_method;
+GRANT SELECT ON public.vw_stock_valuation_by_method TO authenticated;
 
 DO $$
 BEGIN
