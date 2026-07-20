@@ -32,6 +32,17 @@ export interface ProductUomConversionResult {
   base_quantity: number
 }
 
+export interface ProductWeightResult {
+  success: boolean
+  product_id: string
+  quantity_entered: number
+  uom_id: string
+  base_quantity: number
+  weight_uom_id: string
+  net_weight: number
+  gross_weight: number | null
+}
+
 interface ProductUomRow {
   base_uom_id: string | null
   base_uom: UomDefinition | null
@@ -138,6 +149,7 @@ export async function saveProductUomConversion(input: {
   useForSale?: boolean
   barcode?: string | null
   notes?: string | null
+  allowCrossDimension?: boolean
 }): Promise<void> {
   if (!Number.isFinite(input.factorToBase) || input.factorToBase <= 0) {
     throw new Error('UOM_FACTOR_MUST_BE_POSITIVE')
@@ -152,10 +164,67 @@ export async function saveProductUomConversion(input: {
     p_use_for_sale: input.useForSale ?? false,
     p_barcode: input.barcode ?? null,
     p_notes: input.notes ?? null,
+    p_allow_cross_dimension: input.allowCrossDimension ?? false,
   })
 
   if (error) throw error
   if (!data || typeof data !== 'object' || (data as Record<string, unknown>).success !== true) {
     throw new Error('UOM_CONVERSION_SAVE_FAILED')
+  }
+}
+
+export async function setProductPhysicalWeight(input: {
+  productId: string
+  netWeight: number
+  grossWeight?: number | null
+  weightUomId: string
+}): Promise<void> {
+  if (!Number.isFinite(input.netWeight) || input.netWeight <= 0) {
+    throw new Error('NET_WEIGHT_MUST_BE_POSITIVE')
+  }
+  if (input.grossWeight != null && input.grossWeight < input.netWeight) {
+    throw new Error('GROSS_WEIGHT_BELOW_NET_WEIGHT')
+  }
+  const { data, error } = await supabase.rpc('rpc_set_product_physical_weight', {
+    p_product_id: input.productId,
+    p_net_weight: input.netWeight,
+    p_gross_weight: input.grossWeight ?? null,
+    p_weight_uom_id: input.weightUomId,
+  })
+  if (error) throw error
+  if (!data || typeof data !== 'object' || (data as Record<string, unknown>).success !== true) {
+    throw new Error('PRODUCT_WEIGHT_SAVE_FAILED')
+  }
+}
+
+export async function getProductWeight(input: {
+  productId: string
+  quantity: number
+  uomId: string
+  at?: string
+}): Promise<ProductWeightResult> {
+  if (!Number.isFinite(input.quantity) || input.quantity < 0) {
+    throw new Error('UOM_QUANTITY_MUST_BE_NONNEGATIVE')
+  }
+  const { data, error } = await supabase.rpc('rpc_get_product_weight', {
+    p_product_id: input.productId,
+    p_quantity: input.quantity,
+    p_uom_id: input.uomId,
+    p_at: input.at ?? new Date().toISOString(),
+  })
+  if (error) throw error
+  if (!data || typeof data !== 'object' || (data as Record<string, unknown>).success !== true) {
+    throw new Error('PRODUCT_WEIGHT_LOOKUP_FAILED')
+  }
+  const result = data as Record<string, unknown>
+  return {
+    success: true,
+    product_id: String(result.product_id),
+    quantity_entered: numeric(result.quantity_entered as number | string),
+    uom_id: String(result.uom_id),
+    base_quantity: numeric(result.base_quantity as number | string),
+    weight_uom_id: String(result.weight_uom_id),
+    net_weight: numeric(result.net_weight as number | string),
+    gross_weight: result.gross_weight == null ? null : numeric(result.gross_weight as number | string),
   }
 }
