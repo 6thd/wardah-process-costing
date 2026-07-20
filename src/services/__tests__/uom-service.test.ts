@@ -55,12 +55,13 @@ describe('uom-service', () => {
     })).rejects.toThrow('INVALID_UOM_CONVERSION_RESPONSE')
   })
 
-  it('returns the legal base UoM before product conversions', async () => {
+  it('returns only the current product conversions after the legal base UoM', async () => {
     const chain: Record<string, ReturnType<typeof vi.fn>> = {
-      select: vi.fn(), eq: vi.fn(), single: vi.fn(),
+      select: vi.fn(), eq: vi.fn(), is: vi.fn(), single: vi.fn(),
     }
     chain.select.mockReturnValue(chain)
     chain.eq.mockReturnValue(chain)
+    chain.is.mockReturnValue(chain)
     chain.single.mockResolvedValue({ data: {
       base_uom_id: 'piece-uom',
       base_uom: {
@@ -80,6 +81,10 @@ describe('uom-service', () => {
     from.mockReturnValue(chain)
 
     const options = await getProductUomOptions('product-1')
+
+    expect(chain.eq).toHaveBeenCalledWith('id', 'product-1')
+    expect(chain.eq).toHaveBeenCalledWith('product_uom_conversions.is_active', true)
+    expect(chain.is).toHaveBeenCalledWith('product_uom_conversions.valid_to', null)
     expect(options.map((option) => option.code)).toEqual(['PCS', 'CARTON'])
     expect(options[0].factor_to_base).toBe(1)
     expect(options[1].factor_to_base).toBe(24)
@@ -87,10 +92,11 @@ describe('uom-service', () => {
 
   it('fails closed when a product has no base UoM', async () => {
     const chain: Record<string, ReturnType<typeof vi.fn>> = {
-      select: vi.fn(), eq: vi.fn(), single: vi.fn(),
+      select: vi.fn(), eq: vi.fn(), is: vi.fn(), single: vi.fn(),
     }
     chain.select.mockReturnValue(chain)
     chain.eq.mockReturnValue(chain)
+    chain.is.mockReturnValue(chain)
     chain.single.mockResolvedValue({ data: { base_uom_id: null, base_uom: null, conversions: [] }, error: null })
     from.mockReturnValue(chain)
     await expect(getProductUomOptions('product-1')).rejects.toThrow('PRODUCT_BASE_UOM_REQUIRED')
