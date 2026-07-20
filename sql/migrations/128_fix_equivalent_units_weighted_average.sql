@@ -77,11 +77,6 @@ BEGIN
      AND v_begin_material IS NULL
      AND v_begin_conversion IS NULL
      AND v_begin_transferred IS NULL THEN
-    IF TG_OP = 'INSERT' THEN
-      RAISE EXCEPTION
-        'BEGINNING_WIP_COST_SPLIT_REQUIRED: provide material, conversion and transferred-in beginning cost pools';
-    END IF;
-
     v_begin_material := v_begin_total;
     v_begin_conversion := 0;
     v_begin_transferred := 0;
@@ -141,13 +136,6 @@ BEGIN
     + (v_ending * v_conversion_pct * COALESCE(NEW.cost_per_eu_conversion, 0))
     + (v_ending * COALESCE(NEW.cost_per_eu_transferred_in, 0));
 
-  NEW.cost_total :=
-    v_begin_total
-    + COALESCE(NEW.cost_material, 0)
-    + COALESCE(NEW.cost_labor, 0)
-    + COALESCE(NEW.cost_overhead, 0)
-    + COALESCE(NEW.cost_transferred_in, 0);
-
   NEW.eu_calculation_version := 2;
   RETURN NEW;
 END;
@@ -161,4 +149,4 @@ COMMENT ON FUNCTION public.calculate_wip_equivalent_units() IS
   'Weighted-average EUP v2: completed units at 100%, ending WIP by completion %, separate transferred-in pool.';
 
 COMMENT ON COLUMN public.stage_wip_log.eu_calculation_note IS
-  'Explicit compatibility note when a historical row lacks beginning-WIP cost-pool splits.';
+  'Explicit compatibility note when a row lacks beginning-WIP cost-pool splits.';
