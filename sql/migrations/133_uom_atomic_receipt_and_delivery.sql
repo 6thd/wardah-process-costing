@@ -197,8 +197,10 @@ BEGIN
     VALUES(v_org,v_dn_id,v_inv_line.id,v_product,v_inv_line.quantity,v_qty_base,v_qty_base,v_inv_line.unit_price,
       v_unit_cost,NULLIF(v_line->>'notes',''),v_uom,v_qty_entered,v_factor,
       COALESCE(NULLIF(v_line->>'unit_price_entered','')::numeric,v_inv_line.unit_price*v_factor),v_warehouse);
-    UPDATE public.sales_invoice_lines SET delivered_quantity=v_inv_line.delivered+v_qty_base,
-      unit_cost_at_sale=v_unit_cost,cogs=COALESCE(cogs,0)+v_line_cogs WHERE id=v_inv_line.id;
+    UPDATE public.sales_invoice_lines
+    SET delivered_quantity=v_inv_line.delivered+v_qty_base,
+        unit_cost_at_sale=v_unit_cost
+    WHERE id=v_inv_line.id;
   END LOOP;
 
   IF v_total_cogs>0 THEN PERFORM public.rpc_post_event_journal('COGS_DELIVERY',v_total_cogs,
@@ -216,4 +218,4 @@ GRANT EXECUTE ON FUNCTION public.rpc_post_goods_receipt(jsonb) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.rpc_post_delivery_note(jsonb) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.rpc_post_delivery_note(jsonb) TO authenticated;
 COMMENT ON FUNCTION public.rpc_post_delivery_note(jsonb) IS
-  'Atomic UoM-aware delivery. Stock and COGS are posted through bins/SLE valuation only.';
+  'Atomic UoM-aware delivery. Actual per-delivery COGS remains authoritative in delivery_note_lines and SLE; the generated invoice-line cogs column is not assigned.';
