@@ -79,6 +79,8 @@ export async function getProductUomOptions(productId: string): Promise<ProductUo
       )
     `)
     .eq('id', productId)
+    .eq('product_uom_conversions.is_active', true)
+    .is('product_uom_conversions.valid_to', null)
     .single()
 
   if (error) throw error
