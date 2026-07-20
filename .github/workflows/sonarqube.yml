@@ -61,6 +61,8 @@ jobs:
       - name: Collect Sonar diagnostics
         if: always() && steps.sonar_cfg.outputs.configured == 'true'
         shell: bash
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -u
           mkdir -p sonar-diagnostics
@@ -73,6 +75,7 @@ jobs:
           cp .scannerwork/report-task.txt sonar-diagnostics/report-task.txt
           ce_task_url="$(sed -n 's/^ceTaskUrl=//p' .scannerwork/report-task.txt)"
           dashboard_url="$(sed -n 's/^dashboardUrl=//p' .scannerwork/report-task.txt)"
+          project_key="$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties | head -n 1)"
 
           if [ -z "$ce_task_url" ]; then
             printf '%s\n' '{"error":"ceTaskUrl is missing from report-task.txt"}' > sonar-diagnostics/summary.json
@@ -101,6 +104,29 @@ jobs:
               --output sonar-diagnostics/quality-gate.json || true
           fi
 
+          if [ -n "$project_key" ] && [ -n "${PR_NUMBER:-}" ]; then
+            curl --fail --silent --show-error --get \
+              --user "$SONAR_TOKEN:" \
+              --data-urlencode "componentKeys=$project_key" \
+              --data-urlencode "pullRequest=$PR_NUMBER" \
+              --data-urlencode "statuses=OPEN,CONFIRMED" \
+              --data-urlencode "types=BUG" \
+              --data-urlencode "ps=500" \
+              "https://sonarcloud.io/api/issues/search" \
+              --output sonar-diagnostics/open-bugs.json || true
+
+            curl --fail --silent --show-error --get \
+              --user "$SONAR_TOKEN:" \
+              --data-urlencode "component=$project_key" \
+              --data-urlencode "pullRequest=$PR_NUMBER" \
+              --data-urlencode "metricKeys=new_coverage,new_duplicated_lines_density,new_reliability_rating,new_bugs,new_lines,lines_to_cover,uncovered_lines,duplicated_lines,duplicated_blocks" \
+              --data-urlencode "qualifiers=FIL" \
+              --data-urlencode "strategy=leaves" \
+              --data-urlencode "ps=500" \
+              "https://sonarcloud.io/api/measures/component_tree" \
+              --output sonar-diagnostics/file-measures.json || true
+          fi
+
           node <<'NODE'
           const fs = require('fs')
           const readJson = (path) => {
@@ -108,8 +134,43 @@ jobs:
           }
           const ce = readJson('sonar-diagnostics/ce-task.json')
           const gate = readJson('sonar-diagnostics/quality-gate.json')
+          const bugs = readJson('sonar-diagnostics/open-bugs.json')
+          const measures = readJson('sonar-diagnostics/file-measures.json')
           const conditions = gate?.projectStatus?.conditions ?? []
           const failed = conditions.filter((condition) => condition.status !== 'OK')
+          const valueOf = (component, metric) => {
+            const measure = component?.measures?.find((item) => item.metric === metric)
+            const raw = measure?.period?.value ?? measure?.value
+            return raw === undefined ? null : Number(raw)
+          }
+          const files = (measures?.components ?? []).map((component) => ({
+            key: component.key,
+            path: component.path,
+            name: component.name,
+            newCoverage: valueOf(component, 'new_coverage'),
+            newDuplication: valueOf(component, 'new_duplicated_lines_density'),
+            newLines: valueOf(component, 'new_lines'),
+            uncoveredLines: valueOf(component, 'uncovered_lines'),
+            duplicatedLines: valueOf(component, 'duplicated_lines'),
+            duplicatedBlocks: valueOf(component, 'duplicated_blocks'),
+          }))
+          const coverageHotspots = [...files]
+            .filter((file) => file.newLines > 0 && file.newCoverage !== null)
+            .sort((a, b) => (a.newCoverage - b.newCoverage) || (b.newLines - a.newLines))
+            .slice(0, 30)
+          const duplicationHotspots = [...files]
+            .filter((file) => (file.newDuplication ?? 0) > 0 || (file.duplicatedLines ?? 0) > 0)
+            .sort((a, b) => (b.newDuplication - a.newDuplication) || (b.duplicatedLines - a.duplicatedLines))
+            .slice(0, 30)
+          const openBugs = (bugs?.issues ?? []).map((issue) => ({
+            key: issue.key,
+            rule: issue.rule,
+            severity: issue.severity,
+            impacts: issue.impacts,
+            component: issue.component,
+            line: issue.line,
+            message: issue.message,
+          }))
           const summary = {
             computeEngineStatus: ce?.task?.status ?? null,
             computeEngineError: ce?.task?.errorMessage ?? null,
@@ -122,6 +183,9 @@ jobs:
               actualValue: condition.actualValue,
               status: condition.status,
             })),
+            openBugs,
+            coverageHotspots,
+            duplicationHotspots,
           }
           fs.writeFileSync('sonar-diagnostics/summary.json', JSON.stringify(summary, null, 2))
           console.log(JSON.stringify(summary, null, 2))
