@@ -10,7 +10,13 @@ vi.mock('@/lib/supabase', () => ({
   },
 }))
 
-import { convertProductQuantity, getProductUomOptions, saveProductUomConversion } from '../uom-service'
+import {
+  convertProductQuantity,
+  getProductUomOptions,
+  getProductWeight,
+  saveProductUomConversion,
+  setProductPhysicalWeight,
+} from '../uom-service'
 
 describe('uom-service', () => {
   beforeEach(() => vi.clearAllMocks())
@@ -83,25 +89,55 @@ describe('uom-service', () => {
     await expect(getProductUomOptions('product-1')).rejects.toThrow('PRODUCT_BASE_UOM_REQUIRED')
   })
 
-  it('saves product-specific factors through the versioned admin RPC', async () => {
+  it('saves cross-dimension product facts through the versioned admin RPC', async () => {
     rpc.mockResolvedValue({ data: { success: true, conversion_id: 'conversion-1' }, error: null })
 
     await saveProductUomConversion({
-      orgId: 'org-1', productId: 'product-1', uomId: 'carton-uom', factorToBase: 24,
-      useForSale: true, notes: '24 pieces per carton',
+      orgId: 'org-1', productId: 'product-1', uomId: 'kg-uom', factorToBase: 1 / 5.4,
+      allowCrossDimension: true, notes: 'C1: one carton weighs 5.4 kg',
     })
 
     expect(rpc).toHaveBeenCalledWith('rpc_set_product_uom_conversion', {
       p_org_id: 'org-1',
       p_product_id: 'product-1',
-      p_uom_id: 'carton-uom',
-      p_factor_to_base: 24,
+      p_uom_id: 'kg-uom',
+      p_factor_to_base: 1 / 5.4,
       p_use_for_purchase: false,
-      p_use_for_sale: true,
+      p_use_for_sale: false,
       p_barcode: null,
-      p_notes: '24 pieces per carton',
+      p_notes: 'C1: one carton weighs 5.4 kg',
+      p_allow_cross_dimension: true,
     })
     expect(from).not.toHaveBeenCalled()
+  })
+
+  it('declares physical product weight through the guarded RPC', async () => {
+    rpc.mockResolvedValue({ data: { success: true, product_id: 'product-1' }, error: null })
+
+    await setProductPhysicalWeight({
+      productId: 'product-1', netWeight: 5.4, grossWeight: 5.65, weightUomId: 'kg-uom',
+    })
+
+    expect(rpc).toHaveBeenCalledWith('rpc_set_product_physical_weight', {
+      p_product_id: 'product-1', p_net_weight: 5.4,
+      p_gross_weight: 5.65, p_weight_uom_id: 'kg-uom',
+    })
+  })
+
+  it('returns derived weight for entered quantities', async () => {
+    rpc.mockResolvedValue({ data: {
+      success: true, product_id: 'product-1', quantity_entered: 3,
+      uom_id: 'carton-uom', base_quantity: 3, weight_uom_id: 'kg-uom',
+      net_weight: 16.2, gross_weight: 16.95,
+    }, error: null })
+
+    const result = await getProductWeight({
+      productId: 'product-1', quantity: 3, uomId: 'carton-uom',
+      at: '2026-07-20T00:00:00.000Z',
+    })
+
+    expect(result.net_weight).toBe(16.2)
+    expect(result.gross_weight).toBe(16.95)
   })
 
   it('rejects non-positive product-specific factors', async () => {
