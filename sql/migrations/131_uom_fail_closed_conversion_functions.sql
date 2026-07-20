@@ -6,7 +6,7 @@
 CREATE OR REPLACE FUNCTION public.wardah_uom_factor(
   p_org uuid, p_product uuid, p_uom uuid, p_at timestamptz DEFAULT now()
 ) RETURNS numeric
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
+LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
   v_product_org uuid; v_base_uom uuid; v_base_category uuid;
@@ -51,7 +51,7 @@ $function$;
 
 CREATE OR REPLACE FUNCTION public.wardah_uom_to_base(
   p_org uuid,p_product uuid,p_quantity numeric,p_uom uuid,p_at timestamptz DEFAULT now()
-) RETURNS numeric LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public','pg_temp'
+) RETURNS numeric LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path TO 'public','pg_temp'
 AS $function$
 DECLARE v_factor numeric;
 BEGIN
@@ -63,7 +63,7 @@ $function$;
 
 CREATE OR REPLACE FUNCTION public.wardah_uom_cost_to_base(
   p_org uuid,p_product uuid,p_unit_cost_entered numeric,p_uom uuid,p_at timestamptz DEFAULT now()
-) RETURNS numeric LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path TO 'public','pg_temp'
+) RETURNS numeric LANGUAGE plpgsql STABLE SECURITY INVOKER SET search_path TO 'public','pg_temp'
 AS $function$
 DECLARE v_factor numeric;
 BEGIN
