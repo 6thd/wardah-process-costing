@@ -51,7 +51,7 @@ $function$;
 
 CREATE OR REPLACE FUNCTION public.rpc_manual_stock_movement(
   p_product_id uuid,p_quantity numeric,p_movement_type text,p_warehouse_id uuid DEFAULT NULL,p_notes text DEFAULT NULL
-) RETURNS jsonb LANGUAGE sql SECURITY DEFINER SET search_path TO 'public','pg_temp'
+) RETURNS jsonb LANGUAGE sql SECURITY INVOKER SET search_path TO 'public','pg_temp'
 AS $function$
   SELECT public.rpc_manual_stock_movement_v2(jsonb_build_object(
     'product_id',p_product_id,'quantity',p_quantity,'movement_type',p_movement_type,
