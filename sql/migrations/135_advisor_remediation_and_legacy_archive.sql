@@ -1,7 +1,7 @@
 -- migration_number: 135
 -- description: Close advisor findings with evidence-based actions: archive empty
 --              dated snapshots, cache auth.uid() in public RLS policies, harden
---              live FK indexes and normalize stock timestamps to timestamptz.
+--              live FK indexes and normalize mutable stock timestamps to timestamptz.
 -- safety: legacy tables are moved, never dropped; migration aborts if any has rows.
 
 CREATE SCHEMA IF NOT EXISTS legacy_archive;
@@ -38,6 +38,8 @@ REVOKE ALL ON ALL TABLES IN SCHEMA legacy_archive FROM PUBLIC,anon,authenticated
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA legacy_archive FROM PUBLIC,anon,authenticated;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA legacy_archive FROM PUBLIC,anon,authenticated;
 
+-- Protect already-cached auth.uid() expressions with a placeholder before replacing
+-- bare calls. This avoids nested SELECT wrappers regardless of deparser whitespace.
 DO $$
 DECLARE v_policy record; v_qual text; v_check text; v_sql text;
 BEGIN
@@ -50,14 +52,18 @@ BEGIN
   LOOP
     v_qual:=v_policy.qual; v_check:=v_policy.with_check;
     IF v_qual IS NOT NULL THEN
+      v_qual:=regexp_replace(v_qual,
+        '\([[:space:]]*SELECT[[:space:]]+auth\.uid\(\)([[:space:]]+AS[[:space:]]+uid)?[[:space:]]*\)',
+        '__WARDAH_AUTH_UID__','gi');
       v_qual:=replace(v_qual,'auth.uid()','(SELECT auth.uid())');
-      v_qual:=replace(v_qual,'(SELECT (SELECT auth.uid()))','(SELECT auth.uid())');
-      v_qual:=replace(v_qual,'((SELECT auth.uid()) AS uid)','(SELECT auth.uid() AS uid)');
+      v_qual:=replace(v_qual,'__WARDAH_AUTH_UID__','(SELECT auth.uid())');
     END IF;
     IF v_check IS NOT NULL THEN
+      v_check:=regexp_replace(v_check,
+        '\([[:space:]]*SELECT[[:space:]]+auth\.uid\(\)([[:space:]]+AS[[:space:]]+uid)?[[:space:]]*\)',
+        '__WARDAH_AUTH_UID__','gi');
       v_check:=replace(v_check,'auth.uid()','(SELECT auth.uid())');
-      v_check:=replace(v_check,'(SELECT (SELECT auth.uid()))','(SELECT auth.uid())');
-      v_check:=replace(v_check,'((SELECT auth.uid()) AS uid)','(SELECT auth.uid() AS uid)');
+      v_check:=replace(v_check,'__WARDAH_AUTH_UID__','(SELECT auth.uid())');
     END IF;
     v_sql:=format('ALTER POLICY %I ON %I.%I',v_policy.policyname,v_policy.schemaname,v_policy.tablename);
     IF v_qual IS NOT NULL THEN v_sql:=v_sql||' USING ('||v_qual||')'; END IF;
@@ -76,14 +82,35 @@ CREATE POLICY items_write_admin ON public.items FOR ALL TO authenticated
   WITH CHECK (public.wardah_is_org_admin(org_id));
 GRANT SELECT,INSERT,UPDATE,DELETE ON public.items TO authenticated;
 
-ALTER TABLE public.stock_ledger_entries
-  ALTER COLUMN posting_datetime TYPE timestamptz USING posting_datetime AT TIME ZONE 'UTC',
-  ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE 'UTC',
-  ALTER COLUMN modified_at TYPE timestamptz USING modified_at AT TIME ZONE 'UTC';
-ALTER TABLE public.stock_reposting_queue
-  ALTER COLUMN started_at TYPE timestamptz USING started_at AT TIME ZONE 'UTC',
-  ALTER COLUMN completed_at TYPE timestamptz USING completed_at AT TIME ZONE 'UTC',
-  ALTER COLUMN created_at TYPE timestamptz USING created_at AT TIME ZONE 'UTC';
+-- posting_datetime is GENERATED ALWAYS from posting_date + posting_time and must
+-- retain its immutable generated expression. Only mutable timestamp columns are normalized.
+DO $$
+DECLARE v_target record;
+BEGIN
+  FOR v_target IN SELECT * FROM (VALUES
+    ('stock_ledger_entries','created_at'),
+    ('stock_ledger_entries','modified_at'),
+    ('stock_reposting_queue','started_at'),
+    ('stock_reposting_queue','completed_at'),
+    ('stock_reposting_queue','created_at')
+  ) AS x(table_name,column_name)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name=v_target.table_name
+        AND column_name=v_target.column_name
+        AND data_type='timestamp without time zone'
+        AND is_generated='NEVER'
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE public.%I ALTER COLUMN %I TYPE timestamptz USING %I AT TIME ZONE ''UTC''',
+        v_target.table_name,v_target.column_name,v_target.column_name
+      );
+    END IF;
+  END LOOP;
+END
+$$;
+
 ALTER TABLE public.stock_ledger_entries
   ALTER COLUMN created_at SET DEFAULT now(), ALTER COLUMN modified_at SET DEFAULT now();
 ALTER TABLE public.stock_reposting_queue ALTER COLUMN created_at SET DEFAULT now();
