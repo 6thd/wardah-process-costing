@@ -1,9 +1,9 @@
--- Acceptance checks for migrations 128-140.
+-- Acceptance checks for migrations 128-141.
 -- Run after applying the migrations in a disposable/staging database.
 -- Every failing condition raises an exception; this script changes no data.
 
 DO $$
-DECLARE v_definition text; v_count bigint;
+DECLARE v_definition text; v_count bigint; v_view_options text[];
 BEGIN
   SELECT pg_get_functiondef(p.oid) INTO v_definition
   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -50,6 +50,10 @@ BEGIN
     RAISE EXCEPTION 'ACCEPTANCE_FAILED: tenant UoM RPC missing';
   END IF;
 
+  IF to_regprocedure('public.wardah_require_positive_bom_quantity(uuid,numeric)') IS NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: nested BOM quantity guard missing';
+  END IF;
+
   IF EXISTS(SELECT 1 FROM public.stock_ledger_entries WHERE org_id IS NULL) THEN RAISE EXCEPTION 'ACCEPTANCE_FAILED: SLE org_id null'; END IF;
   IF EXISTS(SELECT 1 FROM public.stock_reposting_queue WHERE org_id IS NULL) THEN RAISE EXCEPTION 'ACCEPTANCE_FAILED: reposting org_id null'; END IF;
 
@@ -66,6 +70,31 @@ BEGIN
         OR (table_name='sales_invoice_lines' AND column_name IN ('line_total','cogs')))
       AND is_generated<>'ALWAYS'
   ) THEN RAISE EXCEPTION 'ACCEPTANCE_FAILED: dependent generated document totals not restored'; END IF;
+
+  SELECT c.reloptions INTO v_view_options
+  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname='public' AND c.relname='vw_stock_valuation_by_method' AND c.relkind='v';
+  IF v_view_options IS NULL OR NOT ('security_invoker=true'=ANY(v_view_options)) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: valuation view must preserve security_invoker=true';
+  END IF;
+
+  SELECT pg_get_functiondef('public.rpc_post_delivery_note(jsonb)'::regprocedure)
+  INTO v_definition;
+  IF v_definition ~* 'SET[[:space:]]+[^;]*cogs[[:space:]]*=' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: delivery RPC assigns generated sales_invoice_lines.cogs';
+  END IF;
+
+  IF has_table_privilege('authenticated','public.product_uom_conversions','INSERT')
+     OR has_table_privilege('authenticated','public.product_uom_conversions','UPDATE')
+     OR has_table_privilege('authenticated','public.product_uom_conversions','DELETE') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: authenticated may mutate versioned UoM conversion history directly';
+  END IF;
+
+  IF EXISTS(
+    SELECT 1 FROM pg_policies WHERE schemaname='public'
+      AND tablename='product_uom_conversions'
+      AND cmd IN ('ALL','INSERT','UPDATE','DELETE')
+  ) THEN RAISE EXCEPTION 'ACCEPTANCE_FAILED: product UoM conversion write policy remains'; END IF;
 
   IF EXISTS(
     SELECT 1 FROM pg_policies WHERE schemaname='public'
