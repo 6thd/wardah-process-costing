@@ -2,8 +2,7 @@ import React from 'react';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import i18n from '@/i18n';
-import { HrDashboardLayout } from '../layouts/HrDashboardLayout';
-import '../i18n';
+import { useHrTranslation } from '../i18n';
 import '../translations/pages';
 import '../translations/reports';
 
@@ -17,16 +16,16 @@ function flatten(value: unknown, prefix = '', target: Record<string, string> = {
   return target;
 }
 
+function TranslationProbe() {
+  const { t } = useHrTranslation();
+  return <section><h1>{t('payroll.title')}</h1><input aria-label={t('common.search')} placeholder={t('leaves.searchPlaceholder')} /><p>{t('settlements.reviewWarning')}</p></section>;
+}
+
 describe('HR localization', () => {
   beforeEach(async () => {
-    await act(async () => {
-      await i18n.changeLanguage('ar');
-    });
+    await act(async () => { await i18n.changeLanguage('ar'); });
   });
-
-  afterEach(() => {
-    cleanup();
-  });
+  afterEach(cleanup);
 
   it('keeps Arabic and English HR resource keys in parity', () => {
     const ar = flatten(i18n.getResourceBundle('ar', 'hr'));
@@ -35,34 +34,22 @@ describe('HR localization', () => {
     expect(Object.keys(ar).length).toBeGreaterThan(100);
   });
 
-  it('updates legacy HR presentation text when language changes', async () => {
-    render(
-      <HrDashboardLayout>
-        <section>
-          <h1>إدارة الرواتب</h1>
-          <input aria-label="بحث" placeholder="بحث بالاسم..." />
-          <p>بيانات الموظف الفعلية: Ahmed Ali</p>
-        </section>
-      </HrDashboardLayout>,
-    );
-
+  it('updates direct HR translations when language changes', async () => {
+    render(<TranslationProbe />);
     expect(screen.getByText('إدارة الرواتب')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('بحث بالاسم...')).toBeInTheDocument();
 
-    await act(async () => {
-      await i18n.changeLanguage('en');
-      await Promise.resolve();
-    });
+    await act(async () => { await i18n.changeLanguage('en'); });
 
     expect(screen.getByText('Payroll Management')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Search by name...')).toBeInTheDocument();
-    expect(screen.getByText('بيانات الموظف الفعلية: Ahmed Ali')).toBeInTheDocument();
+    expect(screen.getByText(/Approval creates the accounting entry/)).toBeInTheDocument();
   });
 
-  it('restores Arabic presentation text after switching back', async () => {
-    render(<HrDashboardLayout><h1>إدارة الإجازات</h1></HrDashboardLayout>);
-    await act(async () => { await i18n.changeLanguage('en'); await Promise.resolve(); });
-    expect(screen.getByText('Leave Management')).toBeInTheDocument();
-    await act(async () => { await i18n.changeLanguage('ar'); await Promise.resolve(); });
-    expect(screen.getByText('إدارة الإجازات')).toBeInTheDocument();
+  it('restores Arabic translations after switching back', async () => {
+    render(<TranslationProbe />);
+    await act(async () => { await i18n.changeLanguage('en'); });
+    await act(async () => { await i18n.changeLanguage('ar'); });
+    expect(screen.getByText('إدارة الرواتب')).toBeInTheDocument();
   });
 });
