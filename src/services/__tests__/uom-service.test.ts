@@ -83,10 +83,32 @@ describe('uom-service', () => {
     await expect(getProductUomOptions('product-1')).rejects.toThrow('PRODUCT_BASE_UOM_REQUIRED')
   })
 
+  it('saves product-specific factors through the versioned admin RPC', async () => {
+    rpc.mockResolvedValue({ data: { success: true, conversion_id: 'conversion-1' }, error: null })
+
+    await saveProductUomConversion({
+      orgId: 'org-1', productId: 'product-1', uomId: 'carton-uom', factorToBase: 24,
+      useForSale: true, notes: '24 pieces per carton',
+    })
+
+    expect(rpc).toHaveBeenCalledWith('rpc_set_product_uom_conversion', {
+      p_org_id: 'org-1',
+      p_product_id: 'product-1',
+      p_uom_id: 'carton-uom',
+      p_factor_to_base: 24,
+      p_use_for_purchase: false,
+      p_use_for_sale: true,
+      p_barcode: null,
+      p_notes: '24 pieces per carton',
+    })
+    expect(from).not.toHaveBeenCalled()
+  })
+
   it('rejects non-positive product-specific factors', async () => {
     await expect(saveProductUomConversion({
       orgId: 'org-1', productId: 'product-1', uomId: 'carton-uom', factorToBase: 0,
     })).rejects.toThrow('UOM_FACTOR_MUST_BE_POSITIVE')
+    expect(rpc).not.toHaveBeenCalled()
     expect(from).not.toHaveBeenCalled()
   })
 })
