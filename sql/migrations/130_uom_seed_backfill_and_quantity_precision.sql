@@ -172,7 +172,8 @@ ALTER TABLE public.sales_invoice_lines
   ADD COLUMN cogs numeric(18,2)
   GENERATED ALWAYS AS (quantity*COALESCE(unit_cost_at_sale,0)) STORED;
 
-CREATE VIEW public.vw_stock_valuation_by_method AS
+CREATE VIEW public.vw_stock_valuation_by_method
+WITH (security_invoker=true) AS
 SELECT org_id,
        valuation_method,
        count(*) AS product_count,
