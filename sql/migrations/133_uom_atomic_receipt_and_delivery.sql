@@ -197,9 +197,13 @@ BEGIN
     VALUES(v_org,v_dn_id,v_inv_line.id,v_product,v_inv_line.quantity,v_qty_base,v_qty_base,v_inv_line.unit_price,
       v_unit_cost,NULLIF(v_line->>'notes',''),v_uom,v_qty_entered,v_factor,
       COALESCE(NULLIF(v_line->>'unit_price_entered','')::numeric,v_inv_line.unit_price*v_factor),v_warehouse);
+    -- Cumulative weighted average across partial deliveries, so the generated
+    -- invoice-line cogs equals the exact summed delivery COGS once fully delivered.
     UPDATE public.sales_invoice_lines
     SET delivered_quantity=v_inv_line.delivered+v_qty_base,
-        unit_cost_at_sale=v_unit_cost
+        unit_cost_at_sale=round(
+          (v_inv_line.delivered*COALESCE(unit_cost_at_sale,0)+v_line_cogs)
+          /(v_inv_line.delivered+v_qty_base),6)
     WHERE id=v_inv_line.id;
   END LOOP;
 
@@ -218,4 +222,4 @@ GRANT EXECUTE ON FUNCTION public.rpc_post_goods_receipt(jsonb) TO authenticated;
 REVOKE EXECUTE ON FUNCTION public.rpc_post_delivery_note(jsonb) FROM PUBLIC,anon;
 GRANT EXECUTE ON FUNCTION public.rpc_post_delivery_note(jsonb) TO authenticated;
 COMMENT ON FUNCTION public.rpc_post_delivery_note(jsonb) IS
-  'Atomic UoM-aware delivery. Actual per-delivery COGS remains authoritative in delivery_note_lines and SLE; the generated invoice-line cogs column is not assigned.';
+  'Atomic UoM-aware delivery. Actual per-delivery COGS remains authoritative in delivery_note_lines and SLE; unit_cost_at_sale carries the cumulative weighted average of delivered cost and the generated invoice-line cogs column is never assigned.';

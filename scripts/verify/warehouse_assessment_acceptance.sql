@@ -121,6 +121,48 @@ BEGIN
     WHERE line_type<>'REFERENCE' AND product_id IS NOT NULL AND uom_id IS NOT NULL
       AND quantity_base IS NULL
   ) THEN RAISE EXCEPTION 'ACCEPTANCE_FAILED: resolved BOM line missing quantity_base'; END IF;
+
+  -- Invoker-context execute contracts (migration 142). EXECUTE is checked against
+  -- current_user at every call site, so helpers reached from SECURITY INVOKER
+  -- contexts must be executable by authenticated, while pure internals stay locked.
+  IF NOT has_function_privilege('authenticated','public.wardah_require_positive_bom_quantity(uuid,numeric)','EXECUTE') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: BOM divisor guard not executable from invoker-security explode_bom';
+  END IF;
+  IF NOT has_function_privilege('authenticated','public.explode_bom(uuid,numeric,uuid)','EXECUTE')
+     OR has_function_privilege('anon','public.explode_bom(uuid,numeric,uuid)','EXECUTE') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: explode_bom must be executable by authenticated only';
+  END IF;
+  IF has_function_privilege('authenticated','public.wardah_uom_factor(uuid,uuid,uuid,timestamptz)','EXECUTE')
+     OR has_function_privilege('authenticated','public.wardah_resolve_product_id(uuid,uuid,timestamptz)','EXECUTE') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: internal UoM helpers must stay revoked from authenticated';
+  END IF;
+  SELECT count(*) INTO v_count
+  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname='public' AND p.prosecdef
+    AND p.proname IN ('trg_resolve_item_product_reference','trg_normalize_stock_adjustment_uom',
+      'trg_normalize_bom_line_uom','trg_normalize_purchase_order_line_uom','trg_normalize_sales_invoice_line_uom');
+  IF v_count<>5 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: UoM normalization trigger functions must be SECURITY DEFINER (%/5)',v_count;
+  END IF;
+END
+$$;
+
+-- Live invoker-context smoke test: execute as the authenticated role so ACL
+-- failures surface exactly the way client DML would hit them.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated') THEN RETURN; END IF;
+  SET LOCAL ROLE authenticated;
+  IF public.wardah_require_positive_bom_quantity(NULL,1)<>1 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: BOM divisor guard returned wrong value as authenticated';
+  END IF;
+  BEGIN
+    PERFORM public.wardah_require_positive_bom_quantity(NULL,0);
+    RAISE EXCEPTION 'ACCEPTANCE_FAILED: BOM divisor guard accepted zero quantity';
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM NOT LIKE 'BOM_CHILD_QUANTITY_INVALID%' THEN RAISE; END IF;
+  END;
+  RESET ROLE;
 END
 $$;
 

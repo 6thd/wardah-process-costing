@@ -1,7 +1,7 @@
 # Remediation Plan — Repository/Database Assessment and UoM Engine
 
 **Assessment source:** `REPO_DB_ASSESSMENT_AND_UOM_ENGINE_20260720.md`  
-**Target migrations:** 128–140  
+**Target migrations:** 128–142  
 **Principle:** legal inventory quantities are stored in the product base UoM; the entered UoM and conversion factor remain immutable document snapshots.
 
 ## Executive status
@@ -45,6 +45,16 @@
 6. Reconcile `bins`, SLE, `material_consumption`, stage WIP and document snapshots.
 7. Re-run Supabase security/performance advisors and retain before/after evidence.
 8. Deploy application and migrations in the same maintenance window; do not expose UoM-aware clients against a partially migrated schema.
+
+## Post-review hardening (141–142)
+
+| Finding | Treatment | Verification |
+|---|---|---|
+| Nested-BOM zero/NULL header quantity produced a raw division error | Migration 141 adds `wardah_require_positive_bom_quantity` raising `BOM_CHILD_QUANTITY_INVALID` inside `explode_bom` | Acceptance existence check + authenticated smoke test |
+| Locked internal helpers were unreachable from SECURITY INVOKER contexts: `explode_bom` (client-called) could not execute the divisor guard, and the invoker UoM normalization triggers could not execute `wardah_uom_factor` / `wardah_resolve_product_id`, so direct client DML on `purchase_order_lines`, `sales_invoice_lines`, `stock_adjustment_items`, `bom_lines` and `material_reservations` would fail with `permission denied` | Migration 142 makes the five normalization trigger functions `SECURITY DEFINER` (all pin `search_path`; org scoping stays on the row's `org_id` under table RLS), grants the pure `IMMUTABLE` divisor guard to `authenticated`, and locks `explode_bom` to `authenticated` only | Acceptance asserts `prosecdef` for the five trigger functions, helper privileges, and runs a `SET LOCAL ROLE authenticated` smoke test |
+| Generated `sales_invoice_lines.cogs` used the last delivery's unit cost for the full invoiced quantity | `rpc_post_delivery_note` now maintains `unit_cost_at_sale` as the cumulative weighted average of delivered cost, so the generated column equals the exact summed delivery COGS once fully delivered; per-delivery legal COGS remains in SLE and `delivery_note_lines` | Two partial deliveries at different costs reconcile with SLE totals |
+
+Documented behavior: legacy `material_reservations` rows with `uom_id IS NULL` are treated as already stored in the product base UoM; preflight blocks only active non-base-UoM reservations whose factor snapshot is missing, `1`, or without an entered quantity.
 
 ## Deliberately not automated
 

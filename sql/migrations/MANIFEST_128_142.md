@@ -1,4 +1,4 @@
-# Manifest Addendum — Migrations 128–141
+# Manifest Addendum — Migrations 128–142
 
 > ملحق حوكمة للفرع إلى حين دمجه في `MANIFEST.md`. لا تُطبق الملفات خارج الترتيب، ولا على الإنتاج قبل preflight وstaging evidence.
 
@@ -18,10 +18,11 @@
 | 139 | تطبيع PO وSales Invoice عند إدخال السطر | triggers + backfill snapshots | اختبار over-receipt/over-delivery |
 | 140 | وحدات مخصصة للمستأجر مع RLS وRPC إداري | additive + policies/functions | اختبار عزل المؤسسات |
 | 141 | حارس صريح لكمية BOM الفرعي واستبدال `explode_bom` بقاسم متحقق | replace function | اختبار `BOM_CHILD_QUANTITY_INVALID` |
+| 142 | عقد EXECUTE لسياقات invoker: triggers التطبيع تصبح `SECURITY DEFINER`، وحارس قاسم BOM يُمنح لـ`authenticated`، و`explode_bom` تصبح `authenticated` فقط | privileges/attributes only | acceptance بدور `authenticated` + فحص `prosecdef` |
 
 ## الترتيب الإلزامي
 
-`128 → 129 → 130 → 131 → 132 → 133 → 134 → 135 → 136 → 137 → 138 → 139 → 140 → 141`
+`128 → 129 → 130 → 131 → 132 → 133 → 134 → 135 → 136 → 137 → 138 → 139 → 140 → 141 → 142`
 
 ## بوابات النشر
 
@@ -32,6 +33,7 @@
 5. سيناريو C1: كرتون واحد = 5.4 كجم، BOM متعدد الوحدات، خصم جزئي، وتدفق القيمة إلى WIP.
 6. تنفيذ تسليم جزئي مرتين بتكلفتين مختلفتين والتأكد أن القيمة الفعلية في SLE و`delivery_note_lines`، دون محاولة تحديث العمود المولّد.
 7. إعادة فحص Supabase Advisors والاحتفاظ بأدلة قبل/بعد.
+8. بحساب اختبار حقيقي (دور `authenticated`): INSERT مباشر على `purchase_order_lines` وتفجير BOM متداخل عبر `explode_bom` للتأكد من خلو سياقات invoker من `permission denied`.
 
 ## حالة الإنتاج
 
