@@ -174,22 +174,21 @@ CREATE POLICY uoms_read ON public.uoms FOR SELECT TO authenticated USING ((SELEC
 DROP POLICY IF EXISTS uom_aliases_read ON public.uom_aliases;
 CREATE POLICY uom_aliases_read ON public.uom_aliases FOR SELECT TO authenticated USING ((SELECT auth.uid()) IS NOT NULL);
 DROP POLICY IF EXISTS product_uom_conversions_read ON public.product_uom_conversions;
-CREATE POLICY product_uom_conversions_read ON public.product_uom_conversions FOR SELECT TO authenticated USING (org_id = public.wardah_org_id(NULL::uuid));
+CREATE POLICY product_uom_conversions_read ON public.product_uom_conversions FOR SELECT TO authenticated
+  USING (org_id = public.wardah_org_id(NULL::uuid));
 DROP POLICY IF EXISTS product_uom_conversions_write ON public.product_uom_conversions;
-CREATE POLICY product_uom_conversions_write ON public.product_uom_conversions FOR ALL TO authenticated
-  USING (public.wardah_is_org_admin(org_id))
-  WITH CHECK (public.wardah_is_org_admin(org_id) AND EXISTS (SELECT 1 FROM public.products p WHERE p.id = product_id AND p.org_id = org_id));
 DROP POLICY IF EXISTS uom_backfill_issues_admin ON public.uom_backfill_issues;
 CREATE POLICY uom_backfill_issues_admin ON public.uom_backfill_issues FOR ALL TO authenticated
   USING (org_id IS NOT NULL AND public.wardah_is_org_admin(org_id))
   WITH CHECK (org_id IS NOT NULL AND public.wardah_is_org_admin(org_id));
 
 REVOKE INSERT, UPDATE, DELETE ON public.uom_categories, public.uoms, public.uom_aliases FROM authenticated, anon;
+REVOKE INSERT, UPDATE, DELETE ON public.product_uom_conversions FROM authenticated, anon;
 GRANT SELECT ON public.uom_categories, public.uoms, public.uom_aliases TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.product_uom_conversions TO authenticated;
+GRANT SELECT ON public.product_uom_conversions TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.uom_backfill_issues TO authenticated;
 
 COMMENT ON TABLE public.product_uom_conversions IS
-  'Time-bounded product-specific conversion factors. Historical documents store immutable snapshots.';
+  'RPC-only time-bounded product conversion history. Authenticated clients may read current/history rows but cannot insert, overwrite or delete them directly.';
 COMMENT ON COLUMN public.products.base_uom_id IS
   'Legal inventory unit. All SLE/bin quantities are stored in this unit.';
