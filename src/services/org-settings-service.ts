@@ -21,6 +21,16 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValues = {
   printFooter: '',
 };
 
+export const UOM_ENGINE_SETTING_KEY = 'uom_engine_enabled' as const;
+
+export interface UomEngineSettingValue {
+  enabled: boolean;
+}
+
+export const DEFAULT_UOM_ENGINE_SETTING: Readonly<UomEngineSettingValue> = {
+  enabled: false,
+};
+
 /** يقرأ قيمة إعداد؛ يعيد null إن لم يُحفَظ بعد. */
 export async function getOrgSetting<T>(key: string): Promise<T | null> {
   const orgId = await getEffectiveTenantId();
@@ -60,6 +70,20 @@ export async function getSystemSettings(): Promise<SystemSettingsValues> {
 
 export async function saveSystemSettings(values: SystemSettingsValues): Promise<void> {
   await setOrgSetting('system', values);
+}
+
+/**
+ * علم إطلاق محرك الوحدات. القيمة الافتراضية مغلقة دائمًا حتى تُطبق migrations
+ * 128–142 وتُجتاز بوابات القبول على المؤسسة المستهدفة.
+ */
+export async function getUomEngineEnabled(): Promise<boolean> {
+  const saved = await getOrgSetting<Partial<UomEngineSettingValue>>(UOM_ENGINE_SETTING_KEY);
+  return saved?.enabled === true;
+}
+
+/** حفظ العلم ككائن JSONB صريح بدل قيمة scalar لتسهيل التوسع والتدقيق لاحقًا. */
+export async function setUomEngineEnabled(enabled: boolean): Promise<void> {
+  await setOrgSetting<UomEngineSettingValue>(UOM_ENGINE_SETTING_KEY, { enabled });
 }
 
 // ===== تصدير بيانات (نسخ احتياطي يدوي من الشاشة) =====
