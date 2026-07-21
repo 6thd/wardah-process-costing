@@ -1,0 +1,129 @@
+name: Regenerate UoM Database Types
+
+on:
+  push:
+    branches:
+      - claude/uom-engine-implementation-gapve8
+    paths:
+      - .github/workflows/regenerate-uom-types.yml
+      - sql/baseline/**
+      - sql/migrations/**
+      - scripts/ci/fresh-db/**
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: regenerate-uom-types-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    name: Fresh DB → generated TypeScript
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/uom-engine-implementation-gapve8
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build schema from baseline and migrations
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          set -Eeuo pipefail
+
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          if [ -z "$BASELINE" ]; then
+            echo "❌ No schema baseline found"
+            exit 1
+          fi
+
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_uom_types
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_types \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_types -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+          REPORT=/tmp/uom_types_chain_report.txt PGDATABASE=wardah_uom_types \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          grep -q '^PASS 142 ' /tmp/uom_types_chain_report.txt
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_types -tAc \
+            "SELECT to_regclass('public.uoms') IS NOT NULL
+                    AND to_regclass('public.product_uom_conversions') IS NOT NULL
+                    AND to_regclass('public.uom_backfill_issues') IS NOT NULL" \
+            | grep -qx t
+
+      - name: Generate database.generated.ts
+        run: |
+          set -Eeuo pipefail
+          npx supabase gen types typescript \
+            --db-url 'postgresql://postgres:postgres@localhost:5432/wardah_uom_types' \
+            --schema public > /tmp/database.generated.ts
+
+          test -s /tmp/database.generated.ts
+          grep -q 'uom_categories:' /tmp/database.generated.ts
+          grep -q 'uoms:' /tmp/database.generated.ts
+          grep -q 'product_uom_conversions:' /tmp/database.generated.ts
+          grep -q 'uom_backfill_issues:' /tmp/database.generated.ts
+          grep -q 'rpc_consume_reserved_materials_v2:' /tmp/database.generated.ts
+          grep -q 'rpc_create_org_uom:' /tmp/database.generated.ts
+
+          mv /tmp/database.generated.ts src/types/database.generated.ts
+
+      - name: Validate generated types and UoM phase zero
+        run: |
+          npm run type-check
+          npm run test -- --run --coverage.enabled=false \
+            src/services/__tests__/uom-service.test.ts \
+            src/services/__tests__/uom-error-mapper.test.ts \
+            src/services/__tests__/uom-engine-setting.test.ts \
+            src/hooks/__tests__/use-uom-engine-enabled.test.tsx
+
+      - name: Commit regenerated types
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- src/types/database.generated.ts; then
+            echo '✅ Generated database types are already current'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/types/database.generated.ts
+          git commit -m 'chore(db): regenerate types through UoM migration 142'
+          git push origin HEAD:claude/uom-engine-implementation-gapve8
