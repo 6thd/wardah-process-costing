@@ -9,6 +9,15 @@ on:
       - sql/baseline/**
       - sql/migrations/**
       - scripts/ci/fresh-db/**
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/regenerate-uom-types.yml
+      - sql/baseline/**
+      - sql/migrations/**
+      - scripts/ci/fresh-db/**
+      - src/services/uom-service.ts
   workflow_dispatch:
 
 permissions:
@@ -115,6 +124,7 @@ jobs:
             src/hooks/__tests__/use-uom-engine-enabled.test.tsx
 
       - name: Commit regenerated types
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
           set -Eeuo pipefail
           if git diff --quiet -- src/types/database.generated.ts; then
