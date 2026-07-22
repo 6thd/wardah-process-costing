@@ -9,6 +9,14 @@ on:
       - sql/baseline/**
       - sql/migrations/**
       - scripts/ci/fresh-db/**
+      - src/types/database.generated.ts
+      - src/services/uom-service.ts
+      - src/services/org-settings-service.ts
+      - src/services/uom-error-mapper.ts
+      - src/locales/uom-errors.ts
+      - src/hooks/use-uom-engine-enabled.ts
+      - src/services/__tests__/uom-*.test.ts
+      - src/hooks/__tests__/use-uom-engine-enabled.test.tsx
   pull_request:
     branches:
       - main
@@ -17,7 +25,14 @@ on:
       - sql/baseline/**
       - sql/migrations/**
       - scripts/ci/fresh-db/**
+      - src/types/database.generated.ts
       - src/services/uom-service.ts
+      - src/services/org-settings-service.ts
+      - src/services/uom-error-mapper.ts
+      - src/locales/uom-errors.ts
+      - src/hooks/use-uom-engine-enabled.ts
+      - src/services/__tests__/uom-*.test.ts
+      - src/hooks/__tests__/use-uom-engine-enabled.test.tsx
   workflow_dispatch:
 
 permissions:
@@ -50,7 +65,7 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@v4
         with:
-          ref: claude/uom-engine-implementation-gapve8
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -90,7 +105,9 @@ jobs:
           REPORT=/tmp/uom_types_chain_report.txt PGDATABASE=wardah_uom_types \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
 
-          grep -q '^PASS 142 ' /tmp/uom_types_chain_report.txt
+          tail -20 /tmp/uom_types_chain_report.txt
+          grep -Eq '^PASS 142_.+\.sql$' /tmp/uom_types_chain_report.txt
+          ! grep -Eq '^(FAIL|NOT_RUN) ' /tmp/uom_types_chain_report.txt
           psql -v ON_ERROR_STOP=1 -d wardah_uom_types -tAc \
             "SELECT to_regclass('public.uoms') IS NOT NULL
                     AND to_regclass('public.product_uom_conversions') IS NOT NULL
@@ -116,12 +133,27 @@ jobs:
 
       - name: Validate generated types and UoM phase zero
         run: |
-          npm run type-check
+          set -o pipefail
+          mkdir -p reports
+          npm run type-check 2>&1 | tee reports/uom-typecheck.log
           npm run test -- --run --coverage.enabled=false \
             src/services/__tests__/uom-service.test.ts \
             src/services/__tests__/uom-error-mapper.test.ts \
             src/services/__tests__/uom-engine-setting.test.ts \
-            src/hooks/__tests__/use-uom-engine-enabled.test.tsx
+            src/hooks/__tests__/use-uom-engine-enabled.test.tsx \
+            2>&1 | tee reports/uom-tests.log
+
+      - name: Upload UoM validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uom-validation-${{ github.run_id }}
+          path: |
+            /tmp/uom_types_chain_report.txt
+            reports/uom-typecheck.log
+            reports/uom-tests.log
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Commit regenerated types
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
@@ -136,4 +168,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/types/database.generated.ts
           git commit -m 'chore(db): regenerate types through UoM migration 142'
-          git push origin HEAD:claude/uom-engine-implementation-gapve8
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}
