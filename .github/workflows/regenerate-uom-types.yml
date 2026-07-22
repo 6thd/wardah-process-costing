@@ -97,16 +97,16 @@ jobs:
             | grep -oE '[0-9]+$' | head -1)
           CUTOFF=${CUTOFF:-0}
 
-          createdb wardah_uom_types
-          psql -v ON_ERROR_STOP=1 -d wardah_uom_types \
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
-          psql -v ON_ERROR_STOP=1 -d wardah_uom_types -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
 
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > reports/uom-chain-order.txt
 
           set +e
-          REPORT=reports/uom-chain-report.txt PGDATABASE=wardah_uom_types \
+          REPORT=reports/uom-chain-report.txt PGDATABASE=wardah_fresh \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations reports/uom-chain-order.txt
           CHAIN_STATUS=$?
           set -e
@@ -120,7 +120,7 @@ jobs:
             grep -Fxq "PASS $LAST_MIGRATION" reports/uom-chain-report.txt
           fi
 
-          psql -v ON_ERROR_STOP=1 -d wardah_uom_types -tAc \
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
             "SELECT to_regclass('public.uom_categories') IS NOT NULL
                     AND to_regclass('public.uoms') IS NOT NULL
                     AND to_regclass('public.product_uom_conversions') IS NOT NULL
@@ -150,7 +150,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           npx supabase gen types typescript \
-            --db-url 'postgresql://postgres:postgres@localhost:5432/wardah_uom_types' \
+            --db-url 'postgresql://postgres:postgres@localhost:5432/wardah_fresh' \
             --schema public > /tmp/database.generated.ts
 
           test -s /tmp/database.generated.ts
