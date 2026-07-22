@@ -10795,6 +10795,10 @@ export type Database = {
           status: string
         }[]
       }
+      rpc_get_org_uom_engine_enabled: {
+        Args: { p_org_id: string }
+        Returns: boolean
+      }
       rpc_get_product_weight: {
         Args: {
           p_at?: string

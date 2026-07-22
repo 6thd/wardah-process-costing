@@ -12,7 +12,7 @@ vi.mock('@/contexts/AuthContext', () => ({
 
 vi.mock('@/services/org-settings-service', () => ({
   UOM_ENGINE_SETTING_KEY: 'uom_engine_enabled',
-  getUomEngineEnabled: () => getUomEngineEnabled(),
+  getUomEngineEnabled: (orgId: string) => getUomEngineEnabled(orgId),
 }))
 
 import { uomEngineQueryKey, useUomEngineEnabled } from '../use-uom-engine-enabled'
@@ -54,6 +54,24 @@ describe('useUomEngineEnabled', () => {
     expect(result.current.isEnabled).toBe(false)
     expect(result.current.fetchStatus).toBe('idle')
     expect(getUomEngineEnabled).not.toHaveBeenCalled()
+  })
+
+  it('reads the selected organization and re-reads when switching from org-1 to org-2', async () => {
+    getUomEngineEnabled.mockImplementation((orgId: string) => Promise.resolve(orgId === 'org-1'))
+
+    authState.currentOrgId = 'org-1'
+    const { result, rerender } = renderHook(() => useUomEngineEnabled(), { wrapper })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.isEnabled).toBe(true)
+    expect(getUomEngineEnabled).toHaveBeenCalledWith('org-1')
+
+    // Switch the active organization; the flag must be re-read for org-2.
+    authState.currentOrgId = 'org-2'
+    rerender()
+
+    await waitFor(() => expect(result.current.isEnabled).toBe(false))
+    expect(getUomEngineEnabled).toHaveBeenCalledWith('org-2')
   })
 
   it('partitions the cache by organization', () => {

@@ -1,18 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const state: { savedValue: unknown; upserts: unknown[] } = {
-  savedValue: null,
+const state: {
+  rpcResult: { data: unknown; error: unknown }
+  rpcCalls: Array<{ fn: string; args: unknown }>
+  upserts: unknown[]
+} = {
+  rpcResult: { data: false, error: null },
+  rpcCalls: [],
   upserts: [],
 }
 
 function makeChain(table: string) {
   const chain: Record<string, unknown> = {}
-  chain.select = () => chain
-  chain.eq = () => chain
-  chain.maybeSingle = () => Promise.resolve({
-    data: state.savedValue === null ? null : { value: state.savedValue },
-    error: null,
-  })
   chain.upsert = (row: unknown, options: unknown) => {
     state.upserts.push({ table, row, options })
     return Promise.resolve({ error: null })
@@ -21,7 +20,13 @@ function makeChain(table: string) {
 }
 
 vi.mock('@/lib/supabase', () => ({
-  supabase: { from: (table: string) => makeChain(table) },
+  supabase: {
+    from: (table: string) => makeChain(table),
+    rpc: (fn: string, args: unknown) => {
+      state.rpcCalls.push({ fn, args })
+      return Promise.resolve(state.rpcResult)
+    },
+  },
   getEffectiveTenantId: vi.fn(() => Promise.resolve('org-1')),
 }))
 
@@ -33,23 +38,32 @@ import {
 
 describe('UoM engine organization setting', () => {
   beforeEach(() => {
-    state.savedValue = null
+    state.rpcResult = { data: false, error: null }
+    state.rpcCalls = []
     state.upserts = []
   })
 
-  it('defaults to false when no setting exists', async () => {
-    await expect(getUomEngineEnabled()).resolves.toBe(false)
+  it('reads the flag through the org-scoped RPC with the explicit org id', async () => {
+    state.rpcResult = { data: true, error: null }
+
+    await expect(getUomEngineEnabled('org-7')).resolves.toBe(true)
+    expect(state.rpcCalls).toEqual([
+      { fn: 'rpc_get_org_uom_engine_enabled', args: { p_org_id: 'org-7' } },
+    ])
   })
 
-  it('enables only for the explicit object value', async () => {
-    state.savedValue = { enabled: true }
-    await expect(getUomEngineEnabled()).resolves.toBe(true)
+  it('fails closed for false or null RPC results', async () => {
+    state.rpcResult = { data: false, error: null }
+    await expect(getUomEngineEnabled('org-1')).resolves.toBe(false)
 
-    state.savedValue = { enabled: false }
-    await expect(getUomEngineEnabled()).resolves.toBe(false)
+    state.rpcResult = { data: null, error: null }
+    await expect(getUomEngineEnabled('org-1')).resolves.toBe(false)
+  })
 
-    state.savedValue = true
-    await expect(getUomEngineEnabled()).resolves.toBe(false)
+  it('throws when the RPC returns an error', async () => {
+    state.rpcResult = { data: null, error: { message: 'ORG_MEMBERSHIP_REQUIRED' } }
+
+    await expect(getUomEngineEnabled('org-1')).rejects.toThrow('ORG_MEMBERSHIP_REQUIRED')
   })
 
   it('stores a structured JSONB value under the rollout key', async () => {

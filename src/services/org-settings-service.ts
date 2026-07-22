@@ -73,12 +73,19 @@ export async function saveSystemSettings(values: SystemSettingsValues): Promise<
 }
 
 /**
- * علم إطلاق محرك الوحدات. القيمة الافتراضية مغلقة دائمًا حتى تُطبق migrations
- * 128–142 وتُجتاز بوابات القبول على المؤسسة المستهدفة.
+ * علم إطلاق محرك الوحدات لمؤسسة صريحة. القيمة الافتراضية مغلقة دائمًا.
+ *
+ * يقرأ عبر RPC ذرية (`rpc_get_org_uom_engine_enabled`) تتحقق من عضوية المتصل في
+ * `p_org_id` وتقرأ العلم لتلك المؤسسة بالتحديد. هذا يحترم المؤسسة المختارة في
+ * الواجهة (currentOrgId) لمستخدمي المؤسسات المتعددة، بخلاف القراءة المباشرة من
+ * `org_settings` المقيّدة بـ RLS بالمؤسسة الفعلية للجلسة `wardah_org_id(NULL)`.
  */
-export async function getUomEngineEnabled(): Promise<boolean> {
-  const saved = await getOrgSetting<Partial<UomEngineSettingValue>>(UOM_ENGINE_SETTING_KEY);
-  return saved?.enabled === true;
+export async function getUomEngineEnabled(orgId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('rpc_get_org_uom_engine_enabled', {
+    p_org_id: orgId,
+  });
+  if (error) throw new Error(error.message);
+  return data === true;
 }
 
 /** حفظ العلم ككائن JSONB صريح بدل قيمة scalar لتسهيل التوسع والتدقيق لاحقًا. */

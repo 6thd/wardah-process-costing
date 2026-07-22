@@ -19,7 +19,7 @@ export function useUomEngineEnabled() {
   const { currentOrgId } = useAuth()
   const query = useQuery({
     queryKey: uomEngineQueryKey(currentOrgId),
-    queryFn: getUomEngineEnabled,
+    queryFn: () => getUomEngineEnabled(currentOrgId as string),
     enabled: Boolean(currentOrgId),
     staleTime: UOM_ENGINE_QUERY_STALE_TIME_MS,
     retry: 1,
