@@ -100,7 +100,7 @@ export async function listUomCatalog(): Promise<UomCatalog> {
 
   return {
     categories: categories ?? [],
-    uoms: (uoms ?? []) as UomDefinition[],
+    uoms: (uoms ?? []) as unknown as UomDefinition[],
   }
 }
 
@@ -143,7 +143,7 @@ export async function getProductUomMasterProfile(
       .in('id', uomIds)
 
     if (uomsError) throw uomsError
-    uoms = (uomRows ?? []) as UomDefinition[]
+    uoms = (uomRows ?? []) as unknown as UomDefinition[]
   }
 
   const uomById = new Map(uoms.map((uom) => [uom.id, uom]))
