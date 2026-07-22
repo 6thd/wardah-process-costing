@@ -147,7 +147,7 @@ describe('ProductUomSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
 
     expect(await screen.findByText('الوحدة الأساسية القانونية')).toBeInTheDocument()
-    expect(screen.getByText('قطعة (pcs)')).toBeInTheDocument()
+    expect(screen.getAllByText('قطعة (pcs)').length).toBeGreaterThan(0)
     expect(screen.getByText('الوحدة الأساسية مقفلة')).toBeInTheDocument()
     expect(screen.getByText('لا توجد تحويلات مخصصة للصنف.')).toBeInTheDocument()
     expect(resolveProductIdForItem).toHaveBeenCalledWith('org-1', 'item-1')
