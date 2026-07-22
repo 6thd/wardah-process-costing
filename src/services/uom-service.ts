@@ -1,6 +1,4 @@
-import { supabase as _supabase } from '@/lib/supabase'
-
-const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
+import { supabase } from '@/lib/supabase'
 
 export interface UomDefinition {
   id: string

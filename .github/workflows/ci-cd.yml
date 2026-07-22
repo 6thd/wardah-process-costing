@@ -11,7 +11,6 @@ jobs:
     name: Test & Build
     runs-on: ubuntu-latest
 
-    # Fresh DB uses the same PostgreSQL major version as Supabase Production.
     services:
       postgres:
         image: postgres:17
@@ -61,19 +60,35 @@ jobs:
           echo "✅ src/types/database.generated.ts موجود (${LINES} سطر)"
 
       - name: TypeScript type check
-        run: npm run type-check
-        continue-on-error: false
+        id: typecheck
+        run: |
+          mkdir -p reports
+          set +e
+          npm run type-check 2>&1 | tee reports/typecheck.log
+          STATUS=${PIPESTATUS[0]}
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Upload TypeScript diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-${{ github.run_id }}
+          path: reports/typecheck.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce TypeScript type check
+        run: test "${{ steps.typecheck.outputs.status }}" -eq 0
 
       - name: ESLint check
         run: npm run lint
-        continue-on-error: false
 
       - name: Unit & integration tests
         run: >-
           npm run test -- --run --coverage.enabled=false
           --reporter=default --reporter=junit
           --outputFile.junit=reports/vitest-junit.xml
-        continue-on-error: false
 
       - name: Upload Vitest JUnit report
         if: always()
@@ -149,50 +164,27 @@ jobs:
           echo "   PostgreSQL client: $(psql --version)"
 
           createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
 
-          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
-            -f scripts/ci/fresh-db/supabase_shim.sql -q
-          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
-            -f "$BASELINE" -q
-
-          TABLES=$(psql -d wardah_fresh -tAc \
-            "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
-          SEQS=$(psql -d wardah_fresh -tAc \
-            "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid \
-             WHERE n.nspname='public' AND c.relkind='S'")
-          FUNCS=$(psql -d wardah_fresh -tAc \
-            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid \
-             WHERE n.nspname='public' AND p.prokind='f'")
-          POLICIES=$(psql -d wardah_fresh -tAc \
-            "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
-
+          TABLES=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+          SEQS=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relkind='S'")
+          FUNCS=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid WHERE n.nspname='public' AND p.prokind='f'")
+          POLICIES=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
           echo "   Schema counts after baseline: tables=$TABLES seqs=$SEQS funcs=$FUNCS policies=$POLICIES"
-          if [ "$TABLES" -lt 120 ] || [ "$SEQS" -lt 10 ] || \
-             [ "$FUNCS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
+          if [ "$TABLES" -lt 120 ] || [ "$SEQS" -lt 10 ] || [ "$FUNCS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
             echo "❌ عدد كائنات ما بعد الـbaseline أقل من الحد الأدنى المتوقع"
             exit 1
           fi
 
-          GENERATED=$(psql -d wardah_fresh -tAc \
-            "SELECT count(*) FROM pg_attribute a
-             JOIN pg_class c ON a.attrelid = c.oid
-             JOIN pg_namespace n ON c.relnamespace = n.oid
-             WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped")
+          GENERATED=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON a.attrelid = c.oid JOIN pg_namespace n ON c.relnamespace = n.oid WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped")
           echo "   Generated columns: $GENERATED (expected ≥22)"
           if [ "$GENERATED" -lt 22 ]; then
             echo "❌ الأعمدة المحسوبة أقل من المتوقع"
-            psql -d wardah_fresh -c \
-              "SELECT c.relname, a.attname FROM pg_attribute a
-               JOIN pg_class c ON a.attrelid = c.oid
-               JOIN pg_namespace n ON c.relnamespace = n.oid
-               WHERE n.nspname = 'public' AND a.attgenerated = 's' AND NOT a.attisdropped
-               ORDER BY c.relname, a.attname"
             exit 1
           fi
 
-          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
-            > /tmp/chain_order.txt
-
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
           TOTAL=$(wc -l < /tmp/chain_order.txt)
           if [ "$TOTAL" -eq 0 ]; then
             echo "✅ لا migrations جديدة بعد baseline (cutoff=$CUTOFF) — اكتمل"
@@ -200,10 +192,11 @@ jobs:
           fi
 
           echo "   تطبيق $TOTAL migration(s) بعد cutoff $CUTOFF …"
-          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
-            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+          set +e
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
           STATUS=$?
-          tail -5 /tmp/chain_report.txt
+          set -e
+          tail -20 /tmp/chain_report.txt
 
           if [ $STATUS -ne 0 ]; then
             echo "❌ fresh-db chain test فشل"
@@ -242,7 +235,5 @@ jobs:
           name: dist
           path: dist/
 
-      # External Vercel/Netlify integrations currently perform deployment.
-      # This job remains an explicit placeholder and does not mutate production.
       - name: Deploy to Server (placeholder)
         run: echo "⚠️ Deploy step is a placeholder — deployment is handled externally."

@@ -1,0 +1,212 @@
+name: Regenerate UoM Database Types
+
+on:
+  push:
+    branches:
+      - claude/uom-engine-implementation-gapve8
+    paths:
+      - .github/workflows/regenerate-uom-types.yml
+      - sql/baseline/**
+      - sql/migrations/**
+      - scripts/ci/fresh-db/**
+      - src/types/database.generated.ts
+      - src/services/uom-service.ts
+      - src/services/uom-master-data-service.ts
+      - src/services/org-settings-service.ts
+      - src/services/uom-error-mapper.ts
+      - src/locales/uom-errors.ts
+      - src/hooks/use-uom-engine-enabled.ts
+      - src/hooks/use-product-uoms.ts
+      - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
+      - src/services/__tests__/uom-*.test.ts
+      - src/hooks/__tests__/use-*.test.tsx
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/regenerate-uom-types.yml
+      - sql/baseline/**
+      - sql/migrations/**
+      - scripts/ci/fresh-db/**
+      - src/types/database.generated.ts
+      - src/services/uom-service.ts
+      - src/services/uom-master-data-service.ts
+      - src/services/org-settings-service.ts
+      - src/services/uom-error-mapper.ts
+      - src/locales/uom-errors.ts
+      - src/hooks/use-uom-engine-enabled.ts
+      - src/hooks/use-product-uoms.ts
+      - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
+      - src/services/__tests__/uom-*.test.ts
+      - src/hooks/__tests__/use-*.test.tsx
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: regenerate-uom-types-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    name: Fresh DB → generated TypeScript
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and verify Fresh DB schema
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          mkdir -p reports
+          set +e
+          bash -Eeuo pipefail <<'SCRIPT' > reports/uom-fresh-db.log 2>&1
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > reports/uom-chain-order.txt
+
+          set +e
+          REPORT=reports/uom-chain-report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations reports/uom-chain-order.txt
+          CHAIN_STATUS=$?
+          set -e
+
+          cat reports/uom-chain-report.txt
+          test "$CHAIN_STATUS" -eq 0
+          ! grep -Eq '^(FAIL|NOT_RUN) ' reports/uom-chain-report.txt
+
+          LAST_MIGRATION=$(tail -1 reports/uom-chain-order.txt)
+          if [ -n "$LAST_MIGRATION" ]; then
+            grep -Fxq "PASS $LAST_MIGRATION" reports/uom-chain-report.txt
+          fi
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regclass('public.uom_categories') IS NOT NULL
+                    AND to_regclass('public.uoms') IS NOT NULL
+                    AND to_regclass('public.product_uom_conversions') IS NOT NULL
+                    AND to_regclass('public.uom_backfill_issues') IS NOT NULL
+                    AND to_regprocedure('public.rpc_convert_product_uom(uuid,numeric,uuid,timestamptz)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_get_product_weight(uuid,numeric,uuid,timestamptz)') IS NOT NULL" \
+            | grep -qx t
+          SCRIPT
+          STATUS=$?
+          echo "$STATUS" > reports/uom-fresh-db.status
+          cat reports/uom-fresh-db.log
+          exit 0
+
+      - name: Upload Fresh DB diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uom-fresh-db-${{ github.run_id }}
+          path: reports/uom-*
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce Fresh DB schema gate
+        run: test "$(cat reports/uom-fresh-db.status)" -eq 0
+
+      - name: Generate database.generated.ts
+        run: |
+          set -Eeuo pipefail
+          npx supabase gen types typescript \
+            --db-url 'postgresql://postgres:postgres@localhost:5432/wardah_fresh' \
+            --schema public > /tmp/database.generated.ts
+
+          test -s /tmp/database.generated.ts
+          grep -q 'uom_categories:' /tmp/database.generated.ts
+          grep -q 'uoms:' /tmp/database.generated.ts
+          grep -q 'product_uom_conversions:' /tmp/database.generated.ts
+          grep -q 'uom_backfill_issues:' /tmp/database.generated.ts
+          grep -q 'rpc_convert_product_uom:' /tmp/database.generated.ts
+          grep -q 'rpc_set_product_uom_conversion:' /tmp/database.generated.ts
+          grep -q 'rpc_set_product_physical_weight:' /tmp/database.generated.ts
+          grep -q 'rpc_get_product_weight:' /tmp/database.generated.ts
+          grep -q 'rpc_consume_reserved_materials_v2:' /tmp/database.generated.ts
+          grep -q 'rpc_create_org_uom:' /tmp/database.generated.ts
+
+          mv /tmp/database.generated.ts src/types/database.generated.ts
+
+      - name: Validate generated types and UoM phase zero
+        run: |
+          set -o pipefail
+          npm run type-check 2>&1 | tee reports/uom-typecheck.log
+          npm run test -- --run --coverage.enabled=false \
+            src/services/__tests__/uom-service.test.ts \
+            src/services/__tests__/uom-master-data-service.test.ts \
+            src/services/__tests__/uom-error-mapper.test.ts \
+            src/services/__tests__/uom-engine-setting.test.ts \
+            src/hooks/__tests__/use-uom-engine-enabled.test.tsx \
+            src/hooks/__tests__/use-product-uoms.test.tsx \
+            src/features/inventory/components/__tests__/ProductUomSettings.test.tsx \
+            2>&1 | tee reports/uom-tests.log
+
+      - name: Upload UoM validation diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uom-validation-${{ github.run_id }}
+          path: |
+            reports/uom-typecheck.log
+            reports/uom-tests.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit regenerated types
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          set -Eeuo pipefail
+          if git diff --quiet -- src/types/database.generated.ts; then
+            echo '✅ Generated database types are already current'
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/types/database.generated.ts
+          git commit -m 'chore(db): regenerate UoM database types'
+          git push origin HEAD:${{ github.head_ref || github.ref_name }}

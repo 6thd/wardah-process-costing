@@ -2,8 +2,8 @@
  * خدمة إعدادات المؤسسة — قراءة/حفظ key/value JSONB في org_settings (Migration 98).
  * upsert على (org_id, key)؛ org-scoped عبر RLS + فلتر صريح.
  */
-import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
-const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
+import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import type { Json } from '@/types/database.generated';
 
 export interface SystemSettingsValues {
   currency: string;        // عملة العرض (مثل SAR)
@@ -19,6 +19,16 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettingsValues = {
   dateFormat: 'en-US',
   defaultWarehouseId: '',
   printFooter: '',
+};
+
+export const UOM_ENGINE_SETTING_KEY = 'uom_engine_enabled' as const;
+
+export interface UomEngineSettingValue {
+  enabled: boolean;
+}
+
+export const DEFAULT_UOM_ENGINE_SETTING: Readonly<UomEngineSettingValue> = {
+  enabled: false,
 };
 
 /** يقرأ قيمة إعداد؛ يعيد null إن لم يُحفَظ بعد. */
@@ -45,7 +55,7 @@ export async function setOrgSetting<T>(key: string, value: T): Promise<void> {
   const { error } = await supabase
     .from('org_settings')
     .upsert(
-      { org_id: orgId, key, value: value as object },
+      { org_id: orgId, key, value: value as Json },
       { onConflict: 'org_id,key' },
     );
 
@@ -60,6 +70,27 @@ export async function getSystemSettings(): Promise<SystemSettingsValues> {
 
 export async function saveSystemSettings(values: SystemSettingsValues): Promise<void> {
   await setOrgSetting('system', values);
+}
+
+/**
+ * علم إطلاق محرك الوحدات لمؤسسة صريحة. القيمة الافتراضية مغلقة دائمًا.
+ *
+ * يقرأ عبر RPC ذرية (`rpc_get_org_uom_engine_enabled`) تتحقق من عضوية المتصل في
+ * `p_org_id` وتقرأ العلم لتلك المؤسسة بالتحديد. هذا يحترم المؤسسة المختارة في
+ * الواجهة (currentOrgId) لمستخدمي المؤسسات المتعددة، بخلاف القراءة المباشرة من
+ * `org_settings` المقيّدة بـ RLS بالمؤسسة الفعلية للجلسة `wardah_org_id(NULL)`.
+ */
+export async function getUomEngineEnabled(orgId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('rpc_get_org_uom_engine_enabled', {
+    p_org_id: orgId,
+  });
+  if (error) throw new Error(error.message);
+  return data === true;
+}
+
+/** حفظ العلم ككائن JSONB صريح بدل قيمة scalar لتسهيل التوسع والتدقيق لاحقًا. */
+export async function setUomEngineEnabled(enabled: boolean): Promise<void> {
+  await setOrgSetting<UomEngineSettingValue>(UOM_ENGINE_SETTING_KEY, { enabled });
 }
 
 // ===== تصدير بيانات (نسخ احتياطي يدوي من الشاشة) =====

@@ -13,6 +13,8 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
+import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
+import { ProductUomSettings } from './components/ProductUomSettings'
 import { 
   ADJUSTMENT_TYPES, 
   calculateAdjustmentTotals, 
@@ -194,6 +196,7 @@ function InventoryOverview() {
 function ItemsManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
   const [items, setItems] = useState<Item[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -722,6 +725,9 @@ function ItemsManagement() {
                   <th className="text-right p-3 font-semibold">التكلفة</th>
                   <th className="text-right p-3 font-semibold">سعر البيع</th>
                   <th className="text-center p-3 font-semibold">الحالة</th>
+                  {uomEngineEnabled && (
+                    <th className="text-center p-3 font-semibold">الإجراءات</th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -814,6 +820,14 @@ function ItemsManagement() {
                           )}
                         </div>
                       </td>
+                      {uomEngineEnabled && (
+                        <td className="p-3 text-center">
+                          <ProductUomSettings
+                            itemId={item.id}
+                            productName={(item as { name_ar?: string }).name_ar || item.name}
+                          />
+                        </td>
+                      )}
                     </tr>
                   )
                 })}
