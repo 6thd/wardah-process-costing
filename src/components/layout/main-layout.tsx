@@ -5,7 +5,6 @@ import { Header } from './header'
 import { Sidebar } from './sidebar'
 import { useUIStore } from '@/store/ui-store'
 import { cn } from '@/lib/utils'
-import { InventoryUomSettingsLauncher } from '@/features/inventory/components/InventoryUomSettingsLauncher'
 
 interface MainLayoutProps {
   readonly children: ReactNode
@@ -68,8 +67,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         </main>
       </div>
 
-      <InventoryUomSettingsLauncher />
-      
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <button
