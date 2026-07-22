@@ -81,6 +81,32 @@ function nullableNumeric(value: number | string | null | undefined): number | nu
   return value == null ? null : numeric(value)
 }
 
+export async function resolveProductIdForItem(orgId: string, itemId: string): Promise<string> {
+  const { data: mapping, error: mappingError } = await supabase
+    .from('item_product_map')
+    .select('product_id')
+    .eq('org_id', orgId)
+    .eq('item_id', itemId)
+    .eq('is_active', true)
+    .is('valid_to', null)
+    .maybeSingle()
+
+  if (mappingError) throw mappingError
+  if (mapping?.product_id) return mapping.product_id
+
+  const { data: product, error: productError } = await supabase
+    .from('products')
+    .select('id')
+    .eq('org_id', orgId)
+    .eq('id', itemId)
+    .maybeSingle()
+
+  if (productError) throw productError
+  if (product?.id) return product.id
+
+  throw new Error(`ITEM_PRODUCT_MAP_MISSING: org=${orgId}, item=${itemId}`)
+}
+
 export async function listUomCatalog(): Promise<UomCatalog> {
   const { data: categories, error: categoriesError } = await supabase
     .from('uom_categories')
