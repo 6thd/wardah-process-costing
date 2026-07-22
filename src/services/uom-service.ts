@@ -1,5 +1,4 @@
 import { supabase } from '@/lib/supabase'
-import { uomRpcClient } from '@/services/uom-rpc-client'
 
 export interface UomDefinition {
   id: string
@@ -118,7 +117,7 @@ export async function convertProductQuantity(params: {
   if (!Number.isFinite(params.quantity) || params.quantity < 0) {
     throw new Error('UOM_QUANTITY_MUST_BE_NONNEGATIVE')
   }
-  const { data, error } = await uomRpcClient.rpc('rpc_convert_product_uom', {
+  const { data, error } = await supabase.rpc('rpc_convert_product_uom', {
     p_product_id: params.productId,
     p_quantity: params.quantity,
     p_uom_id: params.uomId,
@@ -156,7 +155,7 @@ export async function saveProductUomConversion(input: {
     throw new Error('UOM_FACTOR_MUST_BE_POSITIVE')
   }
 
-  const { data, error } = await uomRpcClient.rpc('rpc_set_product_uom_conversion', {
+  const { data, error } = await supabase.rpc('rpc_set_product_uom_conversion', {
     p_org_id: input.orgId,
     p_product_id: input.productId,
     p_uom_id: input.uomId,
@@ -186,7 +185,7 @@ export async function setProductPhysicalWeight(input: {
   if (input.grossWeight != null && input.grossWeight < input.netWeight) {
     throw new Error('GROSS_WEIGHT_BELOW_NET_WEIGHT')
   }
-  const { data, error } = await uomRpcClient.rpc('rpc_set_product_physical_weight', {
+  const { data, error } = await supabase.rpc('rpc_set_product_physical_weight', {
     p_product_id: input.productId,
     p_net_weight: input.netWeight,
     p_gross_weight: input.grossWeight ?? null,
@@ -207,7 +206,7 @@ export async function getProductWeight(input: {
   if (!Number.isFinite(input.quantity) || input.quantity < 0) {
     throw new Error('UOM_QUANTITY_MUST_BE_NONNEGATIVE')
   }
-  const { data, error } = await uomRpcClient.rpc('rpc_get_product_weight', {
+  const { data, error } = await supabase.rpc('rpc_get_product_weight', {
     p_product_id: input.productId,
     p_quantity: input.quantity,
     p_uom_id: input.uomId,
