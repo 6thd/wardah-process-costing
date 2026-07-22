@@ -1,0 +1,105 @@
+name: UoM Phase Zero Diagnostics
+
+on:
+  push:
+    branches:
+      - claude/uom-engine-implementation-gapve8
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Diagnose TypeScript and Fresh DB
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture TypeScript diagnostics
+        run: |
+          mkdir -p reports
+          set +e
+          npm run type-check > reports/typecheck.log 2>&1
+          STATUS=$?
+          echo "$STATUS" > reports/typecheck.status
+          cat reports/typecheck.log
+          exit 0
+
+      - name: Capture Fresh DB diagnostics
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+        run: |
+          mkdir -p reports
+          set +e
+          bash -Eeuo pipefail <<'SCRIPT' > reports/fresh-db.log 2>&1
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_uom_diagnostics
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_diagnostics -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_diagnostics -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > reports/chain-order.txt
+          set +e
+          REPORT=reports/chain-report.txt PGDATABASE=wardah_uom_diagnostics \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations reports/chain-order.txt
+          CHAIN_STATUS=$?
+          set -e
+
+          cat reports/chain-report.txt
+          test "$CHAIN_STATUS" -eq 0
+          grep -Eq '^PASS 142_.+\.sql$' reports/chain-report.txt
+          ! grep -Eq '^(FAIL|NOT_RUN) ' reports/chain-report.txt
+          SCRIPT
+          STATUS=$?
+          echo "$STATUS" > reports/fresh-db.status
+          cat reports/fresh-db.log
+          exit 0
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uom-phase-zero-diagnostics-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce diagnostics result
+        run: |
+          TYPECHECK_STATUS=$(cat reports/typecheck.status)
+          FRESH_DB_STATUS=$(cat reports/fresh-db.status)
+          echo "TypeScript status: $TYPECHECK_STATUS"
+          echo "Fresh DB status: $FRESH_DB_STATUS"
+          test "$TYPECHECK_STATUS" -eq 0
+          test "$FRESH_DB_STATUS" -eq 0
