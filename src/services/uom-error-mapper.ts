@@ -89,6 +89,19 @@ const RULES: readonly UomErrorRule[] = [
   { prefixes: ['PRODUCT_WEIGHT_SAVE_FAILED'], translationKey: 'weightSaveFailed' },
   { prefixes: ['PRODUCT_WEIGHT_LOOKUP_FAILED'], translationKey: 'weightLookupFailed' },
   { prefixes: ['INVALID_PRODUCT_UOM_OPTIONS_RESPONSE'], translationKey: 'productOptionsInvalid' },
+  { prefixes: ['PRODUCT_BASE_UOM_LOCKED_HAS_MOVEMENTS'], translationKey: 'baseUomLocked' },
+  { prefixes: ['PRODUCT_BASE_UOM_UNCHANGED'], translationKey: 'baseUomUnchanged' },
+  { prefixes: ['PRODUCT_BASE_UOM_ASSIGN_FAILED'], translationKey: 'baseUomAssignFailed', action: 'OPEN_PRODUCT_UOM_SETTINGS' },
+  {
+    prefixes: ['UOM_BACKFILL_ISSUE_NOT_FOUND', 'UOM_BACKFILL_ISSUE_NOT_OPEN', 'UOM_BACKFILL_ISSUE_REQUIRED'],
+    translationKey: 'backfillIssueUnavailable',
+    action: 'OPEN_BACKFILL_ISSUES',
+  },
+  {
+    prefixes: ['UOM_BACKFILL_ISSUE_RESOLVE_FAILED', 'UOM_BACKFILL_ISSUE_IGNORE_FAILED'],
+    translationKey: 'backfillActionFailed',
+    action: 'OPEN_BACKFILL_ISSUES',
+  },
 ]
 
 function errorMessage(error: unknown): string {

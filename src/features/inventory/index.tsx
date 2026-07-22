@@ -14,7 +14,10 @@ import { itemsService, categoriesService, stockMovementsService } from '@/servic
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
+import { useItemUomStatus } from '@/hooks/use-item-uom-status'
 import { ProductUomSettings } from './components/ProductUomSettings'
+import { UomBackfillIssues } from './components/UomBackfillIssues'
+import { ItemUomStatusBadge } from './components/ItemUomStatusBadge'
 import { 
   ADJUSTMENT_TYPES, 
   calculateAdjustmentTotals, 
@@ -31,6 +34,7 @@ export function InventoryModule() {
       <Route index element={<InventoryOverview />} />
       <Route path="overview" element={<InventoryOverview />} />
       <Route path="items" element={<ItemsManagement />} />
+      <Route path="uom-issues" element={<UomBackfillIssues />} />
       <Route path="categories" element={<CategoriesManagement />} />
       <Route path="movements" element={<StockMovements />} />
       <Route path="adjustments" element={<StockAdjustments />} />
@@ -380,9 +384,16 @@ function ItemsManagement() {
           <h1 className="text-2xl font-bold">{t('inventory.items')}</h1>
           <p className="text-muted-foreground">إدارة أصناف المخزون ({items.length} صنف)</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
-        </Button>
+        <div className="flex gap-2">
+          {uomEngineEnabled && (
+            <Button variant="outline" asChild>
+              <Link to="/inventory/uom-issues">🔧 إصلاح وحدات الأصناف</Link>
+            </Button>
+          )}
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
+          </Button>
+        </div>
       </div>
 
       {/* Statistics Cards */}
@@ -843,6 +854,7 @@ function ItemsManagement() {
 // Stock Adjustments Component
 function StockAdjustments() {
   const { t } = useTranslation()
+  const { needsSetup: itemNeedsUomSetup } = useItemUomStatus()
   const [adjustments, setAdjustments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -1774,22 +1786,30 @@ function StockAdjustments() {
                       }}
                     >
                       {filteredProducts.length > 0 ? (
-                        filteredProducts.map((product) => (
+                        filteredProducts.map((product) => {
+                          const needsUom = itemNeedsUomSetup(product.id)
+                          return (
                           <button
                             key={product.id}
+                            disabled={needsUom}
                             onClick={() => {
+                              if (needsUom) return
                               setSelectedProduct(product)
                               setSearchTerm(product.name)
                               setShowProductSearch(false)
                             }}
-                            className="w-full px-4 py-3 text-right hover:bg-muted dark:hover:bg-gray-800 border-b border-border dark:border-gray-700 last:border-b-0 transition-colors bg-card dark:bg-gray-950"
+                            className="w-full px-4 py-3 text-right hover:bg-muted dark:hover:bg-gray-800 border-b border-border dark:border-gray-700 last:border-b-0 transition-colors bg-card dark:bg-gray-950 disabled:opacity-60 disabled:cursor-not-allowed"
                           >
-                            <div className="font-medium text-foreground dark:text-white">{product.name}</div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="font-medium text-foreground dark:text-white">{product.name}</div>
+                              {needsUom && <ItemUomStatusBadge />}
+                            </div>
                             <div className="text-sm text-muted-foreground dark:text-muted-foreground">
                               {product.code} - الرصيد: {product.stock_quantity}
                             </div>
                           </button>
-                        ))
+                          )
+                        })
                       ) : (
                         <div className="px-4 py-4 text-center text-muted-foreground dark:text-muted-foreground bg-card dark:bg-gray-950">
                           لا توجد نتائج

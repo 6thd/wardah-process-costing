@@ -9,6 +9,8 @@ const resolveProductIdForItem = vi.fn()
 const getProductUomMasterProfile = vi.fn()
 const getProductBaseUomChangeGuard = vi.fn()
 const listUomCatalog = vi.fn()
+const listProductUomConversionHistory = vi.fn()
+const assignProductBaseUom = vi.fn()
 
 vi.mock('@/hooks/use-uom-engine-enabled', () => ({
   useUomEngineEnabled: () => useUomEngineEnabled(),
@@ -23,6 +25,8 @@ vi.mock('@/services/uom-master-data-service', () => ({
   getProductUomMasterProfile: (...args: unknown[]) => getProductUomMasterProfile(...args),
   getProductBaseUomChangeGuard: (...args: unknown[]) => getProductBaseUomChangeGuard(...args),
   listUomCatalog: (...args: unknown[]) => listUomCatalog(...args),
+  listProductUomConversionHistory: (...args: unknown[]) => listProductUomConversionHistory(...args),
+  assignProductBaseUom: (...args: unknown[]) => assignProductBaseUom(...args),
 }))
 
 vi.mock('@/services/uom-service', () => ({
@@ -96,6 +100,8 @@ describe('ProductUomSettings', () => {
       has_movements: true,
       base_uom_locked: true,
     })
+    listProductUomConversionHistory.mockResolvedValue([])
+    assignProductBaseUom.mockResolvedValue(undefined)
     listUomCatalog.mockResolvedValue({
       categories: [
         { id: 'count', code: 'COUNT', name: 'Count', name_ar: 'عدد', dimension: 'count', is_system: true },
@@ -138,6 +144,30 @@ describe('ProductUomSettings', () => {
     const { container } = renderComponent()
 
     expect(container).toBeEmptyDOMElement()
+  })
+
+  it('offers the base-unit assignment path when unset and no movement exists', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    getProductUomMasterProfile.mockResolvedValue({
+      product_id: 'product-1',
+      org_id: 'org-1',
+      base_uom_id: null,
+      base_uom: null,
+      uom_migration_status: 'NO_UNIT',
+      net_weight: null,
+      gross_weight: null,
+      weight_uom_id: null,
+      weight_uom: null,
+      conversions: [],
+    })
+    getProductBaseUomChangeGuard.mockResolvedValue({ has_movements: false, base_uom_locked: false })
+
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByRole('button', { name: 'تعيين وحدة الأساس' })).toBeInTheDocument()
+    expect(screen.getByText('غير محددة')).toBeInTheDocument()
+    expect(screen.queryByText('الوحدة الأساسية مقفلة')).not.toBeInTheDocument()
   })
 
   it('loads the legal product profile only after the user opens the dialog', async () => {

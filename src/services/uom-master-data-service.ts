@@ -215,6 +215,58 @@ export async function getProductUomMasterProfile(
   }
 }
 
+export interface ProductUomConversionHistoryEntry {
+  id: string
+  uom: UomDefinition | null
+  uom_id: string
+  factor_to_base: number
+  is_active: boolean
+  valid_from: string
+  valid_to: string | null
+}
+
+/**
+ * Full versioned conversion history for a product (active + closed), newest first.
+ * Tenant-scoped by org_id on the conversions and the joined units.
+ */
+export async function listProductUomConversionHistory(
+  orgId: string,
+  productId: string,
+): Promise<ProductUomConversionHistoryEntry[]> {
+  const { data, error } = await supabase
+    .from('product_uom_conversions')
+    .select('id,uom_id,factor_to_base,is_active,valid_from,valid_to')
+    .eq('org_id', orgId)
+    .eq('product_id', productId)
+    .order('valid_from', { ascending: false })
+
+  if (error) throw error
+  const rows = data ?? []
+  if (rows.length === 0) return []
+
+  const uomIds = Array.from(new Set(rows.map((row) => row.uom_id).filter(Boolean)))
+  let uoms: UomDefinition[] = []
+  if (uomIds.length > 0) {
+    const { data: uomRows, error: uomsError } = await supabase
+      .from('uoms')
+      .select(UOM_SELECT)
+      .in('id', uomIds)
+    if (uomsError) throw uomsError
+    uoms = (uomRows ?? []) as unknown as UomDefinition[]
+  }
+  const uomById = new Map(uoms.map((uom) => [uom.id, uom]))
+
+  return rows.map((row) => ({
+    id: row.id,
+    uom_id: row.uom_id,
+    uom: uomById.get(row.uom_id) ?? null,
+    factor_to_base: numeric(row.factor_to_base),
+    is_active: row.is_active,
+    valid_from: row.valid_from,
+    valid_to: row.valid_to,
+  }))
+}
+
 export async function getProductBaseUomChangeGuard(
   orgId: string,
   productId: string,
@@ -234,6 +286,117 @@ export async function getProductBaseUomChangeGuard(
     has_movements: hasMovements,
     base_uom_locked: hasMovements,
   }
+}
+
+export interface UnmappedProduct {
+  id: string
+  code: string | null
+  name: string
+  name_ar: string | null
+  unit: string | null
+  uom_migration_status: string
+}
+
+function assertRpcSuccess(data: unknown, fallbackCode: string): Record<string, unknown> {
+  if (!data || typeof data !== 'object' || (data as Record<string, unknown>).success !== true) {
+    throw new Error(fallbackCode)
+  }
+  return data as Record<string, unknown>
+}
+
+/**
+ * Legal write path to assign or repair a product's base unit. The server enforces
+ * admin membership, forbids product-specific base units, and rejects any change
+ * once inventory movements exist. On success the product becomes MAPPED and its
+ * open products backfill issue is auto-resolved.
+ */
+export async function assignProductBaseUom(input: {
+  orgId: string
+  productId: string
+  uomId: string
+}): Promise<void> {
+  if (!input.orgId || !input.productId || !input.uomId) {
+    throw new Error('PRODUCT_AND_UOM_REQUIRED')
+  }
+  const { data, error } = await supabase.rpc('rpc_assign_product_base_uom', {
+    p_org_id: input.orgId,
+    p_product_id: input.productId,
+    p_uom_id: input.uomId,
+  })
+  if (error) throw error
+  assertRpcSuccess(data, 'PRODUCT_BASE_UOM_ASSIGN_FAILED')
+}
+
+export async function resolveUomBackfillIssue(input: {
+  orgId: string
+  issueId: string
+  resolvedUomId?: string | null
+  note?: string | null
+}): Promise<void> {
+  if (!input.orgId || !input.issueId) throw new Error('UOM_BACKFILL_ISSUE_REQUIRED')
+  const { data, error } = await supabase.rpc('rpc_resolve_uom_backfill_issue', {
+    p_org_id: input.orgId,
+    p_issue_id: input.issueId,
+    p_resolved_uom_id: input.resolvedUomId ?? undefined,
+    p_note: input.note ?? undefined,
+  })
+  if (error) throw error
+  assertRpcSuccess(data, 'UOM_BACKFILL_ISSUE_RESOLVE_FAILED')
+}
+
+export async function ignoreUomBackfillIssue(input: {
+  orgId: string
+  issueId: string
+  note?: string | null
+}): Promise<void> {
+  if (!input.orgId || !input.issueId) throw new Error('UOM_BACKFILL_ISSUE_REQUIRED')
+  const { data, error } = await supabase.rpc('rpc_ignore_uom_backfill_issue', {
+    p_org_id: input.orgId,
+    p_issue_id: input.issueId,
+    p_note: input.note ?? undefined,
+  })
+  if (error) throw error
+  assertRpcSuccess(data, 'UOM_BACKFILL_ISSUE_IGNORE_FAILED')
+}
+
+/**
+ * Products that still need a legal base unit (PENDING / AMBIGUOUS / NO_UNIT).
+ * Tenant-scoped: every row is filtered by the active organization.
+ */
+export async function listUnmappedProducts(orgId: string): Promise<UnmappedProduct[]> {
+  const { data, error } = await supabase
+    .from('products')
+    .select('id,code,name,name_ar,unit,uom_migration_status')
+    .eq('org_id', orgId)
+    .neq('uom_migration_status', 'MAPPED')
+    .order('code', { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as UnmappedProduct[]
+}
+
+export interface ItemUomMappingStatus {
+  id: string
+  uom_migration_status: string
+}
+
+/**
+ * Lightweight id → uom_migration_status projection for the active organization's
+ * items, used to gate item pickers so an unmapped item cannot be selected before
+ * the user reaches a hard RPC error.
+ */
+export async function listItemUomMappingStatuses(orgId: string): Promise<ItemUomMappingStatus[]> {
+  const { data, error } = await supabase
+    .from('items')
+    .select('id,uom_migration_status')
+    .eq('org_id', orgId)
+
+  if (error) throw error
+  return (data ?? []) as ItemUomMappingStatus[]
+}
+
+export function itemUomNeedsSetup(status: string | null | undefined): boolean {
+  return status !== 'MAPPED'
 }
 
 export async function listOpenUomBackfillIssues(orgId: string): Promise<UomBackfillIssue[]> {
