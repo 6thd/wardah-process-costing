@@ -11,7 +11,7 @@ on:
       - scripts/ci/fresh-db/**
       - src/types/database.generated.ts
       - src/services/uom-service.ts
-      - src/services/uom-rpc-client.ts
+      - src/services/uom-master-data-service.ts
       - src/services/org-settings-service.ts
       - src/services/uom-error-mapper.ts
       - src/locales/uom-errors.ts
@@ -29,7 +29,7 @@ on:
       - scripts/ci/fresh-db/**
       - src/types/database.generated.ts
       - src/services/uom-service.ts
-      - src/services/uom-rpc-client.ts
+      - src/services/uom-master-data-service.ts
       - src/services/org-settings-service.ts
       - src/services/uom-error-mapper.ts
       - src/locales/uom-errors.ts
@@ -173,6 +173,7 @@ jobs:
           npm run type-check 2>&1 | tee reports/uom-typecheck.log
           npm run test -- --run --coverage.enabled=false \
             src/services/__tests__/uom-service.test.ts \
+            src/services/__tests__/uom-master-data-service.test.ts \
             src/services/__tests__/uom-error-mapper.test.ts \
             src/services/__tests__/uom-engine-setting.test.ts \
             src/hooks/__tests__/use-uom-engine-enabled.test.tsx \
