@@ -25,6 +25,7 @@ function queryChain(result: { data: unknown; error: unknown }) {
     limit: vi.fn(),
     single: vi.fn(),
     maybeSingle: vi.fn(),
+    then: vi.fn(),
   }
 
   for (const method of ['select', 'eq', 'is', 'in', 'order', 'limit']) {
@@ -32,6 +33,9 @@ function queryChain(result: { data: unknown; error: unknown }) {
   }
   chain.single.mockResolvedValue(result)
   chain.maybeSingle.mockResolvedValue(result)
+  chain.then.mockImplementation((onFulfilled, onRejected) =>
+    Promise.resolve(result).then(onFulfilled, onRejected),
+  )
   return chain
 }
 
