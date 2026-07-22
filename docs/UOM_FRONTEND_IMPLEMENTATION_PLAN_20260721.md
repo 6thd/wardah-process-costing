@@ -4,6 +4,8 @@
 **المرجع الهندسي:** migrations 129–142 (مدمجة في `main` عبر PR #39، **غير مطبقة على Production**)
 **مراجع مكملة:** `sql/migrations/MANIFEST_128_142.md`, `docs/REPO_DB_ASSESSMENT_AND_UOM_ENGINE_20260720.md`, `src/services/uom-service.ts`
 
+> **⚠️ لقطة زمنية (snapshot):** يوثّق هذا المستند حالة قاعدة البيانات كما كانت بتاريخ **2026-07-21**، أي **قبل** تطبيق migrations على Production. لا تُعتبر عبارات «غير مطبقة على Production» أدناه حالةً حيّة؛ الحالة الحالية موضّحة في وصف الـPR ذي الصلة وفي سجل `supabase_migrations.schema_migrations`. عند أي تعارض بين هذا المستند ووصف الـPR، فوصف الـPR وسجل Production هما المرجع.
+
 ---
 
 ## 0. الحالة الفعلية الموثقة (قبل أي تعديل)
