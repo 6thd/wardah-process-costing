@@ -21,6 +21,7 @@ function queryChain(result: { data: unknown; error: unknown }) {
     eq: vi.fn(),
     is: vi.fn(),
     in: vi.fn(),
+    or: vi.fn(),
     order: vi.fn(),
     limit: vi.fn(),
     single: vi.fn(),
@@ -28,7 +29,7 @@ function queryChain(result: { data: unknown; error: unknown }) {
     then: vi.fn(),
   }
 
-  for (const method of ['select', 'eq', 'is', 'in', 'order', 'limit']) {
+  for (const method of ['select', 'eq', 'is', 'in', 'or', 'order', 'limit']) {
     chain[method].mockReturnValue(chain)
   }
   chain.single.mockResolvedValue(result)
@@ -58,11 +59,12 @@ describe('uom-master-data-service', () => {
 
     from.mockReturnValueOnce(categories).mockReturnValueOnce(uoms)
 
-    const result = await listUomCatalog()
+    const result = await listUomCatalog('org-1')
 
     expect(from).toHaveBeenNthCalledWith(1, 'uom_categories')
     expect(from).toHaveBeenNthCalledWith(2, 'uoms')
     expect(uoms.eq).toHaveBeenCalledWith('is_active', true)
+    expect(uoms.or).toHaveBeenCalledWith('org_id.is.null,org_id.eq.org-1')
     expect(result.categories).toHaveLength(1)
     expect(result.uoms[0].code).toBe('PCS')
   })

@@ -95,9 +95,9 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
   })
 
   const catalogQuery = useQuery({
-    queryKey: ['uom-catalog'],
-    queryFn: listUomCatalog,
-    enabled: open && isEnabled,
+    queryKey: ['uom-catalog', currentOrgId],
+    queryFn: () => listUomCatalog(currentOrgId as string),
+    enabled: open && isEnabled && Boolean(currentOrgId),
     staleTime: 10 * 60 * 1000,
   })
 

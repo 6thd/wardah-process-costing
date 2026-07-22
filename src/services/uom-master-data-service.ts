@@ -107,7 +107,7 @@ export async function resolveProductIdForItem(orgId: string, itemId: string): Pr
   throw new Error(`ITEM_PRODUCT_MAP_MISSING: org=${orgId}, item=${itemId}`)
 }
 
-export async function listUomCatalog(): Promise<UomCatalog> {
+export async function listUomCatalog(orgId: string): Promise<UomCatalog> {
   const { data: categories, error: categoriesError } = await supabase
     .from('uom_categories')
     .select('id,code,name,name_ar,dimension,is_system')
@@ -116,10 +116,15 @@ export async function listUomCatalog(): Promise<UomCatalog> {
 
   if (categoriesError) throw categoriesError
 
+  // Explicit tenant scope in addition to RLS: shared system units (org_id IS
+  // NULL) plus the active organization's own custom units. This mirrors the
+  // explicit org filtering used across the rest of the service and honors the
+  // caller-selected organization for multi-org users.
   const { data: uoms, error: uomsError } = await supabase
     .from('uoms')
     .select(UOM_SELECT)
     .eq('is_active', true)
+    .or(`org_id.is.null,org_id.eq.${orgId}`)
     .order('code')
 
   if (uomsError) throw uomsError
