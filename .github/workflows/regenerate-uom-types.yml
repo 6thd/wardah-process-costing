@@ -17,6 +17,8 @@ on:
       - src/locales/uom-errors.ts
       - src/hooks/use-uom-engine-enabled.ts
       - src/hooks/use-product-uoms.ts
+      - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
       - src/services/__tests__/uom-*.test.ts
       - src/hooks/__tests__/use-*.test.tsx
   pull_request:
@@ -35,6 +37,8 @@ on:
       - src/locales/uom-errors.ts
       - src/hooks/use-uom-engine-enabled.ts
       - src/hooks/use-product-uoms.ts
+      - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
       - src/services/__tests__/uom-*.test.ts
       - src/hooks/__tests__/use-*.test.tsx
   workflow_dispatch:
@@ -178,6 +182,7 @@ jobs:
             src/services/__tests__/uom-engine-setting.test.ts \
             src/hooks/__tests__/use-uom-engine-enabled.test.tsx \
             src/hooks/__tests__/use-product-uoms.test.tsx \
+            src/features/inventory/components/__tests__/ProductUomSettings.test.tsx \
             2>&1 | tee reports/uom-tests.log
 
       - name: Upload UoM validation diagnostics
