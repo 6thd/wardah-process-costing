@@ -12,6 +12,17 @@ def replace_once_or_verify(path: Path, old: str, new: str) -> None:
     raise SystemExit(f'{path}: expected one old match or an existing replacement; found {count}')
 
 
+def replace_all_or_verify(path: Path, old: str, new: str) -> None:
+    text = path.read_text(encoding='utf-8')
+    count = text.count(old)
+    if count > 0:
+        path.write_text(text.replace(old, new), encoding='utf-8')
+        return
+    if new in text:
+        return
+    raise SystemExit(f'{path}: expected one or more old matches or an existing replacement')
+
+
 inventory = Path('src/features/inventory/index.tsx')
 
 replace_once_or_verify(
@@ -40,15 +51,14 @@ replace_once_or_verify(
     "      const { data: userOrgs } = await supabase\n        .from('user_organizations')\n        .select('org_id')\n        .eq('user_id', user.id)\n        .single()\n\n      if (!userOrgs) {\n        setGLAccounts([])\n        setLoadingAccounts(false)\n        return\n      }\n\n      // Load GL Accounts (expense and asset accounts)\n      const { data, error } = await supabase\n        .from('gl_accounts')\n        .select('*')\n        .eq('org_id', userOrgs.org_id)",
     "      if (!currentOrgId) {\n        setGLAccounts([])\n        setLoadingAccounts(false)\n        return\n      }\n\n      // Load GL Accounts for the organization selected in AuthContext.\n      const { data, error } = await supabase\n        .from('gl_accounts')\n        .select('*')\n        .eq('org_id', currentOrgId)",
 )
-replace_once_or_verify(
+
+legacy_org_lookup = "      const { data: userOrg } = await supabase\n        .from('user_organizations')\n        .select('org_id')\n        .eq('user_id', user.id)\n        .single()\n\n      if (!userOrg) {\n        toast.error('لم يتم العثور على المؤسسة')\n        return\n      }"
+selected_org_guard = "      if (!currentOrgId) {\n        toast.error('لم يتم تحديد المؤسسة النشطة')\n        return\n      }"
+replace_all_or_verify(inventory, legacy_org_lookup, selected_org_guard)
+replace_all_or_verify(
     inventory,
-    "      const { data: userOrg } = await supabase\n        .from('user_organizations')\n        .select('org_id')\n        .eq('user_id', user.id)\n        .single()\n\n      if (!userOrg) {\n        toast.error('لم يتم العثور على المؤسسة')\n        return\n      }",
-    "      if (!currentOrgId) {\n        toast.error('لم يتم تحديد المؤسسة النشطة')\n        return\n      }",
-)
-replace_once_or_verify(
-    inventory,
-    "      // Get user's organization\n      const { data: userOrg } = await supabase\n        .from('user_organizations')\n        .select('org_id')\n        .eq('user_id', user.id)\n        .single()\n\n      if (!userOrg) {\n        toast.error('لم يتم العثور على المؤسسة')\n        return\n      }",
-    "      if (!currentOrgId) {\n        toast.error('لم يتم تحديد المؤسسة النشطة')\n        return\n      }",
+    "      // Get user's organization\n" + legacy_org_lookup,
+    selected_org_guard,
 )
 
 text = inventory.read_text(encoding='utf-8')
