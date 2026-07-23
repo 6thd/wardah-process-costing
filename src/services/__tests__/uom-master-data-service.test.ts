@@ -22,6 +22,7 @@ import {
   listUnmappedProducts,
   listUomCatalog,
   resolveUomBackfillIssue,
+  validateAdjustmentProductUoms,
 } from '../uom-master-data-service'
 
 function queryChain(result: { data: unknown; error: unknown }) {
@@ -245,6 +246,85 @@ describe('uom-master-data-service', () => {
     expect(uomStatusNeedsSetup('MAPPED')).toBe(false)
     expect(uomStatusNeedsSetup('NO_UNIT')).toBe(true)
     expect(uomStatusNeedsSetup(undefined)).toBe(true)
+  })
+
+  describe('validateAdjustmentProductUoms', () => {
+    it('reads the current status straight from products, scoped to the org and ids', async () => {
+      const products = queryChain({
+        data: [
+          { id: 'p-1', uom_migration_status: 'MAPPED' },
+          { id: 'p-2', uom_migration_status: 'MAPPED' },
+        ],
+        error: null,
+      })
+      from.mockReturnValue(products)
+
+      const result = await validateAdjustmentProductUoms('org-1', ['p-1', 'p-2'])
+
+      expect(from).toHaveBeenCalledWith('products')
+      expect(products.select).toHaveBeenCalledWith('id,uom_migration_status')
+      expect(products.eq).toHaveBeenCalledWith('org_id', 'org-1')
+      expect(products.in).toHaveBeenCalledWith('id', ['p-1', 'p-2'])
+      expect(result).toEqual([])
+    })
+
+    it('flags a product whose current status is not MAPPED', async () => {
+      const products = queryChain({
+        data: [
+          { id: 'p-1', uom_migration_status: 'MAPPED' },
+          { id: 'p-2', uom_migration_status: 'NO_UNIT' },
+        ],
+        error: null,
+      })
+      from.mockReturnValue(products)
+
+      const result = await validateAdjustmentProductUoms('org-1', ['p-1', 'p-2'])
+
+      expect(result).toEqual(['p-2'])
+    })
+
+    it('fails closed for an id missing from the server response (wrong org or deleted)', async () => {
+      // p-2 belongs to another org (or was removed) so the tenant-scoped query never
+      // returns it — it must be treated as still needing setup, not silently allowed.
+      const products = queryChain({
+        data: [{ id: 'p-1', uom_migration_status: 'MAPPED' }],
+        error: null,
+      })
+      from.mockReturnValue(products)
+
+      const result = await validateAdjustmentProductUoms('org-1', ['p-1', 'p-2'])
+
+      expect(result).toEqual(['p-2'])
+    })
+
+    it('de-duplicates requested ids and ignores empty ones', async () => {
+      const products = queryChain({
+        data: [{ id: 'p-1', uom_migration_status: 'NO_UNIT' }],
+        error: null,
+      })
+      from.mockReturnValue(products)
+
+      const result = await validateAdjustmentProductUoms('org-1', ['p-1', 'p-1', ''])
+
+      expect(products.in).toHaveBeenCalledWith('id', ['p-1'])
+      expect(result).toEqual(['p-1'])
+    })
+
+    it('returns nothing and does not query when there are no product ids', async () => {
+      const result = await validateAdjustmentProductUoms('org-1', ['', ''])
+
+      expect(from).not.toHaveBeenCalled()
+      expect(result).toEqual([])
+    })
+
+    it('throws on a query error instead of trusting a stale cache', async () => {
+      const products = queryChain({ data: null, error: new Error('PRODUCTS_READ_FAILED') })
+      from.mockReturnValue(products)
+
+      await expect(
+        validateAdjustmentProductUoms('org-1', ['p-1']),
+      ).rejects.toThrow('PRODUCTS_READ_FAILED')
+    })
   })
 
   it('returns the full versioned conversion history newest first', async () => {

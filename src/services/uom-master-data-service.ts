@@ -401,6 +401,44 @@ export function uomStatusNeedsSetup(status: string | null | undefined): boolean 
   return status !== 'MAPPED'
 }
 
+/**
+ * Fresh, tenant-scoped re-validation of the exact products on an adjustment,
+ * read straight from `products` immediately before an SLE write. Unlike the
+ * picker-gating projection (which `useProductUomStatus` caches for a few minutes),
+ * this trusts no cached status: it reads the current `uom_migration_status` for the
+ * requested ids under the active organization and fails closed —
+ *  - de-duplicates the requested ids and ignores empty ones,
+ *  - allows only rows whose status is exactly `MAPPED`,
+ *  - treats any requested id missing from the result (wrong org, deleted, or never
+ *    projected) as still needing setup,
+ *  - throws on a query error instead of silently passing on a stale cache.
+ * Returns the distinct ids that still need UoM setup — an empty array means every
+ * requested product is currently `MAPPED` for this organization.
+ */
+export async function validateAdjustmentProductUoms(
+  orgId: string,
+  productIds: string[],
+): Promise<string[]> {
+  const requestedIds = Array.from(new Set(productIds.filter(Boolean)))
+  if (requestedIds.length === 0) return []
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('id,uom_migration_status')
+    .eq('org_id', orgId)
+    .in('id', requestedIds)
+
+  if (error) throw error
+
+  const mappedIds = new Set(
+    (data ?? [])
+      .filter((row) => row.uom_migration_status === 'MAPPED')
+      .map((row) => row.id),
+  )
+
+  return requestedIds.filter((id) => !mappedIds.has(id))
+}
+
 export async function listOpenUomBackfillIssues(orgId: string): Promise<UomBackfillIssue[]> {
   const { data, error } = await supabase
     .from('uom_backfill_issues')

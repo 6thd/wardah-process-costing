@@ -15,14 +15,14 @@ import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { useProductUomStatus } from '@/hooks/use-product-uom-status'
+import { validateAdjustmentProductUoms } from '@/services/uom-master-data-service'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
 import { UomStatusBadge } from './components/UomStatusBadge'
-import { 
+import {
   ADJUSTMENT_TYPES,
   calculateAdjustmentTotals,
   createAdjustmentItem,
-  findUnmappedAdjustmentProductIds,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -1141,20 +1141,9 @@ function StockAdjustments() {
       return
     }
 
-    // Re-check UoM setup fail-closed: a draft may carry a product selected during a
-    // status-load race, or one left unmapped. Block before any DB write.
-    if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
-      toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
-      return
-    }
-    if (findUnmappedAdjustmentProductIds(newAdjustment.items, productNeedsUomSetup).length > 0) {
-      toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
-      return
-    }
-
     try {
       const supabase = getSupabase()
-      
+
       // Get user and organization
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
@@ -1171,6 +1160,26 @@ function StockAdjustments() {
       if (!userOrg) {
         toast.error('لم يتم العثور على المؤسسة')
         return
+      }
+
+      // Fail-closed re-check read straight from the server (not the cached picker
+      // projection): a draft may carry a product selected during a status-load race,
+      // or one whose mapping changed in another session. Re-validate the current
+      // status of every product before the first DB write.
+      if (productUomStatus.isEnabled) {
+        try {
+          const unmapped = await validateAdjustmentProductUoms(
+            userOrg.org_id,
+            newAdjustment.items.map((item: any) => item.product_id),
+          )
+          if (unmapped.length > 0) {
+            toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
+            return
+          }
+        } catch {
+          toast.error('تعذّر التحقق من إعداد وحدات الأصناف — أعد المحاولة')
+          return
+        }
       }
 
       // Calculate totals using helper
@@ -1334,15 +1343,24 @@ function StockAdjustments() {
         return
       }
 
-      // Re-check UoM setup fail-closed before posting: an older draft may reference
-      // a product that is not (or no longer) MAPPED. Block before any SLE write.
-      if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
-        toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
-        return
-      }
-      if (findUnmappedAdjustmentProductIds(items as Array<{ product_id: string }>, productNeedsUomSetup).length > 0) {
-        toast.error('لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية')
-        return
+      // Fail-closed re-check read straight from the server before posting: an older
+      // draft may reference a product that is not (or no longer) MAPPED. Re-validate
+      // the current status of these items directly, not the cached picker projection,
+      // before any SLE write.
+      if (productUomStatus.isEnabled) {
+        try {
+          const unmapped = await validateAdjustmentProductUoms(
+            userOrg.org_id,
+            (items as Array<{ product_id: string }>).map((item) => item.product_id),
+          )
+          if (unmapped.length > 0) {
+            toast.error('لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية')
+            return
+          }
+        } catch {
+          toast.error('تعذّر التحقق من إعداد وحدات الأصناف — أعد المحاولة')
+          return
+        }
       }
 
       // Use the warehouse from the adjustment
