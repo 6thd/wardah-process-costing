@@ -73,18 +73,19 @@ jobs:
       - name: Verify migration 146 objects
         run: |
           set -Eeuo pipefail
-          psql -d wardah_fresh -tAc \
-            "SELECT 1 FROM pg_trigger WHERE tgname='trg_products_base_uom_change_guard' AND NOT tgisinternal" \
-            | grep -q 1
+          for trigger_name in \
+            trg_products_base_uom_insert_guard \
+            trg_products_base_uom_change_guard \
+            trg_stock_adjustment_items_require_mapped_uom \
+            trg_stock_ledger_entries_require_mapped_uom
+          do
+            psql -d wardah_fresh -tAc \
+              "SELECT 1 FROM pg_trigger WHERE tgname='${trigger_name}' AND NOT tgisinternal" \
+              | grep -q 1
+          done
           psql -d wardah_fresh -tAc \
             "SELECT 1 FROM pg_constraint WHERE conname='products_base_uom_mapping_invariant'" \
             | grep -q 1
-          if psql -d wardah_fresh -tAc \
-            "SELECT 1 FROM pg_trigger WHERE tgname='trg_products_base_uom_insert_guard' AND NOT tgisinternal" \
-            | grep -q 1; then
-            echo "Unexpected product INSERT trigger remains after migration 146"
-            exit 1
-          fi
         env:
           PGHOST: localhost
           PGUSER: postgres
