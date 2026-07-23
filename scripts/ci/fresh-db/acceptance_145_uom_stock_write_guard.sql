@@ -95,7 +95,7 @@ VALUES
    0, 1, 1, 1, 1);
 
 -- Flag ON: unmapped and cross-org products are rejected at draft-line write time.
--- Migration 130 may reject first with PRODUCT_BASE_UOM_REQUIRED; migration 145 may
+-- Migration 134 may reject first with PRODUCT_BASE_UOM_REQUIRED; migration 145 may
 -- reject first with PRODUCT_UOM_NOT_MAPPED. Both are valid fail-closed outcomes.
 SELECT pg_temp.expect_any_error(
   $$ INSERT INTO public.stock_adjustment_items
@@ -108,7 +108,7 @@ SELECT pg_temp.expect_any_error(
      (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
      VALUES ('38000000-0000-0000-0000-000000000001','31111111-1111-1111-1111-111111111111',
              '3d000000-0000-0000-0000-000000000003','37000000-0000-0000-0000-000000000001',0,1,1,1,1) $$,
-  ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED', 'PRODUCT_NOT_FOUND_OR_WRONG_ORG']);
+  ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED', 'ADJUSTMENT_PRODUCT_NOT_FOUND_OR_WRONG_ORG']);
 
 -- Flag ON: mapped SLE is accepted; unmapped SLE is rejected immediately.
 INSERT INTO public.stock_ledger_entries
@@ -127,7 +127,10 @@ SELECT pg_temp.expect_any_error(
              '39000000-0000-0000-0000-000000000002',1,1,1,1,1) $$,
   ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED']);
 
--- Flag OFF: legacy/unmapped draft writes remain allowed during rollout.
+-- Isolate migration 145's flag-off behavior from migration 134's unconditional UoM
+-- normalization trigger. Only the legacy trigger is disabled in this superuser-only
+-- acceptance test; migration 145's stock-write trigger remains active.
+ALTER TABLE public.stock_adjustment_items DISABLE TRIGGER normalize_stock_adjustment_uom;
 INSERT INTO public.stock_adjustment_items
   (adjustment_id, organization_id, product_id, warehouse_id,
    current_qty, new_qty, difference_qty, current_rate, value_difference)
@@ -135,5 +138,6 @@ VALUES
   ('38000000-0000-0000-0000-000000000002', '32222222-2222-2222-2222-222222222222',
    '3d000000-0000-0000-0000-000000000003', '37000000-0000-0000-0000-000000000002',
    0, 1, 1, 1, 1);
+ALTER TABLE public.stock_adjustment_items ENABLE TRIGGER normalize_stock_adjustment_uom;
 
 \echo '✅ acceptance_145_uom_stock_write_guard: all assertions passed'
