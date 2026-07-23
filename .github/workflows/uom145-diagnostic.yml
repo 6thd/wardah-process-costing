@@ -1,9 +1,12 @@
 name: UoM 145 Diagnostic
 
 on:
-  push:
-    branches:
-      - claude/complete-master-data-uom-hn893k
+  pull_request:
+    branches: [main]
+    paths:
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
+      - .github/workflows/uom145-diagnostic.yml
   workflow_dispatch:
 
 jobs:
