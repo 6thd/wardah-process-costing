@@ -78,3 +78,5 @@ replace_once_or_verify(
     "        .eq('adjustment_id', adjustmentId)\n\n      if (itemsError",
     "        .eq('adjustment_id', adjustmentId)\n        .eq('organization_id', currentOrgId)\n\n      if (itemsError",
 )
+
+# One-shot helper: the workflow deletes this file after committing the exact patch.
