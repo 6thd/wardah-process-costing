@@ -6,7 +6,6 @@ on:
       - claude/complete-master-data-uom-hn893k
     paths:
       - scripts/ci/patch_pr41_stock_adjustments_multiorg.py
-      - scripts/ci/patch_pr41_uom_rollout_hardening.py
       - scripts/ci/patch_pr41_service_hardening.py
       - .github/workflows/apply-pr41-multiorg-patch.yml
 
@@ -32,7 +31,6 @@ jobs:
         run: |
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
-          python scripts/ci/patch_pr41_uom_rollout_hardening.py
           python scripts/ci/patch_pr41_service_hardening.py
 
       - name: Validate patched source
@@ -50,6 +48,7 @@ jobs:
           rm -f scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           rm -f scripts/ci/patch_pr41_uom_rollout_hardening.py
           rm -f scripts/ci/patch_pr41_service_hardening.py
+          rm -f scripts/ci/patch_pr41_migration144_staged_invariant.py
           rm -f .github/workflows/apply-pr41-multiorg-patch.yml
 
       - name: Commit patched source and cleanup
