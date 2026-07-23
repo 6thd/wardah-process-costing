@@ -127,6 +127,12 @@ WHERE uom_migration_status = 'MAPPED'
 - `acceptance_146_uom_master_data_hardening.sql`: Seeds بلا JWT، منع العضو العادي،
   إعادة فحص مسودة قديمة، واستمرار إلغاء SLE التاريخية.
 
+## بوابة الدمج
+
+لا يُعتمد الرأس للدمج إلا بعد نجاح CI/CD الكامل، وUoM Master Data Hardening،
+وMigration Governance، وتوليد الأنواع، وSonarQube على **نفس SHA النهائي**، مع التأكد
+من عدم بقاء أي workflow أو script مؤقت خاص بالتصحيح داخل فرق الـPR.
+
 ## ترتيب النشر لاحقًا
 
 1. دمج PR بعد اخضرار جميع البوابات على رأس نهائي خالٍ من أدوات التصحيح المؤقتة.
