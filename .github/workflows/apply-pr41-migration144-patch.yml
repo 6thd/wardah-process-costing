@@ -39,10 +39,12 @@ jobs:
       - name: Commit and remove one-shot machinery
         run: |
           set -Eeuo pipefail
-          rm scripts/ci/patch_pr41_migration144_staged_invariant.py
-          rm .github/workflows/apply-pr41-migration144-patch.yml
+          rm -f scripts/ci/patch_pr41_migration144_staged_invariant.py
+          rm -f .github/workflows/apply-pr41-migration144-patch.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'fix(uom): stage product mapping invariant safely'
           git push origin HEAD:claude/complete-master-data-uom-hn893k
+
+# One-shot trigger refreshed after acceptance-144 scenarios were isolated.
