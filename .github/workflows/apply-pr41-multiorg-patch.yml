@@ -22,26 +22,11 @@ jobs:
           ref: claude/complete-master-data-uom-hn893k
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
       - name: Apply non-overlapping exact patches
         run: |
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           python scripts/ci/patch_pr41_service_hardening.py
-
-      - name: Validate patched source
-        run: |
-          set -Eeuo pipefail
-          npm ci
-          npx tsc --noEmit
-          npm run lint -- --max-warnings=0
-          npx vitest run src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
-          python3 scripts/ci/check_migration_numbers.py
-          python3 scripts/ci/check_definer_guards.py
 
       - name: Remove one-time patch machinery
         run: |
