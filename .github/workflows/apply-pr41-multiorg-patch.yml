@@ -1,9 +1,10 @@
-name: Apply PR41 Hardening Patches
+name: Apply PR41 Final Hardening
 
 on:
-  push:
+  pull_request:
     branches:
-      - claude/complete-master-data-uom-hn893k
+      - main
+    types: [opened, synchronize, reopened]
     paths:
       - scripts/ci/patch_pr41_stock_adjustments_multiorg.py
       - scripts/ci/patch_pr41_service_hardening.py
@@ -14,7 +15,7 @@ permissions:
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.number == 41 && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,13 +28,13 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Apply non-overlapping exact patches
+      - name: Apply exact reviewed patches
         run: |
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           python scripts/ci/patch_pr41_service_hardening.py
 
-      - name: Validate patched source before commit
+      - name: Validate source before commit
         run: |
           set -Eeuo pipefail
           npm ci
