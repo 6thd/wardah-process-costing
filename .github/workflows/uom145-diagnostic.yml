@@ -1,0 +1,69 @@
+name: UoM 145 Diagnostic
+
+on:
+  push:
+    branches:
+      - claude/complete-master-data-uom-hn893k
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build canonical Fresh DB
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql | sort | tail -1)
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/order.txt
+          REPORT=/tmp/chain.txt PGDATABASE=wardah_fresh bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/order.txt
+
+      - name: Run acceptance with captured output
+        id: acceptance
+        continue-on-error: true
+        run: |
+          mkdir -p reports
+          set +e
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql \
+            > reports/uom145-acceptance.log 2>&1
+          STATUS=$?
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
+          cat reports/uom145-acceptance.log
+          exit 0
+
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uom145-diagnostic-${{ github.run_id }}
+          path: reports/uom145-acceptance.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Enforce acceptance
+        run: test "${{ steps.acceptance.outputs.status }}" -eq 0
