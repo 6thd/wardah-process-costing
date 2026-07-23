@@ -1,0 +1,91 @@
+name: UoM Master Data Hardening
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - sql/migrations/144_products_base_uom_change_guard.sql
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - sql/migrations/146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - .github/workflows/uom-master-data-hardening.yml
+  push:
+    branches:
+      - claude/complete-master-data-uom-hn893k
+    paths:
+      - sql/migrations/144_products_base_uom_change_guard.sql
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - sql/migrations/146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - .github/workflows/uom-master-data-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-146:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build canonical Fresh DB through latest migration
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/fresh-db/01_bootstrap.sh
+          bash scripts/ci/fresh-db/02_apply_baseline.sh
+          bash scripts/ci/fresh-db/03_apply_migrations.sh
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: postgres
+
+      - name: Verify migration 146 objects
+        run: |
+          set -Eeuo pipefail
+          psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_trigger WHERE tgname='trg_products_base_uom_change_guard' AND NOT tgisinternal" \
+            | grep -q 1
+          psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_constraint WHERE conname='products_base_uom_mapping_invariant'" \
+            | grep -q 1
+          if psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_trigger WHERE tgname='trg_products_base_uom_insert_guard' AND NOT tgisinternal" \
+            | grep -q 1; then
+            echo "Unexpected product INSERT trigger remains after migration 146"
+            exit 1
+          fi
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run migration 146 acceptance
+        run: psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
