@@ -85,6 +85,20 @@ COMMIT;
 
 SELECT set_config('request.jwt.claim.sub', '3aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
 
+-- Structural tenant consistency is enforced regardless of rollout state.
+SELECT pg_temp.expect_any_error(
+  $$ INSERT INTO public.stock_adjustment_items
+     (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
+     VALUES ('38000000-0000-0000-0000-000000000002','31111111-1111-1111-1111-111111111111',
+             '3d000000-0000-0000-0000-000000000001','37000000-0000-0000-0000-000000000001',0,1,1,1,1) $$,
+  ARRAY['ADJUSTMENT_ORG_MISMATCH']);
+SELECT pg_temp.expect_any_error(
+  $$ INSERT INTO public.stock_adjustment_items
+     (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
+     VALUES ('38000000-0000-0000-0000-000000000001','31111111-1111-1111-1111-111111111111',
+             '3d000000-0000-0000-0000-000000000001','37000000-0000-0000-0000-000000000002',0,1,1,1,1) $$,
+  ARRAY['WAREHOUSE_NOT_FOUND_OR_WRONG_ORG']);
+
 -- Flag ON: mapped product line is accepted.
 INSERT INTO public.stock_adjustment_items
   (adjustment_id, organization_id, product_id, warehouse_id,
@@ -95,8 +109,6 @@ VALUES
    0, 1, 1, 1, 1);
 
 -- Flag ON: unmapped and cross-org products are rejected at draft-line write time.
--- Migration 134 may reject first with PRODUCT_BASE_UOM_REQUIRED; migration 145 may
--- reject first with PRODUCT_UOM_NOT_MAPPED. Both are valid fail-closed outcomes.
 SELECT pg_temp.expect_any_error(
   $$ INSERT INTO public.stock_adjustment_items
      (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
@@ -128,8 +140,7 @@ SELECT pg_temp.expect_any_error(
   ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED']);
 
 -- Isolate migration 145's flag-off behavior from migration 134's unconditional UoM
--- normalization trigger. Only the legacy trigger is disabled in this superuser-only
--- acceptance test; migration 145's stock-write trigger remains active.
+-- normalization trigger. Structural tenant checks remain active.
 ALTER TABLE public.stock_adjustment_items DISABLE TRIGGER normalize_stock_adjustment_uom;
 INSERT INTO public.stock_adjustment_items
   (adjustment_id, organization_id, product_id, warehouse_id,
