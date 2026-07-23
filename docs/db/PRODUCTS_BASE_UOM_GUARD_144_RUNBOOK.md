@@ -22,11 +22,10 @@
 
 ### الحارس
 
-`wardah_guard_products_base_uom_change()` يعمل على
-`BEFORE UPDATE OF base_uom_id` ويطبق الآتي:
+`wardah_guard_products_base_uom_change()` يطبق الآتي:
 
-- يستدعي `wardah_assert_org_admin(NEW.org_id)`؛ العضو العادي لا يستطيع تجاوز RPC
-  بتحديث مباشر.
+- يستدعي `wardah_assert_org_admin(NEW.org_id)` على تحديث المستخدم؛ العضو العادي لا
+  يستطيع تجاوز RPC بتحديث مباشر.
 - يسمح فقط بالانتقال من `NULL` إلى وحدة أساس قانونية.
 - يرفض أي استبدال لوحدة موجودة بـ
   `PRODUCT_BASE_UOM_CHANGE_REQUIRES_ATOMIC_REMAP`.
@@ -73,8 +72,10 @@
 
 ## Migration 146 — الإغلاق النهائي
 
-- يزيل حارس INSERT المؤقت على `products` حتى لا يكسر Seeds أو Service-role imports.
-- يعيد تثبيت حارس UPDATE الإداري فقط.
+- يثبت حارس INSERT على `products` بصيغة آمنة: جلسة مستخدم تحتاج Org Admin، بينما
+  Seed/Service-role بلا `auth.uid()` يبقى مسموحًا بشرط أن تكون الوحدة قانونية ونشطة
+  ومشتركة أو مملوكة للمؤسسة وغير خاصة بالصنف.
+- يعيد تثبيت حارس UPDATE الإداري ومنع استبدال وحدة أساس موجودة.
 - يثبت إعادة فحص جميع تعديلات بنود التسوية.
 - يحافظ على الطبيعة الإلحاقية لـSLE وعدم تعطيل إجراءات الإلغاء.
 
@@ -87,11 +88,12 @@ FROM public.schema_migrations
 WHERE version BETWEEN 143 AND 146
 ORDER BY version;
 
--- 2) الحراس النهائية
+-- 2) الحراس النهائية الأربعة
 SELECT c.relname AS table_name, t.tgname, t.tgenabled
 FROM pg_trigger t
 JOIN pg_class c ON c.oid = t.tgrelid
 WHERE t.tgname IN (
+  'trg_products_base_uom_insert_guard',
   'trg_products_base_uom_change_guard',
   'trg_stock_adjustment_items_require_mapped_uom',
   'trg_stock_ledger_entries_require_mapped_uom'
@@ -99,11 +101,11 @@ WHERE t.tgname IN (
 AND NOT t.tgisinternal
 ORDER BY c.relname, t.tgname;
 
--- 3) يجب ألا يبقى حارس INSERT المؤقت
-SELECT count(*) AS temporary_insert_trigger_count
-FROM pg_trigger
-WHERE tgname = 'trg_products_base_uom_insert_guard'
-  AND NOT tgisinternal;
+-- 3) القيد المرحلي موجود وغير مُتحقق تاريخيًا بعد
+SELECT conname, convalidated
+FROM pg_constraint
+WHERE conrelid = 'public.products'::regclass
+  AND conname = 'products_base_uom_mapping_invariant';
 
 -- 4) الصفوف التاريخية التي تحتاج معالجة قبل VALIDATE مستقبلي
 SELECT id, org_id, code, base_uom_id, uom_migration_status
@@ -112,8 +114,9 @@ WHERE uom_migration_status = 'MAPPED'
   AND base_uom_id IS NULL;
 ```
 
-النتيجة المطلوبة للاستعلام الثالث: `0`. الاستعلام الرابع لا يوقف تطبيق 143–146،
-لكنه يجب أن يصبح صفرًا قبل migration تحقق نهائية لاحقة.
+الاستعلام الثاني يجب أن يعيد أربعة صفوف مفعلة، والثالث يجب أن يعيد
+`convalidated=false`. الاستعلام الرابع لا يوقف تطبيق 143–146، لكنه يجب أن يصبح صفرًا
+قبل migration تحقق نهائية لاحقة.
 
 ## اختبارات القبول
 
