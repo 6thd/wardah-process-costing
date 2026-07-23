@@ -32,6 +32,7 @@ jobs:
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           python scripts/ci/patch_pr41_service_hardening.py
+          python scripts/ci/patch_pr41_migration144_staged_invariant.py
 
       - name: Validate patched source before commit
         run: |
@@ -39,6 +40,8 @@ jobs:
           npm ci
           npx tsc --noEmit
           npm run lint -- --max-warnings=0
+          pip install --quiet pglast
+          python3 scripts/ci/check_migration_syntax.py
           npx vitest run \
             src/features/inventory/components/__tests__/ProductUomSettings.test.tsx \
             src/services/__tests__/uom-master-data-service.test.ts \
