@@ -38,24 +38,21 @@ jobs:
           npx tsc --noEmit
           npm run lint -- --max-warnings=0
 
-      - name: Commit patched source
+      - name: Remove one-time patch machinery
+        run: |
+          rm scripts/ci/patch_pr41_stock_adjustments_multiorg.py
+          rm scripts/ci/patch_pr41_uom_rollout_hardening.py
+          rm .github/workflows/apply-pr41-multiorg-patch.yml
+
+      - name: Commit patched source and cleanup
         run: |
           set -Eeuo pipefail
-          if git diff --quiet -- \
-            src/features/inventory/index.tsx \
-            src/services/uom-master-data-service.ts \
-            src/services/uom-error-mapper.ts \
-            sql/migrations/144_products_base_uom_change_guard.sql
-          then
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
             echo 'No source changes produced'
             exit 1
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            src/features/inventory/index.tsx \
-            src/services/uom-master-data-service.ts \
-            src/services/uom-error-mapper.ts \
-            sql/migrations/144_products_base_uom_change_guard.sql
           git commit -m 'fix(uom): close rollout and multi-org review findings'
           git push origin HEAD:claude/complete-master-data-uom-hn893k
