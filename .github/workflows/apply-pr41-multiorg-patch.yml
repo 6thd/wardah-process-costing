@@ -1,4 +1,4 @@
-name: Apply PR41 Multi-Org Patch
+name: Apply PR41 Hardening Patches
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - claude/complete-master-data-uom-hn893k
     paths:
       - scripts/ci/patch_pr41_stock_adjustments_multiorg.py
+      - scripts/ci/patch_pr41_uom_rollout_hardening.py
       - .github/workflows/apply-pr41-multiorg-patch.yml
 
 permissions:
@@ -26,10 +27,12 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Apply exact-string patch
-        run: python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
+      - name: Apply exact-string patches
+        run: |
+          python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
+          python scripts/ci/patch_pr41_uom_rollout_hardening.py
 
-      - name: Validate patched frontend
+      - name: Validate patched source
         run: |
           npm ci
           npx tsc --noEmit
@@ -38,12 +41,21 @@ jobs:
       - name: Commit patched source
         run: |
           set -Eeuo pipefail
-          if git diff --quiet -- src/features/inventory/index.tsx; then
+          if git diff --quiet -- \
+            src/features/inventory/index.tsx \
+            src/services/uom-master-data-service.ts \
+            src/services/uom-error-mapper.ts \
+            sql/migrations/144_products_base_uom_change_guard.sql
+          then
             echo 'No source changes produced'
             exit 1
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add src/features/inventory/index.tsx
-          git commit -m 'fix(inventory): scope adjustments to selected organization'
+          git add \
+            src/features/inventory/index.tsx \
+            src/services/uom-master-data-service.ts \
+            src/services/uom-error-mapper.ts \
+            sql/migrations/144_products_base_uom_change_guard.sql
+          git commit -m 'fix(uom): close rollout and multi-org review findings'
           git push origin HEAD:claude/complete-master-data-uom-hn893k
