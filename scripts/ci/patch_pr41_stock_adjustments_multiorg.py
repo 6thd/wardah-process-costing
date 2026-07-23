@@ -1,14 +1,14 @@
 from pathlib import Path
 
 
-def replace_once_or_verify(path: Path, old: str, new: str) -> bool:
+def replace_once_or_verify(path: Path, old: str, new: str) -> None:
     text = path.read_text(encoding='utf-8')
     count = text.count(old)
     if count == 1:
         path.write_text(text.replace(old, new, 1), encoding='utf-8')
-        return True
+        return
     if count == 0 and new in text:
-        return False
+        return
     raise SystemExit(f'{path}: expected one old match or an existing replacement; found {count}')
 
 
@@ -78,44 +78,3 @@ replace_once_or_verify(
     "        .eq('adjustment_id', adjustmentId)\n\n      if (itemsError",
     "        .eq('adjustment_id', adjustmentId)\n        .eq('organization_id', currentOrgId)\n\n      if (itemsError",
 )
-
-migration = Path('sql/migrations/144_products_base_uom_change_guard.sql')
-replace_once_or_verify(
-    migration,
-    "-- A product is MAPPED exactly when it owns a legal base-unit reference. Failing the\n"
-    "-- preflight is safer than validating a false invariant or silently rewriting master\n"
-    "-- data during rollout.\n"
-    "DO $preflight$\n"
-    "DECLARE\n"
-    "  v_inconsistent bigint;\n"
-    "BEGIN\n"
-    "  SELECT count(*)\n"
-    "  INTO v_inconsistent\n"
-    "  FROM public.products p\n"
-    "  WHERE (p.base_uom_id IS NOT NULL) IS DISTINCT FROM (p.uom_migration_status = 'MAPPED');\n\n"
-    "  IF v_inconsistent > 0 THEN\n"
-    "    RAISE EXCEPTION\n"
-    "      'PRODUCT_UOM_INVARIANT_PREFLIGHT_FAILED: inconsistent_products=%',\n"
-    "      v_inconsistent;\n"
-    "  END IF;\n"
-    "END\n"
-    "$preflight$;\n\n",
-    "-- Added NOT VALID so existing rows can be normalized and audited in migration 146;\n"
-    "-- PostgreSQL still enforces the invariant for every new or updated product row.\n",
-)
-replace_once_or_verify(
-    migration,
-    "\nALTER TABLE public.products\n  VALIDATE CONSTRAINT products_base_uom_mapping_invariant;\n",
-    "\n-- Validation is intentionally deferred to migration 146 after deterministic repair.\n",
-)
-
-component_test = Path('src/features/inventory/components/__tests__/ProductUomSettings.test.tsx')
-test_text = component_test.read_text(encoding='utf-8')
-test_text = test_text.replace("screen.queryByText('الوحدة الأساسية مقفلة')", "screen.queryByText('الوحدة الأساسية ثابتة')")
-test_text = test_text.replace("screen.getByText('الوحدة الأساسية مقفلة')", "screen.getByText('الوحدة الأساسية ثابتة')")
-component_test.write_text(test_text, encoding='utf-8')
-
-# This helper is intentionally one-shot. Remove the writer workflow and this script
-# from the resulting branch after the patch has been validated.
-Path('.github/workflows/apply-pr41-multiorg-patch.yml').unlink()
-Path(__file__).unlink()
