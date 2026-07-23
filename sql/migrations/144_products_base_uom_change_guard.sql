@@ -3,32 +3,15 @@
 --              A base unit may be assigned for the first time, but an existing base
 --              unit may not be redefined without a future atomic remap workflow that
 --              versions every dependent conversion and physical-weight fact.
--- safety: additive/replace-only. No operational row is deleted. The migration aborts
---         if pre-existing products violate the MAPPED <=> base_uom_id invariant.
+-- safety: additive/replace-only. No operational row is deleted or rewritten. The
+--         staged NOT VALID constraint protects new writes without blocking legacy repair.
 
 -- -----------------------------------------------------------------------------
 -- 0) Product master-data invariant
 -- -----------------------------------------------------------------------------
--- A product is MAPPED exactly when it owns a legal base-unit reference. Failing the
--- preflight is safer than validating a false invariant or silently rewriting master
--- data during rollout.
-DO $preflight$
-DECLARE
-  v_inconsistent bigint;
-BEGIN
-  SELECT count(*)
-  INTO v_inconsistent
-  FROM public.products p
-  WHERE (p.base_uom_id IS NOT NULL) IS DISTINCT FROM (p.uom_migration_status = 'MAPPED');
-
-  IF v_inconsistent > 0 THEN
-    RAISE EXCEPTION
-      'PRODUCT_UOM_INVARIANT_PREFLIGHT_FAILED: inconsistent_products=%',
-      v_inconsistent;
-  END IF;
-END
-$preflight$;
-
+-- Staged invariant: new or updated rows may not claim MAPPED without a base
+-- unit. Existing historical inconsistencies remain visible to the repair workflow;
+-- rollout never rewrites them or aborts before each organization can reconcile them.
 DO $constraint$
 BEGIN
   IF NOT EXISTS (
@@ -39,14 +22,14 @@ BEGIN
   ) THEN
     ALTER TABLE public.products
       ADD CONSTRAINT products_base_uom_mapping_invariant
-      CHECK ((base_uom_id IS NOT NULL) = (uom_migration_status = 'MAPPED'))
+      CHECK (uom_migration_status <> 'MAPPED' OR base_uom_id IS NOT NULL)
       NOT VALID;
   END IF;
 END
 $constraint$;
 
-ALTER TABLE public.products
-  VALIDATE CONSTRAINT products_base_uom_mapping_invariant;
+-- Historical validation is intentionally deferred until every organization has
+-- completed an audited reconciliation through the repair workflow.
 
 -- -----------------------------------------------------------------------------
 -- 1) Hard backstop for INSERT/UPDATE
@@ -492,7 +475,7 @@ REVOKE EXECUTE ON FUNCTION public.wardah_guard_products_base_uom_change()
   FROM PUBLIC, anon, authenticated;
 
 COMMENT ON CONSTRAINT products_base_uom_mapping_invariant ON public.products IS
-  'Fail-closed invariant: a product is MAPPED exactly when base_uom_id is present.';
+  'Staged fail-closed invariant: MAPPED requires base_uom_id. Historical validation is deferred until audited reconciliation is complete.';
 COMMENT ON FUNCTION public.wardah_guard_products_base_uom_change() IS
   'Admin-enforced INSERT/UPDATE backstop. Allows first legal base-UoM assignment only, normalizes status to MAPPED, resolves product issues, and rejects existing-base reinterpretation until an atomic remap workflow exists.';
 COMMENT ON FUNCTION public.rpc_assign_product_base_uom(uuid, uuid, uuid) IS
