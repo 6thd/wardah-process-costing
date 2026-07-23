@@ -170,6 +170,42 @@ describe('ProductUomSettings', () => {
     expect(screen.queryByText('الوحدة الأساسية مقفلة')).not.toBeInTheDocument()
   })
 
+  it('renders current conversions and the versioned conversion history', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    const carton = {
+      id: 'carton', code: 'CTN', name: 'Carton', name_ar: 'كرتون', symbol: 'ctn',
+      category_id: 'count', is_category_base: false, is_product_specific: true, decimal_places: 6,
+    }
+    getProductUomMasterProfile.mockResolvedValue({
+      product_id: 'product-1', org_id: 'org-1', base_uom_id: 'piece',
+      base_uom: {
+        id: 'piece', code: 'PCS', name: 'Piece', name_ar: 'قطعة', symbol: 'pcs',
+        category_id: 'count', is_category_base: true, is_product_specific: false, decimal_places: 6,
+      },
+      uom_migration_status: 'MAPPED', net_weight: null, gross_weight: null,
+      weight_uom_id: null, weight_uom: null,
+      conversions: [{
+        id: 'conv-1', uom: carton, factor_to_base: 24,
+        use_for_purchase: true, use_for_sale: false, barcode: null, notes: null,
+        allow_cross_dimension: false, valid_from: '2026-07-22T00:00:00.000Z',
+      }],
+    })
+    listProductUomConversionHistory.mockResolvedValue([
+      { id: 'h-1', uom: carton, uom_id: 'carton', factor_to_base: 24, is_active: true, valid_from: '2026-07-22T00:00:00.000Z', valid_to: null },
+      { id: 'h-0', uom: carton, uom_id: 'carton', factor_to_base: 12, is_active: false, valid_from: '2026-07-01T00:00:00.000Z', valid_to: '2026-07-22T00:00:00.000Z' },
+    ])
+
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByText('تاريخ التحويلات السابقة')).toBeInTheDocument()
+    // Current conversions table shows the active carton factor.
+    expect(screen.getAllByText('كرتون (ctn)').length).toBeGreaterThan(0)
+    // History renders both the active ("سارية") and closed ("مغلقة") rows.
+    expect(screen.getByText('سارية')).toBeInTheDocument()
+    expect(screen.getByText('مغلقة')).toBeInTheDocument()
+  })
+
   it('loads the legal product profile only after the user opens the dialog', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
     renderComponent()

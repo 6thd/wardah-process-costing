@@ -12,6 +12,11 @@ const assignProductBaseUom = vi.fn()
 const resolveUomBackfillIssue = vi.fn()
 const ignoreUomBackfillIssue = vi.fn()
 
+// jsdom lacks scrollIntoView, which Radix Select calls when opening.
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = vi.fn()
+}
+
 vi.mock('@/hooks/use-uom-engine-enabled', () => ({
   useUomEngineEnabled: () => useUomEngineEnabled(),
 }))
@@ -97,6 +102,28 @@ describe('UomBackfillIssues', () => {
     expect(screen.getByText('وحدة غير معروفة أو ملتبسة')).toBeInTheDocument()
     expect(listUnmappedProducts).toHaveBeenCalledWith('org-1')
     expect(listOpenUomBackfillIssues).toHaveBeenCalledWith('org-1')
+  })
+
+  it('resolves an issue through the guarded RPC (note optional)', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    resolveUomBackfillIssue.mockResolvedValue(undefined)
+
+    renderComponent()
+
+    fireEvent.click(await screen.findByRole('button', { name: 'حل' }))
+
+    const confirm = await screen.findByRole('button', { name: 'تأكيد الحل' })
+    expect(confirm).not.toBeDisabled() // resolve does not require a note
+    fireEvent.click(confirm)
+
+    await waitFor(() =>
+      expect(resolveUomBackfillIssue).toHaveBeenCalledWith({
+        orgId: 'org-1',
+        issueId: 'issue-1',
+        resolvedUomId: null,
+        note: null,
+      }),
+    )
   })
 
   it('records an ignore with a mandatory note through the guarded RPC', async () => {
