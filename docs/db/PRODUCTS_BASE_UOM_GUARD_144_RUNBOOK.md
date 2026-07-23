@@ -17,14 +17,22 @@
 
 - **Trigger backstop:** `wardah_guard_products_base_uom_change()` على
   `BEFORE UPDATE OF base_uom_id ON public.products` — يرفض:
-  - جعل وحدة خاصة بالصنف (`is_product_specific`) وحدةَ أساس.
   - أي تغيير لـ `base_uom_id` عند وجود صف في `stock_ledger_entries` للصنف/المؤسسة.
+  - **مسح** الوحدة إلى `NULL` على صنف قائم (`PRODUCT_BASE_UOM_REQUIRED`).
+  - وحدة **خاصة بمؤسسة أخرى** أو غير نشطة: يُقبل فقط `org_id IS NULL` (نظام مشترك) أو
+    `org_id = NEW.org_id` (`PRODUCT_BASE_UOM_INVALID`).
+  - جعل وحدة خاصة بالصنف (`is_product_specific`) وحدةَ أساس.
 - **RPC قانونية (SECURITY DEFINER، admin-guarded، مسحوبة من PUBLIC/anon):**
   - `rpc_assign_product_base_uom(p_org_id, p_product_id, p_uom_id)` — تعيّن/تصلح وحدة
-    الأساس عندما لا توجد حركات، تضبط الحالة `MAPPED`، وتغلق تلقائيًا مشكلة المواءمة
-    المفتوحة للصنف.
-  - `rpc_resolve_uom_backfill_issue(p_org_id, p_issue_id, p_resolved_uom_id, p_note)`.
-  - `rpc_ignore_uom_backfill_issue(p_org_id, p_issue_id, p_note)`.
+    الأساس عندما لا توجد حركات، ترفض وحدة مؤسسة أخرى أو وحدة خاصة بالصنف، تضبط الحالة
+    `MAPPED`، وتغلق تلقائيًا مشكلة المواءمة المفتوحة للصنف.
+  - `rpc_resolve_uom_backfill_issue(p_org_id, p_issue_id, p_resolved_uom_id, p_note)` —
+    لا تحل المشكلة إلا بعد إصلاح مصدرها فعليًا: `products` ⇐ الصنف `MAPPED` ووحدته مطابقة
+    لأي `p_resolved_uom_id` مُمرَّر؛ `items` ⇐ العنصر `MAPPED` أو مربوط بمنتج `MAPPED` عبر
+    `item_product_map`؛ `bom_lines` ⇐ السطر يملك `uom_id` و`product_id`. وأي
+    `p_resolved_uom_id` يخضع لعزل المؤسسة نفسه.
+  - `rpc_ignore_uom_backfill_issue(p_org_id, p_issue_id, p_note)` — الملاحظة **إلزامية
+    خادميًا** (`UOM_BACKFILL_IGNORE_NOTE_REQUIRED`)، لا في الواجهة فقط.
 
 > لا يُحذف أو يُعدّل أي صف أو عمود أو migration قائم. `base_uom_id` المزروعة عبر 130 تبقى
 > دون تغيير؛ الحارس يرفض **التغيير غير القانوني** فقط.
@@ -65,6 +73,14 @@ JOIN pg_roles r ON r.oid = a.grantee
 WHERE p.proname = 'rpc_assign_product_base_uom'
   AND a.privilege_type = 'EXECUTE';
 ```
+
+## اختبار قبول آلي (Fresh DB)
+
+`scripts/ci/fresh-db/acceptance_144_base_uom_guard.sql` يُطبَّق ضمن وظيفة Fresh DB في
+`ci-cd.yml` بعد سلسلة الترحيل، ويثبت على PostgreSQL فعلي: التعيين الناجح + الإغلاق
+التلقائي للمشكلة، رفض وحدة مؤسسة أخرى، رفض الوحدة الخاصة بالصنف، القفل بعد الحركة،
+منع المسح إلى NULL، إلزام ملاحظة التجاهل، ومنع حل المشكلة قبل إصلاح مصدرها
+(products/items/bom_lines)، إضافة إلى رفض غير العضو.
 
 ## اختبار سلبي/إيجابي موصى به (staging)
 

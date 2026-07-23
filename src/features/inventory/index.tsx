@@ -14,10 +14,10 @@ import { itemsService, categoriesService, stockMovementsService } from '@/servic
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
-import { useItemUomStatus } from '@/hooks/use-item-uom-status'
+import { useProductUomStatus } from '@/hooks/use-product-uom-status'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
-import { ItemUomStatusBadge } from './components/ItemUomStatusBadge'
+import { UomStatusBadge } from './components/UomStatusBadge'
 import { 
   ADJUSTMENT_TYPES, 
   calculateAdjustmentTotals, 
@@ -854,7 +854,7 @@ function ItemsManagement() {
 // Stock Adjustments Component
 function StockAdjustments() {
   const { t } = useTranslation()
-  const { needsSetup: itemNeedsUomSetup } = useItemUomStatus()
+  const { needsSetup: productNeedsUomSetup } = useProductUomStatus()
   const [adjustments, setAdjustments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -1787,23 +1787,37 @@ function StockAdjustments() {
                     >
                       {filteredProducts.length > 0 ? (
                         filteredProducts.map((product) => {
-                          const needsUom = itemNeedsUomSetup(product.id)
+                          const needsUom = productNeedsUomSetup(product.id)
+                          // Unmapped product: not a selectable button — a non-interactive
+                          // row carrying a linked badge so the repair link stays reachable
+                          // and keyboard-accessible (a link inside a disabled button is not).
+                          if (needsUom) {
+                            return (
+                              <div
+                                key={product.id}
+                                className="w-full px-4 py-3 text-right border-b border-border dark:border-gray-700 last:border-b-0 bg-muted/40 dark:bg-gray-900 opacity-80"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="font-medium text-foreground dark:text-white">{product.name}</div>
+                                  <UomStatusBadge />
+                                </div>
+                                <div className="text-sm text-muted-foreground dark:text-muted-foreground">
+                                  {product.code} - الرصيد: {product.stock_quantity}
+                                </div>
+                              </div>
+                            )
+                          }
                           return (
                           <button
                             key={product.id}
-                            disabled={needsUom}
                             onClick={() => {
-                              if (needsUom) return
                               setSelectedProduct(product)
                               setSearchTerm(product.name)
                               setShowProductSearch(false)
                             }}
-                            className="w-full px-4 py-3 text-right hover:bg-muted dark:hover:bg-gray-800 border-b border-border dark:border-gray-700 last:border-b-0 transition-colors bg-card dark:bg-gray-950 disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="w-full px-4 py-3 text-right hover:bg-muted dark:hover:bg-gray-800 border-b border-border dark:border-gray-700 last:border-b-0 transition-colors bg-card dark:bg-gray-950"
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="font-medium text-foreground dark:text-white">{product.name}</div>
-                              {needsUom && <ItemUomStatusBadge />}
-                            </div>
+                            <div className="font-medium text-foreground dark:text-white">{product.name}</div>
                             <div className="text-sm text-muted-foreground dark:text-muted-foreground">
                               {product.code} - الرصيد: {product.stock_quantity}
                             </div>

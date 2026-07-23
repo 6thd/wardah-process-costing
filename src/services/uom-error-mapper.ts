@@ -102,6 +102,8 @@ const RULES: readonly UomErrorRule[] = [
     translationKey: 'backfillActionFailed',
     action: 'OPEN_BACKFILL_ISSUES',
   },
+  { prefixes: ['UOM_BACKFILL_SOURCE_NOT_RESOLVED'], translationKey: 'backfillSourceNotResolved', action: 'OPEN_BACKFILL_ISSUES' },
+  { prefixes: ['UOM_BACKFILL_IGNORE_NOTE_REQUIRED'], translationKey: 'ignoreNoteRequired', action: 'OPEN_BACKFILL_ISSUES' },
 ]
 
 function errorMessage(error: unknown): string {

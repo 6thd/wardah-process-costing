@@ -15,8 +15,8 @@ import {
   getProductBaseUomChangeGuard,
   getProductUomMasterProfile,
   ignoreUomBackfillIssue,
-  itemUomNeedsSetup,
-  listItemUomMappingStatuses,
+  uomStatusNeedsSetup,
+  listProductUomMappingStatuses,
   listOpenUomBackfillIssues,
   listProductUomConversionHistory,
   listUnmappedProducts,
@@ -227,24 +227,24 @@ describe('uom-master-data-service', () => {
     expect(result[0].uom_migration_status).toBe('AMBIGUOUS')
   })
 
-  it('projects item UoM statuses and flags non-mapped items', async () => {
-    const items = queryChain({
+  it('projects product UoM statuses from the products table and flags non-mapped', async () => {
+    const products = queryChain({
       data: [
-        { id: 'i-1', uom_migration_status: 'MAPPED' },
-        { id: 'i-2', uom_migration_status: 'NO_UNIT' },
+        { id: 'p-1', uom_migration_status: 'MAPPED' },
+        { id: 'p-2', uom_migration_status: 'NO_UNIT' },
       ],
       error: null,
     })
-    from.mockReturnValue(items)
+    from.mockReturnValue(products)
 
-    const result = await listItemUomMappingStatuses('org-1')
+    const result = await listProductUomMappingStatuses('org-1')
 
-    expect(from).toHaveBeenCalledWith('items')
-    expect(items.eq).toHaveBeenCalledWith('org_id', 'org-1')
+    expect(from).toHaveBeenCalledWith('products')
+    expect(products.eq).toHaveBeenCalledWith('org_id', 'org-1')
     expect(result).toHaveLength(2)
-    expect(itemUomNeedsSetup('MAPPED')).toBe(false)
-    expect(itemUomNeedsSetup('NO_UNIT')).toBe(true)
-    expect(itemUomNeedsSetup(undefined)).toBe(true)
+    expect(uomStatusNeedsSetup('MAPPED')).toBe(false)
+    expect(uomStatusNeedsSetup('NO_UNIT')).toBe(true)
+    expect(uomStatusNeedsSetup(undefined)).toBe(true)
   })
 
   it('returns the full versioned conversion history newest first', async () => {

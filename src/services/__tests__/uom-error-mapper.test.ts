@@ -71,4 +71,13 @@ describe('uom-error-mapper', () => {
     expect(mapUomError('PRODUCT_BASE_UOM_ASSIGN_FAILED', 'en').action)
       .toBe('OPEN_PRODUCT_UOM_SETTINGS')
   })
+
+  it('maps the resolve-gating and mandatory-note codes', () => {
+    const notResolved = mapUomError('UOM_BACKFILL_SOURCE_NOT_RESOLVED: issue=i1, source=bom_lines', 'ar')
+    expect(notResolved.code).toBe('UOM_BACKFILL_SOURCE_NOT_RESOLVED')
+    expect(notResolved.action).toBe('OPEN_BACKFILL_ISSUES')
+
+    expect(mapUomError('UOM_BACKFILL_IGNORE_NOTE_REQUIRED', 'en').action)
+      .toBe('OPEN_BACKFILL_ISSUES')
+  })
 })

@@ -375,27 +375,29 @@ export async function listUnmappedProducts(orgId: string): Promise<UnmappedProdu
   return (data ?? []) as UnmappedProduct[]
 }
 
-export interface ItemUomMappingStatus {
+export interface ProductUomMappingStatus {
   id: string
   uom_migration_status: string
 }
 
 /**
  * Lightweight id → uom_migration_status projection for the active organization's
- * items, used to gate item pickers so an unmapped item cannot be selected before
- * the user reaches a hard RPC error.
+ * products, used to gate product pickers so an unmapped product cannot be selected
+ * before the user reaches a hard RPC error. Keyed by products.id — the pickers that
+ * source their list from the products table (e.g. `itemsService.getAll()`, which
+ * reads `products`) must use this projection, not the items table.
  */
-export async function listItemUomMappingStatuses(orgId: string): Promise<ItemUomMappingStatus[]> {
+export async function listProductUomMappingStatuses(orgId: string): Promise<ProductUomMappingStatus[]> {
   const { data, error } = await supabase
-    .from('items')
+    .from('products')
     .select('id,uom_migration_status')
     .eq('org_id', orgId)
 
   if (error) throw error
-  return (data ?? []) as ItemUomMappingStatus[]
+  return (data ?? []) as ProductUomMappingStatus[]
 }
 
-export function itemUomNeedsSetup(status: string | null | undefined): boolean {
+export function uomStatusNeedsSetup(status: string | null | undefined): boolean {
   return status !== 'MAPPED'
 }
 

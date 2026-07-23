@@ -58,6 +58,8 @@ const UOM_ERROR_COPY = {
   baseUomAssignFailed: ['Base unit was not assigned', 'The server did not confirm that the product base unit was assigned.', 'لم تُعيَّن وحدة الأساس', 'لم يؤكد الخادم تعيين وحدة الأساس للصنف.'],
   backfillIssueUnavailable: ['Issue unavailable', 'The backfill issue was not found, is not open, or does not belong to the active organization.', 'المشكلة غير متاحة', 'مشكلة المواءمة غير موجودة أو ليست مفتوحة أو لا تتبع المؤسسة النشطة.'],
   backfillActionFailed: ['Action was not applied', 'The server did not confirm the backfill issue update.', 'لم يُطبَّق الإجراء', 'لم يؤكد الخادم تحديث مشكلة المواءمة.'],
+  backfillSourceNotResolved: ['Fix the source first', 'This issue cannot be resolved until its underlying record is actually repaired — assign the product base unit, map the item, or complete the BOM line.', 'أصلح المصدر أولًا', 'لا يمكن حل هذه المشكلة حتى يُصلَح سجلها الأساسي فعليًا — عيّن وحدة أساس الصنف، أو اربط العنصر، أو أكمل سطر قائمة المواد.'],
+  ignoreNoteRequired: ['A reason is required', 'Enter a reason before ignoring this issue.', 'السبب مطلوب', 'أدخل سبب التجاهل قبل تجاهل هذه المشكلة.'],
 } as const satisfies Record<string, LocalizedUomErrorCopy>
 
 export type UomErrorTranslationKey = keyof typeof UOM_ERROR_COPY
