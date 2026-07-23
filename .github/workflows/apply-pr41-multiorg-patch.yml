@@ -48,3 +48,5 @@ jobs:
           fi
           git commit -m 'fix(uom): close rollout and multi-org review findings'
           git push origin HEAD:claude/complete-master-data-uom-hn893k
+
+# One-shot trigger refreshed after acceptance-144 isolation; this workflow deletes itself.
