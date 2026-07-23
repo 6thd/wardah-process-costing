@@ -30,7 +30,7 @@ BEGIN
   END IF;
 
   -- Explicit org read under SECURITY DEFINER so a multi-org user's selected org is
-  -- not replaced by wardah_org_id(NULL). Malformed/missing values fail closed to OFF.
+  -- not replaced by wardah_org_id(NULL). Missing/false keeps the legacy rollout path.
   SELECT CASE
     WHEN jsonb_typeof(os.value -> 'enabled') = 'boolean'
       THEN (os.value ->> 'enabled')::boolean
@@ -76,7 +76,9 @@ REVOKE EXECUTE ON FUNCTION public.wardah_guard_mapped_product_uom_stock_write()
 DROP TRIGGER IF EXISTS trg_stock_adjustment_items_require_mapped_uom
   ON public.stock_adjustment_items;
 CREATE TRIGGER trg_stock_adjustment_items_require_mapped_uom
-  BEFORE INSERT OR UPDATE OF product_id, organization_id
+  -- Revalidate every draft-line update, not only product/org changes. A legal line can
+  -- become stale after its base UoM is deactivated between initial save and editing.
+  BEFORE INSERT OR UPDATE
   ON public.stock_adjustment_items
   FOR EACH ROW
   EXECUTE FUNCTION public.wardah_guard_mapped_product_uom_stock_write();
@@ -84,10 +86,13 @@ CREATE TRIGGER trg_stock_adjustment_items_require_mapped_uom
 DROP TRIGGER IF EXISTS trg_stock_ledger_entries_require_mapped_uom
   ON public.stock_ledger_entries;
 CREATE TRIGGER trg_stock_ledger_entries_require_mapped_uom
+  -- Ledger rows are append-oriented; INSERT is the authoritative posting boundary.
+  -- Product/org rewrites are revalidated, while cancellation metadata updates remain
+  -- possible even if master data is subsequently quarantined.
   BEFORE INSERT OR UPDATE OF product_id, org_id
   ON public.stock_ledger_entries
   FOR EACH ROW
   EXECUTE FUNCTION public.wardah_guard_mapped_product_uom_stock_write();
 
 COMMENT ON FUNCTION public.wardah_guard_mapped_product_uom_stock_write() IS
-  'Flag-gated DB backstop: when uom_engine_enabled is true, stock_adjustment_items and stock_ledger_entries accept only a same-org MAPPED product with a legal active base UoM. Prevents stale UI/cache races before draft save and SLE posting.';
+  'Flag-gated DB backstop: when uom_engine_enabled is true, every stock-adjustment line insert/update and every SLE insert/product-org rewrite accepts only a same-org MAPPED product with a legal active base UoM.';
