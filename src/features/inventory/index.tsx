@@ -991,35 +991,56 @@ function StockAdjustments() {
   }
 
   const loadProducts = async () => {
+    if (!currentOrgId) {
+      setProducts([])
+      return
+    }
+
     try {
-      const data = await itemsService.getAll()
+      const supabase = getSupabase()
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('org_id', currentOrgId)
+        .order('name')
+
+      if (error) throw error
       setProducts(data || [])
     } catch (error) {
       console.error('Error loading products:', error)
+      setProducts([])
     }
   }
 
   const loadWarehouses = async () => {
+    if (!currentOrgId) {
+      setWarehouses([])
+      setLoadingWarehouses(false)
+      return
+    }
+
     try {
       setLoadingWarehouses(true)
       const supabase = getSupabase()
       const { data, error } = await supabase
         .from('warehouses')
         .select('*')
+        .eq('org_id', currentOrgId)
         .eq('is_active', true)
         .order('name')
 
       if (error) throw error
-      
-      setWarehouses(data || [])
-      
-      // Auto-select first warehouse
-      if (data && data.length > 0 && !newAdjustment.warehouse_id) {
-        setNewAdjustment(prev => ({
-          ...prev,
-          warehouse_id: data[0].id
-        }))
-      }
+
+      const organizationWarehouses = data || []
+      setWarehouses(organizationWarehouses)
+
+      // Never retain a warehouse selected under a previously active organization.
+      setNewAdjustment(prev => ({
+        ...prev,
+        warehouse_id: organizationWarehouses.some(warehouse => warehouse.id === prev.warehouse_id)
+          ? prev.warehouse_id
+          : (organizationWarehouses[0]?.id || '')
+      }))
     } catch (error) {
       console.error('Error loading warehouses:', error)
       toast.error('خطأ في تحميل المخازن')
@@ -1393,6 +1414,7 @@ function StockAdjustments() {
             .from('warehouses')
             .select('inventory_account_id')
             .eq('id', adjustment.warehouse_id)
+            .eq('org_id', currentOrgId)
             .single()
 
           if (warehouseData?.inventory_account_id) {
@@ -1417,6 +1439,7 @@ function StockAdjustments() {
             .from('warehouses')
             .select('inventory_account_id')
             .eq('id', adjustment.warehouse_id)
+            .eq('org_id', currentOrgId)
             .single()
 
           if (warehouseData?.inventory_account_id) {
@@ -1490,6 +1513,7 @@ function StockAdjustments() {
           submitted_by: user.id
         })
         .eq('id', adjustmentId)
+        .eq('organization_id', currentOrgId)
 
       if (updateError) throw updateError
 
