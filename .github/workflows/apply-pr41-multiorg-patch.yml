@@ -32,7 +32,6 @@ jobs:
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           python scripts/ci/patch_pr41_service_hardening.py
-          python scripts/ci/patch_pr41_migration144_staged_invariant.py
 
       - name: Validate patched source before commit
         run: |
