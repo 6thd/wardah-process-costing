@@ -223,6 +223,28 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
+      - name: Migration 145 acceptance (flag-gated stock-write guard)
+        run: |
+          set -Eeuo pipefail
+          for trigger_name in \
+            trg_stock_adjustment_items_require_mapped_uom \
+            trg_stock_ledger_entries_require_mapped_uom
+          do
+            if ! psql -d wardah_fresh -tAc \
+              "SELECT 1 FROM pg_trigger WHERE tgname='${trigger_name}' AND NOT tgisinternal" \
+              | grep -q 1; then
+              echo "❌ migration 145 trigger missing: ${trigger_name}"
+              exit 1
+            fi
+          done
+          echo "   تشغيل اختبار قبول migration 145 (حارس الكتابة المخزنية)…"
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
       - name: Build project
         run: npm run build
 
