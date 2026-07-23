@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ProductUomSettings } from '../ProductUomSettings'
@@ -11,6 +11,9 @@ const getProductBaseUomChangeGuard = vi.fn()
 const listUomCatalog = vi.fn()
 const listProductUomConversionHistory = vi.fn()
 const assignProductBaseUom = vi.fn()
+const convertProductQuantity = vi.fn()
+const saveProductUomConversion = vi.fn()
+const setProductPhysicalWeight = vi.fn()
 
 vi.mock('@/hooks/use-uom-engine-enabled', () => ({
   useUomEngineEnabled: () => useUomEngineEnabled(),
@@ -30,9 +33,9 @@ vi.mock('@/services/uom-master-data-service', () => ({
 }))
 
 vi.mock('@/services/uom-service', () => ({
-  convertProductQuantity: vi.fn(),
-  saveProductUomConversion: vi.fn(),
-  setProductPhysicalWeight: vi.fn(),
+  convertProductQuantity: (...args: unknown[]) => convertProductQuantity(...args),
+  saveProductUomConversion: (...args: unknown[]) => saveProductUomConversion(...args),
+  setProductPhysicalWeight: (...args: unknown[]) => setProductPhysicalWeight(...args),
 }))
 
 vi.mock('@/services/uom-error-mapper', () => ({
@@ -94,6 +97,21 @@ function mappedProfile() {
   }
 }
 
+function unmappedProfile() {
+  return {
+    product_id: 'product-1',
+    org_id: 'org-1',
+    base_uom_id: null,
+    base_uom: null,
+    uom_migration_status: 'NO_UNIT',
+    net_weight: null,
+    gross_weight: null,
+    weight_uom_id: null,
+    weight_uom: null,
+    conversions: [],
+  }
+}
+
 describe('ProductUomSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -106,6 +124,9 @@ describe('ProductUomSettings', () => {
     })
     listProductUomConversionHistory.mockResolvedValue([])
     assignProductBaseUom.mockResolvedValue(undefined)
+    saveProductUomConversion.mockResolvedValue(undefined)
+    setProductPhysicalWeight.mockResolvedValue(undefined)
+    convertProductQuantity.mockResolvedValue({ base_quantity: 42 })
     listUomCatalog.mockResolvedValue({
       categories: [
         { id: 'count', code: 'COUNT', name: 'Count', name_ar: 'عدد', dimension: 'count', is_system: true },
@@ -146,18 +167,7 @@ describe('ProductUomSettings', () => {
 
   it('offers first base-unit assignment when unset and no movement exists', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
-    getProductUomMasterProfile.mockResolvedValue({
-      product_id: 'product-1',
-      org_id: 'org-1',
-      base_uom_id: null,
-      base_uom: null,
-      uom_migration_status: 'NO_UNIT',
-      net_weight: null,
-      gross_weight: null,
-      weight_uom_id: null,
-      weight_uom: null,
-      conversions: [],
-    })
+    getProductUomMasterProfile.mockResolvedValue(unmappedProfile())
     getProductBaseUomChangeGuard.mockResolvedValue({ has_movements: false, base_uom_locked: false })
 
     renderComponent()
@@ -168,6 +178,19 @@ describe('ProductUomSettings', () => {
     expect(screen.queryByText('الوحدة الأساسية ثابتة')).not.toBeInTheDocument()
   })
 
+  it('blocks late assignment when an unresolved product already has movements', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    getProductUomMasterProfile.mockResolvedValue(unmappedProfile())
+    getProductBaseUomChangeGuard.mockResolvedValue({ has_movements: true, base_uom_locked: true })
+
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByText('لا يمكن تعيين الوحدة')).toBeInTheDocument()
+    expect(screen.getByText(/توجد حركة مخزون سابقة/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'تعيين وحدة الأساس' })).not.toBeInTheDocument()
+  })
+
   it('does not expose a base-unit change action after first assignment', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
     renderComponent()
@@ -175,6 +198,30 @@ describe('ProductUomSettings', () => {
 
     expect(await screen.findByText('الوحدة الأساسية ثابتة')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /تغيير وحدة الأساس/ })).not.toBeInTheDocument()
+  })
+
+  it('renders a mapped blocking error instead of partial settings', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    getProductUomMasterProfile.mockRejectedValue(new Error('PRODUCT_BASE_UOM_INVALID'))
+
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByText('خطأ')).toBeInTheDocument()
+    expect(screen.getByText('وصف')).toBeInTheDocument()
+    expect(screen.queryByText('الوحدة الأساسية القانونية')).not.toBeInTheDocument()
+  })
+
+  it('renders conversion-history errors separately from an empty history', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    listProductUomConversionHistory.mockRejectedValue(new Error('HISTORY_FAILED'))
+
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByText('تاريخ التحويلات السابقة')).toBeInTheDocument()
+    expect(screen.getByText('خطأ')).toBeInTheDocument()
+    expect(screen.queryByText('لا يوجد تاريخ تحويلات لهذا الصنف.')).not.toBeInTheDocument()
   })
 
   it('renders current conversions and the versioned conversion history', async () => {
@@ -207,6 +254,42 @@ describe('ProductUomSettings', () => {
     expect(screen.getAllByText('كرتون (ctn)').length).toBeGreaterThan(0)
     expect(screen.getByText('سارية')).toBeInTheDocument()
     expect(screen.getByText('مغلقة')).toBeInTheDocument()
+  })
+
+  it('saves the physical weight through the canonical server service', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    const saveWeight = await screen.findByRole('button', { name: 'حفظ الوزن' })
+    fireEvent.click(saveWeight)
+
+    await waitFor(() => {
+      expect(setProductPhysicalWeight).toHaveBeenCalledWith({
+        productId: 'product-1',
+        netWeight: 0.015,
+        grossWeight: 0.017,
+        weightUomId: 'kg',
+      })
+    })
+  })
+
+  it('runs conversion simulation through the server and renders its result', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    const calculate = await screen.findByRole('button', { name: 'احسب' })
+    fireEvent.click(calculate)
+
+    await waitFor(() => {
+      expect(convertProductQuantity).toHaveBeenCalledWith({
+        productId: 'product-1',
+        quantity: 1,
+        uomId: 'piece',
+      })
+    })
+    expect(await screen.findByText('42')).toBeInTheDocument()
   })
 
   it('loads the legal product profile only after opening the dialog', async () => {
