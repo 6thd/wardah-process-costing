@@ -22,11 +22,27 @@ jobs:
           ref: claude/complete-master-data-uom-hn893k
           fetch-depth: 0
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
       - name: Apply non-overlapping exact patches
         run: |
           set -Eeuo pipefail
           python scripts/ci/patch_pr41_stock_adjustments_multiorg.py
           python scripts/ci/patch_pr41_service_hardening.py
+
+      - name: Validate patched source before commit
+        run: |
+          set -Eeuo pipefail
+          npm ci
+          npx tsc --noEmit
+          npm run lint -- --max-warnings=0
+          npx vitest run \
+            src/features/inventory/components/__tests__/ProductUomSettings.test.tsx \
+            src/services/__tests__/uom-master-data-service.test.ts \
+            src/services/__tests__/uom-error-mapper.test.ts
 
       - name: Remove one-time patch machinery
         run: |
@@ -35,6 +51,7 @@ jobs:
           rm -f scripts/ci/patch_pr41_service_hardening.py
           rm -f scripts/ci/patch_pr41_migration144_staged_invariant.py
           rm -f .github/workflows/apply-pr41-multiorg-patch.yml
+          rm -f .github/workflows/apply-pr41-migration144-patch.yml
 
       - name: Commit patched source and cleanup
         run: |
@@ -48,5 +65,3 @@ jobs:
           fi
           git commit -m 'fix(uom): close rollout and multi-org review findings'
           git push origin HEAD:claude/complete-master-data-uom-hn893k
-
-# One-shot trigger refreshed after acceptance-144 isolation; this workflow deletes itself.
