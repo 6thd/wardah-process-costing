@@ -1,0 +1,73 @@
+name: UoM Stock Write Guard
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
+      - scripts/ci/fresh-db/**
+      - sql/baseline/**
+      - .github/workflows/uom-stock-write-guard.yml
+  push:
+    branches:
+      - claude/complete-master-data-uom-hn893k
+    paths:
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
+      - scripts/ci/fresh-db/**
+      - sql/baseline/**
+      - .github/workflows/uom-stock-write-guard.yml
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Fresh DB + migration 145 acceptance
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build Fresh DB through latest migration
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_uom_guard
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_guard -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_guard -f "$BASELINE" -q
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/uom_guard_chain_report.txt PGDATABASE=wardah_uom_guard \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Assert migration 145 guard behavior
+        run: |
+          set -Eeuo pipefail
+          psql -d wardah_uom_guard -tAc \
+            "SELECT 1 FROM pg_trigger WHERE tgname='trg_stock_ledger_entries_require_mapped_uom'" \
+            | grep -q 1
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_guard \
+            -f scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
