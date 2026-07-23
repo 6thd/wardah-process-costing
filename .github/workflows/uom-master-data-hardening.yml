@@ -8,6 +8,7 @@ on:
       - sql/migrations/145_uom_stock_write_guard.sql
       - sql/migrations/146_uom_master_data_hardening.sql
       - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
       - .github/workflows/uom-master-data-hardening.yml
   push:
     branches:
@@ -17,6 +18,7 @@ on:
       - sql/migrations/145_uom_stock_write_guard.sql
       - sql/migrations/146_uom_master_data_hardening.sql
       - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
       - .github/workflows/uom-master-data-hardening.yml
   workflow_dispatch:
 
@@ -91,10 +93,19 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Run migration 146 acceptance
+      - name: Run migration 146 authenticated acceptance
         run: |
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run migration 146 trusted-insert acceptance
+        run: |
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
         env:
           PGHOST: localhost
           PGUSER: postgres
