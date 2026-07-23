@@ -1,99 +1,141 @@
-# Runbook — Migration 144: `products_base_uom_change_guard`
+# Runbook — UoM master-data hardening (143–146)
 
-**التاريخ:** 2026-07-22
-**الملف:** `sql/migrations/144_products_base_uom_change_guard.sql`
-**الحالة:** مدمجة في المستودع، **غير مطبقة على Production** ضمن هذا الـPR.
-**التبعية:** تعتمد على كائنات محرك الوحدات 129–143 (خصوصًا `products.base_uom_id`،
-`products.uom_migration_status`، `uom_backfill_issues`، `stock_ledger_entries`،
-والحارسين `wardah_assert_org_admin` / `wardah_assert_org_member`).
+**التاريخ:** 2026-07-23  
+**الملفات:**
+- `143_uom_engine_flag_org_scoped_read.sql`
+- `144_products_base_uom_change_guard.sql`
+- `145_uom_stock_write_guard.sql`
+- `146_uom_master_data_hardening.sql`
 
-## الغرض
+**الحالة:** موجودة في PR #41، **غير مطبقة على Production**، وعلم
+`uom_engine_enabled` ما زال مغلقًا افتراضيًا ولم يُفعّل ضمن هذا العمل.
 
-استبدال الاعتماد على تعطيل زر الواجهة بحارس قاعدة بيانات fail-closed يمنع إعادة
-تعريف وحدة الأساس بعد تسجيل أي حركة مخزنية، وتوفير المسار القانوني الوحيد لتعيين/إصلاح
-وحدة الأساس وحل/تجاهل مشكلات المواءمة.
+## القرار المحاسبي والتقني
 
-## ما تضيفه (additive فقط)
+وحدة الأساس ليست حقل عرض؛ كل كميات SLE و`bins`، ومعاملات التحويل، وحقائق الوزن
+الصافي والإجمالي تُفسَّر نسبةً إليها. لذلك يسمح هذا الإصدار بـ**التعيين الأول فقط**.
+بعد وجود `base_uom_id` لا يجوز استبدالها بوحدة أخرى حتى لو لم توجد حركة مخزون؛
+التغيير المستقبلي يحتاج RPC ترحيل ذرية مستقلة تُغلق التحويلات القديمة، وتطلب عوامل
+وأوزانًا جديدة، وتسجل Audit Trail كاملًا.
 
-- **Trigger backstop:** `wardah_guard_products_base_uom_change()` على
-  `BEFORE UPDATE OF base_uom_id ON public.products` — يرفض:
-  - أي تغيير لـ `base_uom_id` عند وجود صف في `stock_ledger_entries` للصنف/المؤسسة.
-  - **مسح** الوحدة إلى `NULL` على صنف قائم (`PRODUCT_BASE_UOM_REQUIRED`).
-  - وحدة **خاصة بمؤسسة أخرى** أو غير نشطة: يُقبل فقط `org_id IS NULL` (نظام مشترك) أو
-    `org_id = NEW.org_id` (`PRODUCT_BASE_UOM_INVALID`).
-  - جعل وحدة خاصة بالصنف (`is_product_specific`) وحدةَ أساس.
-- **RPC قانونية (SECURITY DEFINER، admin-guarded، مسحوبة من PUBLIC/anon):**
-  - `rpc_assign_product_base_uom(p_org_id, p_product_id, p_uom_id)` — تعيّن/تصلح وحدة
-    الأساس عندما لا توجد حركات، ترفض وحدة مؤسسة أخرى أو وحدة خاصة بالصنف، تضبط الحالة
-    `MAPPED`، وتغلق تلقائيًا مشكلة المواءمة المفتوحة للصنف.
-  - `rpc_resolve_uom_backfill_issue(p_org_id, p_issue_id, p_resolved_uom_id, p_note)` —
-    لا تحل المشكلة إلا بعد إصلاح مصدرها فعليًا: `products` ⇐ الصنف `MAPPED` ووحدته مطابقة
-    لأي `p_resolved_uom_id` مُمرَّر؛ `items` ⇐ العنصر `MAPPED` أو مربوط بمنتج `MAPPED` عبر
-    `item_product_map`؛ `bom_lines` ⇐ السطر يملك `uom_id` و`product_id`. وأي
-    `p_resolved_uom_id` يخضع لعزل المؤسسة نفسه.
-  - `rpc_ignore_uom_backfill_issue(p_org_id, p_issue_id, p_note)` — الملاحظة **إلزامية
-    خادميًا** (`UOM_BACKFILL_IGNORE_NOTE_REQUIRED`)، لا في الواجهة فقط.
+## Migration 144 — التعيين والحل القانوني
 
-> لا يُحذف أو يُعدّل أي صف أو عمود أو migration قائم. `base_uom_id` المزروعة عبر 130 تبقى
-> دون تغيير؛ الحارس يرفض **التغيير غير القانوني** فقط.
+### الحارس
 
-## خطوات التطبيق على Production (عند اعتمادها لاحقًا)
+`wardah_guard_products_base_uom_change()` يعمل على
+`BEFORE UPDATE OF base_uom_id` ويطبق الآتي:
 
-1. ابدأ من أحدث `main` بعد دمج هذا الـPR.
-2. طبّق migration 144 بالاسم الكامل (stem الملف): `144_products_base_uom_change_guard`.
-3. نفّذ استعلامات التحقق أدناه وتأكد من ظهور الاسم القانوني **مرة واحدة** في السجل.
-4. لا تُفعّل `uom_engine_enabled` كأثر جانبي؛ التفعيل خطوة منفصلة لكل مؤسسة.
+- يستدعي `wardah_assert_org_admin(NEW.org_id)`؛ العضو العادي لا يستطيع تجاوز RPC
+  بتحديث مباشر.
+- يسمح فقط بالانتقال من `NULL` إلى وحدة أساس قانونية.
+- يرفض أي استبدال لوحدة موجودة بـ
+  `PRODUCT_BASE_UOM_CHANGE_REQUIRES_ATOMIC_REMAP`.
+- يرفض التعيين المتأخر إذا وُجدت SLE لصنف ما زال بلا وحدة قانونية.
+- يقبل وحدة نشطة مشتركة أو مملوكة للمؤسسة نفسها فقط، ويرفض
+  `is_product_specific=true`.
+- يضبط `uom_migration_status='MAPPED'` ذريًا ويغلق مشكلة المنتج المفتوحة.
 
-## استعلامات التحقق
+### القيد المرحلي
+
+`products_base_uom_mapping_invariant` يمنع الصفوف الجديدة أو المعدلة من ادعاء
+`MAPPED` دون `base_uom_id`. يبقى القيد `NOT VALID` حتى لا يفشل النشر بسبب صف تاريخي
+غير متسق؛ الصفوف التاريخية تظهر في شاشة الإصلاح ولا تُعدّل تلقائيًا. التحقق الكامل
+`VALIDATE CONSTRAINT` يكون في migration مستقلة بعد اكتمال مواءمة كل المؤسسات.
+
+### RPCs
+
+- `rpc_assign_product_base_uom`: تعيين أول أو مصالحة idempotent لنفس الوحدة فقط.
+- `rpc_resolve_uom_backfill_issue`: يستخرج وحدة الحل من المصدر الفعلي
+  (`products` / `items` / `item_product_map` / `bom_lines`). أي وحدة مُمرَّرة يجب أن
+  تطابق المصدر، والمصادر غير المدعومة تفشل مغلقة.
+- `rpc_ignore_uom_backfill_issue`: يتطلب سببًا غير فارغ خادميًا.
+
+جميع RPCs إدارية، `SECURITY DEFINER`، ذات `search_path` ثابت، ومسحوبة من
+`PUBLIC` و`anon`.
+
+## Migration 145 — حارس الكتابة المخزنية
+
+`wardah_guard_mapped_product_uom_stock_write()` يطبق دائمًا سلامة المؤسسة:
+
+- مؤسسة بند التسوية تطابق رأس التسوية.
+- المخزن ينتمي إلى المؤسسة نفسها.
+- لا يمكن صياغة صف Stock/SLE بهوية مؤسسة مختلفة.
+
+وعندما يكون `uom_engine_enabled=true` يضيف:
+
+- عضوية المتصل في المؤسسة.
+- المنتج من المؤسسة نفسها وحالته `MAPPED`.
+- وحدة أساس نشطة، غير خاصة بالصنف، ومشتركة أو مملوكة للمؤسسة.
+
+يُعاد فحص كل `INSERT/UPDATE` لبنود التسوية حتى لا تمر مسودة أصبحت قديمة بعد
+تغيير حالة الصنف أو تعطيل وحدته. SLE محمية عند الإدراج أو تغيير حقول الهوية، بينما
+تحديثات الإلغاء التاريخية تبقى ممكنة.
+
+## Migration 146 — الإغلاق النهائي
+
+- يزيل حارس INSERT المؤقت على `products` حتى لا يكسر Seeds أو Service-role imports.
+- يعيد تثبيت حارس UPDATE الإداري فقط.
+- يثبت إعادة فحص جميع تعديلات بنود التسوية.
+- يحافظ على الطبيعة الإلحاقية لـSLE وعدم تعطيل إجراءات الإلغاء.
+
+## التحقق قبل Production
 
 ```sql
--- 1) وجود الـtrigger على العمود الصحيح
-SELECT tgname, tgenabled
-FROM pg_trigger
-WHERE tgrelid = 'public.products'::regclass
-  AND tgname = 'trg_products_base_uom_change_guard';
+-- 1) الترتيب القانوني للمigrations
+SELECT version, name, applied_at
+FROM public.schema_migrations
+WHERE version BETWEEN 143 AND 146
+ORDER BY version;
 
--- 2) الدوال موجودة وSECURITY DEFINER
-SELECT proname, prosecdef
-FROM pg_proc
-WHERE proname IN (
-  'wardah_guard_products_base_uom_change',
-  'rpc_assign_product_base_uom',
-  'rpc_resolve_uom_backfill_issue',
-  'rpc_ignore_uom_backfill_issue'
+-- 2) الحراس النهائية
+SELECT c.relname AS table_name, t.tgname, t.tgenabled
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+WHERE t.tgname IN (
+  'trg_products_base_uom_change_guard',
+  'trg_stock_adjustment_items_require_mapped_uom',
+  'trg_stock_ledger_entries_require_mapped_uom'
 )
-ORDER BY proname;
+AND NOT t.tgisinternal
+ORDER BY c.relname, t.tgname;
 
--- 3) EXECUTE مسحوبة من PUBLIC/anon على الـRPC
---    (يجب ألا يظهر anon/PUBLIC ضمن من يملك EXECUTE)
-SELECT p.proname, r.rolname
-FROM pg_proc p
-CROSS JOIN LATERAL aclexplode(p.proacl) a
-JOIN pg_roles r ON r.oid = a.grantee
-WHERE p.proname = 'rpc_assign_product_base_uom'
-  AND a.privilege_type = 'EXECUTE';
+-- 3) يجب ألا يبقى حارس INSERT المؤقت
+SELECT count(*) AS temporary_insert_trigger_count
+FROM pg_trigger
+WHERE tgname = 'trg_products_base_uom_insert_guard'
+  AND NOT tgisinternal;
+
+-- 4) الصفوف التاريخية التي تحتاج معالجة قبل VALIDATE مستقبلي
+SELECT id, org_id, code, base_uom_id, uom_migration_status
+FROM public.products
+WHERE uom_migration_status = 'MAPPED'
+  AND base_uom_id IS NULL;
 ```
 
-## اختبار قبول آلي (Fresh DB)
+النتيجة المطلوبة للاستعلام الثالث: `0`. الاستعلام الرابع لا يوقف تطبيق 143–146،
+لكنه يجب أن يصبح صفرًا قبل migration تحقق نهائية لاحقة.
 
-`scripts/ci/fresh-db/acceptance_144_base_uom_guard.sql` يُطبَّق ضمن وظيفة Fresh DB في
-`ci-cd.yml` بعد سلسلة الترحيل، ويثبت على PostgreSQL فعلي: التعيين الناجح + الإغلاق
-التلقائي للمشكلة، رفض وحدة مؤسسة أخرى، رفض الوحدة الخاصة بالصنف، القفل بعد الحركة،
-منع المسح إلى NULL، إلزام ملاحظة التجاهل، ومنع حل المشكلة قبل إصلاح مصدرها
-(products/items/bom_lines)، إضافة إلى رفض غير العضو.
+## اختبارات القبول
 
-## اختبار سلبي/إيجابي موصى به (staging)
+- `acceptance_144_base_uom_guard.sql`: admin/member/nonmember، التعيين الأول، منع
+  إعادة التفسير، العزل، الوحدة الخاصة، المطابقة الدقيقة لمصدر Backfill.
+- `acceptance_145_uom_stock_write_guard.sql`: المنتج المهيأ/غير المهيأ، SLE،
+  وسلوك العلم المغلق.
+- `acceptance_146_uom_master_data_hardening.sql`: Seeds بلا JWT، منع العضو العادي،
+  إعادة فحص مسودة قديمة، واستمرار إلغاء SLE التاريخية.
 
-- محاولة `UPDATE products SET base_uom_id = ... WHERE id = <صنف له SLE>` مباشرة ⇒ يجب أن
-  تفشل بـ `PRODUCT_BASE_UOM_LOCKED_HAS_MOVEMENTS`.
-- استدعاء `rpc_assign_product_base_uom` لصنف بلا حركات كمدير ⇒ ينجح ويضبط `MAPPED` ويغلق
-  مشكلة المواءمة؛ لغير المدير ⇒ يفشل عبر `wardah_assert_org_admin`.
-- استدعاء `rpc_assign_product_base_uom` بوحدة `is_product_specific = true` ⇒ يفشل بـ
-  `PRODUCT_BASE_UOM_CANNOT_BE_PRODUCT_SPECIFIC`.
+## ترتيب النشر لاحقًا
 
-## العكس القانوني (rollback)
+1. دمج PR بعد اخضرار جميع البوابات فقط.
+2. أخذ نسخة احتياطية وفحص الاستعلامات أعلاه في Staging.
+3. تطبيق migrations 143 ثم 144 ثم 145 ثم 146 عبر مسار النشر المعتمد.
+4. تشغيل Acceptance/Smoke tests على Staging.
+5. إبقاء `uom_engine_enabled=false`.
+6. معالجة Backfill لكل مؤسسة.
+7. تفعيل العلم لمؤسسة واحدة فقط بعد اعتماد منفصل ومراقبة النتائج.
 
-الترحيل additive: لإيقاف الحارس دون حذف تاريخ، استخدم
-`DROP TRIGGER IF EXISTS trg_products_base_uom_change_guard ON public.products;` في migration
-عكسية موثقة عند الحاجة. لا تُسقط `stock_ledger_entries` ولا تُعدّل `base_uom_id` تاريخيًا
-لتجميل الحالة.
+## Rollback
+
+لا تُعاد كتابة `base_uom_id` أو التحويلات لتجميل الحالة. عند ضرورة إيقاف الحراسة،
+يكون ذلك عبر migration عكسية موثقة تسقط triggers فقط، مع إبقاء البيانات وسجل
+المشكلات والتاريخ كما هو للتدقيق.
