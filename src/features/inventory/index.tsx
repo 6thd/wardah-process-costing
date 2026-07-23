@@ -15,6 +15,7 @@ import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { useProductUomStatus } from '@/hooks/use-product-uom-status'
+import { useAuth } from '@/contexts/AuthContext'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
 import { UomStatusBadge } from './components/UomStatusBadge'
@@ -855,6 +856,7 @@ function ItemsManagement() {
 // Stock Adjustments Component
 function StockAdjustments() {
   const { t } = useTranslation()
+  const { currentOrgId } = useAuth()
   const productUomStatus = useProductUomStatus()
   const productNeedsUomSetup = productUomStatus.needsSetup
   const [adjustments, setAdjustments] = useState<any[]>([])
@@ -893,11 +895,21 @@ function StockAdjustments() {
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
 
   useEffect(() => {
+    if (!currentOrgId) {
+      setAdjustments([])
+      setProducts([])
+      setWarehouses([])
+      setGLAccounts([])
+      setLoading(false)
+      setLoadingWarehouses(false)
+      setLoadingAccounts(false)
+      return
+    }
     loadAdjustments()
     loadProducts()
     loadWarehouses()
     loadGLAccounts()
-  }, [])
+  }, [currentOrgId])
 
   // Reload when filters change
   useEffect(() => {
@@ -939,25 +951,18 @@ function StockAdjustments() {
 
       console.log('✅ User:', user.id)
 
-      const { data: userOrgs, error: orgError } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (orgError || !userOrgs) {
-        console.log('❌ No organization found:', orgError)
+      if (!currentOrgId) {
         setAdjustments([])
         setLoading(false)
         return
       }
 
-      console.log('✅ Organization:', userOrgs.org_id)
+      console.log('✅ Organization:', currentOrgId)
 
       let query = supabase
         .from('stock_adjustments')
         .select('*')
-        .eq('organization_id', userOrgs.org_id)
+        .eq('organization_id', currentOrgId)
         .order('created_at', { ascending: false })
 
       if (filterStatus !== 'all') {
@@ -1035,23 +1040,17 @@ function StockAdjustments() {
         return
       }
 
-      const { data: userOrgs } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrgs) {
+      if (!currentOrgId) {
         setGLAccounts([])
         setLoadingAccounts(false)
         return
       }
 
-      // Load GL Accounts (expense and asset accounts)
+      // Load GL Accounts for the organization selected in AuthContext.
       const { data, error } = await supabase
         .from('gl_accounts')
         .select('*')
-        .eq('org_id', userOrgs.org_id)
+        .eq('org_id', currentOrgId)
         .in('category', ['ASSET', 'EXPENSE'])
         .eq('is_active', true)
         .order('code')
@@ -1162,14 +1161,8 @@ function StockAdjustments() {
         return
       }
 
-      const { data: userOrg } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrg) {
-        toast.error('لم يتم العثور على المؤسسة')
+      if (!currentOrgId) {
+        toast.error('لم يتم تحديد المؤسسة النشطة')
         return
       }
 
@@ -1201,6 +1194,7 @@ function StockAdjustments() {
             updated_at: new Date().toISOString()
           })
           .eq('id', selectedAdjustment.id)
+          .eq('organization_id', currentOrgId)
           .select()
           .single()
 
@@ -1212,6 +1206,7 @@ function StockAdjustments() {
           .from('stock_adjustment_items')
           .delete()
           .eq('adjustment_id', selectedAdjustment.id)
+          .eq('organization_id', currentOrgId)
 
         if (deleteError) throw deleteError
       } else {
@@ -1219,7 +1214,7 @@ function StockAdjustments() {
         const { data: newAdj, error: adjError } = await supabase
           .from('stock_adjustments')
           .insert({
-            organization_id: userOrg.org_id,
+            organization_id: currentOrgId,
             adjustment_date: newAdjustment.adjustment_date,
             adjustment_number: `ADJ-${Date.now()}`,
             posting_date: newAdjustment.adjustment_date,
@@ -1245,7 +1240,7 @@ function StockAdjustments() {
       // Save adjustment items
       const itemsToInsert = newAdjustment.items.map((item: any) => ({
         adjustment_id: adjustment.id,
-        organization_id: userOrg.org_id,
+        organization_id: currentOrgId,
         product_id: item.product_id,
         warehouse_id: item.warehouse_id || newAdjustment.warehouse_id, // Use item warehouse or adjustment warehouse
         current_qty: item.current_qty,
@@ -1295,14 +1290,8 @@ function StockAdjustments() {
       }
 
       // Get user's organization
-      const { data: userOrg } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrg) {
-        toast.error('لم يتم العثور على المؤسسة')
+      if (!currentOrgId) {
+        toast.error('لم يتم تحديد المؤسسة النشطة')
         return
       }
 
@@ -1311,6 +1300,7 @@ function StockAdjustments() {
         .from('stock_adjustments')
         .select('*')
         .eq('id', adjustmentId)
+        .eq('organization_id', currentOrgId)
         .single()
 
       if (adjError || !adjustment) {
@@ -1328,6 +1318,7 @@ function StockAdjustments() {
         .from('stock_adjustment_items')
         .select('*')
         .eq('adjustment_id', adjustmentId)
+        .eq('organization_id', currentOrgId)
 
       if (itemsError || !items || items.length === 0) {
         toast.error('لم يتم العثور على بنود التسوية')
@@ -1355,7 +1346,7 @@ function StockAdjustments() {
 
       // Create stock ledger entries for each item
       const stockLedgerEntries = items.map((item: any) => ({
-        org_id: userOrg.org_id,
+        org_id: currentOrgId,
         posting_date: adjustment.posting_date,
         posting_time: new Date().toTimeString().split(' ')[0],
         voucher_type: 'Stock Adjustment',
@@ -1451,7 +1442,7 @@ function StockAdjustments() {
             'rpc_create_journal_entry',
             {
               p_payload: {
-                org_id: userOrg.org_id,
+                org_id: currentOrgId,
                 entry_date: adjustment.posting_date,
                 entry_type: 'manual',
                 reference_type: 'stock_adjustments',

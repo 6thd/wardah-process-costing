@@ -89,7 +89,7 @@ const RULES: readonly UomErrorRule[] = [
   { prefixes: ['PRODUCT_WEIGHT_SAVE_FAILED'], translationKey: 'weightSaveFailed' },
   { prefixes: ['PRODUCT_WEIGHT_LOOKUP_FAILED'], translationKey: 'weightLookupFailed' },
   { prefixes: ['INVALID_PRODUCT_UOM_OPTIONS_RESPONSE'], translationKey: 'productOptionsInvalid' },
-  { prefixes: ['PRODUCT_BASE_UOM_LOCKED_HAS_MOVEMENTS'], translationKey: 'baseUomLocked' },
+  { prefixes: ['PRODUCT_BASE_UOM_LOCKED_HAS_MOVEMENTS', 'PRODUCT_BASE_UOM_CHANGE_REQUIRES_ATOMIC_REMAP'], translationKey: 'baseUomLocked' },
   { prefixes: ['PRODUCT_BASE_UOM_UNCHANGED'], translationKey: 'baseUomUnchanged' },
   { prefixes: ['PRODUCT_BASE_UOM_ASSIGN_FAILED'], translationKey: 'baseUomAssignFailed', action: 'OPEN_PRODUCT_UOM_SETTINGS' },
   {
@@ -102,7 +102,7 @@ const RULES: readonly UomErrorRule[] = [
     translationKey: 'backfillActionFailed',
     action: 'OPEN_BACKFILL_ISSUES',
   },
-  { prefixes: ['UOM_BACKFILL_SOURCE_NOT_RESOLVED'], translationKey: 'backfillSourceNotResolved', action: 'OPEN_BACKFILL_ISSUES' },
+  { prefixes: ['UOM_BACKFILL_SOURCE_NOT_RESOLVED', 'UOM_BACKFILL_RESOLUTION_UOM_MISMATCH', 'UOM_BACKFILL_SOURCE_UNSUPPORTED'], translationKey: 'backfillSourceNotResolved', action: 'OPEN_BACKFILL_ISSUES' },
   { prefixes: ['UOM_BACKFILL_IGNORE_NOTE_REQUIRED'], translationKey: 'ignoreNoteRequired', action: 'OPEN_BACKFILL_ISSUES' },
 ]
 

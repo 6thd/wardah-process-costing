@@ -172,6 +172,7 @@ export async function getProductUomMasterProfile(
       .from('uoms')
       .select(UOM_SELECT)
       .in('id', uomIds)
+      .or(`org_id.is.null,org_id.eq.${orgId}`)
 
     if (uomsError) throw uomsError
     uoms = (uomRows ?? []) as unknown as UomDefinition[]
@@ -251,6 +252,7 @@ export async function listProductUomConversionHistory(
       .from('uoms')
       .select(UOM_SELECT)
       .in('id', uomIds)
+      .or(`org_id.is.null,org_id.eq.${orgId}`)
     if (uomsError) throw uomsError
     uoms = (uomRows ?? []) as unknown as UomDefinition[]
   }
