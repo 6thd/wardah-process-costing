@@ -22,6 +22,9 @@ END $$;
 
 BEGIN;
 
+INSERT INTO auth.users (id, email) VALUES
+  ('3aaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'uom145-admin@example.test');
+
 INSERT INTO public.organizations (id, code, name) VALUES
   ('31111111-1111-1111-1111-111111111111', 'U145A', 'UoM Guard Org A'),
   ('32222222-2222-2222-2222-222222222222', 'U145B', 'UoM Guard Org B');
