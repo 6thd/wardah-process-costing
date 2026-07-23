@@ -3,20 +3,31 @@
 
 \set ON_ERROR_STOP on
 
-CREATE OR REPLACE FUNCTION pg_temp.expect_error(p_sql text, p_needle text)
+CREATE OR REPLACE FUNCTION pg_temp.expect_any_error(p_sql text, p_needles text[])
 RETURNS void LANGUAGE plpgsql AS $$
-DECLARE v_succeeded boolean := false;
+DECLARE
+  v_succeeded boolean := false;
+  v_matched boolean := false;
+  v_needle text;
 BEGIN
   BEGIN
     EXECUTE p_sql;
     v_succeeded := true;
   EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM NOT LIKE '%' || p_needle || '%' THEN
-      RAISE EXCEPTION 'ACCEPTANCE_FAIL: for [%] expected [%] but got [%]', p_sql, p_needle, SQLERRM;
+    FOREACH v_needle IN ARRAY p_needles LOOP
+      IF SQLERRM LIKE '%' || v_needle || '%' THEN
+        v_matched := true;
+        EXIT;
+      END IF;
+    END LOOP;
+    IF NOT v_matched THEN
+      RAISE EXCEPTION 'ACCEPTANCE_FAIL: for [%] expected one of [%] but got [%]',
+        p_sql, array_to_string(p_needles, ', '), SQLERRM;
     END IF;
   END;
   IF v_succeeded THEN
-    RAISE EXCEPTION 'ACCEPTANCE_FAIL: for [%] expected error [%] but it succeeded', p_sql, p_needle;
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: for [%] expected one of errors [%] but it succeeded',
+      p_sql, array_to_string(p_needles, ', ');
   END IF;
 END $$;
 
@@ -84,18 +95,20 @@ VALUES
    0, 1, 1, 1, 1);
 
 -- Flag ON: unmapped and cross-org products are rejected at draft-line write time.
-SELECT pg_temp.expect_error(
+-- Migration 130 may reject first with PRODUCT_BASE_UOM_REQUIRED; migration 145 may
+-- reject first with PRODUCT_UOM_NOT_MAPPED. Both are valid fail-closed outcomes.
+SELECT pg_temp.expect_any_error(
   $$ INSERT INTO public.stock_adjustment_items
      (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
      VALUES ('38000000-0000-0000-0000-000000000001','31111111-1111-1111-1111-111111111111',
              '3d000000-0000-0000-0000-000000000002','37000000-0000-0000-0000-000000000001',0,1,1,1,1) $$,
-  'PRODUCT_UOM_NOT_MAPPED');
-SELECT pg_temp.expect_error(
+  ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED']);
+SELECT pg_temp.expect_any_error(
   $$ INSERT INTO public.stock_adjustment_items
      (adjustment_id,organization_id,product_id,warehouse_id,current_qty,new_qty,difference_qty,current_rate,value_difference)
      VALUES ('38000000-0000-0000-0000-000000000001','31111111-1111-1111-1111-111111111111',
              '3d000000-0000-0000-0000-000000000003','37000000-0000-0000-0000-000000000001',0,1,1,1,1) $$,
-  'PRODUCT_UOM_NOT_MAPPED');
+  ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED', 'PRODUCT_NOT_FOUND_OR_WRONG_ORG']);
 
 -- Flag ON: mapped SLE is accepted; unmapped SLE is rejected immediately.
 INSERT INTO public.stock_ledger_entries
@@ -105,16 +118,16 @@ VALUES
   ('31111111-1111-1111-1111-111111111111', '3d000000-0000-0000-0000-000000000001',
    '37000000-0000-0000-0000-000000000001', current_date, 'U145 Test',
    '39000000-0000-0000-0000-000000000001', 1, 1, 1, 1, 1);
-SELECT pg_temp.expect_error(
+SELECT pg_temp.expect_any_error(
   $$ INSERT INTO public.stock_ledger_entries
      (org_id,product_id,warehouse_id,posting_date,voucher_type,voucher_id,
       actual_qty,qty_after_transaction,valuation_rate,stock_value,stock_value_difference)
      VALUES ('31111111-1111-1111-1111-111111111111','3d000000-0000-0000-0000-000000000002',
              '37000000-0000-0000-0000-000000000001',current_date,'U145 Test',
              '39000000-0000-0000-0000-000000000002',1,1,1,1,1) $$,
-  'PRODUCT_UOM_NOT_MAPPED');
+  ARRAY['PRODUCT_UOM_NOT_MAPPED', 'PRODUCT_BASE_UOM_REQUIRED']);
 
--- Flag OFF: legacy/unmapped writes remain allowed during rollout.
+-- Flag OFF: legacy/unmapped draft writes remain allowed during rollout.
 INSERT INTO public.stock_adjustment_items
   (adjustment_id, organization_id, product_id, warehouse_id,
    current_qty, new_qty, difference_qty, current_rate, value_difference)
