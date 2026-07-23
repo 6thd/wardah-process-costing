@@ -48,26 +48,66 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Fresh DB tooling
+        run: pip install --quiet pyyaml pglast
+
       - name: Build Fresh DB through latest migration
         run: |
           set -Eeuo pipefail
           BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
-          test -n "$BASELINE"
-          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" | grep -oE '[0-9]+$' | head -1)
+          if [ -z "$BASELINE" ]; then
+            echo "❌ Fresh DB baseline is missing"
+            exit 1
+          fi
+
+          echo "✅ Baseline: $BASELINE"
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+                   | grep -oE '[0-9]+$' | head -1)
           CUTOFF=${CUTOFF:-0}
+          echo "   migration_cutoff = $CUTOFF"
+          echo "   PostgreSQL client: $(psql --version)"
 
           createdb wardah_uom_guard
-          psql -v ON_ERROR_STOP=1 -d wardah_uom_guard -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_uom_guard \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_uom_guard -f "$BASELINE" -q
-          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/uom_guard_chain_order.txt
+          TOTAL=$(wc -l < /tmp/uom_guard_chain_order.txt)
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "❌ No migrations found after baseline cutoff $CUTOFF"
+            exit 1
+          fi
+
+          echo "   Applying $TOTAL migration(s) after cutoff $CUTOFF …"
+          set +e
           REPORT=/tmp/uom_guard_chain_report.txt PGDATABASE=wardah_uom_guard \
-            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/uom_guard_chain_order.txt
+          STATUS=$?
+          set -e
+
+          tail -25 /tmp/uom_guard_chain_report.txt
+          if [ "$STATUS" -ne 0 ]; then
+            echo "❌ Fresh DB chain failed"
+            grep -E '^(FAIL|NOT_RUN) ' /tmp/uom_guard_chain_report.txt || true
+            exit 1
+          fi
+
+          echo "✅ Fresh DB chain passed on PostgreSQL 17"
 
       - name: Assert migration 145 guard behavior
         run: |
           set -Eeuo pipefail
-          psql -d wardah_uom_guard -tAc \
-            "SELECT 1 FROM pg_trigger WHERE tgname='trg_stock_ledger_entries_require_mapped_uom'" \
-            | grep -q 1
+          for trigger_name in \
+            trg_stock_adjustment_items_require_mapped_uom \
+            trg_stock_ledger_entries_require_mapped_uom
+          do
+            psql -d wardah_uom_guard -tAc \
+              "SELECT 1 FROM pg_trigger WHERE tgname='${trigger_name}' AND NOT tgisinternal" \
+              | grep -q 1
+          done
+
           psql -v ON_ERROR_STOP=1 -d wardah_uom_guard \
             -f scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
