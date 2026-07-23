@@ -19,9 +19,10 @@ import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
 import { UomStatusBadge } from './components/UomStatusBadge'
 import { 
-  ADJUSTMENT_TYPES, 
-  calculateAdjustmentTotals, 
-  createAdjustmentItem, 
+  ADJUSTMENT_TYPES,
+  calculateAdjustmentTotals,
+  createAdjustmentItem,
+  findUnmappedAdjustmentProductIds,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -854,7 +855,8 @@ function ItemsManagement() {
 // Stock Adjustments Component
 function StockAdjustments() {
   const { t } = useTranslation()
-  const { needsSetup: productNeedsUomSetup } = useProductUomStatus()
+  const productUomStatus = useProductUomStatus()
+  const productNeedsUomSetup = productUomStatus.needsSetup
   const [adjustments, setAdjustments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -1138,7 +1140,18 @@ function StockAdjustments() {
       toast.error(validation.message)
       return
     }
-    
+
+    // Re-check UoM setup fail-closed: a draft may carry a product selected during a
+    // status-load race, or one left unmapped. Block before any DB write.
+    if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+      toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
+      return
+    }
+    if (findUnmappedAdjustmentProductIds(newAdjustment.items, productNeedsUomSetup).length > 0) {
+      toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
+      return
+    }
+
     try {
       const supabase = getSupabase()
       
@@ -1318,6 +1331,17 @@ function StockAdjustments() {
 
       if (itemsError || !items || items.length === 0) {
         toast.error('لم يتم العثور على بنود التسوية')
+        return
+      }
+
+      // Re-check UoM setup fail-closed before posting: an older draft may reference
+      // a product that is not (or no longer) MAPPED. Block before any SLE write.
+      if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+        toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
+        return
+      }
+      if (findUnmappedAdjustmentProductIds(items as Array<{ product_id: string }>, productNeedsUomSetup).length > 0) {
+        toast.error('لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية')
         return
       }
 
@@ -1785,7 +1809,15 @@ function StockAdjustments() {
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
                       }}
                     >
-                      {filteredProducts.length > 0 ? (
+                      {productUomStatus.isEnabled && productUomStatus.isLoading ? (
+                        <div className="px-4 py-4 text-center text-muted-foreground bg-card dark:bg-gray-950">
+                          جارٍ التحقق من إعداد وحدات الأصناف…
+                        </div>
+                      ) : productUomStatus.isEnabled && productUomStatus.isError ? (
+                        <div className="px-4 py-4 text-center text-red-600 bg-card dark:bg-gray-950">
+                          تعذّر التحقق من حالة وحدات الأصناف — لا يمكن اختيار صنف الآن
+                        </div>
+                      ) : filteredProducts.length > 0 ? (
                         filteredProducts.map((product) => {
                           const needsUom = productNeedsUomSetup(product.id)
                           // Unmapped product: not a selectable button — a non-interactive

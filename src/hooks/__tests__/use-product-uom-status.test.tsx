@@ -40,7 +40,27 @@ describe('useProductUomStatus', () => {
     expect(listProductUomMappingStatuses).not.toHaveBeenCalled()
   })
 
-  it('gates only known non-mapped products when the engine is enabled', async () => {
+  it('gates everything while the projection is still loading', () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true })
+    listProductUomMappingStatuses.mockReturnValue(new Promise(() => {})) // never resolves
+
+    const { result } = renderHook(() => useProductUomStatus(), { wrapper })
+
+    expect(result.current.isSuccess).toBe(false)
+    expect(result.current.needsSetup('p-1')).toBe(true) // fail-closed during load
+  })
+
+  it('gates everything after the projection query fails', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true })
+    listProductUomMappingStatuses.mockRejectedValue(new Error('boom'))
+
+    const { result } = renderHook(() => useProductUomStatus(), { wrapper })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.needsSetup('p-1')).toBe(true) // fail-closed on error
+  })
+
+  it('gates non-mapped and unknown products once the projection succeeds', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true })
     listProductUomMappingStatuses.mockResolvedValue([
       { id: 'p-1', uom_migration_status: 'MAPPED' },
@@ -49,11 +69,11 @@ describe('useProductUomStatus', () => {
 
     const { result } = renderHook(() => useProductUomStatus(), { wrapper })
 
-    await waitFor(() => expect(result.current.statusById.size).toBe(2))
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
 
     expect(result.current.needsSetup('p-1')).toBe(false) // mapped
     expect(result.current.needsSetup('p-2')).toBe(true) // non-mapped
-    expect(result.current.needsSetup('unknown')).toBe(false) // not loaded → not gated
+    expect(result.current.needsSetup('unknown')).toBe(true) // fail-closed: unknown → gated
     expect(listProductUomMappingStatuses).toHaveBeenCalledWith('org-1')
   })
 })

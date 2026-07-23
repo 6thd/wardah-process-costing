@@ -57,7 +57,11 @@ INSERT INTO public.uoms
   -- Org B owned unit (must be invisible to Org A operations)
   ('60000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-0000000000c1',
    'OBX_T', 'Org B Box', 'obx', 5, false, false,
-   '22222222-2222-2222-2222-222222222222', true);
+   '22222222-2222-2222-2222-222222222222', true),
+  -- Org A owned unit (must be accepted for Org A operations)
+  ('60000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000c1',
+   'OAX_T', 'Org A Box', 'oax', 3, false, false,
+   '11111111-1111-1111-1111-111111111111', true);
 
 -- Warehouse for the ledger movement
 INSERT INTO public.warehouses (id, org_id, code, name) VALUES
@@ -71,7 +75,8 @@ INSERT INTO public.products (id, org_id, code, name, unit, base_uom_id, uom_migr
   ('d0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'PM1', 'Mapped w/ SLE', 'pcs',
    '40000000-0000-0000-0000-000000000001', 'MAPPED'),
   ('d0000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'PM2', 'Mapped no SLE', 'pcs',
-   '40000000-0000-0000-0000-000000000001', 'MAPPED');
+   '40000000-0000-0000-0000-000000000001', 'MAPPED'),
+  ('d0000000-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111', 'PU6', 'Unset 6', 'box', NULL, 'NO_UNIT');
 
 -- Movement on PM1 → base unit becomes locked
 INSERT INTO public.stock_ledger_entries
@@ -81,9 +86,15 @@ INSERT INTO public.stock_ledger_entries
    '70000000-0000-0000-0000-000000000001', current_date, 'Test',
    '7f000000-0000-0000-0000-000000000001', 1, 1, 1, 1, 1);
 
--- An item + BOM line for the items / bom_lines resolution paths
+-- Items for the items resolution paths: IT1 resolved by mapping the item itself,
+-- IT2 resolved via an item_product_map bridge to a MAPPED product.
 INSERT INTO public.items (id, org_id, code, name, base_uom_id, uom_migration_status) VALUES
-  ('e0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'IT1', 'Item 1', NULL, 'NO_UNIT');
+  ('e0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'IT1', 'Item 1', NULL, 'NO_UNIT'),
+  ('e0000000-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'IT2', 'Item 2', NULL, 'NO_UNIT');
+-- Bridge IT2 → PU1 (which becomes MAPPED after the first assign below).
+INSERT INTO public.item_product_map (id, org_id, item_id, product_id, is_active) VALUES
+  ('a1000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111',
+   'e0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000001', true);
 INSERT INTO public.bom_headers (id, org_id, bom_number, item_id) VALUES
   ('b0000000-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'BOM-1',
    'e0000000-0000-0000-0000-000000000001');
@@ -107,7 +118,9 @@ INSERT INTO public.uom_backfill_issues (id, org_id, source_table, source_id, iss
   ('f0000000-0000-0000-0000-000000000004', '11111111-1111-1111-1111-111111111111', 'products',
    'd0000000-0000-0000-0000-000000000005', 'UNIT_MISSING', 'OPEN'),   -- for cross-org resolved_uom test
   ('f0000000-0000-0000-0000-000000000005', '11111111-1111-1111-1111-111111111111', 'items',
-   'e0000000-0000-0000-0000-000000000001', 'UNIT_AMBIGUOUS_OR_UNKNOWN', 'OPEN'); -- ignore path
+   'e0000000-0000-0000-0000-000000000001', 'UNIT_AMBIGUOUS_OR_UNKNOWN', 'OPEN'), -- ignore path
+  ('f0000000-0000-0000-0000-000000000006', '11111111-1111-1111-1111-111111111111', 'items',
+   'e0000000-0000-0000-0000-000000000002', 'UNIT_MISSING', 'OPEN');  -- item_product_map bridge path
 
 COMMIT;
 
@@ -132,6 +145,21 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.uom_backfill_issues
     WHERE id='f0000000-0000-0000-0000-000000000001' AND status='RESOLVED') THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: products issue not auto-resolved on assign';
+  END IF;
+END $$;
+
+-- Positive: the org's own custom unit is accepted as a base unit.
+SELECT public.rpc_assign_product_base_uom(
+  '11111111-1111-1111-1111-111111111111',
+  'd0000000-0000-0000-0000-000000000006',
+  '60000000-0000-0000-0000-0000000000a1');
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM public.products
+    WHERE id='d0000000-0000-0000-0000-000000000006'
+      AND base_uom_id='60000000-0000-0000-0000-0000000000a1'
+      AND uom_migration_status='MAPPED') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: org-owned unit not accepted as base';
   END IF;
 END $$;
 
@@ -210,6 +238,21 @@ SET base_uom_id='40000000-0000-0000-0000-000000000001', uom_migration_status='MA
 WHERE id='e0000000-0000-0000-0000-000000000001';
 SELECT public.rpc_resolve_uom_backfill_issue(
   '11111111-1111-1111-1111-111111111111','f0000000-0000-0000-0000-000000000003', NULL, 'item mapped');
+
+-- Items resolution via the item_product_map bridge: IT2 itself is NOT MAPPED, but
+-- it is actively mapped to PU1 which is MAPPED → resolve succeeds through the bridge.
+SELECT public.rpc_resolve_uom_backfill_issue(
+  '11111111-1111-1111-1111-111111111111','f0000000-0000-0000-0000-000000000006', NULL, 'resolved via bridge');
+DO $$
+BEGIN
+  IF (SELECT uom_migration_status FROM public.items WHERE id='e0000000-0000-0000-0000-000000000002') <> 'NO_UNIT' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: bridge test precondition — IT2 should be unmapped itself';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.uom_backfill_issues
+    WHERE id='f0000000-0000-0000-0000-000000000006' AND status='RESOLVED') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: bridge resolve did not resolve the issue';
+  END IF;
+END $$;
 
 -- Products resolve: cross-org resolution unit rejected, matching unit accepted.
 SELECT pg_temp.expect_error(

@@ -16,8 +16,11 @@ export function productUomStatusQueryKey(orgId: string | null) {
  * reaches a hard RPC error. Use this for pickers whose list is sourced from the
  * products table (e.g. `itemsService.getAll()`, which reads `products`).
  *
- * Fail-safe: when the UoM engine is off nothing is gated, and a product whose
- * status was not loaded is never gated (the server still fail-closes).
+ * Fail-closed while the engine is on: until the projection has loaded successfully
+ * every product is treated as needing setup (so nothing is selectable during
+ * loading or after a failed query), and a product missing from a successful
+ * projection is also treated as needing setup. When the engine is off nothing is
+ * gated.
  */
 export function useProductUomStatus() {
   const { currentOrgId } = useAuth()
@@ -38,9 +41,17 @@ export function useProductUomStatus() {
 
   const needsSetup = (productId: string): boolean => {
     if (!isEnabled) return false
-    const status = statusById.get(productId)
-    return status !== undefined && status !== 'MAPPED'
+    // Fail-closed: loading, error, or an unknown/non-MAPPED product all gate.
+    if (!query.isSuccess) return true
+    return statusById.get(productId) !== 'MAPPED'
   }
 
-  return { statusById, needsSetup, isEnabled, isLoading: query.isLoading }
+  return {
+    statusById,
+    needsSetup,
+    isEnabled,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    isSuccess: query.isSuccess,
+  }
 }

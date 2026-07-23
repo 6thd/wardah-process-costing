@@ -9,6 +9,7 @@ import {
   createInitialAdjustmentState,
   calculateAdjustmentTotals,
   createAdjustmentItem,
+  findUnmappedAdjustmentProductIds,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -310,9 +311,37 @@ describe('stockAdjustmentHelpers', () => {
     it('should return invalid when item has zero difference', () => {
       validForm.items[0].difference_qty = 0;
       const result = validateAdjustmentForm(validForm);
-      
+
       expect(result.valid).toBe(false);
       expect(result.message).toBe('الرجاء تحديد الكمية الجديدة لجميع المنتجات');
+    });
+  });
+
+  describe('findUnmappedAdjustmentProductIds', () => {
+    it('returns the distinct product ids flagged by the predicate', () => {
+      const items = [
+        { product_id: 'a' },
+        { product_id: 'b' },
+        { product_id: 'a' }, // duplicate of a
+        { product_id: 'c' },
+      ];
+      const needsSetup = (id: string) => id === 'a' || id === 'c';
+
+      const result = findUnmappedAdjustmentProductIds(items, needsSetup);
+
+      expect(result).toHaveLength(2);
+      expect(result).toEqual(expect.arrayContaining(['a', 'c']));
+      expect(result).not.toContain('b');
+    });
+
+    it('returns an empty array when nothing needs setup (e.g. engine off)', () => {
+      const items = [{ product_id: 'a' }, { product_id: 'b' }];
+      expect(findUnmappedAdjustmentProductIds(items, () => false)).toEqual([]);
+    });
+
+    it('ignores items without a product id', () => {
+      const items = [{ product_id: '' }, { product_id: 'x' }];
+      expect(findUnmappedAdjustmentProductIds(items, () => true)).toEqual(['x']);
     });
   });
 });
