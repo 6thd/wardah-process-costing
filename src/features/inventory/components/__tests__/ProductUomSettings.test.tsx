@@ -59,43 +59,47 @@ function renderComponent() {
   )
 }
 
+function mappedProfile() {
+  return {
+    product_id: 'product-1',
+    org_id: 'org-1',
+    base_uom_id: 'piece',
+    base_uom: {
+      id: 'piece',
+      code: 'PCS',
+      name: 'Piece',
+      name_ar: 'قطعة',
+      symbol: 'pcs',
+      category_id: 'count',
+      is_category_base: true,
+      is_product_specific: false,
+      decimal_places: 6,
+    },
+    uom_migration_status: 'MAPPED',
+    net_weight: 0.015,
+    gross_weight: 0.017,
+    weight_uom_id: 'kg',
+    weight_uom: {
+      id: 'kg',
+      code: 'KG',
+      name: 'Kilogram',
+      name_ar: 'كيلوجرام',
+      symbol: 'kg',
+      category_id: 'mass',
+      is_category_base: true,
+      is_product_specific: false,
+      decimal_places: 6,
+    },
+    conversions: [],
+  }
+}
+
 describe('ProductUomSettings', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     useAuth.mockReturnValue({ currentOrgId: 'org-1' })
     resolveProductIdForItem.mockResolvedValue('product-1')
-    getProductUomMasterProfile.mockResolvedValue({
-      product_id: 'product-1',
-      org_id: 'org-1',
-      base_uom_id: 'piece',
-      base_uom: {
-        id: 'piece',
-        code: 'PCS',
-        name: 'Piece',
-        name_ar: 'قطعة',
-        symbol: 'pcs',
-        category_id: 'count',
-        is_category_base: true,
-        is_product_specific: false,
-        decimal_places: 6,
-      },
-      uom_migration_status: 'MAPPED',
-      net_weight: 0.015,
-      gross_weight: 0.017,
-      weight_uom_id: 'kg',
-      weight_uom: {
-        id: 'kg',
-        code: 'KG',
-        name: 'Kilogram',
-        name_ar: 'كيلوجرام',
-        symbol: 'kg',
-        category_id: 'mass',
-        is_category_base: true,
-        is_product_specific: false,
-        decimal_places: 6,
-      },
-      conversions: [],
-    })
+    getProductUomMasterProfile.mockResolvedValue(mappedProfile())
     getProductBaseUomChangeGuard.mockResolvedValue({
       has_movements: true,
       base_uom_locked: true,
@@ -122,31 +126,25 @@ describe('ProductUomSettings', () => {
 
   it('fails closed and renders nothing while the organization flag is disabled', () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: false, isLoading: false })
-
     const { container } = renderComponent()
-
     expect(container).toBeEmptyDOMElement()
     expect(resolveProductIdForItem).not.toHaveBeenCalled()
   })
 
   it('exposes the settings action when the organization flag is enabled', () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
-
     renderComponent()
-
     expect(screen.getByRole('button', { name: /إعدادات الوحدات/ })).toBeInTheDocument()
     expect(resolveProductIdForItem).not.toHaveBeenCalled()
   })
 
   it('fails closed while the flag value is loading', () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: false, isLoading: true })
-
     const { container } = renderComponent()
-
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('offers the base-unit assignment path when unset and no movement exists', async () => {
+  it('offers first base-unit assignment when unset and no movement exists', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
     getProductUomMasterProfile.mockResolvedValue({
       product_id: 'product-1',
@@ -167,7 +165,16 @@ describe('ProductUomSettings', () => {
 
     expect(await screen.findByRole('button', { name: 'تعيين وحدة الأساس' })).toBeInTheDocument()
     expect(screen.getByText('غير محددة')).toBeInTheDocument()
-    expect(screen.queryByText('الوحدة الأساسية مقفلة')).not.toBeInTheDocument()
+    expect(screen.queryByText('الوحدة الأساسية ثابتة')).not.toBeInTheDocument()
+  })
+
+  it('does not expose a base-unit change action after first assignment', async () => {
+    useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
+    renderComponent()
+    fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
+
+    expect(await screen.findByText('الوحدة الأساسية ثابتة')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /تغيير وحدة الأساس/ })).not.toBeInTheDocument()
   })
 
   it('renders current conversions and the versioned conversion history', async () => {
@@ -177,13 +184,11 @@ describe('ProductUomSettings', () => {
       category_id: 'count', is_category_base: false, is_product_specific: true, decimal_places: 6,
     }
     getProductUomMasterProfile.mockResolvedValue({
-      product_id: 'product-1', org_id: 'org-1', base_uom_id: 'piece',
-      base_uom: {
-        id: 'piece', code: 'PCS', name: 'Piece', name_ar: 'قطعة', symbol: 'pcs',
-        category_id: 'count', is_category_base: true, is_product_specific: false, decimal_places: 6,
-      },
-      uom_migration_status: 'MAPPED', net_weight: null, gross_weight: null,
-      weight_uom_id: null, weight_uom: null,
+      ...mappedProfile(),
+      net_weight: null,
+      gross_weight: null,
+      weight_uom_id: null,
+      weight_uom: null,
       conversions: [{
         id: 'conv-1', uom: carton, factor_to_base: 24,
         use_for_purchase: true, use_for_sale: false, barcode: null, notes: null,
@@ -199,14 +204,12 @@ describe('ProductUomSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: /إعدادات الوحدات/ }))
 
     expect(await screen.findByText('تاريخ التحويلات السابقة')).toBeInTheDocument()
-    // Current conversions table shows the active carton factor.
     expect(screen.getAllByText('كرتون (ctn)').length).toBeGreaterThan(0)
-    // History renders both the active ("سارية") and closed ("مغلقة") rows.
     expect(screen.getByText('سارية')).toBeInTheDocument()
     expect(screen.getByText('مغلقة')).toBeInTheDocument()
   })
 
-  it('loads the legal product profile only after the user opens the dialog', async () => {
+  it('loads the legal product profile only after opening the dialog', async () => {
     useUomEngineEnabled.mockReturnValue({ isEnabled: true, isLoading: false })
     renderComponent()
 
@@ -214,7 +217,7 @@ describe('ProductUomSettings', () => {
 
     expect(await screen.findByText('الوحدة الأساسية القانونية')).toBeInTheDocument()
     expect(screen.getAllByText('قطعة (pcs)').length).toBeGreaterThan(0)
-    expect(screen.getByText('الوحدة الأساسية مقفلة')).toBeInTheDocument()
+    expect(screen.getByText('الوحدة الأساسية ثابتة')).toBeInTheDocument()
     expect(screen.getByText('لا توجد تحويلات مخصصة للصنف.')).toBeInTheDocument()
     expect(resolveProductIdForItem).toHaveBeenCalledWith('org-1', 'item-1')
     expect(getProductUomMasterProfile).toHaveBeenCalledWith('org-1', 'product-1')
