@@ -77,3 +77,6 @@ replace_once(
     "  { prefixes: ['UOM_BACKFILL_SOURCE_NOT_RESOLVED'], translationKey: 'backfillSourceNotResolved', action: 'OPEN_BACKFILL_ISSUES' },",
     "  { prefixes: ['UOM_BACKFILL_SOURCE_NOT_RESOLVED', 'UOM_BACKFILL_RESOLUTION_UOM_MISMATCH', 'UOM_BACKFILL_SOURCE_UNSUPPORTED'], translationKey: 'backfillSourceNotResolved', action: 'OPEN_BACKFILL_ISSUES' },",
 )
+
+# This file is intentionally temporary; the guarded workflow deletes it after the
+# patched source has been verified and committed.
