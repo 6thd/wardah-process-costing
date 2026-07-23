@@ -120,8 +120,8 @@ WHERE uom_migration_status = 'MAPPED'
 
 ## اختبارات القبول
 
-- `acceptance_144_base_uom_guard.sql`: admin/member/nonmember، التعيين الأول، منع
-  إعادة التفسير، العزل، الوحدة الخاصة، المطابقة الدقيقة لمصدر Backfill.
+- `acceptance_144_base_uom_guard.sql`: admin/member/nonmember، التعيين الأول، المصالحة
+  لنفس الوحدة، منع إعادة التفسير، العزل، الوحدة الخاصة، والمطابقة الدقيقة لمصدر Backfill.
 - `acceptance_145_uom_stock_write_guard.sql`: المنتج المهيأ/غير المهيأ، SLE،
   وسلوك العلم المغلق.
 - `acceptance_146_uom_master_data_hardening.sql`: Seeds بلا JWT، منع العضو العادي،
@@ -129,7 +129,7 @@ WHERE uom_migration_status = 'MAPPED'
 
 ## ترتيب النشر لاحقًا
 
-1. دمج PR بعد اخضرار جميع البوابات فقط.
+1. دمج PR بعد اخضرار جميع البوابات على رأس نهائي خالٍ من أدوات التصحيح المؤقتة.
 2. أخذ نسخة احتياطية وفحص الاستعلامات أعلاه في Staging.
 3. تطبيق migrations 143 ثم 144 ثم 145 ثم 146 عبر مسار النشر المعتمد.
 4. تشغيل Acceptance/Smoke tests على Staging.
