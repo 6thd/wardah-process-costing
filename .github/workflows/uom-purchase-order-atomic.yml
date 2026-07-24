@@ -52,15 +52,17 @@ jobs:
           REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
 
-          psql -d wardah_fresh -tAc \
-            "SELECT 1 FROM pg_proc WHERE proname='rpc_create_uom_purchase_order'" \
-            | grep -q 1
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regprocedure('public.rpc_list_uom_purchase_order_options(uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_get_purchase_product_uoms(uuid,uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_create_uom_purchase_order(jsonb)') IS NOT NULL" \
+            | grep -qx t
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Prove atomicity, normalization, and tenant isolation
+      - name: Prove selected-org reads, rounding, atomicity, and isolation
         run: >-
           psql -v ON_ERROR_STOP=1 -d wardah_fresh
           -f scripts/ci/fresh-db/acceptance_147_atomic_uom_purchase_order.sql
