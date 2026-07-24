@@ -61,7 +61,7 @@ async function loadPurchaseOrderDetails(id: string): Promise<PurchaseOrderDetail
       vendor:vendors(id, name, code),
       purchase_order_lines(
         *,
-        product:products(id, code, name, product_name),
+        product:products(id, code, name),
         uom:uoms(id, code, name, name_ar, symbol)
       )
     `)
