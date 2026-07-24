@@ -72,7 +72,7 @@ async function loadPurchaseOrderDetails(id: string): Promise<PurchaseOrderDetail
   return data as unknown as PurchaseOrderDetails
 }
 
-function PurchaseOrdersDetailsManagement() {
+export function PurchaseOrdersDetailsManagement() {
   const { t } = useTranslation()
   const [orders, setOrders] = useState<PurchaseOrderListItem[]>([])
   const [loading, setLoading] = useState(true)
