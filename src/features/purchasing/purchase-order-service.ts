@@ -2,6 +2,19 @@ import { supabase } from '@/lib/supabase'
 import type { ProductUomOption } from '@/services/uom-service'
 import type { Json } from '@/types/database.generated'
 
+interface PurchaseOrderReadRpcClient {
+  rpc(
+    functionName: 'rpc_list_uom_purchase_order_options',
+    params: { p_org_id: string },
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>
+  rpc(
+    functionName: 'rpc_get_purchase_product_uoms',
+    params: { p_org_id: string; p_product_id: string },
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>
+}
+
+const purchaseOrderReadRpc = supabase as unknown as PurchaseOrderReadRpcClient
+
 export interface PurchaseOrderVendorOption {
   id: string
   code: string | null
@@ -59,9 +72,10 @@ function asFiniteNumber(value: unknown, field: string): number {
 }
 
 export async function listUomPurchaseOrderOptions(orgId: string): Promise<PurchaseOrderFormOptions> {
-  const { data, error } = await supabase.rpc('rpc_list_uom_purchase_order_options', {
-    p_org_id: orgId,
-  })
+  const { data, error } = await purchaseOrderReadRpc.rpc(
+    'rpc_list_uom_purchase_order_options',
+    { p_org_id: orgId },
+  )
 
   if (error) throw new Error(error.message)
   if (!data || typeof data !== 'object') throw new Error('INVALID_PURCHASE_ORDER_OPTIONS_RESPONSE')
@@ -81,14 +95,14 @@ export async function listPurchaseProductUoms(
   orgId: string,
   productId: string,
 ): Promise<ProductUomOption[]> {
-  const { data, error } = await supabase.rpc('rpc_get_purchase_product_uoms', {
-    p_org_id: orgId,
-    p_product_id: productId,
-  })
+  const { data, error } = await purchaseOrderReadRpc.rpc(
+    'rpc_get_purchase_product_uoms',
+    { p_org_id: orgId, p_product_id: productId },
+  )
 
   if (error) throw new Error(error.message)
   if (!Array.isArray(data)) throw new Error('INVALID_PURCHASE_PRODUCT_UOMS_RESPONSE')
-  return data as unknown as ProductUomOption[]
+  return data as ProductUomOption[]
 }
 
 export async function createAtomicUomPurchaseOrder(
