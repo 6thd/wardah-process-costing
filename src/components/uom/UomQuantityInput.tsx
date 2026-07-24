@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { usePurchaseProductUoms } from '@/hooks/use-purchase-product-uoms'
+import { useProductUoms } from '@/hooks/use-product-uoms'
 import type { ProductUomOption } from '@/services/uom-service'
 
 export interface UomQuantityValue {
@@ -40,7 +40,7 @@ export function UomQuantityInput({
   disabled = false,
   purchaseOnly = false,
 }: UomQuantityInputProps) {
-  const query = usePurchaseProductUoms(productId)
+  const query = useProductUoms(productId)
   const options = useMemo(
     () => (query.data ?? []).filter((option) => !purchaseOnly || option.use_for_purchase),
     [purchaseOnly, query.data],
