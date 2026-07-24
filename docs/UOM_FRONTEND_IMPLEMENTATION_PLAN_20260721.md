@@ -6,6 +6,13 @@
 
 > **⚠️ لقطة زمنية (snapshot):** يوثّق هذا المستند حالة قاعدة البيانات كما كانت بتاريخ **2026-07-21**، أي **قبل** تطبيق migrations على Production. لا تُعتبر عبارات «غير مطبقة على Production» أدناه حالةً حيّة؛ الحالة الحالية موضّحة في وصف الـPR ذي الصلة وفي سجل `supabase_migrations.schema_migrations`. عند أي تعارض بين هذا المستند ووصف الـPR، فوصف الـPR وسجل Production هما المرجع.
 
+> **🟢 تحديث 2026-07-22 — إكمال Master Data للأصناف والوحدات (PR تالٍ بعد دمج PR #40):**
+> - **G10 مُنجزة:** `src/features/inventory/components/UomBackfillIssues.tsx` — شاشة إصلاح الوحدات تعرض مشكلات `uom_backfill_issues` المفتوحة والأصناف `uom_migration_status <> 'MAPPED'`، مع إسناد وحدة أساس، وإنشاء تحويل (عبر `ProductUomSettings`)، وحل/تجاهل المشكلة مع تسجيل الملاحظة والمستخدم.
+> - **بطاقة إعدادات الصنف:** أُضيف مسار قانوني لتعيين/تغيير وحدة الأساس (مع تأكيد إداري للتحويل العابر عدد↔وزن، ومنع الوحدات الخاصة بالصنف)، وعرض تاريخ التحويلات السابقة.
+> - **§1.8 مُنجزة:** `sql/migrations/144_products_base_uom_change_guard.sql` — trigger يمنع تغيير `products.base_uom_id` بعد وجود SLE، مع RPC قانونية admin-guarded: `rpc_assign_product_base_uom`، `rpc_resolve_uom_backfill_issue`، `rpc_ignore_uom_backfill_issue`.
+> - **منع استخدام الصنف غير المحسوم:** `useItemUomStatus` + `ItemUomStatusBadge` يعطّلان الصنف غير MAPPED في المنتقيات مع شارة وانتقال مباشر لشاشة الإصلاح (مطبّق على منتقي تسوية المخزون؛ يُعمَّم على منتقيات المشتريات/التصنيع في مراحل الدمج).
+> - **بلا تفعيل ولا Production:** لا يُفعّل `uom_engine_enabled` ولا تُطبَّق migration 143 أو 144 على Production في هذه الخطوة. الرقم 143 استُهلك فعليًا لقراءة العلم؛ migration إنشاء أمر الشراء الذري تنتقل إلى رقم لاحق (بعد 144).
+
 ---
 
 ## 0. الحالة الفعلية الموثقة (قبل أي تعديل)

@@ -53,6 +53,13 @@ const UOM_ERROR_COPY = {
   weightSaveFailed: ['Product weight was not saved', 'The server did not confirm that the physical product weight was saved.', 'لم يُحفظ وزن الصنف', 'لم يؤكد الخادم حفظ الوزن الفيزيائي للصنف.'],
   weightLookupFailed: ['Weight calculation failed', 'The server did not return a valid product-weight result.', 'فشل حساب الوزن', 'لم يُرجع الخادم نتيجة صالحة لوزن الصنف.'],
   productOptionsInvalid: ['Invalid product-unit data', 'The server returned an invalid product unit catalog response.', 'بيانات وحدات الصنف غير صالحة', 'أعاد الخادم استجابة غير صالحة لكتالوج وحدات الصنف.'],
+  baseUomLocked: ['Base unit is locked', 'This product already has stock movements, so its legal base unit can no longer be changed.', 'وحدة الأساس مقفلة', 'يملك هذا الصنف حركات مخزون بالفعل، لذلك لا يمكن تغيير وحدة الأساس القانونية بعد الآن.'],
+  baseUomUnchanged: ['Base unit unchanged', 'The selected unit is already the product base unit.', 'وحدة الأساس دون تغيير', 'الوحدة المحددة هي وحدة الأساس الحالية للصنف بالفعل.'],
+  baseUomAssignFailed: ['Base unit was not assigned', 'The server did not confirm that the product base unit was assigned.', 'لم تُعيَّن وحدة الأساس', 'لم يؤكد الخادم تعيين وحدة الأساس للصنف.'],
+  backfillIssueUnavailable: ['Issue unavailable', 'The backfill issue was not found, is not open, or does not belong to the active organization.', 'المشكلة غير متاحة', 'مشكلة المواءمة غير موجودة أو ليست مفتوحة أو لا تتبع المؤسسة النشطة.'],
+  backfillActionFailed: ['Action was not applied', 'The server did not confirm the backfill issue update.', 'لم يُطبَّق الإجراء', 'لم يؤكد الخادم تحديث مشكلة المواءمة.'],
+  backfillSourceNotResolved: ['Fix the source first', 'This issue cannot be resolved until its underlying record is actually repaired — assign the product base unit, map the item, or complete the BOM line.', 'أصلح المصدر أولًا', 'لا يمكن حل هذه المشكلة حتى يُصلَح سجلها الأساسي فعليًا — عيّن وحدة أساس الصنف، أو اربط العنصر، أو أكمل سطر قائمة المواد.'],
+  ignoreNoteRequired: ['A reason is required', 'Enter a reason before ignoring this issue.', 'السبب مطلوب', 'أدخل سبب التجاهل قبل تجاهل هذه المشكلة.'],
 } as const satisfies Record<string, LocalizedUomErrorCopy>
 
 export type UomErrorTranslationKey = keyof typeof UOM_ERROR_COPY

@@ -10730,6 +10730,10 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_assign_product_base_uom: {
+        Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
+        Returns: Json
+      }
       rpc_cancel_stock_adjustment: {
         Args: { p_adjustment_id: string; p_reason: string }
         Returns: Json
@@ -10823,6 +10827,10 @@ export type Database = {
           period_debit: number
         }[]
       }
+      rpc_ignore_uom_backfill_issue: {
+        Args: { p_issue_id: string; p_note?: string; p_org_id: string }
+        Returns: Json
+      }
       rpc_list_periods: {
         Args: { p_fiscal_year?: number; p_tenant?: string }
         Returns: Json
@@ -10867,6 +10875,15 @@ export type Database = {
           p_work_center: string
         }
         Returns: string
+      }
+      rpc_resolve_uom_backfill_issue: {
+        Args: {
+          p_issue_id: string
+          p_note?: string
+          p_org_id: string
+          p_resolved_uom_id?: string
+        }
+        Returns: Json
       }
       rpc_set_org_admin: {
         Args: { p_org_id: string; p_target_user_id: string; p_value: boolean }

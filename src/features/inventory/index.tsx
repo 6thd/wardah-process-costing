@@ -14,11 +14,16 @@ import { itemsService, categoriesService, stockMovementsService } from '@/servic
 import { getSupabase, type Item, type Category } from '@/lib/supabase'
 import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
+import { useProductUomStatus } from '@/hooks/use-product-uom-status'
+import { useAuth } from '@/contexts/AuthContext'
 import { ProductUomSettings } from './components/ProductUomSettings'
+import { UomBackfillIssues } from './components/UomBackfillIssues'
+import { UomStatusBadge } from './components/UomStatusBadge'
 import { 
-  ADJUSTMENT_TYPES, 
-  calculateAdjustmentTotals, 
-  createAdjustmentItem, 
+  ADJUSTMENT_TYPES,
+  calculateAdjustmentTotals,
+  createAdjustmentItem,
+  findUnmappedAdjustmentProductIds,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -31,6 +36,7 @@ export function InventoryModule() {
       <Route index element={<InventoryOverview />} />
       <Route path="overview" element={<InventoryOverview />} />
       <Route path="items" element={<ItemsManagement />} />
+      <Route path="uom-issues" element={<UomBackfillIssues />} />
       <Route path="categories" element={<CategoriesManagement />} />
       <Route path="movements" element={<StockMovements />} />
       <Route path="adjustments" element={<StockAdjustments />} />
@@ -380,9 +386,16 @@ function ItemsManagement() {
           <h1 className="text-2xl font-bold">{t('inventory.items')}</h1>
           <p className="text-muted-foreground">إدارة أصناف المخزون ({items.length} صنف)</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
-        </Button>
+        <div className="flex gap-2">
+          {uomEngineEnabled && (
+            <Button variant="outline" asChild>
+              <Link to="/inventory/uom-issues">🔧 إصلاح وحدات الأصناف</Link>
+            </Button>
+          )}
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
+          </Button>
+        </div>
       </div>
 
       {/* Statistics Cards */}
@@ -843,6 +856,9 @@ function ItemsManagement() {
 // Stock Adjustments Component
 function StockAdjustments() {
   const { t } = useTranslation()
+  const { currentOrgId } = useAuth()
+  const productUomStatus = useProductUomStatus()
+  const productNeedsUomSetup = productUomStatus.needsSetup
   const [adjustments, setAdjustments] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -879,11 +895,21 @@ function StockAdjustments() {
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
 
   useEffect(() => {
+    if (!currentOrgId) {
+      setAdjustments([])
+      setProducts([])
+      setWarehouses([])
+      setGLAccounts([])
+      setLoading(false)
+      setLoadingWarehouses(false)
+      setLoadingAccounts(false)
+      return
+    }
     loadAdjustments()
     loadProducts()
     loadWarehouses()
     loadGLAccounts()
-  }, [])
+  }, [currentOrgId])
 
   // Reload when filters change
   useEffect(() => {
@@ -925,25 +951,18 @@ function StockAdjustments() {
 
       console.log('✅ User:', user.id)
 
-      const { data: userOrgs, error: orgError } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (orgError || !userOrgs) {
-        console.log('❌ No organization found:', orgError)
+      if (!currentOrgId) {
         setAdjustments([])
         setLoading(false)
         return
       }
 
-      console.log('✅ Organization:', userOrgs.org_id)
+      console.log('✅ Organization:', currentOrgId)
 
       let query = supabase
         .from('stock_adjustments')
         .select('*')
-        .eq('organization_id', userOrgs.org_id)
+        .eq('organization_id', currentOrgId)
         .order('created_at', { ascending: false })
 
       if (filterStatus !== 'all') {
@@ -972,35 +991,56 @@ function StockAdjustments() {
   }
 
   const loadProducts = async () => {
+    if (!currentOrgId) {
+      setProducts([])
+      return
+    }
+
     try {
-      const data = await itemsService.getAll()
+      const supabase = getSupabase()
+      const { data, error } = await supabase
+        .from('products')
+        .select('*')
+        .eq('org_id', currentOrgId)
+        .order('name')
+
+      if (error) throw error
       setProducts(data || [])
     } catch (error) {
       console.error('Error loading products:', error)
+      setProducts([])
     }
   }
 
   const loadWarehouses = async () => {
+    if (!currentOrgId) {
+      setWarehouses([])
+      setLoadingWarehouses(false)
+      return
+    }
+
     try {
       setLoadingWarehouses(true)
       const supabase = getSupabase()
       const { data, error } = await supabase
         .from('warehouses')
         .select('*')
+        .eq('org_id', currentOrgId)
         .eq('is_active', true)
         .order('name')
 
       if (error) throw error
-      
-      setWarehouses(data || [])
-      
-      // Auto-select first warehouse
-      if (data && data.length > 0 && !newAdjustment.warehouse_id) {
-        setNewAdjustment(prev => ({
-          ...prev,
-          warehouse_id: data[0].id
-        }))
-      }
+
+      const organizationWarehouses = data || []
+      setWarehouses(organizationWarehouses)
+
+      // Never retain a warehouse selected under a previously active organization.
+      setNewAdjustment(prev => ({
+        ...prev,
+        warehouse_id: organizationWarehouses.some(warehouse => warehouse.id === prev.warehouse_id)
+          ? prev.warehouse_id
+          : (organizationWarehouses[0]?.id || '')
+      }))
     } catch (error) {
       console.error('Error loading warehouses:', error)
       toast.error('خطأ في تحميل المخازن')
@@ -1021,23 +1061,17 @@ function StockAdjustments() {
         return
       }
 
-      const { data: userOrgs } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrgs) {
+      if (!currentOrgId) {
         setGLAccounts([])
         setLoadingAccounts(false)
         return
       }
 
-      // Load GL Accounts (expense and asset accounts)
+      // Load GL Accounts for the organization selected in AuthContext.
       const { data, error } = await supabase
         .from('gl_accounts')
         .select('*')
-        .eq('org_id', userOrgs.org_id)
+        .eq('org_id', currentOrgId)
         .in('category', ['ASSET', 'EXPENSE'])
         .eq('is_active', true)
         .order('code')
@@ -1126,7 +1160,18 @@ function StockAdjustments() {
       toast.error(validation.message)
       return
     }
-    
+
+    // Re-check UoM setup fail-closed: a draft may carry a product selected during a
+    // status-load race, or one left unmapped. Block before any DB write.
+    if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+      toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
+      return
+    }
+    if (findUnmappedAdjustmentProductIds(newAdjustment.items, productNeedsUomSetup).length > 0) {
+      toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
+      return
+    }
+
     try {
       const supabase = getSupabase()
       
@@ -1137,14 +1182,8 @@ function StockAdjustments() {
         return
       }
 
-      const { data: userOrg } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrg) {
-        toast.error('لم يتم العثور على المؤسسة')
+      if (!currentOrgId) {
+        toast.error('لم يتم تحديد المؤسسة النشطة')
         return
       }
 
@@ -1176,6 +1215,7 @@ function StockAdjustments() {
             updated_at: new Date().toISOString()
           })
           .eq('id', selectedAdjustment.id)
+          .eq('organization_id', currentOrgId)
           .select()
           .single()
 
@@ -1187,6 +1227,7 @@ function StockAdjustments() {
           .from('stock_adjustment_items')
           .delete()
           .eq('adjustment_id', selectedAdjustment.id)
+          .eq('organization_id', currentOrgId)
 
         if (deleteError) throw deleteError
       } else {
@@ -1194,7 +1235,7 @@ function StockAdjustments() {
         const { data: newAdj, error: adjError } = await supabase
           .from('stock_adjustments')
           .insert({
-            organization_id: userOrg.org_id,
+            organization_id: currentOrgId,
             adjustment_date: newAdjustment.adjustment_date,
             adjustment_number: `ADJ-${Date.now()}`,
             posting_date: newAdjustment.adjustment_date,
@@ -1220,7 +1261,7 @@ function StockAdjustments() {
       // Save adjustment items
       const itemsToInsert = newAdjustment.items.map((item: any) => ({
         adjustment_id: adjustment.id,
-        organization_id: userOrg.org_id,
+        organization_id: currentOrgId,
         product_id: item.product_id,
         warehouse_id: item.warehouse_id || newAdjustment.warehouse_id, // Use item warehouse or adjustment warehouse
         current_qty: item.current_qty,
@@ -1270,14 +1311,8 @@ function StockAdjustments() {
       }
 
       // Get user's organization
-      const { data: userOrg } = await supabase
-        .from('user_organizations')
-        .select('org_id')
-        .eq('user_id', user.id)
-        .single()
-
-      if (!userOrg) {
-        toast.error('لم يتم العثور على المؤسسة')
+      if (!currentOrgId) {
+        toast.error('لم يتم تحديد المؤسسة النشطة')
         return
       }
 
@@ -1286,6 +1321,7 @@ function StockAdjustments() {
         .from('stock_adjustments')
         .select('*')
         .eq('id', adjustmentId)
+        .eq('organization_id', currentOrgId)
         .single()
 
       if (adjError || !adjustment) {
@@ -1303,9 +1339,21 @@ function StockAdjustments() {
         .from('stock_adjustment_items')
         .select('*')
         .eq('adjustment_id', adjustmentId)
+        .eq('organization_id', currentOrgId)
 
       if (itemsError || !items || items.length === 0) {
         toast.error('لم يتم العثور على بنود التسوية')
+        return
+      }
+
+      // Re-check UoM setup fail-closed before posting: an older draft may reference
+      // a product that is not (or no longer) MAPPED. Block before any SLE write.
+      if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+        toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
+        return
+      }
+      if (findUnmappedAdjustmentProductIds(items as Array<{ product_id: string }>, productNeedsUomSetup).length > 0) {
+        toast.error('لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية')
         return
       }
 
@@ -1319,7 +1367,7 @@ function StockAdjustments() {
 
       // Create stock ledger entries for each item
       const stockLedgerEntries = items.map((item: any) => ({
-        org_id: userOrg.org_id,
+        org_id: currentOrgId,
         posting_date: adjustment.posting_date,
         posting_time: new Date().toTimeString().split(' ')[0],
         voucher_type: 'Stock Adjustment',
@@ -1366,6 +1414,7 @@ function StockAdjustments() {
             .from('warehouses')
             .select('inventory_account_id')
             .eq('id', adjustment.warehouse_id)
+            .eq('org_id', currentOrgId)
             .single()
 
           if (warehouseData?.inventory_account_id) {
@@ -1390,6 +1439,7 @@ function StockAdjustments() {
             .from('warehouses')
             .select('inventory_account_id')
             .eq('id', adjustment.warehouse_id)
+            .eq('org_id', currentOrgId)
             .single()
 
           if (warehouseData?.inventory_account_id) {
@@ -1415,7 +1465,7 @@ function StockAdjustments() {
             'rpc_create_journal_entry',
             {
               p_payload: {
-                org_id: userOrg.org_id,
+                org_id: currentOrgId,
                 entry_date: adjustment.posting_date,
                 entry_type: 'manual',
                 reference_type: 'stock_adjustments',
@@ -1463,6 +1513,7 @@ function StockAdjustments() {
           submitted_by: user.id
         })
         .eq('id', adjustmentId)
+        .eq('organization_id', currentOrgId)
 
       if (updateError) throw updateError
 
@@ -1773,8 +1824,37 @@ function StockAdjustments() {
                         boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
                       }}
                     >
-                      {filteredProducts.length > 0 ? (
-                        filteredProducts.map((product) => (
+                      {productUomStatus.isEnabled && productUomStatus.isLoading ? (
+                        <div className="px-4 py-4 text-center text-muted-foreground bg-card dark:bg-gray-950">
+                          جارٍ التحقق من إعداد وحدات الأصناف…
+                        </div>
+                      ) : productUomStatus.isEnabled && productUomStatus.isError ? (
+                        <div className="px-4 py-4 text-center text-red-600 bg-card dark:bg-gray-950">
+                          تعذّر التحقق من حالة وحدات الأصناف — لا يمكن اختيار صنف الآن
+                        </div>
+                      ) : filteredProducts.length > 0 ? (
+                        filteredProducts.map((product) => {
+                          const needsUom = productNeedsUomSetup(product.id)
+                          // Unmapped product: not a selectable button — a non-interactive
+                          // row carrying a linked badge so the repair link stays reachable
+                          // and keyboard-accessible (a link inside a disabled button is not).
+                          if (needsUom) {
+                            return (
+                              <div
+                                key={product.id}
+                                className="w-full px-4 py-3 text-right border-b border-border dark:border-gray-700 last:border-b-0 bg-muted/40 dark:bg-gray-900 opacity-80"
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="font-medium text-foreground dark:text-white">{product.name}</div>
+                                  <UomStatusBadge />
+                                </div>
+                                <div className="text-sm text-muted-foreground dark:text-muted-foreground">
+                                  {product.code} - الرصيد: {product.stock_quantity}
+                                </div>
+                              </div>
+                            )
+                          }
+                          return (
                           <button
                             key={product.id}
                             onClick={() => {
@@ -1789,7 +1869,8 @@ function StockAdjustments() {
                               {product.code} - الرصيد: {product.stock_quantity}
                             </div>
                           </button>
-                        ))
+                          )
+                        })
                       ) : (
                         <div className="px-4 py-4 text-center text-muted-foreground dark:text-muted-foreground bg-card dark:bg-gray-950">
                           لا توجد نتائج

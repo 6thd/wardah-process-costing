@@ -3,7 +3,7 @@ name: Regenerate UoM Database Types
 on:
   push:
     branches:
-      - claude/uom-engine-implementation-gapve8
+      - claude/complete-master-data-uom-hn893k
     paths:
       - .github/workflows/regenerate-uom-types.yml
       - sql/baseline/**
@@ -17,8 +17,13 @@ on:
       - src/locales/uom-errors.ts
       - src/hooks/use-uom-engine-enabled.ts
       - src/hooks/use-product-uoms.ts
+      - src/hooks/use-product-uom-status.ts
+      - src/features/inventory/index.tsx
       - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/UomBackfillIssues.tsx
+      - src/features/inventory/components/UomStatusBadge.tsx
       - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
+      - src/features/inventory/components/__tests__/UomBackfillIssues.test.tsx
       - src/services/__tests__/uom-*.test.ts
       - src/hooks/__tests__/use-*.test.tsx
   pull_request:
@@ -37,8 +42,13 @@ on:
       - src/locales/uom-errors.ts
       - src/hooks/use-uom-engine-enabled.ts
       - src/hooks/use-product-uoms.ts
+      - src/hooks/use-product-uom-status.ts
+      - src/features/inventory/index.tsx
       - src/features/inventory/components/ProductUomSettings.tsx
+      - src/features/inventory/components/UomBackfillIssues.tsx
+      - src/features/inventory/components/UomStatusBadge.tsx
       - src/features/inventory/components/__tests__/ProductUomSettings.test.tsx
+      - src/features/inventory/components/__tests__/UomBackfillIssues.test.tsx
       - src/services/__tests__/uom-*.test.ts
       - src/hooks/__tests__/use-*.test.tsx
   workflow_dispatch:
@@ -182,7 +192,9 @@ jobs:
             src/services/__tests__/uom-engine-setting.test.ts \
             src/hooks/__tests__/use-uom-engine-enabled.test.tsx \
             src/hooks/__tests__/use-product-uoms.test.tsx \
+            src/hooks/__tests__/use-product-uom-status.test.tsx \
             src/features/inventory/components/__tests__/ProductUomSettings.test.tsx \
+            src/features/inventory/components/__tests__/UomBackfillIssues.test.tsx \
             2>&1 | tee reports/uom-tests.log
 
       - name: Upload UoM validation diagnostics

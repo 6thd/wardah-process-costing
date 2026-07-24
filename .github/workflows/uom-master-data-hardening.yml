@@ -1,0 +1,112 @@
+name: UoM Master Data Hardening
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - sql/migrations/144_products_base_uom_change_guard.sql
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - sql/migrations/146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
+      - .github/workflows/uom-master-data-hardening.yml
+  push:
+    branches:
+      - claude/complete-master-data-uom-hn893k
+    paths:
+      - sql/migrations/144_products_base_uom_change_guard.sql
+      - sql/migrations/145_uom_stock_write_guard.sql
+      - sql/migrations/146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+      - scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
+      - .github/workflows/uom-master-data-hardening.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance-146:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build canonical Fresh DB through latest migration
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh \
+            sql/migrations /tmp/chain_order.txt
+          tail -20 /tmp/chain_report.txt
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: postgres
+
+      - name: Verify migration 146 objects
+        run: |
+          set -Eeuo pipefail
+          for trigger_name in \
+            trg_products_base_uom_insert_guard \
+            trg_products_base_uom_change_guard \
+            trg_stock_adjustment_items_require_mapped_uom \
+            trg_stock_ledger_entries_require_mapped_uom
+          do
+            psql -d wardah_fresh -tAc \
+              "SELECT 1 FROM pg_trigger WHERE tgname='${trigger_name}' AND NOT tgisinternal" \
+              | grep -q 1
+          done
+          psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_constraint WHERE conname='products_base_uom_mapping_invariant'" \
+            | grep -q 1
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run migration 146 authenticated acceptance
+        run: |
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_146_uom_master_data_hardening.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run migration 146 trusted-insert acceptance
+        run: |
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_146_trusted_product_insert_guard.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres

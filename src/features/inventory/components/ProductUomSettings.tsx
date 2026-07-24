@@ -1,20 +1,30 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Settings2, Scale, RefreshCw, AlertTriangle } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Scale, Settings2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAuth } from '@/contexts/AuthContext'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
+import { productUomStatusQueryKey } from '@/hooks/use-product-uom-status'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  assignProductBaseUom,
   getProductBaseUomChangeGuard,
   getProductUomMasterProfile,
+  listProductUomConversionHistory,
   listUomCatalog,
   resolveProductIdForItem,
 } from '@/services/uom-master-data-service'
@@ -78,6 +88,7 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
   const [weight, setWeight] = useState<WeightDraft>(emptyWeight)
   const [simulationQuantity, setSimulationQuantity] = useState('1')
   const [simulationUomId, setSimulationUomId] = useState('')
+  const [baseUomDraft, setBaseUomDraft] = useState('')
 
   const identityQuery = useQuery({
     queryKey: ['item-product-identity', currentOrgId, itemId],
@@ -89,7 +100,9 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
   const productId = identityQuery.data ?? null
 
   const profileQuery = useQuery({
-    queryKey: productId && currentOrgId ? productUomSettingsKey(currentOrgId, productId) : ['product-uom-master-settings', 'disabled'],
+    queryKey: productId && currentOrgId
+      ? productUomSettingsKey(currentOrgId, productId)
+      : ['product-uom-master-settings', 'disabled'],
     queryFn: () => getProductUomMasterProfile(currentOrgId as string, productId as string),
     enabled: open && isEnabled && Boolean(currentOrgId && productId),
   })
@@ -107,6 +120,12 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
     enabled: open && isEnabled && Boolean(currentOrgId && productId),
   })
 
+  const historyQuery = useQuery({
+    queryKey: ['product-uom-conversion-history', currentOrgId, productId],
+    queryFn: () => listProductUomConversionHistory(currentOrgId as string, productId as string),
+    enabled: open && isEnabled && Boolean(currentOrgId && productId),
+  })
+
   useEffect(() => {
     const profile = profileQuery.data
     if (!profile) return
@@ -116,6 +135,7 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
       weightUomId: profile.weight_uom_id ?? '',
     })
     setSimulationUomId(profile.base_uom_id ?? '')
+    setBaseUomDraft(profile.base_uom_id ?? '')
   }, [profileQuery.data])
 
   const massCategoryIds = useMemo(() => {
@@ -125,21 +145,50 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
 
   const availableUoms = catalogQuery.data?.uoms ?? []
   const massUoms = availableUoms.filter((uom) => massCategoryIds.has(uom.category_id))
+  const standardUoms = availableUoms.filter((uom) => !uom.is_product_specific)
 
   const refreshProfile = async () => {
     if (!currentOrgId || !productId) return
-    await queryClient.invalidateQueries({ queryKey: productUomSettingsKey(currentOrgId, productId) })
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: productUomSettingsKey(currentOrgId, productId) }),
+      queryClient.invalidateQueries({ queryKey: ['product-uom-conversion-history', currentOrgId, productId] }),
+    ])
   }
+
+  const refreshBaseUomState = async () => {
+    if (!currentOrgId || !productId) return
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: productUomSettingsKey(currentOrgId, productId) }),
+      queryClient.invalidateQueries({ queryKey: ['product-base-uom-guard', currentOrgId, productId] }),
+      queryClient.invalidateQueries({ queryKey: productUomStatusQueryKey(currentOrgId) }),
+      queryClient.invalidateQueries({ queryKey: ['uom-unmapped-products', currentOrgId] }),
+      queryClient.invalidateQueries({ queryKey: ['uom-open-backfill-issues', currentOrgId] }),
+    ])
+  }
+
+  const assignBaseUomMutation = useMutation({
+    mutationFn: async () => {
+      if (!currentOrgId || !productId || !baseUomDraft) throw new Error('PRODUCT_AND_UOM_REQUIRED')
+      await assignProductBaseUom({ orgId: currentOrgId, productId, uomId: baseUomDraft })
+    },
+    onSuccess: async () => {
+      toast.success('تم تعيين وحدة الأساس القانونية بنجاح')
+      await refreshBaseUomState()
+    },
+    onError: (error) => {
+      const mapped = mapUomError(error, 'ar')
+      toast.error(mapped.title, { description: mapped.description })
+    },
+  })
 
   const conversionMutation = useMutation({
     mutationFn: async () => {
       if (!currentOrgId || !productId) throw new Error('PRODUCT_AND_UOM_REQUIRED')
-      const factor = Number(conversion.factorToBase)
       await saveProductUomConversion({
         orgId: currentOrgId,
         productId,
         uomId: conversion.uomId,
-        factorToBase: factor,
+        factorToBase: Number(conversion.factorToBase),
         useForPurchase: conversion.useForPurchase,
         useForSale: conversion.useForSale,
         barcode: conversion.barcode || null,
@@ -193,6 +242,7 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
   const loading = identityQuery.isLoading || profileQuery.isLoading || catalogQuery.isLoading || guardQuery.isLoading
   const blockingError = identityQuery.error || profileQuery.error || catalogQuery.error || guardQuery.error
   const mappedBlockingError = blockingError ? mapUomError(blockingError, 'ar') : null
+  const mappedHistoryError = historyQuery.error ? mapUomError(historyQuery.error, 'ar') : null
   const profile = profileQuery.data
 
   return (
@@ -242,14 +292,49 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
                   <Badge variant="destructive">غير محددة</Badge>
                 )}
               </div>
-              {guardQuery.data?.base_uom_locked && (
+
+              {profile.base_uom_id ? (
                 <Alert>
                   <Scale className="h-4 w-4" />
-                  <AlertTitle>الوحدة الأساسية مقفلة</AlertTitle>
+                  <AlertTitle>الوحدة الأساسية ثابتة</AlertTitle>
                   <AlertDescription>
-                    توجد حركة مخزون لهذا الصنف؛ لذلك لا يجوز تغيير الوحدة الأساسية من الواجهة.
+                    بعد التعيين الأول لا تُغيّر الوحدة الأساسية من هذه الشاشة؛ لأن التحويلات والأوزان تعتمد عليها.
+                    أي إعادة تعريف مستقبلية تتطلب عملية ترحيل ذرية مستقلة.
                   </AlertDescription>
                 </Alert>
+              ) : guardQuery.data?.base_uom_locked ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>لا يمكن تعيين الوحدة</AlertTitle>
+                  <AlertDescription>
+                    توجد حركة مخزون سابقة لهذا الصنف بلا وحدة أساس قانونية. يلزم فحص البيانات قبل أي إصلاح.
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <div className="space-y-3 rounded-md bg-muted/40 p-3">
+                  <p className="text-sm text-muted-foreground">
+                    اختر وحدة معيارية غير خاصة بالصنف. هذا هو التعيين الأول والوحيد لوحدة الأساس.
+                  </p>
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                    <Select value={baseUomDraft} onValueChange={setBaseUomDraft}>
+                      <SelectTrigger aria-label="وحدة الأساس"><SelectValue placeholder="اختر وحدة الأساس" /></SelectTrigger>
+                      <SelectContent>
+                        {standardUoms.map((uom) => (
+                          <SelectItem key={uom.id} value={uom.id}>
+                            {displayName(uom.name_ar, uom.name)} ({uom.symbol})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      onClick={() => assignBaseUomMutation.mutate()}
+                      disabled={!baseUomDraft || assignBaseUomMutation.isPending}
+                    >
+                      تعيين وحدة الأساس
+                    </Button>
+                  </div>
+                </div>
               )}
             </section>
 
@@ -321,10 +406,61 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
               <Button
                 type="button"
                 onClick={() => conversionMutation.mutate()}
-                disabled={!conversion.uomId || Number(conversion.factorToBase) <= 0 || conversionMutation.isPending}
+                disabled={!profile.base_uom_id || !conversion.uomId || Number(conversion.factorToBase) <= 0 || conversionMutation.isPending}
               >
                 حفظ التحويل
               </Button>
+            </section>
+
+            <section className="rounded-lg border p-4 space-y-4">
+              <div>
+                <h3 className="font-semibold">تاريخ التحويلات السابقة</h3>
+                <p className="text-sm text-muted-foreground">سجل زمني لكل معامل تحويل، مع فترة السريان والحالة.</p>
+              </div>
+              {historyQuery.isLoading ? (
+                <p className="text-sm text-muted-foreground">جارٍ تحميل التاريخ…</p>
+              ) : mappedHistoryError ? (
+                <Alert variant="destructive">
+                  <AlertTriangle className="h-4 w-4" />
+                  <AlertTitle>{mappedHistoryError.title}</AlertTitle>
+                  <AlertDescription>{mappedHistoryError.description}</AlertDescription>
+                </Alert>
+              ) : (historyQuery.data?.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground">لا يوجد تاريخ تحويلات لهذا الصنف.</p>
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="p-3 text-right">الوحدة</th>
+                        <th className="p-3 text-right">المعامل</th>
+                        <th className="p-3 text-right">من</th>
+                        <th className="p-3 text-right">إلى</th>
+                        <th className="p-3 text-center">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {historyQuery.data?.map((row) => (
+                        <tr key={row.id} className={row.is_active ? '' : 'text-muted-foreground'}>
+                          <td className="p-3">
+                            {row.uom ? `${displayName(row.uom.name_ar, row.uom.name)} (${row.uom.symbol})` : '—'}
+                          </td>
+                          <td className="p-3 font-mono">{row.factor_to_base}</td>
+                          <td className="p-3 whitespace-nowrap">{row.valid_from?.slice(0, 10)}</td>
+                          <td className="p-3 whitespace-nowrap">{row.valid_to ? row.valid_to.slice(0, 10) : '—'}</td>
+                          <td className="p-3 text-center">
+                            {row.is_active ? (
+                              <Badge variant="outline" className="border-green-500 text-green-600">سارية</Badge>
+                            ) : (
+                              <Badge variant="secondary">مغلقة</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
 
             <section className="rounded-lg border p-4 space-y-4">
@@ -356,7 +492,7 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
               <Button
                 type="button"
                 onClick={() => weightMutation.mutate()}
-                disabled={Number(weight.netWeight) <= 0 || !weight.weightUomId || weightMutation.isPending}
+                disabled={!profile.base_uom_id || Number(weight.netWeight) <= 0 || !weight.weightUomId || weightMutation.isPending}
               >
                 حفظ الوزن
               </Button>
@@ -377,7 +513,7 @@ export function ProductUomSettings({ itemId, productName, disabled = false }: Pr
                     ))}
                   </SelectContent>
                 </Select>
-                <Button type="button" variant="outline" onClick={() => simulationQuery.refetch()} disabled={!simulationUomId || Number(simulationQuantity) < 0 || simulationQuery.isFetching}>
+                <Button type="button" variant="outline" onClick={() => simulationQuery.refetch()} disabled={!profile.base_uom_id || !simulationUomId || Number(simulationQuantity) < 0 || simulationQuery.isFetching}>
                   احسب
                 </Button>
               </div>

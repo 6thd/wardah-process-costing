@@ -209,6 +209,42 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
+      - name: Migration 144 acceptance (base-UoM guard + backfill RPCs)
+        run: |
+          set -Eeuo pipefail
+          if ! psql -d wardah_fresh -tAc "SELECT 1 FROM pg_trigger WHERE tgname='trg_products_base_uom_change_guard'" | grep -q 1; then
+            echo "⏭ migration 144 not present in fresh DB (baseline may be ahead) — skipping acceptance"
+            exit 0
+          fi
+          echo "   تشغيل اختبار قبول migration 144 (عزل المؤسسات + الحارس + مسارات المواءمة)…"
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/acceptance_144_base_uom_guard.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Migration 145 acceptance (flag-gated stock-write guard)
+        run: |
+          set -Eeuo pipefail
+          for trigger_name in \
+            trg_stock_adjustment_items_require_mapped_uom \
+            trg_stock_ledger_entries_require_mapped_uom
+          do
+            if ! psql -d wardah_fresh -tAc \
+              "SELECT 1 FROM pg_trigger WHERE tgname='${trigger_name}' AND NOT tgisinternal" \
+              | grep -q 1; then
+              echo "❌ migration 145 trigger missing: ${trigger_name}"
+              exit 1
+            fi
+          done
+          echo "   تشغيل اختبار قبول migration 145 (حارس الكتابة المخزنية)…"
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_145_uom_stock_write_guard.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
       - name: Build project
         run: npm run build
 
