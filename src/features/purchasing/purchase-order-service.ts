@@ -1,6 +1,26 @@
 import { supabase } from '@/lib/supabase'
 import type { Json } from '@/types/database.generated'
 
+export interface PurchaseOrderVendorOption {
+  id: string
+  code: string | null
+  name: string
+}
+
+export interface PurchaseOrderProductOption {
+  id: string
+  code: string
+  name: string | null
+  name_ar: string | null
+  cost_price: number | null
+  uom_migration_status: string
+}
+
+export interface PurchaseOrderFormOptions {
+  vendors: PurchaseOrderVendorOption[]
+  products: PurchaseOrderProductOption[]
+}
+
 export interface AtomicPurchaseOrderLineInput {
   product_id: string
   description?: string | null
@@ -37,6 +57,25 @@ function asFiniteNumber(value: unknown, field: string): number {
   return parsed
 }
 
+export async function listUomPurchaseOrderOptions(orgId: string): Promise<PurchaseOrderFormOptions> {
+  const { data, error } = await supabase.rpc('rpc_list_uom_purchase_order_options', {
+    p_org_id: orgId,
+  })
+
+  if (error) throw new Error(error.message)
+  if (!data || typeof data !== 'object') throw new Error('INVALID_PURCHASE_ORDER_OPTIONS_RESPONSE')
+
+  const result = data as Record<string, unknown>
+  if (!Array.isArray(result.vendors) || !Array.isArray(result.products)) {
+    throw new Error('INVALID_PURCHASE_ORDER_OPTIONS_RESPONSE')
+  }
+
+  return {
+    vendors: result.vendors as PurchaseOrderVendorOption[],
+    products: result.products as PurchaseOrderProductOption[],
+  }
+}
+
 export async function createAtomicUomPurchaseOrder(
   input: AtomicPurchaseOrderInput,
 ): Promise<AtomicPurchaseOrderResult> {
@@ -64,7 +103,8 @@ export async function createAtomicUomPurchaseOrder(
 
 const PURCHASE_ORDER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
   PO_PAYLOAD_OBJECT_REQUIRED: 'بيانات أمر الشراء غير صالحة.',
-  ORG_CONTEXT_REQUIRED: 'تعذر تحديد المؤسسة الحالية.',
+  ORG_UNRESOLVED: 'تعذر تحديد المؤسسة الحالية.',
+  NOT_AUTHENTICATED: 'انتهت جلسة الدخول. سجّل الدخول ثم حاول مرة أخرى.',
   NOT_ORG_MEMBER: 'ليس لديك صلاحية على المؤسسة الحالية.',
   UOM_ENGINE_NOT_ENABLED_FOR_ORG: 'محرك وحدات القياس غير مفعّل للمؤسسة الحالية.',
   VENDOR_NOT_FOUND_OR_WRONG_ORG: 'المورد غير موجود أو لا يتبع المؤسسة الحالية.',
