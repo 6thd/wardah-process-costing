@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '@/contexts/AuthContext'
-import { getProductUomOptions } from '@/services/uom-service'
+import { listPurchaseProductUoms } from '@/features/purchasing/purchase-order-service'
 
 export const PRODUCT_UOMS_STALE_TIME_MS = 5 * 60 * 1000
 
@@ -13,7 +13,7 @@ export function useProductUoms(productId: string | null) {
 
   return useQuery({
     queryKey: productUomsQueryKey(currentOrgId, productId),
-    queryFn: () => getProductUomOptions(productId as string),
+    queryFn: () => listPurchaseProductUoms(currentOrgId as string, productId as string),
     enabled: Boolean(currentOrgId && productId),
     staleTime: PRODUCT_UOMS_STALE_TIME_MS,
     retry: 1,
