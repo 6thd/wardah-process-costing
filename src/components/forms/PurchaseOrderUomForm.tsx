@@ -24,34 +24,21 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import {
   createAtomicUomPurchaseOrder,
+  listUomPurchaseOrderOptions,
   mapPurchaseOrderError,
+  type PurchaseOrderProductOption,
+  type PurchaseOrderVendorOption,
 } from '@/features/purchasing/purchase-order-service'
 import {
   buildPurchaseOrderUomLinePayload,
-  calculateCommercialLineTotal,
+  calculateCommercialLineAmounts,
 } from '@/features/purchasing/purchase-order-uom'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
-import { supabase } from '@/lib/supabase'
 
 interface PurchaseOrderFormProps {
   readonly open: boolean
   readonly onOpenChange: (open: boolean) => void
   readonly onSuccess?: () => void
-}
-
-interface VendorOption {
-  id: string
-  code: string | null
-  name: string
-}
-
-interface ProductOption {
-  id: string
-  code: string
-  name: string | null
-  name_ar: string | null
-  cost_price: number | null
-  uom_migration_status: string
 }
 
 interface PurchaseLine {
@@ -81,16 +68,22 @@ const emptyLine = (): PurchaseLine => ({
   taxPercentage: 15,
 })
 
-function productLabel(product: ProductOption) {
-  return `${product.code} - ${product.name_ar?.trim() || product.name?.trim() || product.code}`
+function productLabel(product: PurchaseOrderProductOption) {
+  const name = product.name_ar?.trim() || product.name?.trim() || product.code
+  return `${product.code} - ${name}`
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
 }
 
 export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrderFormProps) {
   const { currentOrgId } = useAuth()
   const { isEnabled: uomEnabled, isLoading: flagLoading } = useUomEngineEnabled()
   const [loading, setLoading] = useState(false)
-  const [vendors, setVendors] = useState<VendorOption[]>([])
-  const [products, setProducts] = useState<ProductOption[]>([])
+  const [optionsLoading, setOptionsLoading] = useState(false)
+  const [vendors, setVendors] = useState<PurchaseOrderVendorOption[]>([])
+  const [products, setProducts] = useState<PurchaseOrderProductOption[]>([])
   const [vendorId, setVendorId] = useState('')
   const [orderDate, setOrderDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [expectedDate, setExpectedDate] = useState('')
@@ -101,34 +94,23 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
     if (!open || !currentOrgId || !uomEnabled) return
     let cancelled = false
 
-    const load = async () => {
-      const [vendorResult, productResult] = await Promise.all([
-        supabase
-          .from('vendors')
-          .select('id,code,name')
-          .eq('org_id', currentOrgId)
-          .eq('is_active', true)
-          .order('name'),
-        supabase
-          .from('products')
-          .select('id,code,name,name_ar,cost_price,uom_migration_status')
-          .eq('org_id', currentOrgId)
-          .eq('is_active', true)
-          .eq('uom_migration_status', 'MAPPED')
-          .order('code'),
-      ])
-
-      if (vendorResult.error) throw vendorResult.error
-      if (productResult.error) throw productResult.error
-      if (cancelled) return
-      setVendors((vendorResult.data ?? []) as VendorOption[])
-      setProducts((productResult.data ?? []) as ProductOption[])
-    }
-
-    void load().catch((error) => {
-      console.error('Failed to load purchase order form data', error)
-      toast.error('تعذر تحميل بيانات أمر الشراء')
-    })
+    setOptionsLoading(true)
+    void listUomPurchaseOrderOptions(currentOrgId)
+      .then((options) => {
+        if (cancelled) return
+        setVendors(options.vendors)
+        setProducts(options.products)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        console.error('Failed to load selected-org purchase order options', error)
+        toast.error(mapPurchaseOrderError(error))
+        setVendors([])
+        setProducts([])
+      })
+      .finally(() => {
+        if (!cancelled) setOptionsLoading(false)
+      })
 
     return () => {
       cancelled = true
@@ -136,32 +118,36 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
   }, [currentOrgId, open, uomEnabled])
 
   const totals = useMemo(() => {
-    const gross = lines.reduce(
-      (sum, line) => sum + line.quantity.quantityEntered * line.unitPriceEntered,
-      0,
+    const result = lines.reduce(
+      (sum, line) => {
+        const amounts = calculateCommercialLineAmounts({
+          quantityEntered: line.quantity.quantityEntered,
+          unitPriceEntered: line.unitPriceEntered,
+          discountPercentage: line.discountPercentage,
+          taxPercentage: line.taxPercentage,
+        })
+        return {
+          subtotal: sum.subtotal + amounts.subtotal,
+          discount: sum.discount + amounts.discount,
+          tax: sum.tax + amounts.tax,
+          total: sum.total + amounts.total,
+        }
+      },
+      { subtotal: 0, discount: 0, tax: 0, total: 0 },
     )
-    const discount = lines.reduce(
-      (sum, line) => sum
-        + line.quantity.quantityEntered
-          * line.unitPriceEntered
-          * (line.discountPercentage / 100),
-      0,
-    )
-    const total = lines.reduce(
-      (sum, line) => sum + calculateCommercialLineTotal({
-        quantityEntered: line.quantity.quantityEntered,
-        unitPriceEntered: line.unitPriceEntered,
-        discountPercentage: line.discountPercentage,
-        taxPercentage: line.taxPercentage,
-      }),
-      0,
-    )
-    const subtotal = gross - discount
-    return { subtotal, discount, tax: total - subtotal, total }
+
+    return {
+      subtotal: roundMoney(result.subtotal),
+      discount: roundMoney(result.discount),
+      tax: roundMoney(result.tax),
+      total: roundMoney(result.total),
+    }
   }, [lines])
 
   const updateLine = (key: string, patch: Partial<PurchaseLine>) => {
-    setLines((current) => current.map((line) => line.key === key ? { ...line, ...patch } : line))
+    setLines((current) => current.map((line) => (
+      line.key === key ? { ...line, ...patch } : line
+    )))
   }
 
   const selectProduct = (line: PurchaseLine, productId: string) => {
@@ -247,15 +233,19 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
 
         {blocked ? (
           <div className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            {flagLoading ? 'جاري التحقق من إعداد المحرك...' : 'محرك وحدات القياس غير مفعّل للمؤسسة الحالية.'}
+            {flagLoading
+              ? 'جاري التحقق من إعداد المحرك...'
+              : 'محرك وحدات القياس غير مفعّل للمؤسسة الحالية.'}
           </div>
         ) : (
           <form onSubmit={submit} className="space-y-5">
             <div className="grid gap-4 md:grid-cols-4">
               <div className="space-y-2 md:col-span-2">
                 <Label>المورد *</Label>
-                <Select value={vendorId} onValueChange={setVendorId}>
-                  <SelectTrigger><SelectValue placeholder="اختر المورد" /></SelectTrigger>
+                <Select value={vendorId} onValueChange={setVendorId} disabled={optionsLoading}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={optionsLoading ? 'جاري التحميل...' : 'اختر المورد'} />
+                  </SelectTrigger>
                   <SelectContent>
                     {vendors.map((vendor) => (
                       <SelectItem key={vendor.id} value={vendor.id}>
@@ -267,18 +257,32 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
               </div>
               <div className="space-y-2">
                 <Label>تاريخ الأمر *</Label>
-                <Input type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
+                <Input
+                  type="date"
+                  value={orderDate}
+                  onChange={(event) => setOrderDate(event.target.value)}
+                />
               </div>
               <div className="space-y-2">
                 <Label>التسليم المتوقع</Label>
-                <Input type="date" min={orderDate} value={expectedDate} onChange={(event) => setExpectedDate(event.target.value)} />
+                <Input
+                  type="date"
+                  min={orderDate}
+                  value={expectedDate}
+                  onChange={(event) => setExpectedDate(event.target.value)}
+                />
               </div>
             </div>
 
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="font-semibold">سطور الأمر</h3>
-                <Button type="button" variant="outline" size="sm" onClick={() => setLines((current) => [...current, emptyLine()])}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setLines((current) => [...current, emptyLine()])}
+                >
                   <Plus className="ms-2 h-4 w-4" /> إضافة سطر
                 </Button>
               </div>
@@ -297,50 +301,96 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
                     </tr>
                   </thead>
                   <tbody>
-                    {lines.map((line) => (
-                      <tr key={line.key} className="border-t align-top">
-                        <td className="p-2">
-                          <Select value={line.productId || undefined} onValueChange={(value) => selectProduct(line, value)}>
-                            <SelectTrigger><SelectValue placeholder="اختر الصنف" /></SelectTrigger>
-                            <SelectContent>
-                              {products.map((product) => (
-                                <SelectItem key={product.id} value={product.id}>{productLabel(product)}</SelectItem>
+                    {lines.map((line) => {
+                      const lineAmounts = calculateCommercialLineAmounts({
+                        quantityEntered: line.quantity.quantityEntered,
+                        unitPriceEntered: line.unitPriceEntered,
+                        discountPercentage: line.discountPercentage,
+                        taxPercentage: line.taxPercentage,
+                      })
+
+                      return (
+                        <tr key={line.key} className="border-t align-top">
+                          <td className="p-2">
+                            <Select
+                              value={line.productId || undefined}
+                              onValueChange={(value) => selectProduct(line, value)}
+                              disabled={optionsLoading}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="اختر الصنف" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {products.map((product) => (
+                                  <SelectItem key={product.id} value={product.id}>
+                                    {productLabel(product)}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="p-2">
+                            <UomQuantityInput
+                              productId={line.productId || null}
+                              value={line.quantity}
+                              purchaseOnly
+                              onChange={(quantity) => updateLine(line.key, { quantity })}
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={line.unitPriceEntered}
+                              onChange={(event) => updateLine(line.key, {
+                                unitPriceEntered: Number.parseFloat(event.target.value) || 0,
+                              })}
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={line.discountPercentage}
+                              onChange={(event) => updateLine(line.key, {
+                                discountPercentage: Number.parseFloat(event.target.value) || 0,
+                              })}
+                            />
+                          </td>
+                          <td className="p-2">
+                            <Input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={line.taxPercentage}
+                              onChange={(event) => updateLine(line.key, {
+                                taxPercentage: Number.parseFloat(event.target.value) || 0,
+                              })}
+                            />
+                          </td>
+                          <td className="p-2 font-semibold whitespace-nowrap">
+                            {lineAmounts.total.toFixed(2)} ر.س
+                          </td>
+                          <td className="p-2">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              disabled={lines.length === 1}
+                              onClick={() => setLines((current) => (
+                                current.filter((candidate) => candidate.key !== line.key)
                               ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="p-2">
-                          <UomQuantityInput
-                            productId={line.productId || null}
-                            value={line.quantity}
-                            purchaseOnly
-                            onChange={(quantity) => updateLine(line.key, { quantity })}
-                          />
-                        </td>
-                        <td className="p-2">
-                          <Input type="number" min="0" step="any" value={line.unitPriceEntered} onChange={(event) => updateLine(line.key, { unitPriceEntered: Number.parseFloat(event.target.value) || 0 })} />
-                        </td>
-                        <td className="p-2">
-                          <Input type="number" min="0" max="100" step="0.01" value={line.discountPercentage} onChange={(event) => updateLine(line.key, { discountPercentage: Number.parseFloat(event.target.value) || 0 })} />
-                        </td>
-                        <td className="p-2">
-                          <Input type="number" min="0" max="100" step="0.01" value={line.taxPercentage} onChange={(event) => updateLine(line.key, { taxPercentage: Number.parseFloat(event.target.value) || 0 })} />
-                        </td>
-                        <td className="p-2 font-semibold whitespace-nowrap">
-                          {calculateCommercialLineTotal({
-                            quantityEntered: line.quantity.quantityEntered,
-                            unitPriceEntered: line.unitPriceEntered,
-                            discountPercentage: line.discountPercentage,
-                            taxPercentage: line.taxPercentage,
-                          }).toFixed(2)} ر.س
-                        </td>
-                        <td className="p-2">
-                          <Button type="button" variant="ghost" size="icon" disabled={lines.length === 1} onClick={() => setLines((current) => current.filter((candidate) => candidate.key !== line.key))}>
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -349,19 +399,40 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
             <div className="grid gap-4 md:grid-cols-[1fr_320px]">
               <div className="space-y-2">
                 <Label>ملاحظات</Label>
-                <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات أمر الشراء" />
+                <Input
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                  placeholder="ملاحظات أمر الشراء"
+                />
               </div>
               <div className="space-y-2 rounded-md border bg-muted/30 p-4 text-sm">
-                <div className="flex justify-between"><span>الصافي</span><strong>{totals.subtotal.toFixed(2)} ر.س</strong></div>
-                <div className="flex justify-between"><span>الخصم</span><strong>{totals.discount.toFixed(2)} ر.س</strong></div>
-                <div className="flex justify-between"><span>الضريبة</span><strong>{totals.tax.toFixed(2)} ر.س</strong></div>
-                <div className="flex justify-between border-t pt-2 text-base"><span>الإجمالي</span><strong>{totals.total.toFixed(2)} ر.س</strong></div>
+                <div className="flex justify-between">
+                  <span>الصافي</span><strong>{totals.subtotal.toFixed(2)} ر.س</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>الخصم</span><strong>{totals.discount.toFixed(2)} ر.س</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span>الضريبة</span><strong>{totals.tax.toFixed(2)} ر.س</strong>
+                </div>
+                <div className="flex justify-between border-t pt-2 text-base">
+                  <span>الإجمالي</span><strong>{totals.total.toFixed(2)} ر.س</strong>
+                </div>
               </div>
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={loading} onClick={() => onOpenChange(false)}>إلغاء</Button>
-              <Button type="submit" disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ أمر الشراء'}</Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loading}
+                onClick={() => onOpenChange(false)}
+              >
+                إلغاء
+              </Button>
+              <Button type="submit" disabled={loading || optionsLoading}>
+                {loading ? 'جاري الحفظ...' : 'حفظ أمر الشراء'}
+              </Button>
             </DialogFooter>
           </form>
         )}
