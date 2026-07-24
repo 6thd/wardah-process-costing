@@ -5,13 +5,15 @@ on:
     branches: [main, develop]
     paths:
       - 'sql/migrations/148_uom_purchase_receipt_snapshots.sql'
+      - 'sql/migrations/149_require_approved_po_for_receipt.sql'
       - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
+      - 'scripts/ci/fresh-db/acceptance_149_require_approved_po.sql'
       - '.github/workflows/uom-partial-receipt-atomic.yml'
   workflow_dispatch:
 
 jobs:
   acceptance:
-    name: Migration 148 Quality-Aware Partial Receipt
+    name: Quality-Aware Partial Receipt and Approval Gate
     runs-on: ubuntu-latest
 
     services:
@@ -33,7 +35,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build fresh database through migration 148
+      - name: Build fresh database through latest migration
         run: |
           set -Eeuo pipefail
           BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
@@ -56,14 +58,15 @@ jobs:
             "SELECT to_regprocedure('public.rpc_submit_purchase_order(uuid,uuid)') IS NOT NULL
                     AND to_regprocedure('public.rpc_approve_purchase_order(uuid,uuid)') IS NOT NULL
                     AND to_regprocedure('public.rpc_list_uom_receivable_purchase_orders(uuid)') IS NOT NULL
-                    AND to_regprocedure('public.rpc_post_goods_receipt(jsonb)') IS NOT NULL" \
+                    AND to_regprocedure('public.rpc_post_goods_receipt(jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_post_goods_receipt_148_internal(jsonb)') IS NOT NULL" \
             | grep -qx t
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Verify the additive quality-quantity contract landed
+      - name: Verify additive quality quantity contract
         run: |
           set -Eeuo pipefail
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
@@ -81,10 +84,19 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Prove approval gate, snapshot receiving, and quality-aware closure
+      - name: Prove snapshot receiving and quality-aware closure
         run: >-
           psql -v ON_ERROR_STOP=1 -d wardah_fresh
           -f scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Prove submitted is not approved
+        run: >-
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh
+          -f scripts/ci/fresh-db/acceptance_149_require_approved_po.sql
         env:
           PGHOST: localhost
           PGUSER: postgres
