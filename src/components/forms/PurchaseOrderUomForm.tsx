@@ -1,12 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
+import { format } from 'date-fns'
 import { Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { format } from 'date-fns'
-import { useAuth } from '@/contexts/AuthContext'
-import { supabase } from '@/lib/supabase'
+import { UomQuantityInput, type UomQuantityValue } from '@/components/uom/UomQuantityInput'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
 import {
   Dialog,
   DialogContent,
@@ -15,6 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
@@ -22,12 +21,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { UomQuantityInput, type UomQuantityValue } from '@/components/uom/UomQuantityInput'
-import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
+import { useAuth } from '@/contexts/AuthContext'
+import {
+  createAtomicUomPurchaseOrder,
+  mapPurchaseOrderError,
+} from '@/features/purchasing/purchase-order-service'
 import {
   buildPurchaseOrderUomLinePayload,
   calculateCommercialLineTotal,
 } from '@/features/purchasing/purchase-order-uom'
+import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
+import { supabase } from '@/lib/supabase'
 
 interface PurchaseOrderFormProps {
   readonly open: boolean
@@ -94,7 +98,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
   const [lines, setLines] = useState<PurchaseLine[]>([emptyLine()])
 
   useEffect(() => {
-    if (!open || !currentOrgId) return
+    if (!open || !currentOrgId || !uomEnabled) return
     let cancelled = false
 
     const load = async () => {
@@ -103,6 +107,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
           .from('vendors')
           .select('id,code,name')
           .eq('org_id', currentOrgId)
+          .eq('is_active', true)
           .order('name'),
         supabase
           .from('products')
@@ -128,10 +133,10 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
     return () => {
       cancelled = true
     }
-  }, [currentOrgId, open])
+  }, [currentOrgId, open, uomEnabled])
 
   const totals = useMemo(() => {
-    const subtotal = lines.reduce(
+    const gross = lines.reduce(
       (sum, line) => sum + line.quantity.quantityEntered * line.unitPriceEntered,
       0,
     )
@@ -151,7 +156,8 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
       }),
       0,
     )
-    return { subtotal: subtotal - discount, discount, tax: total - (subtotal - discount), total }
+    const subtotal = gross - discount
+    return { subtotal, discount, tax: total - subtotal, total }
   }, [lines])
 
   const updateLine = (key: string, patch: Partial<PurchaseLine>) => {
@@ -198,42 +204,30 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
         taxPercentage: line.taxPercentage,
       }))
 
-      const orderNumber = `PO-${Date.now()}`
-      const { data: order, error: orderError } = await supabase
-        .from('purchase_orders')
-        .insert({
-          org_id: currentOrgId,
-          order_number: orderNumber,
-          vendor_id: vendorId,
-          order_date: orderDate,
-          expected_delivery_date: expectedDate || null,
-          status: 'draft',
-          subtotal: totals.subtotal,
-          discount_amount: totals.discount,
-          tax_amount: totals.tax,
-          total_amount: totals.total,
-          notes: notes.trim() || null,
-        })
-        .select('id')
-        .single()
-      if (orderError) throw orderError
-
-      const lineRows = normalized.map((line, index) => ({
+      const result = await createAtomicUomPurchaseOrder({
         org_id: currentOrgId,
-        purchase_order_id: order.id,
-        line_number: index + 1,
-        ...line,
-      }))
-      const { error: lineError } = await supabase.from('purchase_order_lines').insert(lineRows)
-      if (lineError) throw lineError
+        vendor_id: vendorId,
+        order_date: orderDate,
+        expected_delivery_date: expectedDate || null,
+        notes: notes.trim() || null,
+        lines: normalized.map((line) => ({
+          product_id: line.product_id,
+          description: line.description,
+          uom_id: line.uom_id,
+          qty_entered: line.qty_entered,
+          unit_price_entered: line.unit_price_entered,
+          discount_percentage: line.discount_percentage,
+          tax_percentage: line.tax_percentage,
+        })),
+      })
 
-      toast.success(`تم إنشاء أمر الشراء ${orderNumber}`)
+      toast.success(`تم إنشاء أمر الشراء ${result.order_number}`)
       reset()
       onOpenChange(false)
       onSuccess?.()
     } catch (error) {
       console.error('Purchase order UoM save failed', error)
-      toast.error(error instanceof Error ? error.message : 'تعذر حفظ أمر الشراء')
+      toast.error(mapPurchaseOrderError(error))
     } finally {
       setLoading(false)
     }
@@ -247,7 +241,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
         <DialogHeader>
           <DialogTitle>أمر شراء بوحدات القياس</DialogTitle>
           <DialogDescription>
-            أدخل الكمية بوحدة المورد؛ يحفظ النظام الكمية والسعر بوحدة الأساس مع Snapshot للمعامل.
+            أدخل الكمية بوحدة المورد؛ يحفظ النظام المستند كاملًا ذريًا ويشتق قيم وحدة الأساس داخل قاعدة البيانات.
           </DialogDescription>
         </DialogHeader>
 
@@ -273,11 +267,11 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
               </div>
               <div className="space-y-2">
                 <Label>تاريخ الأمر *</Label>
-                <Input type="date" value={orderDate} onChange={(e) => setOrderDate(e.target.value)} />
+                <Input type="date" value={orderDate} onChange={(event) => setOrderDate(event.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>التسليم المتوقع</Label>
-                <Input type="date" min={orderDate} value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
+                <Input type="date" min={orderDate} value={expectedDate} onChange={(event) => setExpectedDate(event.target.value)} />
               </div>
             </div>
 
@@ -324,13 +318,13 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
                           />
                         </td>
                         <td className="p-2">
-                          <Input type="number" min="0" step="any" value={line.unitPriceEntered} onChange={(e) => updateLine(line.key, { unitPriceEntered: Number.parseFloat(e.target.value) || 0 })} />
+                          <Input type="number" min="0" step="any" value={line.unitPriceEntered} onChange={(event) => updateLine(line.key, { unitPriceEntered: Number.parseFloat(event.target.value) || 0 })} />
                         </td>
                         <td className="p-2">
-                          <Input type="number" min="0" max="100" step="0.01" value={line.discountPercentage} onChange={(e) => updateLine(line.key, { discountPercentage: Number.parseFloat(e.target.value) || 0 })} />
+                          <Input type="number" min="0" max="100" step="0.01" value={line.discountPercentage} onChange={(event) => updateLine(line.key, { discountPercentage: Number.parseFloat(event.target.value) || 0 })} />
                         </td>
                         <td className="p-2">
-                          <Input type="number" min="0" max="100" step="0.01" value={line.taxPercentage} onChange={(e) => updateLine(line.key, { taxPercentage: Number.parseFloat(e.target.value) || 0 })} />
+                          <Input type="number" min="0" max="100" step="0.01" value={line.taxPercentage} onChange={(event) => updateLine(line.key, { taxPercentage: Number.parseFloat(event.target.value) || 0 })} />
                         </td>
                         <td className="p-2 font-semibold whitespace-nowrap">
                           {calculateCommercialLineTotal({
@@ -355,7 +349,7 @@ export function PurchaseOrderForm({ open, onOpenChange, onSuccess }: PurchaseOrd
             <div className="grid gap-4 md:grid-cols-[1fr_320px]">
               <div className="space-y-2">
                 <Label>ملاحظات</Label>
-                <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات أمر الشراء" />
+                <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="ملاحظات أمر الشراء" />
               </div>
               <div className="space-y-2 rounded-md border bg-muted/30 p-4 text-sm">
                 <div className="flex justify-between"><span>الصافي</span><strong>{totals.subtotal.toFixed(2)} ر.س</strong></div>
