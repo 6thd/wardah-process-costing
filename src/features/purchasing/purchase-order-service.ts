@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { ProductUomOption } from '@/services/uom-service'
 import type { Json } from '@/types/database.generated'
 
 export interface PurchaseOrderVendorOption {
@@ -74,6 +75,20 @@ export async function listUomPurchaseOrderOptions(orgId: string): Promise<Purcha
     vendors: result.vendors as PurchaseOrderVendorOption[],
     products: result.products as PurchaseOrderProductOption[],
   }
+}
+
+export async function listPurchaseProductUoms(
+  orgId: string,
+  productId: string,
+): Promise<ProductUomOption[]> {
+  const { data, error } = await supabase.rpc('rpc_get_purchase_product_uoms', {
+    p_org_id: orgId,
+    p_product_id: productId,
+  })
+
+  if (error) throw new Error(error.message)
+  if (!Array.isArray(data)) throw new Error('INVALID_PURCHASE_PRODUCT_UOMS_RESPONSE')
+  return data as unknown as ProductUomOption[]
 }
 
 export async function createAtomicUomPurchaseOrder(
