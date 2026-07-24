@@ -10816,6 +10816,10 @@ export type Database = {
         }
         Returns: Json
       }
+      rpc_get_purchase_product_uoms: {
+        Args: { p_org_id: string; p_product_id: string }
+        Returns: Json
+      }
       rpc_get_trial_balance: {
         Args: { p_as_of_date?: string; p_tenant: string }
         Returns: {
@@ -10837,6 +10841,10 @@ export type Database = {
       }
       rpc_list_periods: {
         Args: { p_fiscal_year?: number; p_tenant?: string }
+        Returns: Json
+      }
+      rpc_list_uom_purchase_order_options: {
+        Args: { p_org_id: string }
         Returns: Json
       }
       rpc_manual_stock_movement: {
