@@ -31,13 +31,6 @@ export interface AtomicPurchaseOrderResult {
   total_amount: number
 }
 
-interface PurchaseOrderRpcClient {
-  rpc(
-    functionName: 'rpc_create_uom_purchase_order',
-    params: { p_payload: Json },
-  ): PromiseLike<{ data: unknown; error: { message: string } | null }>
-}
-
 function asFiniteNumber(value: unknown, field: string): number {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) throw new Error(`INVALID_PURCHASE_ORDER_RESPONSE_${field}`)
@@ -47,8 +40,7 @@ function asFiniteNumber(value: unknown, field: string): number {
 export async function createAtomicUomPurchaseOrder(
   input: AtomicPurchaseOrderInput,
 ): Promise<AtomicPurchaseOrderResult> {
-  const client = supabase as unknown as PurchaseOrderRpcClient
-  const { data, error } = await client.rpc('rpc_create_uom_purchase_order', {
+  const { data, error } = await supabase.rpc('rpc_create_uom_purchase_order', {
     p_payload: input as unknown as Json,
   })
 
