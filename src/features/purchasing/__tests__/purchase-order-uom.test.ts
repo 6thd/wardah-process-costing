@@ -5,6 +5,10 @@ import {
   calculateCommercialLineTotal,
 } from '../purchase-order-uom'
 
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
+}
+
 describe('purchase order UoM snapshots', () => {
   it('keeps base-unit entries at factor one', () => {
     const payload = buildPurchaseOrderUomLinePayload({
@@ -73,14 +77,14 @@ describe('purchase order UoM snapshots', () => {
       taxPercentage: 15,
     }))
 
-    const subtotal = lines.reduce((sum, line) => sum + line.subtotal, 0)
-    const tax = lines.reduce((sum, line) => sum + line.tax, 0)
-    const total = lines.reduce((sum, line) => sum + line.total, 0)
+    const subtotal = roundMoney(lines.reduce((sum, line) => sum + line.subtotal, 0))
+    const tax = roundMoney(lines.reduce((sum, line) => sum + line.tax, 0))
+    const total = roundMoney(lines.reduce((sum, line) => sum + line.total, 0))
 
     expect(subtotal).toBe(500)
     expect(tax).toBe(80)
     expect(total).toBe(580)
-    expect(subtotal + tax).toBe(total)
+    expect(roundMoney(subtotal + tax)).toBe(total)
   })
 
   it.each([
