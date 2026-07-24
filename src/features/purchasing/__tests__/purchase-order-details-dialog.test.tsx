@@ -47,7 +47,7 @@ describe('PurchaseOrderDetailsDialog', () => {
     expect(screen.getByText('1,000')).toBeInTheDocument()
     expect(screen.getByText('500 كجم')).toBeInTheDocument()
     expect(screen.getByText('2,000.00')).toBeInTheDocument()
-    expect(screen.getByText('1,150.00 ريال')).toBeInTheDocument()
+    expect(screen.getAllByText('1,150.00 ريال')).toHaveLength(2)
   })
 
   it('can be closed from the explicit close button', async () => {
