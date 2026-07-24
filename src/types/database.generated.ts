@@ -10784,6 +10784,10 @@ export type Database = {
         Returns: Json
       }
       rpc_create_stock_adjustment: { Args: { p_payload: Json }; Returns: Json }
+      rpc_create_uom_purchase_order: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       rpc_generate_fiscal_periods: {
         Args: { p_tenant?: string; p_year: number }
         Returns: Json
