@@ -100,7 +100,7 @@ const initialFormState: FormState = {
   address: '',
   city: '',
   state: '',
-  country: 'المملكة العربية السعودية',
+  country: '',
   postal_code: '',
   logo_url: '',
   primary_color: '#1e40af',
