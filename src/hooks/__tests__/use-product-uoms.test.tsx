@@ -3,15 +3,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor } from '@testing-library/react'
 
-const getProductUomOptions = vi.fn()
+const listPurchaseProductUoms = vi.fn()
 const authState: { currentOrgId: string | null } = { currentOrgId: 'org-1' }
 
 vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ currentOrgId: authState.currentOrgId }),
 }))
 
-vi.mock('@/services/uom-service', () => ({
-  getProductUomOptions: (productId: string) => getProductUomOptions(productId),
+vi.mock('@/features/purchasing/purchase-order-service', () => ({
+  listPurchaseProductUoms: (orgId: string, productId: string) => (
+    listPurchaseProductUoms(orgId, productId)
+  ),
 }))
 
 import { productUomsQueryKey, useProductUoms } from '../use-product-uoms'
@@ -33,7 +35,7 @@ describe('useProductUoms', () => {
     const { result } = renderHook(() => useProductUoms(null), { wrapper })
 
     expect(result.current.fetchStatus).toBe('idle')
-    expect(getProductUomOptions).not.toHaveBeenCalled()
+    expect(listPurchaseProductUoms).not.toHaveBeenCalled()
   })
 
   it('does not query without an active organization', () => {
@@ -41,15 +43,15 @@ describe('useProductUoms', () => {
     const { result } = renderHook(() => useProductUoms('product-1'), { wrapper })
 
     expect(result.current.fetchStatus).toBe('idle')
-    expect(getProductUomOptions).not.toHaveBeenCalled()
+    expect(listPurchaseProductUoms).not.toHaveBeenCalled()
   })
 
-  it('loads options for the selected product', async () => {
-    getProductUomOptions.mockResolvedValue([{ id: 'uom-1', is_base: true }])
+  it('loads options for the selected organization and product', async () => {
+    listPurchaseProductUoms.mockResolvedValue([{ id: 'uom-1', is_base: true }])
     const { result } = renderHook(() => useProductUoms('product-1'), { wrapper })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(getProductUomOptions).toHaveBeenCalledWith('product-1')
+    expect(listPurchaseProductUoms).toHaveBeenCalledWith('org-1', 'product-1')
     expect(result.current.data).toEqual([{ id: 'uom-1', is_base: true }])
   })
 
