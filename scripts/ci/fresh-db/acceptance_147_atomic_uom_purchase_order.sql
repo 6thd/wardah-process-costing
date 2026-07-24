@@ -1,6 +1,6 @@
 -- Acceptance for migration 147.
--- Proves tenant isolation, legal purchase-UoM normalization, authoritative totals,
--- and complete rollback when any line in the document is invalid.
+-- Proves selected-organization reads, tenant isolation, legal purchase-UoM
+-- normalization, line-level monetary rounding, and complete rollback.
 \set ON_ERROR_STOP on
 
 CREATE OR REPLACE FUNCTION pg_temp.expect_error(p_sql text, p_needle text)
@@ -33,7 +33,10 @@ INSERT INTO public.user_organizations
   (id, user_id, org_id, is_active, is_org_admin, role) VALUES
   ('47000000-0000-0000-0000-000000000001',
    '47aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-   '47111111-1111-1111-1111-111111111111', true, false, 'member');
+   '47111111-1111-1111-1111-111111111111', true, false, 'member'),
+  ('47000000-0000-0000-0000-000000000002',
+   '47aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+   '47222222-2222-2222-2222-222222222222', true, false, 'member');
 
 INSERT INTO public.org_settings (org_id, key, value) VALUES
   ('47111111-1111-1111-1111-111111111111', 'uom_engine_enabled', '{"enabled":true}'::jsonb),
@@ -90,6 +93,51 @@ COMMIT;
 
 SELECT set_config('request.jwt.claim.sub', '47aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
 
+-- The same multi-organization member can explicitly read Org B even though the
+-- deterministic session fallback resolves to the oldest membership (Org A).
+DO $$
+DECLARE
+  v_options jsonb;
+  v_uoms jsonb;
+BEGIN
+  v_options := public.rpc_list_uom_purchase_order_options(
+    '47222222-2222-2222-2222-222222222222'
+  );
+
+  IF jsonb_array_length(v_options -> 'vendors') <> 1
+     OR v_options -> 'vendors' -> 0 ->> 'id' <> '47f00000-0000-0000-0000-000000000002'
+     OR jsonb_array_length(v_options -> 'products') <> 1
+     OR v_options -> 'products' -> 0 ->> 'id' <> '47d00000-0000-0000-0000-000000000002' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: selected-org form options mismatch: %', v_options;
+  END IF;
+
+  v_uoms := public.rpc_get_purchase_product_uoms(
+    '47111111-1111-1111-1111-111111111111',
+    '47d00000-0000-0000-0000-000000000001'
+  );
+
+  IF NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_uoms) option
+    WHERE option ->> 'id' = '47400000-0000-0000-0000-000000000001'
+      AND (option ->> 'is_base')::boolean
+      AND (option ->> 'factor_to_base')::numeric = 1
+  ) OR NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_uoms) option
+    WHERE option ->> 'id' = '47400000-0000-0000-0000-000000000002'
+      AND (option ->> 'use_for_purchase')::boolean
+      AND (option ->> 'factor_to_base')::numeric = 12
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: selected-org product UoMs mismatch: %', v_uoms;
+  END IF;
+END $$;
+
+SELECT pg_temp.expect_error(
+  $$ SELECT public.rpc_get_purchase_product_uoms(
+    '47111111-1111-1111-1111-111111111111',
+    '47d00000-0000-0000-0000-000000000002'
+  ) $$,
+  'PO_PRODUCT_NOT_MAPPED_OR_WRONG_ORG');
+
 -- Successful document: two cartons at 120 each. Trigger 139 normalizes to
 -- 24 base pieces at 10 each while preserving the commercial total 240 + 15% VAT.
 SELECT public.rpc_create_uom_purchase_order(
@@ -136,8 +184,56 @@ BEGIN
   IF v_order.subtotal <> 240
      OR v_order.discount_amount <> 0
      OR v_order.tax_amount <> 36
-     OR v_order.total_amount <> 276 THEN
+     OR v_order.total_amount <> 276
+     OR v_order.subtotal + v_order.tax_amount <> v_order.total_amount THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: authoritative header totals mismatch: %', row_to_json(v_order);
+  END IF;
+END $$;
+
+-- Fractional-halalah stress: every persisted line rounds independently. The
+-- header must sum those persisted line amounts and remain arithmetically balanced.
+SELECT public.rpc_create_uom_purchase_order(
+  jsonb_build_object(
+    'org_id', '47111111-1111-1111-1111-111111111111',
+    'vendor_id', '47f00000-0000-0000-0000-000000000001',
+    'order_number', 'U147-PO-ROUNDING',
+    'order_date', '2026-07-24',
+    'lines', (
+      SELECT jsonb_agg(jsonb_build_object(
+        'product_id', '47d00000-0000-0000-0000-000000000001',
+        'uom_id', '47400000-0000-0000-0000-000000000001',
+        'qty_entered', 1,
+        'unit_price_entered', 1.0049,
+        'discount_percentage', 0,
+        'tax_percentage', 15
+      ))
+      FROM generate_series(1, 500)
+    )
+  )
+);
+
+DO $$
+DECLARE
+  v_order public.purchase_orders%ROWTYPE;
+  v_lines integer;
+BEGIN
+  SELECT * INTO STRICT v_order
+  FROM public.purchase_orders
+  WHERE org_id='47111111-1111-1111-1111-111111111111'
+    AND order_number='U147-PO-ROUNDING';
+
+  SELECT count(*) INTO v_lines
+  FROM public.purchase_order_lines
+  WHERE purchase_order_id=v_order.id;
+
+  IF v_lines <> 500
+     OR v_order.subtotal <> 500
+     OR v_order.discount_amount <> 0
+     OR v_order.tax_amount <> 80
+     OR v_order.total_amount <> 580
+     OR v_order.subtotal + v_order.tax_amount <> v_order.total_amount THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: line-rounding header mismatch: %, lines=%',
+      row_to_json(v_order), v_lines;
   END IF;
 END $$;
 
@@ -159,7 +255,8 @@ SELECT pg_temp.expect_error(
     }'::jsonb) $$,
   'PO_UOM_NOT_LEGAL_FOR_PURCHASE');
 
--- A vendor from another organization is rejected before any header is inserted.
+-- A vendor from another organization is rejected even when the caller is also
+-- a member of that other organization: the document's explicit org is authoritative.
 SELECT pg_temp.expect_error(
   $$ SELECT public.rpc_create_uom_purchase_order(
     '{
@@ -177,7 +274,7 @@ SELECT pg_temp.expect_error(
     }'::jsonb) $$,
   'VENDOR_NOT_FOUND_OR_WRONG_ORG');
 
--- Atomic rollback: the first line is valid, but the second line is invalid.
+-- Atomic rollback: the first line is valid, but the second line belongs to Org B.
 -- The header and first line must both disappear with the failed statement.
 SELECT pg_temp.expect_error(
   $$ SELECT public.rpc_create_uom_purchase_order(
