@@ -1,0 +1,96 @@
+import { supabase } from '@/lib/supabase'
+import type { Json } from '@/types/database.generated'
+
+export interface AtomicPurchaseOrderLineInput {
+  product_id: string
+  description?: string | null
+  uom_id: string
+  qty_entered: number
+  unit_price_entered: number
+  discount_percentage: number
+  tax_percentage: number
+}
+
+export interface AtomicPurchaseOrderInput {
+  org_id: string
+  vendor_id: string
+  order_date: string
+  expected_delivery_date?: string | null
+  notes?: string | null
+  lines: AtomicPurchaseOrderLineInput[]
+}
+
+export interface AtomicPurchaseOrderResult {
+  success: true
+  purchase_order_id: string
+  order_number: string
+  line_count: number
+  subtotal: number
+  discount_amount: number
+  tax_amount: number
+  total_amount: number
+}
+
+interface PurchaseOrderRpcClient {
+  rpc(
+    functionName: 'rpc_create_uom_purchase_order',
+    params: { p_payload: Json },
+  ): PromiseLike<{ data: unknown; error: { message: string } | null }>
+}
+
+function asFiniteNumber(value: unknown, field: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) throw new Error(`INVALID_PURCHASE_ORDER_RESPONSE_${field}`)
+  return parsed
+}
+
+export async function createAtomicUomPurchaseOrder(
+  input: AtomicPurchaseOrderInput,
+): Promise<AtomicPurchaseOrderResult> {
+  const client = supabase as unknown as PurchaseOrderRpcClient
+  const { data, error } = await client.rpc('rpc_create_uom_purchase_order', {
+    p_payload: input as unknown as Json,
+  })
+
+  if (error) throw new Error(error.message)
+  if (!data || typeof data !== 'object') throw new Error('INVALID_PURCHASE_ORDER_RESPONSE')
+
+  const result = data as Record<string, unknown>
+  if (result.success !== true) throw new Error('PURCHASE_ORDER_CREATION_FAILED')
+
+  return {
+    success: true,
+    purchase_order_id: String(result.purchase_order_id),
+    order_number: String(result.order_number),
+    line_count: asFiniteNumber(result.line_count, 'LINE_COUNT'),
+    subtotal: asFiniteNumber(result.subtotal, 'SUBTOTAL'),
+    discount_amount: asFiniteNumber(result.discount_amount, 'DISCOUNT'),
+    tax_amount: asFiniteNumber(result.tax_amount, 'TAX'),
+    total_amount: asFiniteNumber(result.total_amount, 'TOTAL'),
+  }
+}
+
+const PURCHASE_ORDER_ERROR_MESSAGES: Readonly<Record<string, string>> = {
+  PO_PAYLOAD_OBJECT_REQUIRED: 'بيانات أمر الشراء غير صالحة.',
+  ORG_CONTEXT_REQUIRED: 'تعذر تحديد المؤسسة الحالية.',
+  NOT_ORG_MEMBER: 'ليس لديك صلاحية على المؤسسة الحالية.',
+  UOM_ENGINE_NOT_ENABLED_FOR_ORG: 'محرك وحدات القياس غير مفعّل للمؤسسة الحالية.',
+  VENDOR_NOT_FOUND_OR_WRONG_ORG: 'المورد غير موجود أو لا يتبع المؤسسة الحالية.',
+  EXPECTED_DELIVERY_BEFORE_ORDER_DATE: 'تاريخ التسليم المتوقع لا يمكن أن يسبق تاريخ أمر الشراء.',
+  PO_LINES_ARRAY_REQUIRED: 'صيغة بنود أمر الشراء غير صالحة.',
+  PO_REQUIRES_LINES: 'أضف صنفًا واحدًا على الأقل.',
+  PO_LINE_LIMIT_EXCEEDED: 'عدد بنود أمر الشراء يتجاوز الحد المسموح.',
+  PO_LINE_OBJECT_REQUIRED: 'يوجد بند بصيغة غير صالحة.',
+  PO_PRODUCT_NOT_MAPPED_OR_WRONG_ORG: 'أحد الأصناف غير مهيأ بوحدة قانونية أو لا يتبع المؤسسة.',
+  PO_UOM_NOT_LEGAL_FOR_PURCHASE: 'إحدى الوحدات غير مسموحة للشراء لهذا الصنف.',
+  PO_LINE_QUANTITY_MUST_BE_POSITIVE: 'يجب أن تكون كمية كل بند أكبر من صفر.',
+  PO_LINE_PRICE_MUST_BE_NONNEGATIVE: 'سعر البند لا يمكن أن يكون سالبًا.',
+  PO_LINE_DISCOUNT_OUT_OF_RANGE: 'نسبة الخصم يجب أن تكون بين 0 و100.',
+  PO_LINE_TAX_OUT_OF_RANGE: 'نسبة الضريبة يجب أن تكون بين 0 و100.',
+}
+
+export function mapPurchaseOrderError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  const code = Object.keys(PURCHASE_ORDER_ERROR_MESSAGES).find((candidate) => raw.includes(candidate))
+  return code ? PURCHASE_ORDER_ERROR_MESSAGES[code] : 'تعذر حفظ أمر الشراء. راجع البيانات وحاول مرة أخرى.'
+}
