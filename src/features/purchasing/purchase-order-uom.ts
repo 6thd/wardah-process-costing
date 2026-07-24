@@ -22,8 +22,20 @@ export interface PurchaseOrderUomLinePayload {
   tax_percentage: number
 }
 
+export interface CommercialLineAmounts {
+  gross: number
+  discount: number
+  subtotal: number
+  tax: number
+  total: number
+}
+
 function round6(value: number) {
   return Math.round(value * 1_000_000) / 1_000_000
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100
 }
 
 export function buildPurchaseOrderUomLinePayload(
@@ -55,15 +67,39 @@ export function buildPurchaseOrderUomLinePayload(
   }
 }
 
+/**
+ * Mirrors the database's authoritative line-level money policy:
+ * gross, net, and tax-inclusive total are rounded per line to two decimals.
+ * Header amounts are sums of these persisted line amounts.
+ */
+export function calculateCommercialLineAmounts(input: {
+  quantityEntered: number
+  unitPriceEntered: number
+  discountPercentage: number
+  taxPercentage: number
+}): CommercialLineAmounts {
+  const grossRaw = input.quantityEntered * input.unitPriceEntered
+  const netRaw = grossRaw * (1 - input.discountPercentage / 100)
+  const totalRaw = netRaw * (1 + input.taxPercentage / 100)
+
+  const gross = roundMoney(grossRaw)
+  const subtotal = roundMoney(netRaw)
+  const total = roundMoney(totalRaw)
+
+  return {
+    gross,
+    discount: roundMoney(gross - subtotal),
+    subtotal,
+    tax: roundMoney(total - subtotal),
+    total,
+  }
+}
+
 export function calculateCommercialLineTotal(input: {
   quantityEntered: number
   unitPriceEntered: number
   discountPercentage: number
   taxPercentage: number
 }) {
-  const subtotal = input.quantityEntered * input.unitPriceEntered
-  const discount = subtotal * (input.discountPercentage / 100)
-  const net = subtotal - discount
-  const tax = net * (input.taxPercentage / 100)
-  return net + tax
+  return calculateCommercialLineAmounts(input).total
 }
