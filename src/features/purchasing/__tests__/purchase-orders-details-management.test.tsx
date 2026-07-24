@@ -3,32 +3,34 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
-const getAllNew = vi.fn()
-const getAllLegacy = vi.fn()
-const single = vi.fn()
-const toastError = vi.fn()
+const mocks = vi.hoisted(() => ({
+  getAllNew: vi.fn(),
+  getAllLegacy: vi.fn(),
+  single: vi.fn(),
+  toastError: vi.fn(),
+}))
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
 
 vi.mock('@/services/supabase-service', () => ({
-  newPurchaseOrdersService: { getAll: getAllNew },
-  purchaseOrdersService: { getAll: getAllLegacy },
+  newPurchaseOrdersService: { getAll: mocks.getAllNew },
+  purchaseOrdersService: { getAll: mocks.getAllLegacy },
 }))
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
       select: vi.fn(() => ({
-        eq: vi.fn(() => ({ single })),
+        eq: vi.fn(() => ({ single: mocks.single })),
       })),
     })),
   },
 }))
 
 vi.mock('sonner', () => ({
-  toast: { error: toastError },
+  toast: { error: mocks.toastError },
 }))
 
 vi.mock('@/components/forms/PurchaseOrderForm', () => ({
@@ -98,9 +100,9 @@ const fullOrder = {
 describe('PurchaseOrdersDetailsManagement', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getAllNew.mockResolvedValue([listOrder])
-    getAllLegacy.mockResolvedValue([])
-    single.mockResolvedValue({ data: fullOrder, error: null })
+    mocks.getAllNew.mockResolvedValue([listOrder])
+    mocks.getAllLegacy.mockResolvedValue([])
+    mocks.single.mockResolvedValue({ data: fullOrder, error: null })
   })
 
   it('opens an order from an accessible card and shows UoM snapshots', async () => {
@@ -119,7 +121,7 @@ describe('PurchaseOrdersDetailsManagement', () => {
     expect(await screen.findByText('0.5 طن')).toBeInTheDocument()
     expect(screen.getByText('500 كجم')).toBeInTheDocument()
     expect(screen.getByText('2,000.00')).toBeInTheDocument()
-    expect(single).toHaveBeenCalledTimes(1)
+    expect(mocks.single).toHaveBeenCalledTimes(1)
   })
 
   it('opens and closes the create form, then reloads after success', async () => {
@@ -131,33 +133,33 @@ describe('PurchaseOrdersDetailsManagement', () => {
     expect(screen.getByText('نموذج أمر الشراء')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'نجاح الحفظ' }))
-    await waitFor(() => expect(getAllNew).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mocks.getAllNew).toHaveBeenCalledTimes(2))
 
     await user.click(screen.getByRole('button', { name: 'إغلاق النموذج' }))
     expect(screen.queryByText('نموذج أمر الشراء')).not.toBeInTheDocument()
   })
 
   it('falls back to the legacy reader and renders an empty state', async () => {
-    getAllNew.mockRejectedValue(new Error('new reader unavailable'))
-    getAllLegacy.mockResolvedValue([])
+    mocks.getAllNew.mockRejectedValue(new Error('new reader unavailable'))
+    mocks.getAllLegacy.mockResolvedValue([])
 
     render(<PurchaseOrdersDetailsManagement />)
 
     expect(await screen.findByText('لا توجد أوامر شراء مسجلة.')).toBeInTheDocument()
-    expect(getAllLegacy).toHaveBeenCalledTimes(1)
+    expect(mocks.getAllLegacy).toHaveBeenCalledTimes(1)
   })
 
   it('reports list and details failures without crashing', async () => {
-    getAllNew.mockRejectedValueOnce(new Error('new reader unavailable'))
-    getAllLegacy.mockRejectedValueOnce(new Error('legacy reader unavailable'))
+    mocks.getAllNew.mockRejectedValueOnce(new Error('new reader unavailable'))
+    mocks.getAllLegacy.mockRejectedValueOnce(new Error('legacy reader unavailable'))
 
     const { unmount } = render(<PurchaseOrdersDetailsManagement />)
     expect(await screen.findByText('لا توجد أوامر شراء مسجلة.')).toBeInTheDocument()
-    expect(toastError).toHaveBeenCalledWith('خطأ في تحميل أوامر الشراء')
+    expect(mocks.toastError).toHaveBeenCalledWith('خطأ في تحميل أوامر الشراء')
     unmount()
 
-    getAllNew.mockResolvedValue([listOrder])
-    single.mockResolvedValue({ data: null, error: new Error('details unavailable') })
+    mocks.getAllNew.mockResolvedValue([listOrder])
+    mocks.single.mockResolvedValue({ data: null, error: new Error('details unavailable') })
     const user = userEvent.setup()
     render(<PurchaseOrdersDetailsManagement />)
 
@@ -165,7 +167,7 @@ describe('PurchaseOrdersDetailsManagement', () => {
       name: 'عرض تفاصيل أمر الشراء PO-20260724-07B821D3',
     }))
     await waitFor(() => {
-      expect(toastError).toHaveBeenCalledWith('تعذر تحميل تفاصيل أمر الشراء')
+      expect(mocks.toastError).toHaveBeenCalledWith('تعذر تحميل تفاصيل أمر الشراء')
     })
   })
 })
@@ -173,7 +175,7 @@ describe('PurchaseOrdersDetailsManagement', () => {
 describe('PurchasingModuleHotfix', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getAllNew.mockResolvedValue([])
+    mocks.getAllNew.mockResolvedValue([])
   })
 
   it('uses the details view for the orders route including a trailing slash', async () => {
