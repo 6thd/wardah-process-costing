@@ -88,7 +88,7 @@ export async function listPurchaseProductUoms(
 
   if (error) throw new Error(error.message)
   if (!Array.isArray(data)) throw new Error('INVALID_PURCHASE_PRODUCT_UOMS_RESPONSE')
-  return data as ProductUomOption[]
+  return data as unknown as ProductUomOption[]
 }
 
 export async function createAtomicUomPurchaseOrder(
