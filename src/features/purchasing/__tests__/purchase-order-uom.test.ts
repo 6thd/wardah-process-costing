@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPurchaseOrderUomLinePayload,
+  calculateCommercialLineAmounts,
   calculateCommercialLineTotal,
 } from '../purchase-order-uom'
 
@@ -49,12 +50,60 @@ describe('purchase order UoM snapshots', () => {
     })).toBe(8050)
   })
 
+  it('rounds gross, net, tax, and total at line level', () => {
+    expect(calculateCommercialLineAmounts({
+      quantityEntered: 1,
+      unitPriceEntered: 1.0049,
+      discountPercentage: 0,
+      taxPercentage: 15,
+    })).toEqual({
+      gross: 1,
+      discount: 0,
+      subtotal: 1,
+      tax: 0.16,
+      total: 1.16,
+    })
+  })
+
+  it('keeps multi-line header arithmetic balanced after fractional-halalah rounding', () => {
+    const lines = Array.from({ length: 500 }, () => calculateCommercialLineAmounts({
+      quantityEntered: 1,
+      unitPriceEntered: 1.0049,
+      discountPercentage: 0,
+      taxPercentage: 15,
+    }))
+
+    const subtotal = lines.reduce((sum, line) => sum + line.subtotal, 0)
+    const tax = lines.reduce((sum, line) => sum + line.tax, 0)
+    const total = lines.reduce((sum, line) => sum + line.total, 0)
+
+    expect(subtotal).toBe(500)
+    expect(tax).toBe(80)
+    expect(total).toBe(580)
+    expect(subtotal + tax).toBe(total)
+  })
+
   it.each([
-    ['missing product', { productId: '', uomId: 'kg', quantityEntered: 1, factorToBase: 1, unitPriceEntered: 1 }],
-    ['missing unit', { productId: 'p1', uomId: '', quantityEntered: 1, factorToBase: 1, unitPriceEntered: 1 }],
-    ['zero quantity', { productId: 'p1', uomId: 'kg', quantityEntered: 0, factorToBase: 1, unitPriceEntered: 1 }],
-    ['invalid factor', { productId: 'p1', uomId: 'kg', quantityEntered: 1, factorToBase: 0, unitPriceEntered: 1 }],
-    ['negative price', { productId: 'p1', uomId: 'kg', quantityEntered: 1, factorToBase: 1, unitPriceEntered: -1 }],
+    [
+      'missing product',
+      { productId: '', uomId: 'kg', quantityEntered: 1, factorToBase: 1, unitPriceEntered: 1 },
+    ],
+    [
+      'missing unit',
+      { productId: 'p1', uomId: '', quantityEntered: 1, factorToBase: 1, unitPriceEntered: 1 },
+    ],
+    [
+      'zero quantity',
+      { productId: 'p1', uomId: 'kg', quantityEntered: 0, factorToBase: 1, unitPriceEntered: 1 },
+    ],
+    [
+      'invalid factor',
+      { productId: 'p1', uomId: 'kg', quantityEntered: 1, factorToBase: 0, unitPriceEntered: 1 },
+    ],
+    [
+      'negative price',
+      { productId: 'p1', uomId: 'kg', quantityEntered: 1, factorToBase: 1, unitPriceEntered: -1 },
+    ],
   ])('rejects %s', (_label, invalid) => {
     expect(() => buildPurchaseOrderUomLinePayload({
       ...invalid,
