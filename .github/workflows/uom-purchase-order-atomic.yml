@@ -1,0 +1,72 @@
+name: UoM Purchase Order Atomic Acceptance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/147_atomic_uom_purchase_order_creation.sql'
+      - 'scripts/ci/fresh-db/acceptance_147_atomic_uom_purchase_order.sql'
+      - '.github/workflows/uom-purchase-order-atomic.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Migration 147 Atomic Purchase Order
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 147
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regprocedure('public.rpc_list_uom_purchase_order_options(uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_get_purchase_product_uoms(uuid,uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_create_uom_purchase_order(jsonb)') IS NOT NULL" \
+            | grep -qx t
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Prove selected-org reads, rounding, atomicity, and isolation
+        run: >-
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh
+          -f scripts/ci/fresh-db/acceptance_147_atomic_uom_purchase_order.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
