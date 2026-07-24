@@ -203,4 +203,88 @@ describe('receiveGoods — المسار الذرّي (Migration 89)', () => {
     // وفي مسار الـ fallback (تطوير) يبقى دفتر المخزون في الواجهة
     expect(mockCreateSLE).toHaveBeenCalled()
   })
+
+  // عقد Snapshot أمر الشراء (Migration 148): الخادم يرفض السطر المرتبط بأمر شراء
+  // ذي معامل ≠ 1 إذا وصلته الكمية بوحدة الأساس فقط، لأنها ملتبسة مع وحدة الإدخال.
+  // لذلك يجب أن تُمرَّر الحقول الصريحة كما وردت من المستدعي دون إسقاط.
+  it('يمرّر عقد Snapshot — uom_id وqty_entered وunit_cost_entered — إلى الـRPC', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        success: true,
+        goods_receipt_id: 'gr-2',
+        receipt_number: 'GR-000002',
+        inventory_atomic: true,
+      },
+      error: null,
+    })
+    mockFrom.mockImplementation(() => {
+      const c: Record<string, unknown> = {}
+      c.select = vi.fn().mockReturnValue(c)
+      c.eq = vi.fn().mockReturnValue(c)
+      c.single = vi.fn().mockResolvedValue({ data: { received_quantity: 0, quantity: 120 } })
+      c.update = vi.fn().mockReturnValue(c)
+      c.upsert = vi.fn().mockResolvedValue({ error: null })
+      return c
+    })
+
+    const snapshotLines = [
+      {
+        product_id: 'prod-1',
+        purchase_order_line_id: 'pol-1',
+        ordered_quantity: 120,
+        received_quantity: 48,
+        unit_cost: 10,
+        quality_status: 'rejected',
+        uom_id: 'uom-carton',
+        qty_entered: 4,
+        unit_cost_entered: 120,
+      },
+    ] as Parameters<typeof receiveGoods>[1]
+
+    await receiveGoods(receipt, snapshotLines)
+
+    const payload = mockRpc.mock.calls[0][1].p_payload as {
+      lines: Array<Record<string, unknown>>
+    }
+    expect(payload.lines[0]).toMatchObject({
+      purchase_order_line_id: 'pol-1',
+      uom_id: 'uom-carton',
+      qty_entered: 4,
+      unit_cost_entered: 120,
+      // حالة الجودة تُنقل كما اختارها المستخدم ولا تُثبَّت على "مقبول".
+      quality_status: 'rejected',
+    })
+  })
+
+  it('يرسل null بدل حذف حقول Snapshot عندما لا يوفّرها المستدعي', async () => {
+    mockRpc.mockResolvedValue({
+      data: {
+        success: true,
+        goods_receipt_id: 'gr-3',
+        receipt_number: 'GR-000003',
+        inventory_atomic: true,
+      },
+      error: null,
+    })
+    mockFrom.mockImplementation(() => {
+      const c: Record<string, unknown> = {}
+      c.select = vi.fn().mockReturnValue(c)
+      c.eq = vi.fn().mockReturnValue(c)
+      c.single = vi.fn().mockResolvedValue({ data: { received_quantity: 0, quantity: 100 } })
+      c.update = vi.fn().mockReturnValue(c)
+      c.upsert = vi.fn().mockResolvedValue({ error: null })
+      return c
+    })
+
+    await receiveGoods(receipt, lines)
+
+    const payload = mockRpc.mock.calls[0][1].p_payload as {
+      lines: Array<Record<string, unknown>>
+    }
+    expect(payload.lines[0]).toMatchObject({
+      uom_id: null,
+      qty_entered: null,
+      unit_cost_entered: null,
+    })
+  })
 })

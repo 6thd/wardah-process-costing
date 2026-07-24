@@ -1,0 +1,91 @@
+name: UoM Partial Receipt Atomic Acceptance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/148_uom_purchase_receipt_snapshots.sql'
+      - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
+      - '.github/workflows/uom-partial-receipt-atomic.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Migration 148 Quality-Aware Partial Receipt
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 148
+        run: |
+          set -Eeuo pipefail
+          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
+          test -n "$BASELINE"
+          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
+            | grep -oE '[0-9]+$' | head -1)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regprocedure('public.rpc_submit_purchase_order(uuid,uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_approve_purchase_order(uuid,uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_list_uom_receivable_purchase_orders(uuid)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_post_goods_receipt(jsonb)') IS NOT NULL" \
+            | grep -qx t
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Verify the additive quality-quantity contract landed
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT count(*) FROM information_schema.columns
+              WHERE table_schema='public' AND table_name='purchase_order_lines'
+                AND column_name IN ('accepted_quantity','rejected_quantity')" \
+            | grep -qx 2
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT count(*) FROM pg_constraint
+              WHERE conrelid='public.purchase_order_lines'::regclass
+                AND conname='purchase_order_lines_quality_quantity_check'" \
+            | grep -qx 1
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Prove approval gate, snapshot receiving, and quality-aware closure
+        run: >-
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh
+          -f scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres

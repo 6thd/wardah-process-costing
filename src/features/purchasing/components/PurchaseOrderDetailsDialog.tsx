@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,6 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { useAuth } from '@/contexts/AuthContext'
+import { approvePurchaseOrder, submitPurchaseOrder } from '@/services/purchasing-service'
 
 type PurchaseOrderLine = {
   id?: string
@@ -59,6 +63,8 @@ type PurchaseOrderDetailsDialogProps = {
   order: PurchaseOrderDetails | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** يُستدعى بعد نجاح انتقال حالة الأمر كي تُحدَّث القائمة. */
+  onStatusChanged?: () => void
 }
 
 const numberValue = (value: number | string | null | undefined, fallback = 0) => {
@@ -89,11 +95,32 @@ const productLabel = (line: PurchaseOrderLine) => {
   return [code, name].filter(Boolean).join(' - ') || 'منتج غير محدد'
 }
 
+const STATUS_ERROR_MESSAGES: Record<string, string> = {
+  PO_NOT_SUBMITTABLE: 'لا يمكن إرسال هذا الأمر في حالته الحالية.',
+  PO_NOT_APPROVABLE: 'لا يمكن اعتماد هذا الأمر في حالته الحالية.',
+  PO_HAS_NO_LINES: 'لا يمكن إرسال أو اعتماد أمر بلا أسطر.',
+  PO_NOT_FOUND: 'أمر الشراء غير موجود ضمن هذه المؤسسة.',
+  ORG_NOT_RESOLVED: 'تعذّر تحديد المؤسسة الحالية.',
+  ORG_ADMIN_REQUIRED: 'اعتماد أمر الشراء يحتاج صلاحية مدير المؤسسة.',
+  NOT_ORG_ADMIN: 'اعتماد أمر الشراء يحتاج صلاحية مدير المؤسسة.',
+  NOT_ORG_MEMBER: 'لست عضوًا فعّالًا في هذه المؤسسة.',
+}
+
+const statusErrorMessage = (error: unknown) => {
+  const raw = error instanceof Error ? error.message : String(error ?? '')
+  const matched = Object.keys(STATUS_ERROR_MESSAGES).find((code) => raw.includes(code))
+  return matched ? STATUS_ERROR_MESSAGES[matched] : 'تعذّر تنفيذ العملية على أمر الشراء.'
+}
+
 export function PurchaseOrderDetailsDialog({
   order,
   open,
   onOpenChange,
+  onStatusChanged,
 }: PurchaseOrderDetailsDialogProps) {
+  const { currentOrgId } = useAuth()
+  const [pendingAction, setPendingAction] = useState<'submit' | 'approve' | null>(null)
+
   if (!order) return null
 
   const lines = order.purchase_order_lines || []
@@ -101,6 +128,35 @@ export function PurchaseOrderDetailsDialog({
   const deliveryDate =
     order.expected_delivery_date || order.expected_delivery || order.delivery_date
   const taxAmount = order.tax_amount ?? order.vat_amount
+  const canSubmit = order.status === 'draft'
+  const canApprove = order.status === 'draft' || order.status === 'submitted'
+
+  const runStatusAction = async (action: 'submit' | 'approve') => {
+    if (!currentOrgId || !order.id) {
+      toast.error('تعذّر تحديد المؤسسة أو أمر الشراء.')
+      return
+    }
+    setPendingAction(action)
+    try {
+      if (action === 'submit') {
+        await submitPurchaseOrder(currentOrgId, order.id)
+      } else {
+        await approvePurchaseOrder(currentOrgId, order.id)
+      }
+      toast.success(
+        action === 'submit'
+          ? 'تم إرسال أمر الشراء للاعتماد'
+          : 'تم اعتماد أمر الشراء وأصبح قابلًا للاستلام'
+      )
+      // الخادم هو مصدر الحالة النهائية؛ تُعاد قراءتها من القائمة بدل تخمينها هنا.
+      onStatusChanged?.()
+      onOpenChange(false)
+    } catch (error) {
+      toast.error(statusErrorMessage(error))
+    } finally {
+      setPendingAction(null)
+    }
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -226,7 +282,28 @@ export function PurchaseOrderDetailsDialog({
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="gap-2 sm:gap-2">
+          {/* بوابة الاعتماد (Migration 148): أمر draft غير قابل للاستلام، والانتقال
+              يمر عبر RPC محروسة على الخادم لا عبر تحديث مباشر من العميل. */}
+          {canSubmit && (
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={pendingAction !== null || !currentOrgId || !order.id}
+              onClick={() => runStatusAction('submit')}
+            >
+              {pendingAction === 'submit' ? 'جارٍ الإرسال…' : 'إرسال للاعتماد'}
+            </Button>
+          )}
+          {canApprove && (
+            <Button
+              type="button"
+              disabled={pendingAction !== null || !currentOrgId || !order.id}
+              onClick={() => runStatusAction('approve')}
+            >
+              {pendingAction === 'approve' ? 'جارٍ الاعتماد…' : 'اعتماد الأمر'}
+            </Button>
+          )}
           <DialogClose asChild>
             <Button type="button" variant="outline">
               إغلاق

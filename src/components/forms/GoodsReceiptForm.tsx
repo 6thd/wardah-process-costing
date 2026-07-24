@@ -34,10 +34,27 @@ interface GoodsReceiptLine {
   product_id: string
   product_code?: string
   product_name?: string
+  // قيم وحدة الأساس — كما تُخزَّن في قاعدة البيانات.
   ordered_quantity: number
   received_quantity: number
+  accepted_quantity: number
+  pending_quantity: number
   unit_cost: number
+  // Snapshot وحدة الإدخال التجارية المثبّت على سطر أمر الشراء (Migration 139/148).
+  // العرض والإدخال يتمّان بهذه الوحدة، والخادم هو من يحوّل إلى وحدة الأساس.
+  uom_id?: string
+  uom_symbol?: string
+  conversion_factor: number
+  ordered_qty_entered: number
+  unit_cost_entered: number
+  quality_status: 'accepted' | 'rejected' | 'pending_inspection'
   is_selected: boolean
+}
+
+const QUALITY_LABELS: Record<GoodsReceiptLine['quality_status'], string> = {
+  accepted: 'مقبول',
+  rejected: 'مرفوض',
+  pending_inspection: 'قيد الفحص',
 }
 
 interface GoodsReceiptFormProps {
@@ -107,24 +124,44 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
         .from('purchase_order_lines')
         .select(`
           *,
-          product:products(code, name)
+          product:products(code, name),
+          uom:uoms(id, symbol, code)
         `)
         .eq('purchase_order_id', selectedPO)
         .order('line_number')
-      
+
       if (error) throw error
-      
-      const receiptLines: GoodsReceiptLine[] = (data || []).map(line => ({
-        po_line_id: line.id,
-        product_id: line.product_id,
-        product_code: line.product?.code,
-        product_name: line.product?.name,
-        ordered_quantity: line.quantity,
-        received_quantity: line.received_quantity || 0,
-        unit_cost: line.unit_price,
-        is_selected: true
-      }))
-      
+
+      const receiptLines: GoodsReceiptLine[] = (data || []).map(line => {
+        // المعامل المثبّت على السطر هو مصدر الحقيقة الوحيد؛ لا يُعاد اشتقاقه من
+        // دليل الوحدات الحالي حتى لا يُعاد تفسير مستند تاريخي.
+        const factor = Number(line.conversion_factor_snapshot) || 1
+        const orderedBase = Number(line.quantity) || 0
+        const receivedBase = Number(line.received_quantity) || 0
+        const acceptedBase = Number(line.accepted_quantity ?? receivedBase) || 0
+        const rejectedBase = Number(line.rejected_quantity ?? 0) || 0
+        return {
+          po_line_id: line.id,
+          product_id: line.product_id,
+          product_code: line.product?.code,
+          product_name: line.product?.name,
+          ordered_quantity: orderedBase,
+          received_quantity: receivedBase,
+          accepted_quantity: acceptedBase,
+          // الكمية المستلمة التي لم تُقبل ولم تُرفض بعد — ما زالت تحجز رصيد التعاقد.
+          pending_quantity: Math.max(receivedBase - acceptedBase - rejectedBase, 0),
+          unit_cost: Number(line.unit_price) || 0,
+          uom_id: line.uom_id ?? undefined,
+          uom_symbol: line.uom?.symbol ?? line.uom?.code ?? undefined,
+          conversion_factor: factor,
+          ordered_qty_entered: Number(line.qty_entered) || orderedBase / factor,
+          unit_cost_entered:
+            Number(line.unit_price_entered) || (Number(line.unit_price) || 0) * factor,
+          quality_status: 'accepted' as const,
+          is_selected: true
+        }
+      })
+
       setLines(receiptLines)
     } catch (error) {
       console.error('Error loading PO lines:', error)
@@ -138,8 +175,17 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
     setLines(newLines)
   }
 
+  // الرصيد المتبقي هو رصيد **تعاقدي** لا مادي: المقبول نهائي، وقيد الفحص ما زال
+  // محتجزًا، أما المرفوض فيتحرّر ليظل استبداله من المورد مشروعًا (Migration 148).
   const getRemainingQuantity = (line: GoodsReceiptLine) => {
-    return line.ordered_quantity - line.received_quantity
+    return Math.max(line.ordered_quantity - line.accepted_quantity - line.pending_quantity, 0)
+  }
+
+  // الإدخال والعرض بوحدة أمر الشراء التجارية، والتحويل إلى وحدة الأساس مسؤولية
+  // الخادم وحده اعتمادًا على Snapshot المثبّت.
+  const getRemainingQuantityEntered = (line: GoodsReceiptLine) => {
+    const factor = line.conversion_factor || 1
+    return Math.round((getRemainingQuantity(line) / factor) * 1e6) / 1e6
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -190,7 +236,13 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
         ordered_quantity: line.ordered_quantity,
         received_quantity: getRemainingQuantity(line),
         unit_cost: line.unit_cost,
-        quality_status: 'accepted' as const  // Default to accepted
+        quality_status: line.quality_status,
+        // ⭐ عقد Snapshot (Migration 148): الكمية والتكلفة بوحدة الإدخال التجارية.
+        //    بدونها يرفض الخادم أي سطر بمعامل ≠ 1 بدل أن يضرب كمية الأساس في
+        //    المعامل مرة ثانية.
+        uom_id: line.uom_id,
+        qty_entered: getRemainingQuantityEntered(line),
+        unit_cost_entered: line.unit_cost_entered,
       }))
 
       // ⭐ Use the new receiveGoods function with Stock Ledger System.
@@ -395,15 +447,20 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                           />
                         </th>
                         <th className="text-right p-2 text-sm font-medium">المنتج</th>
+                        <th className="text-right p-2 text-sm font-medium w-20">الوحدة</th>
                         <th className="text-right p-2 text-sm font-medium w-24">المطلوب</th>
-                        <th className="text-right p-2 text-sm font-medium w-24">تم استلامه</th>
+                        <th className="text-right p-2 text-sm font-medium w-24">المقبول</th>
                         <th className="text-right p-2 text-sm font-medium w-24">المتبقي</th>
+                        <th className="text-right p-2 text-sm font-medium w-36">الجودة</th>
                         <th className="text-right p-2 text-sm font-medium w-28">التكلفة</th>
                       </tr>
                     </thead>
                     <tbody>
                       {lines.map((line, lineIndex) => {
-                        const remaining = getRemainingQuantity(line)
+                        const remaining = getRemainingQuantityEntered(line)
+                        const factor = line.conversion_factor || 1
+                        const acceptedEntered =
+                          Math.round((line.accepted_quantity / factor) * 1e6) / 1e6
                         const lineKey = `${line.po_line_id}-${line.product_id}`
                         return (
                           <tr key={lineKey} className="border-t">
@@ -431,19 +488,37 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
                                 )}
                               </div>
                             </td>
+                            <td className="p-2 text-right text-sm text-muted-foreground">
+                              {line.uom_symbol ?? '—'}
+                            </td>
                             <td className="p-2 text-right font-medium">
-                              {line.ordered_quantity}
+                              {line.ordered_qty_entered}
                             </td>
                             <td className="p-2 text-right text-green-600 font-medium">
-                              {line.received_quantity}
+                              {acceptedEntered}
                             </td>
                             <td className="p-2 text-right">
                               <span className={remaining > 0 ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
                                 {remaining}
                               </span>
                             </td>
+                            <td className="p-2">
+                              <select
+                                aria-label={`حالة جودة ${line.product_name ?? line.product_code ?? ''}`}
+                                className="w-full rounded-md border bg-background p-1 text-sm"
+                                value={line.quality_status}
+                                disabled={remaining <= 0}
+                                onChange={(e) =>
+                                  updateLine(lineIndex, 'quality_status', e.target.value)
+                                }
+                              >
+                                {Object.entries(QUALITY_LABELS).map(([value, label]) => (
+                                  <option key={value} value={value}>{label}</option>
+                                ))}
+                              </select>
+                            </td>
                             <td className="p-2 text-right font-medium">
-                              {line.unit_cost.toFixed(2)} ر.س
+                              {line.unit_cost_entered.toFixed(2)} ر.س
                             </td>
                           </tr>
                         )

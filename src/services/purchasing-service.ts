@@ -62,6 +62,13 @@ export interface GoodsReceiptLine {
   unit_cost: number;
   quality_status: 'accepted' | 'rejected' | 'pending_inspection';
   notes?: string;
+  // ⭐ عقد Snapshot أمر الشراء (Migration 148): الكميات والتكاليف بوحدة الإدخال
+  // التجارية كما ثُبّتت على سطر أمر الشراء، لا بوحدة الأساس. الخادم يرفض
+  // الاستلام المرتبط بأمر شراء ذي معامل ≠ 1 إذا غابت هذه الحقول، لأن
+  // received_quantity/unit_cost وحدهما ملتبسان بين وحدة الإدخال ووحدة الأساس.
+  uom_id?: string;
+  qty_entered?: number;
+  unit_cost_entered?: number;
 }
 
 export interface SupplierInvoice {
@@ -189,7 +196,37 @@ export async function getPurchaseOrderWithDetails(orderId: string) {
 }
 
 /**
+ * بوابة اعتماد أمر الشراء (Migration 148).
+ *
+ * أوامر الشراء تُنشأ بحالة `draft` وهي غير قابلة للاستلام. الانتقال يتم عبر RPC
+ * محروسة على الخادم بدل تحديث مباشر من العميل: `submit` يحتاج عضوية فعّالة،
+ * و`approve` يحتاج صلاحية مدير المؤسسة لأنه يفتح الأمر للاستلام وبالتالي لأثر
+ * مخزوني ومحاسبي.
+ */
+export async function submitPurchaseOrder(orgId: string, orderId: string) {
+  const { data, error } = await supabase.rpc('rpc_submit_purchase_order', {
+    p_org_id: orgId,
+    p_purchase_order_id: orderId,
+  });
+  if (error) throw error;
+  return data as { success: boolean; purchase_order_id: string; status: string };
+}
+
+export async function approvePurchaseOrder(orgId: string, orderId: string) {
+  const { data, error } = await supabase.rpc('rpc_approve_purchase_order', {
+    p_org_id: orgId,
+    p_purchase_order_id: orderId,
+  });
+  if (error) throw error;
+  return data as { success: boolean; purchase_order_id: string; status: string };
+}
+
+/**
  * تحديث حالة أمر الشراء
+ *
+ * @deprecated للانتقالات القانونية بين draft/submitted/approved استخدم
+ * `submitPurchaseOrder` أو `approvePurchaseOrder`؛ فهذا المسار لا يتحقق من
+ * العضوية ولا من صلاحية الاعتماد ولا من شرعية الانتقال.
  */
 export async function updatePurchaseOrderStatus(orderId: string, status: string) {
   try {
@@ -267,6 +304,11 @@ export async function receiveGoods(
           unit_cost: l.unit_cost,
           quality_status: l.quality_status,
           notes: l.notes ?? null,
+          // عقد Snapshot (Migration 148): تُرسل وحدة الإدخال وكميتها وتكلفتها
+          // صراحةً كي يطابقها الخادم مع Snapshot أمر الشراء بدل الاستنتاج.
+          uom_id: l.uom_id ?? null,
+          qty_entered: l.qty_entered ?? null,
+          unit_cost_entered: l.unit_cost_entered ?? null,
         })),
       },
     });

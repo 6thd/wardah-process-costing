@@ -1,6 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+
+// النافذة تحتاج المؤسسة المختارة لتنفيذ بوابة اعتماد أمر الشراء (Migration 148)،
+// فتُعزل عن AuthProvider الحقيقي بدل تشغيل جلسة Supabase داخل الاختبار.
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ currentOrgId: 'org-1' }),
+}))
+
+const submitPurchaseOrder = vi.fn()
+const approvePurchaseOrder = vi.fn()
+vi.mock('@/services/purchasing-service', () => ({
+  submitPurchaseOrder: (...args: unknown[]) => submitPurchaseOrder(...args),
+  approvePurchaseOrder: (...args: unknown[]) => approvePurchaseOrder(...args),
+}))
+
 import { PurchaseOrderDetailsDialog } from '../components/PurchaseOrderDetailsDialog'
 
 const order = {

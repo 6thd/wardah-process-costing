@@ -1,8 +1,189 @@
 -- migration_number: 148
--- description: Add tenant-scoped receivable-PO reads and make PO-linked goods
---              receipts use the immutable purchase-order UoM snapshots.
--- safety: replace-only RPCs plus one additive read RPC. No historical rows,
---         tables, columns, policies, or triggers are removed.
+-- description: Add tenant-scoped receivable-PO reads, a guarded purchase-order
+--              approval gate, and make PO-linked goods receipts use the immutable
+--              purchase-order UoM snapshots while separating physically received
+--              quantity from the accepted quantity that closes the vendor contract.
+-- safety: replace-only RPCs plus additive nullable columns and additive read/gate
+--         RPCs. No historical row, table, column, policy, or trigger is removed,
+--         and no historical quantity is reinterpreted.
+--
+-- Feature-flag contract (uom_engine_enabled):
+--   The organization flag governs *creation* paths and the new UI reads:
+--   rpc_create_uom_purchase_order (147) and rpc_list_uom_receivable_purchase_orders
+--   below are fail-closed on it. It deliberately does NOT gate
+--   rpc_post_goods_receipt: a purchase-order line that already carries a legal
+--   UoM snapshot is a stored accounting fact, and turning the rollout flag off
+--   must never change how an existing document is interpreted or block receiving
+--   it. Legacy receipts with no snapshot keep the historical base-unit path.
+--
+-- Quantity contract on purchase_order_lines:
+--   quantity          — ordered quantity in base units (unchanged).
+--   received_quantity — physically received in base units, every quality status.
+--   accepted_quantity — quality-accepted base units; this is what closes the
+--                       vendor contract and drives partially/fully_received.
+--   rejected_quantity — quality-rejected base units; releases contract balance so
+--                       a replacement delivery is legal.
+--   pending           — derived: received - accepted - rejected. Pending units
+--                       still hold contract balance (they may yet be accepted).
+
+-- ---------------------------------------------------------------------------
+-- 1. Additive quality-aware quantity columns.
+-- ---------------------------------------------------------------------------
+-- Existing rows are preserved exactly as the system already interprets them:
+-- everything received so far was treated as contract-closing, so accepted is
+-- seeded from received. History is not reinterpreted, only made explicit.
+ALTER TABLE public.purchase_order_lines
+  ADD COLUMN IF NOT EXISTS accepted_quantity numeric(18,6),
+  ADD COLUMN IF NOT EXISTS rejected_quantity numeric(18,6);
+
+UPDATE public.purchase_order_lines
+SET accepted_quantity = COALESCE(received_quantity, 0)
+WHERE accepted_quantity IS NULL;
+
+UPDATE public.purchase_order_lines
+SET rejected_quantity = 0
+WHERE rejected_quantity IS NULL;
+
+ALTER TABLE public.purchase_order_lines
+  ALTER COLUMN accepted_quantity SET DEFAULT 0,
+  ALTER COLUMN rejected_quantity SET DEFAULT 0;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'public.purchase_order_lines'::regclass
+      AND conname = 'purchase_order_lines_quality_quantity_check'
+  ) THEN
+    ALTER TABLE public.purchase_order_lines
+      ADD CONSTRAINT purchase_order_lines_quality_quantity_check
+      CHECK (
+        COALESCE(accepted_quantity, 0) >= 0
+        AND COALESCE(rejected_quantity, 0) >= 0
+        AND COALESCE(accepted_quantity, 0) + COALESCE(rejected_quantity, 0)
+            <= COALESCE(received_quantity, 0)
+      ) NOT VALID;
+  END IF;
+END
+$$;
+
+COMMENT ON COLUMN public.purchase_order_lines.accepted_quantity IS
+  'Quality-accepted quantity in base units. Closes the vendor contract and drives purchase-order receipt status.';
+COMMENT ON COLUMN public.purchase_order_lines.rejected_quantity IS
+  'Quality-rejected quantity in base units. Released back to the contract balance so a replacement delivery stays legal.';
+
+-- ---------------------------------------------------------------------------
+-- 2. Purchase-order approval gate.
+-- ---------------------------------------------------------------------------
+-- Migration 147 creates every UoM purchase order as 'draft', and a draft order is
+-- not receivable. Without a guarded server-side transition the only path was a
+-- direct client UPDATE, which carries no membership or state validation.
+
+CREATE OR REPLACE FUNCTION public.rpc_submit_purchase_order(
+  p_org_id uuid,
+  p_purchase_order_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_org uuid;
+  v_status text;
+  v_lines integer;
+BEGIN
+  v_org := public.wardah_org_id(p_org_id);
+  IF v_org IS NULL THEN RAISE EXCEPTION 'ORG_NOT_RESOLVED'; END IF;
+  PERFORM public.wardah_assert_org_member(v_org);
+
+  IF p_purchase_order_id IS NULL THEN
+    RAISE EXCEPTION 'PO_ID_REQUIRED';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.purchase_orders
+  WHERE id = p_purchase_order_id AND org_id = v_org
+  FOR UPDATE;
+
+  IF NOT FOUND THEN RAISE EXCEPTION 'PO_NOT_FOUND'; END IF;
+  IF v_status <> 'draft' THEN
+    RAISE EXCEPTION 'PO_NOT_SUBMITTABLE: %', v_status;
+  END IF;
+
+  SELECT count(*) INTO v_lines
+  FROM public.purchase_order_lines
+  WHERE purchase_order_id = p_purchase_order_id AND org_id = v_org;
+
+  IF v_lines = 0 THEN RAISE EXCEPTION 'PO_HAS_NO_LINES'; END IF;
+
+  UPDATE public.purchase_orders
+  SET status = 'submitted'
+  WHERE id = p_purchase_order_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'purchase_order_id', p_purchase_order_id,
+    'status', 'submitted'
+  );
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.rpc_approve_purchase_order(
+  p_org_id uuid,
+  p_purchase_order_id uuid
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_org uuid;
+  v_status text;
+  v_lines integer;
+BEGIN
+  v_org := public.wardah_org_id(p_org_id);
+  IF v_org IS NULL THEN RAISE EXCEPTION 'ORG_NOT_RESOLVED'; END IF;
+  -- Approval releases an order for receiving and therefore for inventory and GL
+  -- impact: organization-admin only, never a plain member.
+  PERFORM public.wardah_assert_org_admin(v_org);
+
+  IF p_purchase_order_id IS NULL THEN
+    RAISE EXCEPTION 'PO_ID_REQUIRED';
+  END IF;
+
+  SELECT status INTO v_status
+  FROM public.purchase_orders
+  WHERE id = p_purchase_order_id AND org_id = v_org
+  FOR UPDATE;
+
+  IF NOT FOUND THEN RAISE EXCEPTION 'PO_NOT_FOUND'; END IF;
+  IF v_status NOT IN ('draft', 'submitted') THEN
+    RAISE EXCEPTION 'PO_NOT_APPROVABLE: %', v_status;
+  END IF;
+
+  SELECT count(*) INTO v_lines
+  FROM public.purchase_order_lines
+  WHERE purchase_order_id = p_purchase_order_id AND org_id = v_org;
+
+  IF v_lines = 0 THEN RAISE EXCEPTION 'PO_HAS_NO_LINES'; END IF;
+
+  UPDATE public.purchase_orders
+  SET status = 'approved'
+  WHERE id = p_purchase_order_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'purchase_order_id', p_purchase_order_id,
+    'status', 'approved'
+  );
+END;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 3. Tenant-scoped receivable purchase-order read.
+-- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.rpc_list_uom_receivable_purchase_orders(p_org_id uuid)
 RETURNS jsonb
@@ -83,13 +264,42 @@ BEGIN
                 6
               ),
               'received_qty_base', COALESCE(pol.received_quantity, 0),
+              'accepted_qty_base', COALESCE(pol.accepted_quantity, 0),
+              'rejected_qty_base', COALESCE(pol.rejected_quantity, 0),
+              'pending_qty_base', GREATEST(
+                COALESCE(pol.received_quantity, 0)
+                - COALESCE(pol.accepted_quantity, 0)
+                - COALESCE(pol.rejected_quantity, 0),
+                0
+              ),
+              -- Remaining is contract balance, not physical balance: rejected
+              -- units are released so the vendor can redeliver against them.
               'remaining_qty_entered', round(
-                GREATEST(pol.quantity - COALESCE(pol.received_quantity, 0), 0)
+                GREATEST(
+                  pol.quantity
+                  - COALESCE(pol.accepted_quantity, 0)
+                  - GREATEST(
+                      COALESCE(pol.received_quantity, 0)
+                      - COALESCE(pol.accepted_quantity, 0)
+                      - COALESCE(pol.rejected_quantity, 0),
+                      0
+                    ),
+                  0
+                )
                 / COALESCE(NULLIF(pol.conversion_factor_snapshot, 0), 1),
                 6
               ),
-              'remaining_qty_base',
-                GREATEST(pol.quantity - COALESCE(pol.received_quantity, 0), 0),
+              'remaining_qty_base', GREATEST(
+                pol.quantity
+                - COALESCE(pol.accepted_quantity, 0)
+                - GREATEST(
+                    COALESCE(pol.received_quantity, 0)
+                    - COALESCE(pol.accepted_quantity, 0)
+                    - COALESCE(pol.rejected_quantity, 0),
+                    0
+                  ),
+                0
+              ),
               'unit_cost_entered', COALESCE(
                 pol.unit_price_entered,
                 round(pol.unit_price * COALESCE(NULLIF(pol.conversion_factor_snapshot, 0), 1), 6)
@@ -106,7 +316,13 @@ BEGIN
            AND (u.org_id IS NULL OR u.org_id = v_org)
           WHERE pol.purchase_order_id = po.id
             AND pol.org_id = v_org
-            AND COALESCE(pol.received_quantity, 0) < pol.quantity
+            AND COALESCE(pol.accepted_quantity, 0)
+                + GREATEST(
+                    COALESCE(pol.received_quantity, 0)
+                    - COALESCE(pol.accepted_quantity, 0)
+                    - COALESCE(pol.rejected_quantity, 0),
+                    0
+                  ) < pol.quantity
         ), '[]'::jsonb)
       ) ORDER BY po.order_date DESC, po.order_number DESC, po.id
     )
@@ -121,11 +337,21 @@ BEGIN
         FROM public.purchase_order_lines open_line
         WHERE open_line.purchase_order_id = po.id
           AND open_line.org_id = v_org
-          AND COALESCE(open_line.received_quantity, 0) < open_line.quantity
+          AND COALESCE(open_line.accepted_quantity, 0)
+              + GREATEST(
+                  COALESCE(open_line.received_quantity, 0)
+                  - COALESCE(open_line.accepted_quantity, 0)
+                  - COALESCE(open_line.rejected_quantity, 0),
+                  0
+                ) < open_line.quantity
       )
   ), '[]'::jsonb);
 END;
 $function$;
+
+-- ---------------------------------------------------------------------------
+-- 4. Atomic goods receipt on immutable purchase-order snapshots.
+-- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION public.rpc_post_goods_receipt(p_payload jsonb)
 RETURNS jsonb
@@ -140,8 +366,10 @@ DECLARE
   v_line jsonb; v_line_no integer:=0; v_product uuid; v_uom uuid; v_base_uom uuid;
   v_payload_uom uuid; v_qty_entered numeric; v_qty_base numeric;
   v_ordered_entered numeric; v_ordered_base numeric; v_factor numeric;
-  v_cost_entered numeric; v_cost_base numeric; v_payload_cost numeric; v_quality text;
+  v_cost_entered numeric; v_cost_base numeric; v_payload_cost numeric;
+  v_payload_cost_base numeric; v_quality text;
   v_total numeric:=0; v_pol record; v_pol_id uuid; v_recv_date date; v_stock jsonb;
+  v_pending numeric; v_committed numeric; v_consumes boolean;
 BEGIN
   IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN
     RAISE EXCEPTION 'GR_PAYLOAD_OBJECT_REQUIRED';
@@ -201,7 +429,8 @@ BEGIN
         'idempotent_replay',true,
         'inventory_atomic',true,
         'uom_atomic',true,
-        'po_snapshot_atomic',true
+        'po_snapshot_atomic',true,
+        'quality_aware_contract',true
       );
     END IF;
   END IF;
@@ -235,14 +464,6 @@ BEGIN
       RAISE EXCEPTION 'ITEM_NOT_FOUND: line=%',v_line_no;
     END IF;
 
-    v_qty_entered:=NULLIF(v_line->>'qty_entered','')::numeric;
-    IF v_qty_entered IS NULL THEN
-      v_qty_entered:=NULLIF(v_line->>'received_quantity','')::numeric;
-    END IF;
-    IF v_qty_entered IS NULL OR v_qty_entered<=0 THEN
-      RAISE EXCEPTION 'RECEIPT_QUANTITY_MUST_BE_POSITIVE: line=%',v_line_no;
-    END IF;
-
     v_quality:=COALESCE(NULLIF(v_line->>'quality_status',''),'accepted');
     IF v_quality NOT IN ('accepted','rejected','pending_inspection') THEN
       RAISE EXCEPTION 'INVALID_QUALITY_STATUS: line=%',v_line_no;
@@ -251,6 +472,7 @@ BEGIN
     v_pol_id:=NULLIF(v_line->>'purchase_order_line_id','')::uuid;
     v_payload_uom:=NULLIF(v_line->>'uom_id','')::uuid;
     v_payload_cost:=NULLIF(v_line->>'unit_cost_entered','')::numeric;
+    v_payload_cost_base:=NULLIF(v_line->>'unit_cost','')::numeric;
 
     IF v_pol_id IS NOT NULL THEN
       IF v_po_id IS NULL THEN RAISE EXCEPTION 'PO_REQUIRED: line=%',v_line_no; END IF;
@@ -260,6 +482,8 @@ BEGIN
         product_id,
         quantity,
         COALESCE(received_quantity,0) AS received,
+        COALESCE(accepted_quantity,0) AS accepted,
+        COALESCE(rejected_quantity,0) AS rejected,
         uom_id,
         qty_entered,
         conversion_factor_snapshot,
@@ -275,12 +499,41 @@ BEGIN
       END IF;
       IF v_pol.product_id<>v_product THEN RAISE EXCEPTION 'PRODUCT_MISMATCH'; END IF;
 
-      v_factor:=COALESCE(NULLIF(v_pol.conversion_factor_snapshot,0),1);
       v_uom:=COALESCE(v_pol.uom_id,v_base_uom);
+
+      -- Fail closed instead of silently assuming factor 1. A line denominated in a
+      -- non-base unit with no legal snapshot cannot be converted without guessing,
+      -- and guessing writes a wrong base quantity and cost with no error at all.
+      IF v_pol.conversion_factor_snapshot IS NULL OR v_pol.conversion_factor_snapshot<=0 THEN
+        IF v_uom IS DISTINCT FROM v_base_uom THEN
+          RAISE EXCEPTION 'PO_LINE_SNAPSHOT_MISSING: line=%',v_line_no;
+        END IF;
+        -- Base unit and no snapshot: entered and base are the same quantity by
+        -- definition, so factor 1 is a fact here rather than an assumption.
+        v_factor:=1;
+      ELSE
+        v_factor:=v_pol.conversion_factor_snapshot;
+      END IF;
+
       v_ordered_base:=v_pol.quantity;
       v_ordered_entered:=COALESCE(v_pol.qty_entered,round(v_pol.quantity/v_factor,6));
       v_cost_base:=v_pol.unit_price;
       v_cost_entered:=COALESCE(v_pol.unit_price_entered,round(v_pol.unit_price*v_factor,6));
+
+      v_qty_entered:=NULLIF(v_line->>'qty_entered','')::numeric;
+      IF v_qty_entered IS NULL THEN
+        -- Legacy callers send received_quantity/unit_cost in base units while the
+        -- snapshot contract is expressed in entered units. The two are provably
+        -- identical only at factor 1; anywhere else the payload is ambiguous and
+        -- must be refused rather than silently inflated by the factor.
+        IF v_factor<>1 THEN
+          RAISE EXCEPTION 'RECEIPT_SNAPSHOT_CONTRACT_REQUIRED: line=%',v_line_no;
+        END IF;
+        v_qty_entered:=NULLIF(v_line->>'received_quantity','')::numeric;
+      END IF;
+      IF v_qty_entered IS NULL OR v_qty_entered<=0 THEN
+        RAISE EXCEPTION 'RECEIPT_QUANTITY_MUST_BE_POSITIVE: line=%',v_line_no;
+      END IF;
 
       IF v_payload_uom IS NOT NULL AND v_payload_uom<>v_uom THEN
         RAISE EXCEPTION 'RECEIPT_UOM_MISMATCH: line=%',v_line_no;
@@ -288,27 +541,52 @@ BEGIN
       IF v_payload_cost IS NOT NULL AND abs(v_payload_cost-v_cost_entered)>0.000001 THEN
         RAISE EXCEPTION 'RECEIPT_COST_MISMATCH: line=%',v_line_no;
       END IF;
+      -- Legacy base-unit cost is only unambiguous at factor 1, where entered and
+      -- base rates coincide. Beyond that the explicit field is mandatory above.
+      IF v_payload_cost IS NULL AND v_payload_cost_base IS NOT NULL
+         AND abs(v_payload_cost_base-v_cost_base)>0.000001 THEN
+        RAISE EXCEPTION 'RECEIPT_COST_MISMATCH: line=%',v_line_no;
+      END IF;
 
       v_qty_base:=round(v_qty_entered*v_factor,6);
       IF v_qty_base<=0 THEN
         RAISE EXCEPTION 'RECEIPT_BASE_QUANTITY_MUST_BE_POSITIVE: line=%',v_line_no;
       END IF;
-      IF v_pol.received+v_qty_base>v_pol.quantity THEN
+
+      -- Contract balance, not physical balance. Accepted units are final and
+      -- pending units are still claimable, so both hold the balance; rejected
+      -- units release it so a replacement delivery does not trip OVER_RECEIPT.
+      v_pending:=GREATEST(v_pol.received-v_pol.accepted-v_pol.rejected,0);
+      v_committed:=v_pol.accepted+v_pending;
+      v_consumes:=(v_quality IN ('accepted','pending_inspection'));
+
+      IF v_consumes AND v_committed+v_qty_base>v_pol.quantity THEN
         RAISE EXCEPTION 'OVER_RECEIPT: remaining=%, requested_base=%',
-          v_pol.quantity-v_pol.received,v_qty_base;
+          v_pol.quantity-v_committed,v_qty_base;
       END IF;
 
+      -- received_quantity keeps its physical meaning for every quality status.
+      -- Only the accepted/rejected split is quality driven.
       UPDATE public.purchase_order_lines
-      SET received_quantity=v_pol.received+v_qty_base
+      SET received_quantity=v_pol.received+v_qty_base,
+          accepted_quantity=v_pol.accepted+CASE WHEN v_quality='accepted' THEN v_qty_base ELSE 0 END,
+          rejected_quantity=v_pol.rejected+CASE WHEN v_quality='rejected' THEN v_qty_base ELSE 0 END
       WHERE id=v_pol_id;
     ELSE
+      v_qty_entered:=COALESCE(
+        NULLIF(v_line->>'qty_entered','')::numeric,
+        NULLIF(v_line->>'received_quantity','')::numeric
+      );
+      IF v_qty_entered IS NULL OR v_qty_entered<=0 THEN
+        RAISE EXCEPTION 'RECEIPT_QUANTITY_MUST_BE_POSITIVE: line=%',v_line_no;
+      END IF;
       v_uom:=COALESCE(v_payload_uom,v_base_uom);
       v_ordered_entered:=COALESCE(
         NULLIF(v_line->>'ordered_qty_entered','')::numeric,
         NULLIF(v_line->>'ordered_quantity','')::numeric,
         v_qty_entered
       );
-      v_cost_entered:=COALESCE(v_payload_cost,NULLIF(v_line->>'unit_cost','')::numeric);
+      v_cost_entered:=COALESCE(v_payload_cost,v_payload_cost_base);
       IF v_ordered_entered IS NULL OR v_ordered_entered<0
          OR v_cost_entered IS NULL OR v_cost_entered<0 THEN
         RAISE EXCEPTION 'INVALID_LINE: line=%',v_line_no;
@@ -341,13 +619,15 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- Receipt status follows the accepted quantity: a rejected delivery must never
+  -- close a purchase order that produced no inventory and no GRNI value.
   IF v_po_id IS NOT NULL THEN
     UPDATE public.purchase_orders po
     SET status=CASE WHEN NOT EXISTS(
       SELECT 1
       FROM public.purchase_order_lines l
       WHERE l.purchase_order_id=po.id
-        AND COALESCE(l.received_quantity,0)<l.quantity
+        AND COALESCE(l.accepted_quantity,0)<l.quantity
     ) THEN 'fully_received' ELSE 'partially_received' END
     WHERE po.id=v_po_id;
   END IF;
@@ -367,10 +647,19 @@ BEGIN
     'lines_processed',v_line_no,
     'inventory_atomic',true,
     'uom_atomic',true,
-    'po_snapshot_atomic',true
+    'po_snapshot_atomic',true,
+    'quality_aware_contract',true
   );
 END;
 $function$;
+
+REVOKE ALL ON FUNCTION public.rpc_submit_purchase_order(uuid,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_submit_purchase_order(uuid,uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.rpc_submit_purchase_order(uuid,uuid) TO authenticated;
+
+REVOKE ALL ON FUNCTION public.rpc_approve_purchase_order(uuid,uuid) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_approve_purchase_order(uuid,uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.rpc_approve_purchase_order(uuid,uuid) TO authenticated;
 
 REVOKE ALL ON FUNCTION public.rpc_list_uom_receivable_purchase_orders(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.rpc_list_uom_receivable_purchase_orders(uuid) FROM anon;
