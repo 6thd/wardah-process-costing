@@ -1,184 +1,330 @@
-# الإصلاحات الأمنية المتبقية
+# سجل المعالجة الأمنية الحالي — Wardah ERP
 
-## 📋 الملخص
+> **الوثيقة المرجعية للحالة الأمنية الحالية وخطة المعالجة.**  
+> هذه الوثيقة ليست شهادة بأن النظام «آمن بالكامل»، ولا تُغني عن مراجعة الكود أو
+> الاختبارات السلبية أو Supabase Security Advisor.
 
-بعد إصلاح **Function Search Path warnings**، تبقى **2 warnings** تحتاج إجراءات يدوية من Supabase Dashboard.
-
----
-
-## ⚠️ Warning 1: Leaked Password Protection Disabled
-
-### المشكلة
-
-حماية كلمات المرور المسربة غير مفعّلة في Supabase Auth.
-
-**الوصف:**
-> "Supabase Auth prevents the use of compromised passwords by checking against HaveIBeenPwned.org. Enable this feature to enhance security."
-
-### الحل
-
-#### الخطوات:
-
-1. افتح **Supabase Dashboard**
-2. اذهب إلى **Authentication → Policies**
-3. ابحث عن **"Password Protection"** أو **"Leaked Password Protection"**
-4. فعّل الخيار **"Check against leaked passwords"** أو **"Enable leaked password protection"**
-5. احفظ التغييرات
-
-#### الموقع في Dashboard:
-
-```
-Dashboard → Authentication → Policies → Password Protection
-```
-
-أو:
-
-```
-Dashboard → Authentication → Settings → Password Security
-```
-
-### الفوائد
-
-- ✅ منع استخدام كلمات المرور المسربة
-- ✅ حماية أفضل للمستخدمين
-- ✅ امتثال لمعايير الأمان الحديثة
-
-### ⏱️ الوقت المتوقع: 2 دقيقة
+| البند | القيمة |
+|---|---|
+| آخر تحقق | 2026-07-24 |
+| البيئة | مشروع Supabase الحي: Manufacturing Process |
+| آخر Migration مطبقة في الإنتاج | `147_atomic_uom_purchase_order_creation` |
+| Migrations تحت المراجعة وغير مطبقة | 148 و149 |
+| مصادر الإثبات | Security Advisor، كتالوج PostgreSQL الحي، migrations واختبارات المستودع |
+| سجل العمل المرتبط | Issue #48 — RBAC على مستوى الموديول والخدمة |
 
 ---
 
-## ⚠️ Warning 2: Vulnerable Postgres Version
+## 1. قواعد تفسير هذا السجل
 
-### المشكلة
-
-**الإصدار الحالي:** `supabase-postgres-17.4.1.075`
-
-يوجد تحديثات أمنية متاحة لإصدار Postgres.
-
-**الوصف:**
-> "Upgrade your postgres database to apply important security patches"
-
-### الحل
-
-#### الخطوات:
-
-1. افتح **Supabase Dashboard**
-2. اذهب إلى **Settings → General** أو **Settings → Infrastructure**
-3. ابحث عن **"Database Version"** أو **"Postgres Version"**
-4. اضغط على **"Upgrade"** أو **"Upgrade to latest version"**
-5. اقرأ التحذيرات والتأكيدات
-6. اضغط **"Confirm Upgrade"**
-
-#### الموقع في Dashboard:
-
-```
-Dashboard → Settings → General → Database Version
-```
-
-أو:
-
-```
-Dashboard → Settings → Infrastructure → Database → Upgrade
-```
-
-### ⚠️ تحذيرات مهمة
-
-1. **Backup قبل الترقية:**
-   - تأكد من وجود backup حديث
-   - يمكنك إنشاء backup من: **Database → Backups → Create Backup**
-
-2. **Downtime محتمل:**
-   - قد يكون هناك downtime قصير أثناء الترقية
-   - عادة 1-5 دقائق
-
-3. **اختبار بعد الترقية:**
-   - اختبر الوظائف الأساسية بعد الترقية
-   - تحقق من أن جميع الـ migrations تعمل بشكل صحيح
-
-### الفوائد
-
-- ✅ تطبيق آخر التحديثات الأمنية
-- ✅ إصلاح الثغرات الأمنية المعروفة
-- ✅ تحسينات في الأداء والاستقرار
-
-### ⏱️ الوقت المتوقع: 5-10 دقائق (بما في ذلك الانتظار)
+1. تحذير الـAdvisor **ليس إثبات استغلال**؛ هو نقطة تحتاج تصنيفًا أو معالجة أو
+   قبولًا موثقًا للمخاطر.
+2. نجاح الواجهة في إخفاء زر لا يمثل تفويضًا أمنيًا. الحارس النهائي يكون في
+   PostgreSQL أو RPC أو RLS.
+3. لا تُسحب صلاحية `EXECUTE` آليًا من كل دالة `SECURITY DEFINER`؛ بعض الدوال هي
+   واجهات API مقصودة. المطلوب مراجعة الغرض، والحارس الداخلي، ونطاق المؤسسة،
+   وصلاحيات التنفيذ لكل توقيع.
+4. كل تغيير أمني حساس ينفذ عبر migration جديدة مع اختبار Fresh DB، واختبارات
+   سلبية، وخطة رجوع. لا تُعدّل migration سبق تطبيقها.
+5. يجب التفريق في كل وثيقة بين: **مخطط**، **مطبق**، و**متحقق منه على البيئة
+   الحية**.
 
 ---
 
-## 📊 ملخص الإصلاحات
+## 2. اللقطة الحية الموثقة
 
-| # | المشكلة | الأولوية | الوقت | الحالة |
-|---|---------|----------|-------|--------|
-| 1 | Function Search Path (98 functions) | 🔴 عالية | 2 دقيقة | ✅ Migration جاهز |
-| 2 | Leaked Password Protection | 🟡 متوسطة | 2 دقيقة | ⏳ يحتاج إجراء يدوي |
-| 3 | Postgres Version Update | 🟡 متوسطة | 5-10 دقائق | ⏳ يحتاج إجراء يدوي |
+### 2.1 قاعدة البيانات والترحيلات
+
+- PostgreSQL الأساسي: `17.4`، وحزمة Supabase الحالية المبلغ عنها:
+  `supabase-postgres-17.4.1.075`.
+- Supabase Advisor يبلغ عن تحديثات أمنية متاحة لقاعدة البيانات.
+- آخر migration مسجلة في الإنتاج هي 147.
+- Migration 148 الخاصة بالاستلام الجزئي وMigration 149 الخاصة بفرض اعتماد أمر
+  الشراء ما زالتا على فرع المراجعة ولم تُطبقا على الإنتاج.
+
+### 2.2 `SECURITY DEFINER`
+
+قراءة كتالوج PostgreSQL الحي أظهرت:
+
+| المقياس | النتيجة |
+|---|---:|
+| إجمالي دوال `SECURITY DEFINER` داخل `public` | 100 |
+| قابلة للتنفيذ بواسطة `authenticated` | 65 |
+| قابلة للتنفيذ بواسطة `anon` | 1 |
+| دوال `SECURITY DEFINER` بلا `search_path` مثبت حسب الكتالوج | 0 |
+
+الدالة الوحيدة القابلة للتنفيذ بواسطة `anon` هي:
+
+- `rpc_get_invitation_preview(p_token text)`
+
+أما الدوال القابلة للتنفيذ بواسطة المستخدمين المسجلين فتضم واجهات قراءة وكتابة
+مقصودة، إضافة إلى دوال عالية الحساسية في المحاسبة والمخزون والرواتب والتصنيع.
+لذلك تُراجع حسب الفئة ولا يعامل العدد وحده كثغرة.
+
+### 2.3 ملاحظات Advisor الحالية
+
+- `uom_normalize_alias(p_value text)` لديها `search_path` قابل للتغيير بحسب
+  Advisor. الدالة `SECURITY INVOKER` وليست `SECURITY DEFINER`، لكن تثبيت
+  `search_path` أو تأهيل أسماء الكائنات يزيل الالتباس ويحسن الدفاع المتعمق.
+- `journal_entries` و`journal_lines` لديهما RLS مفعّل دون سياسات. يجب تحديد هل
+  هما جدولان قانونيان مستخدمان عبر API أم جداول قديمة مغلقة عمدًا.
+- حماية كلمات المرور المسربة غير مفعلة.
+- تحديث أمني لـPostgreSQL متاح.
+
+### 2.4 منح الجداول
+
+الفحص الحي لجدول `purchase_orders` أظهر أن دوري `anon` و`authenticated` يحملان
+منحًا جدولية واسعة تشمل `SELECT/INSERT/UPDATE/DELETE/TRUNCATE/TRIGGER/REFERENCES`.
+قد تمنع RLS الوصول الفعلي إلى الصفوف، لكن هذه المنح أوسع من مبدأ أقل صلاحية
+وتحتاج جردًا شاملًا، ثم سحب ما لا تحتاجه الواجهة بعد انتقال العمليات الحساسة إلى
+RPC محروسة.
+
+### 2.5 البنية الحالية للصلاحيات
+
+الجداول التالية موجودة بالفعل في قاعدة البيانات:
+
+- `permissions`
+- `roles`
+- `role_permissions`
+- `user_roles`
+- `audit_logs`
+
+لذلك مشروع RBAC القادم **يطور ويصحح البنية الحالية** بعد Gap Analysis، ولا ينشئ
+نظامًا ثانيًا موازيًا دون مبرر.
 
 ---
 
-## ✅ Checklist الكامل
+## 3. الأولوية P0 — قبل توسيع التشغيل
 
-### Phase 1: Function Search Path (✅ جاهز)
-- [x] إنشاء migration `66_fix_all_function_search_paths.sql`
-- [ ] تطبيق migration في Supabase
-- [ ] التحقق من view `v_function_search_path_status`
-- [ ] إعادة تشغيل Linter
-- [ ] التحقق من 0 Function Search Path warnings
+### SEC-P0-01 — إغلاق دورة GRN الآمنة
 
-### Phase 2: Leaked Password Protection (⏳ يدوي)
-- [ ] فتح Dashboard → Authentication → Policies
-- [ ] تفعيل "Leaked Password Protection"
-- [ ] حفظ التغييرات
-- [ ] إعادة تشغيل Linter
-- [ ] التحقق من اختفاء Warning
+**الحالة:** قيد التنفيذ على `review/migration-148-hardening-2`.
 
-### Phase 3: Postgres Version Update (⏳ يدوي)
-- [ ] إنشاء backup من قاعدة البيانات
-- [ ] فتح Dashboard → Settings → Infrastructure
-- [ ] بدء عملية Upgrade
-- [ ] انتظار اكتمال الترقية
-- [ ] اختبار الوظائف الأساسية
-- [ ] إعادة تشغيل Linter
-- [ ] التحقق من اختفاء Warning
+- [ ] إكمال مراجعة Migration 148.
+- [x] منع استلام أمر `submitted` قبل اعتماد مدير المؤسسة في Migration 149.
+- [x] إضافة Acceptance سلبي يثبت أن العضو لا يستطيع إحداث مخزون أو GRNI قبل
+      الاعتماد.
+- [ ] ربط نموذج GRN بـ`rpc_list_uom_receivable_purchase_orders` بدل القراءة
+      المباشرة للجداول.
+- [ ] دعم كمية استلام جزئية فعلية بوحدة الإدخال.
+- [ ] معالجة `pending_inspection` بمسار حسم ذري، أو عدم إتاحته مؤقتًا في الواجهة.
+- [ ] منع تسجيل كمية مرفوضة أكبر من الرصيد التعاقدي المفتوح.
+- [ ] نجاح CI وFresh DB وSonar واختبار Pilot قبل التطبيق على الإنتاج.
+
+### SEC-P0-02 — مراجعة دالة معاينة الدعوة المجهولة
+
+`rpc_get_invitation_preview` هي دالة `SECURITY DEFINER` قابلة للاستدعاء دون تسجيل
+دخول. قد يكون ذلك مقصودًا لصفحة قبول الدعوة، لكنه يحتاج عقدًا صريحًا:
+
+- [ ] تأكيد أن الإتاحة العامة ضرورة وظيفية.
+- [ ] إرجاع أقل قدر من البيانات وعدم كشف البريد أو العضويات بلا حاجة.
+- [ ] استخدام token عشوائي عالي entropy ومخزن بصورة hash.
+- [ ] فرض الانتهاء، الإلغاء، والاستخدام الواحد حيث يلزم.
+- [ ] إضافة rate limiting على مستوى Edge/API.
+- [ ] اختبار token غير صالح، منتهي، مستخدم، ودعوة مؤسسة أخرى.
+- [ ] إن لم تكن الإتاحة العامة ضرورية: سحب `EXECUTE` من `anon`.
+
+### SEC-P0-03 — تصنيف الدوال الحساسة المكشوفة للمستخدم المسجل
+
+ابدأ بالفئات ذات الأثر المالي أو الإداري:
+
+1. **الأمن والإدارة:**
+   `rpc_set_org_admin`, `create_role_from_template`, `get_user_permissions`,
+   `has_permission`.
+2. **المحاسبة والترحيل:**
+   `approve_journal_entry`, `batch_post_journal_entries`,
+   `reverse_journal_entry_enhanced`, `rpc_create_journal_entry`,
+   `rpc_post_event_journal`, `rpc_set_period_status`.
+3. **المخزون والمشتريات:**
+   `rpc_post_goods_receipt`, `rpc_create_stock_adjustment`,
+   `rpc_manual_stock_movement_v2`, `rpc_cancel_stock_adjustment`,
+   `rpc_submit_stock_adjustment`, `rpc_create_uom_purchase_order`.
+4. **الرواتب والتصنيع:**
+   `rpc_post_payroll_run`, `rpc_complete_manufacturing_order`,
+   `rpc_consume_reserved_materials_v2`, `release_manufacturing_order` وما يماثلها.
+
+لكل توقيع يسجل قرار واحد:
+
+| التصنيف | الإجراء |
+|---|---|
+| Client API مقصود | يبقى `EXECUTE` مع حارس عضوية/صلاحية ونطاق مؤسسة واختبار سلبي |
+| Helper داخلي | سحب التنفيذ من API roles أو نقله إلى schema غير مكشوفة |
+| Self-read helper | ربط الهوية بـ`auth.uid()` ومنع الاستعلام عن مستخدم آخر |
+| Deprecated | سحب التنفيذ ثم الحذف في migration لاحقة بعد إثبات عدم الاستخدام |
+
+> ملاحظة حرجة: الدوال التي تستقبل `p_user_id` مثل `has_permission` أو
+> `get_user_permissions` لا يجوز أن تسمح للمستخدم العادي بفحص مستخدم آخر. مسار
+> التحقق التشغيلي يفضل أن يعتمد `auth.uid()`، بينما الاستعلام الإداري يحتاج
+> صلاحية إدارة مستقلة.
+
+### SEC-P0-04 — حسم وضع `journal_entries` و`journal_lines`
+
+- [ ] تحديد إن كانا الجداول القانونية الحالية أم legacy.
+- [ ] إن كانا مستخدمين: إضافة سياسات قراءة/كتابة مرتبطة بالمؤسسة والصلاحية.
+- [ ] إن كانا غير مستخدمين: سحب منح API وتوثيق مسار الإحلال قبل الأرشفة.
+- [ ] اختبار أن المستخدم لا يقرأ أو يكتب قيود مؤسسة أخرى.
+- [ ] منع الحذف المادي للقيود المرحّلة؛ يستخدم `reverse/cancel` حسب العقد.
+
+### SEC-P0-05 — إصلاح `uom_normalize_alias`
+
+- [ ] إضافة `SET search_path = public, pg_temp` أو استخدام أسماء مؤهلة بالكامل.
+- [ ] التحقق من Volatility الملائمة للدالة.
+- [ ] إعادة تشغيل Advisor وإضافة اختبار يمنع عودة التحذير.
 
 ---
 
-## 🎯 النتيجة النهائية المتوقعة
+## 4. الأولوية P1 — RBAC مؤسسي على مستوى الخدمة
 
-بعد إكمال جميع الإصلاحات:
+المرجع التنفيذي هو Issue #48.
 
+### 4.1 نموذج مفتاح الصلاحية
+
+```text
+<module>.<service>.<action>
 ```
-✅ 0 Errors
-✅ 0 Warnings (أو warnings غير حرجة فقط)
+
+أمثلة:
+
+```text
+purchasing.purchase_orders.read
+purchasing.purchase_orders.create
+purchasing.purchase_orders.submit
+purchasing.purchase_orders.approve
+purchasing.goods_receipts.create
+purchasing.goods_receipts.reject
+purchasing.supplier_invoices.post
+accounting.journals.reverse
+inventory.adjustments.approve
+security.roles.manage
 ```
 
+### 4.2 العمليات المطلوبة
+
+لا يقتصر النظام على CRUD. يشمل على الأقل:
+
+- `read`, `create`, `update`, `archive`
+- `submit`, `approve`, `post`
+- `cancel`, `reverse`
+- `export`
+- `manage_settings`, `manage_permissions`
+
+الحذف المادي للوثائق المالية المرحّلة ليس صلاحية اعتيادية.
+
+### 4.3 نطاقات السلطة
+
+- `super_admin`: إدارة المنصة والمؤسسات، بعقد منفصل ومراجعة دقيقة.
+- `org_admin`: إدارة مؤسسته فقط وضمن الحدود المسموحة.
+- `org_user`: الصلاحيات المسندة له داخل المؤسسة.
+- أدوار نظام جاهزة وأدوار مخصصة للمؤسسة.
+
+### 4.4 الإنفاذ
+
+- دالة موحدة مثل `wardah_has_permission(org_id, permission_code)`.
+- حارس fail-closed مثل `wardah_assert_permission(...)` داخل RPC الحساسة.
+- RLS للقراءة والكتابة المباشرة حيث تبقى مطلوبة.
+- الواجهة تستخدم الصلاحيات لتجربة المستخدم فقط، ولا تكون الحارس النهائي.
+- كل تغيير صلاحية يسجل: المنفذ، المؤسسة، قبل/بعد، السبب، والوقت.
+- منع إزالة آخر مدير فعّال للمؤسسة.
+
+### 4.5 فصل المهام SoD
+
+- إنشاء المستند مستقل عن اعتماده أو ترحيله.
+- دعم منع اعتماد المستخدم لمستنده بنفسه وفق سياسة المؤسسة.
+- صلاحيات الإقفال، فتح الفترة، العكس، والتسويات منفصلة عن التعديل العادي.
+- العمليات عالية المخاطر قد تحتاج موافقة مزدوجة أو حد قيمة.
+
 ---
 
-## 📝 ملاحظات
+## 5. الأولوية P1 — تقليل سطح الجداول وRLS
 
-1. **ترتيب الأولويات:**
-   - ابدأ بـ Function Search Path (أهم وأسهل)
-   - ثم Leaked Password Protection (سريع)
-   - أخيراً Postgres Upgrade (يحتاج تخطيط)
-
-2. **اختبار بعد كل خطوة:**
-   - اختبر الوظائف الأساسية بعد كل إصلاح
-   - تحقق من Linter بعد كل خطوة
-
-3. **التوثيق:**
-   - سجّل أي مشاكل واجهتها
-   - وثّق الوقت المستغرق لكل خطوة
+- [ ] جرد كل منح `anon` و`authenticated` على جداول `public`.
+- [ ] سحب `TRUNCATE`, `TRIGGER`, `REFERENCES` وDML غير المطلوبة من أدوار API.
+- [ ] تفضيل RPC ذرية للعمليات المركبة والمالية.
+- [ ] الاحتفاظ بقراءات مباشرة فقط عندما تكون RLS واضحة ومختبرة.
+- [ ] اختبارات سلبية للقراءة والكتابة عبر مؤسسة أخرى.
+- [ ] اختبار الاستدعاء المباشر لـREST/RPC دون الاعتماد على الواجهة.
+- [ ] مراجعة تعدد السياسات permissive وتأثيرها على المنطق والأداء.
 
 ---
 
-## 🔗 روابط مفيدة
+## 6. الأولوية P1 — إعدادات المنصة
 
-- [Supabase Password Security](https://supabase.com/docs/guides/auth/password-security)
-- [Supabase Database Upgrades](https://supabase.com/docs/guides/platform/upgrading)
-- [HaveIBeenPwned API](https://haveibeenpwned.com/API/v3)
-- [PostgreSQL Security Updates](https://www.postgresql.org/support/security/)
+### 6.1 ترقية PostgreSQL
+
+- [ ] اختيار نافذة صيانة معتمدة.
+- [ ] التحقق من backup حديث وقابلية الاستعادة، لا مجرد وجوده.
+- [ ] تجربة Fresh DB وسلسلة migrations قبل الترقية.
+- [ ] توثيق خطة smoke test للمصادقة، PO، GRN، المخزون، القيود، والتقارير.
+- [ ] تنفيذ الترقية ومراقبة logs وAdvisors بعدها.
+
+لا تعتمد الوثيقة مدة توقف ثابتة؛ مدة Supabase المعروضة وقت التنفيذ هي المرجع.
+والترقية لا تدعم downgrade المباشر، لذلك يجب اعتماد خطة استعادة مسبقًا.
+
+### 6.2 حماية كلمات المرور المسربة
+
+- [ ] التحقق من توفر الإعداد في خطة المشروع الحالية وقت التنفيذ.
+- [ ] تفعيله من إعدادات Authentication إن كان متاحًا.
+- [ ] اختبار التسجيل وتغيير كلمة المرور والاسترداد.
+- [ ] عدم إرسال كلمة المرور الخام إلى خدمة تطبيقية مخصصة أو تسجيلها في logs.
+
+لا تُثبت هذه الوثيقة سعر خطة أو تربط الميزة بخطة محددة دون تحقق حديث من لوحة
+المشروع.
 
 ---
 
-**آخر تحديث:** 2025-01-XX  
-**الحالة:** ⏳ جاهز للتنفيذ
+## 7. الأولوية P2 — التحسين المستمر
 
+- [ ] مراجعة أداء سياسات RLS (`auth.uid()`/`auth.jwt()` داخل `SELECT`).
+- [ ] توحيد السياسات المتعددة المتسامحة عندما يكون ذلك آمنًا.
+- [ ] مراجعة schemas الأرشيفية والنسخ الاحتياطية ومنع كشفها عبر API.
+- [ ] اعتماد retention واضح لـ`audit_logs` وسجلات الصلاحيات.
+- [ ] Secret scanning وdependency scanning وCodeQL/SAST حسب قدرات المستودع.
+- [ ] مراجعة CORS وCSP وStorage buckets وEdge Functions.
+- [ ] اختبار استعادة backup دوريًا.
+- [ ] حفظ لقطة Advisor مؤرخة بعد كل مرحلة أمنية كبيرة.
+
+> لا تُحذف الفهارس لمجرد أنها مصنفة `unused`؛ القرار يعتمد workload حقيقيًا
+> وخطة rollback وقياسًا قبل/بعد.
+
+---
+
+## 8. تعريف الإنجاز الأمني
+
+لا يعتبر البند مغلقًا إلا عند تحقق ما ينطبق عليه:
+
+- [ ] Migration في المستودع وسلسلة Fresh DB ناجحة.
+- [ ] اختبارات سلبية تمنع عبور المؤسسة وتصعيد الصلاحية.
+- [ ] الاستدعاء المباشر للـRPC أو REST يفشل دون الصلاحية.
+- [ ] `anon` و`PUBLIC` لا يملكان تنفيذ العمليات غير العامة.
+- [ ] `SECURITY DEFINER` لديها `search_path` ثابت وحارس هوية/مؤسسة/صلاحية.
+- [ ] لا تعتمد الحماية على إخفاء عنصر في الواجهة.
+- [ ] تغييرات الصلاحيات والأعمال الحساسة قابلة للتدقيق.
+- [ ] لا حذف مادي لوثيقة مالية مرحّلة دون عقد قانوني صريح.
+- [ ] Runbook قبل/بعد وخطة رجوع موثقة.
+- [ ] CI وSonar وفحوص الحوكمة ناجحة.
+- [ ] تحقق على البيئة المستهدفة بعد النشر.
+
+---
+
+## 9. سجل النشر الحالي
+
+| العنصر | المستودع | الإنتاج |
+|---|---|---|
+| Migration 147 — إنشاء PO بوحدات القياس | مدمجة | مطبقة |
+| Migration 148 — GRN وSnapshot والجودة | فرع مراجعة | غير مطبقة |
+| Migration 149 — الاعتماد شرط للاستلام | فرع مراجعة | غير مطبقة |
+| RBAC الدقيق Issue #48 | تصميم/Backlog | غير مطبق |
+| Leaked password protection | إعداد منصة | غير مفعّل |
+| PostgreSQL security update | متاح | لم ينفذ |
+
+---
+
+## 10. الوثائق التاريخية
+
+الملفات التي تعلن «0 warnings»، «مكتمل بالكامل»، أو تصف حالة 2024–2025 تبقى
+مرجعًا تاريخيًا فقط ولا تستخدم لقبول المخاطر الحالية. ترتيب القراءة المعتمد موثق
+في `docs/security/README.md`.
+
+---
+
+**الحالة:** سجل نشط — يحدّث فقط بأدلة مؤرخة من المستودع والبيئة الحية.
