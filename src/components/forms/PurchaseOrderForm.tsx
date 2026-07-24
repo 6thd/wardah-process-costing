@@ -1,5 +1,5 @@
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
-import { PurchaseOrderForm as PurchaseOrderLegacyForm } from './PurchaseOrderLegacyForm'
+import { PurchaseOrderForm as PurchaseOrderLegacyForm } from './LegacyPurchaseOrderForm'
 import { PurchaseOrderForm as PurchaseOrderUomForm } from './PurchaseOrderUomForm'
 
 interface PurchaseOrderFormProps {
