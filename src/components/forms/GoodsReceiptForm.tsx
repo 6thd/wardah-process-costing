@@ -1,5 +1,18 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
+import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -9,53 +22,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { Checkbox } from '@/components/ui/checkbox'
-import { CalendarIcon, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { supabase } from '@/lib/supabase'
-import { format } from 'date-fns'
-import { cn } from '@/lib/utils'
 import { WarehouseSelector } from '@/components/ui/warehouse-selector'
 import { StockBalanceInline } from '@/components/ui/stock-balance-badge'
-import { receiveGoods } from '@/services/purchasing-service'
-
-interface GoodsReceiptLine {
-  po_line_id: string
-  product_id: string
-  product_code?: string
-  product_name?: string
-  // قيم وحدة الأساس — كما تُخزَّن في قاعدة البيانات.
-  ordered_quantity: number
-  received_quantity: number
-  accepted_quantity: number
-  pending_quantity: number
-  unit_cost: number
-  // Snapshot وحدة الإدخال التجارية المثبّت على سطر أمر الشراء (Migration 139/148).
-  // العرض والإدخال يتمّان بهذه الوحدة، والخادم هو من يحوّل إلى وحدة الأساس.
-  uom_id?: string
-  uom_symbol?: string
-  conversion_factor: number
-  ordered_qty_entered: number
-  unit_cost_entered: number
-  quality_status: 'accepted' | 'rejected' | 'pending_inspection'
-  is_selected: boolean
-}
-
-const QUALITY_LABELS: Record<GoodsReceiptLine['quality_status'], string> = {
-  accepted: 'مقبول',
-  rejected: 'مرفوض',
-  pending_inspection: 'قيد الفحص',
-}
+import {
+  createReceiptDraftLine,
+  listUomReceivablePurchaseOrders,
+  postUomGoodsReceipt,
+  validateReceiptQuantity,
+  type ReceivablePurchaseOrder,
+  type ReceiptDraftLine,
+  type ReceiptQualityStatus,
+} from '@/services/uom-goods-receipt-service'
 
 interface GoodsReceiptFormProps {
   readonly open: boolean
@@ -63,496 +40,432 @@ interface GoodsReceiptFormProps {
   readonly onSuccess?: () => void
 }
 
+const QUALITY_OPTIONS: Array<{ value: ReceiptQualityStatus; label: string }> = [
+  { value: 'accepted', label: 'مقبول' },
+  { value: 'rejected', label: 'مرفوض' },
+]
+
+const ERROR_MESSAGES: Record<string, string> = {
+  ORG_ID_REQUIRED: 'لم يتم تحديد المؤسسة الحالية.',
+  UOM_ENGINE_NOT_ENABLED_FOR_ORG: 'محرك وحدات القياس غير مفعّل لهذه المؤسسة.',
+  RECEIPT_QUANTITY_MUST_BE_POSITIVE: 'يجب أن تكون كمية الاستلام أكبر من صفر.',
+  RECEIPT_QUANTITY_EXCEEDS_OPEN_BALANCE: 'كمية الاستلام تتجاوز الرصيد المفتوح في أمر الشراء.',
+  NO_OPEN_QUANTITY: 'لا توجد كمية مفتوحة لهذا السطر.',
+  RECEIPT_LINES_REQUIRED: 'اختر سطرًا واحدًا على الأقل للاستلام.',
+  WAREHOUSE_REQUIRED: 'يجب اختيار المخزن.',
+  PO_NOT_RECEIVABLE: 'أمر الشراء غير معتمد أو غير قابل للاستلام.',
+  OVER_RECEIPT: 'كمية الاستلام تتجاوز الرصيد التعاقدي المفتوح.',
+  REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE: 'الكمية المرفوضة تتجاوز الرصيد المفتوح.',
+  PENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW: 'قيد الفحص يحتاج مسار حسم مستقل قبل استخدامه.',
+}
+
+function getErrorMessage(error: unknown): string {
+  const message = error instanceof Error
+    ? error.message
+    : String((error as { message?: string } | null)?.message ?? error)
+
+  const key = Object.keys(ERROR_MESSAGES).find((candidate) => message.includes(candidate))
+  return key ? ERROR_MESSAGES[key] : message || 'تعذر إنشاء سند الاستلام.'
+}
+
+function roundQuantity(value: number): number {
+  return Math.round(value * 1_000_000) / 1_000_000
+}
+
+function displayNumber(value: number, decimalPlaces = 6): string {
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: decimalPlaces,
+  })
+}
+
 export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceiptFormProps) {
-  const [loading, setLoading] = useState(false)
-  const [loadingPOs, setLoadingPOs] = useState(false)
-  const [purchaseOrders, setPurchaseOrders] = useState<any[]>([])
-  const [selectedPO, setSelectedPO] = useState('')
-  const [warehouseId, setWarehouseId] = useState('')  // ⭐ New: Warehouse selection
-  const [receiptDate, setReceiptDate] = useState<Date>(new Date())
+  const { currentOrgId } = useAuth()
+  const [loadingOrders, setLoadingOrders] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [orders, setOrders] = useState<ReceivablePurchaseOrder[]>([])
+  const [selectedOrderId, setSelectedOrderId] = useState('')
+  const [lines, setLines] = useState<ReceiptDraftLine[]>([])
+  const [warehouseId, setWarehouseId] = useState('')
+  const [receiptDate, setReceiptDate] = useState(format(new Date(), 'yyyy-MM-dd'))
   const [notes, setNotes] = useState('')
-  const [lines, setLines] = useState<GoodsReceiptLine[]>([])
-  // مفتاح idempotency مقرون ببصمة الحمولة { key, fp }: يُعاد استخدام المفتاح فقط
-  // عند تطابق الحمولة (إعادة محاولة حقيقية بعد فشل/timeout ⇒ لا تكرار استلام)،
-  // وأي تغيّر في الحمولة (كمية/مخزن/تاريخ/سطور/تكلفة/أمر الشراء) يولّد مفتاحاً
-  // جديداً — فلا يُعاد سند قديم كـ replay لعملية مختلفة. يُصفَّر بعد النجاح.
-  const idempotencyRef = useRef<{ key: string; fp: string } | null>(null)
+  const idempotencyRef = useRef<{ fingerprint: string; key: string } | null>(null)
 
-  useEffect(() => {
-    if (open) {
-      loadPurchaseOrders()
+  const selectedOrder = useMemo(
+    () => orders.find((order) => order.id === selectedOrderId) ?? null,
+    [orders, selectedOrderId],
+  )
+
+  const loadOrders = async () => {
+    if (!currentOrgId) {
+      setOrders([])
+      setSelectedOrderId('')
+      setLines([])
+      return
     }
-  }, [open])
 
-  useEffect(() => {
-    if (selectedPO) {
-      loadPOLines()
-    }
-  }, [selectedPO])
-
-  const loadPurchaseOrders = async () => {
-    setLoadingPOs(true)
+    setLoadingOrders(true)
     try {
-      console.log('🔍 Loading purchase orders for goods receipt...')
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          vendor:vendors(code, name)
-        `)
-        .in('status', ['confirmed', 'partially_received', 'draft'])
-        .order('order_date', { ascending: false })
-      
-      if (error) throw error
-      console.log('✅ Found', data?.length || 0, 'purchase orders:', data)
-      setPurchaseOrders(data || [])
-      
-      if (!data || data.length === 0) {
-        toast.info('لا توجد أوامر شراء جاهزة للاستلام')
-      }
+      const data = await listUomReceivablePurchaseOrders(currentOrgId)
+      setOrders(data)
+      setSelectedOrderId((current) => data.some((order) => order.id === current) ? current : '')
+      if (data.length === 0) toast.info('لا توجد أوامر شراء معتمدة جاهزة للاستلام')
     } catch (error) {
-      console.error('💥 Error loading purchase orders:', error)
-      toast.error('خطأ في تحميل أوامر الشراء')
+      console.error('Failed to load receivable purchase orders:', error)
+      setOrders([])
+      toast.error(getErrorMessage(error))
     } finally {
-      setLoadingPOs(false)
+      setLoadingOrders(false)
     }
   }
 
-  const loadPOLines = async () => {
+  useEffect(() => {
+    if (open) void loadOrders()
+  }, [open, currentOrgId])
+
+  useEffect(() => {
+    if (!selectedOrder) {
+      setLines([])
+      return
+    }
+    setLines(selectedOrder.lines.map(createReceiptDraftLine))
+    idempotencyRef.current = null
+  }, [selectedOrder])
+
+  const updateLine = <K extends keyof ReceiptDraftLine>(
+    index: number,
+    field: K,
+    value: ReceiptDraftLine[K],
+  ) => {
+    setLines((current) => current.map((line, currentIndex) => (
+      currentIndex === index ? { ...line, [field]: value } : line
+    )))
+    idempotencyRef.current = null
+  }
+
+  const validateSelectedLines = (): ReceiptDraftLine[] => {
+    const selected = lines.filter((line) => line.is_selected)
+    if (selected.length === 0) throw new Error('RECEIPT_LINES_REQUIRED')
+
+    for (const line of selected) {
+      validateReceiptQuantity(line.receipt_qty_entered, line.remaining_qty_entered)
+    }
+    return selected
+  }
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!currentOrgId) {
+      toast.error(ERROR_MESSAGES.ORG_ID_REQUIRED)
+      return
+    }
+    if (!selectedOrder) {
+      toast.error('اختر أمر شراء معتمدًا.')
+      return
+    }
+    if (!warehouseId) {
+      toast.error(ERROR_MESSAGES.WAREHOUSE_REQUIRED)
+      return
+    }
+
     try {
-      const { data, error } = await supabase
-        .from('purchase_order_lines')
-        .select(`
-          *,
-          product:products(code, name),
-          uom:uoms(id, symbol, code)
-        `)
-        .eq('purchase_order_id', selectedPO)
-        .order('line_number')
-
-      if (error) throw error
-
-      const receiptLines: GoodsReceiptLine[] = (data || []).map(line => {
-        // المعامل المثبّت على السطر هو مصدر الحقيقة الوحيد؛ لا يُعاد اشتقاقه من
-        // دليل الوحدات الحالي حتى لا يُعاد تفسير مستند تاريخي.
-        const factor = Number(line.conversion_factor_snapshot) || 1
-        const orderedBase = Number(line.quantity) || 0
-        const receivedBase = Number(line.received_quantity) || 0
-        const acceptedBase = Number(line.accepted_quantity ?? receivedBase) || 0
-        const rejectedBase = Number(line.rejected_quantity ?? 0) || 0
-        return {
-          po_line_id: line.id,
-          product_id: line.product_id,
-          product_code: line.product?.code,
-          product_name: line.product?.name,
-          ordered_quantity: orderedBase,
-          received_quantity: receivedBase,
-          accepted_quantity: acceptedBase,
-          // الكمية المستلمة التي لم تُقبل ولم تُرفض بعد — ما زالت تحجز رصيد التعاقد.
-          pending_quantity: Math.max(receivedBase - acceptedBase - rejectedBase, 0),
-          unit_cost: Number(line.unit_price) || 0,
-          uom_id: line.uom_id ?? undefined,
-          uom_symbol: line.uom?.symbol ?? line.uom?.code ?? undefined,
-          conversion_factor: factor,
-          ordered_qty_entered: Number(line.qty_entered) || orderedBase / factor,
-          unit_cost_entered:
-            Number(line.unit_price_entered) || (Number(line.unit_price) || 0) * factor,
-          quality_status: 'accepted' as const,
-          is_selected: true
-        }
+      const selectedLines = validateSelectedLines()
+      const fingerprint = JSON.stringify({
+        orgId: currentOrgId,
+        purchaseOrderId: selectedOrder.id,
+        warehouseId,
+        receiptDate,
+        notes,
+        lines: selectedLines.map((line) => ({
+          id: line.id,
+          quantity: line.receipt_qty_entered,
+          quality: line.quality_status,
+          uomId: line.uom_id,
+          factor: line.conversion_factor_snapshot,
+          cost: line.unit_cost_entered,
+        })),
       })
 
-      setLines(receiptLines)
-    } catch (error) {
-      console.error('Error loading PO lines:', error)
-      toast.error('خطأ في تحميل أسطر أمر الشراء')
-    }
-  }
-
-  const updateLine = (index: number, field: keyof GoodsReceiptLine, value: any) => {
-    const newLines = [...lines]
-    newLines[index] = { ...newLines[index], [field]: value }
-    setLines(newLines)
-  }
-
-  // الرصيد المتبقي هو رصيد **تعاقدي** لا مادي: المقبول نهائي، وقيد الفحص ما زال
-  // محتجزًا، أما المرفوض فيتحرّر ليظل استبداله من المورد مشروعًا (Migration 148).
-  const getRemainingQuantity = (line: GoodsReceiptLine) => {
-    return Math.max(line.ordered_quantity - line.accepted_quantity - line.pending_quantity, 0)
-  }
-
-  // الإدخال والعرض بوحدة أمر الشراء التجارية، والتحويل إلى وحدة الأساس مسؤولية
-  // الخادم وحده اعتمادًا على Snapshot المثبّت.
-  const getRemainingQuantityEntered = (line: GoodsReceiptLine) => {
-    const factor = line.conversion_factor || 1
-    return Math.round((getRemainingQuantity(line) / factor) * 1e6) / 1e6
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!selectedPO) {
-      toast.error('الرجاء اختيار أمر الشراء')
-      return
-    }
-
-    // ⭐ Validate warehouse selection
-    if (!warehouseId) {
-      toast.error('الرجاء اختيار المخزن')
-      return
-    }
-    
-    const selectedLines = lines.filter(l => l.is_selected && getRemainingQuantity(l) > 0)
-    
-    if (selectedLines.length === 0) {
-      toast.error('الرجاء اختيار منتج واحد على الأقل للاستلام')
-      return
-    }
-    
-    setLoading(true)
-    
-    try {
-      console.log('📦 Creating Goods Receipt with Stock Ledger System...')
-
-      // Get PO details for vendor_id
-      const po = purchaseOrders.find(p => p.id === selectedPO)
-      if (!po) {
-        throw new Error('Purchase Order not found')
+      if (!idempotencyRef.current || idempotencyRef.current.fingerprint !== fingerprint) {
+        idempotencyRef.current = {
+          fingerprint,
+          key: globalThis.crypto.randomUUID(),
+        }
       }
 
-      // Prepare receipt data
-      const receipt = {
-        purchase_order_id: selectedPO,
-        vendor_id: po.vendor_id,
-        receipt_date: format(receiptDate, 'yyyy-MM-dd'),
-        warehouse_id: warehouseId,  // ⭐ Required for Stock Ledger
-        notes: notes || undefined
-      }
+      setSaving(true)
+      const result = await postUomGoodsReceipt({
+        orgId: currentOrgId,
+        purchaseOrder: selectedOrder,
+        warehouseId,
+        receiptDate,
+        notes,
+        lines: selectedLines,
+        idempotencyKey: idempotencyRef.current.key,
+      })
 
-      // Prepare lines data
-      const receiptLines = selectedLines.map(line => ({
-        product_id: line.product_id,
-        purchase_order_line_id: line.po_line_id,  // ⭐ Link to PO line
-        ordered_quantity: line.ordered_quantity,
-        received_quantity: getRemainingQuantity(line),
-        unit_cost: line.unit_cost,
-        quality_status: line.quality_status,
-        // ⭐ عقد Snapshot (Migration 148): الكمية والتكلفة بوحدة الإدخال التجارية.
-        //    بدونها يرفض الخادم أي سطر بمعامل ≠ 1 بدل أن يضرب كمية الأساس في
-        //    المعامل مرة ثانية.
-        uom_id: line.uom_id,
-        qty_entered: getRemainingQuantityEntered(line),
-        unit_cost_entered: line.unit_cost_entered,
-      }))
-
-      // ⭐ Use the new receiveGoods function with Stock Ledger System.
-      //    بصمة الحمولة تحكم المفتاح: نفس الحمولة ⇒ نفس المفتاح (إعادة محاولة آمنة)،
-      //    وتغيّرها ⇒ مفتاح جديد (عملية مختلفة، لا يُعاد سند سابق كـ replay).
-      const receiptFingerprint = JSON.stringify({ ...receipt, lines: receiptLines })
-      if (!idempotencyRef.current || idempotencyRef.current.fp !== receiptFingerprint) {
-        idempotencyRef.current = { key: globalThis.crypto.randomUUID(), fp: receiptFingerprint }
-      }
-      const result = await receiveGoods(receipt, receiptLines, idempotencyRef.current.key)
-
-      if (!result.success) {
-        throw result.error || new Error('Failed to create goods receipt')
-      }
-
-      console.log('✅ Goods Receipt created successfully:', result.data)
-
-      toast.success('تم إنشاء سند الاستلام بنجاح')
-
-      // نجح الاستلام ⇒ صفّر المفتاح/البصمة ليبدأ الاستلام التالي بمفتاح جديد
+      toast.success(`تم إنشاء سند الاستلام ${result.receipt_number ?? ''}`.trim())
       idempotencyRef.current = null
-
-      // B1: قيد GL لم يُرحَّل؟ أخبر المستخدم بدل الصمت
-      if (result.glWarning) {
-        toast.warning(result.glWarning, { duration: 10000 })
-      }
-
-      // Reset form
-      setSelectedPO('')
+      setSelectedOrderId('')
+      setLines([])
       setWarehouseId('')
       setNotes('')
-      setLines([])
-      
-      if (onSuccess) onSuccess()
+      await loadOrders()
+      onSuccess?.()
       onOpenChange(false)
-      
-    } catch (error: any) {
-      console.error('❌ Error creating goods receipt:', error)
-      toast.error(`خطأ في إنشاء سند الاستلام: ${error.message}`)
+    } catch (error) {
+      console.error('Failed to post partial UoM goods receipt:', error)
+      toast.error(getErrorMessage(error))
     } finally {
-      setLoading(false)
+      setSaving(false)
     }
   }
 
-  const selectedPODetails = purchaseOrders.find(po => po.id === selectedPO)
+  const allSelected = lines.length > 0 && lines.every((line) => line.is_selected)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[92vh] max-w-5xl overflow-y-auto" dir="rtl">
         <DialogHeader>
-          <DialogTitle>إضافة إشعار استلام بضاعة</DialogTitle>
+          <DialogTitle>إضافة سند استلام جزئي</DialogTitle>
           <DialogDescription>
-            اختر أمر الشراء وحدد الكميات المستلمة
+            الاستلام يعتمد وحدة ومعامل وسعر أمر الشراء المحفوظة، ويحوّل إلى وحدة الأساس داخل المعاملة الذرية.
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Header Section */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="purchaseOrder">أمر الشراء *</Label>
-              <Select value={selectedPO} onValueChange={setSelectedPO} disabled={loadingPOs}>
-                <SelectTrigger id="purchaseOrder">
-                  <SelectValue placeholder={(() => {
-                    if (loadingPOs) return 'جاري التحميل...'
-                    if (purchaseOrders.length === 0) return 'لا توجد أوامر شراء متاحة'
-                    return 'اختر أمر الشراء'
-                  })()} />
+              <Label htmlFor="purchase-order">أمر الشراء المعتمد *</Label>
+              <Select
+                value={selectedOrderId}
+                onValueChange={setSelectedOrderId}
+                disabled={loadingOrders || saving}
+              >
+                <SelectTrigger id="purchase-order">
+                  <SelectValue placeholder={loadingOrders ? 'جاري التحميل...' : 'اختر أمر الشراء'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {purchaseOrders.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-muted-foreground">
-                      <p className="font-semibold mb-2">لا توجد أوامر شراء جاهزة للاستلام</p>
-                      <p className="text-xs">قد يكون السبب:</p>
-                      <ul className="text-xs mt-1 space-y-1 text-right">
-                        <li>• لا توجد أوامر شراء مؤكدة</li>
-                        <li>• جميع الأوامر تم استلامها بالكامل</li>
-                      </ul>
-                    </div>
-                  ) : (
-                    purchaseOrders.map((po) => (
-                      <SelectItem key={po.id} value={po.id}>
-                        {po.order_number} - {po.vendor?.name} ({po.total_amount.toFixed(2)} ر.س)
-                      </SelectItem>
-                    ))
-                  )}
+                  {orders.map((order) => (
+                    <SelectItem key={order.id} value={order.id}>
+                      {order.order_number} — {order.vendor.name} — {order.total_amount.toLocaleString('en-US')} ر.س
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {loadingPOs && (
-                <p className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  جاري تحميل أوامر الشراء...
-                </p>
-              )}
-              {!loadingPOs && purchaseOrders.length > 0 && (
+              {!loadingOrders && orders.length === 0 && (
                 <p className="text-xs text-muted-foreground">
-                  تم العثور على {purchaseOrders.length} {purchaseOrders.length === 1 ? 'أمر شراء' : 'أوامر شراء'}
+                  لا تظهر المسودات أو الأوامر المقدمة؛ الاعتماد الإداري شرط قبل الاستلام.
                 </p>
               )}
             </div>
 
-            {/* ⭐ Warehouse Selector - Required for Stock Ledger System */}
-            <div className="space-y-2">
-              <WarehouseSelector 
-                value={warehouseId} 
-                onChange={setWarehouseId}
-                required
-                disabled={!selectedPO}
-                label="المخزن *"
-                showLabel={true}
-              />
-              {selectedPO && !warehouseId && (
-                <p className="text-xs text-red-600">
-                  يجب اختيار المخزن لإنشاء سند الاستلام
-                </p>
-              )}
-            </div>
+            <WarehouseSelector
+              value={warehouseId}
+              onChange={(value) => {
+                setWarehouseId(value)
+                idempotencyRef.current = null
+              }}
+              required
+              disabled={!selectedOrder || saving}
+              label="المخزن *"
+              showLabel
+            />
 
             <div className="space-y-2">
-              <Label htmlFor="receiptDate">تاريخ الاستلام *</Label>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button
-                    id="receiptDate"
-                    variant="outline"
-                    className={cn(
-                      "w-full justify-start text-right font-normal",
-                      !receiptDate && "text-muted-foreground"
-                    )}
-                  >
-                    <CalendarIcon className="ml-2 h-4 w-4" />
-                    {receiptDate ? (
-                      <span className="flex-1 text-right">{format(receiptDate, 'dd/MM/yyyy')}</span>
-                    ) : (
-                      <span className="flex-1 text-right">اختر التاريخ</span>
-                    )}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="start">
-                  <CalendarComponent
-                    mode="single"
-                    selected={receiptDate}
-                    onSelect={(date) => date && setReceiptDate(date)}
-                  />
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="notes">ملاحظات</Label>
+              <Label htmlFor="receipt-date">تاريخ الاستلام *</Label>
               <Input
-                id="notes"
+                id="receipt-date"
+                type="date"
+                value={receiptDate}
+                onChange={(event) => {
+                  setReceiptDate(event.target.value)
+                  idempotencyRef.current = null
+                }}
+                disabled={saving}
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="receipt-notes">ملاحظات</Label>
+              <Input
+                id="receipt-notes"
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="أي ملاحظات عن الاستلام"
+                onChange={(event) => {
+                  setNotes(event.target.value)
+                  idempotencyRef.current = null
+                }}
+                disabled={saving}
+                placeholder="مرجع الشحنة أو ملاحظات الاستلام"
               />
             </div>
           </div>
 
-          {/* PO Details */}
-          {selectedPODetails && (
-            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          {selectedOrder && (
+            <div className="rounded-lg border bg-muted/40 p-4">
+              <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
                 <div>
-                  <span className="text-muted-foreground">المورد:</span>
-                  <p className="font-medium">{selectedPODetails.vendor?.name}</p>
+                  <span className="text-muted-foreground">المورد</span>
+                  <p className="font-medium">{selectedOrder.vendor.name}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">تاريخ الأمر:</span>
-                  <p className="font-medium">
-                    {new Date(selectedPODetails.order_date).toLocaleDateString('ar-SA')}
-                  </p>
+                  <span className="text-muted-foreground">تاريخ الأمر</span>
+                  <p className="font-medium">{new Date(selectedOrder.order_date).toLocaleDateString('en-US')}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">الحالة:</span>
-                  <p className="font-medium">{selectedPODetails.status}</p>
+                  <span className="text-muted-foreground">الحالة</span>
+                  <p className="font-medium">{selectedOrder.status === 'approved' ? 'معتمد' : 'مستلم جزئيًا'}</p>
                 </div>
                 <div>
-                  <span className="text-muted-foreground">الإجمالي:</span>
-                  <p className="font-medium">{selectedPODetails.total_amount.toFixed(2)} ر.س</p>
+                  <span className="text-muted-foreground">الإجمالي</span>
+                  <p className="font-medium">{selectedOrder.total_amount.toLocaleString('en-US')} ر.س</p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Lines Section */}
           {lines.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold">المنتجات المطلوب استلامها</h3>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="text-lg font-semibold">سطور الاستلام</h3>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={(checked) => {
+                      setLines((current) => current.map((line) => ({
+                        ...line,
+                        is_selected: Boolean(checked) && line.remaining_qty_entered > 0,
+                      })))
+                      idempotencyRef.current = null
+                    }}
+                  />
+                  تحديد الكل
+                </label>
+              </div>
 
-              <div className="border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-muted">
-                      <tr>
-                        <th className="text-center p-2 w-12">
+              <div className="grid gap-3">
+                {lines.map((line, index) => {
+                  const unitLabel = line.uom.symbol || line.uom.name_ar || line.uom.name || line.uom.code || 'وحدة'
+                  const basePreview = roundQuantity(
+                    line.receipt_qty_entered * line.conversion_factor_snapshot,
+                  )
+                  const productName = line.product.name_ar || line.product.name || line.product.code || 'منتج'
+
+                  return (
+                    <div key={line.id} className="rounded-lg border bg-card p-4">
+                      <div className="grid gap-4 lg:grid-cols-[auto_minmax(0,1fr)_repeat(3,minmax(130px,0.55fr))] lg:items-end">
+                        <div className="self-start pt-1">
                           <Checkbox
-                            checked={lines.every(l => l.is_selected)}
-                            onCheckedChange={(checked) => {
-                              setLines(lines.map(l => ({ ...l, is_selected: !!checked })))
+                            checked={line.is_selected}
+                            disabled={line.remaining_qty_entered <= 0 || saving}
+                            onCheckedChange={(checked) => updateLine(index, 'is_selected', Boolean(checked))}
+                            aria-label={`اختيار ${productName}`}
+                          />
+                        </div>
+
+                        <div className="min-w-0">
+                          <p className="font-semibold">{productName}</p>
+                          <p className="text-sm text-muted-foreground">{line.product.code ?? '—'}</p>
+                          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                            <span>المطلوب: {displayNumber(line.ordered_qty_entered)} {unitLabel}</span>
+                            <span>المستلم ماديًا: {displayNumber(line.received_qty_entered)} {unitLabel}</span>
+                            <span>المتبقي: {displayNumber(line.remaining_qty_entered)} {unitLabel}</span>
+                            <span>المعامل: {displayNumber(line.conversion_factor_snapshot)}</span>
+                          </div>
+                          {warehouseId && (
+                            <div className="mt-2">
+                              <StockBalanceInline productId={line.product_id} warehouseId={warehouseId} />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor={`receipt-qty-${line.id}`}>الكمية المستلمة ({unitLabel})</Label>
+                          <Input
+                            id={`receipt-qty-${line.id}`}
+                            type="number"
+                            inputMode="decimal"
+                            min="0"
+                            max={line.remaining_qty_entered}
+                            step="any"
+                            value={line.receipt_qty_entered}
+                            disabled={!line.is_selected || saving}
+                            onChange={(event) => {
+                              const value = Number(event.target.value)
+                              updateLine(index, 'receipt_qty_entered', Number.isFinite(value) ? value : 0)
                             }}
                           />
-                        </th>
-                        <th className="text-right p-2 text-sm font-medium">المنتج</th>
-                        <th className="text-right p-2 text-sm font-medium w-20">الوحدة</th>
-                        <th className="text-right p-2 text-sm font-medium w-24">المطلوب</th>
-                        <th className="text-right p-2 text-sm font-medium w-24">المقبول</th>
-                        <th className="text-right p-2 text-sm font-medium w-24">المتبقي</th>
-                        <th className="text-right p-2 text-sm font-medium w-36">الجودة</th>
-                        <th className="text-right p-2 text-sm font-medium w-28">التكلفة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lines.map((line, lineIndex) => {
-                        const remaining = getRemainingQuantityEntered(line)
-                        const factor = line.conversion_factor || 1
-                        const acceptedEntered =
-                          Math.round((line.accepted_quantity / factor) * 1e6) / 1e6
-                        const lineKey = `${line.po_line_id}-${line.product_id}`
-                        return (
-                          <tr key={lineKey} className="border-t">
-                            <td className="p-2 text-center">
-                              <Checkbox
-                                checked={line.is_selected}
-                                disabled={remaining <= 0}
-                                onCheckedChange={(checked) => 
-                                  updateLine(lineIndex, 'is_selected', !!checked)
-                                }
-                              />
-                            </td>
-                            <td className="p-2">
-                              <div>
-                                <p className="font-medium">{line.product_name}</p>
-                                <p className="text-sm text-muted-foreground">{line.product_code}</p>
-                                {/* ⭐ Show current stock balance if warehouse is selected */}
-                                {warehouseId && (
-                                  <div className="mt-1">
-                                    <StockBalanceInline 
-                                      productId={line.product_id} 
-                                      warehouseId={warehouseId}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-2 text-right text-sm text-muted-foreground">
-                              {line.uom_symbol ?? '—'}
-                            </td>
-                            <td className="p-2 text-right font-medium">
-                              {line.ordered_qty_entered}
-                            </td>
-                            <td className="p-2 text-right text-green-600 font-medium">
-                              {acceptedEntered}
-                            </td>
-                            <td className="p-2 text-right">
-                              <span className={remaining > 0 ? 'text-amber-600 font-medium' : 'text-muted-foreground'}>
-                                {remaining}
-                              </span>
-                            </td>
-                            <td className="p-2">
-                              <select
-                                aria-label={`حالة جودة ${line.product_name ?? line.product_code ?? ''}`}
-                                className="w-full rounded-md border bg-background p-1 text-sm"
-                                value={line.quality_status}
-                                disabled={remaining <= 0}
-                                onChange={(e) =>
-                                  updateLine(lineIndex, 'quality_status', e.target.value)
-                                }
-                              >
-                                {Object.entries(QUALITY_LABELS).map(([value, label]) => (
-                                  <option key={value} value={value}>{label}</option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="p-2 text-right font-medium">
-                              {line.unit_cost_entered.toFixed(2)} ر.س
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+                          <p className="text-xs text-muted-foreground">
+                            = {displayNumber(basePreview)} بوحدة الأساس
+                          </p>
+                        </div>
 
-              <div className="flex justify-end">
-                <div className="text-sm text-muted-foreground">
-                  سيتم استلام جميع الكميات المتبقية للمنتجات المحددة
-                </div>
+                        <div className="space-y-2">
+                          <Label htmlFor={`quality-${line.id}`}>حالة الجودة</Label>
+                          <Select
+                            value={line.quality_status}
+                            onValueChange={(value) => updateLine(
+                              index,
+                              'quality_status',
+                              value as ReceiptQualityStatus,
+                            )}
+                            disabled={!line.is_selected || saving}
+                          >
+                            <SelectTrigger id={`quality-${line.id}`}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {QUALITY_OPTIONS.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            قيد الفحص غير متاح حتى بناء مسار حسم ذري مستقل.
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>تكلفة الوحدة التجارية</Label>
+                          <div className="flex h-10 items-center rounded-md border bg-muted/30 px-3 text-sm font-medium">
+                            {line.unit_cost_entered.toLocaleString('en-US', {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 6,
+                            })} ر.س
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
 
-          {lines.length === 0 && selectedPO && (
-            <div className="text-center py-8 text-muted-foreground">
-              لا توجد أسطر لهذا الأمر أو تم استلام جميع المنتجات
+          {selectedOrder && lines.length === 0 && (
+            <div className="rounded-lg border border-dashed p-8 text-center text-muted-foreground">
+              لا توجد سطور مفتوحة قابلة للاستلام في هذا الأمر.
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="gap-2 sm:gap-0">
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              disabled={loading}
+              disabled={saving}
             >
               إلغاء
             </Button>
-            <Button type="submit" disabled={loading || lines.length === 0}>
-              {loading ? 'جاري الحفظ...' : 'تأكيد الاستلام'}
+            <Button
+              type="submit"
+              disabled={saving || !selectedOrder || lines.every((line) => !line.is_selected)}
+            >
+              {saving && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
+              {saving ? 'جاري الترحيل...' : 'تأكيد الاستلام الجزئي'}
             </Button>
           </DialogFooter>
         </form>
