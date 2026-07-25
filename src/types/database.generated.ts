@@ -10736,6 +10736,10 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_approve_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
+        Returns: Json
+      }
       rpc_assign_product_base_uom: {
         Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
         Returns: Json
@@ -10792,10 +10796,6 @@ export type Database = {
       rpc_create_stock_adjustment: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_uom_purchase_order: {
         Args: { p_payload: Json }
-        Returns: Json
-      }
-      rpc_approve_purchase_order: {
-        Args: { p_org_id: string; p_purchase_order_id: string }
         Returns: Json
       }
       rpc_generate_fiscal_periods: {
@@ -10900,10 +10900,6 @@ export type Database = {
           p_tenant?: string
           p_work_center: string
         }
-      rpc_submit_purchase_order: {
-        Args: { p_org_id: string; p_purchase_order_id: string }
-        Returns: Json
-      }
         Returns: string
       }
       rpc_resolve_uom_backfill_issue: {
@@ -10953,6 +10949,10 @@ export type Database = {
           p_tenant?: string
           p_wip_prefixes?: string[]
         }
+        Returns: Json
+      }
+      rpc_submit_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
         Returns: Json
       }
       rpc_submit_settlement_review: { Args: { p_payload: Json }; Returns: Json }
