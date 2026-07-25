@@ -65,28 +65,6 @@ export interface ReceiptDraftLine extends ReceivablePurchaseOrderLine {
   quality_status: ReceiptQualityStatus
 }
 
-export interface PostUomGoodsReceiptInput {
-  orgId: string
-  purchaseOrder: ReceivablePurchaseOrder
-  warehouseId: string
-  receiptDate: string
-  notes?: string
-  lines: ReceiptDraftLine[]
-  idempotencyKey: string
-}
-
-export interface PostUomGoodsReceiptResult {
-  success: true
-  goods_receipt_id: string
-  receipt_number?: string
-  total_value?: number
-  lines_processed?: number
-  idempotent_replay?: boolean
-  inventory_atomic?: boolean
-  uom_atomic?: boolean
-  po_snapshot_atomic?: boolean
-  quality_aware_contract?: boolean
-}
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value)
@@ -96,9 +74,14 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
 function normalizeLine(value: Record<string, unknown>): ReceivablePurchaseOrderLine {
   const uom = (value.uom ?? {}) as Record<string, unknown>
   const product = (value.product ?? {}) as Record<string, unknown>
-  const factor = toFiniteNumber(value.conversion_factor_snapshot, 1)
+  // Snapshot مفقود أو غير رقمي لا يُستبدل بمعامل 1: القيمة تُضرب في كمية الإدخال
+  // لتُشتق كمية الأساس، فالافتراض هنا يكتب كمية وتكلفة خاطئتين بصمت — وهو نفس
+  // التدهور الذي يرفضه الخادم بـPO_LINE_SNAPSHOT_MISSING. fail-closed بلا fallback.
+  const factor = Number(value.conversion_factor_snapshot)
 
-  if (!value.id || !value.product_id || !value.uom_id || factor <= 0) {
+  // `factor <= 0` وحده لا يمسك NaN لأن كل مقارنة مع NaN تعطي false.
+  if (!value.id || !value.product_id || !value.uom_id
+      || !Number.isFinite(factor) || factor <= 0) {
     throw new Error('RECEIVABLE_PO_LINE_CONTRACT_INVALID')
   }
 
@@ -216,51 +199,4 @@ export function buildGoodsReceiptLine(line: ReceiptDraftLine): GoodsReceiptLine 
     qty_entered: line.receipt_qty_entered,
     unit_cost_entered: line.unit_cost_entered,
   }
-}
-
-export async function postUomGoodsReceipt(
-  input: PostUomGoodsReceiptInput,
-): Promise<PostUomGoodsReceiptResult> {
-  if (!input.orgId) throw new Error('ORG_ID_REQUIRED')
-  if (!input.warehouseId) throw new Error('WAREHOUSE_REQUIRED')
-  if (!input.idempotencyKey) throw new Error('IDEMPOTENCY_KEY_REQUIRED')
-
-  const selectedLines = input.lines.filter((line) => line.is_selected)
-  if (selectedLines.length === 0) throw new Error('RECEIPT_LINES_REQUIRED')
-
-  const lines = selectedLines.map(buildGoodsReceiptLine)
-  const { data, error } = await supabase.rpc('rpc_post_goods_receipt', {
-    p_payload: {
-      tenant_id: input.orgId,
-      idempotency_key: input.idempotencyKey,
-      vendor_id: input.purchaseOrder.vendor_id,
-      purchase_order_id: input.purchaseOrder.id,
-      receipt_date: input.receiptDate,
-      warehouse_id: input.warehouseId,
-      notes: input.notes || null,
-      lines: lines.map((line) => ({
-        product_id: line.product_id,
-        purchase_order_line_id: line.purchase_order_line_id,
-        ordered_quantity: line.ordered_quantity,
-        received_quantity: line.received_quantity,
-        unit_cost: line.unit_cost,
-        quality_status: line.quality_status,
-        uom_id: line.uom_id,
-        qty_entered: line.qty_entered,
-        unit_cost_entered: line.unit_cost_entered,
-      })),
-    },
-  })
-
-  if (error) throw error
-  const result = data as Partial<PostUomGoodsReceiptResult> | null
-  if (!result?.success || !result.goods_receipt_id) {
-    throw new Error('GOODS_RECEIPT_RPC_INVALID_RESPONSE')
-  }
-
-  if (result.inventory_atomic !== true || result.uom_atomic !== true || result.po_snapshot_atomic !== true) {
-    throw new Error('GOODS_RECEIPT_ATOMIC_CONTRACT_MISSING')
-  }
-
-  return result as PostUomGoodsReceiptResult
 }
