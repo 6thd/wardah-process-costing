@@ -25,6 +25,21 @@
 --                       a replacement delivery is legal.
 --   pending           — derived: received - accepted - rejected. Pending units
 --                       still hold contract balance (they may yet be accepted).
+--
+-- Quality contract on a PO-linked receipt line:
+--   accepted           — posts inventory and GRNI, and closes contract balance.
+--   rejected           — posts nothing, and releases balance for a redelivery. A
+--                        single rejected shipment may not exceed the balance that
+--                        was open when it arrived.
+--   pending_inspection — REFUSED on a PO-linked line. There is no resolution flow
+--                        yet that can move a pending quantity to accepted or
+--                        rejected, so allowing it would permanently strand the
+--                        contract balance with no inventory, no GRNI, and no way
+--                        to close or reopen the order. It stays legal on a direct
+--                        receipt with no purchase order, where no contract is
+--                        blocked. The balance arithmetic below still subtracts
+--                        pending so that externally created rows and a future
+--                        resolution flow are accounted for rather than ignored.
 
 -- ---------------------------------------------------------------------------
 -- 1. Additive quality-aware quantity columns.
@@ -331,7 +346,9 @@ BEGIN
       ON v.id = po.vendor_id
      AND v.org_id = v_org
     WHERE po.org_id = v_org
-      AND po.status IN ('approved', 'submitted', 'partially_received')
+      -- 'submitted' is deliberately absent: an order awaiting approval must not be
+      -- receivable, otherwise the approval gate above can be bypassed by receiving.
+      AND po.status IN ('approved', 'partially_received')
       AND EXISTS (
         SELECT 1
         FROM public.purchase_order_lines open_line
@@ -378,39 +395,15 @@ BEGIN
   v_org:=public.wardah_org_id(NULLIF(p_payload->>'tenant_id','')::uuid);
   IF v_org IS NULL THEN RAISE EXCEPTION 'ORG_NOT_RESOLVED'; END IF;
   v_uid:=auth.uid(); PERFORM public.wardah_assert_org_member(v_org);
-  v_vendor_id:=NULLIF(p_payload->>'vendor_id','')::uuid;
-  IF v_vendor_id IS NULL THEN RAISE EXCEPTION 'INVALID_PAYLOAD: vendor_id required'; END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.vendors WHERE id=v_vendor_id AND org_id=v_org) THEN
-    RAISE EXCEPTION 'VENDOR_NOT_FOUND';
-  END IF;
-  IF jsonb_typeof(COALESCE(p_payload->'lines','[]'::jsonb))<>'array'
-     OR jsonb_array_length(COALESCE(p_payload->'lines','[]'::jsonb))=0 THEN
-    RAISE EXCEPTION 'INVALID_PAYLOAD: receipt lines required';
-  END IF;
-  v_wh_id:=NULLIF(p_payload->>'warehouse_id','')::uuid;
-  IF v_wh_id IS NULL OR NOT EXISTS (
-    SELECT 1 FROM public.warehouses WHERE id=v_wh_id AND org_id=v_org
-  ) THEN
-    RAISE EXCEPTION 'WAREHOUSE_REQUIRED_OR_WRONG_ORG';
-  END IF;
 
-  v_po_id:=NULLIF(p_payload->>'purchase_order_id','')::uuid;
-  IF v_po_id IS NOT NULL THEN
-    SELECT status,vendor_id INTO v_po_status,v_po_vendor
-    FROM public.purchase_orders
-    WHERE id=v_po_id AND org_id=v_org
-    FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'PO_NOT_FOUND'; END IF;
-    IF v_po_status NOT IN ('approved','submitted','partially_received') THEN
-      RAISE EXCEPTION 'PO_NOT_RECEIVABLE: %',v_po_status;
-    END IF;
-    IF v_po_vendor IS NOT NULL AND v_po_vendor<>v_vendor_id THEN
-      RAISE EXCEPTION 'VENDOR_MISMATCH';
-    END IF;
-  END IF;
-
-  v_recv_date:=COALESCE(NULLIF(p_payload->>'receipt_date','')::date,CURRENT_DATE);
-  PERFORM public.assert_period_open(v_org,v_recv_date);
+  -- Idempotent replay is resolved before every business gate below.
+  -- A retry of the receipt that closed a purchase order must return the original
+  -- document, not PO_NOT_RECEIVABLE: by then the order is legitimately
+  -- 'fully_received', and the same is true once a period closes or a line is
+  -- exhausted. Gating a replay on state that the original call itself produced
+  -- makes the final receipt of every order unconfirmable after a timeout.
+  -- The lock is taken first so a concurrent duplicate serializes here and finds
+  -- the committed row instead of racing past this check into a second insert.
   PERFORM pg_advisory_xact_lock(hashtext('goods_receipts:'||v_org::text));
   v_req_hash:=md5((p_payload-'idempotency_key')::text);
   v_idem_key:=NULLIF(p_payload->>'idempotency_key','');
@@ -434,6 +427,42 @@ BEGIN
       );
     END IF;
   END IF;
+
+  v_vendor_id:=NULLIF(p_payload->>'vendor_id','')::uuid;
+  IF v_vendor_id IS NULL THEN RAISE EXCEPTION 'INVALID_PAYLOAD: vendor_id required'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.vendors WHERE id=v_vendor_id AND org_id=v_org) THEN
+    RAISE EXCEPTION 'VENDOR_NOT_FOUND';
+  END IF;
+  IF jsonb_typeof(COALESCE(p_payload->'lines','[]'::jsonb))<>'array'
+     OR jsonb_array_length(COALESCE(p_payload->'lines','[]'::jsonb))=0 THEN
+    RAISE EXCEPTION 'INVALID_PAYLOAD: receipt lines required';
+  END IF;
+  v_wh_id:=NULLIF(p_payload->>'warehouse_id','')::uuid;
+  IF v_wh_id IS NULL OR NOT EXISTS (
+    SELECT 1 FROM public.warehouses WHERE id=v_wh_id AND org_id=v_org
+  ) THEN
+    RAISE EXCEPTION 'WAREHOUSE_REQUIRED_OR_WRONG_ORG';
+  END IF;
+
+  v_po_id:=NULLIF(p_payload->>'purchase_order_id','')::uuid;
+  IF v_po_id IS NOT NULL THEN
+    SELECT status,vendor_id INTO v_po_status,v_po_vendor
+    FROM public.purchase_orders
+    WHERE id=v_po_id AND org_id=v_org
+    FOR UPDATE;
+    IF NOT FOUND THEN RAISE EXCEPTION 'PO_NOT_FOUND'; END IF;
+    -- 'submitted' is not receivable: receiving an unapproved order would bypass
+    -- the approval gate that governs inventory and GL impact.
+    IF v_po_status NOT IN ('approved','partially_received') THEN
+      RAISE EXCEPTION 'PO_NOT_RECEIVABLE: %',v_po_status;
+    END IF;
+    IF v_po_vendor IS NOT NULL AND v_po_vendor<>v_vendor_id THEN
+      RAISE EXCEPTION 'VENDOR_MISMATCH';
+    END IF;
+  END IF;
+
+  v_recv_date:=COALESCE(NULLIF(p_payload->>'receipt_date','')::date,CURRENT_DATE);
+  PERFORM public.assert_period_open(v_org,v_recv_date);
 
   SELECT 'GR-'||lpad((COALESCE(max(NULLIF(regexp_replace(receipt_number,'\D','','g'),''))::bigint,0)+1)::text,6,'0')
   INTO v_gr_number
@@ -476,6 +505,14 @@ BEGIN
 
     IF v_pol_id IS NOT NULL THEN
       IF v_po_id IS NULL THEN RAISE EXCEPTION 'PO_REQUIRED: line=%',v_line_no; END IF;
+
+      -- No resolution flow exists to move a pending quantity to accepted or
+      -- rejected, so accepting one here would strand the contract balance
+      -- permanently: no inventory, no GRNI, and no way to close or reopen the
+      -- order. Refuse at the entry point instead of creating unresolvable state.
+      IF v_quality='pending_inspection' THEN
+        RAISE EXCEPTION 'PENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW: line=%',v_line_no;
+      END IF;
 
       SELECT
         purchase_order_id,
@@ -553,16 +590,28 @@ BEGIN
         RAISE EXCEPTION 'RECEIPT_BASE_QUANTITY_MUST_BE_POSITIVE: line=%',v_line_no;
       END IF;
 
-      -- Contract balance, not physical balance. Accepted units are final and
+      -- Contract balance, not physical balance. Accepted units are final and any
       -- pending units are still claimable, so both hold the balance; rejected
       -- units release it so a replacement delivery does not trip OVER_RECEIPT.
       v_pending:=GREATEST(v_pol.received-v_pol.accepted-v_pol.rejected,0);
       v_committed:=v_pol.accepted+v_pending;
-      v_consumes:=(v_quality IN ('accepted','pending_inspection'));
+      v_consumes:=(v_quality='accepted');
 
       IF v_consumes AND v_committed+v_qty_base>v_pol.quantity THEN
         RAISE EXCEPTION 'OVER_RECEIPT: remaining=%, requested_base=%',
           v_pol.quantity-v_committed,v_qty_base;
+      END IF;
+
+      -- A rejected quantity releases balance rather than consuming it, so it is
+      -- not covered by OVER_RECEIPT above. Without its own ceiling a vendor could
+      -- be recorded as delivering — and the buyer as rejecting — an unbounded
+      -- quantity against a finite order. A single shipment may not exceed the
+      -- balance that was open when it arrived.
+      IF v_quality='rejected' THEN
+        IF v_qty_base>v_pol.quantity-v_committed THEN
+          RAISE EXCEPTION 'REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE: remaining=%, requested_base=%',
+            v_pol.quantity-v_committed,v_qty_base;
+        END IF;
       END IF;
 
       -- received_quantity keeps its physical meaning for every quality status.

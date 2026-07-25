@@ -47,14 +47,16 @@ interface GoodsReceiptLine {
   conversion_factor: number
   ordered_qty_entered: number
   unit_cost_entered: number
-  quality_status: 'accepted' | 'rejected' | 'pending_inspection'
+  quality_status: 'accepted' | 'rejected'
   is_selected: boolean
 }
 
-const QUALITY_LABELS: Record<GoodsReceiptLine['quality_status'], string> = {
+// «قيد الفحص» غير متاح على سطر مرتبط بأمر شراء: لا يوجد بعد مسار حسم ينقل الكمية
+// إلى مقبولة أو مرفوضة، فيبقى رصيد التعاقد محجوزًا بلا مخزون ولا GRNI ولا إمكانية
+// إغلاق. الخادم يرفضه أيضًا بـPENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW.
+const QUALITY_LABELS: Record<'accepted' | 'rejected', string> = {
   accepted: 'مقبول',
   rejected: 'مرفوض',
-  pending_inspection: 'قيد الفحص',
 }
 
 interface GoodsReceiptFormProps {

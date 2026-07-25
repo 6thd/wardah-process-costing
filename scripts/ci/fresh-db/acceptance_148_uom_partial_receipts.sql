@@ -595,7 +595,8 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- 7. pending_inspection holds contract balance but produces no inventory.
+-- 7. pending_inspection is refused on a PO-linked line, and a rejected shipment
+--    cannot exceed the balance that was open when it arrived.
 -- ---------------------------------------------------------------------------
 SELECT set_config('request.jwt.claim.sub', '48aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
 SELECT public.rpc_create_uom_purchase_order(
@@ -627,35 +628,39 @@ SELECT public.rpc_approve_purchase_order(
   '48111111-1111-1111-1111-111111111111'::uuid, (SELECT po_id FROM t148p));
 
 DO $$
-DECLARE v_po uuid; v_pol uuid; v_res jsonb;
+DECLARE v_po uuid; v_pol uuid;
 BEGIN
   SELECT po_id, pol_id INTO v_po, v_pol FROM t148p;
-  v_res := public.rpc_post_goods_receipt(jsonb_build_object(
-    'tenant_id','48111111-1111-1111-1111-111111111111',
-    'vendor_id','48f00000-0000-0000-0000-000000000001',
-    'purchase_order_id',v_po,
-    'warehouse_id','48a00000-0000-0000-0000-000000000001',
-    'receipt_date','2026-07-24',
-    'idempotency_key','U148-GRP-1',
-    'lines', jsonb_build_array(jsonb_build_object(
-      'product_id','48d00000-0000-0000-0000-000000000001',
-      'purchase_order_line_id',v_pol,
-      'uom_id','48400000-0000-0000-0000-000000000002',
-      'qty_entered',2,
-      'unit_cost_entered',120,
-      'quality_status','pending_inspection'))));
 
-  IF (v_res->>'total_value')::numeric <> 0 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_FAIL: pending inspection produced value %', v_res;
-  END IF;
-  PERFORM pg_temp.assert_line(v_pol, 24, 0, 0, 'after pending inspection');
-  PERFORM pg_temp.assert_po_status(v_po, 'partially_received', 'after pending inspection');
-  -- Stock is unchanged from the previous product total.
+  -- No resolution flow exists, so a pending quantity would strand the contract
+  -- balance permanently. It is refused at the entry point.
+  PERFORM pg_temp.expect_error(format(
+    $q$ SELECT public.rpc_post_goods_receipt(jsonb_build_object(
+      'tenant_id','48111111-1111-1111-1111-111111111111',
+      'vendor_id','48f00000-0000-0000-0000-000000000001',
+      'purchase_order_id',%L,
+      'warehouse_id','48a00000-0000-0000-0000-000000000001',
+      'receipt_date','2026-07-24',
+      'idempotency_key','U148-GRP-1',
+      'lines', jsonb_build_array(jsonb_build_object(
+        'product_id','48d00000-0000-0000-0000-000000000001',
+        'purchase_order_line_id',%L,
+        'uom_id','48400000-0000-0000-0000-000000000002',
+        'qty_entered',2,
+        'unit_cost_entered',120,
+        'quality_status','pending_inspection'))))$q$, v_po, v_pol),
+    'PENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW');
+
+  -- The refusal is total: no document, no quantity movement, no status change.
+  PERFORM pg_temp.assert_line(v_pol, 0, 0, 0, 'after refused pending inspection');
+  PERFORM pg_temp.assert_po_status(v_po, 'approved', 'after refused pending inspection');
   PERFORM pg_temp.assert_stock(
     '48d00000-0000-0000-0000-000000000001',
-    '48a00000-0000-0000-0000-000000000001', 120, 'after pending inspection');
+    '48a00000-0000-0000-0000-000000000001', 120, 'after refused pending inspection');
 
-  -- Pending units still hold the contract, so a further delivery over-receipts.
+  -- A rejected quantity releases balance instead of consuming it, so OVER_RECEIPT
+  -- never covers it. Its own ceiling must stop an unbounded rejection: the order
+  -- is 2 cartons, so rejecting 3 is illegal.
   PERFORM pg_temp.expect_error(format(
     $q$ SELECT public.rpc_post_goods_receipt(jsonb_build_object(
       'tenant_id','48111111-1111-1111-1111-111111111111',
@@ -668,10 +673,171 @@ BEGIN
         'product_id','48d00000-0000-0000-0000-000000000001',
         'purchase_order_line_id',%L,
         'uom_id','48400000-0000-0000-0000-000000000002',
+        'qty_entered',3,
+        'unit_cost_entered',120,
+        'quality_status','rejected'))))$q$, v_po, v_pol),
+    'REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE');
+
+  PERFORM pg_temp.assert_line(v_pol, 0, 0, 0, 'after refused oversized rejection');
+END $$;
+
+-- Rejecting exactly the open balance is legal, and the order stays open for a
+-- replacement delivery of the same quantity.
+DO $$
+DECLARE v_po uuid; v_pol uuid; v_res jsonb;
+BEGIN
+  SELECT po_id, pol_id INTO v_po, v_pol FROM t148p;
+  v_res := public.rpc_post_goods_receipt(jsonb_build_object(
+    'tenant_id','48111111-1111-1111-1111-111111111111',
+    'vendor_id','48f00000-0000-0000-0000-000000000001',
+    'purchase_order_id',v_po,
+    'warehouse_id','48a00000-0000-0000-0000-000000000001',
+    'receipt_date','2026-07-24',
+    'idempotency_key','U148-GRP-3',
+    'lines', jsonb_build_array(jsonb_build_object(
+      'product_id','48d00000-0000-0000-0000-000000000001',
+      'purchase_order_line_id',v_pol,
+      'uom_id','48400000-0000-0000-0000-000000000002',
+      'qty_entered',2,
+      'unit_cost_entered',120,
+      'quality_status','rejected'))));
+
+  IF (v_res->>'total_value')::numeric <> 0 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: rejected receipt produced value %', v_res;
+  END IF;
+  PERFORM pg_temp.assert_line(v_pol, 24, 0, 24, 'after full rejection');
+  PERFORM pg_temp.assert_po_status(v_po, 'partially_received', 'after full rejection');
+  PERFORM pg_temp.assert_stock(
+    '48d00000-0000-0000-0000-000000000001',
+    '48a00000-0000-0000-0000-000000000001', 120, 'after full rejection');
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 7b. A submitted order is not receivable: receiving it would bypass approval.
+-- ---------------------------------------------------------------------------
+SELECT set_config('request.jwt.claim.sub', '48aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
+SELECT public.rpc_create_uom_purchase_order(
+  jsonb_build_object(
+    'org_id', '48111111-1111-1111-1111-111111111111',
+    'vendor_id', '48f00000-0000-0000-0000-000000000001',
+    'order_number', 'U148-PO-SUBMITTED',
+    'order_date', '2026-07-24',
+    'lines', jsonb_build_array(jsonb_build_object(
+      'product_id', '48d00000-0000-0000-0000-000000000001',
+      'uom_id', '48400000-0000-0000-0000-000000000002',
+      'qty_entered', 1,
+      'unit_price_entered', 120,
+      'discount_percentage', 0,
+      'tax_percentage', 15
+    ))
+  )
+);
+
+CREATE TEMP TABLE t148s AS
+SELECT po.id AS po_id, pol.id AS pol_id
+FROM public.purchase_orders po
+JOIN public.purchase_order_lines pol ON pol.purchase_order_id = po.id
+WHERE po.org_id='48111111-1111-1111-1111-111111111111'
+  AND po.order_number='U148-PO-SUBMITTED';
+
+SELECT public.rpc_submit_purchase_order(
+  '48111111-1111-1111-1111-111111111111'::uuid, (SELECT po_id FROM t148s));
+SELECT pg_temp.assert_po_status((SELECT po_id FROM t148s), 'submitted', 'submitted order');
+
+DO $$
+DECLARE v_po uuid; v_pol uuid; v_orders jsonb;
+BEGIN
+  SELECT po_id, pol_id INTO v_po, v_pol FROM t148s;
+
+  PERFORM pg_temp.expect_error(format(
+    $q$ SELECT public.rpc_post_goods_receipt(jsonb_build_object(
+      'tenant_id','48111111-1111-1111-1111-111111111111',
+      'vendor_id','48f00000-0000-0000-0000-000000000001',
+      'purchase_order_id',%L,
+      'warehouse_id','48a00000-0000-0000-0000-000000000001',
+      'receipt_date','2026-07-24',
+      'idempotency_key','U148-GRS-1',
+      'lines', jsonb_build_array(jsonb_build_object(
+        'product_id','48d00000-0000-0000-0000-000000000001',
+        'purchase_order_line_id',%L,
+        'uom_id','48400000-0000-0000-0000-000000000002',
         'qty_entered',1,
         'unit_cost_entered',120,
         'quality_status','accepted'))))$q$, v_po, v_pol),
-    'OVER_RECEIPT');
+    'PO_NOT_RECEIVABLE');
+
+  -- Nor is it offered to the receiving screen in the first place.
+  v_orders := public.rpc_list_uom_receivable_purchase_orders(
+    '48111111-1111-1111-1111-111111111111');
+  IF EXISTS (
+    SELECT 1 FROM jsonb_array_elements(v_orders) o
+    WHERE o ->> 'id' = v_po::text
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: submitted order exposed as receivable: %', v_orders;
+  END IF;
+END $$;
+
+-- ---------------------------------------------------------------------------
+-- 7c. Replaying the receipt that closed an order returns the original document.
+-- ---------------------------------------------------------------------------
+-- The retry arrives after the original call already set the order to
+-- 'fully_received'. Gating the replay on state the original call itself produced
+-- would make the final receipt of every order unconfirmable after a timeout.
+SELECT set_config('request.jwt.claim.sub', '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', false);
+SELECT public.rpc_approve_purchase_order(
+  '48111111-1111-1111-1111-111111111111'::uuid, (SELECT po_id FROM t148s));
+
+DO $$
+DECLARE
+  v_po uuid; v_pol uuid; v_first jsonb; v_replay jsonb;
+  v_payload jsonb; v_receipts integer; v_stock_before numeric;
+BEGIN
+  SELECT po_id, pol_id INTO v_po, v_pol FROM t148s;
+
+  v_payload := jsonb_build_object(
+    'tenant_id','48111111-1111-1111-1111-111111111111',
+    'vendor_id','48f00000-0000-0000-0000-000000000001',
+    'purchase_order_id',v_po,
+    'warehouse_id','48a00000-0000-0000-0000-000000000001',
+    'receipt_date','2026-07-24',
+    'idempotency_key','U148-GRS-REPLAY',
+    'lines', jsonb_build_array(jsonb_build_object(
+      'product_id','48d00000-0000-0000-0000-000000000001',
+      'purchase_order_line_id',v_pol,
+      'uom_id','48400000-0000-0000-0000-000000000002',
+      'qty_entered',1,
+      'unit_cost_entered',120,
+      'quality_status','accepted')));
+
+  v_first := public.rpc_post_goods_receipt(v_payload);
+  PERFORM pg_temp.assert_po_status(v_po, 'fully_received', 'closing receipt');
+
+  SELECT count(*) INTO v_receipts FROM public.goods_receipts
+  WHERE org_id='48111111-1111-1111-1111-111111111111';
+  SELECT COALESCE(actual_qty,0) INTO v_stock_before FROM public.bins
+  WHERE product_id='48d00000-0000-0000-0000-000000000001'
+    AND warehouse_id='48a00000-0000-0000-0000-000000000001';
+
+  -- Same key, same payload: a genuine retry after a client timeout.
+  v_replay := public.rpc_post_goods_receipt(v_payload);
+
+  IF NOT COALESCE((v_replay->>'idempotent_replay')::boolean,false)
+     OR v_replay->>'goods_receipt_id' <> v_first->>'goods_receipt_id' THEN
+    RAISE EXCEPTION
+      'ACCEPTANCE_FAIL: replay of the closing receipt did not return the original: %',
+      v_replay;
+  END IF;
+
+  -- And it duplicated nothing.
+  PERFORM pg_temp.assert_line(v_pol, 12, 12, 0, 'after closing replay');
+  PERFORM pg_temp.assert_po_status(v_po, 'fully_received', 'after closing replay');
+  PERFORM pg_temp.assert_stock(
+    '48d00000-0000-0000-0000-000000000001',
+    '48a00000-0000-0000-0000-000000000001', v_stock_before, 'after closing replay');
+  IF (SELECT count(*) FROM public.goods_receipts
+      WHERE org_id='48111111-1111-1111-1111-111111111111') <> v_receipts THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: replay created a second receipt document';
+  END IF;
 END $$;
 
 -- ---------------------------------------------------------------------------
@@ -694,7 +860,7 @@ BEGIN
       'purchase_order_id',%L,
       'warehouse_id','48a00000-0000-0000-0000-000000000001',
       'receipt_date','2026-07-24',
-      'idempotency_key','U148-GRP-3',
+      'idempotency_key','U148-GRP-SNAPSHOT',
       'lines', jsonb_build_array(jsonb_build_object(
         'product_id','48d00000-0000-0000-0000-000000000001',
         'purchase_order_line_id',%L,

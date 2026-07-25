@@ -6,6 +6,13 @@ on:
     paths:
       - 'sql/migrations/148_uom_purchase_receipt_snapshots.sql'
       - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
+      - 'src/components/forms/GoodsReceiptForm.tsx'
+      - 'src/components/forms/UomGoodsReceiptForm.tsx'
+      - 'src/features/purchasing/index.tsx'
+      - 'src/services/uom-goods-receipt-service.ts'
+      - 'src/services/__tests__/uom-goods-receipt-service.test.ts'
+      - 'src/services/purchasing-service.ts'
+      - 'src/types/database.generated.ts'
       - '.github/workflows/uom-partial-receipt-atomic.yml'
   workflow_dispatch:
 
@@ -89,3 +96,21 @@ jobs:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # العلم مطفأ في كل المؤسسات اليوم؛ هذه البوابة تمنع أن يتحول العلم من
+      # بوابة للمسار الجديد إلى قاطع للمسار التشغيلي القائم.
+      - name: Prove the rollout flag never breaks the legacy receipt path
+        run: >-
+          npm run test -- --run --coverage.enabled=false
+          src/features/purchasing/__tests__/goods-receipt-rollout-gate.test.tsx
+          src/services/__tests__/uom-goods-receipt-service.test.ts
+          src/services/__tests__/goods-receipt-atomic.test.ts
