@@ -12,6 +12,7 @@ import {
 } from '@/services/supabase-service'
 import { toast } from 'sonner'
 import { PurchasingModule } from './index'
+import { GoodsReceiptUomManagement } from './GoodsReceiptUomManagement'
 import {
   PurchaseOrderDetailsDialog,
   type PurchaseOrderDetails,
@@ -38,8 +39,10 @@ const statusConfig: Record<
   RECEIVED: { label: 'مستلم', variant: 'secondary' },
   CANCELLED: { label: 'ملغى', variant: 'destructive' },
   draft: { label: 'مسودة', variant: 'outline' },
+  submitted: { label: 'بانتظار الاعتماد', variant: 'outline' },
   confirmed: { label: 'مؤكد', variant: 'default' },
   approved: { label: 'معتمد', variant: 'default' },
+  partially_received: { label: 'مستلم جزئيًا', variant: 'default' },
   received: { label: 'مستلم', variant: 'secondary' },
   fully_received: { label: 'مستلم بالكامل', variant: 'secondary' },
   cancelled: { label: 'ملغى', variant: 'destructive' },
@@ -204,8 +207,8 @@ export function PurchaseOrdersDetailsManagement() {
                           <div className="flex flex-wrap gap-2">
                             {lines.slice(0, 3).map((line, index) => (
                               <Badge key={line.id || `${order.id}-${index}`} variant="outline" className="text-xs">
-                                {line.product?.product_name || line.product?.name || line.description || 'منتج'}
-                                {' '}({toNumber(line.qty_entered ?? line.quantity).toLocaleString('en-US')})
+                                {line.product?.product_name || line.product?.name || line.description || 'منتج'}{' '}
+                                ({toNumber(line.qty_entered ?? line.quantity).toLocaleString('en-US')})
                               </Badge>
                             ))}
                             {lines.length > 3 && (
@@ -249,6 +252,10 @@ export function PurchasingModuleHotfix() {
 
   if (normalizedPath === '/purchasing/orders') {
     return <PurchaseOrdersDetailsManagement />
+  }
+
+  if (normalizedPath === '/purchasing/receipts') {
+    return <GoodsReceiptUomManagement />
   }
 
   return <PurchasingModule />
