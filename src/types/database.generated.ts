@@ -5723,6 +5723,7 @@ export type Database = {
       }
       purchase_order_lines: {
         Row: {
+          accepted_quantity: number | null
           conversion_factor_snapshot: number | null
           created_at: string | null
           description: string | null
@@ -5737,6 +5738,7 @@ export type Database = {
           qty_entered: number | null
           quantity: number
           received_quantity: number | null
+          rejected_quantity: number | null
           tax_percentage: number | null
           unit_price: number
           unit_price_entered: number | null
@@ -5744,6 +5746,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          accepted_quantity?: number | null
           conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
@@ -5758,6 +5761,7 @@ export type Database = {
           qty_entered?: number | null
           quantity: number
           received_quantity?: number | null
+          rejected_quantity?: number | null
           tax_percentage?: number | null
           unit_price: number
           unit_price_entered?: number | null
@@ -5765,6 +5769,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          accepted_quantity?: number | null
           conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
@@ -5779,6 +5784,7 @@ export type Database = {
           qty_entered?: number | null
           quantity?: number
           received_quantity?: number | null
+          rejected_quantity?: number | null
           tax_percentage?: number | null
           unit_price?: number
           unit_price_entered?: number | null
@@ -10730,6 +10736,10 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_approve_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
+        Returns: Json
+      }
       rpc_assign_product_base_uom: {
         Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
         Returns: Json
@@ -10847,6 +10857,10 @@ export type Database = {
         Args: { p_org_id: string }
         Returns: Json
       }
+      rpc_list_uom_receivable_purchase_orders: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
       rpc_manual_stock_movement: {
         Args: {
           p_movement_type: string
@@ -10935,6 +10949,10 @@ export type Database = {
           p_tenant?: string
           p_wip_prefixes?: string[]
         }
+        Returns: Json
+      }
+      rpc_submit_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
         Returns: Json
       }
       rpc_submit_settlement_review: { Args: { p_payload: Json }; Returns: Json }

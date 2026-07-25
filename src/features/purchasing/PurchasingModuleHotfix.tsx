@@ -147,6 +147,9 @@ export function PurchaseOrdersDetailsManagement() {
           setDetailsOpen(open)
           if (!open) setSelectedOrder(null)
         }}
+        onStatusChanged={() => {
+          void loadOrders()
+        }}
       />
 
       <div className="rounded-lg border bg-card">

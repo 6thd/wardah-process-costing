@@ -17,6 +17,8 @@ import { getAllGoodsReceipts } from '@/services/purchasing-service'
 import { toast } from 'sonner'
 import { PurchaseOrderForm } from '@/components/forms/PurchaseOrderForm'
 import { GoodsReceiptForm } from '@/components/forms/GoodsReceiptForm'
+import { UomGoodsReceiptForm } from '@/components/forms/UomGoodsReceiptForm'
+import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'
 import { SupplierPayments } from './components/SupplierPayments'
 
@@ -451,6 +453,8 @@ function PurchaseOrdersManagement() {
 function GoodsReceiptManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  // fail-closed: أثناء التحميل أو عند غياب المؤسسة يبقى المسار التقليدي هو العامل.
+  const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
   const [showGRForm, setShowGRForm] = useState(false)
   const [receipts, setReceipts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -499,14 +503,28 @@ function GoodsReceiptManagement() {
         </Button>
       </div>
 
-      <GoodsReceiptForm
-        open={showGRForm}
-        onOpenChange={setShowGRForm}
-        onSuccess={async () => {
-          toast.success('تم إنشاء إشعار الاستلام بنجاح')
-          await loadReceipts()
-        }}
-      />
+      {/* بوابة الطرح: العلم يحكم المسار الجديد ولا يقطع المسار القائم. عند إطفائه
+          — وهي حالة كل المؤسسات اليوم — يبقى نموذج الاستلام التقليدي هو العامل،
+          وتظل قائمة السندات أعلاه ظاهرة في الحالتين. النمط نفسه المتبع في
+          LegacyPurchaseOrderForm ضمن PR #42. */}
+      {uomEngineEnabled ? (
+        <UomGoodsReceiptForm
+          open={showGRForm}
+          onOpenChange={setShowGRForm}
+          onSuccess={async () => {
+            await loadReceipts()
+          }}
+        />
+      ) : (
+        <GoodsReceiptForm
+          open={showGRForm}
+          onOpenChange={setShowGRForm}
+          onSuccess={async () => {
+            toast.success('تم إنشاء إشعار الاستلام بنجاح')
+            await loadReceipts()
+          }}
+        />
+      )}
 
       {/* Receipts List */}
       <div className="bg-card rounded-lg border">
