@@ -1,7 +1,7 @@
 -- migration_number: 149
--- description: Close the purchase-order approval bypass left by migration 148.
---              A submitted order is awaiting organization-admin approval and must
---              not be listed or accepted for inventory/GRNI receiving.
+-- description: Close the purchase-order approval bypass left by migration 148,
+--              and keep unresolved inspection / rejected quantities within the
+--              legal open contract balance.
 -- safety: replace-only RPC definitions. No data, table, column, policy, or trigger
 --         is removed or reinterpreted.
 
@@ -167,9 +167,8 @@ BEGIN
 END;
 $function$;
 
--- Patch only the authorization-state guard in the final Migration-148 receipt
--- function. The complete body is retained by 148; this wrapper performs the
--- authoritative state check before delegating to an internal copy.
+-- Patch only the authorization / quality guards around the final Migration-148
+-- implementation. The complete atomic implementation remains internal.
 ALTER FUNCTION public.rpc_post_goods_receipt(jsonb)
   RENAME TO rpc_post_goods_receipt_148_internal;
 
@@ -183,6 +182,15 @@ DECLARE
   v_org uuid;
   v_po_id uuid;
   v_status text;
+  v_idem_key text;
+  v_line jsonb;
+  v_quality text;
+  v_pol_id uuid;
+  v_qty_entered numeric;
+  v_qty_base numeric;
+  v_factor numeric;
+  v_remaining numeric;
+  v_pol record;
 BEGIN
   IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN
     RAISE EXCEPTION 'GR_PAYLOAD_OBJECT_REQUIRED';
@@ -205,6 +213,93 @@ BEGIN
     IF v_status NOT IN ('approved', 'partially_received') THEN
       RAISE EXCEPTION 'PO_NOT_RECEIVABLE: %', v_status;
     END IF;
+  END IF;
+
+  -- A replay must reach the immutable implementation first: current open balance
+  -- may be lower because the original request already succeeded. The internal RPC
+  -- compares request_hash and returns the original document without duplicating it.
+  v_idem_key := NULLIF(p_payload ->> 'idempotency_key', '');
+  IF v_idem_key IS NOT NULL AND EXISTS (
+    SELECT 1
+    FROM public.goods_receipts gr
+    WHERE gr.org_id = v_org
+      AND gr.idempotency_key = v_idem_key
+  ) THEN
+    RETURN public.rpc_post_goods_receipt_148_internal(p_payload);
+  END IF;
+
+  IF v_po_id IS NOT NULL THEN
+    FOR v_line IN
+      SELECT value FROM jsonb_array_elements(COALESCE(p_payload -> 'lines', '[]'::jsonb))
+    LOOP
+      v_quality := COALESCE(NULLIF(v_line ->> 'quality_status', ''), 'accepted');
+      v_pol_id := NULLIF(v_line ->> 'purchase_order_line_id', '')::uuid;
+
+      IF v_quality = 'pending_inspection' THEN
+        RAISE EXCEPTION 'PENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW';
+      END IF;
+
+      -- Accepted quantities are guarded by the internal atomic implementation.
+      -- Rejected quantities release the balance after posting, but a single rejected
+      -- delivery still cannot exceed the balance that was open when it arrived.
+      IF v_quality = 'rejected' AND v_pol_id IS NOT NULL THEN
+        SELECT
+          pol.purchase_order_id,
+          pol.quantity,
+          COALESCE(pol.received_quantity, 0) AS received,
+          COALESCE(pol.accepted_quantity, 0) AS accepted,
+          COALESCE(pol.rejected_quantity, 0) AS rejected,
+          pol.conversion_factor_snapshot,
+          pol.uom_id,
+          p.base_uom_id
+        INTO v_pol
+        FROM public.purchase_order_lines pol
+        JOIN public.products p
+          ON p.id = pol.product_id
+         AND p.org_id = v_org
+        WHERE pol.id = v_pol_id
+          AND pol.org_id = v_org
+        FOR UPDATE OF pol;
+
+        IF NOT FOUND OR v_pol.purchase_order_id <> v_po_id THEN
+          RAISE EXCEPTION 'INVALID_PO_LINE';
+        END IF;
+
+        IF v_pol.conversion_factor_snapshot IS NULL
+           OR v_pol.conversion_factor_snapshot <= 0 THEN
+          IF v_pol.uom_id IS DISTINCT FROM v_pol.base_uom_id THEN
+            RAISE EXCEPTION 'PO_LINE_SNAPSHOT_MISSING';
+          END IF;
+          v_factor := 1;
+        ELSE
+          v_factor := v_pol.conversion_factor_snapshot;
+        END IF;
+
+        v_qty_entered := NULLIF(v_line ->> 'qty_entered', '')::numeric;
+        IF v_qty_entered IS NULL THEN
+          IF v_factor <> 1 THEN
+            RAISE EXCEPTION 'RECEIPT_SNAPSHOT_CONTRACT_REQUIRED';
+          END IF;
+          v_qty_entered := NULLIF(v_line ->> 'received_quantity', '')::numeric;
+        END IF;
+        IF v_qty_entered IS NULL OR v_qty_entered <= 0 THEN
+          RAISE EXCEPTION 'RECEIPT_QUANTITY_MUST_BE_POSITIVE';
+        END IF;
+
+        v_qty_base := round(v_qty_entered * v_factor, 6);
+        v_remaining := GREATEST(
+          v_pol.quantity
+          - v_pol.accepted
+          - GREATEST(v_pol.received - v_pol.accepted - v_pol.rejected, 0),
+          0
+        );
+
+        IF v_qty_base > v_remaining THEN
+          RAISE EXCEPTION 'REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE: remaining=%, requested_base=%',
+            v_remaining, v_qty_base;
+        END IF;
+      END IF;
+    END LOOP;
   END IF;
 
   RETURN public.rpc_post_goods_receipt_148_internal(p_payload);
