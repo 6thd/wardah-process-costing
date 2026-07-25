@@ -1,7 +1,9 @@
 -- Acceptance for migration 149.
 -- Proves that submission is not approval: a plain member may submit an order,
 -- but neither the receivable list nor the atomic GRN path exposes it until an
--- organization admin approves it.
+-- organization admin approves it. It also proves that unresolved inspection is
+-- disabled for PO receipts and that a rejected shipment cannot exceed the open
+-- contractual balance.
 \set ON_ERROR_STOP on
 
 CREATE OR REPLACE FUNCTION pg_temp.expect_error_149(p_sql text, p_needle text)
@@ -117,6 +119,81 @@ BEGIN
       AND item ->> 'status' = 'approved'
   ) THEN
     RAISE EXCEPTION 'ACCEPTANCE_149_FAIL: approved order missing from receivable list';
+  END IF;
+END $$;
+
+-- Pending inspection is intentionally unavailable until a separate atomic
+-- resolution flow exists. It must fail before creating a receipt or changing PO.
+DO $$
+DECLARE v_po uuid; v_pol uuid;
+BEGIN
+  SELECT po_id, pol_id INTO v_po, v_pol FROM t149;
+  PERFORM pg_temp.expect_error_149(format(
+    $q$ SELECT public.rpc_post_goods_receipt(jsonb_build_object(
+      'tenant_id','48111111-1111-1111-1111-111111111111',
+      'vendor_id','48f00000-0000-0000-0000-000000000001',
+      'purchase_order_id',%L,
+      'warehouse_id','48a00000-0000-0000-0000-000000000001',
+      'receipt_date','2026-07-24',
+      'idempotency_key','U149-PENDING-MUST-FAIL',
+      'lines',jsonb_build_array(jsonb_build_object(
+        'product_id','48d00000-0000-0000-0000-000000000001',
+        'purchase_order_line_id',%L,
+        'uom_id','48400000-0000-0000-0000-000000000002',
+        'qty_entered',0.25,
+        'unit_cost_entered',120,
+        'quality_status','pending_inspection'))))$q$,
+    v_po, v_pol),
+    'PENDING_INSPECTION_REQUIRES_RESOLUTION_FLOW'
+  );
+END $$;
+
+-- Rejection releases the balance after a legal delivery, but one rejected
+-- delivery cannot exceed the balance open at the time it is recorded.
+DO $$
+DECLARE v_po uuid; v_pol uuid;
+BEGIN
+  SELECT po_id, pol_id INTO v_po, v_pol FROM t149;
+  PERFORM pg_temp.expect_error_149(format(
+    $q$ SELECT public.rpc_post_goods_receipt(jsonb_build_object(
+      'tenant_id','48111111-1111-1111-1111-111111111111',
+      'vendor_id','48f00000-0000-0000-0000-000000000001',
+      'purchase_order_id',%L,
+      'warehouse_id','48a00000-0000-0000-0000-000000000001',
+      'receipt_date','2026-07-24',
+      'idempotency_key','U149-REJECTED-OVER-MUST-FAIL',
+      'lines',jsonb_build_array(jsonb_build_object(
+        'product_id','48d00000-0000-0000-0000-000000000001',
+        'purchase_order_line_id',%L,
+        'uom_id','48400000-0000-0000-0000-000000000002',
+        'qty_entered',2,
+        'unit_cost_entered',120,
+        'quality_status','rejected'))))$q$,
+    v_po, v_pol),
+    'REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE'
+  );
+END $$;
+
+DO $$
+DECLARE v_received numeric; v_accepted numeric; v_rejected numeric; v_bad_receipts integer;
+BEGIN
+  SELECT received_quantity, accepted_quantity, rejected_quantity
+  INTO STRICT v_received, v_accepted, v_rejected
+  FROM public.purchase_order_lines
+  WHERE id = (SELECT pol_id FROM t149);
+
+  IF v_received <> 0 OR v_accepted <> 0 OR v_rejected <> 0 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_149_FAIL: rejected guard left PO quantities changed: received=%, accepted=%, rejected=%',
+      v_received, v_accepted, v_rejected;
+  END IF;
+
+  SELECT count(*) INTO v_bad_receipts
+  FROM public.goods_receipts
+  WHERE org_id = '48111111-1111-1111-1111-111111111111'
+    AND idempotency_key IN ('U149-PENDING-MUST-FAIL', 'U149-REJECTED-OVER-MUST-FAIL');
+
+  IF v_bad_receipts <> 0 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_149_FAIL: failed guard persisted % receipt headers', v_bad_receipts;
   END IF;
 END $$;
 
