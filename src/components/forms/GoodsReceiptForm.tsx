@@ -102,7 +102,10 @@ export function GoodsReceiptForm({ open, onOpenChange, onSuccess }: GoodsReceipt
           *,
           vendor:vendors(code, name)
         `)
-        .in('status', ['confirmed', 'partially_received', 'draft'])
+        // الحالات القابلة للاستلام على الخادم فقط (Migration 148). عرض draft أو
+        // confirmed أو submitted يُظهر أوامر تفشل حتمًا بـPO_NOT_RECEIVABLE، بينما
+        // كان approved — وهو الأمر القانوني الوحيد لأول استلام — غائبًا عن القائمة.
+        .in('status', ['approved', 'partially_received'])
         .order('order_date', { ascending: false })
       
       if (error) throw error

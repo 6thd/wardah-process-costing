@@ -10,8 +10,12 @@ on:
       - 'src/components/forms/UomGoodsReceiptForm.tsx'
       - 'src/features/purchasing/index.tsx'
       - 'src/services/uom-goods-receipt-service.ts'
-      - 'src/services/__tests__/uom-goods-receipt-service.test.ts'
       - 'src/services/purchasing-service.ts'
+      # ملفات الاختبار نفسها ضمن المسارات: تعديل الحارس وحده يجب أن يشغّل البوابة.
+      - 'src/components/forms/__tests__/goods-receipt-legacy-contract.test.tsx'
+      - 'src/features/purchasing/__tests__/goods-receipt-rollout-gate.test.tsx'
+      - 'src/services/__tests__/uom-goods-receipt-service.test.ts'
+      - 'src/services/__tests__/goods-receipt-atomic.test.ts'
       - 'src/types/database.generated.ts'
       - '.github/workflows/uom-partial-receipt-atomic.yml'
   workflow_dispatch:
@@ -112,5 +116,6 @@ jobs:
         run: >-
           npm run test -- --run --coverage.enabled=false
           src/features/purchasing/__tests__/goods-receipt-rollout-gate.test.tsx
+          src/components/forms/__tests__/goods-receipt-legacy-contract.test.tsx
           src/services/__tests__/uom-goods-receipt-service.test.ts
           src/services/__tests__/goods-receipt-atomic.test.ts
