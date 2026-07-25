@@ -49,6 +49,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/INTEGRITY_HARDENING_122_124_RUNBOOK.md`
 - `docs/db/INTEGRITY_HARDENING_125_127_ADDENDUM.md`
 - `docs/db/BASELINE_PRODUCTION_CUTOFF_POLICY.md`
+- `docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md` — 148: الاستلام الجزئي وبوابة
+  اعتماد أمر الشراء وعقد الكميات حسب الجودة. يتضمن **ترتيب النشر الإلزامي حين
+  تقترن migration بواجهة خلف علم مفعّل**.
 
 ## Baseline
 
@@ -142,12 +145,38 @@ Playwright يحتاج staging URL وحسابات اختبار منفصلة لل�
 4. حدث runbook/status.
 5. شغّل CI وFresh DB وMigration Governance.
 6. راجع SQL أمنيًا ووظيفيًا.
-7. ادمج PR.
-8. طبّق على Production بالترتيب.
-9. نفذ استعلامات التحقق وتأكد من ظهور الاسم القانوني مرة واحدة في السجل.
-10. حدّث Baseline بعد ظهور migration في سجل Production فقط عبر workflow المخصص وPR مستقل.
+7. **إذا اعتمدت الواجهة على RPC أو Schema جديدة، افصل التغيير إلى PRين: ادمج PR الـMigration المتوافقة للخلف أولًا، ثم طبّقها على Production وتحقق منها، وبعد ذلك فقط ادمج PR الواجهة التابعة لها** (انظر أدناه).
+8. ادمج PR الـMigration إلى `main`.
+9. طبّق على Production بالترتيب. **لا تطبّق أبدًا SQL غير موجودة في `main`.**
+10. نفذ استعلامات التحقق وتأكد من ظهور الاسم القانوني مرة واحدة في السجل.
+11. ادمج PR الواجهة التابعة (إن وُجد) بعد نجاح الخطوة 10.
+12. حدّث Baseline بعد ظهور migration في سجل Production فقط عبر workflow المخصص وPR مستقل.
 
 لا تعدّل أو تحذف صفوف `supabase_migrations.schema_migrations` لتجميل التاريخ؛ وثّق الاستثناء بدقة واجعل الحارس يرفض أي انحراف جديد.
+
+### ترتيب النشر: `repository-first` للـMigration ثم `DB-first` للواجهة
+
+الدمج ينشر الواجهة تلقائيًا عبر Vercel/Netlify، **بينما قاعدة البيانات لا تتغير بالدمج**. فأي واجهة مدموجة تستدعي RPC أو Schema لم تُطبَّق بعد تكون معطّلة عند كل مؤسسة تصل إليها. القاعدة الناتجة لها شقّان لا يُفصل أحدهما عن الآخر:
+
+1. **`repository-first` للـMigration:** الملف يصل إلى `main` قبل تطبيقه على Production. سجل Production هو المرجع القانوني، لكن `Audit Production Migration Ledger` و`Generate Schema Baseline` يقرآن `main` ويطالبان بملف مطابق تمامًا لكل صف حي؛ فتطبيق SQL غير مدموجة يجعل Production متقدمًا على المستودع ويُفشل التدقيق، وإن تعذّر دمج الـPR لاحقًا يصبح التقدّم دائمًا بلا ملف يقابله.
+2. **`DB-first` للواجهة:** لا تُدمج واجهة تعتمد على RPC أو Schema قبل تطبيق الـmigration على Production والتحقق منها.
+
+الشقّان معًا يعنيان أن **الـmigration والواجهة التي تعتمد عليها لا يُدمجان في PR واحد**: PR قاعدة بيانات مستقل يُدمج ويُطبَّق ويُتحقَّق منه، ثم PR الواجهة التابعة له.
+
+| الحالة | القرار |
+|---|---|
+| Migration بلا واجهة تابعة | **دمج DB PR → تطبيق → تحقق** |
+| واجهة تعتمد على RPC أو Schema جديدة | **دمج DB PR مستقل → تطبيق وتحقق → دمج UI PR** |
+| يتعذر تجهيز DB أولًا، والعلم مطفأ للجميع | أبقِ UI PR غير مدموج، أو جمّد العلم واضمن تطبيق DB قبل تفعيله. **ولا تطبّق SQL غير موجودة في `main` في أي حال** |
+| العلم مفعّل لأي مؤسسة | **يُمنع** دمج UI PR حتى اكتمال DB PR وتطبيقه |
+
+فحص العلم يحدد **نطاق الخطر** لا ترتيب النشر؛ فحالته قد تتغير بين الدمج والتطبيق، وإطفاؤه احتواء مؤقت لا بديل دائم عن هذا الترتيب:
+
+```sql
+SELECT org_id, value FROM public.org_settings WHERE key = '<flag_key>';
+```
+
+حدثت هذه الفجوة فعلًا مع Migration 148؛ التفاصيل في `docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md` §3.
 
 ## Secrets
 
