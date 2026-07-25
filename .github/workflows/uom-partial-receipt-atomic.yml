@@ -8,6 +8,11 @@ on:
       - 'sql/migrations/149_require_approved_po_for_receipt.sql'
       - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
       - 'scripts/ci/fresh-db/acceptance_149_require_approved_po.sql'
+      - 'src/components/forms/GoodsReceiptForm.tsx'
+      - 'src/services/uom-goods-receipt-service.ts'
+      - 'src/services/__tests__/uom-goods-receipt-service.test.ts'
+      - 'src/services/purchasing-service.ts'
+      - 'src/types/database.generated.ts'
       - '.github/workflows/uom-partial-receipt-atomic.yml'
   workflow_dispatch:
 
@@ -93,7 +98,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Prove submitted is not approved
+      - name: Prove approval, inspection, and rejected-balance guards
         run: >-
           psql -v ON_ERROR_STOP=1 -d wardah_fresh
           -f scripts/ci/fresh-db/acceptance_149_require_approved_po.sql
