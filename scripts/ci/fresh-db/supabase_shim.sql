@@ -6,7 +6,17 @@ CREATE ROLE service_role NOLOGIN;
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
-ALTER DATABASE wardah_fresh SET search_path = public, extensions;
+-- اسم القاعدة يُشتق من الاتصال الحالي لا يُثبَّت نصًا. كان مثبتًا على
+-- `wardah_fresh`، فنجح في ci-cd.yml وفشل في generate-baseline.yml الذي ينشئ
+-- `wardah_baseline_verify` — عقد ضمني بين ملف SQL واسم قاعدة في workflow آخر.
+DO $wardah_shim$
+BEGIN
+  EXECUTE format(
+    'ALTER DATABASE %I SET search_path = public, extensions',
+    current_database()
+  );
+END
+$wardah_shim$;
 
 CREATE SCHEMA auth;
 CREATE TABLE auth.users (
