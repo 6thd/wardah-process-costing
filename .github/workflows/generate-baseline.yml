@@ -132,9 +132,31 @@ jobs:
               --no-tablespaces
           } > "$BASELINE"
 
+          # Supabase تعيد إنشاء مخطط public بمالك غير مالك التمهيد، فيعامله
+          # pg_dump مخططَ مستخدم ويُصدر `CREATE SCHEMA public;`. لكن كل قاعدة
+          # جديدة تملك public أصلًا من initdb، فيفشل التطبيق بـ
+          # `schema "public" already exists`.
+          #
+          # يُصلَح في الأداة لا عند المُستهلك: هذا الملف يُطبَّق هنا في إعادة
+          # البناء، وفي Fresh DB داخل ci-cd.yml بعد دمجه. جعل المُستهلك يُسقِط
+          # public قبل التطبيق كان سيصلح هذه الخطوة ويترك ci-cd.yml معطلًا.
+          PUBLIC_BARE=$(grep -c '^CREATE SCHEMA public;$' "$BASELINE" || true)
+          if [ "$PUBLIC_BARE" -gt 0 ]; then
+            sed -i 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/' "$BASELINE"
+            echo "ℹ️ CREATE SCHEMA public → IF NOT EXISTS ($PUBLIC_BARE بيان)"
+          fi
+          if grep -q '^CREATE SCHEMA public;$' "$BASELINE"; then
+            echo "❌ بقي CREATE SCHEMA public غير idempotent بعد التحويل"
+            exit 1
+          fi
+
           echo "baseline_path=$BASELINE" >> "$GITHUB_ENV"
           echo "baseline_name=$(basename "$BASELINE")" >> "$GITHUB_ENV"
           echo "✅ Baseline generated: $BASELINE ($(wc -l < "$BASELINE") lines)"
+
+          # نسخة تشخيصية: الـBaseline المولَّد لم يكن يُرفع قط، فكان كل فشل في
+          # إعادة البناء يحتاج دورة كاملة لتخمين محتواه. الآن يُرفع مع البقية.
+          cp "$BASELINE" baseline-diagnostics/
 
       - name: Verify generated baseline metadata and contents
         shell: bash
@@ -168,10 +190,22 @@ jobs:
         run: |
           set -Eeuo pipefail
           createdb wardah_baseline_verify
-          psql -v ON_ERROR_STOP=1 -d wardah_baseline_verify \
-            -f scripts/ci/fresh-db/supabase_shim.sql -q
-          psql -v ON_ERROR_STOP=1 -d wardah_baseline_verify \
-            -f "$baseline_path" -q
+
+          # `-q` يكتم النجاح لا الأخطاء، لكن فشل الخطوة كان يظهر في سجل حاوية
+          # الخدمة وحده بلا اسم ملف ولا رقم سطر. الآن يُحفظ خرج psql ويُطبع
+          # عند الفشل، فيُشخَّص العطل من التشغيل نفسه لا من دورة تالية.
+          apply_sql() {
+            local LABEL="$1" FILE="$2" LOG="baseline-diagnostics/apply-$1.log"
+            if ! psql -v ON_ERROR_STOP=1 -d wardah_baseline_verify -f "$FILE" -q \
+                 > "$LOG" 2>&1; then
+              echo "❌ فشل تطبيق $LABEL ($FILE):"
+              tail -40 "$LOG"
+              return 1
+            fi
+          }
+
+          apply_sql shim scripts/ci/fresh-db/supabase_shim.sql
+          apply_sql baseline "$baseline_path"
 
           TABLES=$(psql -d wardah_baseline_verify -tAc \
             "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
