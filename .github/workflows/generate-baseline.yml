@@ -51,7 +51,24 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -q
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+
+          # صورة عدّاء GitHub تحمل عميل PostgreSQL 16 في /usr/bin، وحزمة PGDG
+          # تضع ملفات 17 في /usr/lib/postgresql/17/bin دون تقديمها في PATH.
+          # فبلا هذا السطر يبقى pg_dump 16 هو المُنفَّذ، ويرفض التفريغ من خادم 17
+          # بـ"server version mismatch" — بعد خطوتين من هنا لا هنا.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+
+          # تحقق حاجز لا طباعة: السطر السابق كان `pg_dump --version` وحده، فطبع
+          # 16.14 ومضى ناجحًا وأخفى العطل. أي انحدار مستقبلي يجب أن يفشل هنا.
+          for BIN in pg_dump psql; do
+            VERSION=$("$BIN" --version | grep -oE '[0-9]+' | head -1)
+            if [ "$VERSION" != "17" ]; then
+              echo "❌ $BIN المُنفَّذ إصدار $VERSION لا 17 — $(command -v "$BIN")"
+              exit 1
+            fi
+            echo "✅ $("$BIN" --version) — $(command -v "$BIN")"
+          done
 
       - name: Validate database secret
         env:
