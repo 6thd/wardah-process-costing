@@ -167,6 +167,33 @@ class UpdateBaselineDocsTests(unittest.TestCase):
         result = self.run_script()
         self.assertEqual(result.returncode, 1)
         self.assertIn("current-baseline table row", result.stdout)
+        self.assertIn("found 0", result.stdout)
+
+    def test_fails_when_baseline_row_duplicated(self) -> None:
+        """صفّا لقطة في README يعنيان وصفين متنافسين للحالة الحية.
+
+        `subn(count=1)` كان يستبدل الأول ويعيد count == 1، فيمر التكرار صامتًا
+        تاركًا صفًا ثانيًا يصف لقطة أخرى في مرجع حاكم.
+        """
+        readme = README_TEMPLATE.format(counts_line=COUNTS_LINE_OLD).replace(
+            "| `000_schema_baseline_20260717.sql` | 2026-07-17 | 121 "
+            "| 611 KB / 13,521 سطر |",
+            "| `000_schema_baseline_20260717.sql` | 2026-07-17 | 121 "
+            "| 611 KB / 13,521 سطر |\n"
+            "| `000_schema_baseline_20260101.sql` | 2026-01-01 | 99 "
+            "| 400 KB / 9,000 سطر |",
+        )
+        self.readme.write_text(readme, encoding="utf-8")
+        readme_before = self.readme.read_text(encoding="utf-8")
+        claude_before = self.claude.read_text(encoding="utf-8")
+
+        result = self.run_script()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("current-baseline table row", result.stdout)
+        self.assertIn("found 2", result.stdout)
+        self.assertEqual(self.readme.read_text(encoding="utf-8"), readme_before)
+        self.assertEqual(self.claude.read_text(encoding="utf-8"), claude_before)
 
     def test_does_not_write_readme_when_counts_invalid(self) -> None:
         """JSON تالف يجب ألا يترك README محدّثة جزئيًا."""

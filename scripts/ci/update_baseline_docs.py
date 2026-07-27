@@ -92,16 +92,17 @@ def render_readme(
         f"| {size_kb} KB / {lines:,} سطر |"
     )
 
-    # الحارس القائم على صف الجدول يبقى كما هو سلوكًا.
-    # دين تقني مسجّل: `subn(count=1)` لا يكشف وجود صفين — يستبدل الأول ويعيد
-    # count == 1، فرسالة "exactly one" أوسع مما يفحصه فعلًا. سلوك سابق لهذا
-    # التغيير، مُبقى عمدًا خارج نطاقه. فحص سطر القياسات أدناه لا يشاركه هذا
-    # القصور: يعدّ المطابقات كلها أولًا.
-    text, count = BASELINE_ROW_RE.subn(row, text, count=1)
-    if count != 1:
+    # كان هذا `subn(..., count=1)`: يستبدل الصف الأول ويعيد count == 1 حتى مع
+    # وجود صفين، فرسالة "exactly one" كانت أوسع مما يفحصه فعلًا. العدّ أولًا
+    # يجعل الرسالة والفحص متطابقين — وREADME مرجع حاكم، فصف لقطة مكرر فيه
+    # يعني وصفين متنافسين للحالة الحية.
+    rows = BASELINE_ROW_RE.findall(text)
+    if len(rows) != 1:
         raise DocUpdateError(
-            "Expected exactly one current-baseline table row in README"
+            "Expected exactly one current-baseline table row in README, "
+            f"found {len(rows)}"
         )
+    text = BASELINE_ROW_RE.sub(lambda _: row, text, count=1)
 
     matches = COUNTS_RE.findall(text)
     if len(matches) != 1:
