@@ -268,6 +268,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_attendance_records_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
         ]
       }
       audit_logs: {
@@ -1893,6 +1900,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_employee_leaves_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
         ]
       }
       employee_salary_structures: {
@@ -1956,6 +1970,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_employee_salary_structures_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
           },
         ]
       }
@@ -3065,6 +3086,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_hr_settlements_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
           {
             foreignKeyName: "hr_settlements_employee_id_fkey"
             columns: ["employee_id"]
@@ -4971,6 +4999,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_payroll_details_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
           {
             foreignKeyName: "payroll_details_component_id_fkey"
             columns: ["component_id"]
