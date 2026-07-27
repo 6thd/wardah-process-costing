@@ -33,10 +33,10 @@ INSERT INTO public.user_organizations
   (id, user_id, org_id, is_active, is_org_admin, role) VALUES
   ('47000000-0000-0000-0000-000000000001',
    '47aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-   '47111111-1111-1111-1111-111111111111', true, false, 'member'),
+   '47111111-1111-1111-1111-111111111111', true, false, 'user'),
   ('47000000-0000-0000-0000-000000000002',
    '47aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-   '47222222-2222-2222-2222-222222222222', true, false, 'member');
+   '47222222-2222-2222-2222-222222222222', true, false, 'user');
 
 INSERT INTO public.org_settings (org_id, key, value) VALUES
   ('47111111-1111-1111-1111-111111111111', 'uom_engine_enabled', '{"enabled":true}'::jsonb),
