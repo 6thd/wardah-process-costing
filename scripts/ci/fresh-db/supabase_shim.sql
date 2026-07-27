@@ -3,6 +3,16 @@ CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
 CREATE ROLE service_role NOLOGIN;
 
+-- supabase_admin لا يستقبل صلاحيات في المخطط، لكنه يظهر بوصفه **المانح** في
+-- الصلاحيات الافتراضية التي يُصدرها pg_dump بعد استعادة ACL:
+--
+--   ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public
+--     GRANT ALL ON SEQUENCES TO postgres;
+--
+-- وبيان كهذا يفشل بـ`role "supabase_admin" does not exist` قبل أن يبلغ أي منح.
+-- فحص المستفيدين وحده لا يكشفه — المانح عمود آخر في pg_default_acl.
+CREATE ROLE supabase_admin NOLOGIN;
+
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA extensions;
