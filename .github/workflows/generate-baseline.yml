@@ -123,10 +123,17 @@ jobs:
             echo "-- Apply with: psql -f supabase_shim.sql && psql -f this file"
             echo "-- ============================================================"
             echo ""
+            # --no-acl مُزال عمدًا. الـBaseline يحل محل كل migration دون cutoff،
+            # ومعها بيانات GRANT/REVOKE التي تحملها (نحو 130 بيانًا عبر 27 ملفًا
+            # حتى 148). بإسقاط الصلاحيات كان رفع cutoff يمحو نموذج التنفيذ كاملًا
+            # بصمت: قاعدة مبنية من اللقطة لا تمنح authenticated ولا تسحب من anon.
+            #
+            # --no-owner يبقى: ملكية Supabase تشير إلى أدوار غير موجودة في CI.
+            # أما المستفيدون من الصلاحيات في public فهم postgres وservice_role
+            # وauthenticated وanon وPUBLIC — وكلهم متاحون في بيئة إعادة البناء.
             pg_dump "$SUPABASE_DB_URL" \
               --schema-only \
               --no-owner \
-              --no-acl \
               --no-comments \
               --schema=public \
               --no-tablespaces
@@ -181,6 +188,18 @@ jobs:
           grep -q 'CREATE.*FUNCTION' "$baseline_path" \
             || { echo '❌ no function statements'; exit 1; }
 
+          # الـBaseline يحل محل كل migration دون cutoff، ومعها صلاحياتها. لقطة
+          # بلا GRANT/REVOKE تعني قاعدة بلا نموذج تنفيذ: authenticated بلا منح
+          # وanon بلا سحب — وهو تدهور أمني صامت لا يوقفه أي فحص آخر هنا.
+          # العتبة متحفظة جدًا: الإنتاج يحمل آلاف مدخلات ACL في public.
+          ACL_STMTS=$(grep -cE '^(GRANT|REVOKE) ' "$baseline_path" || true)
+          if [ "$ACL_STMTS" -lt 100 ]; then
+            echo "❌ الـBaseline يحمل $ACL_STMTS بيان صلاحيات فقط — يُتوقع مئات."
+            echo "   تحقق من عدم عودة --no-acl إلى pg_dump."
+            exit 1
+          fi
+          echo "✅ صلاحيات محفوظة: $ACL_STMTS بيان GRANT/REVOKE"
+
       - name: Rebuild clean PostgreSQL from generated baseline
         env:
           PGHOST: localhost
@@ -206,6 +225,15 @@ jobs:
 
           apply_sql shim scripts/ci/fresh-db/supabase_shim.sql
           apply_sql baseline "$baseline_path"
+
+          # فحص دلالي لا عددي. حارس عدد بيانات GRANT/REVOKE يثبت وجود نموذج
+          # صلاحيات؛ وهذا يثبت أن العقد الأمني المطلوب نفسه نجا من التوليد ومن
+          # إعادة البناء: authenticated تُنفّذ، وanon لا تُنفّذ — لا عبر منح
+          # مباشر ولا بالوراثة من PUBLIC، فPostgreSQL يمنح PUBLIC صلاحية EXECUTE
+          # افتراضيًا عند إنشاء الدالة ما لم يُستعد بيان السحب.
+          # الدوال غير الموجودة تُتخطى: cutoff أقدم لا يلزمه وجودها.
+          apply_sql acl-contract scripts/ci/fresh-db/verify_baseline_acl.sql
+          echo "✅ عقد التنفيذ نجا من التوليد وإعادة البناء"
 
           TABLES=$(psql -d wardah_baseline_verify -tAc \
             "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
