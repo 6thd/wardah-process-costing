@@ -183,6 +183,74 @@ class UpdateBaselineDocsTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("markers are missing or duplicated", result.stdout)
 
+    # ---------- ذرّية الكتابة عبر الوثيقتين ----------
+
+    def test_invalid_claude_does_not_modify_readme(self) -> None:
+        """CLAUDE.md تالفة يجب ألا تترك README مكتوبة.
+
+        هذا هو المسار الذي كان مفتوحًا: README تُكتب أولًا، ثم تُفحص علامات
+        CLAUDE.md وتفشل — فتبقى وثيقة واحدة محدّثة والعملية فاشلة.
+        """
+        self.claude.write_text("بلا علامات إطلاقًا.\n", encoding="utf-8")
+        readme_before = self.readme.read_text(encoding="utf-8")
+
+        result = self.run_script()
+
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("markers are missing or duplicated", result.stdout)
+        self.assertEqual(
+            self.readme.read_text(encoding="utf-8"),
+            readme_before,
+            "README تغيّرت رغم فشل الشوط على CLAUDE.md",
+        )
+
+    def test_no_document_is_written_on_any_validation_failure(self) -> None:
+        """تعميم: أي فشل تحقق يترك الوثيقتين كما كانتا."""
+        readme_ok = self.readme.read_text(encoding="utf-8")
+        claude_ok = self.claude.read_text(encoding="utf-8")
+
+        broken_readme = README_TEMPLATE.format(counts_line="لا سطر قياسات")
+        cases = {
+            "counts-missing": lambda: self.counts.unlink(),
+            "counts-invalid-json": lambda: self.write_counts("{not json"),
+            "counts-missing-key": lambda: self.write_counts({"tables": 1}),
+            "counts-not-int": lambda: self.write_counts(
+                {"tables": 131, "functions": 201, "policies": "316"}
+            ),
+            "readme-counts-line-missing": lambda: self.readme.write_text(
+                broken_readme, encoding="utf-8"
+            ),
+            "claude-markers-missing": lambda: self.claude.write_text(
+                "بلا علامات.\n", encoding="utf-8"
+            ),
+        }
+
+        for label, break_it in cases.items():
+            with self.subTest(case=label):
+                self.setUp()
+                break_it()
+                readme_before = self.readme.read_text(encoding="utf-8")
+                claude_before = self.claude.read_text(encoding="utf-8")
+
+                self.assertEqual(self.run_script().returncode, 1)
+
+                self.assertEqual(
+                    self.readme.read_text(encoding="utf-8"),
+                    readme_before,
+                    f"README كُتبت رغم فشل {label}",
+                )
+                self.assertEqual(
+                    self.claude.read_text(encoding="utf-8"),
+                    claude_before,
+                    f"CLAUDE.md كُتبت رغم فشل {label}",
+                )
+
+        # سلامة الحالة الموجبة بعد كل ما سبق.
+        self.setUp()
+        self.assertEqual(self.readme.read_text(encoding="utf-8"), readme_ok)
+        self.assertEqual(self.claude.read_text(encoding="utf-8"), claude_ok)
+        self.assertEqual(self.run_script().returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

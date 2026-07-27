@@ -71,13 +71,18 @@ def load_counts(path: Path) -> dict[str, int]:
     return counts
 
 
-def update_readme(
+def render_readme(
     readme: Path,
     baseline: Path,
     cutoff: str,
     counts: dict[str, int],
     generated_date: str,
-) -> None:
+) -> str:
+    """أعد نص README الجديد دون كتابته.
+
+    الفصل بين التحضير والكتابة مقصود: الكتابة هنا كانت تسبق فحص علامات
+    CLAUDE.md، فعلامات مفقودة أو مكررة كانت تترك README محدّثة وحدها.
+    """
     text = readme.read_text(encoding="utf-8")
 
     size_kb = baseline.stat().st_size // 1024
@@ -87,7 +92,11 @@ def update_readme(
         f"| {size_kb} KB / {lines:,} سطر |"
     )
 
-    # الحارس القائم على صف الجدول يبقى كما هو.
+    # الحارس القائم على صف الجدول يبقى كما هو سلوكًا.
+    # دين تقني مسجّل: `subn(count=1)` لا يكشف وجود صفين — يستبدل الأول ويعيد
+    # count == 1، فرسالة "exactly one" أوسع مما يفحصه فعلًا. سلوك سابق لهذا
+    # التغيير، مُبقى عمدًا خارج نطاقه. فحص سطر القياسات أدناه لا يشاركه هذا
+    # القصور: يعدّ المطابقات كلها أولًا.
     text, count = BASELINE_ROW_RE.subn(row, text, count=1)
     if count != 1:
         raise DocUpdateError(
@@ -104,19 +113,18 @@ def update_readme(
         f"المحتوى المتحقق بعد إعادة البناء: {counts['tables']} جدول · "
         f"{counts['functions']} دالة · {counts['policies']} policy"
     )
-    text = COUNTS_RE.sub(lambda _: counts_line, text, count=1)
-
-    readme.write_text(text, encoding="utf-8")
+    return COUNTS_RE.sub(lambda _: counts_line, text, count=1)
 
 
-def update_claude(
+def render_claude(
     claude: Path,
     baseline: Path,
     cutoff: str,
     live_name: str,
     repo_max: str,
     generated_date: str,
-) -> None:
+) -> str:
+    """أعد نص CLAUDE.md الجديد دون كتابته."""
     text = claude.read_text(encoding="utf-8")
     if text.count(CLAUDE_START) != 1 or text.count(CLAUDE_END) != 1:
         raise DocUpdateError(
@@ -139,7 +147,7 @@ def update_claude(
     text, count = pattern.subn(lambda _: state, text, count=1)
     if count != 1:
         raise DocUpdateError("Failed to replace CLAUDE.md database-state block")
-    claude.write_text(text, encoding="utf-8")
+    return text
 
 
 def main() -> int:
@@ -159,13 +167,15 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        # القياسات تُقرأ وتُتحقق قبل لمس أي ملف، فلا تُترك README محدّثة
-        # جزئيًا عند JSON تالف.
+        # كل قراءة وتحقق وبناء نص يسبق أي كتابة، فلا يفشل الشوط بعد تعديل
+        # وثيقة واحدة. القياسات التالفة، وسطر القياسات المفقود أو المكرر،
+        # وصف الجدول الغائب، وعلامات CLAUDE.md المفقودة أو المكررة — كلها
+        # تُكتشف والقرص لم يُمس.
         counts = load_counts(args.counts)
-        update_readme(
+        new_readme = render_readme(
             args.readme, args.baseline, args.cutoff, counts, args.generated_date
         )
-        update_claude(
+        new_claude = render_claude(
             args.claude,
             args.baseline,
             args.cutoff,
@@ -176,6 +186,11 @@ def main() -> int:
     except DocUpdateError as exc:
         print(f"❌ {exc}")
         return 1
+
+    # يبقى فشل I/O بين الكتابتين ممكنًا نظريًا؛ ما يمنعه هذا الفصل هو فشل
+    # التحقق بعد كتابة جزئية، وهو المسار الواقعي الذي أوجدته الفحوص.
+    args.readme.write_text(new_readme, encoding="utf-8")
+    args.claude.write_text(new_claude, encoding="utf-8")
 
     print(
         f"✅ وثائق الـBaseline محدّثة: {counts['tables']} جدول · "
