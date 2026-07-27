@@ -28,54 +28,43 @@
 
 ## توليد الـBaseline
 
-### الطريقة المُوصى بها — GitHub Actions (تلقائي)
+### المسار القانوني الوحيد — `Generate Schema Baseline`
 
-1. أضف السر `SUPABASE_DB_URL` في إعدادات المستودع:
-   `Settings → Secrets and variables → Actions → New repository secret`
+`Actions → Generate Schema Baseline → Run workflow`
 
-   القيمة:
-   ```
-   postgresql://postgres:[DB_PASSWORD]@db.uutfztmqvajmsxnrqeiv.supabase.co:5432/postgres?sslmode=require
-   ```
+يتطلب سرّ `SUPABASE_DB_URL` بصيغة مجمّع الاتصالات (session mode)، واسم مستخدم
+مؤهَّل بمعرّف المشروع. الصيغة والمزالق موثقة في
+`docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md`. لا تكتب كلمة مرور هنا ولا في أي
+ملف بالمستودع.
 
-2. شغّل الـworkflow يدوياً:
-   `Actions → Generate Schema Baseline → Run workflow`
+**لا تولّد Baseline يدويًا.** حُذفت الوصفة اليدوية من هذا الملف عمدًا: كانت
+تنتج لقطة معطوبة بأربع طرق، كلٌّ منها صامت.
 
-3. سيُولد الـbaseline ويُودَع تلقائياً في `sql/baseline/`.
+| ما كانت تفعله الوصفة اليدوية | الأثر |
+|---|---|
+| `--no-acl` | تُسقط نموذج الصلاحيات كاملًا. الـBaseline يحل محل كل migration دون cutoff ومعها منحها، فتصبح القاعدة بلا `GRANT` لـ`authenticated`؛ وأخطر منه أن PostgreSQL يمنح `PUBLIC` صلاحية `EXECUTE` افتراضيًا على الدوال عند إنشائها، فبغياب `REVOKE` قد يرث `anon` تنفيذ دوال سحبها الإنتاج منه |
+| `MAX` من أعلى ملف في المستودع | cutoff من المستودع لا من سجل Production. مع سياسة `repository-first` قد يكون `main` عند 149 وProduction عند 148، فتُوسم لقطة الإنتاج بـ149 وتُتخطى 149 في Fresh DB |
+| لا تحوّل `CREATE SCHEMA public` | يفشل التطبيق على أي قاعدة جديدة بـ`schema "public" already exists` |
+| لا حارس ولا إعادة بناء | لا شيء يكشف أيًّا مما سبق قبل الدمج |
 
-### توليد يدوي (محلي)
+الـworkflow يفرض هذه العقود كلها: cutoff من سجل Production الحي، صلاحيات محفوظة
+مع حارس عددي، تحويل `CREATE SCHEMA`، إعادة بناء نظيفة على PostgreSQL 17،
+وعتبات كائنات. ولا يكتب إلى `main` — يفتح PR للمراجعة.
 
-```bash
-pg_dump "$SUPABASE_DB_URL" \
-  --schema-only \
-  --no-owner \
-  --no-acl \
-  --no-comments \
-  --schema=public \
-  --no-tablespaces \
-  | grep -v '^--' \
-  > sql/baseline/000_schema_baseline_$(date +%Y%m%d).sql
+### ملاحظة تاريخية: كيف وُلد baseline 20260717
 
-# أضف سطر migration_cutoff في أول الملف
-MAX=$(ls sql/migrations/ | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
-sed -i "1s/^/-- migration_cutoff: $MAX\n/" sql/baseline/000_schema_baseline_$(date +%Y%m%d).sql
-```
+لم يُولَّد بـ`pg_dump`، بل أُعيد بناؤه من `pg_catalog` عبر Supabase MCP
+بالاستعلام من `pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`,
+`pg_trigger`, `pg_policy` مع `pg_get_functiondef()` وأخواتها.
 
-### بديل — Supabase MCP (عند تعذّر `pg_dump`)
+وهذا يفسّر فجوتين انكشفتا عند أول توليد حقيقي بـ`pg_dump`:
 
-إذا كان Direct Connection IPv6-only (لا يدعمه `psql` محلياً)، يمكن إعادة بناء
-الـbaseline من `pg_catalog` عبر **Supabase MCP** مباشرةً (بدون Connection URL).
+- **صفر `GRANT`/`REVOKE`** — لا نموذج صلاحيات إطلاقًا.
+- **قيود ومفاتيح مفقودة** — منها `user_organizations_role_check` وخمسة مفاتيح
+  أجنبية مركّبة على `employee_id, org_id`، موجودة في الإنتاج وغائبة عن اللقطة.
 
-بديل Transaction Pooler (يتطلب صلاحيات كاملة):
-```
-postgresql://postgres.uutfztmqvajmsxnrqeiv:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
-```
-**تحذير**: منطقة المجمّع (`eu-central-1`) قد تختلف — تحقق من لوحة Supabase →
-Project Settings → Database → Connection Pooling.
-
-الـbaseline الحالي (`20260717`) مُولَّد عبر **Supabase MCP** بالاستعلام من:
-`pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`, `pg_trigger`, `pg_policy`
-مع `pg_get_functiondef()`, `pg_get_indexdef()`, `pg_get_viewdef()`, `pg_get_triggerdef()`.
+تُحفظ هذه الملاحظة ولا تُحذف: هي سبب وجود فجوة lineage بين حالة Production
+وسلسلة الإنشاء في المستودع.
 
 ## استخدام CI
 
@@ -90,4 +79,4 @@ Project Settings → Database → Connection Pooling.
 
 - الـbaseline **لا يُلغي** ملفات المهاجرات القديمة — تبقى للتاريخ
 - عند إضافة مهاجرات جديدة كثيرة (>50 بعد الـbaseline)، أعِد التوليد
-- المعيار: `psql -f baseline` على PostgreSQL 16 نظيف (بعد shim) ينجح بلا أخطاء
+- المعيار: `psql -f baseline` على PostgreSQL 17 نظيف (بعد shim) ينجح بلا أخطاء

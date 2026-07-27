@@ -226,6 +226,15 @@ jobs:
           apply_sql shim scripts/ci/fresh-db/supabase_shim.sql
           apply_sql baseline "$baseline_path"
 
+          # فحص دلالي لا عددي. حارس عدد بيانات GRANT/REVOKE يثبت وجود نموذج
+          # صلاحيات؛ وهذا يثبت أن العقد الأمني المطلوب نفسه نجا من التوليد ومن
+          # إعادة البناء: authenticated تُنفّذ، وanon لا تُنفّذ — لا عبر منح
+          # مباشر ولا بالوراثة من PUBLIC، فPostgreSQL يمنح PUBLIC صلاحية EXECUTE
+          # افتراضيًا عند إنشاء الدالة ما لم يُستعد بيان السحب.
+          # الدوال غير الموجودة تُتخطى: cutoff أقدم لا يلزمه وجودها.
+          apply_sql acl-contract scripts/ci/fresh-db/verify_baseline_acl.sql
+          echo "✅ عقد التنفيذ نجا من التوليد وإعادة البناء"
+
           TABLES=$(psql -d wardah_baseline_verify -tAc \
             "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
           FUNCTIONS=$(psql -d wardah_baseline_verify -tAc \
