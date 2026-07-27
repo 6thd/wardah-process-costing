@@ -261,56 +261,12 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          import os
-          import re
-          from datetime import datetime, timezone
-          from pathlib import Path
-
-          baseline = Path(os.environ['baseline_path'])
-          cutoff = os.environ['CUTOFF']
-          live_name = os.environ['LIVE_NAME']
-          repo_max = os.environ['REPO_MAX']
-          size_kb = baseline.stat().st_size // 1024
-          lines = sum(1 for _ in baseline.open(encoding='utf-8'))
-          generated_date = datetime.now(timezone.utc).strftime('%Y-%m-%d')
-
-          readme = Path('sql/baseline/README.md')
-          text = readme.read_text(encoding='utf-8')
-          row = f"| `{baseline.name}` | {generated_date} | {cutoff} | {size_kb} KB / {lines:,} سطر |"
-          text, count = re.subn(
-              r"\| `000_schema_baseline_[^`]+\.sql` \|[^\n]+\|",
-              row,
-              text,
-              count=1,
-          )
-          if count != 1:
-              raise SystemExit('Expected exactly one current-baseline table row in README')
-          readme.write_text(text, encoding='utf-8')
-
-          claude = Path('CLAUDE.md')
-          text = claude.read_text(encoding='utf-8')
-          start = '<!-- DATABASE_STATE_START -->'
-          end = '<!-- DATABASE_STATE_END -->'
-          if text.count(start) != 1 or text.count(end) != 1:
-              raise SystemExit('CLAUDE.md database-state markers are missing or duplicated')
-
-          state = (
-              f"{start}\n"
-              f"الحالة الحية الموثقة بعد Baseline المولد في {generated_date}:\n\n"
-              f"- Baseline الحالي: `{baseline.name}`, cutoff {cutoff}.\n"
-              f"- Production: مطبقة حتى {cutoff} (`{live_name}`).\n"
-              f"- Repository: أعلى migration مرقمة هي {repo_max}.\n"
-              "- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.\n"
-              "- لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.\n"
-              f"{end}"
-          )
-          pattern = re.compile(re.escape(start) + r'.*?' + re.escape(end), re.S)
-          text, count = pattern.subn(state, text, count=1)
-          if count != 1:
-              raise SystemExit('Failed to replace CLAUDE.md database-state block')
-          claude.write_text(text, encoding='utf-8')
-          PY
+          python3 scripts/ci/update_baseline_docs.py \
+            --baseline "$baseline_path" \
+            --counts baseline-diagnostics/rebuild-counts.json \
+            --cutoff "$CUTOFF" \
+            --live-name "$LIVE_NAME" \
+            --repo-max "$REPO_MAX"
 
       - name: Create review branch and pull request
         env:
