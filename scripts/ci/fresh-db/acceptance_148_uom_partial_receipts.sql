@@ -79,7 +79,7 @@ INSERT INTO public.user_organizations
   (id, user_id, org_id, is_active, is_org_admin, role) VALUES
   ('48000000-0000-0000-0000-000000000001',
    '48aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-   '48111111-1111-1111-1111-111111111111', true, false, 'member'),
+   '48111111-1111-1111-1111-111111111111', true, false, 'user'),
   ('48000000-0000-0000-0000-000000000002',
    '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
    '48111111-1111-1111-1111-111111111111', true, true, 'admin'),
