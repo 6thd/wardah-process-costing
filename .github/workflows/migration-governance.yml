@@ -8,6 +8,8 @@ on:
       - 'sql/baseline/**'
       - 'scripts/ci/validate_migration_ledger.py'
       - 'scripts/ci/test_validate_migration_ledger.py'
+      - 'scripts/ci/update_baseline_docs.py'
+      - 'scripts/ci/test_update_baseline_docs.py'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -18,6 +20,8 @@ on:
       - 'sql/baseline/**'
       - 'scripts/ci/validate_migration_ledger.py'
       - 'scripts/ci/test_validate_migration_ledger.py'
+      - 'scripts/ci/update_baseline_docs.py'
+      - 'scripts/ci/test_update_baseline_docs.py'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -39,6 +43,9 @@ jobs:
 
       - name: Run migration-ledger unit tests
         run: python3 scripts/ci/test_validate_migration_ledger.py
+
+      - name: Run baseline-docs updater unit tests
+        run: python3 scripts/ci/test_update_baseline_docs.py
 
       - name: Validate baseline metadata against repository
         shell: bash
