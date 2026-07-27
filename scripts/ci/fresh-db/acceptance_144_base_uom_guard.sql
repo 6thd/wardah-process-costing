@@ -37,7 +37,7 @@ INSERT INTO public.user_organizations
    '11111111-1111-1111-1111-111111111111', true, true, 'admin'),
   ('a0000000-0000-0000-0000-000000000002',
    'cccccccc-cccc-cccc-cccc-cccccccccccc',
-   '11111111-1111-1111-1111-111111111111', true, false, 'member');
+   '11111111-1111-1111-1111-111111111111', true, false, 'user');
 
 -- Product INSERTs carrying a base unit are now admin-guarded by the trigger.
 SELECT set_config('request.jwt.claim.sub', 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
