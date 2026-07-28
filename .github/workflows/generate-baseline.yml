@@ -196,11 +196,15 @@ jobs:
           # المولّد يشتق الطابع من الـbaseline الذي أنشأه للتو، فالاقتران صحيح
           # بالبناء. ومع ذلك يُمرَّر الناتج على المُحلِّل نفسه الذي سيستعمله
           # Fresh DB والحوكمة: زوج يفشل عندهما بعد الدمج يجب أن يفشل هنا قبله.
-          eval "$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
-          if [ "$REFERENCE_PATH" != "$REFERENCE" ] || [ "$BASELINE_PATH" != "$baseline_path" ]; then
+          # لا eval: القيم أسماء ملفات، وإعادة تقييمها تجعل اسمًا مصنوعًا ينفّذ أوامر.
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          RESOLVED_BASELINE=$(pair_field BASELINE_PATH)
+          RESOLVED_REFERENCE=$(pair_field REFERENCE_PATH)
+          if [ "$RESOLVED_REFERENCE" != "$REFERENCE" ] || [ "$RESOLVED_BASELINE" != "$baseline_path" ]; then
             echo "❌ الزوج المولَّد لا يُحَل كما سيحلّه المستهلكون"
             echo "   مولَّد:  $baseline_path + $REFERENCE"
-            echo "   محلول: $BASELINE_PATH + $REFERENCE_PATH"
+            echo "   محلول: $RESOLVED_BASELINE + $RESOLVED_REFERENCE"
             exit 1
           fi
           echo "✅ الزوج المولَّد يُحَل كما سيحلّه Fresh DB والحوكمة"

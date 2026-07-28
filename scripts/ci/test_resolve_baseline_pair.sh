@@ -95,7 +95,38 @@ set +e; bash "$RESOLVER" "$DIR" >/dev/null 2>&1; RC=$?; set -e
 check "يميّز غياب الـbaseline عن خرق العقد" 3 "$RC"
 rm -rf "$DIR"
 
-# 7. المستودع الحقيقي يجب أن يُحَل زوجه.
+# 7. اسم ملف يحمل استبدال أوامر يُرفض عند المصدر.
+#    أي PR يستطيع إضافة `000_schema_baseline_$(...).sql`. وقبل هذا الحارس كان
+#    `eval` على خرج المُحلِّل ينفّذ ما بداخله على العدّاء — أُثبت عمليًا.
+DIR=$(setup_dir)
+printf -- '-- migration_cutoff: 148\n' > "$DIR/000_schema_baseline_\$(touch PWNED).sql"
+printf -- '-- migration_cutoff: 148\n' > "$DIR/001_system_reference_data_\$(touch PWNED).sql"
+set +e; bash "$RESOLVER" "$DIR" >/dev/null 2>&1; RC=$?; set -e
+check "يرفض طابعًا يحمل استبدال أوامر" 1 "$RC"
+rm -rf "$DIR"
+
+# 8. ولو أعاد مستهلكٌ تقييم الخرج، لا يبقى ما يُنفَّذ: الرفض يسبق الطباعة.
+# الحمولة بلا شرطة مائلة لأنها فاصل مسارات لا يصلح داخل اسم ملف؛ ولذلك يُنفَّذ
+# التقييم داخل المجلد نفسه ليظهر الأثر فيه إن وقع.
+DIR=$(setup_dir)
+printf -- '-- migration_cutoff: 148\n' > "$DIR/000_schema_baseline_\$(touch PWNED).sql"
+printf -- '-- migration_cutoff: 148\n' > "$DIR/001_system_reference_data_\$(touch PWNED).sql"
+set +e; OUT=$(bash "$RESOLVER" "$DIR" 2>/dev/null); set -e
+( cd "$DIR" && eval "$OUT" >/dev/null 2>&1 || true )
+EXTRA=ok
+[ -f "$DIR/PWNED" ] && EXTRA="نُفِّذ أمر من اسم ملف"
+check "لا يطبع شيئًا قابلًا للتنفيذ عند اسم مصنوع" ok "$EXTRA" "$EXTRA"
+rm -rf "$DIR"
+
+# 9. الطوابع القانونية المستعملة فعلًا تبقى مقبولة بصيغتيها.
+DIR=$(setup_dir)
+make_baseline  "$DIR" 20260717 121   # 8 أرقام
+make_reference "$DIR" 20260717 121
+set +e; bash "$RESOLVER" "$DIR" >/dev/null 2>&1; RC=$?; set -e
+check "يقبل طابع YYYYMMDD" 0 "$RC"
+rm -rf "$DIR"
+
+# 10. المستودع الحقيقي يجب أن يُحَل زوجه.
 set +e; OUT=$(bash "$RESOLVER" sql/baseline 2>&1); RC=$?; set -e
 EXTRA=ok
 [ $RC -eq 0 ] || EXTRA="$OUT"

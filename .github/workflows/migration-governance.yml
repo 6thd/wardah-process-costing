@@ -70,11 +70,14 @@ jobs:
           # المُحلِّل نفسه الذي يستعمله Fresh DB. توحيده يمنع تباعد المستهلكَين:
           # كانت الحوكمة تشترط اللقطة المقترنة بالطابع بينما يأخذ Fresh DB أحدث
           # لقطة، فيصدّق كلٌّ منهما زوجًا مختلفًا ويمران خضراوين.
-          eval "$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
-          BASELINE="$BASELINE_NAME"
-          REFERENCE="$REFERENCE_NAME"
-          CUTOFF="$BASELINE_CUTOFF"
-          echo "✅ زوج مقترن بالطابع $BASELINE_STAMP · cutoff $CUTOFF"
+          # لا eval: القيم أسماء ملفات، وإعادة تقييمها تجعل اسمًا مصنوعًا في PR
+          # ينفّذ أوامر على العدّاء.
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_NAME)
+          REFERENCE=$(pair_field REFERENCE_NAME)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          echo "✅ زوج مقترن بالطابع $(pair_field BASELINE_STAMP) · cutoff $CUTOFF"
 
           REPO_MAX=$(find sql/migrations -maxdepth 1 -type f -printf '%f\n' \
             | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)

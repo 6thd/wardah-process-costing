@@ -164,11 +164,14 @@ jobs:
             echo "❌ تعذر حل زوج الـbaseline المقترن"
             exit 1
           fi
-          eval "$PAIR"
-
-          BASELINE="$BASELINE_PATH"
-          REFERENCE="$REFERENCE_PATH"
-          CUTOFF=${BASELINE_CUTOFF:-0}
+          # لا eval على هذا الخرج. قيمه أسماء ملفات من المستودع، وأي PR يستطيع
+          # إضافة ملف باسم يحمل استبدال أوامر، فيصير إعادةُ تقييم النص تنفيذًا
+          # لها على العدّاء. الاستبدال بالأوامر أدناه يُسند النص حرفيًا.
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
           echo "✅ Baseline موجود: $BASELINE"
           echo "✅ لقطة مرجعية مقترنة: $REFERENCE"
           echo "   migration_cutoff = $CUTOFF (متطابق عبر الطبقتين)"

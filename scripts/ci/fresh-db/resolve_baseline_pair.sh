@@ -36,6 +36,19 @@ BASELINE_NAME=$(basename "$BASELINE_PATH")
 STAMP=${BASELINE_NAME#000_schema_baseline_}
 STAMP=${STAMP%.sql}
 
+# الطابع أرقام وشرطة سفلية فقط. القيد ليس تجميليًا: مخرجات هذا السكربت أسماء
+# ملفات، ولو حمل اسمٌ استبدالَ أوامر — `000_schema_baseline_$(...).sql` يضيفه أي
+# PR — لصار تنفيذَ أوامر عند أي مستهلك يعيد تقييم النص. الرفض هنا يقطع الصنف
+# كله عند مصدره، ولا يُغني عن امتناع المستهلكين عن eval.
+if ! printf '%s' "$STAMP" | grep -qE '^[0-9]{8}(_[0-9]{6})?$'; then
+  {
+    echo "❌ طابع زمني غير قانوني في $BASELINE_NAME"
+    echo "   وُجد: '$STAMP'"
+    echo "   المطلوب: YYYYMMDD أو YYYYMMDD_HHMMSS"
+  } >&2
+  exit 1
+fi
+
 REFERENCE_NAME="001_system_reference_data_${STAMP}.sql"
 REFERENCE_PATH="${DIR}/${REFERENCE_NAME}"
 
