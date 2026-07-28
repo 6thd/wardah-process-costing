@@ -112,7 +112,22 @@ DIR=$(setup_dir)
 printf -- '-- migration_cutoff: 148\n' > "$DIR/000_schema_baseline_\$(touch PWNED).sql"
 printf -- '-- migration_cutoff: 148\n' > "$DIR/001_system_reference_data_\$(touch PWNED).sql"
 set +e; OUT=$(bash "$RESOLVER" "$DIR" 2>/dev/null); set -e
-( cd "$DIR" && eval "$OUT" >/dev/null 2>&1 || true )
+
+# فشل الدخول إلى المجلد ليس نجاحًا. `cd && eval || true` كان يبتلع الحالتين
+# معًا: لو تعذّر `cd` لما نُفِّذ `eval` أصلًا، فلا يظهر أثر، فيُعلن الاختبار
+# نجاحه بينما لم يُجرَّب الحقن قط — نجاح كاذب في اختبار أمني.
+# الرمز 97 يميّز تعذّر التهيئة عن فشل التقييم، والأخير وحده مقبول.
+set +e
+( cd "$DIR" || exit 97
+  eval "$OUT" >/dev/null 2>&1 || true )
+SETUP_RC=$?
+set -e
+if [ "$SETUP_RC" -eq 97 ]; then
+  # بلا `set +e` هنا كان `set -e` يُنهي السكربت عند الرمز 97 قبل بلوغ هذا
+  # الفحص، فيفشل صاخبًا لكن بلا سبب مطبوع.
+  printf '  ❌ تعذر الدخول إلى مجلد الاختبار %s\n' "$DIR"
+  FAIL=$((FAIL + 1))
+fi
 EXTRA=ok
 if [ -f "$DIR/PWNED" ]; then
   EXTRA="نُفِّذ أمر من اسم ملف"
