@@ -109,6 +109,30 @@ class ManifestLoadingTests(unittest.TestCase):
         with self.assertRaises(srd.ContractError):
             srd.load_manifest(self.write(BASE_TABLE.replace("min_count: 3", "min_count: 0")))
 
+    def test_table_name_with_sql_metacharacters_is_rejected(self) -> None:
+        # أسماء الجداول تُركَّب في نص SQL مباشرة — لا يقبل PostgreSQL معاملًا
+        # مربوطًا مكان معرّف — فتقييد الصيغة يجعلها آمنة بالبناء.
+        broken = BASE_TABLE.replace("name: widgets", 'name: "widgets; DROP TABLE x --"')
+        with self.assertRaises(srd.ContractError) as ctx:
+            srd.load_manifest(self.write(broken))
+        self.assertIn("غير قانوني", str(ctx.exception))
+
+    def test_column_name_with_sql_metacharacters_is_rejected(self) -> None:
+        broken = BASE_TABLE.replace(
+            "columns: [id, code, label, created_at, org_id]",
+            'columns: [id, code, "label) --", created_at, org_id]',
+        )
+        with self.assertRaises(srd.ContractError) as ctx:
+            srd.load_manifest(self.write(broken))
+        self.assertIn("غير قانوني", str(ctx.exception))
+
+    def test_uppercase_identifier_is_rejected(self) -> None:
+        # المعرّفات غير المقتبسة تُطوى إلى الأحرف الصغيرة في PostgreSQL، فاسم
+        # بحروف كبيرة في العقد يخالف ما يُقارَن به فعلًا في information_schema.
+        broken = BASE_TABLE.replace("name: widgets", "name: Widgets")
+        with self.assertRaises(srd.ContractError):
+            srd.load_manifest(self.write(broken))
+
     def test_duplicate_column_is_rejected(self) -> None:
         broken = BASE_TABLE.replace(
             "columns: [id, code, label, created_at, org_id]",

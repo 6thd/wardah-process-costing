@@ -46,6 +46,12 @@ FIELD_SEP = r"\x1f"
 # سطر جديد قد يكون جزءًا من القيمة نفسها.
 RECORD_SEP = "\x1e"
 
+# أسماء الجداول والأعمدة تُركَّب في نص SQL مباشرة، إذ لا يقبل PostgreSQL معاملًا
+# مربوطًا مكان معرّف. فتُقيَّد صيغتها هنا: المعرّف يصير آمنًا بالبناء لا بالثقة
+# في أن الـmanifest مراجَع. (حقل predicate يبقى شرط WHERE حرًا بحكم وظيفته،
+# وهو جزء من العقد المراجَع لا مدخل خارجي.)
+IDENTIFIER_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
+
 HEADER_TABLE_RE = re.compile(
     r"^--\s+table:\s+(?P<name>[a-z_]+)\s+rows=(?P<rows>\d+)\s+sha=(?P<sha>[0-9a-f]{32})\s*$"
 )
@@ -95,10 +101,19 @@ def load_manifest(path: Path) -> list[TableSpec]:
     for entry in raw_tables:
         name = entry.get("name")
         _require(isinstance(name, str) and name, "جدول بلا اسم في الـmanifest")
+        _require(
+            bool(IDENTIFIER_RE.match(name)),
+            f"اسم جدول غير قانوني في الـmanifest: {name!r} — يُتوقع [a-z_][a-z0-9_]*",
+        )
         _require(name not in seen, f"جدول مكرر في الـmanifest: {name}")
         seen.add(name)
 
         columns = tuple(entry.get("columns") or ())
+        invalid = [c for c in columns if not (isinstance(c, str) and IDENTIFIER_RE.match(c))]
+        _require(
+            not invalid,
+            f"{name}: أسماء أعمدة غير قانونية: {invalid} — يُتوقع [a-z_][a-z0-9_]*",
+        )
         order_by = tuple(entry.get("order_by") or ())
         conflict_target = tuple(entry.get("conflict_target") or ())
         hash_exclude = frozenset(entry.get("hash_exclude") or ())

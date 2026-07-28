@@ -114,7 +114,9 @@ printf -- '-- migration_cutoff: 148\n' > "$DIR/001_system_reference_data_\$(touc
 set +e; OUT=$(bash "$RESOLVER" "$DIR" 2>/dev/null); set -e
 ( cd "$DIR" && eval "$OUT" >/dev/null 2>&1 || true )
 EXTRA=ok
-[ -f "$DIR/PWNED" ] && EXTRA="نُفِّذ أمر من اسم ملف"
+if [ -f "$DIR/PWNED" ]; then
+  EXTRA="نُفِّذ أمر من اسم ملف"
+fi
 check "لا يطبع شيئًا قابلًا للتنفيذ عند اسم مصنوع" ok "$EXTRA" "$EXTRA"
 rm -rf "$DIR"
 
