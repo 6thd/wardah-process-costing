@@ -43,9 +43,15 @@ CLAUDE_TEMPLATE = """# Manifest
 
 class UpdateBaselineDocsTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp_dir.cleanup)
-        self.root = Path(self.temp_dir.name)
+        # enterContext هو اصطلاح unittest منذ 3.11 لمدير سياق يمتد من setUp إلى
+        # نهاية الاختبار — حيث لا يصلح `with` لأن النطاق ينتهي قبل بدء الاختبار.
+        # يعادل TemporaryDirectory() + addCleanup(cleanup) في سطر واحد.
+        #
+        # الكتم موضعي ولازم: consider-using-with يعلّم الاستدعاء المُخصِّص نفسه
+        # ولا يرى أن enterContext تتكفل بالإغلاق، فيبقى يطلق حتى مع الاصطلاح
+        # الصحيح.
+        # pylint: disable-next=consider-using-with
+        self.root = Path(self.enterContext(tempfile.TemporaryDirectory()))
 
         self.baseline = self.root / "000_schema_baseline_20260727_125744.sql"
         self.baseline.write_text("SELECT 1;\n" * 40, encoding="utf-8")
@@ -67,6 +73,34 @@ class UpdateBaselineDocsTests(unittest.TestCase):
         else:
             self.counts.write_text(json.dumps(payload), encoding="utf-8")
 
+    def break_fixture(self, label: str) -> None:
+        """أفسد مُعطى الاختبار الموصوف بـ`label`.
+
+        دالة لا جدول دوال: الحلقة المستدعية تعيد `setUp()` قبل كل حالة، فتتغير
+        مسارات الملفات. أي مرجع يُربط وقت البناء — `self.counts.unlink` مثلًا —
+        يظل معلقًا بمجلد مؤقت سابق فيفسد الحالة الخطأ ويمر الاختبار كذبًا.
+        الاستدعاء هنا يحلّ الاسم وقت النداء، بعد `setUp()`.
+        """
+        if label == "counts-missing":
+            self.counts.unlink()
+        elif label == "counts-invalid-json":
+            self.write_counts("{not json")
+        elif label == "counts-missing-key":
+            self.write_counts({"tables": 1})
+        elif label == "counts-not-int":
+            self.write_counts(
+                {"tables": 131, "functions": 201, "policies": "316"}
+            )
+        elif label == "readme-counts-line-missing":
+            self.readme.write_text(
+                README_TEMPLATE.format(counts_line="لا سطر قياسات"),
+                encoding="utf-8",
+            )
+        elif label == "claude-markers-missing":
+            self.claude.write_text("بلا علامات.\n", encoding="utf-8")
+        else:
+            raise AssertionError(f"حالة إفساد غير معروفة: {label}")
+
     def run_script(self) -> subprocess.CompletedProcess:
         return subprocess.run(
             [
@@ -83,6 +117,7 @@ class UpdateBaselineDocsTests(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            check=False,
         )
 
     # ---------- الحالة الموجبة ----------
@@ -236,26 +271,17 @@ class UpdateBaselineDocsTests(unittest.TestCase):
         readme_ok = self.readme.read_text(encoding="utf-8")
         claude_ok = self.claude.read_text(encoding="utf-8")
 
-        broken_readme = README_TEMPLATE.format(counts_line="لا سطر قياسات")
-        cases = {
-            "counts-missing": lambda: self.counts.unlink(),
-            "counts-invalid-json": lambda: self.write_counts("{not json"),
-            "counts-missing-key": lambda: self.write_counts({"tables": 1}),
-            "counts-not-int": lambda: self.write_counts(
-                {"tables": 131, "functions": 201, "policies": "316"}
-            ),
-            "readme-counts-line-missing": lambda: self.readme.write_text(
-                broken_readme, encoding="utf-8"
-            ),
-            "claude-markers-missing": lambda: self.claude.write_text(
-                "بلا علامات.\n", encoding="utf-8"
-            ),
-        }
-
-        for label, break_it in cases.items():
+        for label in (
+            "counts-missing",
+            "counts-invalid-json",
+            "counts-missing-key",
+            "counts-not-int",
+            "readme-counts-line-missing",
+            "claude-markers-missing",
+        ):
             with self.subTest(case=label):
                 self.setUp()
-                break_it()
+                self.break_fixture(label)
                 readme_before = self.readme.read_text(encoding="utf-8")
                 claude_before = self.claude.read_text(encoding="utf-8")
 
