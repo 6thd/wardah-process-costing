@@ -10,6 +10,8 @@ on:
       - 'scripts/ci/test_validate_migration_ledger.py'
       - 'scripts/ci/update_baseline_docs.py'
       - 'scripts/ci/test_update_baseline_docs.py'
+      - 'scripts/ci/system_reference_data.py'
+      - 'scripts/ci/test_system_reference_data.py'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -22,6 +24,8 @@ on:
       - 'scripts/ci/test_validate_migration_ledger.py'
       - 'scripts/ci/update_baseline_docs.py'
       - 'scripts/ci/test_update_baseline_docs.py'
+      - 'scripts/ci/system_reference_data.py'
+      - 'scripts/ci/test_system_reference_data.py'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -46,6 +50,11 @@ jobs:
 
       - name: Run baseline-docs updater unit tests
         run: python3 scripts/ci/test_update_baseline_docs.py
+
+      - name: Run system reference data contract unit tests
+        run: |
+          pip install --quiet pyyaml
+          python3 scripts/ci/test_system_reference_data.py
 
       - name: Validate baseline metadata against repository
         shell: bash
@@ -73,9 +82,39 @@ jobs:
             exit 1
           fi
 
+          # الطبقتان تتلازمان. الـBaseline بنية بلا بيانات مرجعية، ولقطة مرجعية
+          # بلا مخطط مقابل لها لا تُطبَّق. اقترانهما بالطابع الزمني نفسه هو ما
+          # يمنع عودة الفجوة: لقطة قديمة بجانب مخطط جديد تمر بصمت لولا هذا.
+          STAMP=${BASELINE#000_schema_baseline_}
+          STAMP=${STAMP%.sql}
+          REFERENCE="001_system_reference_data_${STAMP}.sql"
+          if [ ! -f "sql/baseline/$REFERENCE" ]; then
+            echo "❌ لا لقطة بيانات مرجعية مقترنة بـ$BASELINE"
+            echo "   المتوقع: sql/baseline/$REFERENCE"
+            echo "   يولّدهما معًا .github/workflows/generate-baseline.yml"
+            find sql/baseline -maxdepth 1 -name '001_system_reference_data_*.sql' \
+              -printf '   موجود: %f\n' | sort
+            exit 1
+          fi
+
+          REF_CUTOFF=$(grep -oE '^-- migration_cutoff: [0-9]+' "sql/baseline/$REFERENCE" \
+            | grep -oE '[0-9]+$' | head -1)
+          if [ "$REF_CUTOFF" != "$CUTOFF" ]; then
+            echo "❌ cutoff اللقطة المرجعية ($REF_CUTOFF) يخالف cutoff الـbaseline ($CUTOFF)"
+            exit 1
+          fi
+
+          REF_TABLES=$(grep -cE '^-- table: [a-z_]+ rows=[0-9]+ sha=[0-9a-f]{32}$' \
+            "sql/baseline/$REFERENCE" || true)
+          if [ "$REF_TABLES" -lt 5 ]; then
+            echo "❌ ترويسة اللقطة تحمل $REF_TABLES جدولًا — يُتوقع 5 على الأقل"
+            exit 1
+          fi
+          echo "✅ لقطة مرجعية مقترنة: $REFERENCE ($REF_TABLES جدول)"
+
           mkdir -p migration-governance
-          printf '{"baseline":"%s","cutoff":%s,"repo_max":%s}\n' \
-            "$BASELINE" "$CUTOFF" "$REPO_MAX" \
+          printf '{"baseline":"%s","reference":"%s","cutoff":%s,"repo_max":%s}\n' \
+            "$BASELINE" "$REFERENCE" "$CUTOFF" "$REPO_MAX" \
             > migration-governance/baseline-summary.json
           echo "✅ baseline=$BASELINE cutoff=$CUTOFF repo_max=$REPO_MAX"
 
