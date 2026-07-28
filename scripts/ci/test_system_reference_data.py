@@ -151,6 +151,73 @@ class SnapshotHeaderTests(unittest.TestCase):
             srd.parse_snapshot_header(self.path)
 
 
+class RecordFramingTests(unittest.TestCase):
+    """قراءة بيانات INSERT يجب ألا تعتمد على حدود الأسطر.
+
+    أي قيمة نصية مسموحة — وصف وحدة أو صلاحية — قد تحمل سطرًا داخليًا، فيطبع
+    psql البيان الواحد على أسطر عدة. التقسيم بـsplitlines كان يحوّل صفًا واحدًا
+    إلى عدة بيانات فيفشل التصدير على بيانات سليمة تمامًا.
+    """
+
+    SPEC = None  # يُملأ في setUp
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        path = Path(self.temp.name) / "m.yml"
+        path.write_text(BASE_TABLE.replace("name: widgets", "name: widgets"), encoding="utf-8")
+        self.spec = srd.load_manifest(path)[0]
+        self._real_psql = srd.psql
+        self.addCleanup(setattr, srd, "psql", self._real_psql)
+
+    def fake_psql(self, payload: str):
+        captured: dict[str, object] = {}
+
+        def _fake(sql: str, **kwargs):
+            captured.update(kwargs)
+            captured["sql"] = sql
+            return payload
+
+        srd.psql = _fake
+        return captured
+
+    def stmt(self, code: str, label: str) -> str:
+        return (
+            "INSERT INTO public.widgets (id, code, label, created_at, org_id) "
+            f"VALUES ('1', '{code}', '{label}', NULL, NULL) ON CONFLICT (id) DO NOTHING;"
+        )
+
+    def test_multiline_value_stays_one_statement(self) -> None:
+        first = self.stmt("A", "سطر أول\nسطر ثانٍ")
+        second = self.stmt("B", "عادي")
+        self.fake_psql(first + srd.RECORD_SEP + second + "\n")
+
+        statements = srd.export_table(self.spec, dsn=None, database="x")
+        self.assertEqual(len(statements), 2, "قيمة متعددة الأسطر انقسمت إلى بيانين")
+        self.assertIn("سطر أول\nسطر ثانٍ", statements[0])
+        self.assertTrue(statements[0].endswith(";"))
+
+    def test_record_separator_is_passed_to_psql(self) -> None:
+        captured = self.fake_psql(self.stmt("A", "x") + "\n")
+        srd.export_table(self.spec, dsn=None, database="x")
+        self.assertEqual(captured.get("record_sep"), srd.RECORD_SEP)
+
+    def test_broken_framing_is_reported_at_its_position(self) -> None:
+        # قيمة تحمل فاصل السجلات نفسه تشطر بيانًا في منتصفه. الفحص البنيوي يمسكها
+        # حتى لو صادف العدد أن يطابق، بدل أن تمر أو تظهر عددًا لا يطابق.
+        self.fake_psql(self.stmt("A", "before") + srd.RECORD_SEP + "شظية بلا بداية;")
+        with self.assertRaises(srd.ContractError) as ctx:
+            srd.export_table(self.spec, dsn=None, database="x")
+        self.assertIn("U+001E", str(ctx.exception))
+
+    def test_trailing_newline_does_not_add_an_empty_statement(self) -> None:
+        self.fake_psql(self.stmt("A", "x") + srd.RECORD_SEP + self.stmt("B", "y") + "\n")
+        self.assertEqual(len(srd.export_table(self.spec, dsn=None, database="x")), 2)
+
+    def test_separators_are_distinct(self) -> None:
+        self.assertNotEqual(srd.RECORD_SEP, srd.FIELD_SEP)
+
+
 class ExpressionTests(unittest.TestCase):
     def test_row_expression_quotes_every_column(self) -> None:
         expr = srd._quoted_row_expr(("a", "b"), srd.FIELD_SEP)

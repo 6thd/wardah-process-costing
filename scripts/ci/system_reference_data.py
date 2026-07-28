@@ -37,6 +37,15 @@ import yaml
 # لصفّين مختلفين أن يعطيا التمثيل نفسه بإزاحة المحتوى عبر الفاصل.
 FIELD_SEP = r"\x1f"
 
+# فاصل السجلات عند قراءة بيانات INSERT المولَّدة. حدود الأسطر لا تصلح إطارًا:
+# أي قيمة نصية مسموحة — وصف وحدة أو صلاحية — قد تحمل سطرًا داخليًا، فيطبع psql
+# بيان INSERT الواحد على أسطر عدة، ويتحول صف واحد إلى عدة «بيانات» عند التقسيم
+# بـsplitlines. النتيجة كانت فشل التصدير على بيانات مرجعية سليمة تمامًا برسالة
+# عن عدد لا يطابق، لا عن السبب الحقيقي.
+# Record Separator يُمرَّر إلى psql بـ-R فيفصل السجلات صراحةً بدل الاعتماد على
+# سطر جديد قد يكون جزءًا من القيمة نفسها.
+RECORD_SEP = "\x1e"
+
 HEADER_TABLE_RE = re.compile(
     r"^--\s+table:\s+(?P<name>[a-z_]+)\s+rows=(?P<rows>\d+)\s+sha=(?P<sha>[0-9a-f]{32})\s*$"
 )
@@ -132,9 +141,21 @@ def load_manifest(path: Path) -> list[TableSpec]:
     return specs
 
 
-def psql(sql: str, *, dsn: str | None, database: str | None = None) -> str:
-    """ينفّذ استعلامًا ويعيد الخرج الخام. يفشل عند أول خطأ."""
+def psql(
+    sql: str,
+    *,
+    dsn: str | None,
+    database: str | None = None,
+    record_sep: str | None = None,
+) -> str:
+    """ينفّذ استعلامًا ويعيد الخرج الخام. يفشل عند أول خطأ.
+
+    `record_sep` يضبط فاصل السجلات في الخرج غير المحاذى، فتُقرأ نتائج متعددة
+    الأسطر بلا لبس. يُترك فارغًا للاستعلامات ذات القيمة الواحدة.
+    """
     cmd = ["psql", "-v", "ON_ERROR_STOP=1", "-tA", "--no-psqlrc"]
+    if record_sep is not None:
+        cmd.extend(["-R", record_sep])
     if dsn:
         cmd.append(dsn)
     elif database:
@@ -243,8 +264,20 @@ def export_table(spec: TableSpec, *, dsn: str | None, database: str | None) -> l
         WHERE {spec.predicate}
         ORDER BY {order_sql}
     """
-    out = psql(sql, dsn=dsn, database=database)
-    return [line for line in out.splitlines() if line.strip()]
+    out = psql(sql, dsn=dsn, database=database, record_sep=RECORD_SEP)
+    statements = [chunk.strip() for chunk in out.split(RECORD_SEP) if chunk.strip()]
+
+    # فحص بنيوي لا عدَدي. لو حمل حقل فاصلَ السجلات نفسه لانقسم بيانٌ في منتصفه،
+    # وعدّ مطابق بالمصادفة كان سيمرّ. اشتراط أن يبدأ كل بيان وينتهي كما وُلِّد
+    # يجعل أي خطأ في التأطير يظهر عند موضعه بدل أن يظهر عددًا لا يطابق.
+    for index, statement in enumerate(statements, start=1):
+        if not statement.startswith(f"INSERT INTO public.{spec.name} ") or not statement.endswith(";"):
+            raise ContractError(
+                f"{spec.name}: البيان رقم {index} غير مؤطَّر كما وُلِّد — يُرجَّح أن "
+                f"قيمة تحمل فاصل السجلات (U+001E). البداية: {statement[:80]!r}"
+            )
+
+    return statements
 
 
 def cmd_export(args: argparse.Namespace) -> int:
