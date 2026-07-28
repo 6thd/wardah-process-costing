@@ -12,6 +12,8 @@ on:
       - 'scripts/ci/test_update_baseline_docs.py'
       - 'scripts/ci/system_reference_data.py'
       - 'scripts/ci/test_system_reference_data.py'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'scripts/ci/test_resolve_baseline_pair.sh'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -26,6 +28,8 @@ on:
       - 'scripts/ci/test_update_baseline_docs.py'
       - 'scripts/ci/system_reference_data.py'
       - 'scripts/ci/test_system_reference_data.py'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'scripts/ci/test_resolve_baseline_pair.sh'
       - '.github/workflows/generate-baseline.yml'
       - '.github/workflows/migration-governance.yml'
       - 'CLAUDE.md'
@@ -56,17 +60,21 @@ jobs:
           pip install --quiet pyyaml
           python3 scripts/ci/test_system_reference_data.py
 
+      - name: Run baseline pair resolver tests
+        run: bash scripts/ci/test_resolve_baseline_pair.sh
+
       - name: Validate baseline metadata against repository
         shell: bash
         run: |
           set -Eeuo pipefail
-          BASELINE=$(find sql/baseline -maxdepth 1 -type f \
-            -name '000_schema_baseline_*.sql' -printf '%f\n' | sort | tail -1)
-          test -n "$BASELINE" || { echo '❌ no schema baseline found'; exit 1; }
-
-          CUTOFF=$(grep -oE '^-- migration_cutoff: [0-9]+' "sql/baseline/$BASELINE" \
-            | grep -oE '[0-9]+$' | head -1)
-          test -n "$CUTOFF" || { echo "❌ missing migration_cutoff in $BASELINE"; exit 1; }
+          # المُحلِّل نفسه الذي يستعمله Fresh DB. توحيده يمنع تباعد المستهلكَين:
+          # كانت الحوكمة تشترط اللقطة المقترنة بالطابع بينما يأخذ Fresh DB أحدث
+          # لقطة، فيصدّق كلٌّ منهما زوجًا مختلفًا ويمران خضراوين.
+          eval "$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+          BASELINE="$BASELINE_NAME"
+          REFERENCE="$REFERENCE_NAME"
+          CUTOFF="$BASELINE_CUTOFF"
+          echo "✅ زوج مقترن بالطابع $BASELINE_STAMP · cutoff $CUTOFF"
 
           REPO_MAX=$(find sql/migrations -maxdepth 1 -type f -printf '%f\n' \
             | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
@@ -82,28 +90,9 @@ jobs:
             exit 1
           fi
 
-          # الطبقتان تتلازمان. الـBaseline بنية بلا بيانات مرجعية، ولقطة مرجعية
-          # بلا مخطط مقابل لها لا تُطبَّق. اقترانهما بالطابع الزمني نفسه هو ما
-          # يمنع عودة الفجوة: لقطة قديمة بجانب مخطط جديد تمر بصمت لولا هذا.
-          STAMP=${BASELINE#000_schema_baseline_}
-          STAMP=${STAMP%.sql}
-          REFERENCE="001_system_reference_data_${STAMP}.sql"
-          if [ ! -f "sql/baseline/$REFERENCE" ]; then
-            echo "❌ لا لقطة بيانات مرجعية مقترنة بـ$BASELINE"
-            echo "   المتوقع: sql/baseline/$REFERENCE"
-            echo "   يولّدهما معًا .github/workflows/generate-baseline.yml"
-            find sql/baseline -maxdepth 1 -name '001_system_reference_data_*.sql' \
-              -printf '   موجود: %f\n' | sort
-            exit 1
-          fi
-
-          REF_CUTOFF=$(grep -oE '^-- migration_cutoff: [0-9]+' "sql/baseline/$REFERENCE" \
-            | grep -oE '[0-9]+$' | head -1)
-          if [ "$REF_CUTOFF" != "$CUTOFF" ]; then
-            echo "❌ cutoff اللقطة المرجعية ($REF_CUTOFF) يخالف cutoff الـbaseline ($CUTOFF)"
-            exit 1
-          fi
-
+          # وجود اللقطة المقترنة وتطابق cutoff يتحقق منهما المُحلِّل أعلاه.
+          # يبقى هنا فحص بنيوي لا يملكه: أن ترويسة اللقطة تحمل بصمات فعلية،
+          # فملف مقترن الاسم وفارغ الترويسة كان سيمر.
           REF_TABLES=$(grep -cE '^-- table: [a-z_]+ rows=[0-9]+ sha=[0-9a-f]{32}$' \
             "sql/baseline/$REFERENCE" || true)
           if [ "$REF_TABLES" -lt 5 ]; then

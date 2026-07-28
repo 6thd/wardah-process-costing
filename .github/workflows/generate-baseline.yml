@@ -193,6 +193,18 @@ jobs:
           echo "reference_name=$(basename "$REFERENCE")" >> "$GITHUB_ENV"
           cp "$REFERENCE" baseline-diagnostics/
 
+          # المولّد يشتق الطابع من الـbaseline الذي أنشأه للتو، فالاقتران صحيح
+          # بالبناء. ومع ذلك يُمرَّر الناتج على المُحلِّل نفسه الذي سيستعمله
+          # Fresh DB والحوكمة: زوج يفشل عندهما بعد الدمج يجب أن يفشل هنا قبله.
+          eval "$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)"
+          if [ "$REFERENCE_PATH" != "$REFERENCE" ] || [ "$BASELINE_PATH" != "$baseline_path" ]; then
+            echo "❌ الزوج المولَّد لا يُحَل كما سيحلّه المستهلكون"
+            echo "   مولَّد:  $baseline_path + $REFERENCE"
+            echo "   محلول: $BASELINE_PATH + $REFERENCE_PATH"
+            exit 1
+          fi
+          echo "✅ الزوج المولَّد يُحَل كما سيحلّه Fresh DB والحوكمة"
+
       - name: Verify generated baseline metadata and contents
         shell: bash
         env:
