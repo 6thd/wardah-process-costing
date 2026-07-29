@@ -52,16 +52,50 @@ and the services built on it, and the contracts below are written to match:
 - **Receivable purchase-order states** are `approved` and `partially_received`.
   Section 5 refers to "a receivable PO state defined by Migration 148"; these are
   those states.
-- **Quality-split receipt quantities** exist as `accepted_quantity` /
-  `rejected_quantity` with base-unit counterparts `accepted_qty_base` /
-  `rejected_qty_base`, alongside `received_quantity`, `received_qty_entered` and
-  `received_qty_base`. Section 7's "accepted, uninvoiced" balance is derived from
-  the accepted columns, never from `received_*`.
+- **Quality is split across two levels, and they are not the same thing.**
+
+  | Level | Where | What it holds |
+  |---|---|---|
+  | Per receipt line | `goods_receipt_lines.quality_status` | one of `accepted`, `rejected`, `pending_inspection` — a status, not a quantity |
+  | Cumulative per order line | `purchase_order_lines.accepted_quantity` / `.rejected_quantity` / `.received_quantity` | running totals against the ordered line |
+
+  `accepted_qty_base`, `rejected_qty_base`, `received_qty_base` and
+  `received_qty_entered` are **jsonb payload keys inside Migration 148's RPC**.
+  They are not columns on any table; do not select from them.
+
+  This distinction decides how section 7's "accepted, uninvoiced" balance is
+  computed. Two candidate derivations exist, and the choice belongs with the
+  section 6 decision below because both must lock the same rows:
+
+  1. from `purchase_order_lines.accepted_quantity` minus what is already
+     invoiced against that order line; or
+  2. from `goods_receipt_lines` filtered to `quality_status = 'accepted'`,
+     aggregated per line.
+
+  Whichever is chosen, the balance is never derived from `received_quantity`:
+  received includes rejected and pending-inspection quantity.
 - **Snapshot naming** — 148 established `conversion_factor_snapshot` and an
   atomic PO snapshot contract. Section 6 reuses that name deliberately rather
   than inventing a parallel one.
 - **`idempotency_key`** already exists in the 148 contract; section 8 extends the
   same concept to the invoice header rather than introducing a new mechanism.
+- **Quantity precision does not match across the boundary, and the invoice side
+  is the narrower one.**
+
+      goods_receipt_lines.received_quantity   numeric(18,6)
+      purchase_order_lines.quantity           numeric(18,6)
+      supplier_invoice_lines.quantity         numeric(12,2)   ← two decimals
+
+  Invoicing a receipt whose accepted quantity carries more than two decimals
+  would round on insert, and the rounded value would then be compared against an
+  unrounded remaining balance. That is a silent partial-invoice leak, not a
+  display concern. Migration 149 must widen `supplier_invoice_lines.quantity` to
+  match the receipt side before any matched-invoice RPC writes to it.
+
+  Note also that `supplier_invoice_lines.line_total` is `GENERATED ALWAYS AS …
+  STORED`. Per `CLAUDE.md`, it must never appear in an `INSERT` or `UPDATE`
+  column list.
+
 - **No cumulative invoiced balance exists on receipt lines yet.** `invoiced_quantity`
   is present in the generated types only on `delivery_note_lines`, which is the
   sales side. The choice in section 6 between a locked cumulative column on
