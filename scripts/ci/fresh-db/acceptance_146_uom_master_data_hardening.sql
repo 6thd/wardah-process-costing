@@ -36,7 +36,7 @@ INSERT INTO public.user_organizations
    '46111111-1111-1111-1111-111111111111', true, true, 'admin'),
   ('46000000-0000-0000-0000-000000000002',
    '46bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-   '46111111-1111-1111-1111-111111111111', true, false, 'member');
+   '46111111-1111-1111-1111-111111111111', true, false, 'user');
 
 INSERT INTO public.org_settings (org_id, key, value) VALUES
   ('46111111-1111-1111-1111-111111111111', 'uom_engine_enabled', '{"enabled":true}'::jsonb);

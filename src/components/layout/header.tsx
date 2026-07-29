@@ -58,6 +58,8 @@ export function Header() {
             size="sm"
             onClick={handleSidebarToggle}
             className="h-9 w-9 p-0"
+            data-testid="sidebar-toggle"
+            aria-label="Toggle sidebar menu"
           >
             <Menu className="h-4 w-4" />
           </Button>

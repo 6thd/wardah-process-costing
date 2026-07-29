@@ -30,7 +30,18 @@ vi.mock('@/lib/supabase', () => ({
 }))
 
 vi.mock('sonner', () => ({
-  toast: { error: mocks.toastError },
+  toast: { error: mocks.toastError, success: vi.fn() },
+}))
+
+// بوابة اعتماد أمر الشراء (Migration 148) تقرأ المؤسسة المختارة وتستدعي RPC
+// محروسة؛ كلاهما يُعزل هنا لأن الاختبار يغطي التنقل وعرض التفاصيل.
+vi.mock('@/contexts/AuthContext', () => ({
+  useAuth: () => ({ currentOrgId: 'org-1' }),
+}))
+
+vi.mock('@/services/purchasing-service', () => ({
+  submitPurchaseOrder: vi.fn(),
+  approvePurchaseOrder: vi.fn(),
 }))
 
 vi.mock('@/components/forms/PurchaseOrderForm', () => ({

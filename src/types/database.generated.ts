@@ -268,6 +268,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_attendance_records_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
         ]
       }
       audit_logs: {
@@ -1893,6 +1900,13 @@ export type Database = {
             referencedRelation: "organizations"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "fk_employee_leaves_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
         ]
       }
       employee_salary_structures: {
@@ -1956,6 +1970,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "organizations"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fk_employee_salary_structures_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
           },
         ]
       }
@@ -3065,6 +3086,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "fk_hr_settlements_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
           {
             foreignKeyName: "hr_settlements_employee_id_fkey"
             columns: ["employee_id"]
@@ -4972,6 +5000,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "fk_payroll_details_employee_org"
+            columns: ["employee_id", "org_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id", "org_id"]
+          },
+          {
             foreignKeyName: "payroll_details_component_id_fkey"
             columns: ["component_id"]
             isOneToOne: false
@@ -5723,6 +5758,7 @@ export type Database = {
       }
       purchase_order_lines: {
         Row: {
+          accepted_quantity: number | null
           conversion_factor_snapshot: number | null
           created_at: string | null
           description: string | null
@@ -5737,6 +5773,7 @@ export type Database = {
           qty_entered: number | null
           quantity: number
           received_quantity: number | null
+          rejected_quantity: number | null
           tax_percentage: number | null
           unit_price: number
           unit_price_entered: number | null
@@ -5744,6 +5781,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          accepted_quantity?: number | null
           conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
@@ -5758,6 +5796,7 @@ export type Database = {
           qty_entered?: number | null
           quantity: number
           received_quantity?: number | null
+          rejected_quantity?: number | null
           tax_percentage?: number | null
           unit_price: number
           unit_price_entered?: number | null
@@ -5765,6 +5804,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          accepted_quantity?: number | null
           conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
@@ -5779,6 +5819,7 @@ export type Database = {
           qty_entered?: number | null
           quantity?: number
           received_quantity?: number | null
+          rejected_quantity?: number | null
           tax_percentage?: number | null
           unit_price?: number
           unit_price_entered?: number | null
@@ -10730,6 +10771,10 @@ export type Database = {
         Returns: Json
       }
       rpc_accept_invitation: { Args: { p_token: string }; Returns: Json }
+      rpc_approve_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
+        Returns: Json
+      }
       rpc_assign_product_base_uom: {
         Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
         Returns: Json
@@ -10847,6 +10892,10 @@ export type Database = {
         Args: { p_org_id: string }
         Returns: Json
       }
+      rpc_list_uom_receivable_purchase_orders: {
+        Args: { p_org_id: string }
+        Returns: Json
+      }
       rpc_manual_stock_movement: {
         Args: {
           p_movement_type: string
@@ -10935,6 +10984,10 @@ export type Database = {
           p_tenant?: string
           p_wip_prefixes?: string[]
         }
+        Returns: Json
+      }
+      rpc_submit_purchase_order: {
+        Args: { p_org_id: string; p_purchase_order_id: string }
         Returns: Json
       }
       rpc_submit_settlement_review: { Args: { p_payload: Json }; Returns: Json }
