@@ -27,9 +27,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد Baseline المولد في 2026-07-27:
+الحالة الحية الموثقة بعد Baseline المولد في 2026-07-29:
 
-- Baseline الحالي: `000_schema_baseline_20260727_125744.sql`, cutoff 148.
+- Baseline الحالي: `000_schema_baseline_20260729_072509.sql`, cutoff 148.
 - Production: مطبقة حتى 148 (`148_uom_purchase_receipt_snapshots`).
 - Repository: أعلى migration مرقمة هي 148.
 - Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
