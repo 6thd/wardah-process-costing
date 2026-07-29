@@ -48,7 +48,18 @@ export function SystemSettingsPage() {
       } catch (error) {
         if (!cancelled) {
           console.error('Error loading system settings:', error)
-          toast.error(error instanceof Error ? error.message : tr('فشل تحميل إعدادات النظام', 'Failed to load system settings'))
+          // الاتجاه يُقرأ من `i18n.dir()` لا من `tr` المُنشأ كل render: الـeffect
+          // بتبعيات فارغة عمدًا، وإدراج `tr` فيها كان سيعيد تحميل الإعدادات عند
+          // كل render. و`i18n` مرجع مستقر من useTranslation فإدراجه لا يُعيد
+          // التنفيذ، بخلاف قراءة `i18n.language` مباشرةً. والنتيجة أدقّ أيضًا:
+          // تعكس اللغة لحظة الخطأ لا لحظة التركيب.
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : (i18n.dir() === 'rtl'
+                  ? 'فشل تحميل إعدادات النظام'
+                  : 'Failed to load system settings')
+          )
         }
       } finally {
         if (!cancelled) setLoading(false)
@@ -59,7 +70,8 @@ export function SystemSettingsPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+    // `i18n` مرجع مستقر، فوجوده هنا يُرضي exhaustive-deps دون أن يُعيد التحميل.
+  }, [i18n])
 
   const handleSave = async () => {
     setSaving(true)
