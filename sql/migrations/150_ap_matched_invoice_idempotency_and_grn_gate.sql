@@ -15,6 +15,7 @@
 --   * changed payload under the same key fails closed;
 --   * duplicate supplier invoice number is distinct from idempotent replay;
 --   * every referenced GRN header must be confirmed/posted;
+--   * one GRN line may appear only once per request;
 --   * the v149 core is no longer client executable.
 -- =====================================================================
 
@@ -106,6 +107,16 @@ BEGIN
   IF jsonb_typeof(p_payload -> 'lines') <> 'array'
      OR jsonb_array_length(p_payload -> 'lines') = 0 THEN
     RAISE EXCEPTION 'AP_LINES_REQUIRED: الفاتورة تحتاج سطرًا واحدًا على الأقل';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_array_elements(p_payload -> 'lines') l
+    GROUP BY NULLIF(l ->> 'goods_receipt_line_id', '')::uuid
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION
+      'AP_DUPLICATE_GRN_LINE: لا يجوز تكرار سطر الاستلام نفسه أكثر من مرة داخل الفاتورة';
   END IF;
 
   SELECT gr.id, gr.status
