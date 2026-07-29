@@ -4,19 +4,40 @@ on:
   workflow_dispatch:
     inputs:
       reason:
-        description: 'سبب التوليد (مثال: "بعد تطبيق migration 123 على الإنتاج")'
+        description: 'سبب التوليد (مثال: بعد تطبيق migration 127 على الإنتاج)'
         required: false
-        default: 'توليد baseline يدوي'
+        default: 'تحديث baseline من Production'
+
+permissions:
+  contents: write
+  pull-requests: write
 
 jobs:
   generate-baseline:
-    name: Generate Schema Baseline from Production
+    name: Generate reviewed baseline from Production
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
-      - name: Checkout code
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
+          ref: main
+          fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install PostgreSQL 17 client
@@ -30,7 +51,24 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -q
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+
+          # صورة عدّاء GitHub تحمل عميل PostgreSQL 16 في /usr/bin، وحزمة PGDG
+          # تضع ملفات 17 في /usr/lib/postgresql/17/bin دون تقديمها في PATH.
+          # فبلا هذا السطر يبقى pg_dump 16 هو المُنفَّذ، ويرفض التفريغ من خادم 17
+          # بـ"server version mismatch" — بعد خطوتين من هنا لا هنا.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          export PATH="/usr/lib/postgresql/17/bin:$PATH"
+
+          # تحقق حاجز لا طباعة: السطر السابق كان `pg_dump --version` وحده، فطبع
+          # 16.14 ومضى ناجحًا وأخفى العطل. أي انحدار مستقبلي يجب أن يفشل هنا.
+          for BIN in pg_dump psql; do
+            VERSION=$("$BIN" --version | grep -oE '[0-9]+' | head -1)
+            if [ "$VERSION" != "17" ]; then
+              echo "❌ $BIN المُنفَّذ إصدار $VERSION لا 17 — $(command -v "$BIN")"
+              exit 1
+            fi
+            echo "✅ $("$BIN" --version) — $(command -v "$BIN")"
+          done
 
       - name: Validate database secret
         env:
@@ -42,65 +80,37 @@ jobs:
             exit 1
           fi
 
-      - name: Determine production migration cutoff
-        id: cutoff
+      - name: Read and validate live migration ledger
+        id: ledger
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
         run: |
           set -Eeuo pipefail
+          mkdir -p baseline-diagnostics
 
-          REPO_MAX=$(find sql/migrations -maxdepth 1 -type f -printf '%f\n' \
-            | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
-          if [ -z "${REPO_MAX:-}" ]; then
-            echo "❌ لم أجد migrations مرقمة في المستودع"
-            exit 1
-          fi
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -tA \
+            -c "SELECT json_build_object('migrations', COALESCE(json_agg(json_build_object('version', version, 'name', name) ORDER BY version), '[]'::json)) FROM supabase_migrations.schema_migrations" \
+            > baseline-diagnostics/live-ledger.json
 
-          LIVE_NAME=$(psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -tAc \
-            "SELECT name FROM supabase_migrations.schema_migrations ORDER BY version DESC LIMIT 1")
-          LIVE_NAME=$(echo "$LIVE_NAME" | xargs)
-          if [ -z "${LIVE_NAME:-}" ]; then
-            echo "❌ تعذر قراءة آخر migration مطبقة من production"
-            exit 1
-          fi
+          python3 scripts/ci/validate_migration_ledger.py \
+            --ledger-json baseline-diagnostics/live-ledger.json \
+            --summary-json baseline-diagnostics/ledger-summary.json \
+            --github-output "$GITHUB_OUTPUT"
 
-          LIVE_FILE=$(find sql/migrations -maxdepth 1 -type f \
-            -name "*_${LIVE_NAME}.sql" -printf '%f\n' | sort | tail -1)
-          if [ -z "${LIVE_FILE:-}" ]; then
-            echo "❌ آخر migration في production (${LIVE_NAME}) لا تطابق ملفًا في sql/migrations/"
-            echo "   أوقف التوليد حتى تُوثَّق المطابقة؛ لن نكتب cutoff تخمينيًا."
-            exit 1
-          fi
+          cat baseline-diagnostics/ledger-summary.json
 
-          LIVE_CUTOFF=$(echo "$LIVE_FILE" | grep -oE '^[0-9]+')
-          if [ "$LIVE_CUTOFF" -gt "$REPO_MAX" ]; then
-            echo "❌ production متقدمة على المستودع: live=$LIVE_CUTOFF repo=$REPO_MAX"
-            exit 1
-          fi
-
-          if [ "$REPO_MAX" -gt "$LIVE_CUTOFF" ]; then
-            echo "⚠️ توجد migrations في المستودع لم تُطبق بعد على production:"
-            find sql/migrations -maxdepth 1 -type f -printf '%f\n' | sort -V \
-              | awk -F_ -v cutoff="$LIVE_CUTOFF" '$1 ~ /^[0-9]+$/ && $1 > cutoff {print "   - " $0}'
-            echo "   سيُستخدم cutoff الحي $LIVE_CUTOFF ولن تُعتبر الملفات المعلقة مشمولة."
-          fi
-
-          echo "live_cutoff=$LIVE_CUTOFF" >> "$GITHUB_OUTPUT"
-          echo "live_name=$LIVE_NAME" >> "$GITHUB_OUTPUT"
-          echo "repo_max=$REPO_MAX" >> "$GITHUB_OUTPUT"
-          echo "✅ production cutoff=$LIVE_CUTOFF (${LIVE_NAME}); repo max=$REPO_MAX"
-
-      - name: Generate baseline from production
+      - name: Generate baseline from Production
+        shell: bash
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
+          LIVE_NAME: ${{ steps.ledger.outputs.live_name }}
+          LIVE_VERSION: ${{ steps.ledger.outputs.live_version }}
         run: |
           set -Eeuo pipefail
           STAMP=$(date -u +%Y%m%d_%H%M%S)
           BASELINE="sql/baseline/000_schema_baseline_${STAMP}.sql"
-          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
-          LIVE_NAME="${{ steps.cutoff.outputs.live_name }}"
-
-          mkdir -p sql/baseline
 
           {
             echo "-- migration_cutoff: $CUTOFF"
@@ -108,60 +118,283 @@ jobs:
             echo "-- Schema Baseline — generated $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "-- Project: uutfztmqvajmsxnrqeiv"
             echo "-- Production migration: $CUTOFF ($LIVE_NAME)"
+            echo "-- Production ledger version: $LIVE_VERSION"
             echo "-- Generated by: .github/workflows/generate-baseline.yml"
-            echo "-- Apply with: psql -f supabase_shim.sql && psql -f this_file"
+            echo "-- Apply with: psql -f supabase_shim.sql && psql -f this file"
             echo "-- ============================================================"
             echo ""
+            # --no-acl مُزال عمدًا. الـBaseline يحل محل كل migration دون cutoff،
+            # ومعها بيانات GRANT/REVOKE التي تحملها (نحو 130 بيانًا عبر 27 ملفًا
+            # حتى 148). بإسقاط الصلاحيات كان رفع cutoff يمحو نموذج التنفيذ كاملًا
+            # بصمت: قاعدة مبنية من اللقطة لا تمنح authenticated ولا تسحب من anon.
+            #
+            # --no-owner يبقى: ملكية Supabase تشير إلى أدوار غير موجودة في CI.
+            # أما المستفيدون من الصلاحيات في public فهم postgres وservice_role
+            # وauthenticated وanon وPUBLIC — وكلهم متاحون في بيئة إعادة البناء.
             pg_dump "$SUPABASE_DB_URL" \
               --schema-only \
               --no-owner \
-              --no-acl \
               --no-comments \
               --schema=public \
               --no-tablespaces
           } > "$BASELINE"
 
+          # Supabase تعيد إنشاء مخطط public بمالك غير مالك التمهيد، فيعامله
+          # pg_dump مخططَ مستخدم ويُصدر `CREATE SCHEMA public;`. لكن كل قاعدة
+          # جديدة تملك public أصلًا من initdb، فيفشل التطبيق بـ
+          # `schema "public" already exists`.
+          #
+          # يُصلَح في الأداة لا عند المُستهلك: هذا الملف يُطبَّق هنا في إعادة
+          # البناء، وفي Fresh DB داخل ci-cd.yml بعد دمجه. جعل المُستهلك يُسقِط
+          # public قبل التطبيق كان سيصلح هذه الخطوة ويترك ci-cd.yml معطلًا.
+          PUBLIC_BARE=$(grep -c '^CREATE SCHEMA public;$' "$BASELINE" || true)
+          if [ "$PUBLIC_BARE" -gt 0 ]; then
+            sed -i 's/^CREATE SCHEMA public;$/CREATE SCHEMA IF NOT EXISTS public;/' "$BASELINE"
+            echo "ℹ️ CREATE SCHEMA public → IF NOT EXISTS ($PUBLIC_BARE بيان)"
+          fi
+          if grep -q '^CREATE SCHEMA public;$' "$BASELINE"; then
+            echo "❌ بقي CREATE SCHEMA public غير idempotent بعد التحويل"
+            exit 1
+          fi
+
           echo "baseline_path=$BASELINE" >> "$GITHUB_ENV"
-          LINES=$(wc -l < "$BASELINE")
-          echo "✅ Baseline generated: $BASELINE ($LINES سطر)"
+          echo "baseline_name=$(basename "$BASELINE")" >> "$GITHUB_ENV"
+          echo "✅ Baseline generated: $BASELINE ($(wc -l < "$BASELINE") lines)"
 
-      - name: Verify baseline
+          # نسخة تشخيصية: الـBaseline المولَّد لم يكن يُرفع قط، فكان كل فشل في
+          # إعادة البناء يحتاج دورة كاملة لتخمين محتواه. الآن يُرفع مع البقية.
+          cp "$BASELINE" baseline-diagnostics/
+
+      - name: Generate system reference data snapshot from Production
+        shell: bash
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
         run: |
           set -Eeuo pipefail
-          BASELINE="$baseline_path"
-          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
+          pip install --quiet pyyaml
 
-          FIRST_LINE=$(head -1 "$BASELINE")
+          # الطبقة الثانية. `pg_dump --schema-only` أعلاه لا يحمل صفًا بالبناء،
+          # فكل migration بذرت بيانات مرجعية ثم طواها الـcutoff تضيع بذرتها.
+          # حدث ذلك مع 130 و140: صار كل Fresh DB يُبنى بجداول UoM فارغة بينما
+          # Production يحملها. اللقطة تمر عبر allowlist صريحة بـpredicate صريح
+          # لكل جدول، لا عبر `--data-only` يسحب صفوف المؤسسات معها.
+          STAMP=$(basename "$baseline_path" .sql | sed 's/^000_schema_baseline_//')
+          REFERENCE="sql/baseline/001_system_reference_data_${STAMP}.sql"
+
+          python3 scripts/ci/system_reference_data.py \
+            --dsn "$SUPABASE_DB_URL" \
+            export \
+            --output "$REFERENCE" \
+            --cutoff "$CUTOFF" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          echo "reference_path=$REFERENCE" >> "$GITHUB_ENV"
+          echo "reference_name=$(basename "$REFERENCE")" >> "$GITHUB_ENV"
+          cp "$REFERENCE" baseline-diagnostics/
+
+          # المولّد يشتق الطابع من الـbaseline الذي أنشأه للتو، فالاقتران صحيح
+          # بالبناء. ومع ذلك يُمرَّر الناتج على المُحلِّل نفسه الذي سيستعمله
+          # Fresh DB والحوكمة: زوج يفشل عندهما بعد الدمج يجب أن يفشل هنا قبله.
+          # لا eval: القيم أسماء ملفات، وإعادة تقييمها تجعل اسمًا مصنوعًا ينفّذ أوامر.
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          RESOLVED_BASELINE=$(pair_field BASELINE_PATH)
+          RESOLVED_REFERENCE=$(pair_field REFERENCE_PATH)
+          if [ "$RESOLVED_REFERENCE" != "$REFERENCE" ] || [ "$RESOLVED_BASELINE" != "$baseline_path" ]; then
+            echo "❌ الزوج المولَّد لا يُحَل كما سيحلّه المستهلكون"
+            echo "   مولَّد:  $baseline_path + $REFERENCE"
+            echo "   محلول: $RESOLVED_BASELINE + $RESOLVED_REFERENCE"
+            exit 1
+          fi
+          echo "✅ الزوج المولَّد يُحَل كما سيحلّه Fresh DB والحوكمة"
+
+      - name: Verify generated baseline metadata and contents
+        shell: bash
+        env:
+          CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
+        run: |
+          set -Eeuo pipefail
+          FIRST_LINE=$(head -1 "$baseline_path")
           if [ "$FIRST_LINE" != "-- migration_cutoff: $CUTOFF" ]; then
-            echo "❌ migration_cutoff في الملف لا يطابق production: $FIRST_LINE"
+            echo "❌ migration_cutoff mismatch: $FIRST_LINE"
             exit 1
           fi
 
-          LINES=$(wc -l < "$BASELINE")
+          LINES=$(wc -l < "$baseline_path")
           if [ "$LINES" -lt 500 ]; then
-            echo "❌ الـbaseline يبدو قصيراً جداً ($LINES سطر) — تحقق من الاتصال والصلاحيات"
+            echo "❌ baseline appears too short ($LINES lines)"
             exit 1
           fi
 
-          grep -q '^CREATE TABLE' "$BASELINE" || { echo "❌ لا توجد CREATE TABLE في baseline"; exit 1; }
-          grep -q 'CREATE.*FUNCTION' "$BASELINE" || { echo "❌ لا توجد functions في baseline"; exit 1; }
-          echo "✅ Baseline سليم وموسوم بآخر migration حية ($CUTOFF)"
+          grep -q '^CREATE TABLE' "$baseline_path" \
+            || { echo '❌ no CREATE TABLE statements'; exit 1; }
+          grep -q 'CREATE.*FUNCTION' "$baseline_path" \
+            || { echo '❌ no function statements'; exit 1; }
 
-      - name: Commit and push baseline
+          # الـBaseline يحل محل كل migration دون cutoff، ومعها صلاحياتها. لقطة
+          # بلا GRANT/REVOKE تعني قاعدة بلا نموذج تنفيذ: authenticated بلا منح
+          # وanon بلا سحب — وهو تدهور أمني صامت لا يوقفه أي فحص آخر هنا.
+          # العتبة متحفظة جدًا: الإنتاج يحمل آلاف مدخلات ACL في public.
+          ACL_STMTS=$(grep -cE '^(GRANT|REVOKE) ' "$baseline_path" || true)
+          if [ "$ACL_STMTS" -lt 100 ]; then
+            echo "❌ الـBaseline يحمل $ACL_STMTS بيان صلاحيات فقط — يُتوقع مئات."
+            echo "   تحقق من عدم عودة --no-acl إلى pg_dump."
+            exit 1
+          fi
+          echo "✅ صلاحيات محفوظة: $ACL_STMTS بيان GRANT/REVOKE"
+
+      - name: Rebuild clean PostgreSQL from generated baseline
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
         run: |
           set -Eeuo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          createdb wardah_baseline_verify
 
-          CUTOFF="${{ steps.cutoff.outputs.live_cutoff }}"
-          LIVE_NAME="${{ steps.cutoff.outputs.live_name }}"
-          git add "$baseline_path"
-          git diff --cached --quiet && echo "لا تغييرات" && exit 0
+          # `-q` يكتم النجاح لا الأخطاء، لكن فشل الخطوة كان يظهر في سجل حاوية
+          # الخدمة وحده بلا اسم ملف ولا رقم سطر. الآن يُحفظ خرج psql ويُطبع
+          # عند الفشل، فيُشخَّص العطل من التشغيل نفسه لا من دورة تالية.
+          apply_sql() {
+            local LABEL="$1" FILE="$2" LOG="baseline-diagnostics/apply-$1.log"
+            if ! psql -v ON_ERROR_STOP=1 -d wardah_baseline_verify -f "$FILE" -q \
+                 > "$LOG" 2>&1; then
+              echo "❌ فشل تطبيق $LABEL ($FILE):"
+              tail -40 "$LOG"
+              return 1
+            fi
+          }
 
+          apply_sql shim scripts/ci/fresh-db/supabase_shim.sql
+          apply_sql baseline "$baseline_path"
+
+          # فحص دلالي لا عددي. حارس عدد بيانات GRANT/REVOKE يثبت وجود نموذج
+          # صلاحيات؛ وهذا يثبت أن العقد الأمني المطلوب نفسه نجا من التوليد ومن
+          # إعادة البناء: authenticated تُنفّذ، وanon لا تُنفّذ — لا عبر منح
+          # مباشر ولا بالوراثة من PUBLIC، فPostgreSQL يمنح PUBLIC صلاحية EXECUTE
+          # افتراضيًا عند إنشاء الدالة ما لم يُستعد بيان السحب.
+          # الدوال غير الموجودة تُتخطى: cutoff أقدم لا يلزمه وجودها.
+          apply_sql acl-contract scripts/ci/fresh-db/verify_baseline_acl.sql
+          echo "✅ عقد التنفيذ نجا من التوليد وإعادة البناء"
+
+          # الطبقة الثانية تُطبَّق هنا بالترتيب نفسه الذي يستخدمه Fresh DB.
+          apply_sql reference-data "$reference_path"
+
+          # ثلاث مقارنات لا واحدة:
+          #  · القاعدة المُعاد بناؤها مقابل ترويسة اللقطة (سلامة الجولة كاملة).
+          #  · الحدود الدنيا من الـmanifest (كشف الفراغ والانخفاض).
+          #  · --expect-no-org-rows: القاعدة المبنية من لقطة نظامية يجب ألا تحمل
+          #    صفًا org-scoped. لا يُشغَّل على Production، فوحدات المؤسسات هناك
+          #    مشروعة — هي ميزة migration 140 لا عطل.
+          python3 scripts/ci/system_reference_data.py \
+            --database wardah_baseline_verify \
+            verify \
+            --snapshot "$reference_path" \
+            --expect-no-org-rows \
+            --report baseline-diagnostics/reference-data-rebuild.json
+
+          # ثم مقارنة اللقطة بمصدرها: Production نفسه. هذه الخطوة وحدها تملك
+          # الوصول إليه، فهي الموضع الوحيد الذي يمكن فيه إثبات أن الملف المُلتزَم
+          # يمثّل الحالة الحية لا لقطة قديمة.
+          python3 scripts/ci/system_reference_data.py \
+            --dsn "$SUPABASE_DB_URL" \
+            verify \
+            --snapshot "$reference_path" \
+            --report baseline-diagnostics/reference-data-production.json
+          echo "✅ البيانات المرجعية: Production = اللقطة = إعادة البناء"
+
+          TABLES=$(psql -d wardah_baseline_verify -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
+          FUNCTIONS=$(psql -d wardah_baseline_verify -tAc \
+            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON p.pronamespace=n.oid WHERE n.nspname='public' AND p.prokind='f'")
+          POLICIES=$(psql -d wardah_baseline_verify -tAc \
+            "SELECT count(*) FROM pg_policies WHERE schemaname='public'")
+
+          printf '{"tables":%s,"functions":%s,"policies":%s}\n' \
+            "$TABLES" "$FUNCTIONS" "$POLICIES" \
+            > baseline-diagnostics/rebuild-counts.json
+
+          if [ "$TABLES" -lt 120 ] || [ "$FUNCTIONS" -lt 150 ] || [ "$POLICIES" -lt 300 ]; then
+            echo "❌ rebuilt object counts are below safety floor"
+            cat baseline-diagnostics/rebuild-counts.json
+            exit 1
+          fi
+          echo "✅ clean rebuild passed: tables=$TABLES functions=$FUNCTIONS policies=$POLICIES"
+
+      - name: Update baseline documentation from generated file
+        env:
+          CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
+          LIVE_NAME: ${{ steps.ledger.outputs.live_name }}
+          REPO_MAX: ${{ steps.ledger.outputs.repo_max }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/update_baseline_docs.py \
+            --baseline "$baseline_path" \
+            --reference "$reference_path" \
+            --counts baseline-diagnostics/rebuild-counts.json \
+            --cutoff "$CUTOFF" \
+            --live-name "$LIVE_NAME" \
+            --repo-max "$REPO_MAX"
+
+      - name: Create review branch and pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
+          LIVE_NAME: ${{ steps.ledger.outputs.live_name }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          BRANCH="automation/baseline-cutoff-${CUTOFF}-${GITHUB_RUN_ID}"
+          git switch -c "$BRANCH"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # الطبقتان تصلان معًا دائمًا. فصلهما يترك المستودع بمخطط بلا بياناته
+          # المرجعية — وهي الفجوة نفسها التي أوجدت هذا الملف.
+          git add "$baseline_path" "$reference_path" sql/baseline/README.md CLAUDE.md
+          git diff --cached --quiet && { echo 'No baseline changes'; exit 0; }
           git commit \
             -m "sql(baseline): production schema cutoff ${CUTOFF}" \
-            -m "Generated from production after ${LIVE_NAME}; repository migrations newer than ${CUTOFF} are intentionally excluded." \
+            -m "Generated from production after ${LIVE_NAME}. Clean PostgreSQL rebuild passed." \
+            -m "Includes system reference data snapshot: ${reference_name}." \
             -m "Reason: ${{ github.event.inputs.reason }}"
+          git push --set-upstream origin "$BRANCH"
 
-          git push origin HEAD
-          echo "✅ Baseline جديد أُضيف دون حذف اللقطات السابقة"
+          PR_BODY="## Generated baseline
+          - Production cutoff: ${CUTOFF}
+          - Live migration: ${LIVE_NAME}
+          - Migration ledger validation: passed
+          - Clean PostgreSQL 17 rebuild: passed
+          - System reference data: \`${reference_name}\` — Production = snapshot = rebuild
+          - CLAUDE.md and baseline README updated automatically
+
+          This workflow never writes directly to main or Production. Review and merge through normal CI."
+
+          if gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "sql(baseline): production schema cutoff ${CUTOFF}" \
+            --body "$PR_BODY"; then
+            echo "✅ baseline pull request created"
+          else
+            COMPARE_URL="https://github.com/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
+            echo "::warning::Branch pushed but GitHub token could not create a PR. Open: $COMPARE_URL"
+            {
+              echo '## Baseline branch created; PR creation needs manual confirmation'
+              echo "- Branch: \`$BRANCH\`"
+              echo "- Open PR: $COMPARE_URL"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload baseline diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-diagnostics-${{ github.run_id }}
+          path: baseline-diagnostics/
+          if-no-files-found: warn
+          retention-days: 30

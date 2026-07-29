@@ -66,7 +66,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           </div>
         </main>
       </div>
-      
+
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <button

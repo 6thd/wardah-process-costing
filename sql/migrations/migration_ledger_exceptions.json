@@ -1,0 +1,19 @@
+{
+  "allowed_duplicate_names": {
+    "101_p13_payroll_rbac_and_consistency": [
+      "20260712195336",
+      "20260715134637"
+    ],
+    "102_p13_settlement_review_and_snapshot": [
+      "20260715044240",
+      "20260715135008"
+    ]
+  },
+  "version_name_aliases": {
+    "20260716201851": {
+      "live_name": "fail_closed_tenant_isolation",
+      "canonical_file": "121_fail_closed_tenant_isolation.sql",
+      "reason": "Historical apply_migration call omitted the numeric prefix; the repository filename is canonical and the production row is preserved as immutable history."
+    }
+  }
+}

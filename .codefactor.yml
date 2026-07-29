@@ -1,0 +1,27 @@
+# CodeFactor configuration
+# https://docs.codefactor.io/common-tasks/ignoring-files/
+#
+# Scope static analysis to authored application source. Generated code,
+# build artifacts, vendored files, and test/report output are excluded so the
+# pull-request check reflects real, actionable findings only.
+#
+# Note: the severity threshold that turns findings into a failing PR status is a
+# repository-level setting in the CodeFactor dashboard, not part of this file.
+# This file only controls which paths are analyzed.
+
+exclude_patterns:
+  - "**/node_modules/**"
+  - "dist/**"
+  - "build/**"
+  - "coverage/**"
+  - "playwright-report/**"
+  - "test-results/**"
+  # Generated database types — regenerated from the Fresh DB baseline in CI.
+  - "src/types/database.generated.ts"
+  # Test files and fixtures.
+  - "**/__tests__/**"
+  - "**/*.test.ts"
+  - "**/*.test.tsx"
+  - "e2e/**"
+  # Legal SQL migrations are governed by dedicated CI gates and human review.
+  - "sql/migrations/**"

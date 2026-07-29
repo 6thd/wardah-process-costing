@@ -121,8 +121,8 @@ export const appRouter = createBrowserRouter([
             path: "purchasing/*",
             lazy: guardedLazy(
               MODULE_CODES.PURCHASING,
-              () => import("@/features/purchasing"),
-              "PurchasingModule"
+              () => import("@/features/purchasing/PurchasingModuleHotfix"),
+              "PurchasingModuleHotfix"
             ),
           },
           {

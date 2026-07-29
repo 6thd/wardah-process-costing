@@ -1,571 +1,133 @@
-// src/features/hr/pages/SettingsPage.tsx
-// بسم الله الرحمن الرحيم
-// صفحة إعدادات الموارد البشرية
-
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import React from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import {
-  Settings,
-  Calendar,
-  DollarSign,
-  Clock,
-  Building2,
-  Users,
-  Briefcase,
-  Plus,
-  Edit2,
-  Trash2,
-  Save,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle2,
-  Palmtree,
-  Calculator,
-} from 'lucide-react';
-import { getHrPolicies, updateHrPolicies, HrPolicies } from '@/services/hr/policies-service';
+import { AlertCircle, Building2, Calculator, CheckCircle2, Clock, Plus, RefreshCw, Save, Settings, Palmtree } from 'lucide-react';
+import { getHrPolicies, updateHrPolicies, type HrPolicies } from '@/services/hr/policies-service';
 import {
   getPayrollAccountMappings,
   listPostingAccounts,
   upsertPayrollAccountMapping,
-  PayrollAccountType,
+  type PayrollAccountMapping,
+  type PayrollAccountType,
 } from '@/services/hr/payroll-account-service';
+import { useHrTranslation } from '../i18n';
+import '../translations/pages';
 
-// أنواع حسابات الرواتب
-const PAYROLL_ACCOUNT_TYPES: { value: PayrollAccountType; label: string }[] = [
-  { value: 'basic_salary', label: 'الراتب الأساسي' },
-  { value: 'housing_allowance', label: 'بدل السكن' },
-  { value: 'transport_allowance', label: 'بدل النقل' },
-  { value: 'other_allowance', label: 'بدلات أخرى' },
-  { value: 'deductions', label: 'الخصومات' },
-  { value: 'loans', label: 'السلف' },
-  { value: 'payable', label: 'رواتب مستحقة' },
-  { value: 'net_payable', label: 'صافي الدفع' },
+const ACCOUNT_TYPES: PayrollAccountType[] = [
+  'basic_salary', 'housing_allowance', 'transport_allowance', 'other_allowance',
+  'deductions', 'loans', 'payable', 'net_payable', 'overtime', 'absence_recovery',
+  'gosi_employee', 'gosi_employer_expense', 'gosi_payable', 'eos_expense', 'eos_payable',
 ];
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'] as const;
 
 export const SettingsPage: React.FC = () => {
+  const { t } = useHrTranslation();
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState('policies');
-  const [showAccountDialog, setShowAccountDialog] = useState(false);
-  const [selectedAccount, setSelectedAccount] = useState<any>(null);
+  const [activeTab, setActiveTab] = React.useState('policies');
+  const [showAccountDialog, setShowAccountDialog] = React.useState(false);
+  const [selectedMapping, setSelectedMapping] = React.useState<PayrollAccountMapping | null>(null);
+  const [accountType, setAccountType] = React.useState<PayrollAccountType | ''>('');
+  const [glAccountId, setGlAccountId] = React.useState('');
+  const [editedPolicies, setEditedPolicies] = React.useState<Partial<HrPolicies>>({});
 
-  // جلب السياسات
-  const { data: policies, isLoading: policiesLoading } = useQuery({
-    queryKey: ['hr', 'policies'],
-    queryFn: getHrPolicies,
-  });
+  const { data: policies } = useQuery({ queryKey: ['hr', 'policies'], queryFn: getHrPolicies });
+  const { data: mappings = [], isLoading: mappingsLoading } = useQuery({ queryKey: ['hr', 'payroll-account-mappings'], queryFn: getPayrollAccountMappings });
+  const { data: accounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts });
 
-  // جلب ربط الحسابات
-  const { data: accountMappings = [], isLoading: mappingsLoading } = useQuery({
-    queryKey: ['hr', 'payroll-account-mappings'],
-    queryFn: getPayrollAccountMappings,
-  });
+  const currentPolicies = { ...policies, ...editedPolicies };
+  const updatePolicy = <K extends keyof HrPolicies>(key: K, value: HrPolicies[K]) => setEditedPolicies((current) => ({ ...current, [key]: value }));
 
-  // جلب قائمة الحسابات المتاحة
-  const { data: availableAccounts = [] } = useQuery({
-    queryKey: ['hr', 'posting-accounts'],
-    queryFn: listPostingAccounts,
-  });
-
-  // حالة تحرير السياسات
-  const [editedPolicies, setEditedPolicies] = useState<Partial<HrPolicies>>({});
-
-  // حفظ السياسات
-  const updatePoliciesMutation = useMutation({
-    mutationFn: (data: Partial<HrPolicies>) => updateHrPolicies(data),
+  const policyMutation = useMutation({
+    mutationFn: () => updateHrPolicies(editedPolicies),
     onSuccess: () => {
-      toast.success('تم حفظ السياسات بنجاح');
+      toast.success(t('settings.policiesSaved'));
+      setEditedPolicies({});
       queryClient.invalidateQueries({ queryKey: ['hr', 'policies'] });
     },
-    onError: () => {
-      toast.error('حدث خطأ أثناء حفظ السياسات');
-    },
+    onError: () => toast.error(t('settings.policiesFailed')),
   });
 
-  // حفظ ربط الحساب
-  const upsertMappingMutation = useMutation({
-    mutationFn: (data: { accountType: PayrollAccountType; glAccountId: string }) =>
-      upsertPayrollAccountMapping(data.accountType, data.glAccountId),
+  const mappingMutation = useMutation({
+    mutationFn: () => {
+      if (!accountType || !glAccountId) throw new Error(t('settings.selectAccount'));
+      return upsertPayrollAccountMapping(accountType, glAccountId);
+    },
     onSuccess: () => {
-      toast.success('تم حفظ ربط الحساب بنجاح');
+      toast.success(t('settings.mappingSaved'));
       queryClient.invalidateQueries({ queryKey: ['hr', 'payroll-account-mappings'] });
       setShowAccountDialog(false);
     },
-    onError: () => {
-      toast.error('حدث خطأ أثناء حفظ ربط الحساب');
-    },
+    onError: (error: Error) => toast.error(error.message || t('settings.mappingFailed')),
   });
 
-  const handlePolicyChange = (key: keyof HrPolicies, value: any) => {
-    setEditedPolicies(prev => ({ ...prev, [key]: value }));
+  const openMappingDialog = (mapping?: PayrollAccountMapping) => {
+    setSelectedMapping(mapping ?? null);
+    setAccountType(mapping?.account_type ?? '');
+    setGlAccountId(mapping?.gl_account_id ?? '');
+    setShowAccountDialog(true);
   };
 
-  const handleSavePolicies = () => {
-    updatePoliciesMutation.mutate(editedPolicies);
-  };
-
-  const currentPolicies = { ...policies, ...editedPolicies };
-
-  return (
-    <div className="space-y-6">
-      {/* العنوان */}
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">إعدادات الموارد البشرية</h1>
-        <p className="text-muted-foreground">
-          إدارة سياسات الحضور والإجازات وربط حسابات الرواتب
-        </p>
-      </div>
-
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4">
-          <TabsTrigger value="policies" className="gap-2">
-            <Settings className="h-4 w-4" />
-            السياسات العامة
-          </TabsTrigger>
-          <TabsTrigger value="leave" className="gap-2">
-            <Palmtree className="h-4 w-4" />
-            سياسات الإجازات
-          </TabsTrigger>
-          <TabsTrigger value="attendance" className="gap-2">
-            <Clock className="h-4 w-4" />
-            سياسات الحضور
-          </TabsTrigger>
-          <TabsTrigger value="accounts" className="gap-2">
-            <Calculator className="h-4 w-4" />
-            ربط الحسابات
-          </TabsTrigger>
-        </TabsList>
-
-        {/* السياسات العامة */}
-        <TabsContent value="policies" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Building2 className="h-5 w-5 text-teal-600" />
-                إعدادات عامة
-              </CardTitle>
-              <CardDescription>
-                الإعدادات الأساسية لنظام الموارد البشرية
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>ساعات العمل اليومية (موظفون)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.employee_daily_hours || 8}
-                    onChange={(e) => handlePolicyChange('employee_daily_hours', Number(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    ساعات العمل للموظفين الإداريين
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>ساعات العمل اليومية (عمال)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.worker_daily_hours || 11}
-                    onChange={(e) => handlePolicyChange('worker_daily_hours', Number(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    ساعات العمل للعمال في المصنع
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>عدد الورديات (عمال)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.worker_shifts || 2}
-                    onChange={(e) => handlePolicyChange('worker_shifts', Number(e.target.value))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>معامل العمل الإضافي</Label>
-                  <Select
-                    value={String(currentPolicies?.overtime_multiplier || 1.5)}
-                    onValueChange={(v) => handlePolicyChange('overtime_multiplier', Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1.25">1.25x</SelectItem>
-                      <SelectItem value="1.5">1.5x</SelectItem>
-                      <SelectItem value="2">2x</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSavePolicies}
-                  disabled={updatePoliciesMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700"
-                >
-                  {updatePoliciesMutation.isPending ? (
-                    <RefreshCw className="h-4 w-4 ml-2 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4 ml-2" />
-                  )}
-                  حفظ الإعدادات
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* سياسات الإجازات */}
-        <TabsContent value="leave" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Palmtree className="h-5 w-5 text-emerald-600" />
-                سياسات الإجازات
-              </CardTitle>
-              <CardDescription>
-                تكوين أنواع الإجازات وأرصدتها السنوية
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-400">إعدادات الإجازات</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      سياسات الإجازات يتم إدارتها من خلال جدول leave_types في قاعدة البيانات.
-                      يمكنك إضافة أنواع جديدة أو تعديل الأنواع الموجودة مباشرة من قاعدة البيانات.
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <Card className="border-emerald-500/30">
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-emerald-400">الإجازة السنوية</p>
-                      <p className="text-2xl font-bold">21 يوم</p>
-                      <p className="text-xs text-muted-foreground">
-                        وفقاً لنظام العمل السعودي
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card className="border-rose-500/30">
-                  <CardContent className="p-4">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-rose-400">الإجازة المرضية</p>
-                      <p className="text-2xl font-bold">30 يوم</p>
-                      <p className="text-xs text-muted-foreground">
-                        بموجب تقرير طبي
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSavePolicies}
-                  disabled={updatePoliciesMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700"
-                >
-                  <Save className="h-4 w-4 ml-2" />
-                  حفظ سياسات الإجازات
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* سياسات الحضور */}
-        <TabsContent value="attendance" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5 text-blue-600" />
-                سياسات الحضور والانصراف
-              </CardTitle>
-              <CardDescription>
-                إعدادات أوقات العمل والعمل الإضافي
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="grid gap-6 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label>فترة السماح للعمل الإضافي (دقائق)</Label>
-                  <Input
-                    type="number"
-                    value={currentPolicies?.overtime_grace_minutes || 0}
-                    onChange={(e) => handlePolicyChange('overtime_grace_minutes', Number(e.target.value))}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    الحد الأدنى للدقائق الإضافية لاحتساب العمل الإضافي
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label>معامل العمل الإضافي</Label>
-                  <Select
-                    value={String(currentPolicies?.overtime_multiplier || 1.5)}
-                    onValueChange={(v) => handlePolicyChange('overtime_multiplier', Number(v))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="1.25">1.25x</SelectItem>
-                      <SelectItem value="1.5">1.5x</SelectItem>
-                      <SelectItem value="2">2x</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="rounded-lg border border-blue-500/30 p-4 space-y-3">
-                <h4 className="font-medium text-blue-400">أيام نهاية الأسبوع</h4>
-                <div className="flex flex-wrap gap-2">
-                  {['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'].map((day, idx) => {
-                    const dayKey = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'][idx];
-                    const isWeekend = currentPolicies?.weekend_days?.includes(dayKey);
-                    return (
-                      <Badge 
-                        key={day}
-                        variant={isWeekend ? 'default' : 'outline'}
-                        className={isWeekend ? 'bg-blue-500/20 text-blue-400' : ''}
-                      >
-                        {day}
-                      </Badge>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  الأيام المحددة: {currentPolicies?.weekend_days?.join(', ') || 'لا يوجد'}
-                </p>
-              </div>
-
-              <div className="flex justify-end">
-                <Button
-                  onClick={handleSavePolicies}
-                  disabled={updatePoliciesMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700"
-                >
-                  <Save className="h-4 w-4 ml-2" />
-                  حفظ سياسات الحضور
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ربط الحسابات */}
-        <TabsContent value="accounts" className="space-y-4 mt-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Calculator className="h-5 w-5 text-purple-600" />
-                  ربط حسابات الرواتب
-                </CardTitle>
-                <CardDescription>
-                  ربط عناصر الرواتب بحسابات الأستاذ العام للقيود المحاسبية
-                </CardDescription>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSelectedAccount(null);
-                  setShowAccountDialog(true);
-                }}
-              >
-                <Plus className="h-4 w-4 ml-2" />
-                إضافة ربط
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {mappingsLoading ? (
-                <div className="text-center py-8 text-muted-foreground">جارٍ التحميل...</div>
-              ) : accountMappings.length === 0 ? (
-                <div className="text-center py-8">
-                  <AlertCircle className="h-12 w-12 mx-auto text-amber-400 mb-3" />
-                  <p className="text-muted-foreground">لم يتم ربط أي حسابات بعد</p>
-                  <p className="text-sm text-muted-foreground">
-                    قم بربط الحسابات لتفعيل القيود المحاسبية التلقائية للرواتب
-                  </p>
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>نوع الحساب</TableHead>
-                      <TableHead>الحساب المرتبط</TableHead>
-                      <TableHead>رقم الحساب</TableHead>
-                      <TableHead>الحالة</TableHead>
-                      <TableHead>الإجراءات</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {accountMappings.map((mapping: any) => {
-                      const typeInfo = PAYROLL_ACCOUNT_TYPES.find(t => t.value === mapping.accountType);
-                      return (
-                        <TableRow key={mapping.id}>
-                          <TableCell className="font-medium">
-                            {typeInfo?.label || mapping.accountType}
-                          </TableCell>
-                          <TableCell>{mapping.glAccountName || '—'}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{mapping.glAccountCode}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge className="bg-emerald-100 text-emerald-700">
-                              <CheckCircle2 className="h-3 w-3 ml-1" />
-                              مرتبط
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => {
-                                  setSelectedAccount(mapping);
-                                  setShowAccountDialog(true);
-                                }}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="text-rose-600"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              )}
-
-              {/* قائمة الحسابات المطلوب ربطها */}
-              <div className="mt-6 rounded-lg border p-4">
-                <h4 className="font-medium mb-3">الحسابات المطلوب ربطها</h4>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {PAYROLL_ACCOUNT_TYPES.map((type) => {
-                    const isMapped = accountMappings.some((m: any) => m.accountType === type.value);
-                    return (
-                      <div
-                        key={type.value}
-                        className={`flex items-center justify-between rounded-lg border p-3 ${
-                          isMapped ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'
-                        }`}
-                      >
-                        <span className="text-sm">{type.label}</span>
-                        {isMapped ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        ) : (
-                          <AlertCircle className="h-4 w-4 text-amber-600" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* نافذة ربط الحساب */}
-      <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedAccount ? 'تعديل ربط الحساب' : 'إضافة ربط حساب جديد'}
-            </DialogTitle>
-            <DialogDescription>
-              اختر نوع الحساب وحساب الأستاذ العام المقابل
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>نوع الحساب</Label>
-              <Select defaultValue={selectedAccount?.accountType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="اختر نوع الحساب" />
-                </SelectTrigger>
-                <SelectContent>
-                  {PAYROLL_ACCOUNT_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>حساب الأستاذ العام</Label>
-              <Select defaultValue={selectedAccount?.glAccountId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="اختر الحساب" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableAccounts.map((account: any) => (
-                    <SelectItem key={account.id} value={account.id}>
-                      {account.code} - {account.nameAr || account.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAccountDialog(false)}>
-              إلغاء
-            </Button>
-            <Button className="bg-teal-600 hover:bg-teal-700">
-              <Save className="h-4 w-4 ml-2" />
-              حفظ
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+  const saveButton = (labelKey: string) => (
+    <div className="flex justify-end">
+      <Button onClick={() => policyMutation.mutate()} disabled={policyMutation.isPending || Object.keys(editedPolicies).length === 0}>
+        {policyMutation.isPending ? <RefreshCw className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
+        {t(labelKey)}
+      </Button>
     </div>
   );
-};
 
+  return <div className="space-y-6">
+    <div><h1 className="text-3xl font-bold tracking-tight">{t('settings.title')}</h1><p className="text-muted-foreground">{t('settings.subtitle')}</p></div>
+    <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <TabsList className="grid w-full grid-cols-4">
+        <TabsTrigger value="policies"><Settings className="h-4 w-4 me-2" />{t('settings.general')}</TabsTrigger>
+        <TabsTrigger value="leave"><Palmtree className="h-4 w-4 me-2" />{t('settings.leave')}</TabsTrigger>
+        <TabsTrigger value="attendance"><Clock className="h-4 w-4 me-2" />{t('settings.attendance')}</TabsTrigger>
+        <TabsTrigger value="accounts"><Calculator className="h-4 w-4 me-2" />{t('settings.accounts')}</TabsTrigger>
+      </TabsList>
+
+      <TabsContent value="policies" className="mt-4">
+        <Card><CardHeader><CardTitle><Building2 className="inline h-5 w-5 me-2" />{t('settings.generalTitle')}</CardTitle><CardDescription>{t('settings.generalDescription')}</CardDescription></CardHeader>
+          <CardContent className="space-y-6"><div className="grid gap-6 md:grid-cols-2">
+            <div><Label>{t('settings.employeeHours')}</Label><Input type="number" value={currentPolicies.employee_daily_hours ?? 8} onChange={(event) => updatePolicy('employee_daily_hours', Number(event.target.value))} /></div>
+            <div><Label>{t('settings.workerHours')}</Label><Input type="number" value={currentPolicies.worker_daily_hours ?? 11} onChange={(event) => updatePolicy('worker_daily_hours', Number(event.target.value))} /></div>
+            <div><Label>{t('settings.workerShifts')}</Label><Input type="number" value={currentPolicies.worker_shifts ?? 2} onChange={(event) => updatePolicy('worker_shifts', Number(event.target.value))} /></div>
+            <div><Label>{t('settings.overtimeMultiplier')}</Label><Select value={String(currentPolicies.overtime_multiplier ?? 1.5)} onValueChange={(value) => updatePolicy('overtime_multiplier', Number(value))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1.25">1.25x</SelectItem><SelectItem value="1.5">1.5x</SelectItem><SelectItem value="2">2x</SelectItem></SelectContent></Select></div>
+          </div>{saveButton('settings.saveSettings')}</CardContent></Card>
+      </TabsContent>
+
+      <TabsContent value="leave" className="mt-4">
+        <Card><CardHeader><CardTitle>{t('settings.leaveTitle')}</CardTitle><CardDescription>{t('settings.leaveDescription')}</CardDescription></CardHeader><CardContent className="space-y-6">
+          <div className="grid gap-4 md:grid-cols-2"><Card><CardContent className="p-4"><p className="font-medium">{t('settings.annualLeave')}</p><p className="text-2xl font-bold">{t('settings.daysValue', { count: currentPolicies.annual_leave_days_before_5y ?? 21 })}</p><p className="text-xs text-muted-foreground">{t('settings.annualNote')}</p></CardContent></Card><Card><CardContent className="p-4"><p className="font-medium">{t('settings.sickLeave')}</p><p className="text-2xl font-bold">{t('settings.daysValue', { count: 30 })}</p><p className="text-xs text-muted-foreground">{t('settings.sickNote')}</p></CardContent></Card></div>
+          {saveButton('settings.saveLeave')}
+        </CardContent></Card>
+      </TabsContent>
+
+      <TabsContent value="attendance" className="mt-4">
+        <Card><CardHeader><CardTitle>{t('settings.attendanceTitle')}</CardTitle><CardDescription>{t('settings.attendanceDescription')}</CardDescription></CardHeader><CardContent className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2"><div><Label>{t('settings.overtimeGrace')}</Label><Input type="number" value={currentPolicies.overtime_grace_minutes ?? 0} onChange={(event) => updatePolicy('overtime_grace_minutes', Number(event.target.value))} /><p className="text-xs text-muted-foreground">{t('settings.overtimeGraceNote')}</p></div><div><Label>{t('settings.overtimeMultiplier')}</Label><Select value={String(currentPolicies.overtime_multiplier ?? 1.5)} onValueChange={(value) => updatePolicy('overtime_multiplier', Number(value))}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1.25">1.25x</SelectItem><SelectItem value="1.5">1.5x</SelectItem><SelectItem value="2">2x</SelectItem></SelectContent></Select></div></div>
+          <div className="rounded-lg border p-4"><h4 className="font-medium mb-3">{t('settings.weekendDays')}</h4><div className="flex flex-wrap gap-2">{WEEKDAYS.map((day) => <Badge key={day} variant={currentPolicies.weekend_days?.includes(day) ? 'default' : 'outline'}>{t(`settings.weekdays.${day}`)}</Badge>)}</div><p className="mt-2 text-xs text-muted-foreground">{t('settings.selectedDays', { days: currentPolicies.weekend_days?.map((day) => t(`settings.weekdays.${day}`)).join(', ') || t('settings.none') })}</p></div>
+          {saveButton('settings.saveAttendance')}
+        </CardContent></Card>
+      </TabsContent>
+
+      <TabsContent value="accounts" className="mt-4">
+        <Card><CardHeader className="flex flex-row items-center justify-between"><div><CardTitle>{t('settings.accountsTitle')}</CardTitle><CardDescription>{t('settings.accountsDescription')}</CardDescription></div><Button variant="outline" onClick={() => openMappingDialog()}><Plus className="h-4 w-4 me-2" />{t('settings.addMapping')}</Button></CardHeader><CardContent>
+          {mappingsLoading ? <div className="py-8 text-center">{t('common.loading')}</div> : mappings.length === 0 ? <div className="py-8 text-center"><AlertCircle className="mx-auto mb-3 h-12 w-12" /><p>{t('settings.noMappings')}</p><p className="text-sm text-muted-foreground">{t('settings.noMappingsDescription')}</p></div> : <Table><TableHeader><TableRow><TableHead>{t('settings.accountType')}</TableHead><TableHead>{t('settings.linkedAccount')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead>{t('common.actions')}</TableHead></TableRow></TableHeader><TableBody>{mappings.map((mapping) => { const account = accounts.find((item) => item.id === mapping.gl_account_id); return <TableRow key={mapping.id}><TableCell>{t(`settings.accountTypes.${mapping.account_type}`)}</TableCell><TableCell>{account ? `${account.code} - ${account.name}` : mapping.gl_account_id}</TableCell><TableCell><Badge><CheckCircle2 className="h-3 w-3 me-1" />{t('settings.linked')}</Badge></TableCell><TableCell><Button size="sm" variant="ghost" onClick={() => openMappingDialog(mapping)}>{t('common.edit')}</Button></TableCell></TableRow>; })}</TableBody></Table>}
+          <div className="mt-6 rounded-lg border p-4"><h4 className="font-medium mb-3">{t('settings.requiredMappings')}</h4><div className="grid gap-2 md:grid-cols-2">{ACCOUNT_TYPES.map((type) => { const mapped = mappings.some((mapping) => mapping.account_type === type); return <div key={type} className="flex items-center justify-between rounded-lg border p-3"><span>{t(`settings.accountTypes.${type}`)}</span>{mapped ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-amber-600" />}</div>; })}</div></div>
+        </CardContent></Card>
+      </TabsContent>
+    </Tabs>
+
+    <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{t(selectedMapping ? 'settings.mappingTitleEdit' : 'settings.mappingTitleAdd')}</DialogTitle><DialogDescription>{t('settings.mappingDescription')}</DialogDescription></DialogHeader><div className="space-y-4"><div><Label>{t('settings.accountType')}</Label><Select value={accountType} onValueChange={(value) => setAccountType(value as PayrollAccountType)}><SelectTrigger><SelectValue placeholder={t('settings.selectAccountType')} /></SelectTrigger><SelectContent>{ACCOUNT_TYPES.map((type) => <SelectItem key={type} value={type}>{t(`settings.accountTypes.${type}`)}</SelectItem>)}</SelectContent></Select></div><div><Label>{t('settings.glAccount')}</Label><Select value={glAccountId} onValueChange={setGlAccountId}><SelectTrigger><SelectValue placeholder={t('settings.selectAccount')} /></SelectTrigger><SelectContent>{accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.code} - {account.name}</SelectItem>)}</SelectContent></Select></div></div><DialogFooter><Button variant="outline" onClick={() => setShowAccountDialog(false)}>{t('common.cancel')}</Button><Button onClick={() => mappingMutation.mutate()} disabled={!accountType || !glAccountId || mappingMutation.isPending}><Save className="h-4 w-4 me-2" />{t('common.save')}</Button></DialogFooter></DialogContent></Dialog>
+  </div>;
+};

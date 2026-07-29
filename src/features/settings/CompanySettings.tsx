@@ -148,26 +148,26 @@ function mapOrganizationToFormState(data: OrganizationProfile): FormState {
 // ===================================
 
 const CURRENCIES = [
-  { value: 'SAR', label: 'ريال سعودي (SAR)' },
-  { value: 'AED', label: 'درهم إماراتي (AED)' },
-  { value: 'USD', label: 'دولار أمريكي (USD)' },
-  { value: 'EUR', label: 'يورو (EUR)' },
-  { value: 'GBP', label: 'جنيه إسترليني (GBP)' },
-  { value: 'EGP', label: 'جنيه مصري (EGP)' },
-  { value: 'KWD', label: 'دينار كويتي (KWD)' },
-  { value: 'BHD', label: 'دينار بحريني (BHD)' },
-  { value: 'QAR', label: 'ريال قطري (QAR)' },
-  { value: 'OMR', label: 'ريال عماني (OMR)' },
-];
+  ['SAR', 'ريال سعودي (SAR)', 'Saudi Riyal (SAR)'],
+  ['AED', 'درهم إماراتي (AED)', 'UAE Dirham (AED)'],
+  ['USD', 'دولار أمريكي (USD)', 'US Dollar (USD)'],
+  ['EUR', 'يورو (EUR)', 'Euro (EUR)'],
+  ['GBP', 'جنيه إسترليني (GBP)', 'British Pound (GBP)'],
+  ['EGP', 'جنيه مصري (EGP)', 'Egyptian Pound (EGP)'],
+  ['KWD', 'دينار كويتي (KWD)', 'Kuwaiti Dinar (KWD)'],
+  ['BHD', 'دينار بحريني (BHD)', 'Bahraini Dinar (BHD)'],
+  ['QAR', 'ريال قطري (QAR)', 'Qatari Riyal (QAR)'],
+  ['OMR', 'ريال عماني (OMR)', 'Omani Rial (OMR)'],
+] as const;
 
 const TIMEZONES = [
-  { value: 'Asia/Riyadh', label: 'الرياض (GMT+3)' },
-  { value: 'Asia/Dubai', label: 'دبي (GMT+4)' },
-  { value: 'Asia/Kuwait', label: 'الكويت (GMT+3)' },
-  { value: 'Africa/Cairo', label: 'القاهرة (GMT+2)' },
-  { value: 'Europe/London', label: 'لندن (GMT+0)' },
-  { value: 'America/New_York', label: 'نيويورك (GMT-5)' },
-];
+  ['Asia/Riyadh', 'الرياض (GMT+3)', 'Riyadh (GMT+3)'],
+  ['Asia/Dubai', 'دبي (GMT+4)', 'Dubai (GMT+4)'],
+  ['Asia/Kuwait', 'الكويت (GMT+3)', 'Kuwait (GMT+3)'],
+  ['Africa/Cairo', 'القاهرة (GMT+2)', 'Cairo (GMT+2)'],
+  ['Europe/London', 'لندن (GMT+0)', 'London (GMT+0)'],
+  ['America/New_York', 'نيويورك (GMT-5)', 'New York (GMT-5)'],
+] as const;
 
 const DATE_FORMATS = [
   { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
@@ -177,19 +177,11 @@ const DATE_FORMATS = [
 ];
 
 const FISCAL_MONTHS = [
-  { value: 1, label: 'يناير' },
-  { value: 2, label: 'فبراير' },
-  { value: 3, label: 'مارس' },
-  { value: 4, label: 'أبريل' },
-  { value: 5, label: 'مايو' },
-  { value: 6, label: 'يونيو' },
-  { value: 7, label: 'يوليو' },
-  { value: 8, label: 'أغسطس' },
-  { value: 9, label: 'سبتمبر' },
-  { value: 10, label: 'أكتوبر' },
-  { value: 11, label: 'نوفمبر' },
-  { value: 12, label: 'ديسمبر' },
-];
+  [1, 'يناير', 'January'], [2, 'فبراير', 'February'], [3, 'مارس', 'March'],
+  [4, 'أبريل', 'April'], [5, 'مايو', 'May'], [6, 'يونيو', 'June'],
+  [7, 'يوليو', 'July'], [8, 'أغسطس', 'August'], [9, 'سبتمبر', 'September'],
+  [10, 'أكتوبر', 'October'], [11, 'نوفمبر', 'November'], [12, 'ديسمبر', 'December'],
+] as const;
 
 // ===================================
 // Component
@@ -197,7 +189,9 @@ const FISCAL_MONTHS = [
 
 export function CompanySettings() {
   const { i18n } = useTranslation();
-  const isRTL = i18n.language === 'ar';
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const isRTL = language.toLowerCase().startsWith('ar');
+  const tr = (arabic: string, english: string) => (isRTL ? arabic : english);
   
   // State
   const [isLoading, setIsLoading] = useState(true);
@@ -236,11 +230,11 @@ export function CompanySettings() {
         setOriginalData(result.data);
         setForm(mapOrganizationToFormState(result.data));
       } else {
-        toast.error(result.error || 'فشل تحميل بيانات الشركة');
+        toast.error(result.error || tr('فشل تحميل بيانات الشركة', 'Failed to load company data'));
       }
     } catch (error) {
       console.error('Error loading organization:', error);
-      toast.error('حدث خطأ أثناء تحميل البيانات');
+      toast.error(tr('حدث خطأ أثناء تحميل البيانات', 'An error occurred while loading data'));
     } finally {
       setIsLoading(false);
     }
@@ -268,15 +262,15 @@ export function CompanySettings() {
       const result = await updateOrganizationProfile(updates);
       
       if (result.success) {
-        toast.success('تم حفظ البيانات بنجاح');
+        toast.success(tr('تم حفظ البيانات بنجاح', 'Company data saved successfully'));
         setOriginalData(result.data!);
         setHasChanges(false);
       } else {
-        toast.error(result.error || 'فشل حفظ البيانات');
+        toast.error(result.error || tr('فشل حفظ البيانات', 'Failed to save company data'));
       }
     } catch (error) {
       console.error('Error saving:', error);
-      toast.error('حدث خطأ أثناء الحفظ');
+      toast.error(tr('حدث خطأ أثناء الحفظ', 'An error occurred while saving'));
     } finally {
       setIsSaving(false);
     }
@@ -292,15 +286,15 @@ export function CompanySettings() {
       
       if (result.success && result.url) {
         setForm(prev => ({ ...prev, logo_url: result.url! }));
-        toast.success('تم رفع الشعار بنجاح');
+        toast.success(tr('تم رفع الشعار بنجاح', 'Logo uploaded successfully'));
         // Reload to get updated data
         await loadOrganizationData();
       } else {
-        toast.error(result.error || 'فشل رفع الشعار');
+        toast.error(result.error || tr('فشل رفع الشعار', 'Failed to upload logo'));
       }
     } catch (error) {
       console.error('Error uploading logo:', error);
-      toast.error('حدث خطأ أثناء رفع الشعار');
+      toast.error(tr('حدث خطأ أثناء رفع الشعار', 'An error occurred while uploading the logo'));
     } finally {
       setIsUploadingLogo(false);
       // Reset file input
@@ -319,14 +313,14 @@ export function CompanySettings() {
       
       if (result.success) {
         setForm(prev => ({ ...prev, logo_url: '' }));
-        toast.success('تم حذف الشعار بنجاح');
+        toast.success(tr('تم حذف الشعار بنجاح', 'Logo deleted successfully'));
         await loadOrganizationData();
       } else {
-        toast.error(result.error || 'فشل حذف الشعار');
+        toast.error(result.error || tr('فشل حذف الشعار', 'Failed to delete logo'));
       }
     } catch (error) {
       console.error('Error deleting logo:', error);
-      toast.error('حدث خطأ أثناء حذف الشعار');
+      toast.error(tr('حدث خطأ أثناء حذف الشعار', 'An error occurred while deleting the logo'));
     } finally {
       setIsUploadingLogo(false);
     }
@@ -338,14 +332,14 @@ export function CompanySettings() {
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center space-y-4">
           <Loader2 className="h-10 w-10 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">جاري تحميل بيانات الشركة...</p>
+          <p className="text-muted-foreground">{tr('جاري تحميل بيانات الشركة...', 'Loading company data...')}</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
       {/* Header */}
       <div className={cn(
         "flex items-start justify-between gap-4",
@@ -354,10 +348,10 @@ export function CompanySettings() {
         <div className={cn(isRTL ? "text-right" : "text-left")}>
           <h1 className="text-3xl font-bold flex items-center gap-3">
             <Building2 className="h-8 w-8 text-primary" />
-            بيانات الشركة
+            {tr('بيانات الشركة', 'Company Profile')}
           </h1>
           <p className="text-muted-foreground mt-2">
-            إدارة معلومات الشركة والهوية البصرية والإعدادات العامة
+            {tr('إدارة معلومات الشركة والهوية البصرية والإعدادات العامة', 'Manage company information, branding and general settings')}
           </p>
         </div>
         
@@ -373,12 +367,12 @@ export function CompanySettings() {
           {isSaving ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin ml-2" />
-              جاري الحفظ...
+              {tr('جاري الحفظ...', 'Saving...')}
             </>
           ) : (
             <>
               <Save className="h-4 w-4 ml-2" />
-              حفظ التغييرات
+              {tr('حفظ التغييرات', 'Save Changes')}
             </>
           )}
         </Button>
@@ -388,7 +382,7 @@ export function CompanySettings() {
       {hasChanges && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-amber-800">
           <AlertCircle className="h-5 w-5" />
-          <span>لديك تغييرات غير محفوظة</span>
+          <span>{tr('لديك تغييرات غير محفوظة', 'You have unsaved changes')}</span>
         </div>
       )}
 
@@ -399,7 +393,7 @@ export function CompanySettings() {
           <div className="bg-card border rounded-xl p-6 space-y-4 sticky top-4">
             <h3 className="font-semibold text-lg flex items-center gap-2">
               <Camera className="h-5 w-5 text-primary" />
-              شعار الشركة
+              {tr('شعار الشركة', 'Company Logo')}
             </h3>
             
             {/* Logo Preview */}
@@ -408,7 +402,7 @@ export function CompanySettings() {
                 <>
                   <img 
                     src={form.logo_url} 
-                    alt="شعار الشركة"
+                    alt={tr('شعار الشركة', 'Company logo')}
                     className="w-full h-full object-contain p-2"
                   />
                   {/* Overlay on hover */}
@@ -449,7 +443,7 @@ export function CompanySettings() {
                   ) : (
                     <>
                       <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                      <span className="text-sm text-muted-foreground">اضغط لرفع الشعار</span>
+                      <span className="text-sm text-muted-foreground">{tr('اضغط لرفع الشعار', 'Click to upload logo')}</span>
                     </>
                   )}
                 </div>
@@ -465,22 +459,22 @@ export function CompanySettings() {
             />
 
             <p className="text-xs text-muted-foreground text-center">
-              JPG, PNG أو WebP
+              {tr('JPG, PNG أو WebP', 'JPG, PNG or WebP')}
               <br />
-              الحد الأقصى 5 ميجابايت
+              {tr('الحد الأقصى 5 ميجابايت', 'Maximum size: 5 MB')}
             </p>
 
             {/* Quick Info */}
             <div className="pt-4 border-t space-y-3">
               <div className="flex items-center gap-2 text-sm">
                 <Hash className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">كود:</span>
+                <span className="text-muted-foreground">{tr('كود:', 'Code:')}</span>
                 <span className="font-mono">{originalData?.code || '-'}</span>
               </div>
               <div className="flex items-center gap-2 text-sm">
                 <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-muted-foreground">الحالة:</span>
-                <span className="text-green-600">نشط</span>
+                <span className="text-muted-foreground">{tr('الحالة:', 'Status:')}</span>
+                <span className="text-green-600">{tr('نشط', 'Active')}</span>
               </div>
             </div>
           </div>
@@ -492,19 +486,19 @@ export function CompanySettings() {
             <TabsList className="grid w-full grid-cols-4 mb-6">
               <TabsTrigger value="basic" className="gap-2">
                 <Building className="h-4 w-4" />
-                <span className="hidden sm:inline">الأساسية</span>
+                <span className="hidden sm:inline">{tr('الأساسية', 'Basic')}</span>
               </TabsTrigger>
               <TabsTrigger value="contact" className="gap-2">
                 <Phone className="h-4 w-4" />
-                <span className="hidden sm:inline">التواصل</span>
+                <span className="hidden sm:inline">{tr('التواصل', 'Contact')}</span>
               </TabsTrigger>
               <TabsTrigger value="address" className="gap-2">
                 <MapPin className="h-4 w-4" />
-                <span className="hidden sm:inline">العنوان</span>
+                <span className="hidden sm:inline">{tr('العنوان', 'Address')}</span>
               </TabsTrigger>
               <TabsTrigger value="settings" className="gap-2">
                 <Settings2 className="h-4 w-4" />
-                <span className="hidden sm:inline">الإعدادات</span>
+                <span className="hidden sm:inline">{tr('الإعدادات', 'Settings')}</span>
               </TabsTrigger>
             </TabsList>
 
@@ -513,34 +507,34 @@ export function CompanySettings() {
               <div className="bg-card border rounded-xl p-6 space-y-6">
                 <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                   <Building className="h-5 w-5 text-primary" />
-                  المعلومات الأساسية
+                  {tr('المعلومات الأساسية', 'Basic Information')}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="name">اسم الشركة</Label>
+                    <Label htmlFor="name">{tr('اسم الشركة', 'Company Name')}</Label>
                     <Input
                       id="name"
                       value={form.name}
                       onChange={(e) => handleInputChange('name', e.target.value)}
-                      placeholder="اسم الشركة الرسمي"
+                      placeholder={tr('اسم الشركة الرسمي', 'Official company name')}
                       className={cn(isRTL ? "text-right" : "text-left")}
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="name_ar">الاسم بالعربية</Label>
+                    <Label htmlFor="name_ar">{tr('الاسم بالعربية', 'Arabic Name')}</Label>
                     <Input
                       id="name_ar"
                       value={form.name_ar}
                       onChange={(e) => handleInputChange('name_ar', e.target.value)}
-                      placeholder="اسم الشركة بالعربية"
+                      placeholder={tr('اسم الشركة بالعربية', 'Company name in Arabic')}
                       dir="rtl"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="name_en">الاسم بالإنجليزية</Label>
+                    <Label htmlFor="name_en">{tr('الاسم بالإنجليزية', 'English Name')}</Label>
                     <Input
                       id="name_en"
                       value={form.name_en}
@@ -555,41 +549,41 @@ export function CompanySettings() {
                 <div className="pt-6 border-t">
                   <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                     <FileText className="h-5 w-5 text-primary" />
-                    البيانات الضريبية والتجارية
+                    {tr('البيانات الضريبية والتجارية', 'Tax & Registration Information')}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="tax_number">الرقم الضريبي (VAT)</Label>
+                      <Label htmlFor="tax_number">{tr('الرقم الضريبي (VAT)', 'VAT Number')}</Label>
                       <Input
                         id="tax_number"
                         value={form.tax_number}
                         onChange={(e) => handleInputChange('tax_number', e.target.value)}
-                        placeholder="مثال: 300000000000003"
+                        placeholder={tr('مثال: 300000000000003', 'Example: 300000000000003')}
                         dir="ltr"
                         className="font-mono"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="commercial_registration">السجل التجاري</Label>
+                      <Label htmlFor="commercial_registration">{tr('السجل التجاري', 'Commercial Registration')}</Label>
                       <Input
                         id="commercial_registration"
                         value={form.commercial_registration}
                         onChange={(e) => handleInputChange('commercial_registration', e.target.value)}
-                        placeholder="رقم السجل التجاري"
+                        placeholder={tr('رقم السجل التجاري', 'Commercial registration number')}
                         dir="ltr"
                         className="font-mono"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="license_number">رقم الترخيص</Label>
+                      <Label htmlFor="license_number">{tr('رقم الترخيص', 'License Number')}</Label>
                       <Input
                         id="license_number"
                         value={form.license_number}
                         onChange={(e) => handleInputChange('license_number', e.target.value)}
-                        placeholder="رقم ترخيص النشاط"
+                        placeholder={tr('رقم ترخيص النشاط', 'Business license number')}
                         dir="ltr"
                         className="font-mono"
                       />
@@ -604,12 +598,12 @@ export function CompanySettings() {
               <div className="bg-card border rounded-xl p-6 space-y-6">
                 <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                   <Phone className="h-5 w-5 text-primary" />
-                  معلومات التواصل
+                  {tr('معلومات التواصل', 'Contact Information')}
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
-                    <Label htmlFor="phone">رقم الهاتف</Label>
+                    <Label htmlFor="phone">{tr('رقم الهاتف', 'Phone Number')}</Label>
                     <Input
                       id="phone"
                       type="tel"
@@ -621,7 +615,7 @@ export function CompanySettings() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="mobile">رقم الجوال</Label>
+                    <Label htmlFor="mobile">{tr('رقم الجوال', 'Mobile Number')}</Label>
                     <Input
                       id="mobile"
                       type="tel"
@@ -633,7 +627,7 @@ export function CompanySettings() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="email">البريد الإلكتروني</Label>
+                    <Label htmlFor="email">{tr('البريد الإلكتروني', 'Email Address')}</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -649,7 +643,7 @@ export function CompanySettings() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="website">الموقع الإلكتروني</Label>
+                    <Label htmlFor="website">{tr('الموقع الإلكتروني', 'Website')}</Label>
                     <div className="relative">
                       <Globe className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                       <Input
@@ -665,7 +659,7 @@ export function CompanySettings() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="fax">رقم الفاكس</Label>
+                    <Label htmlFor="fax">{tr('رقم الفاكس', 'Fax Number')}</Label>
                     <Input
                       id="fax"
                       type="tel"
@@ -684,17 +678,17 @@ export function CompanySettings() {
               <div className="bg-card border rounded-xl p-6 space-y-6">
                 <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                   <MapPin className="h-5 w-5 text-primary" />
-                  العنوان
+                  {tr('العنوان', 'Address')}
                 </div>
 
                 <div className="space-y-6">
                   <div className="space-y-2">
-                    <Label htmlFor="address">العنوان التفصيلي</Label>
+                    <Label htmlFor="address">{tr('العنوان التفصيلي', 'Detailed Address')}</Label>
                     <Textarea
                       id="address"
                       value={form.address}
                       onChange={(e) => handleInputChange('address', e.target.value)}
-                      placeholder="الحي، الشارع، رقم المبنى..."
+                      placeholder={tr('الحي، الشارع، رقم المبنى...', 'District, street and building number...')}
                       rows={3}
                       className={cn(isRTL ? "text-right" : "text-left")}
                     />
@@ -702,40 +696,40 @@ export function CompanySettings() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="city">المدينة</Label>
+                      <Label htmlFor="city">{tr('المدينة', 'City')}</Label>
                       <Input
                         id="city"
                         value={form.city}
                         onChange={(e) => handleInputChange('city', e.target.value)}
-                        placeholder="الرياض"
+                        placeholder={tr('الرياض', 'Riyadh')}
                         className={cn(isRTL ? "text-right" : "text-left")}
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="state">المنطقة</Label>
+                      <Label htmlFor="state">{tr('المنطقة', 'Region / State')}</Label>
                       <Input
                         id="state"
                         value={form.state}
                         onChange={(e) => handleInputChange('state', e.target.value)}
-                        placeholder="منطقة الرياض"
+                        placeholder={tr('منطقة الرياض', 'Riyadh Region')}
                         className={cn(isRTL ? "text-right" : "text-left")}
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="country">الدولة</Label>
+                      <Label htmlFor="country">{tr('الدولة', 'Country')}</Label>
                       <Input
                         id="country"
                         value={form.country}
                         onChange={(e) => handleInputChange('country', e.target.value)}
-                        placeholder="المملكة العربية السعودية"
+                        placeholder={tr('المملكة العربية السعودية', 'Saudi Arabia')}
                         className={cn(isRTL ? "text-right" : "text-left")}
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="postal_code">الرمز البريدي</Label>
+                      <Label htmlFor="postal_code">{tr('الرمز البريدي', 'Postal Code')}</Label>
                       <Input
                         id="postal_code"
                         value={form.postal_code}
@@ -757,12 +751,12 @@ export function CompanySettings() {
                 <div>
                   <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                     <Palette className="h-5 w-5 text-primary" />
-                    الهوية البصرية
+                    {tr('الهوية البصرية', 'Visual Identity')}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="primary_color">اللون الأساسي</Label>
+                      <Label htmlFor="primary_color">{tr('اللون الأساسي', 'Primary Color')}</Label>
                       <div className="flex gap-2">
                         <Input
                           id="primary_color"
@@ -782,7 +776,7 @@ export function CompanySettings() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="secondary_color">اللون الثانوي</Label>
+                      <Label htmlFor="secondary_color">{tr('اللون الثانوي', 'Secondary Color')}</Label>
                       <div className="flex gap-2">
                         <Input
                           id="secondary_color"
@@ -804,7 +798,7 @@ export function CompanySettings() {
 
                   {/* Color Preview */}
                   <div className="mt-4 p-4 rounded-lg border bg-muted/30">
-                    <span className="text-sm text-muted-foreground mb-2 block">معاينة الألوان:</span>
+                    <span className="text-sm text-muted-foreground mb-2 block">{tr('معاينة الألوان:', 'Color Preview:')}</span>
                     <div className="flex gap-4">
                       <div 
                         className="w-20 h-10 rounded-md shadow-sm"
@@ -828,23 +822,23 @@ export function CompanySettings() {
                 <div className="pt-6 border-t">
                   <div className="flex items-center gap-2 text-lg font-semibold mb-4">
                     <Settings2 className="h-5 w-5 text-primary" />
-                    إعدادات النظام
+                    {tr('إعدادات النظام', 'System Settings')}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div className="space-y-2">
-                      <Label htmlFor="currency">العملة الافتراضية</Label>
+                      <Label htmlFor="currency">{tr('العملة الافتراضية', 'Default Currency')}</Label>
                       <Select 
                         value={form.currency} 
                         onValueChange={(value) => handleInputChange('currency', value)}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="اختر العملة" />
+                          <SelectValue placeholder={tr('اختر العملة', 'Select currency')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {CURRENCIES.map(c => (
-                            <SelectItem key={c.value} value={c.value}>
-                              {c.label}
+                          {CURRENCIES.map(([value, labelAr, labelEn]) => (
+                            <SelectItem key={value} value={value}>
+                              {tr(labelAr, labelEn)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -852,18 +846,18 @@ export function CompanySettings() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="timezone">المنطقة الزمنية</Label>
+                      <Label htmlFor="timezone">{tr('المنطقة الزمنية', 'Time Zone')}</Label>
                       <Select 
                         value={form.timezone} 
                         onValueChange={(value) => handleInputChange('timezone', value)}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="اختر المنطقة الزمنية" />
+                          <SelectValue placeholder={tr('اختر المنطقة الزمنية', 'Select time zone')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {TIMEZONES.map(tz => (
-                            <SelectItem key={tz.value} value={tz.value}>
-                              {tz.label}
+                          {TIMEZONES.map(([value, labelAr, labelEn]) => (
+                            <SelectItem key={value} value={value}>
+                              {tr(labelAr, labelEn)}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -871,13 +865,13 @@ export function CompanySettings() {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="date_format">تنسيق التاريخ</Label>
+                      <Label htmlFor="date_format">{tr('تنسيق التاريخ', 'Date Format')}</Label>
                       <Select 
                         value={form.date_format} 
                         onValueChange={(value) => handleInputChange('date_format', value)}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="اختر تنسيق التاريخ" />
+                          <SelectValue placeholder={tr('اختر تنسيق التاريخ', 'Select date format')} />
                         </SelectTrigger>
                         <SelectContent>
                           {DATE_FORMATS.map(df => (
@@ -893,7 +887,7 @@ export function CompanySettings() {
                       <Label htmlFor="fiscal_year_start">
                         <div className="flex items-center gap-2">
                           <Calendar className="h-4 w-4" />
-                          بداية السنة المالية
+                          {tr('بداية السنة المالية', 'Fiscal Year Start')}
                         </div>
                       </Label>
                       <Select 
@@ -901,12 +895,12 @@ export function CompanySettings() {
                         onValueChange={(value) => handleInputChange('fiscal_year_start', Number.parseInt(value, 10))}
                       >
                         <SelectTrigger>
-                          <SelectValue placeholder="اختر الشهر" />
+                          <SelectValue placeholder={tr('اختر الشهر', 'Select month')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {FISCAL_MONTHS.map(m => (
-                            <SelectItem key={m.value} value={String(m.value)}>
-                              {m.label}
+                          {FISCAL_MONTHS.map(([value, labelAr, labelEn]) => (
+                            <SelectItem key={value} value={String(value)}>
+                              {tr(labelAr, labelEn)}
                             </SelectItem>
                           ))}
                         </SelectContent>

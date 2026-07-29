@@ -1,0 +1,63 @@
+name: Audit Production Migration Ledger
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Read-only Production ledger audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate database secret
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -Eeuo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "❌ SUPABASE_DB_URL is not configured"
+            exit 1
+          fi
+
+      - name: Read live migration ledger
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p migration-ledger-audit
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -tA \
+            -c "SELECT json_build_object('migrations', COALESCE(json_agg(json_build_object('version', version, 'name', name) ORDER BY version), '[]'::json)) FROM supabase_migrations.schema_migrations" \
+            > migration-ledger-audit/live-ledger.json
+
+      - name: Reject undocumented drift or duplicate migrations
+        run: >-
+          python3 scripts/ci/validate_migration_ledger.py
+          --ledger-json migration-ledger-audit/live-ledger.json
+          --summary-json migration-ledger-audit/summary.json
+
+      - name: Publish audit summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f migration-ledger-audit/summary.json ]; then
+            echo '## Production migration ledger audit' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat migration-ledger-audit/summary.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-migration-ledger-audit-${{ github.run_id }}
+          path: migration-ledger-audit/
+          if-no-files-found: warn
+          retention-days: 90

@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/contexts/AuthContext';
+import { formatDate as formatOrganizationDate } from '@/lib/utils';
 import { getSupabase as _getSupabase } from '@/lib/supabase';
 const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 import { 
@@ -104,16 +105,9 @@ const getEntityIcon = (entityType: string) => {
   }
 };
 
-const formatDate = (dateString: string, isRTL: boolean) => {
-  const date = new Date(dateString);
-  return date.toLocaleString(isRTL ? 'ar-SA' : 'en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-};
+const formatAuditDate = (dateString: string) => formatOrganizationDate(dateString, {
+  year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+});
 
 const KNOWN_ACTIONS = ['create', 'insert', 'update', 'edit', 'delete', 'remove', 'login', 'logout', 'approve', 'reject'];
 
@@ -129,7 +123,8 @@ const getActionLabel = (action: string, t: (key: string) => string) => {
 export default function OrgAdminAuditLog() {
   const { t, i18n } = useTranslation();
   const { currentOrgId } = useAuth();
-  const isRTL = i18n.language === 'ar';
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const isRTL = language.toLowerCase().startsWith('ar');
 
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -415,7 +410,7 @@ export default function OrgAdminAuditLog() {
                             <div className="flex items-center gap-4 mt-2 text-sm text-slate-500">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {formatDate(log.created_at, isRTL)}
+                                {formatAuditDate(log.created_at)}
                               </span>
                               {log.user_email && (
                                 <span className="flex items-center gap-1">
