@@ -334,6 +334,7 @@ jobs:
           set -Eeuo pipefail
           python3 scripts/ci/update_baseline_docs.py \
             --baseline "$baseline_path" \
+            --reference "$reference_path" \
             --counts baseline-diagnostics/rebuild-counts.json \
             --cutoff "$CUTOFF" \
             --live-name "$LIVE_NAME" \

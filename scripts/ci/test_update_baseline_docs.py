@@ -28,8 +28,24 @@ README_TEMPLATE = """# Baseline
 
 {counts_line}
 
+## البيانات المرجعية الحالية
+
+| الملف | migration_cutoff | الجداول | الصفوف |
+|---|---|---|---|
+| `001_system_reference_data_20260717.sql` | 121 | 5 | 200 |
+
 نص لاحق لا يُمس.
 """
+
+REFERENCE_HEADER = """-- migration_cutoff: 148
+-- table: modules rows=10 sha={z}
+-- table: permissions rows=166 sha={z}
+-- table: uom_categories rows=6 sha={z}
+-- table: uoms rows=17 sha={z}
+-- table: uom_aliases rows=59 sha={z}
+BEGIN;
+COMMIT;
+""".format(z="0" * 32)
 
 CLAUDE_TEMPLATE = """# Manifest
 
@@ -55,6 +71,9 @@ class UpdateBaselineDocsTests(unittest.TestCase):
 
         self.baseline = self.root / "000_schema_baseline_20260727_125744.sql"
         self.baseline.write_text("SELECT 1;\n" * 40, encoding="utf-8")
+
+        self.reference = self.root / "001_system_reference_data_20260727_125744.sql"
+        self.reference.write_text(REFERENCE_HEADER, encoding="utf-8")
 
         self.counts = self.root / "rebuild-counts.json"
         self.write_counts({"tables": 131, "functions": 201, "policies": 316})
@@ -107,6 +126,7 @@ class UpdateBaselineDocsTests(unittest.TestCase):
                 sys.executable,
                 str(SCRIPT),
                 "--baseline", str(self.baseline),
+                "--reference", str(self.reference),
                 "--counts", str(self.counts),
                 "--cutoff", "148",
                 "--live-name", "148_uom_purchase_receipt_snapshots",
@@ -303,6 +323,68 @@ class UpdateBaselineDocsTests(unittest.TestCase):
         self.assertEqual(self.readme.read_text(encoding="utf-8"), readme_ok)
         self.assertEqual(self.claude.read_text(encoding="utf-8"), claude_ok)
         self.assertEqual(self.run_script().returncode, 0)
+
+    # ---------- صفّ اللقطة المرجعية ----------
+    #
+    # الطبقتان تتلازمان بالعقد. وكان هذا المحدِّث يعرف صفّ الـ000 وحده، فيترك
+    # README تسمّي لقطة مرجعية قديمة بعد كل توليد — والحوكمة تفحص صفّ الـ000
+    # وحده كذلك، فلا بوابة تكشف الكذب. المشغّل الذي يتبع README كان يُوجَّه إلى
+    # زوج غير مقترن بينما العقد يشترط تطابق الطابع.
+
+    def test_updates_reference_row(self) -> None:
+        self.assertEqual(self.run_script().returncode, 0)
+        readme = self.readme.read_text(encoding="utf-8")
+        self.assertIn(
+            "| `001_system_reference_data_20260727_125744.sql` | 148 | 5 | 258 |", readme
+        )
+        self.assertNotIn("001_system_reference_data_20260717.sql", readme)
+
+    def test_reference_counts_come_from_the_snapshot_not_arguments(self) -> None:
+        # العدد المكتوب يُشتق من ترويسة الملف الذي يصفه، فلا يمكن لصفٍّ أن يسمّي
+        # لقطةً ويحمل عدد لقطةٍ أخرى.
+        self.reference.write_text(
+            "-- table: modules rows=3 sha=" + "0" * 32 + "\n"
+            "-- table: permissions rows=4 sha=" + "0" * 32 + "\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(self.run_script().returncode, 0)
+        self.assertIn(
+            "| `001_system_reference_data_20260727_125744.sql` | 148 | 2 | 7 |",
+            self.readme.read_text(encoding="utf-8"),
+        )
+
+    def test_fails_when_reference_row_missing(self) -> None:
+        text = self.readme.read_text(encoding="utf-8").replace(
+            "| `001_system_reference_data_20260717.sql` | 121 | 5 | 200 |", ""
+        )
+        self.readme.write_text(text, encoding="utf-8")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("صفّ لقطة مرجعية واحد بالضبط", result.stdout)
+
+    def test_fails_when_reference_row_duplicated(self) -> None:
+        row = "| `001_system_reference_data_20260717.sql` | 121 | 5 | 200 |"
+        text = self.readme.read_text(encoding="utf-8").replace(row, row + "\n" + row)
+        self.readme.write_text(text, encoding="utf-8")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("صفّ لقطة مرجعية واحد بالضبط", result.stdout)
+
+    def test_fails_when_snapshot_header_carries_no_tables(self) -> None:
+        self.reference.write_text("-- migration_cutoff: 148\nBEGIN;\n", encoding="utf-8")
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("لا بصمات جداول", result.stdout)
+
+    def test_reference_failure_leaves_both_documents_untouched(self) -> None:
+        # الفصل بين التحضير والكتابة يشمل هذا الصفّ أيضًا: فشل متأخر في README
+        # يجب ألا يترك CLAUDE.md مكتوبة وحدها.
+        readme_before = self.readme.read_text(encoding="utf-8")
+        claude_before = self.claude.read_text(encoding="utf-8")
+        self.reference.write_text("-- migration_cutoff: 148\n", encoding="utf-8")
+        self.assertEqual(self.run_script().returncode, 1)
+        self.assertEqual(self.readme.read_text(encoding="utf-8"), readme_before)
+        self.assertEqual(self.claude.read_text(encoding="utf-8"), claude_before)
 
 
 if __name__ == "__main__":

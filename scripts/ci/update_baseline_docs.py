@@ -28,6 +28,15 @@ from pathlib import Path
 
 BASELINE_ROW_RE = re.compile(r"\| `000_schema_baseline_[^`]+\.sql` \|[^\n]+\|")
 
+# صفّ الطبقة الثانية. غيابه من هذا المحدِّث كان يترك README تسمّي لقطة مرجعية
+# قديمة بعد كل توليد: الحوكمة تفحص صفّ الـ000 وحده، فلا بوابة تكشف الكذب.
+REFERENCE_ROW_RE = re.compile(r"\| `001_system_reference_data_[^`]+\.sql` \|[^\n]+\|")
+
+# ترويسة اللقطة: `-- table: modules rows=10 sha=<md5>`
+REFERENCE_TABLE_RE = re.compile(
+    r"^--\s+table:\s+[a-z_]+\s+rows=(\d+)\s+sha=[0-9a-f]{32}\s*$", re.MULTILINE
+)
+
 COUNTS_RE = re.compile(
     r"^المحتوى المتحقق بعد إعادة البناء: \d+ جدول · \d+ دالة · \d+ policy$",
     re.MULTILINE,
@@ -74,6 +83,7 @@ def load_counts(path: Path) -> dict[str, int]:
 def render_readme(
     readme: Path,
     baseline: Path,
+    reference: Path,
     cutoff: str,
     counts: dict[str, int],
     generated_date: str,
@@ -114,7 +124,30 @@ def render_readme(
         f"المحتوى المتحقق بعد إعادة البناء: {counts['tables']} جدول · "
         f"{counts['functions']} دالة · {counts['policies']} policy"
     )
-    return COUNTS_RE.sub(lambda _: counts_line, text, count=1)
+    text = COUNTS_RE.sub(lambda _: counts_line, text, count=1)
+
+    return _render_reference_row(text, reference, cutoff)
+
+
+def _render_reference_row(text: str, reference: Path, cutoff: str) -> str:
+    """يحدّث صفّ اللقطة المرجعية من ترويسة الملف نفسه لا من وسائط مستقلة.
+
+    الاشتقاق من الترويسة مقصود: العدد المكتوب في README يصير مشتقًا من الملف
+    الذي يصفه، فلا يمكن أن يصف صفٌّ لقطةً ويحمل عدد لقطةٍ أخرى.
+    """
+    rows = REFERENCE_TABLE_RE.findall(reference.read_text(encoding="utf-8"))
+    if not rows:
+        raise DocUpdateError(f"لا بصمات جداول في ترويسة اللقطة: {reference}")
+
+    row = f"| `{reference.name}` | {cutoff} | {len(rows)} | {sum(int(r) for r in rows)} |"
+
+    matches = REFERENCE_ROW_RE.findall(text)
+    if len(matches) != 1:
+        raise DocUpdateError(
+            "يُتوقع صفّ لقطة مرجعية واحد بالضبط في README، "
+            f"وُجد {len(matches)}"
+        )
+    return REFERENCE_ROW_RE.sub(lambda _: row, text, count=1)
 
 
 def render_claude(
@@ -154,6 +187,8 @@ def render_claude(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline", required=True, type=Path)
+    # إلزامي لا اختياري: لو جاز إغفاله لعاد الصفّ يشيخ بصمت، وهو العيب نفسه.
+    parser.add_argument("--reference", required=True, type=Path)
     parser.add_argument("--counts", required=True, type=Path)
     parser.add_argument("--cutoff", required=True)
     parser.add_argument("--live-name", required=True)
@@ -174,7 +209,12 @@ def main() -> int:
         # تُكتشف والقرص لم يُمس.
         counts = load_counts(args.counts)
         new_readme = render_readme(
-            args.readme, args.baseline, args.cutoff, counts, args.generated_date
+            args.readme,
+            args.baseline,
+            args.reference,
+            args.cutoff,
+            counts,
+            args.generated_date,
         )
         new_claude = render_claude(
             args.claude,
