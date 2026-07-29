@@ -2,26 +2,72 @@
 
 **Tracking:** #46  
 **Phase:** Supplier Invoice and PO ↔ GRN ↔ Invoice matching  
-**Status:** Foundation contract only — no Production migration or behavior change
+**Status:** Architecture decision record — no Production migration or behavior change
+
+> **This document is a decision record, not an implementation branch.**
+> Implementation starts from a **new branch cut from the latest `main`**. Do not
+> build on top of this branch's history: it predates Migration 148 and the
+> System Reference Data Baseline, and carrying that history forward would carry
+> its assumptions with it.
 
 ## 1. Dependency and migration gate
 
 This phase depends on the completed GRN partial-receipt contract in **Migration 148**.
 
-At the time this foundation was created:
+### Resolved state
 
-- the remote repository default branch contains Migration 147 as the latest migration;
-- the live Supabase migration ledger also ends at Migration 147;
-- `feat/uom-grn-partial-receipts` and Migration 148 are not yet visible remotely.
+The gate this section originally described is now satisfied. Migration 148 is
+merged and applied, and the baseline work that followed it has closed:
 
-Therefore this branch intentionally does **not** reserve or create Migration 149. Before implementation begins, rebase this branch onto the commit that contains Migration 148, inspect its exact GRN schema/RPC contract, then allocate the next legal migration number.
+| Fact | State |
+|---|---|
+| Latest repository migration | **148** (`148_uom_purchase_receipt_snapshots`) |
+| Live Supabase ledger | applied through **148** |
+| Baseline cutoff | **148** |
+| System Reference Data Baseline | closed — the second baseline layer landed in **#62**, and the first generated pair in **#63** |
+| Next legal migration number | **149**, allocated from the current `main` ledger |
 
-This gate prevents:
+The original text of this section recorded that `main` and the live ledger both
+ended at 147 and that Migration 148 was not yet visible remotely. That is no
+longer true, and the instruction it produced — "rebase this branch onto the
+commit that contains Migration 148" — has been superseded: start a new branch
+instead, for the reason stated in the note above.
+
+### What the gate still means
+
+Migration 149 must be allocated from the ledger of the `main` that is current
+**at implementation time**, not from any number assumed here. The gate continues
+to prevent:
 
 - a broken migration chain;
 - duplicate migration numbers;
-- assumptions about GRN statuses or columns that Migration 148 may define differently;
+- assumptions about GRN statuses or columns that differ from what 148 actually defines;
 - implementing invoice matching against the obsolete receipt path.
+
+### Verified against Migration 148
+
+The following were checked against `sql/migrations/148_uom_purchase_receipt_snapshots.sql`
+and the services built on it, and the contracts below are written to match:
+
+- **Receivable purchase-order states** are `approved` and `partially_received`.
+  Section 5 refers to "a receivable PO state defined by Migration 148"; these are
+  those states.
+- **Quality-split receipt quantities** exist as `accepted_quantity` /
+  `rejected_quantity` with base-unit counterparts `accepted_qty_base` /
+  `rejected_qty_base`, alongside `received_quantity`, `received_qty_entered` and
+  `received_qty_base`. Section 7's "accepted, uninvoiced" balance is derived from
+  the accepted columns, never from `received_*`.
+- **Snapshot naming** — 148 established `conversion_factor_snapshot` and an
+  atomic PO snapshot contract. Section 6 reuses that name deliberately rather
+  than inventing a parallel one.
+- **`idempotency_key`** already exists in the 148 contract; section 8 extends the
+  same concept to the invoice header rather than introducing a new mechanism.
+- **No cumulative invoiced balance exists on receipt lines yet.** `invoiced_quantity`
+  is present in the generated types only on `delivery_note_lines`, which is the
+  sales side. The choice in section 6 between a locked cumulative column on
+  `goods_receipt_lines` and a locked aggregate over immutable
+  `supplier_invoice_lines` therefore remains genuinely open, and must be decided
+  during implementation.
 
 ## 2. Current-state findings
 
@@ -246,11 +292,13 @@ The migration-specific acceptance suite must prove:
 
 ## 11. Delivery sequence
 
-After Migration 148 is pushed and accepted:
+Migration 148 is merged and applied, so this sequence is unblocked. It begins on
+a **new branch cut from the latest `main`** — not on this document's branch.
 
-1. Rebase this branch onto the Migration 148 commit.
-2. Inspect the final GRN RPC, statuses, snapshots, and acceptance fixtures.
-3. Allocate the next legal migration number.
+1. Cut a new branch from the latest `main`.
+2. Inspect the final GRN RPC, statuses, snapshots, and acceptance fixtures as they
+   stand in that `main`, and reconcile any drift from section 1's verified list.
+3. Allocate the next legal migration number from the live ledger at that moment.
 4. Add the read RPC and atomic matched-invoice RPC.
 5. Generate database types.
 6. Add a typed TypeScript service and legal Arabic error mapping.
@@ -258,6 +306,10 @@ After Migration 148 is pushed and accepted:
 8. Add dedicated Fresh DB acceptance and workflow gates.
 9. Add a deployment runbook.
 10. Pilot through the UI before any Production rollout.
+
+The database migration and the UI that depends on it are separate pull requests,
+merged and applied in that order. `CLAUDE.md` states the rule and records the gap
+that produced it.
 
 ## 12. Explicitly outside the first slice
 
