@@ -124,7 +124,10 @@ if [[ $b_elapsed -lt 1500 ]]; then
   exit 1
 fi
 
-read -r invoice_count allocation_sum journal_count remaining <<<$("${PSQL[@]}" -tA -F' ' -c "
+read -r invoice_count allocation_sum journal_count remaining <<<$(${PSQL[@]} -tA -F' ' -c "
+  WITH auth AS MATERIALIZED (
+    SELECT set_config('request.jwt.claim.sub','$ADMIN',false)
+  )
   SELECT
     (SELECT count(*) FROM public.supplier_invoices
       WHERE invoice_number IN ('U149-RACE-A','U149-RACE-B')),
@@ -135,7 +138,8 @@ read -r invoice_count allocation_sum journal_count remaining <<<$("${PSQL[@]}" -
     (SELECT count(*) FROM public.gl_entries ge
        JOIN public.supplier_invoices si ON si.journal_entry_id=ge.id
       WHERE si.invoice_number IN ('U149-RACE-A','U149-RACE-B')),
-    public.wardah_receipt_line_uninvoiced_base('$GRL')")
+    public.wardah_receipt_line_uninvoiced_base('$GRL')
+  FROM auth")
 
 if [[ "$invoice_count" != 1 || "$allocation_sum" != 12.000000 || "$journal_count" != 1 || "$remaining" != 0.000000 ]]; then
   echo "ACCEPTANCE_149_RACE_FAIL: persisted state invoices=$invoice_count allocation=$allocation_sum journals=$journal_count remaining=$remaining" >&2
