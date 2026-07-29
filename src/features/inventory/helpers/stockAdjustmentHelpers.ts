@@ -136,6 +136,23 @@ export interface ValidationResult {
   message: string;
 }
 
+/**
+ * Returns the distinct product ids on the adjustment that still need UoM setup,
+ * per the provided fail-closed predicate. Used to re-check items before saving a
+ * draft and before posting, so a product that became (or was left) unmapped —
+ * including one selected during a status-load race — cannot reach an SLE write.
+ */
+export function findUnmappedAdjustmentProductIds(
+  items: Array<{ product_id: string }>,
+  needsSetup: (productId: string) => boolean,
+): string[] {
+  const seen = new Set<string>()
+  for (const item of items) {
+    if (item.product_id && needsSetup(item.product_id)) seen.add(item.product_id)
+  }
+  return Array.from(seen)
+}
+
 export function validateAdjustmentForm(adjustment: AdjustmentFormState): ValidationResult {
   if (adjustment.items.length === 0) {
     return { valid: false, message: 'الرجاء إضافة منتج واحد على الأقل' };

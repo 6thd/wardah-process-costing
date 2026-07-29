@@ -7,75 +7,144 @@
 بدلاً من إعادة تطبيق جميع المهاجرات من الصفر في كل دورة CI (بطيء + مهاجرات قديمة قد تتعارض)،
 يطبّق CI الـbaseline مرة واحدة ثم يطبّق فقط المهاجرات **الأحدث من الـbaseline**.
 
-## بنية الملف
+## بنية الملفات — طبقتان
 
 ```
-000_schema_baseline_YYYYMMDD.sql
+000_schema_baseline_YYYYMMDD_HHMMSS.sql        ← البنية
+001_system_reference_data_YYYYMMDD_HHMMSS.sql  ← البيانات المرجعية النظامية
 ```
 
-- `YYYYMMDD` = تاريخ التوليد
-- السطر الأول يحوي: `-- migration_cutoff: N` حيث N هو رقم أعلى مهاجرة مشمولة
+- الطابع الزمني **متطابق** بين الطبقتين، وMigration Governance يرفض أي انفصال.
+- السطر الأول في كليهما: `-- migration_cutoff: N`.
+- تُطبَّقان بهذا الترتيب دائمًا، قبل أي migration أحدث من الـcutoff.
+
+### حلّ الزوج يمر بمكان واحد
+
+`scripts/ci/fresh-db/resolve_baseline_pair.sh` يختار أحدث `000_*`، **يشتق** منه اسم
+لقطته المقترنة، ويتحقق من وجودها ومن تطابق `migration_cutoff` قبل أن يطبع الزوج.
+يستعمله المستهلكون الثلاثة: Fresh DB، وMigration Governance، والمولّد على ناتجه.
+
+توحيده ليس ترتيبًا تجميليًا. حين كان الاختيار مكتوبًا في كل مستهلك على حدة، كان
+Fresh DB يأخذ **أحدث** `001_*` مستقلًا عن الـ`000_*` الذي أخذه، بينما تشترط
+الحوكمة المقترنة بالطابع. فلقطة `001` يتيمة أحدث — تجربة غير مكتملة أو توليد
+مجهض — تجعل CI تختبر قاعدة غير الزوج الذي صدّقته الحوكمة، **والبوابتان خضراوان**.
+والمجلد يحمل أكثر من `000_*` بالفعل، فتعدد الملفات هو الوضع الطبيعي لا حالة نادرة.
+
+يغطي `scripts/ci/test_resolve_baseline_pair.sh` هذه الحالة صراحة: baseline مقترن
+بلقطته، وإلى جانبهما لقطة يتيمة أحدث، ويثبت أن المختارة هي المقترنة.
+
+### لماذا طبقتان
+
+الـBaseline يُولَّد بـ`pg_dump --schema-only`، فلا يحمل صفًا واحدًا **بالبناء**.
+وحين يرتفع الـcutoff فوق migration بذرت بيانات مرجعية، تُطوى تلك الـmigration في
+اللقطة كمخطط فقط وتضيع بذرتها.
+
+حدث ذلك فعلًا: migrations 130 و140 بذرتا وحدات القياس، وcutoff 148 طواهما، فصارت
+كل Fresh DB تُبنى بجداول UoM فارغة بينما Production يحملها — ولم تكشفه أي بوابة،
+لأن فحوص ما بعد الـBaseline تعدّ الجداول والدوال والسياسات ولا تعدّ صفًا واحدًا.
+
+والأثر لم يكن نقص بيانات فقط. في `rpc_create_org_uom` حارسان يقرآن الصفوف النظامية:
+
+```sql
+IF EXISTS (SELECT 1 FROM uoms        WHERE org_id IS NULL AND code = v_code) …  -- SYSTEM_UOM_CODE_RESERVED
+IF EXISTS (SELECT 1 FROM uom_aliases WHERE org_id IS NULL AND alias_normalized = …) -- SYSTEM_UOM_ALIAS_RESERVED
+```
+
+كلاهما يمر **خاويًا** على قاعدة بلا بذرة، فتستطيع مؤسسة اختطاف رمز وحدة نظامي
+محجوز مثل `PCS`. أي أن الفراغ يقلب حارسًا إلى fail-open، لا أن يترك جدولًا فارغًا.
+
+معالجة ذلك بـmigration جديدة لا تدوم: الـbaseline التالي يطويها بدوره فتعود الفجوة
+بعد دورة واحدة. ولذلك العلاج في المولّد نفسه، طبقةً دائمة.
 
 ## الـBaseline الحالي
 
 | الملف | تاريخ التوليد | migration_cutoff | الحجم |
 |---|---|---|---|
-| `000_schema_baseline_20260717.sql` | 2026-07-17 | 121 | 611 KB / 13 521 سطر |
+| `000_schema_baseline_20260729_072509.sql` | 2026-07-29 | 148 | 1065 KB / 30,379 سطر |
 
-المحتوى: 125 جدول · 216 PK/UNIQUE · 237 FK · 470 فهرس · 164 دالة · 17 view · 72 trigger · 125 RLS ENABLE · 333 policy
+المحتوى المتحقق بعد إعادة البناء: 131 جدول · 201 دالة · 316 policy
+
+## البيانات المرجعية الحالية
+
+| الملف | migration_cutoff | الجداول | الصفوف |
+|---|---|---|---|
+| `001_system_reference_data_20260729_072509.sql` | 148 | 5 | 258 |
+
+| الجدول | الحدّ | predicate |
+|---|---|---|
+| `modules` | 10 | `TRUE` |
+| `permissions` | 166 | `TRUE` |
+| `uom_categories` | 6 | `TRUE` |
+| `uoms` | 17 | `org_id IS NULL` |
+| `uom_aliases` | 59 | `org_id IS NULL` |
+
+العقد في `system_reference_manifest.yml`: الجداول المسموحة، وpredicate الصفوف،
+والأعمدة المتوقعة، وترتيب التصدير حسب المفاتيح الأجنبية، ومفاتيح الترتيب، والحدود
+الدنيا. المولّد لا يملك حرية سحب ما يشاء من Production؛ وحدود ما يُسحب مراجَعة هنا.
+
+`journals` و`manufacturing_stages` و`roles` مستبعدة عمدًا: كلها `org_id IS NOT NULL`
+في Production، أي بيانات مستأجرين لا بيانات نظام، ومصدرها الصحيح مسار
+onboarding/provisioning للمؤسسة.
+
+### كيف تُحرَس
+
+ثلاث طبقات، لأن أي واحدة وحدها تمر عليها حالة حقيقية:
+
+1. **حدّ أدنى لكل جدول** — يكشف الفراغ والانخفاض المفاجئ، ولا يكشف التبديل.
+2. **بصمة محتوى لكل جدول** — تُحسب بعد ترتيب ثابت وتطبيع، فتكشف حذف صف وإضافة
+   آخر مكانه، وتبديل مرادف، وتغيّر كود وحدة نظامية، **بعدد ثابت**. أعمدة الزمن
+   مستثناة من البصمة لا من التصدير، لأن `ON CONFLICT DO UPDATE SET updated_at=now()`
+   يحرّكها بلا تغيّر دلالي.
+3. **اختبارات دلالية** — `acceptance_reference_uom.sql` و`acceptance_reference_rbac.sql`.
+   لا تثبت وجود الصفوف بل السلوك المعتمد عليها: رفض الرمز النظامي المحجوز، ورفض
+   المرادف المحجوز، وتطبيع مرادف معروف، وسلامة علاقة permission/module وبنية
+   `module.resource.action`.
+
+ويرفض `--expect-no-org-rows` تسرب أي صف org-scoped إلى قاعدة مبنية من لقطة نظامية.
+لا يُشغَّل هذا العلم على Production: وحدات المؤسسات المخصصة هناك مشروعة — هي ميزة
+migration 140 لا عطل.
 
 ---
 
 ## توليد الـBaseline
 
-### الطريقة المُوصى بها — GitHub Actions (تلقائي)
+### المسار القانوني الوحيد — `Generate Schema Baseline`
 
-1. أضف السر `SUPABASE_DB_URL` في إعدادات المستودع:
-   `Settings → Secrets and variables → Actions → New repository secret`
+`Actions → Generate Schema Baseline → Run workflow`
 
-   القيمة:
-   ```
-   postgresql://postgres:[DB_PASSWORD]@db.uutfztmqvajmsxnrqeiv.supabase.co:5432/postgres?sslmode=require
-   ```
+يتطلب سرّ `SUPABASE_DB_URL` بصيغة مجمّع الاتصالات (session mode)، واسم مستخدم
+مؤهَّل بمعرّف المشروع. الصيغة والمزالق موثقة في
+`docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md`. لا تكتب كلمة مرور هنا ولا في أي
+ملف بالمستودع.
 
-2. شغّل الـworkflow يدوياً:
-   `Actions → Generate Schema Baseline → Run workflow`
+**لا تولّد Baseline يدويًا.** حُذفت الوصفة اليدوية من هذا الملف عمدًا: كانت
+تنتج لقطة معطوبة بأربع طرق، كلٌّ منها صامت.
 
-3. سيُولد الـbaseline ويُودَع تلقائياً في `sql/baseline/`.
+| ما كانت تفعله الوصفة اليدوية | الأثر |
+|---|---|
+| `--no-acl` | تُسقط نموذج الصلاحيات كاملًا. الـBaseline يحل محل كل migration دون cutoff ومعها منحها، فتصبح القاعدة بلا `GRANT` لـ`authenticated`؛ وأخطر منه أن PostgreSQL يمنح `PUBLIC` صلاحية `EXECUTE` افتراضيًا على الدوال عند إنشائها، فبغياب `REVOKE` قد يرث `anon` تنفيذ دوال سحبها الإنتاج منه |
+| `MAX` من أعلى ملف في المستودع | cutoff من المستودع لا من سجل Production. مع سياسة `repository-first` قد يكون `main` عند 149 وProduction عند 148، فتُوسم لقطة الإنتاج بـ149 وتُتخطى 149 في Fresh DB |
+| لا تحوّل `CREATE SCHEMA public` | يفشل التطبيق على أي قاعدة جديدة بـ`schema "public" already exists` |
+| لا حارس ولا إعادة بناء | لا شيء يكشف أيًّا مما سبق قبل الدمج |
 
-### توليد يدوي (محلي)
+الـworkflow يفرض هذه العقود كلها: cutoff من سجل Production الحي، صلاحيات محفوظة
+مع حارس عددي، تحويل `CREATE SCHEMA`، إعادة بناء نظيفة على PostgreSQL 17،
+وعتبات كائنات. ولا يكتب إلى `main` — يفتح PR للمراجعة.
 
-```bash
-pg_dump "$SUPABASE_DB_URL" \
-  --schema-only \
-  --no-owner \
-  --no-acl \
-  --no-comments \
-  --schema=public \
-  --no-tablespaces \
-  | grep -v '^--' \
-  > sql/baseline/000_schema_baseline_$(date +%Y%m%d).sql
+### ملاحظة تاريخية: كيف وُلد baseline 20260717
 
-# أضف سطر migration_cutoff في أول الملف
-MAX=$(ls sql/migrations/ | grep -oE '^[0-9]+' | sort -n | uniq | tail -1)
-sed -i "1s/^/-- migration_cutoff: $MAX\n/" sql/baseline/000_schema_baseline_$(date +%Y%m%d).sql
-```
+لم يُولَّد بـ`pg_dump`، بل أُعيد بناؤه من `pg_catalog` عبر Supabase MCP
+بالاستعلام من `pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`,
+`pg_trigger`, `pg_policy` مع `pg_get_functiondef()` وأخواتها.
 
-### بديل — Supabase MCP (عند تعذّر `pg_dump`)
+وهذا يفسّر فجوتين انكشفتا عند أول توليد حقيقي بـ`pg_dump`:
 
-إذا كان Direct Connection IPv6-only (لا يدعمه `psql` محلياً)، يمكن إعادة بناء
-الـbaseline من `pg_catalog` عبر **Supabase MCP** مباشرةً (بدون Connection URL).
+- **صفر `GRANT`/`REVOKE`** — لا نموذج صلاحيات إطلاقًا.
+- **قيود ومفاتيح مفقودة** — منها `user_organizations_role_check` وخمسة مفاتيح
+  أجنبية مركّبة على `employee_id, org_id`، موجودة في الإنتاج وغائبة عن اللقطة.
 
-بديل Transaction Pooler (يتطلب صلاحيات كاملة):
-```
-postgresql://postgres.uutfztmqvajmsxnrqeiv:[PASSWORD]@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
-```
-**تحذير**: منطقة المجمّع (`eu-central-1`) قد تختلف — تحقق من لوحة Supabase →
-Project Settings → Database → Connection Pooling.
-
-الـbaseline الحالي (`20260717`) مُولَّد عبر **Supabase MCP** بالاستعلام من:
-`pg_class`, `pg_attribute`, `pg_constraint`, `pg_index`, `pg_trigger`, `pg_policy`
-مع `pg_get_functiondef()`, `pg_get_indexdef()`, `pg_get_viewdef()`, `pg_get_triggerdef()`.
+تُحفظ هذه الملاحظة ولا تُحذف: هي سبب وجود فجوة lineage بين حالة Production
+وسلسلة الإنشاء في المستودع.
 
 ## استخدام CI
 
@@ -90,4 +159,4 @@ Project Settings → Database → Connection Pooling.
 
 - الـbaseline **لا يُلغي** ملفات المهاجرات القديمة — تبقى للتاريخ
 - عند إضافة مهاجرات جديدة كثيرة (>50 بعد الـbaseline)، أعِد التوليد
-- المعيار: `psql -f baseline` على PostgreSQL 16 نظيف (بعد shim) ينجح بلا أخطاء
+- المعيار: `psql -f baseline` على PostgreSQL 17 نظيف (بعد shim) ينجح بلا أخطاء

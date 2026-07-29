@@ -1,0 +1,166 @@
+# =====================================================================
+# System Reference Data — عقد اللقطة المرجعية
+# =====================================================================
+#
+# لماذا يوجد هذا الملف
+# --------------------
+# الـBaseline يُولَّد بـ`pg_dump --schema-only`، فلا يحمل صفًا واحدًا بالبناء.
+# وحين يرتفع الـcutoff فوق migration بذرت بيانات مرجعية، تُطوى تلك الـmigration
+# في اللقطة كمخطط فقط وتضيع بذرتها. حدث هذا فعلًا: 130 و140 بذرتا وحدات القياس،
+# وcutoff 148 طواهما، فصارت كل Fresh DB تُبنى بجداول UoM فارغة بينما Production
+# يحمل 82 صفًا — دون أن تكشف ذلك أي بوابة، لأن فحوص ما بعد الـBaseline تعدّ
+# الجداول والدوال والسياسات ولا تعدّ صفًا واحدًا.
+#
+# العلاج ليس migration جديدة: هي تدوم دورة baseline واحدة ثم تُطوى بدورها فتعود
+# الفجوة. العلاج طبقة ثانية دائمة في المولّد:
+#
+#   000_schema_baseline_<stamp>.sql   ← البنية
+#   001_system_reference_data_<stamp>.sql ← البيانات المرجعية النظامية
+#
+# ويُطبَّقان بهذا الترتيب دائمًا.
+#
+# لماذا manifest بدل `pg_dump --data-only`
+# ----------------------------------------
+# `--data-only` على هذه الجداول يسحب كل صفوفها بلا تمييز، و`uoms`/`uom_aliases`
+# تحملان صفوف مؤسسات مخصصة (`org_id IS NOT NULL`) لا مكان لها في لقطة عامة.
+# فالتصدير يمر عبر allowlist صريحة بـpredicate صريح لكل جدول: المولّد لا يملك
+# حرية سحب ما يشاء من Production، وحدود ما يُسحب مراجَعة في المستودع لا في أداة.
+#
+# ما يدخل هنا وما لا يدخل
+# -----------------------
+# يدخل: بيانات عالمية يملكها النظام — لا تخص مؤسسة ولا معاملة.
+# لا يدخل: أي بيانات org-scoped. `journals` و`manufacturing_stages` و`roles`
+#          كلها `org_id IS NOT NULL` في Production، ومصدرها الصحيح مسار
+#          onboarding/provisioning للمؤسسة، لا لقطة عامة.
+#
+# =====================================================================
+
+version: 1
+
+# ترتيب التصدير والتطبيق = ترتيب الاعتماد بالمفاتيح الأجنبية.
+# permissions.module_id → modules.id
+# uoms.category_id      → uom_categories.id
+# uom_aliases.uom_id    → uoms.id
+# أي إعادة ترتيب هنا تكسر التطبيق على قاعدة نظيفة.
+tables:
+  - name: modules
+    predicate: "TRUE"
+    reason: "سجل الوحدات الوظيفية — لا يحمل org_id، عالمي بالتعريف"
+    order_by: [name]
+    conflict_target: [id]
+    columns:
+      - id
+      - name
+      - name_ar
+      - description
+      - description_ar
+      - icon
+      - display_order
+      - is_active
+      - created_at
+    hash_exclude: [created_at]
+    min_count: 10
+
+  - name: permissions
+    predicate: "TRUE"
+    reason: "مرجع الصلاحيات — لا يحمل org_id؛ نقصه يبني نظامًا يعمل بصلاحيات ناقصة"
+    order_by: [permission_key]
+    conflict_target: [id]
+    columns:
+      - id
+      - module_id
+      - resource
+      - resource_ar
+      - action
+      - action_ar
+      - permission_key
+      - description
+      - description_ar
+      - created_at
+    hash_exclude: [created_at]
+    min_count: 166
+
+  - name: uom_categories
+    predicate: "TRUE"
+    reason: "أبعاد القياس النظامية (is_system) — لا تحمل org_id"
+    order_by: [code]
+    conflict_target: [id]
+    columns:
+      - id
+      - code
+      - name
+      - name_ar
+      - dimension
+      - is_system
+      - created_at
+      - updated_at
+    hash_exclude: [created_at, updated_at]
+    min_count: 6
+
+  - name: uoms
+    # الحدّ الحاسم: الوحدات النظامية وحدها. صفوف المؤسسات المخصصة تُنشأ عبر
+    # rpc_create_tenant_uom ولا مكان لها في لقطة عامة.
+    predicate: "org_id IS NULL"
+    reason: "الوحدات النظامية؛ غيابها يجعل حارس الأكواد المحجوزة يمر خاويًا"
+    order_by: [code]
+    conflict_target: [id]
+    columns:
+      - id
+      - category_id
+      - code
+      - name
+      - name_ar
+      - symbol
+      - factor_to_category_base
+      - is_category_base
+      - is_product_specific
+      - decimal_places
+      - rounding_mode
+      - is_active
+      - created_at
+      - updated_at
+      - org_id
+    hash_exclude: [created_at, updated_at]
+    min_count: 17
+
+  - name: uom_aliases
+    predicate: "org_id IS NULL"
+    reason: "مرادفات الوحدات النظامية — تغذي uom_normalize_alias ومواءمة المنتجات"
+    order_by: [alias_normalized]
+    conflict_target: [id]
+    columns:
+      - id
+      - alias_normalized
+      - alias_display
+      - uom_id
+      - source
+      - created_at
+      - org_id
+    hash_exclude: [created_at]
+    min_count: 59
+
+# ---------------------------------------------------------------------
+# ملاحظات على العقد
+# ---------------------------------------------------------------------
+#
+# columns
+#   قائمة صريحة ومرتبة. المولّد يتحقق أن أعمدة الجدول في القاعدة تطابقها تمامًا
+#   ويفشل عند أي زيادة أو نقصان — فعمود جديد يحمل بيانات مرجعية لا يجوز أن
+#   يسقط من اللقطة بصمت.
+#
+# id مُصدَّر عمدًا
+#   المفاتيح الأجنبية بين هذه الجداول تشير إلى id. تصدير المعرّفات يحفظ
+#   التكامل المرجعي بلا إعادة ربط، ويجعل بصمة Fresh DB مطابقة لبصمة Production.
+#
+# hash_exclude
+#   أعمدة الزمن مستثناة من البصمة لا من التصدير. تُصدَّر لتطابق اللقطة Production
+#   صفًا بصف، وتُستثنى من البصمة لأن `ON CONFLICT DO UPDATE SET updated_at=now()`
+#   في migration 130 يحرّكها دون تغيّر دلالي، فإدخالها يولّد إنذارات انحراف كاذبة.
+#
+# min_count
+#   حدّ أدنى لا عدد مطلوب. يكشف الفراغ والانخفاض المفاجئ. وحده لا يكفي — العدد
+#   يبقى صحيحًا إذا حُذف صف وأُضيف آخر — ولذلك تُحسب بصمة محتوى لكل جدول.
+#
+# conflict_target
+#   `ON CONFLICT (id) DO NOTHING` يجعل التطبيق قابلًا للتكرار. اللقطة بذرة لا
+#   مزامنة: لا تدهس صفًا قائمًا. كشف الانحراف مهمة البوابة لا مهمة ملف البذرة.

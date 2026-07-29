@@ -29,6 +29,7 @@ export interface StockMove {
 
 export interface StockLedgerEntry {
   id?: string
+  org_id: string
   product_id: string
   warehouse_id: string
   posting_date: string
@@ -47,7 +48,15 @@ export interface StockLedgerEntry {
 }
 
 export abstract class StockController<T extends BaseDocument> extends BaseController<T> {
-  
+  /**
+   * Stock writes are never allowed without an explicit tenant context.
+   */
+  private requireOrgId(): string {
+    const orgId = this.doc.org_id
+    if (!orgId) throw new Error('ORG_CONTEXT_REQUIRED')
+    return orgId
+  }
+
   /**
    * Override this in child class to return stock movements
    * Called during submit to create SLEs
@@ -58,11 +67,12 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Override on_submit to create Stock Ledger Entries
    */
   protected async on_submit(): Promise<void> {
+    const orgId = this.requireOrgId()
     const moves = await this.getStockMoves()
-    
+
     for (const move of moves) {
-      await this.createStockLedgerEntry(move)
-      await this.updateBin(move)
+      await this.createStockLedgerEntry(move, orgId)
+      await this.updateBin(move, orgId)
     }
 
     // Post GL Entries for inventory value change
@@ -73,17 +83,18 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Override on_cancel to reverse Stock Ledger Entries
    */
   protected async on_cancel(): Promise<void> {
+    const orgId = this.requireOrgId()
     const moves = await this.getStockMoves()
-    
+
     for (const move of moves) {
       // Reverse the movement (negate quantity)
       const reversedMove: StockMove = {
         ...move,
-        quantity: -move.quantity
+        quantity: -move.quantity,
       }
-      
-      await this.createStockLedgerEntry(reversedMove)
-      await this.updateBin(reversedMove)
+
+      await this.createStockLedgerEntry(reversedMove, orgId)
+      await this.updateBin(reversedMove, orgId)
     }
 
     // Reverse GL Entries
@@ -94,11 +105,12 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Create Stock Ledger Entry
    * This is the core of ERPNext's inventory system
    */
-  private async createStockLedgerEntry(move: StockMove): Promise<void> {
-    // Get current stock balance
+  private async createStockLedgerEntry(move: StockMove, orgId: string): Promise<void> {
+    // Get current stock balance within the same organization
     const { data: lastEntry } = await supabase
       .from('stock_ledger_entries')
       .select('qty_after_transaction, valuation_rate, stock_value')
+      .eq('org_id', orgId)
       .eq('product_id', move.product_id)
       .eq('warehouse_id', move.warehouse_id)
       .order('posting_date', { ascending: false })
@@ -131,6 +143,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
 
     // Create SLE
     const sle: StockLedgerEntry = {
+      org_id: orgId,
       product_id: move.product_id,
       warehouse_id: move.warehouse_id,
       posting_date: move.posting_date.toISOString().split('T')[0],
@@ -145,7 +158,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
       stock_value: newValue,
       stock_value_difference: stockValueDiff,
       is_cancelled: false,
-      created_at: new Date().toISOString()
+      created_at: new Date().toISOString(),
     }
 
     const { error } = await supabase
@@ -161,11 +174,12 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Update Bin (warehouse-level stock balance)
    * Bins store aggregated stock quantities per warehouse
    */
-  private async updateBin(move: StockMove): Promise<void> {
-    // Check if bin exists
+  private async updateBin(move: StockMove, orgId: string): Promise<void> {
+    // Check if bin exists in the same organization
     const { data: existingBin } = await supabase
       .from('bins')
       .select('*')
+      .eq('org_id', orgId)
       .eq('product_id', move.product_id)
       .eq('warehouse_id', move.warehouse_id)
       .single()
@@ -173,11 +187,12 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
     if (existingBin) {
       // Update existing bin
       const newQty = (existingBin.actual_qty || 0) + move.quantity
-      
+
       // Recalculate valuation rate from latest SLE
       const { data: latestSLE } = await supabase
         .from('stock_ledger_entries')
         .select('valuation_rate, stock_value')
+        .eq('org_id', orgId)
         .eq('product_id', move.product_id)
         .eq('warehouse_id', move.warehouse_id)
         .order('posting_date', { ascending: false })
@@ -191,8 +206,9 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
           actual_qty: newQty,
           valuation_rate: latestSLE?.valuation_rate || 0,
           stock_value: latestSLE?.stock_value || 0,
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
         })
+        .eq('org_id', orgId)
         .eq('product_id', move.product_id)
         .eq('warehouse_id', move.warehouse_id)
 
@@ -202,6 +218,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
       const { error } = await supabase
         .from('bins')
         .insert({
+          org_id: orgId,
           product_id: move.product_id,
           warehouse_id: move.warehouse_id,
           actual_qty: move.quantity,
@@ -209,7 +226,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
           ordered_qty: 0,
           valuation_rate: move.rate,
           stock_value: move.quantity * move.rate,
-          created_at: new Date().toISOString()
+          created_at: new Date().toISOString(),
         })
 
       if (error) throw new Error(`Failed to create bin: ${error.message}`)
@@ -238,12 +255,14 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Get current stock balance for a product in a warehouse
    */
   protected async getStockBalance(
-    productId: string, 
-    warehouseId: string
+    productId: string,
+    warehouseId: string,
   ): Promise<{ quantity: number; valuationRate: number; stockValue: number }> {
+    const orgId = this.requireOrgId()
     const { data: bin } = await supabase
       .from('bins')
       .select('actual_qty, valuation_rate, stock_value')
+      .eq('org_id', orgId)
       .eq('product_id', productId)
       .eq('warehouse_id', warehouseId)
       .single()
@@ -255,7 +274,7 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
     return {
       quantity: bin.actual_qty || 0,
       valuationRate: bin.valuation_rate || 0,
-      stockValue: bin.stock_value || 0
+      stockValue: bin.stock_value || 0,
     }
   }
 
@@ -263,22 +282,25 @@ export abstract class StockController<T extends BaseDocument> extends BaseContro
    * Validate that warehouse has sufficient stock for outgoing transactions
    */
   protected async validateStockAvailability(moves: StockMove[]): Promise<void> {
+    const orgId = this.requireOrgId()
+
     for (const move of moves) {
       if (move.quantity < 0) {
         // Outgoing transaction - check stock availability
         const balance = await this.getStockBalance(move.product_id, move.warehouse_id)
-        
+
         if (balance.quantity < Math.abs(move.quantity)) {
           // Get product name for better error message
           const { data: product } = await supabase
             .from('products')
             .select('name')
+            .eq('org_id', orgId)
             .eq('id', move.product_id)
             .single()
 
           throw new Error(
             `Insufficient stock for ${product?.name}. ` +
-            `Available: ${balance.quantity}, Required: ${Math.abs(move.quantity)}`
+            `Available: ${balance.quantity}, Required: ${Math.abs(move.quantity)}`,
           )
         }
       }
