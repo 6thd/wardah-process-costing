@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-07-19  
+**آخر تحديث موثق:** 2026-07-29  
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,13 +27,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد Baseline المولد في 2026-07-29:
+الحالة الموثقة في PR #65 بتاريخ 2026-07-29:
 
 - Baseline الحالي: `000_schema_baseline_20260729_072509.sql`, cutoff 148.
 - Production: مطبقة حتى 148 (`148_uom_purchase_receipt_snapshots`).
-- Repository: أعلى migration مرقمة هي 148.
-- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
-- لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
+- Repository branch في PR #65: أعلى migration مرقمة هي 152.
+- Fresh DB: يطبق 149→152 بعد cutoff 148، وبوابة AP المخصصة ناجحة على PostgreSQL 17.
+- migrations 149–152 **غير مطبقة على Production** لمجرد نجاح Fresh DB أو وجودها في PR.
+- لا تعدّ أي migration مطبقة حيًا إلا إذا ظهرت في `supabase_migrations.schema_migrations`.
 <!-- DATABASE_STATE_END -->
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
@@ -51,6 +52,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md` — 148: الاستلام الجزئي وبوابة
   اعتماد أمر الشراء وعقد الكميات حسب الجودة. يتضمن **ترتيب النشر الإلزامي حين
   تقترن migration بواجهة خلف علم مفعّل**.
+- `docs/db/AP_THREE_WAY_MATCH_149_152_RUNBOOK.md` — 149–152: المطابقة الثلاثية،
+  idempotency، hardening أمني، وترتيب تطبيق Production الإلزامي
+  `149 → 150 → 151 → 152` مع فحوص قبل/بعد التطبيق.
 
 ## Baseline
 
