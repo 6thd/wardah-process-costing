@@ -8,7 +8,6 @@ import {
   Users,
   Shield,
   Cog,
-  Plug,
   Database,
 } from 'lucide-react'
 import { CompanySettings } from './CompanySettings'
@@ -77,7 +76,7 @@ function SettingsOverview() {
     },
     {
       title: tr('إعدادات النظام', 'System Settings'),
-      description: tr('إعدادات عامة للنظام', 'General system settings'),
+      description: tr('إعدادات العرض والتشغيل الخاصة بالمؤسسة', 'Organization display and operation settings'),
       icon: Cog,
       href: '/settings/system',
       color: 'text-purple-600',
@@ -89,44 +88,18 @@ function SettingsOverview() {
       ],
     },
     {
-      title: tr('التكاملات', 'Integrations'),
-      description: tr('ربط النظام مع الخدمات الخارجية', 'Connect the system to external services'),
-      icon: Plug,
-      href: '/settings/integrations',
-      color: 'text-orange-600',
-      bgColor: 'bg-orange-50',
-      options: [
-        tr('بريد إلكتروني', 'Email'),
-        tr('أنظمة محاسبية', 'Accounting systems'),
-        tr('الخدمات السحابية', 'Cloud services'),
-      ],
-    },
-    {
-      title: tr('النسخ الاحتياطي', 'Backup & Export'),
-      description: tr('نسخ واستعادة بيانات النظام', 'Back up and restore system data'),
+      title: tr('تصدير البيانات', 'Data Export'),
+      description: tr('تصدير يدوي لبيانات المؤسسة للمراجعة أو النقل', 'Manual organization data export for review or transfer'),
       icon: Database,
       href: '/settings/backup',
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
       options: [
-        tr('نسخ تلقائي', 'Automatic backup'),
-        tr('استعادة بيانات', 'Restore data'),
-        tr('جدولة النسخ', 'Backup scheduling'),
+        tr('تصدير JSON', 'JSON export'),
+        tr('تصدير CSV', 'CSV export'),
+        tr('تصدير الجداول الرئيسية', 'Main-table export'),
       ],
     },
-  ]
-
-  const quickInfo = [
-    { value: '5', label: tr('مستخدمون نشطون', 'Active users'), valueClass: 'text-blue-600' },
-    { value: '12', label: tr('تكاملات نشطة', 'Active integrations'), valueClass: 'text-green-600' },
-    { value: '24h', label: tr('آخر نسخة احتياطية', 'Last backup'), valueClass: 'text-purple-600' },
-    { value: '99.9%', label: tr('وقت تشغيل النظام', 'System uptime'), valueClass: 'text-orange-600' },
-  ]
-
-  const statusItems = [
-    tr('الخادم يعمل بشكل طبيعي', 'Server is operating normally'),
-    tr('قاعدة البيانات متصلة', 'Database is connected'),
-    tr('جميع الخدمات متاحة', 'All services are available'),
   ]
 
   return (
@@ -136,15 +109,6 @@ function SettingsOverview() {
         description={tr('إدارة إعدادات وتكوين النظام', 'Manage system settings and configuration')}
         hideOnPrint={false}
       />
-
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {quickInfo.map((item) => (
-          <div key={item.label} className="bg-card rounded-lg border p-4">
-            <div className={cn('text-2xl font-bold', item.valueClass)}>{item.value}</div>
-            <div className="text-sm text-muted-foreground">{item.label}</div>
-          </div>
-        ))}
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {settingsCategories.map((category) => {
@@ -182,22 +146,6 @@ function SettingsOverview() {
             </Link>
           )
         })}
-      </div>
-
-      <div className="bg-card rounded-lg border">
-        <div className="p-6 border-b">
-          <h3 className="text-lg font-semibold">{tr('حالة النظام', 'System Status')}</h3>
-        </div>
-        <div className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {statusItems.map((item) => (
-              <div key={item} className="flex items-center gap-3">
-                <div className="w-3 h-3 bg-green-500 rounded-full" />
-                <span className="text-sm">{item}</span>
-              </div>
-            ))}
-          </div>
-        </div>
       </div>
     </div>
   )

@@ -323,7 +323,7 @@ export function Sidebar() {
       // 🔐 استخدام صلاحيات المستخدم
       const { isOrgAdmin, isSuperAdmin } = usePermissions()
 
-  const isRTL = i18n.language === 'ar'
+  const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
 
   const toggleExpanded = (key: string) => {
