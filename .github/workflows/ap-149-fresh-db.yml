@@ -1,0 +1,76 @@
+name: AP 149 Fresh DB Acceptance
+
+on:
+  push:
+    branches:
+      - test/ap-149-fresh-db-acceptance
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'sql/migrations/149_ap_three_way_match_allocations.sql'
+      - 'sql/migrations/150_ap_matched_invoice_idempotency_and_grn_gate.sql'
+      - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
+      - 'scripts/ci/fresh-db/acceptance_149_ap_three_way_match.sql'
+      - 'scripts/ci/fresh-db/acceptance_149_concurrency.sh'
+      - 'scripts/ci/fresh-db/run_ap_149_gate.sh'
+      - 'scripts/ci/fresh-db/**'
+      - 'sql/baseline/**'
+      - '.github/workflows/ap-149-fresh-db.yml'
+
+jobs:
+  ap-149-fresh-db:
+    name: Migration 149 AP Three-Way Match
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SQL validation dependencies
+        run: |
+          python3 -m pip install --quiet pglast pyyaml
+
+      - name: Parse migrations and enforce DEFINER guards
+        run: |
+          python3 scripts/ci/check_migration_syntax.py
+          python3 scripts/ci/check_definer_guards.py
+
+      - name: Run AP 149 fresh DB gate
+        run: bash scripts/ci/fresh-db/run_ap_149_gate.sh
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: wardah_ap149
+
+      - name: Upload AP 149 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ap-149-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/ap149-chain-order.txt
+            /tmp/ap149-chain-report.txt
+            /tmp/u149-race-a.out
+            /tmp/u149-race-a.err
+            /tmp/u149-race-b.out
+            /tmp/u149-race-b.err
+          if-no-files-found: ignore
+          retention-days: 14

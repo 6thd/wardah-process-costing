@@ -8279,6 +8279,7 @@ export type Database = {
       }
       supplier_invoice_lines: {
         Row: {
+          conversion_factor_snapshot: number | null
           created_at: string | null
           description: string | null
           discount_percentage: number | null
@@ -8286,15 +8287,24 @@ export type Database = {
           id: string
           line_number: number
           line_total: number | null
+          match_status: string | null
           notes: string | null
           org_id: string
+          po_unit_price_snapshot: number | null
+          price_variance: number | null
           product_id: string
+          purchase_order_line_id: string | null
+          qty_entered: number | null
           quantity: number
+          quantity_variance: number | null
           supplier_invoice_id: string
           tax_percentage: number | null
           unit_cost: number
+          unit_cost_entered: number | null
+          uom_id: string | null
         }
         Insert: {
+          conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
           discount_percentage?: number | null
@@ -8302,15 +8312,24 @@ export type Database = {
           id?: string
           line_number?: number
           line_total?: number | null
+          match_status?: string | null
           notes?: string | null
           org_id: string
+          po_unit_price_snapshot?: number | null
+          price_variance?: number | null
           product_id: string
+          purchase_order_line_id?: string | null
+          qty_entered?: number | null
           quantity: number
+          quantity_variance?: number | null
           supplier_invoice_id: string
           tax_percentage?: number | null
           unit_cost: number
+          unit_cost_entered?: number | null
+          uom_id?: string | null
         }
         Update: {
+          conversion_factor_snapshot?: number | null
           created_at?: string | null
           description?: string | null
           discount_percentage?: number | null
@@ -8318,13 +8337,21 @@ export type Database = {
           id?: string
           line_number?: number
           line_total?: number | null
+          match_status?: string | null
           notes?: string | null
           org_id?: string
+          po_unit_price_snapshot?: number | null
+          price_variance?: number | null
           product_id?: string
+          purchase_order_line_id?: string | null
+          qty_entered?: number | null
           quantity?: number
+          quantity_variance?: number | null
           supplier_invoice_id?: string
           tax_percentage?: number | null
           unit_cost?: number
+          unit_cost_entered?: number | null
+          uom_id?: string | null
         }
         Relationships: [
           {
@@ -8339,6 +8366,13 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_lines_po_line_fk"
+            columns: ["purchase_order_line_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order_lines"
             referencedColumns: ["id"]
           },
           {
@@ -8357,6 +8391,94 @@ export type Database = {
           },
         ]
       }
+      supplier_invoice_receipt_allocations: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          goods_receipt_line_id: string
+          id: string
+          idempotency_key: string | null
+          org_id: string
+          purchase_order_line_id: string
+          quantity_base: number
+          reversal_of_allocation_id: string | null
+          reversal_reason: string | null
+          supplier_invoice_id: string
+          supplier_invoice_line_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          goods_receipt_line_id: string
+          id?: string
+          idempotency_key?: string | null
+          org_id: string
+          purchase_order_line_id: string
+          quantity_base: number
+          reversal_of_allocation_id?: string | null
+          reversal_reason?: string | null
+          supplier_invoice_id: string
+          supplier_invoice_line_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          goods_receipt_line_id?: string
+          id?: string
+          idempotency_key?: string | null
+          org_id?: string
+          purchase_order_line_id?: string
+          quantity_base?: number
+          reversal_of_allocation_id?: string | null
+          reversal_reason?: string | null
+          supplier_invoice_id?: string
+          supplier_invoice_line_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocat_reversal_of_allocation_id_fkey"
+            columns: ["reversal_of_allocation_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoice_receipt_allocations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocati_supplier_invoice_line_id_fkey"
+            columns: ["supplier_invoice_line_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoice_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocation_purchase_order_line_id_fkey"
+            columns: ["purchase_order_line_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_order_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocations_goods_receipt_line_id_fkey"
+            columns: ["goods_receipt_line_id"]
+            isOneToOne: false
+            referencedRelation: "goods_receipt_lines"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocations_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_invoice_receipt_allocations_supplier_invoice_id_fkey"
+            columns: ["supplier_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "supplier_invoices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       supplier_invoices: {
         Row: {
           balance: number | null
@@ -8366,13 +8488,19 @@ export type Database = {
           due_date: string | null
           goods_receipt_id: string | null
           id: string
+          idempotency_key: string | null
           invoice_date: string
           invoice_number: string
+          journal_entry_id: string | null
+          match_status: string | null
+          matched_at: string | null
+          matched_by: string | null
           notes: string | null
           org_id: string
           paid_amount: number | null
           payment_terms: string | null
           purchase_order_id: string | null
+          request_hash: string | null
           status: string | null
           subtotal: number
           tax_amount: number | null
@@ -8388,13 +8516,19 @@ export type Database = {
           due_date?: string | null
           goods_receipt_id?: string | null
           id?: string
+          idempotency_key?: string | null
           invoice_date?: string
           invoice_number: string
+          journal_entry_id?: string | null
+          match_status?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
           notes?: string | null
           org_id: string
           paid_amount?: number | null
           payment_terms?: string | null
           purchase_order_id?: string | null
+          request_hash?: string | null
           status?: string | null
           subtotal: number
           tax_amount?: number | null
@@ -8410,13 +8544,19 @@ export type Database = {
           due_date?: string | null
           goods_receipt_id?: string | null
           id?: string
+          idempotency_key?: string | null
           invoice_date?: string
           invoice_number?: string
+          journal_entry_id?: string | null
+          match_status?: string | null
+          matched_at?: string | null
+          matched_by?: string | null
           notes?: string | null
           org_id?: string
           paid_amount?: number | null
           payment_terms?: string | null
           purchase_order_id?: string | null
+          request_hash?: string | null
           status?: string | null
           subtotal?: number
           tax_amount?: number | null
@@ -10809,6 +10949,14 @@ export type Database = {
         Returns: Json
       }
       rpc_create_journal_entry: { Args: { p_payload: Json }; Returns: Json }
+      rpc_create_matched_supplier_invoice: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      rpc_create_matched_supplier_invoice_v149: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       rpc_create_mo_with_reservation: {
         Args: { p_materials?: Json; p_order: Json; p_tenant?: string }
         Returns: Json
@@ -11388,6 +11536,10 @@ export type Database = {
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
       wardah_org_id: { Args: { p_explicit?: string }; Returns: string }
       wardah_periods_org_col: { Args: never; Returns: string }
+      wardah_receipt_line_uninvoiced_base: {
+        Args: { p_goods_receipt_line_id: string }
+        Returns: number
+      }
       wardah_require_positive_bom_quantity: {
         Args: { p_bom_id: string; p_quantity: number }
         Returns: number
