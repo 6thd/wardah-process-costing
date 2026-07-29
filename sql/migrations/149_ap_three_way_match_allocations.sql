@@ -333,6 +333,10 @@ DECLARE
   v_pol             record;
   v_available       numeric(18,6);
   v_qty             numeric(18,6);
+  -- خام بلا دقة معلنة: الإسناد إلى numeric(18,6) يقرّب القيمة صامتًا، فيصير
+  -- فحص الدقة على قيمة مقرَّبة سلفًا ولا يمكن أن يفشل أبدًا. القراءة الخام أولًا
+  -- هي ما يجعل الحارس قادرًا على العمل.
+  v_qty_raw         numeric;
   v_price           numeric(18,6);
   v_disc            numeric(5,2);
   v_tax             numeric(5,2);
@@ -378,7 +382,9 @@ BEGIN
   IF v_due_date IS NOT NULL AND v_due_date < v_invoice_date THEN
     RAISE EXCEPTION 'AP_DUE_DATE_BEFORE_INVOICE_DATE: تاريخ الاستحقاق قبل تاريخ الفاتورة';
   END IF;
-  IF NOT EXISTS (SELECT 1 FROM public.suppliers s WHERE s.id = v_vendor AND s.org_id = v_org) THEN
+  -- الجدول `vendors` لا `suppliers`: الأخير لا وجود له في المخطط رغم أن الفواتير
+  -- تُسمّى supplier_invoices. الاسمان مختلطان في هذا النطاق تاريخيًا.
+  IF NOT EXISTS (SELECT 1 FROM public.vendors v WHERE v.id = v_vendor AND v.org_id = v_org) THEN
     RAISE EXCEPTION 'AP_VENDOR_MISMATCH: المورد لا ينتمي إلى المؤسسة المحددة';
   END IF;
 
@@ -473,7 +479,7 @@ BEGIN
         'AP_GRN_LINE_WITHOUT_PO: هذا المسار للفواتير المستندة إلى أمر شراء (السطر %)', v_line_no;
     END IF;
 
-    SELECT pol.*, po.status AS order_status, po.supplier_id AS order_vendor
+    SELECT pol.*, po.status AS order_status, po.vendor_id AS order_vendor
       INTO v_pol
     FROM public.purchase_order_lines pol
     JOIN public.purchase_orders po ON po.id = pol.purchase_order_id
@@ -495,13 +501,16 @@ BEGIN
     END IF;
 
     -- الكمية: موجبة وبست منازل كحدّ. التقريب الصامت هو ما تمنعه دقة (18,6).
-    v_qty := (v_line ->> 'quantity_base')::numeric;
-    IF v_qty IS NULL OR v_qty <= 0 THEN
+    v_qty_raw := (v_line ->> 'quantity_base')::numeric;
+    IF v_qty_raw IS NULL OR v_qty_raw <= 0 THEN
       RAISE EXCEPTION 'AP_QUANTITY_INVALID: الكمية يجب أن تكون موجبة (السطر %)', v_line_no;
     END IF;
-    IF v_qty <> round(v_qty, 6) THEN
-      RAISE EXCEPTION 'AP_QUANTITY_PRECISION: الكمية تتجاوز ست منازل عشرية (السطر %)', v_line_no;
+    IF v_qty_raw <> round(v_qty_raw, 6) THEN
+      RAISE EXCEPTION
+        'AP_QUANTITY_PRECISION: الكمية % تتجاوز ست منازل عشرية — الفوترة لا تقرّب الكمية صامتًا (السطر %)',
+        v_qty_raw, v_line_no;
     END IF;
+    v_qty := v_qty_raw;
 
     -- الرصيد يُعاد حسابه **تحت القفل**، لا من قراءة سابقة.
     v_available := public.wardah_receipt_line_uninvoiced_base(v_grl.id);
