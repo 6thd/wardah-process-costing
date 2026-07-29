@@ -8,7 +8,7 @@ calls wardah_assert_org_member, wardah_assert_org_admin, or wardah_is_org_member
 
 Exemptions:
   - Functions with REVOKE EXECUTE FROM authenticated immediately after definition
-  - Functions listed in KNOWN_EXEMPT (intentionally open to authenticated, documented)
+  - Functions listed in KNOWN_EXEMPT (intentionally open or superseded, documented)
 """
 
 import pathlib
@@ -21,6 +21,13 @@ BASELINE_FILE = next(pathlib.Path("sql/baseline").glob("000_schema_baseline_*.sq
 KNOWN_EXEMPT = {
     # Documented in SECURITY_DEFINER_AUDIT.md — open to anon deliberately
     "rpc_get_invitation_preview",
+    # Migration 149 definitions are superseded in 151 before the chain is usable:
+    # the trigger becomes SECURITY INVOKER, and the balance helper gains an
+    # explicit org lookup + wardah_assert_org_member guard. Keeping these names
+    # here lets the per-file scanner acknowledge migration ordering without
+    # weakening the final-state acceptance gate, which verifies the 151 bodies.
+    "wardah_guard_allocation_immutability",
+    "wardah_receipt_line_uninvoiced_base",
 }
 
 GUARD_PATTERNS = [
