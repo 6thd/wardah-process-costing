@@ -56,6 +56,27 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 `.github/workflows/generate-baseline.yml` يقرأ سجل Production كاملًا ويمرره إلى `scripts/ci/validate_migration_ledger.py`. لا يستخدم أعلى رقم ملف بوصفه cutoff، ولا يعتمد مطابقة glob ملتبسة. اللقطات الجديدة تحمل timestamp وتُضاف دون حذف القديمة، وتصل إلى `main` عبر PR فقط بعد نجاح إعادة البناء النظيفة.
 
+### الـBaseline طبقتان لا طبقة
+
+```
+000_schema_baseline_<stamp>.sql        ← البنية
+001_system_reference_data_<stamp>.sql  ← البيانات المرجعية النظامية
+```
+
+الطابع الزمني متطابق، وMigration Governance يرفض انفصالهما. يُطبَّقان بهذا الترتيب دائمًا قبل أي migration أحدث من الـcutoff.
+
+**السبب:** الطبقة الأولى تُولَّد بـ`pg_dump --schema-only`، فلا تحمل صفًا **بالبناء**. وحين يرتفع الـcutoff فوق migration بذرت بيانات مرجعية، تُطوى كمخطط فقط وتضيع بذرتها. حدث ذلك مع 130 و140: صارت كل Fresh DB تُبنى بجداول UoM فارغة بينما Production يحمل 82 صفًا، ولم تكشفه أي بوابة لأن فحوص ما بعد الـBaseline تعدّ الجداول والدوال والسياسات ولا تعدّ صفًا.
+
+والفراغ لا ينتج «بيانات ناقصة» بل **يقلب حراسًا إلى fail-open**: `rpc_create_org_uom` تقرأ الصفوف النظامية لترفض اختطاف رمز محجوز (`SYSTEM_UOM_CODE_RESERVED`) أو مرادف محجوز (`SYSTEM_UOM_ALIAS_RESERVED`)، وكلا الشرطين يمر خاويًا بلا بذرة — وقد أُثبت عمليًا بإنشاء وحدة بالرمز `PCS` على قاعدة بلا لقطة.
+
+**لا تعالج هذا بـmigration جديدة.** تدوم دورة baseline واحدة ثم تُطوى بدورها فتعود الفجوة — وهو ما حدث بـ130 و140 أصلًا.
+
+العقد في `sql/baseline/system_reference_manifest.yml`: allowlist صريحة بـpredicate صريح لكل جدول، وأعمدة متوقعة، وترتيب تصدير حسب المفاتيح الأجنبية، ومفاتيح ترتيب، وحدود دنيا. `pg_dump --data-only` مرفوض: `uoms` و`uom_aliases` تحملان صفوف مؤسسات مخصصة لا مكان لها في لقطة عامة.
+
+النطاق: `modules` (10) · `permissions` (166) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 258 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
+
+الحراسة ثلاث طبقات: حدّ أدنى لكل جدول (يكشف الفراغ لا التبديل)، وبصمة محتوى لكل جدول (تكشف تبديل صف بعدد ثابت؛ أعمدة الزمن مستثناة من البصمة لا من التصدير)، واختبارات دلالية تثبت السلوك المعتمد على البيانات لا وجودها. التفاصيل في `sql/baseline/README.md`.
+
 ## Generated Columns
 
 المخطط يحتوي 22 عمودًا `GENERATED ALWAYS AS ... STORED` وقت Baseline 121، منها:
@@ -123,11 +144,13 @@ isRTL ? 'نص عربي' : 'English text'
 5. unit/integration tests.
 6. pglast migration syntax.
 7. migration numbering.
-8. migration governance: أسماء قانونية + أرقام غير مكررة + استثناءات سجل حية دقيقة.
+8. migration governance: أسماء قانونية + أرقام غير مكررة + استثناءات سجل حية دقيقة + اقتران طبقتَي الـBaseline.
 9. SECURITY DEFINER guard.
 10. Fresh DB على PostgreSQL 17.
-11. build.
-12. SonarCloud Quality Gate عند توفر `SONAR_TOKEN`.
+11. البيانات المرجعية النظامية: حدود دنيا + بصمة محتوى لكل جدول + رفض تسرب صفوف org-scoped.
+12. قبول دلالي للبيانات المرجعية: حراسة UoM المحجوزة، وترابط RBAC وبنية مفاتيحه.
+13. build.
+14. SonarCloud Quality Gate عند توفر `SONAR_TOKEN`.
 
 التدقيق الحي لسجل Production يعمل أسبوعيًا وبشكل يدوي عبر
 `Audit Production Migration Ledger`، وهو قراءة فقط ويرفع Artifact لمدة 90 يومًا.

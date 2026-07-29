@@ -150,22 +150,43 @@ jobs:
       - name: Fresh DB chain test
         run: |
           set -Eeuo pipefail
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
-          if [ -z "$BASELINE" ]; then
+          # الزوج يُحَل في مكان واحد يشترك فيه هذا المسار والحوكمة. اختيار كل
+          # طبقة على حدة كان يسمح للقطة `001` يتيمة أحدث بأن تُطبَّق هنا بينما
+          # تصدّق الحوكمة زوجًا آخر — فتمر البوابتان خضراوين على قاعدتين مختلفتين.
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          if [ $PAIR_STATUS -eq 3 ]; then
             echo "⏭ لا baseline بعد — تجاوز اختبار البناء من الصفر"
             exit 0
+          elif [ $PAIR_STATUS -ne 0 ]; then
+            echo "❌ تعذر حل زوج الـbaseline المقترن"
+            exit 1
           fi
-
-          echo "✅ Baseline موجود: $BASELINE"
-          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
-                   | grep -oE '[0-9]+$' | head -1)
+          # لا eval على هذا الخرج. قيمه أسماء ملفات من المستودع، وأي PR يستطيع
+          # إضافة ملف باسم يحمل استبدال أوامر، فيصير إعادةُ تقييم النص تنفيذًا
+          # لها على العدّاء. الاستبدال بالأوامر أدناه يُسند النص حرفيًا.
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
           CUTOFF=${CUTOFF:-0}
-          echo "   migration_cutoff = $CUTOFF"
+          echo "✅ Baseline موجود: $BASELINE"
+          echo "✅ لقطة مرجعية مقترنة: $REFERENCE"
+          echo "   migration_cutoff = $CUTOFF (متطابق عبر الطبقتين)"
           echo "   PostgreSQL client: $(psql --version)"
 
           createdb wardah_fresh
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+
+          # الطبقة الثانية. الـBaseline يُولَّد بـ`pg_dump --schema-only` فلا يحمل
+          # صفًا؛ وحين طوى cutoff 148 الـmigrations التي بذرت البيانات المرجعية
+          # (130 و140) ضاعت بذرتها، فصارت كل Fresh DB تُبنى بجداول UoM فارغة
+          # بينما Production يحملها — دون أن يكشف ذلك أي فحص هنا، لأن الفحوص
+          # أعلاه تعدّ الجداول والدوال والسياسات ولا تعدّ صفًا واحدًا.
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
 
           TABLES=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'")
           SEQS=$(psql -d wardah_fresh -tAc "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relkind='S'")
@@ -183,6 +204,21 @@ jobs:
             echo "❌ الأعمدة المحسوبة أقل من المتوقع"
             exit 1
           fi
+
+          # ثلاث طبقات: حد أدنى لكل جدول يكشف الفراغ والانخفاض؛ وبصمة محتوى
+          # تكشف ما لا يكشفه العدّ — حذف صف وإضافة آخر مكانه، تبديل مرادف، تغيّر
+          # كود وحدة نظامية؛ و--expect-no-org-rows يرفض تسرب صفوف المؤسسات إلى
+          # لقطة يفترض أنها نظامية بحتة.
+          # المقارنة هنا بين Fresh DB واللقطة المُلتزَمة. مطابقة اللقطة لـProduction
+          # تُفحص في generate-baseline.yml، فهذا المسار لا يملك وصولًا إلى Production.
+          echo "   التحقق من البيانات المرجعية النظامية…"
+          python3 -c "import yaml" 2>/dev/null || pip install --quiet pyyaml
+          python3 scripts/ci/system_reference_data.py \
+            --database wardah_fresh \
+            verify \
+            --snapshot "$REFERENCE" \
+            --expect-no-org-rows \
+            --report /tmp/reference-data-report.json
 
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
           TOTAL=$(wc -l < /tmp/chain_order.txt)
@@ -244,6 +280,41 @@ jobs:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
+
+      - name: System reference data acceptance (UoM catalog + reserved-code guards)
+        run: |
+          set -Eeuo pipefail
+          if ! psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public' AND p.proname = 'rpc_create_org_uom'" | grep -q 1; then
+            echo "❌ rpc_create_org_uom غائبة — الـbaseline أقدم مما يفترضه هذا الاختبار"
+            exit 1
+          fi
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_reference_uom.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: System reference data acceptance (RBAC modules + permissions)
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_reference_rbac.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Upload reference data report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reference-data-report-${{ github.run_id }}
+          path: /tmp/reference-data-report.json
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Build project
         run: npm run build
