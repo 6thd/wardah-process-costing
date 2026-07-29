@@ -27,13 +27,15 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الموثقة في PR #65 بتاريخ 2026-07-29:
+الحالة الموثقة بعد دمج PR #65 وتطبيقه بتاريخ 2026-07-29:
 
 - Baseline الحالي: `000_schema_baseline_20260729_072509.sql`, cutoff 148.
-- Production: مطبقة حتى 148 (`148_uom_purchase_receipt_snapshots`).
-- Repository branch في PR #65: أعلى migration مرقمة هي 152.
+- Production: **مطبقة حتى 152** (`152_ap_allow_fully_received_purchase_orders`)؛
+  149–152 مُثبتة في `supabase_migrations.schema_migrations` بعد الدمج إلى `main`.
+- Repository: أعلى migration مرقمة هي 152 على `main`.
 - Fresh DB: يطبق 149→152 بعد cutoff 148، وبوابة AP المخصصة ناجحة على PostgreSQL 17.
-- migrations 149–152 **غير مطبقة على Production** لمجرد نجاح Fresh DB أو وجودها في PR.
+- الـBaseline لم يُحدَّث بعد إلى cutoff 152؛ يلزم PR Baseline مستقل عبر workflow المخصص.
+- أول رقم محجوز بعدها: **153** (محجوز لبرنامج محرك التقارير المالية، انظر المراجع).
 - لا تعدّ أي migration مطبقة حيًا إلا إذا ظهرت في `supabase_migrations.schema_migrations`.
 <!-- DATABASE_STATE_END -->
 
@@ -55,6 +57,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/AP_THREE_WAY_MATCH_149_152_RUNBOOK.md` — 149–152: المطابقة الثلاثية،
   idempotency، hardening أمني، وترتيب تطبيق Production الإلزامي
   `149 → 150 → 151 → 152` مع فحوص قبل/بعد التطبيق.
+- `docs/FINANCIAL_REPORTING_ENGINE_SPEC.md` — `WRD-FIN-REP-SRS-001` v1.2: محرك
+  التقارير والقوائم المالية. **يحجز migrations 153–162**، ويوثّق أن الأعمدة
+  القانونية في `gl_entry_lines` هي `account_id`/`debit`/`credit` وأن
+  `account_code`/`debit_amount`/`credit_amount` أعمدة توافق انتقالية، وأن
+  `gl_accounts` هي شجرة الحسابات القانونية. ويوثّق عيوبًا حية مثبتة: انقطاع
+  ترميز الحسابات المرحّلة، و`accounting_periods` فارغ مع `assert_period_open`
+  fail-open، و11 جدولًا على GUC ميت.
 
 ## Baseline
 
