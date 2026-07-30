@@ -18,23 +18,23 @@ SELECT set_config('request.jwt.claim.sub', '53f00000-0000-0000-0000-000000000001
 SELECT set_config('request.jwt.claim.role', 'authenticated', false);
 SELECT set_config('request.jwt.claims', '{"sub":"53f00000-0000-0000-0000-000000000001","role":"authenticated","org_id":"53111111-1111-1111-1111-111111111111"}', false);
 
-SELECT public.rpc_post_customer_receipt('53r00000-0000-0000-0000-000000000001');
-SELECT public.rpc_post_supplier_payment('53s00000-0000-0000-0000-000000000001');
+SELECT public.rpc_post_customer_receipt('53e10000-0000-0000-0000-000000000001');
+SELECT public.rpc_post_supplier_payment('53f10000-0000-0000-0000-000000000001');
 
 DO $$
 DECLARE v_count bigint; v_receipt_entry uuid; v_payment_entry uuid;
 BEGIN
-  SELECT gl_entry_id INTO v_receipt_entry FROM public.customer_collections WHERE id='53r00000-0000-0000-0000-000000000001';
-  SELECT gl_entry_id INTO v_payment_entry FROM public.supplier_payments WHERE id='53s00000-0000-0000-0000-000000000001';
+  SELECT gl_entry_id INTO v_receipt_entry FROM public.customer_collections WHERE id='53e10000-0000-0000-0000-000000000001';
+  SELECT gl_entry_id INTO v_payment_entry FROM public.supplier_payments WHERE id='53f10000-0000-0000-0000-000000000001';
   IF v_receipt_entry IS NULL OR v_payment_entry IS NULL THEN RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL missing GL links'; END IF;
-  IF (SELECT status FROM public.customer_collections WHERE id='53r00000-0000-0000-0000-000000000001') <> 'posted'
-     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53i00000-0000-0000-0000-000000000001') <> 100
-     OR (SELECT payment_status FROM public.sales_invoices WHERE id='53i00000-0000-0000-0000-000000000001') <> 'paid' THEN
+  IF (SELECT status FROM public.customer_collections WHERE id='53e10000-0000-0000-0000-000000000001') <> 'posted'
+     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53c10000-0000-0000-0000-000000000001') <> 100
+     OR (SELECT payment_status FROM public.sales_invoices WHERE id='53c10000-0000-0000-0000-000000000001') <> 'paid' THEN
     RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL customer state';
   END IF;
-  IF (SELECT status FROM public.supplier_payments WHERE id='53s00000-0000-0000-0000-000000000001') <> 'posted'
-     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53p00000-0000-0000-0000-000000000001') <> 120
-     OR (SELECT status FROM public.supplier_invoices WHERE id='53p00000-0000-0000-0000-000000000001') <> 'paid' THEN
+  IF (SELECT status FROM public.supplier_payments WHERE id='53f10000-0000-0000-0000-000000000001') <> 'posted'
+     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53d10000-0000-0000-0000-000000000001') <> 120
+     OR (SELECT status FROM public.supplier_invoices WHERE id='53d10000-0000-0000-0000-000000000001') <> 'paid' THEN
     RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL supplier state';
   END IF;
   SELECT count(*) INTO v_count FROM public.gl_entries WHERE id IN (v_receipt_entry,v_payment_entry) AND status='posted';
@@ -47,46 +47,46 @@ BEGIN
 END $$;
 
 -- Retry is idempotent: no duplicate GL and no doubled invoice paid amount.
-SELECT public.rpc_post_customer_receipt('53r00000-0000-0000-0000-000000000001');
-SELECT public.rpc_post_supplier_payment('53s00000-0000-0000-0000-000000000001');
+SELECT public.rpc_post_customer_receipt('53e10000-0000-0000-0000-000000000001');
+SELECT public.rpc_post_supplier_payment('53f10000-0000-0000-0000-000000000001');
 DO $$
 BEGIN
   IF (SELECT count(*) FROM public.gl_entries WHERE idempotency_key IN (
-      'CUSTOMER_RECEIPT:53r00000-0000-0000-0000-000000000001',
-      'SUPPLIER_PAYMENT:53s00000-0000-0000-0000-000000000001')) <> 2
-     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53i00000-0000-0000-0000-000000000001') <> 100
-     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53p00000-0000-0000-0000-000000000001') <> 120 THEN
+      'CUSTOMER_RECEIPT:53e10000-0000-0000-0000-000000000001',
+      'SUPPLIER_PAYMENT:53f10000-0000-0000-0000-000000000001')) <> 2
+     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53c10000-0000-0000-0000-000000000001') <> 100
+     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53d10000-0000-0000-0000-000000000001') <> 120 THEN
     RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL idempotency';
   END IF;
 END $$;
 
 -- Over-allocation rolls back voucher, invoice and GL together.
 SELECT pg_temp.expect_error(
-  $$SELECT public.rpc_post_customer_receipt('53r00000-0000-0000-0000-000000000002')$$,
+  $$SELECT public.rpc_post_customer_receipt('53e10000-0000-0000-0000-000000000002')$$,
   'CUSTOMER_RECEIPT_OVER_ALLOCATION');
 SELECT pg_temp.expect_error(
-  $$SELECT public.rpc_post_supplier_payment('53s00000-0000-0000-0000-000000000002')$$,
+  $$SELECT public.rpc_post_supplier_payment('53f10000-0000-0000-0000-000000000002')$$,
   'SUPPLIER_PAYMENT_OVER_ALLOCATION');
 DO $$
 BEGIN
-  IF (SELECT status FROM public.customer_collections WHERE id='53r00000-0000-0000-0000-000000000002') <> 'draft'
-     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53i00000-0000-0000-0000-000000000002') <> 0
-     OR EXISTS (SELECT 1 FROM public.gl_entries WHERE idempotency_key='CUSTOMER_RECEIPT:53r00000-0000-0000-0000-000000000002') THEN
+  IF (SELECT status FROM public.customer_collections WHERE id='53e10000-0000-0000-0000-000000000002') <> 'draft'
+     OR (SELECT paid_amount FROM public.sales_invoices WHERE id='53c10000-0000-0000-0000-000000000002') <> 0
+     OR EXISTS (SELECT 1 FROM public.gl_entries WHERE idempotency_key='CUSTOMER_RECEIPT:53e10000-0000-0000-0000-000000000002') THEN
     RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL customer rollback';
   END IF;
-  IF (SELECT status FROM public.supplier_payments WHERE id='53s00000-0000-0000-0000-000000000002') <> 'draft'
-     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53p00000-0000-0000-0000-000000000002') <> 0
-     OR EXISTS (SELECT 1 FROM public.gl_entries WHERE idempotency_key='SUPPLIER_PAYMENT:53s00000-0000-0000-0000-000000000002') THEN
+  IF (SELECT status FROM public.supplier_payments WHERE id='53f10000-0000-0000-0000-000000000002') <> 'draft'
+     OR (SELECT paid_amount FROM public.supplier_invoices WHERE id='53d10000-0000-0000-0000-000000000002') <> 0
+     OR EXISTS (SELECT 1 FROM public.gl_entries WHERE idempotency_key='SUPPLIER_PAYMENT:53f10000-0000-0000-0000-000000000002') THEN
     RAISE EXCEPTION 'ATOMIC_VOUCHER_FAIL supplier rollback';
   END IF;
 END $$;
 
 -- Current tenant cannot post another organization's voucher.
 SELECT pg_temp.expect_error(
-  $$SELECT public.rpc_post_customer_receipt('53r00000-0000-0000-0000-000000000003')$$,
+  $$SELECT public.rpc_post_customer_receipt('53e10000-0000-0000-0000-000000000003')$$,
   'CUSTOMER_RECEIPT_NOT_FOUND_OR_CROSS_ORG');
 SELECT pg_temp.expect_error(
-  $$SELECT public.rpc_post_supplier_payment('53s00000-0000-0000-0000-000000000003')$$,
+  $$SELECT public.rpc_post_supplier_payment('53f10000-0000-0000-0000-000000000003')$$,
   'SUPPLIER_PAYMENT_NOT_FOUND_OR_CROSS_ORG');
 
 RESET ROLE;
