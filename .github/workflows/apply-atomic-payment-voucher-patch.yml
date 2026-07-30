@@ -1,9 +1,9 @@
 name: Apply Atomic Payment Voucher Patch
 
 on:
-  push:
+  pull_request:
     branches:
-      - fix/payment-vouchers-legal-gl-contract
+      - main
     paths:
       - scripts/dev/apply_atomic_payment_voucher_patch.py
       - .github/workflows/apply-atomic-payment-voucher-patch.yml
@@ -14,6 +14,7 @@ permissions:
 
 jobs:
   apply:
+    if: github.head_ref == 'fix/payment-vouchers-legal-gl-contract'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout branch
