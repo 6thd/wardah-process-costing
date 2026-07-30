@@ -271,13 +271,15 @@ async function updateInvoicePaidAmounts(lines: any[]): Promise<void> {
 
     const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
 
-    await supabase
-      .from('sales_invoices')
-      .update({
-        paid_amount: newPaidAmount,
-        payment_status: paymentStatus
-      })
-      .eq('id', line.invoice_id);
+    const { error } = await supabase
+    .from('sales_invoices')
+    .update({
+      paid_amount: newPaidAmount,
+      payment_status: paymentStatus
+    })
+    .eq('id', line.invoice_id);
+
+  if (error) throw error;
   }
 }
 
@@ -328,11 +330,11 @@ export async function postCustomerReceipt(
     if (receiptError) throw receiptError;
     validateReceiptStatus(receipt);
 
-    // Update invoice paid amounts
-    await updateInvoicePaidAmounts(receipt.lines);
+    // Create the posted GL entry first. Fail closed before touching invoice balances.
+  const glEntryId = await createReceiptAccountingEntry(receipt);
 
-    // Create accounting entry
-    const glEntryId = await createReceiptAccountingEntry(receipt);
+  // Update invoice paid amounts only after the legal GL RPC succeeds.
+  await updateInvoicePaidAmounts(receipt.lines);
 
     // Update receipt status
     const updatedReceipt = await updateReceiptStatus(receiptId, glEntryId, receipt.created_by);
@@ -347,106 +349,79 @@ export async function postCustomerReceipt(
 /**
  * Create accounting entry for customer receipt
  */
-async function createReceiptAccountingEntry(receipt: any): Promise<string | null> {
-  try {
-    const tenantId = await getEffectiveTenantId()
-    if (!tenantId) return null
+async function createReceiptAccountingEntry(receipt: any): Promise<string> {
+  const tenantId = await getEffectiveTenantId()
+  if (!tenantId) throw new Error('Tenant ID not found')
 
-    // Get payment account (cash/bank)
-    let paymentAccountId = receipt.payment_account_id
-    if (!paymentAccountId) {
-      // Try to get default account based on payment method
-      const accountSubtype = receipt.payment_method === 'cash' ? 'CASH' : 'BANK'
-      const { data: accounts } = await supabase
-        .from('gl_accounts')
-        .select('id')
-        .eq('org_id', tenantId)
-        .eq('subtype', accountSubtype)
-        .eq('is_active', true)
-        .limit(1)
-
-      if (accounts && accounts.length > 0) {
-        paymentAccountId = accounts[0].id
-      }
-    }
-
-    // Get customer AR account
-    const { data: arAccounts } = await supabase
+  let paymentAccountId = receipt.payment_account_id
+  if (!paymentAccountId) {
+    const accountSubtype = receipt.payment_method === 'cash' ? 'CASH' : 'BANK'
+    const { data: accounts, error: accountsError } = await supabase
       .from('gl_accounts')
       .select('id')
       .eq('org_id', tenantId)
-      .eq('subtype', 'ACCOUNTS_RECEIVABLE')
+      .eq('subtype', accountSubtype)
       .eq('is_active', true)
       .limit(1)
 
-    if (!paymentAccountId || !arAccounts || arAccounts.length === 0) {
-      console.warn('GL accounts not found for receipt, skipping accounting entry')
-      return null
-    }
+    if (accountsError) throw accountsError
+    paymentAccountId = accounts?.[0]?.id
+  }
 
-    const arAccountId = arAccounts[0].id
+  const { data: arAccounts, error: arError } = await supabase
+    .from('gl_accounts')
+    .select('id')
+    .eq('org_id', tenantId)
+    .eq('subtype', 'ACCOUNTS_RECEIVABLE')
+    .eq('is_active', true)
+    .limit(1)
 
-    // Create journal entry directly
-    // First create the entry header
-    const { data: entry, error: entryError } = await supabase
-      .from('gl_entries')
-      .insert({
-        org_id: tenantId,
-        entry_date: receipt.collection_date,
-        description: `سند قبض ${receipt.collection_number}`,
-        description_ar: `سند قبض ${receipt.collection_number}`,
-        reference_type: 'CUSTOMER_RECEIPT',
-        reference_number: receipt.collection_number,
-        total_debit: receipt.amount,
-        total_credit: receipt.amount,
-        status: 'posted'
-      })
-      .select()
-      .single()
+  if (arError) throw arError
+  const arAccountId = arAccounts?.[0]?.id
+  if (!paymentAccountId || !arAccountId) {
+    throw new Error('GL_ACCOUNTS_MISSING: receipt payment/AR account is required')
+  }
 
-    if (entryError) {
-      console.error('Error creating journal entry:', entryError)
-      return null
-    }
-
-    // Create entry lines
-    const { error: linesError } = await supabase
-      .from('gl_entry_lines')
-      .insert([
+  const description = `سند قبض ${receipt.collection_number}`
+  const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
+    p_payload: {
+      org_id: tenantId,
+      entry_date: receipt.collection_date,
+      description,
+      description_ar: description,
+      reference_type: 'CUSTOMER_RECEIPT',
+      reference_number: receipt.collection_number,
+      reference_id: receipt.id || null,
+      idempotency_key: `CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}`,
+      auto_post: true,
+      lines: [
         {
-          org_id: tenantId,
-          entry_id: entry.id,
           line_number: 1,
           account_id: paymentAccountId,
-          debit_amount: receipt.amount,
-          credit_amount: 0,
-          description: `سند قبض ${receipt.collection_number}`,
-          description_ar: `سند قبض ${receipt.collection_number}`
+          debit: Number(receipt.amount),
+          credit: 0,
+          currency_code: 'SAR',
+          description,
+          description_ar: description
         },
         {
-          org_id: tenantId,
-          entry_id: entry.id,
           line_number: 2,
           account_id: arAccountId,
-          debit_amount: 0,
-          credit_amount: receipt.amount,
-          description: `سند قبض ${receipt.collection_number}`,
-          description_ar: `سند قبض ${receipt.collection_number}`
+          debit: 0,
+          credit: Number(receipt.amount),
+          currency_code: 'SAR',
+          description,
+          description_ar: description
         }
-      ])
-
-    if (linesError) {
-      console.error('Error creating journal entry lines:', linesError)
-      // Delete entry if lines failed
-      await supabase.from('gl_entries').delete().eq('id', entry.id)
-      return null
+      ]
     }
+  })
 
-    return entry.id
-  } catch (error: any) {
-    console.error('Error creating receipt accounting entry:', error)
-    return null
+  if (error) throw error
+  if (!result?.success || !result?.entry_id) {
+    throw new Error('GL_ENTRY_CREATE_FAILED: receipt journal RPC returned no entry')
   }
+  return result.entry_id
 }
 
 /**
@@ -653,13 +628,15 @@ async function updateSupplierInvoicePaidAmounts(lines: any[]): Promise<void> {
 
     const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
 
-    await supabase
-      .from('supplier_invoices')
-      .update({
-        paid_amount: newPaidAmount,
-        status: paymentStatus
-      })
-      .eq('id', line.invoice_id);
+    const { error } = await supabase
+    .from('supplier_invoices')
+    .update({
+      paid_amount: newPaidAmount,
+      status: paymentStatus
+    })
+    .eq('id', line.invoice_id);
+
+  if (error) throw error;
   }
 }
 
@@ -710,11 +687,11 @@ export async function postSupplierPayment(
     if (paymentError) throw paymentError;
     validateReceiptStatus(payment);
 
-    // Update invoice paid amounts
-    await updateSupplierInvoicePaidAmounts(payment.lines);
+    // Create the posted GL entry first. Fail closed before touching invoice balances.
+  const glEntryId = await createPaymentAccountingEntry(payment);
 
-    // Create accounting entry
-    const glEntryId = await createPaymentAccountingEntry(payment);
+  // Update invoice paid amounts only after the legal GL RPC succeeds.
+  await updateSupplierInvoicePaidAmounts(payment.lines);
 
     // Update payment status
     const updatedPayment = await updatePaymentStatus(paymentId, glEntryId, payment.created_by);
@@ -729,106 +706,79 @@ export async function postSupplierPayment(
 /**
  * Create accounting entry for supplier payment
  */
-async function createPaymentAccountingEntry(payment: any): Promise<string | null> {
-  try {
-    const tenantId = await getEffectiveTenantId()
-    if (!tenantId) return null
+async function createPaymentAccountingEntry(payment: any): Promise<string> {
+  const tenantId = await getEffectiveTenantId()
+  if (!tenantId) throw new Error('Tenant ID not found')
 
-    // Get payment account (cash/bank)
-    let paymentAccountId = payment.payment_account_id
-    if (!paymentAccountId) {
-      // Try to get default account based on payment method
-      const accountSubtype = payment.payment_method === 'cash' ? 'CASH' : 'BANK'
-      const { data: accounts } = await supabase
-        .from('gl_accounts')
-        .select('id')
-        .eq('org_id', tenantId)
-        .eq('subtype', accountSubtype)
-        .eq('is_active', true)
-        .limit(1)
-
-      if (accounts && accounts.length > 0) {
-        paymentAccountId = accounts[0].id
-      }
-    }
-
-    // Get supplier AP account
-    const { data: apAccounts } = await supabase
+  let paymentAccountId = payment.payment_account_id
+  if (!paymentAccountId) {
+    const accountSubtype = payment.payment_method === 'cash' ? 'CASH' : 'BANK'
+    const { data: accounts, error: accountsError } = await supabase
       .from('gl_accounts')
       .select('id')
       .eq('org_id', tenantId)
-      .eq('subtype', 'ACCOUNTS_PAYABLE')
+      .eq('subtype', accountSubtype)
       .eq('is_active', true)
       .limit(1)
 
-    if (!paymentAccountId || !apAccounts || apAccounts.length === 0) {
-      console.warn('GL accounts not found for payment, skipping accounting entry')
-      return null
-    }
+    if (accountsError) throw accountsError
+    paymentAccountId = accounts?.[0]?.id
+  }
 
-    const apAccountId = apAccounts[0].id
+  const { data: apAccounts, error: apError } = await supabase
+    .from('gl_accounts')
+    .select('id')
+    .eq('org_id', tenantId)
+    .eq('subtype', 'ACCOUNTS_PAYABLE')
+    .eq('is_active', true)
+    .limit(1)
 
-    // Create journal entry directly
-    // First create the entry header
-    const { data: entry, error: entryError } = await supabase
-      .from('gl_entries')
-      .insert({
-        org_id: tenantId,
-        entry_date: payment.payment_date,
-        description: `سند صرف ${payment.payment_number}`,
-        description_ar: `سند صرف ${payment.payment_number}`,
-        reference_type: 'SUPPLIER_PAYMENT',
-        reference_number: payment.payment_number,
-        total_debit: payment.amount,
-        total_credit: payment.amount,
-        status: 'posted'
-      })
-      .select()
-      .single()
+  if (apError) throw apError
+  const apAccountId = apAccounts?.[0]?.id
+  if (!paymentAccountId || !apAccountId) {
+    throw new Error('GL_ACCOUNTS_MISSING: payment cash/bank and AP accounts are required')
+  }
 
-    if (entryError) {
-      console.error('Error creating journal entry:', entryError)
-      return null
-    }
-
-    // Create entry lines
-    const { error: linesError } = await supabase
-      .from('gl_entry_lines')
-      .insert([
+  const description = `سند صرف ${payment.payment_number}`
+  const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
+    p_payload: {
+      org_id: tenantId,
+      entry_date: payment.payment_date,
+      description,
+      description_ar: description,
+      reference_type: 'SUPPLIER_PAYMENT',
+      reference_number: payment.payment_number,
+      reference_id: payment.id || null,
+      idempotency_key: `SUPPLIER_PAYMENT:${payment.id || payment.payment_number}`,
+      auto_post: true,
+      lines: [
         {
-          org_id: tenantId,
-          entry_id: entry.id,
           line_number: 1,
           account_id: apAccountId,
-          debit_amount: payment.amount,
-          credit_amount: 0,
-          description: `سند صرف ${payment.payment_number}`,
-          description_ar: `سند صرف ${payment.payment_number}`
+          debit: Number(payment.amount),
+          credit: 0,
+          currency_code: 'SAR',
+          description,
+          description_ar: description
         },
         {
-          org_id: tenantId,
-          entry_id: entry.id,
           line_number: 2,
           account_id: paymentAccountId,
-          debit_amount: 0,
-          credit_amount: payment.amount,
-          description: `سند صرف ${payment.payment_number}`,
-          description_ar: `سند صرف ${payment.payment_number}`
+          debit: 0,
+          credit: Number(payment.amount),
+          currency_code: 'SAR',
+          description,
+          description_ar: description
         }
-      ])
-
-    if (linesError) {
-      console.error('Error creating journal entry lines:', linesError)
-      // Delete entry if lines failed
-      await supabase.from('gl_entries').delete().eq('id', entry.id)
-      return null
+      ]
     }
+  })
 
-    return entry.id
-  } catch (error: any) {
-    console.error('Error creating payment accounting entry:', error)
-    return null
+  if (error) throw error
+  if (!result?.success || !result?.entry_id) {
+    throw new Error('GL_ENTRY_CREATE_FAILED: supplier payment journal RPC returned no entry')
   }
+  return result.entry_id
 }
 
 /**
