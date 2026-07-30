@@ -47,6 +47,9 @@ psql -v ON_ERROR_STOP=1 -X -d "$DB" \
   -f scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql
 psql -v ON_ERROR_STOP=1 -X -d "$DB" \
   -f scripts/ci/fresh-db/acceptance_149_ap_three_way_match.sql
+# Explicit closure evidence for every remaining acceptance item in issue #46.
+psql -v ON_ERROR_STOP=1 -X -d "$DB" \
+  -f scripts/ci/fresh-db/acceptance_149_issue_46_closure.sql
 PGDATABASE="$DB" bash scripts/ci/fresh-db/acceptance_149_concurrency.sh
 
 # Final invariants are independent of specific fixture identifiers.
