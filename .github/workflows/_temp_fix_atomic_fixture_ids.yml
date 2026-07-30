@@ -1,0 +1,45 @@
+name: Temporary Fix Atomic Fixture IDs
+
+on:
+  pull_request:
+    types: [synchronize]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.head_ref == 'fix/payment-vouchers-legal-gl-contract' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/payment-vouchers-legal-gl-contract
+      - name: Normalize fixture UUIDs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          replacements = {
+            '53v00000': '53b10000',
+            '53i00000': '53c10000',
+            '53p00000': '53d10000',
+            '53r00000': '53e10000',
+            '53s00000': '53f10000',
+          }
+          for name in [
+            'scripts/ci/fresh-db/setup_153_pre_migration_fixture.sql',
+            'scripts/ci/fresh-db/acceptance_153_atomic_vouchers.sql',
+          ]:
+            path = Path(name)
+            text = path.read_text()
+            for old, new in replacements.items():
+              text = text.replace(old, new)
+            path.write_text(text)
+          Path('.github/workflows/_temp_fix_atomic_fixture_ids.yml').unlink()
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "test(finance): use valid UUIDs in atomic voucher fixtures"
+          git push origin HEAD:fix/payment-vouchers-legal-gl-contract
