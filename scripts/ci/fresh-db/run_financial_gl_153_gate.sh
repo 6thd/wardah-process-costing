@@ -25,9 +25,22 @@ echo "Financial GL 153 gate: baseline=$BASELINE reference=$REFERENCE cutoff=$CUT
 
 setup_pre153_db() {
   local db=$1
+  local shim=scripts/ci/fresh-db/supabase_shim.sql
+  local effective_shim=$shim
+
   dropdb --if-exists "$db"
   createdb "$db"
-  psql -v ON_ERROR_STOP=1 -X -d "$db" -f scripts/ci/fresh-db/supabase_shim.sql -q
+
+  # Supabase client roles are cluster-wide, while auth/storage schemas are
+  # database-local. The positive and reject paths use two databases in the same
+  # PostgreSQL service, so only the first setup may execute CREATE ROLE.
+  if psql -X -d postgres -tAc "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='anon')" | grep -qx t; then
+    effective_shim=/tmp/f153-supabase-shim-with-existing-roles.sql
+    sed '/^CREATE ROLE \(anon\|authenticated\|service_role\|supabase_admin\) NOLOGIN;$/d' \
+      "$shim" > "$effective_shim"
+  fi
+
+  psql -v ON_ERROR_STOP=1 -X -d "$db" -f "$effective_shim" -q
   psql -v ON_ERROR_STOP=1 -X -d "$db" -f "$BASELINE" -q
   psql -v ON_ERROR_STOP=1 -X -d "$db" -f "$REFERENCE" -q
   psql -v ON_ERROR_STOP=1 -X -d "$db" \
