@@ -11055,6 +11055,10 @@ export type Database = {
         Returns: Json
       }
       rpc_manual_stock_movement_v2: { Args: { p_payload: Json }; Returns: Json }
+      rpc_post_customer_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
+      }
       rpc_post_delivery_note: { Args: { p_payload: Json }; Returns: Json }
       rpc_post_event_journal: {
         Args: {
@@ -11072,6 +11076,10 @@ export type Database = {
       rpc_post_goods_receipt: { Args: { p_payload: Json }; Returns: Json }
       rpc_post_payroll_run: { Args: { p_payload: Json }; Returns: Json }
       rpc_post_settlement: { Args: { p_payload: Json }; Returns: Json }
+      rpc_post_supplier_payment: {
+        Args: { p_payment_id: string }
+        Returns: Json
+      }
       rpc_post_work_center_oh: {
         Args: {
           p_amount: number
@@ -11532,6 +11540,21 @@ export type Database = {
       }
       wardah_assert_org_admin: { Args: { p_org: string }; Returns: undefined }
       wardah_assert_org_member: { Args: { p_org: string }; Returns: undefined }
+      wardah_create_posted_voucher_gl: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_credit_account_id: string
+          p_debit_account_id: string
+          p_description: string
+          p_entry_date: string
+          p_org: string
+          p_reference_id: string
+          p_reference_number: string
+          p_reference_type: string
+        }
+        Returns: string
+      }
       wardah_is_org_admin: { Args: { p_org: string }; Returns: boolean }
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
       wardah_org_id: { Args: { p_explicit?: string }; Returns: string }

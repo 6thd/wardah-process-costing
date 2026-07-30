@@ -1,7 +1,7 @@
 # Migration 153 — Financial GL Legal Amount Contract Runbook
 
 **Migration:** `153_financial_gl_legal_amount_contract.sql`  
-**Contract:** `WRD-FIN-REP-SRS-001` v1.3  
+**Contract:** `WRD-FIN-REP-SRS-001` v1.4  
 **Baseline cutoff عند إنشاء هذا الـPR:** 152  
 **الحالة:** Repository implementation؛ **غير مطبقة على Production**.
 
@@ -13,6 +13,7 @@ Migration 153 تنفذ انتقالًا ميكانيكيًا محدودًا لع
 - إبقاء هوية الحساب التاريخية كما هي؛ لا Mapping ولا تخمين.
 - فرض قيود قانونية على `debit/credit`.
 - توسيع `gl_entries.total_debit/total_credit` إلى `numeric(18,2)`.
+- إنشاء RPCs ذرّية لسندات القبض والصرف تمنع فصل GL عن تحديث الفاتورة والسند.
 - إنشاء توافق انتقالي أحادي الاتجاه للكتابات المستقبلية:
   `account_id + debit/credit → account_code/name + debit_amount/credit_amount`.
 - إعادة حماية أسطر القيود المرحّلة قبل إنهاء المعاملة.
@@ -143,9 +144,11 @@ scripts/ci/fresh-db/run_financial_gl_153_gate.sh
 FINANCIAL_GL_153_FRESH_DB_GATE_PASS
 ```
 
-## 8. حاجز تطبيق Production المكتشف
+## 8. حاجز تطبيق Production ومعالجته
 
-يوجد مسار تطبيق ما زال يكتب شكلًا غير قانوني بعد 153:
+كان يوجد مسار تطبيق يكتب شكلًا غير قانوني ويفصل GL عن تحديث الفاتورة والسند. النسخة v1.4 من Migration 153 تعالج ذلك بإضافة `rpc_post_customer_receipt` و`rpc_post_supplier_payment` الذريتين، ويستدعي التطبيق هاتين الدالتين فقط. يبقى تطبيق Production محظورًا حتى دمج هذه النسخة، اخضرار Fresh DB، ونشر التطبيق ثم Pilot موثق.
+
+المسار السابق كان:
 
 ```text
 src/services/payment-vouchers-service.ts
@@ -277,3 +280,8 @@ ORDER BY column_name;
 7. تنفيذ postchecks وتوثيق سجل migration مرة واحدة.
 8. إبقاء محرك التقارير v2 غير مفعّل؛ 154 وما بعدها لم تُطبق بعد.
 9. تحديث Baseline لاحقًا عبر workflow وPR مستقل بعد ظهور 153 في سجل Production.
+
+
+## 12. قبول السندات الذرّية
+
+بوابة 153 تثبت أيضًا: نجاح سند قبض وصرف، GL قانوني posted، تحديث الفواتير والسندات في المعاملة نفسها، retry بلا تكرار، rollback كامل عند over-allocation، رفض cross-org، وسحب EXECUTE عن helper الداخلية. الخصومات غير مدعومة حتى اعتماد حسابها القانوني وتُرفض fail-closed.

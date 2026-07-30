@@ -1,0 +1,16 @@
+\set ON_ERROR_STOP on
+
+INSERT INTO public.gl_accounts
+  (id, org_id, code, name, name_en, name_ar, category, subtype, normal_balance,
+   allow_posting, is_active)
+VALUES
+  ('53a00000-0000-0000-0000-000000000005', '53111111-1111-1111-1111-111111111111',
+   '112000', 'AR A', 'AR A', 'ذمم مدينة أ', 'ASSET', 'ACCOUNTS_RECEIVABLE', 'DEBIT', true, true),
+  ('53a00000-0000-0000-0000-000000000006', '53111111-1111-1111-1111-111111111111',
+   '211000', 'AP A', 'AP A', 'ذمم دائنة أ', 'LIABILITY', 'ACCOUNTS_PAYABLE', 'CREDIT', true, true),
+  ('53a00000-0000-0000-0000-000000000007', '53222222-2222-2222-2222-222222222222',
+   '112000', 'AR B', 'AR B', 'ذمم مدينة ب', 'ASSET', 'ACCOUNTS_RECEIVABLE', 'DEBIT', true, true),
+  ('53a00000-0000-0000-0000-000000000008', '53222222-2222-2222-2222-222222222222',
+   '211000', 'AP B', 'AP B', 'ذمم دائنة ب', 'LIABILITY', 'ACCOUNTS_PAYABLE', 'CREDIT', true, true);
+
+SELECT 'SETUP_153_ATOMIC_VOUCHER_ACCOUNTS_PASS' AS result;
