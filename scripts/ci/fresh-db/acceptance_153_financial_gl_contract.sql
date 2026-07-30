@@ -177,13 +177,25 @@ SELECT pg_temp.expect_error(
   'POSTED_ENTRY_IMMUTABLE'
 );
 
--- New legacy-only, conflicting and cross-org writes fail visibly.
+-- New legacy-only, missing-account, conflicting and cross-org writes fail visibly.
+-- A legacy-only caller supplies no legal economic amount, so it is rejected at
+-- the legal-value gate before account resolution.
 SELECT pg_temp.expect_error(
   $$INSERT INTO public.gl_entry_lines
       (org_id, entry_id, line_number, account_code, debit_amount, credit_amount, debit, credit)
     VALUES
       ('53111111-1111-1111-1111-111111111111',
        '53e00000-0000-0000-0000-000000000010', 3, '1120', 1, 0, 0, 0)$$,
+  'GL_ZERO_LEGAL_LINE'
+);
+
+-- A legal amount without legal account identity reaches the distinct account gate.
+SELECT pg_temp.expect_error(
+  $$INSERT INTO public.gl_entry_lines
+      (org_id, entry_id, line_number, debit, credit)
+    VALUES
+      ('53111111-1111-1111-1111-111111111111',
+       '53e00000-0000-0000-0000-000000000010', 3, 1, 0)$$,
   'GL_LEGAL_ACCOUNT_REQUIRED'
 );
 
