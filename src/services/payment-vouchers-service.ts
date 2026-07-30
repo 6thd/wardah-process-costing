@@ -241,69 +241,6 @@ function validateReceiptStatus(receipt: any): void {
 }
 
 /**
- * Determine payment status based on amounts
- */
-function determinePaymentStatus(balance: number, newPaidAmount: number): string {
-  if (balance <= 0) {
-    return 'paid';
-  }
-  if (newPaidAmount > 0) {
-    return 'partially_paid';
-  }
-  return 'unpaid';
-}
-
-/**
- * Update invoice paid amounts
- */
-async function updateInvoicePaidAmounts(lines: any[]): Promise<void> {
-  if (!lines || lines.length === 0) return;
-
-  for (const line of lines) {
-    if (!line.invoice_id) continue;
-
-    const invoice = line.invoice;
-    const currentPaid = Number(invoice?.paid_amount || 0);
-    const allocatedAmount = Number(line.allocated_amount || 0);
-    const newPaidAmount = currentPaid + allocatedAmount;
-    const totalAmount = Number(invoice?.total_amount || 0);
-    const balance = totalAmount - newPaidAmount;
-
-    const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
-
-    const { error } = await supabase
-    .from('sales_invoices')
-    .update({
-      paid_amount: newPaidAmount,
-      payment_status: paymentStatus
-    })
-    .eq('id', line.invoice_id);
-
-  if (error) throw error;
-  }
-}
-
-/**
- * Update receipt status to posted
- */
-async function updateReceiptStatus(receiptId: string, glEntryId: string | null, createdBy: string): Promise<any> {
-  const { data: updatedReceipt, error: updateError } = await supabase
-    .from('customer_collections')
-    .update({
-      status: 'posted',
-      gl_entry_id: glEntryId,
-      posted_at: new Date().toISOString(),
-      posted_by: createdBy
-    })
-    .eq('id', receiptId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-  return updatedReceipt;
-}
-
-/**
  * Post customer receipt (إقرار سند القبض)
  */
 export async function postCustomerReceipt(
@@ -506,56 +443,6 @@ export async function createSupplierPayment(
     console.error('Error creating supplier payment:', error)
     return { success: false, error: error.message || error }
   }
-}
-
-/**
- * Update supplier invoice paid amounts
- */
-async function updateSupplierInvoicePaidAmounts(lines: any[]): Promise<void> {
-  if (!lines || lines.length === 0) return;
-
-  for (const line of lines) {
-    if (!line.invoice_id) continue;
-
-    const invoice = line.invoice;
-    const currentPaid = Number(invoice?.paid_amount || 0);
-    const allocatedAmount = Number(line.allocated_amount || 0);
-    const newPaidAmount = currentPaid + allocatedAmount;
-    const totalAmount = Number(invoice?.total_amount || 0);
-    const balance = totalAmount - newPaidAmount;
-
-    const paymentStatus = determinePaymentStatus(balance, newPaidAmount);
-
-    const { error } = await supabase
-    .from('supplier_invoices')
-    .update({
-      paid_amount: newPaidAmount,
-      status: paymentStatus
-    })
-    .eq('id', line.invoice_id);
-
-  if (error) throw error;
-  }
-}
-
-/**
- * Update payment status to posted
- */
-async function updatePaymentStatus(paymentId: string, glEntryId: string | null, createdBy: string): Promise<any> {
-  const { data: updatedPayment, error: updateError } = await supabase
-    .from('supplier_payments')
-    .update({
-      status: 'posted',
-      gl_entry_id: glEntryId,
-      posted_at: new Date().toISOString(),
-      posted_by: createdBy
-    })
-    .eq('id', paymentId)
-    .select()
-    .single();
-
-  if (updateError) throw updateError;
-  return updatedPayment;
 }
 
 /**

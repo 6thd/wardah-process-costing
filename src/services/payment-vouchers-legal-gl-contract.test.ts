@@ -13,6 +13,10 @@ describe('payment voucher legal GL writer contract', () => {
     expect(source).not.toContain('rpc_create_journal_entry')
     expect(source).not.toContain(".from('gl_entries')")
     expect(source).not.toContain(".from('gl_entry_lines')")
+    expect(source).not.toContain('updateInvoicePaidAmounts')
+    expect(source).not.toContain('updateSupplierInvoicePaidAmounts')
+    expect(source).not.toContain('updateReceiptStatus')
+    expect(source).not.toContain('updatePaymentStatus')
   })
 
   it('keeps every accounting amount mutation behind the database transaction boundary', () => {

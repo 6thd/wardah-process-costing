@@ -549,11 +549,39 @@ BEGIN
     RAISE EXCEPTION 'VOUCHER_GL_ACCOUNT_INVALID: legal posting accounts must belong to the voucher organization';
   END IF;
 
+  PERFORM public.assert_period_open(p_org, coalesce(p_entry_date, current_date));
+
   SELECT e.id INTO v_entry_id
   FROM public.gl_entries e
   WHERE e.org_id = p_org AND e.idempotency_key = v_idempotency_key
   FOR UPDATE;
   IF v_entry_id IS NOT NULL THEN
+    IF NOT EXISTS (
+      SELECT 1
+      FROM public.gl_entries e
+      WHERE e.id = v_entry_id
+        AND e.org_id = p_org
+        AND e.status = 'posted'
+        AND e.reference_type = p_reference_type
+        AND e.reference_id = p_reference_id
+        AND e.reference_number IS NOT DISTINCT FROM p_reference_number
+        AND e.entry_date = coalesce(p_entry_date, current_date)
+        AND round(e.total_debit, 2) = round(p_amount, 2)
+        AND round(e.total_credit, 2) = round(p_amount, 2)
+        AND (
+          SELECT count(*)
+          FROM public.gl_entry_lines l
+          WHERE l.entry_id = e.id
+            AND l.org_id = p_org
+            AND (
+              (l.account_id = p_debit_account_id AND round(l.debit,2) = round(p_amount,2) AND l.credit = 0)
+              OR
+              (l.account_id = p_credit_account_id AND l.debit = 0 AND round(l.credit,2) = round(p_amount,2))
+            )
+        ) = 2
+    ) THEN
+      RAISE EXCEPTION 'VOUCHER_GL_IDEMPOTENCY_CONFLICT: existing entry does not match voucher contract';
+    END IF;
     RETURN v_entry_id;
   END IF;
 
