@@ -101,6 +101,9 @@ financial_gl_quarantine (
 - `reversal` و`reclassification` لا يصبحان نافذين إلا عند وجود قيد مقابل `posted` مرتبط.
 - لا سطر `posted` يدخل المصدر القانوني النهائي بلا `account_id` صالح، إلا إذا كان له سجل حجر معتمد قابل للتدقيق.
 - المصدر القانوني يعيد `quality_flags` وعدد/قيمة الأسطر المحجورة، ولا يخفيها عن المراجع.
+- **أمن الجدول جزء من Migration 154 نفسها ولا يؤجل إلى 155:** فور الإنشاء وقبل إدخال أي قرار، تُسحب صلاحيات الجدول من `PUBLIC` و`anon` و`authenticated`، وتُفعّل `ENABLE ROW LEVEL SECURITY` و`FORCE ROW LEVEL SECURITY`، وتُنشأ سياسات القراءة/الإدارة المقصودة أو تُحصر القراءة والكتابة في RPCs محروسة.
+- لا كتابة مباشرة من العميل إلى جدول الحجر. الإدخال أو التعديل يتم عبر migration معتمدة أو واجهة إدارية ذرية تتحقق من المؤسسة والصلاحية والاعتماد المحاسبي.
+- يجب أن يثبت Fresh DB أن `anon` وعضوًا غير مخول لا يستطيعان قراءة أو إنشاء أو تعديل أو حذف قرار حجر، وأن معرّف مؤسسة أخرى مرفوض.
 
 تعريف الاكتمال الأدق:
 
@@ -140,14 +143,17 @@ financial_gl_quarantine (
 
 ### 6.2 القفل والتزامن
 
-قبل snapshot أو backfill:
+قبل snapshot أو backfill، تُكتسب الأقفال بترتيب الكتابة الطبيعي **الرأس أولًا ثم السطور**، ويفضل في statement واحدة:
 
 ```sql
-LOCK TABLE public.gl_entry_lines IN SHARE ROW EXCLUSIVE MODE;
-LOCK TABLE public.gl_entries IN SHARE ROW EXCLUSIVE MODE;
+LOCK TABLE public.gl_entries,
+           public.gl_entry_lines
+IN SHARE ROW EXCLUSIVE MODE;
 ```
 
-يجوز اختيار قفل أشد إن أثبتت المراجعة الحاجة، لكن يمنع تنفيذ backfill مع كتابات متزامنة تغير مجموعة الصفوف أو مجاميعها.
+يُمنع ترتيب child-first لأنه قد يتعارض مع جلسة أنشأت رأس القيد ثم تنتظر إدخال السطور. يجوز اختيار قفل أشد إن أثبتت المراجعة الحاجة، لكن يمنع تنفيذ backfill مع كتابات متزامنة تغير مجموعة الصفوف أو مجاميعها.
+
+اختبار التزامن الإلزامي يشغّل كاتبًا بالنمط القانوني `gl_entries → gl_entry_lines` بالتوازي مع 153، ويثبت عدم وقوع deadlock وأن أحد المسارين ينتظر بصورة حتمية ثم يكتمل دون drift أو فقد.
 
 ### 6.3 Preflight إلزامي
 
@@ -168,7 +174,21 @@ LOCK TABLE public.gl_entries IN SHARE ROW EXCLUSIVE MODE;
 - عدد الصفوف المستهدفة للنسخ.
 - بصمة أو قائمة IDs للصفوف المستهدفة عند الحجم الحالي المعقول.
 
-### 6.4 شرط النسخ
+### 6.4 نافذة الصيانة لحماية الأسطر المرحّلة
+
+الأسطر المستهدفة `posted` وتحميها `trg_protect_posted_gl_entry_lines` من أي `UPDATE`. لذلك لا يجوز أن يفترض backfill إمكان تحديثها مباشرة، ولا يجوز إنشاء bypass دائم أو GUC يستطيع التطبيق استعمالها.
+
+بعد اكتساب الأقفال وإتمام preflight، تستخدم Migration 153 نافذة صيانة **داخل المعاملة نفسها**:
+
+1. التحقق من وجود trigger الحماية واسمه وحالته المتوقعة؛ الغياب أو التعطيل المسبق يفشل migration.
+2. تعطيل **الـtrigger المسمى فقط** على `gl_entry_lines`، لا `DISABLE TRIGGER USER` ولا `session_replication_role`.
+3. تنفيذ backfill على مجموعة IDs المحسوبة وحدها، مع `UPDATE ... RETURNING`.
+4. إعادة تفعيل trigger الحماية قبل أي COMMIT.
+5. التحقق من `pg_trigger.tgenabled` ومن أن محاولة تعديل سطر `posted` بعد إعادة التفعيل تعيد `POSTED_ENTRY_IMMUTABLE`.
+
+الأقفال تمنع أي كاتب آخر من استغلال نافذة التعطيل. وأي فشل قبل COMMIT يسقط المعاملة كلها، بما فيها DDL المؤقت، لكن التحقق الصريح من إعادة التفعيل يظل بوابة إلزامية.
+
+### 6.5 شرط النسخ
 
 ```sql
 WHERE account_id IS NULL
@@ -177,9 +197,9 @@ WHERE account_id IS NULL
   AND (debit_amount > 0 OR credit_amount > 0)
 ```
 
-ينفذ `UPDATE ... RETURNING id`، ويجب أن يساوي عدد الصفوف المعادة العدد المحسوب في preflight. أي فرق يسقط المعاملة.
+ينفذ `UPDATE ... RETURNING id`، ويجب أن يساوي عدد الصفوف المعادة العدد المحسوب في preflight، وأن تطابق IDs المعادة مجموعة الهدف المحفوظة. أي فرق يسقط المعاملة.
 
-### 6.5 فحوص ما بعد النسخ
+### 6.6 فحوص ما بعد النسخ
 
 داخل المعاملة وقبل COMMIT:
 
@@ -188,8 +208,9 @@ WHERE account_id IS NULL
 - الصفوف الحديثة السابقة لم تتغير.
 - كل صف قانوني: غير سالب، لا موجب مزدوج، ولا صفر كامل لصف محاسبي فعلي.
 - اتزان كل قيد `posted` محفوظ.
+- trigger حماية posted عاد مفعّلًا ويمنع التعديل العام.
 
-### 6.6 التوافق المؤقت واتجاهه
+### 6.7 التوافق المؤقت واتجاهه
 
 الاتجاه القانوني الوحيد للكتابات الجديدة:
 
@@ -205,7 +226,7 @@ account_id + debit/credit  →  أعمدة legacy للقراءة القديمة 
 - عدم تعديل الأسطر `posted` التاريخية بعد backfill.
 - اختبارات على النواة القانونية الحقيقية.
 
-### 6.7 شرط إزالة التوافق
+### 6.8 شرط إزالة التوافق
 
 تزال آلية التوافق فقط بعد تحقق جميع الآتي:
 
@@ -221,9 +242,12 @@ account_id + debit/credit  →  أعمدة legacy للقراءة القديمة 
 الترتيب الملزم:
 
 1. إنشاء `UNIQUE (id, org_id)` على `gl_accounts`.
-2. إنشاء/تجهيز عقد الحجر إن اختير الاستبعاد.
+2. إنشاء عقد الحجر إن اختير الاستبعاد، ثم **في التغيير نفسه وقبل أي INSERT**:
+   - `REVOKE ALL` من `PUBLIC`, `anon`, `authenticated`.
+   - `ENABLE ROW LEVEL SECURITY` و`FORCE ROW LEVEL SECURITY`.
+   - إنشاء سياسات/RPCs org-safe المقصودة واختبارات grants السلبية.
 3. تطبيق Mapping المعتمد فقط.
-4. تطبيق قرارات الحجر المعتمدة فقط.
+4. تطبيق قرارات الحجر المعتمدة فقط عبر المسار المحروس.
 5. فحص عدم وجود سطر `reportable posted` بلا حساب قانوني.
 6. إنشاء FK المركب:
 
@@ -234,11 +258,13 @@ gl_entry_lines (account_id, org_id)
 
 7. تقرير فروقات يثبت حفظ القيم التاريخية وعدم مضاعفتها.
 
+لا يجوز الاعتماد على Migration 155 لتأمين `financial_gl_quarantine`؛ نافذة غير محمية بين 154 و155 مخالفة حاجزة.
+
 ## 8. Migrations 155–162
 
 | Migration | النطاق |
 |---:|---|
-| 155 | RLS لجداول محرك التقارير فقط؛ إزالة GUC الميت منها بحارس `org_id` نشط. |
+| 155 | RLS لبقية جداول محرك التقارير فقط؛ إزالة GUC الميت منها بحارس `org_id` نشط. لا يؤجل أمن جدول الحجر المنشأ في 154. |
 | 156 | أساس الأبعاد والجداول الناقصة والأعمدة والفهارس وFKs وسياسة `unknown/unassigned`. |
 | 157 | مصدر posted قانوني موحد وعقد Drill-down آمن. |
 | 158 | مخطط القوالب والأسطر والقواعد والصيغ. |
@@ -254,8 +280,8 @@ Onboarding الفترات يُنفذ في الحزمة التي تملك منط�
 | الحزمة | النطاق | حاجز الدمج |
 |---|---|---|
 | PR-0-ADR | سجل Mapping/Quarantine والاعتماد المحاسبي | يحجب 154 فقط |
-| **PR-A1-DB** | Migration 153 وحدها | Fresh DB، preflight، concurrency، حفظ المجاميع |
-| **PR-A2-DB** | Migration 154 وحدها | PR-0-ADR معتمد، zero reportable orphans، FK |
+| **PR-A1-DB** | Migration 153 وحدها | Fresh DB، preflight، parent-first concurrency، استعادة حماية posted، حفظ المجاميع |
+| **PR-A2-DB** | Migration 154 وحدها | PR-0-ADR معتمد، zero reportable orphans، أمن الحجر وFK |
 | **PR-A3-DB** | Migration 155 وحدها | اختبارات عزل بمؤسستين |
 | **PR-A4-DB** | Migration 156 وحدها | مخطط الأبعاد واختبارات cross-tenant |
 | PR-A-APP | تحويل المستهلكين إلى العقد القانوني وإزالة fallbacks | بعد تطبيق DB اللازمة على Production |
@@ -319,13 +345,16 @@ rpc_get_financial_report(
 ### 12.1 Migration 153
 
 - Fresh DB من Baseline cutoff 152.
-- قفل فعلي قبل snapshot/backfill.
+- القفل parent-first قبل snapshot/backfill.
+- اختبار الكاتب القانوني المتزامن يثبت عدم deadlock وعدم drift.
 - preflight يفشل عند mixed أو ambiguous rows.
-- عدد `UPDATE ... RETURNING` يطابق العدد الديناميكي المستهدف.
+- trigger حماية posted موجود ومفعّل قبل نافذة الصيانة.
+- تعطيل trigger المسمى فقط تحت الأقفال؛ لا bypass دائم ولا `session_replication_role`.
+- عدد `UPDATE ... RETURNING` وIDs المعادة يطابقان الهدف الديناميكي.
 - مجاميع posted محفوظة.
 - لا تضاعف للصفوف الحديثة.
 - قيود السالب والموجب المزدوج والصفر الكامل تعمل.
-- اختبار كتابة متزامنة يثبت أن القفل يمنع drift.
+- trigger حماية posted مفعّل قبل COMMIT، واختبار `POSTED_ENTRY_IMMUTABLE` يمر بعد backfill.
 - التوافق اتجاهه legal → legacy فقط ويمنع التعارض.
 
 ### 12.2 Migration 154
@@ -334,6 +363,8 @@ rpc_get_financial_report(
 - لا Mapping مستنتج آليًا.
 - لا `reportable posted orphan`.
 - الحجر يحمل السبب والمعتمد والتاريخ والأثر.
+- أمن جدول الحجر يُفرض داخل 154 قبل إدخال الصفوف: grants مسحوبة، RLS وFORCE مفعّلان، واختبارات anon/cross-org سلبية.
+- لا كتابة مباشرة من العميل إلى قرارات الحجر.
 - `UNIQUE (id, org_id)` يسبق FK.
 - FK cross-org يرفض.
 
