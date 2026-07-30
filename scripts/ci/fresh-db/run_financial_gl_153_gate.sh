@@ -45,6 +45,8 @@ setup_pre153_db() {
   psql -v ON_ERROR_STOP=1 -X -d "$db" -f "$REFERENCE" -q
   psql -v ON_ERROR_STOP=1 -X -d "$db" \
     -f scripts/ci/fresh-db/setup_153_pre_migration_fixture.sql -q
+  psql -v ON_ERROR_STOP=1 -X -d "$db" \
+    -f scripts/ci/fresh-db/setup_153_atomic_voucher_accounts.sql -q
 }
 
 # ----------------------------------------------------------------------
