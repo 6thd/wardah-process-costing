@@ -8,6 +8,8 @@ describe('payment voucher legal GL writer contract', () => {
   it('delegates posting exclusively to the atomic voucher RPCs', () => {
     expect(source.match(/rpc_post_customer_receipt/g)).toHaveLength(1)
     expect(source.match(/rpc_post_supplier_payment/g)).toHaveLength(1)
+    expect(source).toContain('p_receipt_id: receiptId')
+    expect(source).toContain('p_payment_id: paymentId')
     expect(source).not.toContain('rpc_create_journal_entry')
     expect(source).not.toContain(".from('gl_entries')")
     expect(source).not.toContain(".from('gl_entry_lines')")
