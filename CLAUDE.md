@@ -27,14 +27,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الموثقة في PR #65 بتاريخ 2026-07-29:
+الحالة الحية الموثقة بعد Baseline المولد في 2026-07-29:
 
-- Baseline الحالي: `000_schema_baseline_20260729_072509.sql`, cutoff 148.
-- Production: مطبقة حتى 148 (`148_uom_purchase_receipt_snapshots`).
-- Repository branch في PR #65: أعلى migration مرقمة هي 152.
-- Fresh DB: يطبق 149→152 بعد cutoff 148، وبوابة AP المخصصة ناجحة على PostgreSQL 17.
-- migrations 149–152 **غير مطبقة على Production** لمجرد نجاح Fresh DB أو وجودها في PR.
-- لا تعدّ أي migration مطبقة حيًا إلا إذا ظهرت في `supabase_migrations.schema_migrations`.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152.
+- Production: مطبقة حتى 152 (`152_ap_allow_fully_received_purchase_orders`).
+- Repository: أعلى migration مرقمة هي 152.
+- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
+- لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
