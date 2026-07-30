@@ -1,0 +1,44 @@
+name: Apply Atomic Payment Voucher Patch
+
+on:
+  push:
+    branches:
+      - fix/payment-vouchers-legal-gl-contract
+    paths:
+      - scripts/dev/apply_atomic_payment_voucher_patch.py
+      - .github/workflows/apply-atomic-payment-voucher-patch.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/payment-vouchers-legal-gl-contract
+          fetch-depth: 0
+
+      - name: Apply patch
+        run: python3 scripts/dev/apply_atomic_payment_voucher_patch.py
+
+      - name: Remove temporary patch machinery
+        run: |
+          rm -f scripts/dev/apply_atomic_payment_voucher_patch.py
+          rm -f .github/workflows/apply-atomic-payment-voucher-patch.yml
+
+      - name: Commit generated implementation
+        run: |
+          set -Eeuo pipefail
+          git config user.name "wardah-ci"
+          git config user.email "wardah-ci@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes"
+            exit 1
+          fi
+          git commit -m "feat(finance): post payment vouchers atomically"
+          git push origin HEAD:fix/payment-vouchers-legal-gl-contract
