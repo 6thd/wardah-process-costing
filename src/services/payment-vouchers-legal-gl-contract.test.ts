@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const source = readFileSync(resolve(process.cwd(), 'src/services/payment-vouchers-service.ts'), 'utf8')
+const migration = readFileSync(
+  resolve(process.cwd(), 'sql/migrations/153_financial_gl_legal_amount_contract.sql'),
+  'utf8'
+)
 
 describe('payment voucher legal GL writer contract', () => {
   it('delegates posting exclusively to the atomic voucher RPCs', () => {
@@ -26,5 +30,14 @@ describe('payment voucher legal GL writer contract', () => {
     expect(source).not.toMatch(/\bcredit\s*:/)
     expect(source).not.toContain(".from('sales_invoices').update")
     expect(source).not.toContain(".from('supplier_invoices').update")
+  })
+
+  it('guards accounting periods and rejects mismatched idempotent entries', () => {
+    expect(migration).toContain(
+      'PERFORM public.assert_period_open(p_org, coalesce(p_entry_date, current_date));'
+    )
+    expect(migration).toContain('VOUCHER_GL_IDEMPOTENCY_CONFLICT')
+    expect(migration).toContain('rpc_post_customer_receipt')
+    expect(migration).toContain('rpc_post_supplier_payment')
   })
 })
