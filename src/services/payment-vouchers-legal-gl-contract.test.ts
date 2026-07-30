@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-const servicePath = fileURLToPath(new URL('./payment-vouchers-service.ts', import.meta.url))
+const servicePath = resolve(process.cwd(), 'src/services/payment-vouchers-service.ts')
 const source = readFileSync(servicePath, 'utf8')
 
 describe('payment voucher legal GL writer contract', () => {
