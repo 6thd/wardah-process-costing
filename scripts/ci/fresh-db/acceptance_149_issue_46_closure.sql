@@ -46,8 +46,8 @@ BEGIN
   IF (SELECT count(*) FROM t46_fixture) <> 1 THEN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: expected exactly one accepted fixture';
   END IF;
-  IF (SELECT conversion_factor_snapshot FROM t46_fixture) <> 12
-     OR (SELECT unit_price FROM t46_fixture) <> 10 THEN
+  IF (SELECT conversion_factor_snapshot FROM t46_fixture) IS DISTINCT FROM 12::numeric
+     OR (SELECT unit_price FROM t46_fixture) IS DISTINCT FROM 10::numeric THEN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: unexpected legal PO snapshot';
   END IF;
 END $$;
@@ -140,7 +140,7 @@ DECLARE
   v_remaining numeric;
   v_factor numeric;
   v_qty numeric;
-  v_qty_entered numeric;
+  v_uom uuid;
   v_price_snapshot numeric;
 BEGIN
   SELECT result, prior_remaining INTO STRICT v_result, v_prior FROM t46_completion;
@@ -150,23 +150,23 @@ BEGIN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: completion invoice result invalid: %', v_result;
   END IF;
 
-  SELECT quantity, qty_entered, conversion_factor_snapshot, po_unit_price_snapshot
-  INTO STRICT v_qty, v_qty_entered, v_factor, v_price_snapshot
+  SELECT quantity, uom_id, conversion_factor_snapshot, po_unit_price_snapshot
+  INTO STRICT v_qty, v_uom, v_factor, v_price_snapshot
   FROM public.supplier_invoice_lines
   WHERE supplier_invoice_id = v_invoice;
 
-  IF v_qty <> v_prior
-     OR v_factor <> 12
-     OR v_qty_entered <> round(v_prior / 12, 6)
-     OR v_price_snapshot <> 10 THEN
+  IF v_qty IS DISTINCT FROM v_prior
+     OR v_uom IS DISTINCT FROM (SELECT uom_id FROM t46_fixture)
+     OR v_factor IS DISTINCT FROM 12::numeric
+     OR v_price_snapshot IS DISTINCT FROM 10::numeric THEN
     RAISE EXCEPTION
-      'ACCEPTANCE_46_FAIL: stored snapshot drift qty=% entered=% factor=% price=% prior=%',
-      v_qty, v_qty_entered, v_factor, v_price_snapshot, v_prior;
+      'ACCEPTANCE_46_FAIL: stored snapshot drift qty=% uom=% factor=% price=% prior=%',
+      v_qty, v_uom, v_factor, v_price_snapshot, v_prior;
   END IF;
 
   v_remaining := public.wardah_receipt_line_uninvoiced_base(
     (SELECT accepted_grl_id FROM t46_fixture));
-  IF v_remaining <> 0 THEN
+  IF v_remaining IS DISTINCT FROM 0::numeric THEN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: second invoice did not complete GRN; remaining=%',
       v_remaining;
   END IF;
@@ -174,7 +174,7 @@ BEGIN
   IF (SELECT factor_to_base FROM public.product_uom_conversions
       WHERE org_id='48111111-1111-1111-1111-111111111111'
         AND product_id=(SELECT product_id FROM t46_fixture)
-        AND uom_id=(SELECT uom_id FROM t46_fixture)) <> 24 THEN
+        AND uom_id=(SELECT uom_id FROM t46_fixture)) IS DISTINCT FROM 24::numeric THEN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: catalog mutation was not applied';
   END IF;
 END $$;
@@ -194,7 +194,7 @@ BEGIN
   IF (SELECT factor_to_base FROM public.product_uom_conversions
       WHERE org_id='48111111-1111-1111-1111-111111111111'
         AND product_id=(SELECT product_id FROM t46_fixture)
-        AND uom_id=(SELECT uom_id FROM t46_fixture)) <> 12 THEN
+        AND uom_id=(SELECT uom_id FROM t46_fixture)) IS DISTINCT FROM 12::numeric THEN
     RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: shared UoM fixture was not restored';
   END IF;
 END $$;
