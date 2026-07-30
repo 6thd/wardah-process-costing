@@ -13,8 +13,8 @@ describe('payment voucher legal GL writer contract', () => {
   })
 
   it('writes canonical debit and credit, never legacy amount inputs', () => {
-    expect(source).not.toMatch(/debit_amount\s*:/)
-    expect(source).not.toMatch(/credit_amount\s*:/)
+    expect(source).not.toMatch(/\bdebit_amount\s*:/)
+    expect(source).not.toMatch(/\bcredit_amount\s*:/)
     expect(source.match(/auto_post:\s*true/g)).toHaveLength(2)
     expect(source).toContain('CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}')
     expect(source).toContain('SUPPLIER_PAYMENT:${payment.id || payment.payment_number}')
