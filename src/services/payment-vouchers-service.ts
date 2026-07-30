@@ -310,118 +310,16 @@ export async function postCustomerReceipt(
   receiptId: string
 ): Promise<{ success: boolean; data?: any; error?: any }> {
   try {
-    const tenantId = await getEffectiveTenantId();
-    if (!tenantId) throw new Error('Tenant ID not found');
-
-    // Get receipt with lines
-    const { data: receipt, error: receiptError } = await supabase
-      .from('customer_collections')
-      .select(`
-        *,
-        customer:customers(*),
-        lines:customer_collection_lines(
-          *,
-          invoice:sales_invoices(*)
-        )
-      `)
-      .eq('id', receiptId)
-      .single();
-
-    if (receiptError) throw receiptError;
-    validateReceiptStatus(receipt);
-
-    // Create the posted GL entry first. Fail closed before touching invoice balances.
-  const glEntryId = await createReceiptAccountingEntry(receipt);
-
-  // Update invoice paid amounts only after the legal GL RPC succeeds.
-  await updateInvoicePaidAmounts(receipt.lines);
-
-    // Update receipt status
-    const updatedReceipt = await updateReceiptStatus(receiptId, glEntryId, receipt.created_by);
-
-    return { success: true, data: updatedReceipt };
+    const { data, error } = await supabase.rpc('rpc_post_customer_receipt', {
+      p_receipt_id: receiptId
+    })
+    if (error) throw error
+    if (!data?.success) throw new Error('Customer receipt posting failed')
+    return { success: true, data }
   } catch (error: any) {
-    console.error('Error posting customer receipt:', error);
-    return { success: false, error: error.message || error };
+    console.error('Error posting customer receipt:', error)
+    return { success: false, error: error.message || error }
   }
-}
-
-/**
- * Create accounting entry for customer receipt
- */
-async function createReceiptAccountingEntry(receipt: any): Promise<string> {
-  const tenantId = await getEffectiveTenantId()
-  if (!tenantId) throw new Error('Tenant ID not found')
-
-  let paymentAccountId = receipt.payment_account_id
-  if (!paymentAccountId) {
-    const accountSubtype = receipt.payment_method === 'cash' ? 'CASH' : 'BANK'
-    const { data: accounts, error: accountsError } = await supabase
-      .from('gl_accounts')
-      .select('id')
-      .eq('org_id', tenantId)
-      .eq('subtype', accountSubtype)
-      .eq('is_active', true)
-      .limit(1)
-
-    if (accountsError) throw accountsError
-    paymentAccountId = accounts?.[0]?.id
-  }
-
-  const { data: arAccounts, error: arError } = await supabase
-    .from('gl_accounts')
-    .select('id')
-    .eq('org_id', tenantId)
-    .eq('subtype', 'ACCOUNTS_RECEIVABLE')
-    .eq('is_active', true)
-    .limit(1)
-
-  if (arError) throw arError
-  const arAccountId = arAccounts?.[0]?.id
-  if (!paymentAccountId || !arAccountId) {
-    throw new Error('GL_ACCOUNTS_MISSING: receipt payment/AR account is required')
-  }
-
-  const description = `سند قبض ${receipt.collection_number}`
-  const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
-    p_payload: {
-      org_id: tenantId,
-      entry_date: receipt.collection_date,
-      description,
-      description_ar: description,
-      reference_type: 'CUSTOMER_RECEIPT',
-      reference_number: receipt.collection_number,
-      reference_id: receipt.id || null,
-      idempotency_key: `CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}`,
-      auto_post: true,
-      lines: [
-        {
-          line_number: 1,
-          account_id: paymentAccountId,
-          debit: Number(receipt.amount),
-          credit: 0,
-          currency_code: 'SAR',
-          description,
-          description_ar: description
-        },
-        {
-          line_number: 2,
-          account_id: arAccountId,
-          debit: 0,
-          credit: Number(receipt.amount),
-          currency_code: 'SAR',
-          description,
-          description_ar: description
-        }
-      ]
-    }
-  })
-
-  if (error) throw error
-  if (!result?.success || !result?.entry_id) {
-    throw new Error('GL_ENTRY_CREATE_FAILED: receipt journal RPC returned no entry')
-  }
-  return result.entry_id
 }
 
 /**
@@ -667,118 +565,16 @@ export async function postSupplierPayment(
   paymentId: string
 ): Promise<{ success: boolean; data?: any; error?: any }> {
   try {
-    const tenantId = await getEffectiveTenantId();
-    if (!tenantId) throw new Error('Tenant ID not found');
-
-    // Get payment with lines
-    const { data: payment, error: paymentError } = await supabase
-      .from('supplier_payments')
-      .select(`
-        *,
-        vendor:vendors(*),
-        lines:supplier_payment_lines(
-          *,
-          invoice:supplier_invoices(*)
-        )
-      `)
-      .eq('id', paymentId)
-      .single();
-
-    if (paymentError) throw paymentError;
-    validateReceiptStatus(payment);
-
-    // Create the posted GL entry first. Fail closed before touching invoice balances.
-  const glEntryId = await createPaymentAccountingEntry(payment);
-
-  // Update invoice paid amounts only after the legal GL RPC succeeds.
-  await updateSupplierInvoicePaidAmounts(payment.lines);
-
-    // Update payment status
-    const updatedPayment = await updatePaymentStatus(paymentId, glEntryId, payment.created_by);
-
-    return { success: true, data: updatedPayment };
+    const { data, error } = await supabase.rpc('rpc_post_supplier_payment', {
+      p_payment_id: paymentId
+    })
+    if (error) throw error
+    if (!data?.success) throw new Error('Supplier payment posting failed')
+    return { success: true, data }
   } catch (error: any) {
-    console.error('Error posting supplier payment:', error);
-    return { success: false, error: error.message || error };
+    console.error('Error posting supplier payment:', error)
+    return { success: false, error: error.message || error }
   }
-}
-
-/**
- * Create accounting entry for supplier payment
- */
-async function createPaymentAccountingEntry(payment: any): Promise<string> {
-  const tenantId = await getEffectiveTenantId()
-  if (!tenantId) throw new Error('Tenant ID not found')
-
-  let paymentAccountId = payment.payment_account_id
-  if (!paymentAccountId) {
-    const accountSubtype = payment.payment_method === 'cash' ? 'CASH' : 'BANK'
-    const { data: accounts, error: accountsError } = await supabase
-      .from('gl_accounts')
-      .select('id')
-      .eq('org_id', tenantId)
-      .eq('subtype', accountSubtype)
-      .eq('is_active', true)
-      .limit(1)
-
-    if (accountsError) throw accountsError
-    paymentAccountId = accounts?.[0]?.id
-  }
-
-  const { data: apAccounts, error: apError } = await supabase
-    .from('gl_accounts')
-    .select('id')
-    .eq('org_id', tenantId)
-    .eq('subtype', 'ACCOUNTS_PAYABLE')
-    .eq('is_active', true)
-    .limit(1)
-
-  if (apError) throw apError
-  const apAccountId = apAccounts?.[0]?.id
-  if (!paymentAccountId || !apAccountId) {
-    throw new Error('GL_ACCOUNTS_MISSING: payment cash/bank and AP accounts are required')
-  }
-
-  const description = `سند صرف ${payment.payment_number}`
-  const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
-    p_payload: {
-      org_id: tenantId,
-      entry_date: payment.payment_date,
-      description,
-      description_ar: description,
-      reference_type: 'SUPPLIER_PAYMENT',
-      reference_number: payment.payment_number,
-      reference_id: payment.id || null,
-      idempotency_key: `SUPPLIER_PAYMENT:${payment.id || payment.payment_number}`,
-      auto_post: true,
-      lines: [
-        {
-          line_number: 1,
-          account_id: apAccountId,
-          debit: Number(payment.amount),
-          credit: 0,
-          currency_code: 'SAR',
-          description,
-          description_ar: description
-        },
-        {
-          line_number: 2,
-          account_id: paymentAccountId,
-          debit: 0,
-          credit: Number(payment.amount),
-          currency_code: 'SAR',
-          description,
-          description_ar: description
-        }
-      ]
-    }
-  })
-
-  if (error) throw error
-  if (!result?.success || !result?.entry_id) {
-    throw new Error('GL_ENTRY_CREATE_FAILED: supplier payment journal RPC returned no entry')
-  }
-  return result.entry_id
 }
 
 /**

@@ -54,6 +54,8 @@ setup_pre153_db "$MAIN_DB"
 PGDATABASE="$MAIN_DB" bash scripts/ci/fresh-db/acceptance_153_concurrency.sh
 psql -v ON_ERROR_STOP=1 -X -d "$MAIN_DB" \
   -f scripts/ci/fresh-db/acceptance_153_financial_gl_contract.sql
+psql -v ON_ERROR_STOP=1 -X -d "$MAIN_DB" \
+  -f scripts/ci/fresh-db/acceptance_153_atomic_vouchers.sql
 
 # ----------------------------------------------------------------------
 # Negative preflight: a mixed legal+legacy value must abort the transaction.

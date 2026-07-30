@@ -2,37 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-const servicePath = resolve(process.cwd(), 'src/services/payment-vouchers-service.ts')
-const source = readFileSync(servicePath, 'utf8')
+const source = readFileSync(resolve(process.cwd(), 'src/services/payment-vouchers-service.ts'), 'utf8')
 
 describe('payment voucher legal GL writer contract', () => {
-  it('uses only the atomic journal RPC for voucher GL creation', () => {
-    expect(source.match(/rpc_create_journal_entry/g)).toHaveLength(2)
+  it('delegates posting exclusively to the atomic voucher RPCs', () => {
+    expect(source.match(/rpc_post_customer_receipt/g)).toHaveLength(1)
+    expect(source.match(/rpc_post_supplier_payment/g)).toHaveLength(1)
+    expect(source).not.toContain('rpc_create_journal_entry')
     expect(source).not.toContain(".from('gl_entries')")
     expect(source).not.toContain(".from('gl_entry_lines')")
   })
 
-  it('writes canonical debit and credit, never legacy amount inputs', () => {
+  it('never writes legacy or legal GL line amounts from the browser', () => {
     expect(source).not.toMatch(/\bdebit_amount\s*:/)
     expect(source).not.toMatch(/\bcredit_amount\s*:/)
-    expect(source.match(/auto_post:\s*true/g)).toHaveLength(2)
-    expect(source).toContain('CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}')
-    expect(source).toContain('SUPPLIER_PAYMENT:${payment.id || payment.payment_number}')
-  })
-
-  it('fails before invoice mutation when GL creation fails', () => {
-    const receiptPost = source.slice(
-      source.indexOf('export async function postCustomerReceipt'),
-      source.indexOf('async function createReceiptAccountingEntry')
-    )
-    expect(receiptPost.indexOf('createReceiptAccountingEntry(receipt)'))
-      .toBeLessThan(receiptPost.indexOf('updateInvoicePaidAmounts(receipt.lines)'))
-
-    const paymentPost = source.slice(
-      source.indexOf('export async function postSupplierPayment'),
-      source.indexOf('async function createPaymentAccountingEntry')
-    )
-    expect(paymentPost.indexOf('createPaymentAccountingEntry(payment)'))
-      .toBeLessThan(paymentPost.indexOf('updateSupplierInvoicePaidAmounts(payment.lines)'))
+    expect(source).not.toMatch(/\bdebit\s*:/)
+    expect(source).not.toMatch(/\bcredit\s*:/)
   })
 })
