@@ -179,4 +179,24 @@ BEGIN
   END IF;
 END $$;
 
+-- This suite shares the Fresh DB with the later concurrency acceptance. Restore
+-- the mutable catalog fixture after proving snapshot independence so the race test
+-- creates its new PO under the original factor and remains order-independent.
+UPDATE public.product_uom_conversions
+SET factor_to_base = 12,
+    updated_at = now()
+WHERE org_id = '48111111-1111-1111-1111-111111111111'
+  AND product_id = (SELECT product_id FROM t46_fixture)
+  AND uom_id = (SELECT uom_id FROM t46_fixture);
+
+DO $$
+BEGIN
+  IF (SELECT factor_to_base FROM public.product_uom_conversions
+      WHERE org_id='48111111-1111-1111-1111-111111111111'
+        AND product_id=(SELECT product_id FROM t46_fixture)
+        AND uom_id=(SELECT uom_id FROM t46_fixture)) <> 12 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_46_FAIL: shared UoM fixture was not restored';
+  END IF;
+END $$;
+
 SELECT 'ACCEPTANCE_46_CLOSURE_PASS' AS result;
