@@ -8,6 +8,7 @@ ORG=53111111-1111-1111-1111-111111111111
 ENTRY=53e00000-0000-0000-0000-000000000020
 DEBIT_ACCOUNT=53a00000-0000-0000-0000-000000000001
 CREDIT_ACCOUNT=53a00000-0000-0000-0000-000000000002
+WRITER_APP=wardah_f153_writer
 
 cat >/tmp/f153-writer.sql <<SQL
 BEGIN;
@@ -29,27 +30,62 @@ VALUES
 COMMIT;
 SQL
 
-start_ms=$(date +%s%3N)
 set +e
-"${PSQL[@]}" -f /tmp/f153-writer.sql \
+writer_start_ms=$(date +%s%3N)
+PGAPPNAME="$WRITER_APP" "${PSQL[@]}" -f /tmp/f153-writer.sql \
   >/tmp/f153-writer.out 2>/tmp/f153-writer.err &
 writer_pid=$!
+set -e
 
-# Ensure the writer has acquired a RowExclusive lock on gl_entries before the
-# migration requests the parent-first SHARE ROW EXCLUSIVE lock.
-sleep 0.25
+# Do not rely on scheduler timing. Wait until the writer session demonstrably owns
+# the granted RowExclusiveLock on the parent table before starting migration 153.
+lock_seen=false
+for _ in $(seq 1 100); do
+  if "${PSQL[@]}" -tAc "
+    SELECT EXISTS (
+      SELECT 1
+      FROM pg_locks l
+      JOIN pg_stat_activity a ON a.pid = l.pid
+      WHERE a.application_name = '$WRITER_APP'
+        AND l.relation = 'public.gl_entries'::regclass
+        AND l.mode = 'RowExclusiveLock'
+        AND l.granted
+    )" | grep -qx t; then
+    lock_seen=true
+    break
+  fi
+
+  if ! kill -0 "$writer_pid" 2>/dev/null; then
+    echo 'ACCEPTANCE_153_CONCURRENCY_FAIL: writer exited before parent lock was observed' >&2
+    cat /tmp/f153-writer.err >&2 || true
+    wait "$writer_pid" || true
+    exit 1
+  fi
+  sleep 0.05
+done
+
+if [[ "$lock_seen" != true ]]; then
+  echo 'ACCEPTANCE_153_CONCURRENCY_FAIL: timed out waiting for writer RowExclusiveLock on gl_entries' >&2
+  kill "$writer_pid" 2>/dev/null || true
+  wait "$writer_pid" || true
+  exit 1
+fi
+
 migration_start_ms=$(date +%s%3N)
-"${PSQL[@]}" -f sql/migrations/153_financial_gl_legal_amount_contract.sql \
+set +e
+PGAPPNAME=wardah_f153_migration "${PSQL[@]}" \
+  -f sql/migrations/153_financial_gl_legal_amount_contract.sql \
   >/tmp/f153-migration.out 2>/tmp/f153-migration.err &
 migration_pid=$!
 
-wait "$writer_pid"; writer_status=$?
 wait "$migration_pid"; migration_status=$?
+migration_end_ms=$(date +%s%3N)
+wait "$writer_pid"; writer_status=$?
+writer_end_ms=$(date +%s%3N)
 set -e
 
-end_ms=$(date +%s%3N)
-migration_elapsed=$((end_ms-migration_start_ms))
-total_elapsed=$((end_ms-start_ms))
+migration_elapsed=$((migration_end_ms-migration_start_ms))
+writer_elapsed=$((writer_end_ms-writer_start_ms))
 
 if [[ $writer_status -ne 0 || $migration_status -ne 0 ]]; then
   echo "ACCEPTANCE_153_CONCURRENCY_FAIL: writer=$writer_status migration=$migration_status" >&2
@@ -57,8 +93,9 @@ if [[ $writer_status -ne 0 || $migration_status -ne 0 ]]; then
   exit 1
 fi
 
-# The writer sleeps for two seconds after owning the parent lock. A migration
-# elapsed time materially below 1.5s means it did not demonstrably wait.
+# The writer sleeps for two seconds after owning the parent lock. Since migration
+# starts only after that granted lock is observed, an elapsed time materially below
+# 1.5s means it did not demonstrably wait on the parent-first lock acquisition.
 if [[ $migration_elapsed -lt 1500 ]]; then
   echo "ACCEPTANCE_153_CONCURRENCY_FAIL: migration did not wait on parent lock (${migration_elapsed}ms)" >&2
   exit 1
@@ -95,4 +132,4 @@ if [[ "$historical_debit" != 125.50 || "$historical_credit" != 125.50 ]]; then
   exit 1
 fi
 
-echo "ACCEPTANCE_153_CONCURRENCY_PASS: migration waited ${migration_elapsed}ms; total ${total_elapsed}ms"
+echo "ACCEPTANCE_153_CONCURRENCY_PASS: observed writer lock; migration waited ${migration_elapsed}ms; writer ${writer_elapsed}ms"
