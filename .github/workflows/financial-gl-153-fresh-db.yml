@@ -1,0 +1,77 @@
+name: Financial GL 153 Fresh DB Acceptance
+
+on:
+  push:
+    branches:
+      - feat/financial-gl-contract-153
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'sql/migrations/153_financial_gl_legal_amount_contract.sql'
+      - 'scripts/ci/fresh-db/setup_153_pre_migration_fixture.sql'
+      - 'scripts/ci/fresh-db/acceptance_153_financial_gl_contract.sql'
+      - 'scripts/ci/fresh-db/acceptance_153_concurrency.sh'
+      - 'scripts/ci/fresh-db/run_financial_gl_153_gate.sh'
+      - 'scripts/ci/fresh-db/**'
+      - 'sql/baseline/**'
+      - '.github/workflows/financial-gl-153-fresh-db.yml'
+
+jobs:
+  financial-gl-153-fresh-db:
+    name: Migration 153 Legal GL Amount Contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SQL validation dependencies
+        run: |
+          python3 -m pip install --quiet pglast pyyaml
+
+      - name: Parse migrations and enforce DEFINER guards
+        run: |
+          python3 scripts/ci/check_migration_syntax.py
+          python3 scripts/ci/check_definer_guards.py
+
+      - name: Run Financial GL 153 fresh DB gate
+        run: bash scripts/ci/fresh-db/run_financial_gl_153_gate.sh
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: wardah_fin153
+          REJECT_DB: wardah_fin153_reject
+
+      - name: Upload Financial GL 153 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: financial-gl-153-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/f153-writer.sql
+            /tmp/f153-writer.out
+            /tmp/f153-writer.err
+            /tmp/f153-migration.out
+            /tmp/f153-migration.err
+            /tmp/f153-reject.out
+            /tmp/f153-reject.err
+          if-no-files-found: ignore
+          retention-days: 14

@@ -2178,8 +2178,8 @@ export type Database = {
           reference_number: string | null
           reference_type: string | null
           status: string | null
-          total_credit: number | null
-          total_debit: number | null
+          total_credit: number
+          total_debit: number
           updated_at: string | null
         }
         Insert: {
@@ -2200,8 +2200,8 @@ export type Database = {
           reference_number?: string | null
           reference_type?: string | null
           status?: string | null
-          total_credit?: number | null
-          total_debit?: number | null
+          total_credit?: number
+          total_debit?: number
           updated_at?: string | null
         }
         Update: {
@@ -2222,8 +2222,8 @@ export type Database = {
           reference_number?: string | null
           reference_type?: string | null
           status?: string | null
-          total_credit?: number | null
-          total_debit?: number | null
+          total_credit?: number
+          total_debit?: number
           updated_at?: string | null
         }
         Relationships: [
@@ -2243,11 +2243,11 @@ export type Database = {
           account_name: string | null
           account_name_ar: string | null
           created_at: string | null
-          credit: number | null
-          credit_amount: number | null
+          credit: number
+          credit_amount: number
           currency_code: string | null
-          debit: number | null
-          debit_amount: number | null
+          debit: number
+          debit_amount: number
           description: string | null
           description_ar: string | null
           entry_id: string
@@ -2263,11 +2263,11 @@ export type Database = {
           account_name?: string | null
           account_name_ar?: string | null
           created_at?: string | null
-          credit?: number | null
-          credit_amount?: number | null
+          credit?: number
+          credit_amount?: number
           currency_code?: string | null
-          debit?: number | null
-          debit_amount?: number | null
+          debit?: number
+          debit_amount?: number
           description?: string | null
           description_ar?: string | null
           entry_id: string
@@ -2283,11 +2283,11 @@ export type Database = {
           account_name?: string | null
           account_name_ar?: string | null
           created_at?: string | null
-          credit?: number | null
-          credit_amount?: number | null
+          credit?: number
+          credit_amount?: number
           currency_code?: string | null
-          debit?: number | null
-          debit_amount?: number | null
+          debit?: number
+          debit_amount?: number
           description?: string | null
           description_ar?: string | null
           entry_id?: string

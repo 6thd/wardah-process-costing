@@ -7,7 +7,7 @@ functions. Fails if any is callable by 'authenticated' without a body line that
 calls wardah_assert_org_member, wardah_assert_org_admin, or wardah_is_org_member.
 
 Exemptions:
-  - Functions with REVOKE EXECUTE FROM authenticated immediately after definition
+  - Functions with REVOKE EXECUTE/ALL FROM PUBLIC immediately after definition
   - Functions listed in KNOWN_EXEMPT (intentionally open or superseded, documented)
 """
 
@@ -42,10 +42,10 @@ DEFINER_FUNC_RE = re.compile(
     re.IGNORECASE,
 )
 
-# REVOKE FROM PUBLIC is the only grant that actually prevents authenticated access.
-# REVOKE FROM authenticated alone still leaves the PUBLIC grant active.
+# Both REVOKE EXECUTE and REVOKE ALL remove the inherited PUBLIC EXECUTE grant.
+# REVOKE from authenticated alone is insufficient while PUBLIC still holds it.
 REVOKE_RE = re.compile(
-    r"REVOKE\s+EXECUTE\s+ON\s+FUNCTION\s+.*?\s+FROM\s+PUBLIC\b",
+    r"REVOKE\s+(?:EXECUTE|ALL(?:\s+PRIVILEGES)?)\s+ON\s+FUNCTION\s+.*?\s+FROM\s+PUBLIC\b",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -136,7 +136,8 @@ def main() -> int:
         print("\n".join(all_errors), file=sys.stderr)
         print(
             "\nأضف wardah_assert_org_member(v_org) أو wardah_assert_org_admin(v_org) "
-            "في أول جسم الدالة، أو أضف اسمها إلى KNOWN_EXEMPT إن كانت مقصودة.",
+            "في أول جسم الدالة، أو اسحب EXECUTE/ALL من PUBLIC، أو أضف اسمها إلى "
+            "KNOWN_EXEMPT إن كانت مقصودة.",
             file=sys.stderr,
         )
         return 1
