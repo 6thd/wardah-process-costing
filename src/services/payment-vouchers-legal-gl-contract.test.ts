@@ -15,10 +15,12 @@ describe('payment voucher legal GL writer contract', () => {
     expect(source).not.toContain(".from('gl_entry_lines')")
   })
 
-  it('never writes legacy or legal GL line amounts from the browser', () => {
+  it('keeps every accounting amount mutation behind the database transaction boundary', () => {
     expect(source).not.toMatch(/\bdebit_amount\s*:/)
     expect(source).not.toMatch(/\bcredit_amount\s*:/)
     expect(source).not.toMatch(/\bdebit\s*:/)
     expect(source).not.toMatch(/\bcredit\s*:/)
+    expect(source).not.toContain(".from('sales_invoices').update")
+    expect(source).not.toContain(".from('supplier_invoices').update")
   })
 })
