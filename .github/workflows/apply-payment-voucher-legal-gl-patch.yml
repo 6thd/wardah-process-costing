@@ -1,0 +1,302 @@
+name: Apply payment voucher legal GL patch
+
+on:
+  push:
+    branches:
+      - fix/payment-vouchers-legal-gl-contract
+    paths:
+      - .github/workflows/apply-payment-voucher-legal-gl-patch.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/payment-vouchers-legal-gl-contract
+          fetch-depth: 0
+
+      - name: Apply deterministic service and test patch
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          service_path = Path('src/services/payment-vouchers-service.ts')
+          source = service_path.read_text(encoding='utf-8')
+
+          def replace_once(pattern: str, replacement: str, label: str) -> None:
+              global source
+              source, count = re.subn(pattern, replacement, source, count=1, flags=re.S)
+              if count != 1:
+                  raise SystemExit(f'PATCH_FAIL: {label} matched {count} times')
+
+          replace_once(
+              r"async function createReceiptAccountingEntry\(receipt: any\): Promise<string \| null> \{.*?\n\}\n\n/\*\*\n \* Get all customer receipts",
+              """async function createReceiptAccountingEntry(receipt: any): Promise<string> {
+            const tenantId = await getEffectiveTenantId()
+            if (!tenantId) throw new Error('Tenant ID not found')
+
+            let paymentAccountId = receipt.payment_account_id
+            if (!paymentAccountId) {
+              const accountSubtype = receipt.payment_method === 'cash' ? 'CASH' : 'BANK'
+              const { data: accounts, error: accountsError } = await supabase
+                .from('gl_accounts')
+                .select('id')
+                .eq('org_id', tenantId)
+                .eq('subtype', accountSubtype)
+                .eq('is_active', true)
+                .limit(1)
+
+              if (accountsError) throw accountsError
+              paymentAccountId = accounts?.[0]?.id
+            }
+
+            const { data: arAccounts, error: arError } = await supabase
+              .from('gl_accounts')
+              .select('id')
+              .eq('org_id', tenantId)
+              .eq('subtype', 'ACCOUNTS_RECEIVABLE')
+              .eq('is_active', true)
+              .limit(1)
+
+            if (arError) throw arError
+            const arAccountId = arAccounts?.[0]?.id
+            if (!paymentAccountId || !arAccountId) {
+              throw new Error('GL_ACCOUNTS_MISSING: receipt payment/AR account is required')
+            }
+
+            const description = `سند قبض ${receipt.collection_number}`
+            const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
+              p_payload: {
+                org_id: tenantId,
+                entry_date: receipt.collection_date,
+                description,
+                description_ar: description,
+                reference_type: 'CUSTOMER_RECEIPT',
+                reference_number: receipt.collection_number,
+                reference_id: receipt.id || null,
+                idempotency_key: `CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}`,
+                auto_post: true,
+                lines: [
+                  {
+                    line_number: 1,
+                    account_id: paymentAccountId,
+                    debit: Number(receipt.amount),
+                    credit: 0,
+                    currency_code: 'SAR',
+                    description,
+                    description_ar: description
+                  },
+                  {
+                    line_number: 2,
+                    account_id: arAccountId,
+                    debit: 0,
+                    credit: Number(receipt.amount),
+                    currency_code: 'SAR',
+                    description,
+                    description_ar: description
+                  }
+                ]
+              }
+            })
+
+            if (error) throw error
+            if (!result?.success || !result?.entry_id) {
+              throw new Error('GL_ENTRY_CREATE_FAILED: receipt journal RPC returned no entry')
+            }
+            return result.entry_id
+          }
+
+          /**
+           * Get all customer receipts""",
+              'receipt accounting function',
+          )
+
+          replace_once(
+              r"async function createPaymentAccountingEntry\(payment: any\): Promise<string \| null> \{.*?\n\}\n\n/\*\*\n \* Get all supplier payments",
+              """async function createPaymentAccountingEntry(payment: any): Promise<string> {
+            const tenantId = await getEffectiveTenantId()
+            if (!tenantId) throw new Error('Tenant ID not found')
+
+            let paymentAccountId = payment.payment_account_id
+            if (!paymentAccountId) {
+              const accountSubtype = payment.payment_method === 'cash' ? 'CASH' : 'BANK'
+              const { data: accounts, error: accountsError } = await supabase
+                .from('gl_accounts')
+                .select('id')
+                .eq('org_id', tenantId)
+                .eq('subtype', accountSubtype)
+                .eq('is_active', true)
+                .limit(1)
+
+              if (accountsError) throw accountsError
+              paymentAccountId = accounts?.[0]?.id
+            }
+
+            const { data: apAccounts, error: apError } = await supabase
+              .from('gl_accounts')
+              .select('id')
+              .eq('org_id', tenantId)
+              .eq('subtype', 'ACCOUNTS_PAYABLE')
+              .eq('is_active', true)
+              .limit(1)
+
+            if (apError) throw apError
+            const apAccountId = apAccounts?.[0]?.id
+            if (!paymentAccountId || !apAccountId) {
+              throw new Error('GL_ACCOUNTS_MISSING: payment cash/bank and AP accounts are required')
+            }
+
+            const description = `سند صرف ${payment.payment_number}`
+            const { data: result, error } = await supabase.rpc('rpc_create_journal_entry', {
+              p_payload: {
+                org_id: tenantId,
+                entry_date: payment.payment_date,
+                description,
+                description_ar: description,
+                reference_type: 'SUPPLIER_PAYMENT',
+                reference_number: payment.payment_number,
+                reference_id: payment.id || null,
+                idempotency_key: `SUPPLIER_PAYMENT:${payment.id || payment.payment_number}`,
+                auto_post: true,
+                lines: [
+                  {
+                    line_number: 1,
+                    account_id: apAccountId,
+                    debit: Number(payment.amount),
+                    credit: 0,
+                    currency_code: 'SAR',
+                    description,
+                    description_ar: description
+                  },
+                  {
+                    line_number: 2,
+                    account_id: paymentAccountId,
+                    debit: 0,
+                    credit: Number(payment.amount),
+                    currency_code: 'SAR',
+                    description,
+                    description_ar: description
+                  }
+                ]
+              }
+            })
+
+            if (error) throw error
+            if (!result?.success || !result?.entry_id) {
+              throw new Error('GL_ENTRY_CREATE_FAILED: supplier payment journal RPC returned no entry')
+            }
+            return result.entry_id
+          }
+
+          /**
+           * Get all supplier payments""",
+              'supplier payment accounting function',
+          )
+
+          replace_once(
+              r"    // Update invoice paid amounts\n    await updateInvoicePaidAmounts\(receipt\.lines\);\n\n    // Create accounting entry\n    const glEntryId = await createReceiptAccountingEntry\(receipt\);",
+              """    // Create the posted GL entry first. Fail closed before touching invoice balances.
+            const glEntryId = await createReceiptAccountingEntry(receipt);
+
+            // Update invoice paid amounts only after the legal GL RPC succeeds.
+            await updateInvoicePaidAmounts(receipt.lines);""",
+              'receipt posting order',
+          )
+
+          replace_once(
+              r"    // Update invoice paid amounts\n    await updateSupplierInvoicePaidAmounts\(payment\.lines\);\n\n    // Create accounting entry\n    const glEntryId = await createPaymentAccountingEntry\(payment\);",
+              """    // Create the posted GL entry first. Fail closed before touching invoice balances.
+            const glEntryId = await createPaymentAccountingEntry(payment);
+
+            // Update invoice paid amounts only after the legal GL RPC succeeds.
+            await updateSupplierInvoicePaidAmounts(payment.lines);""",
+              'supplier payment posting order',
+          )
+
+          replace_once(
+              r"    await supabase\n      \.from\('sales_invoices'\)\n      \.update\(\{\n        paid_amount: newPaidAmount,\n        payment_status: paymentStatus\n      \}\)\n      \.eq\('id', line\.invoice_id\);",
+              """    const { error } = await supabase
+              .from('sales_invoices')
+              .update({
+                paid_amount: newPaidAmount,
+                payment_status: paymentStatus
+              })
+              .eq('id', line.invoice_id);
+
+            if (error) throw error;""",
+              'sales invoice update error handling',
+          )
+
+          replace_once(
+              r"    await supabase\n      \.from\('supplier_invoices'\)\n      \.update\(\{\n        paid_amount: newPaidAmount,\n        status: paymentStatus\n      \}\)\n      \.eq\('id', line\.invoice_id\);",
+              """    const { error } = await supabase
+              .from('supplier_invoices')
+              .update({
+                paid_amount: newPaidAmount,
+                status: paymentStatus
+              })
+              .eq('id', line.invoice_id);
+
+            if (error) throw error;""",
+              'supplier invoice update error handling',
+          )
+
+          service_path.write_text(source, encoding='utf-8')
+
+          test_path = Path('src/services/payment-vouchers-legal-gl-contract.test.ts')
+          test_path.write_text("""import { describe, expect, it } from 'vitest'
+          import { readFileSync } from 'node:fs'
+          import { fileURLToPath } from 'node:url'
+
+          const servicePath = fileURLToPath(new URL('./payment-vouchers-service.ts', import.meta.url))
+          const source = readFileSync(servicePath, 'utf8')
+
+          describe('payment voucher legal GL writer contract', () => {
+            it('uses only the atomic journal RPC for voucher GL creation', () => {
+              expect(source.match(/rpc_create_journal_entry/g)).toHaveLength(2)
+              expect(source).not.toContain(".from('gl_entries')")
+              expect(source).not.toContain(".from('gl_entry_lines')")
+            })
+
+            it('writes canonical debit and credit, never legacy amount inputs', () => {
+              expect(source).not.toMatch(/\bdebit_amount\s*:/)
+              expect(source).not.toMatch(/\bcredit_amount\s*:/)
+              expect(source.match(/auto_post:\s*true/g)).toHaveLength(2)
+              expect(source).toContain('CUSTOMER_RECEIPT:${receipt.id || receipt.collection_number}')
+              expect(source).toContain('SUPPLIER_PAYMENT:${payment.id || payment.payment_number}')
+            })
+
+            it('fails before invoice mutation when GL creation fails', () => {
+              const receiptPost = source.slice(
+                source.indexOf('export async function postCustomerReceipt'),
+                source.indexOf('async function createReceiptAccountingEntry')
+              )
+              expect(receiptPost.indexOf('createReceiptAccountingEntry(receipt)'))
+                .toBeLessThan(receiptPost.indexOf('updateInvoicePaidAmounts(receipt.lines)'))
+
+              const paymentPost = source.slice(
+                source.indexOf('export async function postSupplierPayment'),
+                source.indexOf('async function createPaymentAccountingEntry')
+              )
+              expect(paymentPost.indexOf('createPaymentAccountingEntry(payment)'))
+                .toBeLessThan(paymentPost.indexOf('updateSupplierInvoicePaidAmounts(payment.lines)'))
+            })
+          })
+          """, encoding='utf-8')
+          PY
+
+          rm .github/workflows/apply-payment-voucher-legal-gl-patch.yml
+
+          git config user.name "wardah-ci-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add src/services/payment-vouchers-service.ts \
+                  src/services/payment-vouchers-legal-gl-contract.test.ts \
+                  .github/workflows/apply-payment-voucher-legal-gl-patch.yml
+          git commit -m "fix(finance): route payment vouchers through legal GL RPC"
+          git push origin HEAD:fix/payment-vouchers-legal-gl-contract
