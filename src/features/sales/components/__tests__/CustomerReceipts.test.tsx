@@ -1,335 +1,201 @@
-/**
- * @fileoverview Comprehensive Tests for CustomerReceipts Component
- * Tests customer receipt management UI including create, post, and list operations
- */
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import '@testing-library/jest-dom'
+import { BrowserRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
-import '@testing-library/jest-dom';
-
-// Mock react-i18next
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: {
-      language: 'ar',
-      changeLanguage: vi.fn(),
-    },
-  }),
-}));
-
-// Mock sonner
-vi.mock('sonner', () => ({
-  toast: {
-    success: vi.fn(),
-    error: vi.fn(),
-  },
-}));
-
-// Mock payment-vouchers-service
-vi.mock('@/services/payment-vouchers-service', () => ({
-  getAllCustomerReceipts: vi.fn(),
+const mocks = vi.hoisted(() => ({
   createCustomerReceipt: vi.fn(),
-  postCustomerReceipt: vi.fn(),
+  getAllCustomerReceipts: vi.fn(),
   getCustomerOutstandingInvoices: vi.fn(),
   getPaymentAccounts: vi.fn(),
-}));
+  postCustomerReceipt: vi.fn(),
+  getCustomers: vi.fn(),
+  toastSuccess: vi.fn(),
+  toastError: vi.fn(),
+}))
 
-// Mock supabase-service
+vi.mock('sonner', () => ({
+  toast: {
+    success: mocks.toastSuccess,
+    error: mocks.toastError,
+  },
+}))
+
+vi.mock('@/services/payment-vouchers-service', () => ({
+  createCustomerReceipt: mocks.createCustomerReceipt,
+  getAllCustomerReceipts: mocks.getAllCustomerReceipts,
+  getCustomerOutstandingInvoices: mocks.getCustomerOutstandingInvoices,
+  getPaymentAccounts: mocks.getPaymentAccounts,
+  postCustomerReceipt: mocks.postCustomerReceipt,
+}))
+
 vi.mock('@/services/supabase-service', () => ({
   customersService: {
-    getAll: vi.fn(),
+    getAll: mocks.getCustomers,
   },
-}));
+}))
 
-import type { CustomerReceipt, PaymentMethod } from '@/services/payment-vouchers-service';
+import { CustomerReceipts } from '../CustomerReceipts'
 
-describe('CustomerReceipts Component Logic', () => {
+const draftReceipt = {
+  id: 'receipt-1',
+  receipt_number: 'CR-202607-00001',
+  collection_date: '2026-07-31',
+  amount: 2415,
+  payment_method: 'cash',
+  payment_account_id: 'cash-1',
+  status: 'draft',
+  customer: { name: 'مؤسسة التجارة الكبرى' },
+  lines: [
+    {
+      invoice_id: 'invoice-1',
+      allocated_amount: 2415,
+      discount_amount: 0,
+    },
+  ],
+}
+
+const paymentAccounts = [
+  {
+    id: 'cash-1',
+    code: '110101',
+    name: 'Cash',
+    name_ar: 'النقدية في الخزينة',
+    subtype: 'CASH',
+  },
+  {
+    id: 'bank-1',
+    code: '110202',
+    name: 'Bank',
+    name_ar: 'بنك الإنماء',
+    subtype: 'BANK',
+  },
+]
+
+function renderReceipts() {
+  return render(
+    <BrowserRouter>
+      <CustomerReceipts />
+    </BrowserRouter>,
+  )
+}
+
+function openSelect(trigger: HTMLElement) {
+  fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
+  fireEvent.click(trigger)
+}
+
+describe('CustomerReceipts', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-  });
+    vi.clearAllMocks()
+    mocks.getAllCustomerReceipts.mockResolvedValue({ success: true, data: [draftReceipt] })
+    mocks.postCustomerReceipt.mockResolvedValue({ success: true })
+    mocks.getCustomers.mockResolvedValue([{ id: 'customer-1', name: 'عميل اختبار' }])
+    mocks.getPaymentAccounts.mockResolvedValue({ success: true, data: paymentAccounts })
+    mocks.getCustomerOutstandingInvoices.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'invoice-1',
+          invoice_number: 'INV-0001',
+          invoice_date: '2026-07-20',
+          total_amount: 500,
+          paid_amount: 0,
+          outstanding_balance: 500,
+        },
+      ],
+    })
+    mocks.createCustomerReceipt.mockResolvedValue({ success: true, data: { id: 'receipt-2' } })
+  })
 
-  describe('Status Badge Rendering', () => {
-    const getStatusInfo = (status: string) => {
-      const statusMap: Record<string, { label: string; variant: string }> = {
-        draft: { label: 'مسودة', variant: 'outline' },
-        posted: { label: 'مقرر', variant: 'default' },
-        cancelled: { label: 'ملغي', variant: 'destructive' },
-      };
-      return statusMap[status] || { label: status, variant: 'outline' };
-    };
+  it('uses collection_date in the list and details, then posts the draft receipt', async () => {
+    renderReceipts()
 
-    it('should return draft status info', () => {
-      const info = getStatusInfo('draft');
-      expect(info.label).toBe('مسودة');
-      expect(info.variant).toBe('outline');
-    });
+    expect(await screen.findByText('CR-202607-00001')).toBeInTheDocument()
+    expect(screen.getByText('7/31/2026')).toBeInTheDocument()
+    expect(screen.getByText('مؤسسة التجارة الكبرى')).toBeInTheDocument()
 
-    it('should return posted status info', () => {
-      const info = getStatusInfo('posted');
-      expect(info.label).toBe('مقرر');
-      expect(info.variant).toBe('default');
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'إقرار' }))
+    await waitFor(() => expect(mocks.postCustomerReceipt).toHaveBeenCalledWith('receipt-1'))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('تم إقرار السند بنجاح')
+    await waitFor(() => expect(mocks.getAllCustomerReceipts).toHaveBeenCalledTimes(2))
 
-    it('should return cancelled status info', () => {
-      const info = getStatusInfo('cancelled');
-      expect(info.label).toBe('ملغي');
-      expect(info.variant).toBe('destructive');
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'عرض' }))
+    const detailsDialog = await screen.findByRole('dialog')
+    expect(within(detailsDialog).getByText('تفاصيل سند القبض')).toBeInTheDocument()
 
-    it('should handle unknown status', () => {
-      const info = getStatusInfo('unknown');
-      expect(info.label).toBe('unknown');
-      expect(info.variant).toBe('outline');
-    });
-  });
+    const dateLabel = within(detailsDialog).getByText('التاريخ')
+    expect(dateLabel.parentElement).toHaveTextContent('7/31/2026')
+    const amountLabel = within(detailsDialog).getByText('المبلغ')
+    expect(amountLabel.parentElement).toHaveTextContent('2415.00 ريال')
 
-  describe('Payment Method Labels', () => {
-    const getPaymentMethodLabel = (method: PaymentMethod) => {
-      const methods: Record<PaymentMethod, string> = {
-        cash: 'نقدي',
-        bank_transfer: 'تحويل بنكي',
-        check: 'شيك',
-        credit_card: 'بطاقة ائتمان',
-        debit_card: 'بطاقة خصم',
-        online_payment: 'دفع إلكتروني',
-        mobile_payment: 'دفع محمول',
-        other: 'أخرى',
-      };
-      return methods[method] || method;
-    };
+    // نفس المبلغ يظهر مرتين داخل الحوار: حقل المبلغ وسطر التخصيص، فالتأكيد
+    // يجري على كل موضع في نطاقه بدل استعلام نصي عام يلتقط الاثنين معًا.
+    const allocationRow = within(detailsDialog).getByText('invoice-1').closest('tr')
+    expect(allocationRow).not.toBeNull()
+    expect(allocationRow).toHaveTextContent('2415.00 ريال')
+  })
 
-    it('should return cash label in Arabic', () => {
-      expect(getPaymentMethodLabel('cash')).toBe('نقدي');
-    });
+  it('filters accounts by method, clears an incompatible account, and creates a valid receipt', async () => {
+    renderReceipts()
+    await screen.findByText('CR-202607-00001')
 
-    it('should return bank transfer label in Arabic', () => {
-      expect(getPaymentMethodLabel('bank_transfer')).toBe('تحويل بنكي');
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'إضافة سند قبض' }))
+    const dialog = await screen.findByRole('dialog')
 
-    it('should return check label in Arabic', () => {
-      expect(getPaymentMethodLabel('check')).toBe('شيك');
-    });
+    await waitFor(() => expect(mocks.getPaymentAccounts).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(mocks.getCustomers).toHaveBeenCalledTimes(1))
 
-    it('should return credit card label in Arabic', () => {
-      expect(getPaymentMethodLabel('credit_card')).toBe('بطاقة ائتمان');
-    });
+    let comboboxes = within(dialog).getAllByRole('combobox')
+    expect(comboboxes).toHaveLength(3)
 
-    it('should return all supported payment methods', () => {
-      const methods: PaymentMethod[] = [
-        'cash',
-        'bank_transfer',
-        'check',
-        'credit_card',
-        'debit_card',
-        'online_payment',
-        'mobile_payment',
-        'other',
-      ];
+    openSelect(comboboxes[2])
+    expect(await screen.findByRole('option', { name: /110101 - النقدية في الخزينة/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /110202 - بنك الإنماء/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /110101 - النقدية في الخزينة/ }))
 
-      methods.forEach((method) => {
-        const label = getPaymentMethodLabel(method);
-        expect(label).toBeDefined();
-        expect(label.length).toBeGreaterThan(0);
-      });
-    });
-  });
+    comboboxes = within(dialog).getAllByRole('combobox')
+    openSelect(comboboxes[1])
+    fireEvent.click(await screen.findByRole('option', { name: 'شيك' }))
+    expect(within(dialog).getByText('رقم الشيك')).toBeInTheDocument()
+    expect(comboboxes[2]).toHaveTextContent('110101')
 
-  describe('Receipt Statistics Calculation', () => {
-    it('should calculate total receipts count', () => {
-      const receipts: Partial<CustomerReceipt>[] = [
-        { id: '1', amount: 1000 },
-        { id: '2', amount: 2000 },
-        { id: '3', amount: 1500 },
-      ];
+    comboboxes = within(dialog).getAllByRole('combobox')
+    openSelect(comboboxes[1])
+    fireEvent.click(await screen.findByRole('option', { name: 'تحويل بنكي' }))
 
-      expect(receipts.length).toBe(3);
-    });
+    comboboxes = within(dialog).getAllByRole('combobox')
+    expect(comboboxes[2]).toHaveTextContent('اختر الحساب المتوافق')
+    openSelect(comboboxes[2])
+    expect(await screen.findByRole('option', { name: /110202 - بنك الإنماء/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /110101 - النقدية في الخزينة/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /110202 - بنك الإنماء/ }))
 
-    it('should calculate total receipts amount', () => {
-      const receipts = [
-        { amount: 1000 },
-        { amount: 2000 },
-        { amount: 1500 },
-      ];
+    comboboxes = within(dialog).getAllByRole('combobox')
+    openSelect(comboboxes[0])
+    fireEvent.click(await screen.findByRole('option', { name: 'عميل اختبار' }))
 
-      const total = receipts.reduce((sum, r) => sum + r.amount, 0);
-      expect(total).toBe(4500);
-    });
+    expect(await within(dialog).findByText('INV-0001')).toBeInTheDocument()
+    const amountInputs = within(dialog).getAllByRole('spinbutton')
+    fireEvent.change(amountInputs[1], { target: { value: '500' } })
+    expect(amountInputs[0]).toHaveValue(500)
 
-    it('should count draft receipts', () => {
-      const receipts = [
-        { status: 'draft' },
-        { status: 'posted' },
-        { status: 'draft' },
-        { status: 'cancelled' },
-      ];
+    fireEvent.click(within(dialog).getByRole('button', { name: 'حفظ' }))
 
-      const draftCount = receipts.filter((r) => r.status === 'draft').length;
-      expect(draftCount).toBe(2);
-    });
-
-    it('should count posted receipts', () => {
-      const receipts = [
-        { status: 'draft' },
-        { status: 'posted' },
-        { status: 'posted' },
-        { status: 'posted' },
-      ];
-
-      const postedCount = receipts.filter((r) => r.status === 'posted').length;
-      expect(postedCount).toBe(3);
-    });
-  });
-
-  describe('Receipt Filtering', () => {
-    it('should filter receipts by status', () => {
-      const receipts = [
-        { id: '1', status: 'draft', customer: { name: 'Customer A' } },
-        { id: '2', status: 'posted', customer: { name: 'Customer B' } },
-        { id: '3', status: 'draft', customer: { name: 'Customer C' } },
-      ];
-
-      const draftReceipts = receipts.filter((r) => r.status === 'draft');
-      expect(draftReceipts.length).toBe(2);
-    });
-
-    it('should filter receipts by customer name', () => {
-      const receipts = [
-        { id: '1', customer: { name: 'شركة الأمل' } },
-        { id: '2', customer: { name: 'مؤسسة النور' } },
-        { id: '3', customer: { name: 'شركة الأمل للتجارة' } },
-      ];
-
-      const searchTerm = 'الأمل';
-      const filtered = receipts.filter((r) =>
-        r.customer.name.includes(searchTerm)
-      );
-
-      expect(filtered.length).toBe(2);
-    });
-
-    it('should filter by date range', () => {
-      const receipts = [
-        { id: '1', receipt_date: '2025-12-15' },
-        { id: '2', receipt_date: '2025-12-20' },
-        { id: '3', receipt_date: '2025-12-25' },
-      ];
-
-      const startDate = '2025-12-18';
-      const endDate = '2025-12-22';
-
-      const filtered = receipts.filter(
-        (r) => r.receipt_date >= startDate && r.receipt_date <= endDate
-      );
-
-      expect(filtered.length).toBe(1);
-      expect(filtered[0].id).toBe('2');
-    });
-  });
-
-  describe('Form Validation', () => {
-    it('should validate required customer', () => {
-      const formData = {
-        customer_id: '',
-        amount: 1000,
-      };
-
-      const isValid = formData.customer_id.length > 0;
-      expect(isValid).toBe(false);
-    });
-
-    it('should validate positive amount', () => {
-      const formData = {
-        customer_id: 'cust-1',
-        amount: 1000,
-      };
-
-      const isValid = formData.amount > 0;
-      expect(isValid).toBe(true);
-    });
-
-    it('should reject zero amount', () => {
-      const formData = {
-        customer_id: 'cust-1',
-        amount: 0,
-      };
-
-      const isValid = formData.amount > 0;
-      expect(isValid).toBe(false);
-    });
-
-    it('should reject negative amount', () => {
-      const formData = {
-        customer_id: 'cust-1',
-        amount: -500,
-      };
-
-      const isValid = formData.amount > 0;
-      expect(isValid).toBe(false);
-    });
-  });
-
-  describe('RTL Support', () => {
-    it('should detect RTL for Arabic', () => {
-      const language = 'ar';
-      const isRTL = language === 'ar';
-      expect(isRTL).toBe(true);
-    });
-
-    it('should detect LTR for English', () => {
-      const language: string = 'en';
-      const isRTL = language === 'ar';
-      expect(isRTL).toBe(false);
-    });
-  });
-
-  describe('Date Formatting', () => {
-    it('should format date for display', () => {
-      const date = new Date('2025-12-20');
-      const formatted = date.toLocaleDateString('en-US');
-      expect(formatted).toBeDefined();
-    });
-
-    it('should format date in ISO format', () => {
-      const date = new Date('2025-12-20');
-      const iso = date.toISOString().split('T')[0];
-      expect(iso).toBe('2025-12-20');
-    });
-  });
-
-  describe('Amount Formatting', () => {
-    it('should format currency', () => {
-      const amount = 1500.5;
-      const formatted = amount.toFixed(2);
-      expect(formatted).toBe('1500.50');
-    });
-
-    it('should format with thousand separators', () => {
-      const amount = 1500000;
-      const formatted = amount.toLocaleString('en-US');
-      expect(formatted).toBeDefined();
-    });
-  });
-
-  describe('Post Receipt Logic', () => {
-    it('should only allow posting draft receipts', () => {
-      const receipt = { status: 'draft' };
-      const canPost = receipt.status === 'draft';
-      expect(canPost).toBe(true);
-    });
-
-    it('should not allow posting already posted receipts', () => {
-      const receipt = { status: 'posted' };
-      const canPost = receipt.status === 'draft';
-      expect(canPost).toBe(false);
-    });
-
-    it('should not allow posting cancelled receipts', () => {
-      const receipt = { status: 'cancelled' };
-      const canPost = receipt.status === 'draft';
-      expect(canPost).toBe(false);
-    });
-  });
-});
+    await waitFor(() => expect(mocks.createCustomerReceipt).toHaveBeenCalledTimes(1))
+    expect(mocks.createCustomerReceipt).toHaveBeenCalledWith(expect.objectContaining({
+      customer_id: 'customer-1',
+      amount: 500,
+      payment_method: 'bank_transfer',
+      payment_account_id: 'bank-1',
+      lines: [
+        {
+          invoice_id: 'invoice-1',
+          allocated_amount: 500,
+          discount_amount: 0,
+        },
+      ],
+    }))
+    expect(mocks.toastSuccess).toHaveBeenCalledWith('تم إنشاء سند القبض بنجاح')
+  })
+})

@@ -58,6 +58,25 @@ global.ResizeObserver = class ResizeObserver {
   unobserve() {}
 }
 
+// jsdom لا ينفذ Pointer Capture API ولا scrollIntoView، وRadix (Select/Dropdown)
+// يستدعيهما مباشرة عند فتح القائمة. غيابهما يرمي TypeError غير ملتقط داخل
+// معالج الحدث فيفكك React الشجرة، فتفشل الاختبارات بـ"العنصر غير موجود" بدل
+// السبب الحقيقي. الإضافة additive: لا تستبدل تنفيذًا قائمًا إن وُجد.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = function hasPointerCapture() {
+    return false
+  }
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = function setPointerCapture() {}
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = function releasePointerCapture() {}
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = function scrollIntoView() {}
+}
+
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
