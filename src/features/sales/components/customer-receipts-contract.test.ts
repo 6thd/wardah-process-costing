@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const component = readFileSync(
-  new URL('./CustomerReceipts.tsx', import.meta.url),
+  resolve(process.cwd(), 'src/features/sales/components/CustomerReceipts.tsx'),
   'utf8',
 )
 
 const migration = readFileSync(
-  new URL('../../../../sql/migrations/165_voucher_payment_account_method_consistency.sql', import.meta.url),
+  resolve(process.cwd(), 'sql/migrations/165_voucher_payment_account_method_consistency.sql'),
   'utf8',
 )
 
