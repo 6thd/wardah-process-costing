@@ -1,0 +1,175 @@
+name: Apply Voucher Create RPC Hotfix
+
+on:
+  push:
+    branches: [fix/payment-voucher-create-rpc]
+    paths:
+      - '.github/workflows/apply-voucher-create-rpc-hotfix.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/payment-voucher-create-rpc
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Replace direct voucher inserts with RPC calls
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          path = Path('src/services/payment-vouchers-service.ts')
+          source = path.read_text(encoding='utf-8')
+
+          receipt = r'''export async function createCustomerReceipt(
+  receipt: Omit<CustomerReceipt, 'id' | 'receipt_number' | 'status'>
+): Promise<{ success: boolean; data?: CustomerReceipt; error?: any }> {
+  try {
+    if (receipt.amount <= 0) {
+      throw new Error('المبلغ يجب أن يكون أكبر من الصفر')
+    }
+
+    if (receipt.lines && receipt.lines.length > 0) {
+      const linesTotal = receipt.lines.reduce(
+        (sum, line) => sum + line.allocated_amount - (line.discount_amount || 0),
+        0
+      )
+      if (Math.abs(linesTotal - receipt.amount) > 0.01) {
+        throw new Error('مجموع البنود لا يساوي المبلغ الإجمالي')
+      }
+    }
+
+    const { data, error } = await supabase.rpc('rpc_create_customer_receipt', {
+      p_payload: {
+        customer_id: receipt.customer_id,
+        receipt_date: receipt.receipt_date,
+        amount: receipt.amount,
+        payment_method: receipt.payment_method,
+        payment_account_id: receipt.payment_account_id || null,
+        check_number: receipt.check_number || null,
+        check_date: receipt.check_date || null,
+        reference_number: receipt.reference_number || null,
+        notes: receipt.notes || null,
+        lines: receipt.lines || []
+      }
+    })
+
+    if (error) throw error
+    if (!data?.success || !data?.receipt_id || !data?.receipt_number) {
+      throw new Error('Customer receipt creation failed')
+    }
+
+    return {
+      success: true,
+      data: {
+        ...receipt,
+        id: String(data.receipt_id),
+        receipt_number: String(data.receipt_number),
+        status: 'draft'
+      }
+    }
+  } catch (error: any) {
+    console.error('Error creating customer receipt:', error)
+    return { success: false, error: error.message || error }
+  }
+}'''
+
+          supplier = r'''export async function createSupplierPayment(
+  payment: Omit<SupplierPayment, 'id' | 'payment_number' | 'status'>
+): Promise<{ success: boolean; data?: SupplierPayment; error?: any }> {
+  try {
+    if (payment.amount <= 0) {
+      throw new Error('المبلغ يجب أن يكون أكبر من الصفر')
+    }
+
+    if (payment.lines && payment.lines.length > 0) {
+      const linesTotal = payment.lines.reduce(
+        (sum, line) => sum + line.allocated_amount - (line.discount_amount || 0),
+        0
+      )
+      if (Math.abs(linesTotal - payment.amount) > 0.01) {
+        throw new Error('مجموع البنود لا يساوي المبلغ الإجمالي')
+      }
+    }
+
+    const { data, error } = await supabase.rpc('rpc_create_supplier_payment', {
+      p_payload: {
+        vendor_id: payment.vendor_id,
+        payment_date: payment.payment_date,
+        amount: payment.amount,
+        payment_method: payment.payment_method,
+        payment_account_id: payment.payment_account_id || null,
+        check_number: payment.check_number || null,
+        check_date: payment.check_date || null,
+        check_bank: payment.check_bank || null,
+        reference_number: payment.reference_number || null,
+        notes: payment.notes || null,
+        lines: payment.lines || []
+      }
+    })
+
+    if (error) throw error
+    if (!data?.success || !data?.payment_id || !data?.payment_number) {
+      throw new Error('Supplier payment creation failed')
+    }
+
+    return {
+      success: true,
+      data: {
+        ...payment,
+        id: String(data.payment_id),
+        payment_number: String(data.payment_number),
+        status: 'draft'
+      }
+    }
+  } catch (error: any) {
+    console.error('Error creating supplier payment:', error)
+    return { success: false, error: error.message || error }
+  }
+}'''
+
+          source, count_receipt = re.subn(
+              r"export async function createCustomerReceipt\([\s\S]*?\n}\n\n/\*\*\n \* Validate receipt status",
+              receipt + "\n\n/**\n * Validate receipt status",
+              source,
+              count=1,
+          )
+          source, count_supplier = re.subn(
+              r"export async function createSupplierPayment\([\s\S]*?\n}\n\n/\*\*\n \* Post supplier payment",
+              supplier + "\n\n/**\n * Post supplier payment",
+              source,
+              count=1,
+          )
+
+          if count_receipt != 1 or count_supplier != 1:
+              raise SystemExit(
+                  f'Expected one replacement each, got receipt={count_receipt}, supplier={count_supplier}'
+              )
+
+          if ".from('customer_collections')\n      .insert" in source:
+              raise SystemExit('Direct customer_collections insert remains')
+          if ".from('supplier_payments')\n      .insert" in source:
+              raise SystemExit('Direct supplier_payments insert remains')
+
+          path.write_text(source, encoding='utf-8')
+
+          test = Path('src/services/payment-vouchers-create-rpc-contract.test.ts')
+          test.write_text("""import { describe, expect, it } from 'vitest'\nimport { readFileSync } from 'node:fs'\n\ndescribe('payment voucher draft creation contract', () => {\n  it('uses guarded RPCs instead of direct parent-table inserts', () => {\n    const source = readFileSync('src/services/payment-vouchers-service.ts', 'utf8')\n    expect(source).toContain(\"supabase.rpc('rpc_create_customer_receipt'\")\n    expect(source).toContain(\"supabase.rpc('rpc_create_supplier_payment'\")\n    expect(source).not.toContain(\".from('customer_collections')\\n      .insert\")\n    expect(source).not.toContain(\".from('supplier_payments')\\n      .insert\")\n  })\n})\n""", encoding='utf-8')
+
+          Path('.github/workflows/apply-voucher-create-rpc-hotfix.yml').unlink()
+
+      - name: Commit generated patch
+        run: |
+          git config user.name wardah-ci
+          git config user.email wardah-ci@users.noreply.github.com
+          git add src/services/payment-vouchers-service.ts \
+                  src/services/payment-vouchers-create-rpc-contract.test.ts \
+                  .github/workflows/apply-voucher-create-rpc-hotfix.yml
+          git commit -m "fix(finance): create payment vouchers through guarded RPCs"
+          git push origin HEAD:fix/payment-voucher-create-rpc
