@@ -126,8 +126,14 @@ describe('CustomerReceipts', () => {
 
     const dateLabel = within(detailsDialog).getByText('التاريخ')
     expect(dateLabel.parentElement).toHaveTextContent('7/31/2026')
-    expect(within(detailsDialog).getByText('invoice-1')).toBeInTheDocument()
-    expect(within(detailsDialog).getByText('2415.00 ريال')).toBeInTheDocument()
+    const amountLabel = within(detailsDialog).getByText('المبلغ')
+    expect(amountLabel.parentElement).toHaveTextContent('2415.00 ريال')
+
+    // نفس المبلغ يظهر مرتين داخل الحوار: حقل المبلغ وسطر التخصيص، فالتأكيد
+    // يجري على كل موضع في نطاقه بدل استعلام نصي عام يلتقط الاثنين معًا.
+    const allocationRow = within(detailsDialog).getByText('invoice-1').closest('tr')
+    expect(allocationRow).not.toBeNull()
+    expect(allocationRow).toHaveTextContent('2415.00 ريال')
   })
 
   it('filters accounts by method, clears an incompatible account, and creates a valid receipt', async () => {

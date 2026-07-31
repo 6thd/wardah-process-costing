@@ -122,10 +122,12 @@ describe('CustomerReceipts integration', () => {
     let comboboxes = within(dialog).getAllByRole('combobox')
     expect(comboboxes).toHaveLength(3)
 
+    // Radix يعكس كل عنصر مختار في `<option>` مخفي داخل native select، فالاستعلام
+    // النصي العام يلتقط نسختين. الدور `option` يميّز عنصر القائمة الظاهر وحده.
     openSelect(comboboxes[2])
-    expect(await screen.findByText(/110101 - النقدية في الخزينة/)).toBeInTheDocument()
-    expect(screen.queryByText(/110202 - بنك الإنماء/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText(/110101 - النقدية في الخزينة/))
+    expect(await screen.findByRole('option', { name: /110101 - النقدية في الخزينة/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /110202 - بنك الإنماء/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /110101 - النقدية في الخزينة/ }))
 
     comboboxes = within(dialog).getAllByRole('combobox')
     openSelect(comboboxes[1])
@@ -134,9 +136,9 @@ describe('CustomerReceipts integration', () => {
     comboboxes = within(dialog).getAllByRole('combobox')
     expect(comboboxes[2]).toHaveTextContent('اختر الحساب')
     openSelect(comboboxes[2])
-    expect(await screen.findByText(/110202 - بنك الإنماء/)).toBeInTheDocument()
-    expect(screen.queryByText(/110101 - النقدية في الخزينة/)).not.toBeInTheDocument()
-    fireEvent.click(screen.getByText(/110202 - بنك الإنماء/))
+    expect(await screen.findByRole('option', { name: /110202 - بنك الإنماء/ })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: /110101 - النقدية في الخزينة/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('option', { name: /110202 - بنك الإنماء/ }))
 
     comboboxes = within(dialog).getAllByRole('combobox')
     openSelect(comboboxes[0])
