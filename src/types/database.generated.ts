@@ -11093,6 +11093,14 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_reset_customer_receipt_to_draft: {
+        Args: { p_reason: string; p_receipt_id: string }
+        Returns: Json
+      }
+      rpc_reset_supplier_payment_to_draft: {
+        Args: { p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
       rpc_resolve_uom_backfill_issue: {
         Args: {
           p_issue_id: string
