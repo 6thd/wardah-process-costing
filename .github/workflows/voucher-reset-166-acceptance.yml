@@ -6,6 +6,7 @@ on:
     paths:
       - 'sql/migrations/166_voucher_reset_to_draft_workflow.sql'
       - 'scripts/ci/fresh-db/acceptance_166_voucher_reset.sql'
+      - 'scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql'
       - '.github/workflows/voucher-reset-166-acceptance.yml'
       - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
       - 'scripts/ci/fresh-db/build_apply_order.py'
@@ -74,15 +75,41 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Execute post-reset-correct-repost acceptance
-        run: >-
-          psql -v ON_ERROR_STOP=1 -d wardah_fresh
-          -f scripts/ci/fresh-db/acceptance_166_voucher_reset.sql
-          | tee /tmp/voucher-reset-166.out
+      - name: Execute voucher reset acceptance suites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : > /tmp/voucher-reset-166.out
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset.sql \
+            | tee -a /tmp/voucher-reset-166.out
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql \
+            | tee -a /tmp/voucher-reset-166.out
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Verify acceptance marker
-        run: grep -q 'VOUCHER_RESET_166_ACCEPTANCE_PASS' /tmp/voucher-reset-166.out
+      # These markers are an independent completion contract, not duplicate
+      # logging. They prevent a future shell/pipeline change from reporting a
+      # green job after psql stopped before the end of either acceptance suite.
+      - name: Verify acceptance markers
+        run: |
+          set -Eeuo pipefail
+          grep -q 'VOUCHER_RESET_166_ACCEPTANCE_PASS' /tmp/voucher-reset-166.out
+          grep -q 'VOUCHER_RESET_166_ISOLATION_IDEMPOTENCY_PASS' /tmp/voucher-reset-166.out
+
+      - name: Upload voucher reset acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voucher-reset-166-${{ github.run_id }}
+          path: |
+            /tmp/voucher-reset-166.out
+            /tmp/chain_order.txt
+            /tmp/chain_report.txt
+          if-no-files-found: error
+          retention-days: 30
