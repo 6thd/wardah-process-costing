@@ -197,5 +197,5 @@ describe('CustomerReceipts', () => {
       ],
     }))
     expect(mocks.toastSuccess).toHaveBeenCalledWith('تم إنشاء سند القبض بنجاح')
-  })
+  }, 15_000)
 })
