@@ -11563,6 +11563,10 @@ export type Database = {
         }
         Returns: string
       }
+      wardah_has_exact_permission: {
+        Args: { p_org_id: string; p_permission_key: string; p_user_id: string }
+        Returns: boolean
+      }
       wardah_is_org_admin: { Args: { p_org: string }; Returns: boolean }
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
       wardah_org_id: { Args: { p_explicit?: string }; Returns: string }
