@@ -11,13 +11,14 @@ on:
       - 'src/features/purchasing/index.tsx'
       - 'src/services/uom-goods-receipt-service.ts'
       - 'src/services/purchasing-service.ts'
-      # ملفات الاختبار نفسها ضمن المسارات: تعديل الحارس وحده يجب أن يشغّل البوابة.
       - 'src/components/forms/__tests__/goods-receipt-legacy-contract.test.tsx'
       - 'src/features/purchasing/__tests__/goods-receipt-rollout-gate.test.tsx'
       - 'src/services/__tests__/uom-goods-receipt-service.test.ts'
       - 'src/services/__tests__/goods-receipt-atomic.test.ts'
       - 'src/types/database.generated.ts'
       - '.github/workflows/uom-partial-receipt-atomic.yml'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'sql/baseline/**'
   workflow_dispatch:
 
 jobs:
@@ -47,16 +48,22 @@ jobs:
       - name: Build fresh database through migration 148
         run: |
           set -Eeuo pipefail
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
-          test -n "$BASELINE"
-          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
-            | grep -oE '[0-9]+$' | head -1)
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          test "$PAIR_STATUS" -eq 0
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
           CUTOFF=${CUTOFF:-0}
 
           createdb wardah_fresh
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
 
           python3 scripts/ci/fresh-db/build_apply_order.py \
             sql/migrations "$CUTOFF" > /tmp/chain_order.txt
@@ -110,8 +117,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # العلم مطفأ في كل المؤسسات اليوم؛ هذه البوابة تمنع أن يتحول العلم من
-      # بوابة للمسار الجديد إلى قاطع للمسار التشغيلي القائم.
       - name: Prove the rollout flag never breaks the legacy receipt path
         run: >-
           npm run test -- --run --coverage.enabled=false

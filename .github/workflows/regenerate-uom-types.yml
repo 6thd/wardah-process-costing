@@ -104,17 +104,28 @@ jobs:
           mkdir -p reports
           set +e
           bash -Eeuo pipefail <<'SCRIPT' > reports/uom-fresh-db.log 2>&1
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
-          test -n "$BASELINE"
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          if [ "$PAIR_STATUS" -ne 0 ]; then
+            echo "❌ تعذر حل زوج الـbaseline المقترن (status=$PAIR_STATUS)"
+            exit 1
+          fi
 
-          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
-            | grep -oE '[0-9]+$' | head -1)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
           CUTOFF=${CUTOFF:-0}
+          test -n "$BASELINE"
+          test -n "$REFERENCE"
 
           createdb wardah_fresh
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
 
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > reports/uom-chain-order.txt
