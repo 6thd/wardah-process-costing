@@ -1,0 +1,412 @@
+# Migration 166 — Voucher Reset-to-Draft Runbook
+
+**Migration:** `166_voucher_reset_to_draft_workflow.sql`  
+**Scope:** Customer receipts and supplier payments  
+**State:** Repository implementation; do not apply to Production until the dedicated Fresh DB acceptance is green.
+
+## 1. Purpose
+
+Migration 166 introduces a controlled correction cycle for posted vouchers while the accounting period remains open:
+
+```text
+posted → draft → corrected → posted
+```
+
+The same `gl_entry_id` is retained. The linked GL lines are rebuilt from the corrected voucher instead of creating a reversal entry and a replacement entry.
+
+This workflow is intended only for correcting a voucher that does not yet belong to a closed accounting period. A closed-period correction must use the normal reversal workflow.
+
+## 2. Security contract
+
+The operation requires the sensitive exact permission:
+
+```text
+accounting.vouchers.unpost
+```
+
+Migration 166 deliberately does **not** use the general `has_permission` module fallback. That function may treat another `accounting.*` permission as sufficient for an accounting key.
+
+The reset RPCs use:
+
+```text
+wardah_has_exact_permission(user_id, org_id, 'accounting.vouchers.unpost')
+```
+
+The exact helper allows:
+
+- an active super admin;
+- an active organization admin for the selected organization;
+- a user assigned to an active role in the same organization, where that role has the exact permission and the user-role assignment has not expired.
+
+It rejects:
+
+- a user who only has `accounting.accounts.read` or another accounting permission;
+- an inactive role;
+- a role belonging to another organization;
+- an expired user-role assignment.
+
+Do not replace this helper with `has_permission` without an explicit security review.
+
+## 3. Granting the permission to a non-admin role
+
+The permission is inserted by Migration 166 but is not assigned automatically to ordinary roles.
+
+Review candidate roles first:
+
+```sql
+SELECT id, org_id, name, name_ar, is_active, is_system_role
+FROM public.roles
+WHERE org_id = '<ORG_ID>'::uuid
+ORDER BY name;
+```
+
+Confirm the permission row:
+
+```sql
+SELECT id, permission_key, description
+FROM public.permissions
+WHERE permission_key = 'accounting.vouchers.unpost';
+```
+
+Grant it to one approved role:
+
+```sql
+INSERT INTO public.role_permissions (role_id, permission_id, created_by)
+SELECT
+  '<ROLE_ID>'::uuid,
+  p.id,
+  '<ADMIN_USER_ID>'::uuid
+FROM public.permissions p
+WHERE p.permission_key = 'accounting.vouchers.unpost'
+ON CONFLICT (role_id, permission_id) DO NOTHING;
+```
+
+Verify the grant:
+
+```sql
+SELECT r.org_id, r.name, p.permission_key
+FROM public.role_permissions rp
+JOIN public.roles r ON r.id = rp.role_id
+JOIN public.permissions p ON p.id = rp.permission_id
+WHERE r.id = '<ROLE_ID>'::uuid
+  AND p.permission_key = 'accounting.vouchers.unpost';
+```
+
+Grant this permission only to a narrowly controlled correction or finance-supervisor role. Do not add it to generic accountant or read-only roles.
+
+## 4. Revoking the permission
+
+```sql
+DELETE FROM public.role_permissions rp
+USING public.permissions p
+WHERE rp.permission_id = p.id
+  AND rp.role_id = '<ROLE_ID>'::uuid
+  AND p.permission_key = 'accounting.vouchers.unpost';
+```
+
+Existing posted or draft vouchers are not modified by revoking the role grant. The user simply loses permission for later reset calls.
+
+## 5. RPCs introduced
+
+```text
+rpc_reset_customer_receipt_to_draft(uuid, text)
+rpc_reset_supplier_payment_to_draft(uuid, text)
+```
+
+Both RPCs:
+
+- derive the active organization from the authenticated session;
+- require active organization membership;
+- require the exact sensitive permission;
+- require a correction reason of at least five characters;
+- lock the voucher, linked invoices, and linked GL entry;
+- reject cross-organization or inconsistent references;
+- reject a closed or permanently closed period;
+- reverse allocated amounts from invoice `paid_amount`;
+- allow the invoice `balance` generated column to recalculate automatically;
+- change the linked GL entry from `posted` to `draft` through a transaction-local guard;
+- immediately turn that guard off after the single GL update;
+- record the reset action and reason in `audit_logs`.
+
+## 6. Immutability boundary
+
+Direct client updates remain forbidden:
+
+```sql
+UPDATE public.gl_entries
+SET status = 'draft'
+WHERE id = '<POSTED_GL_ENTRY_ID>'::uuid;
+```
+
+The statement must fail with `POSTED_ENTRY_IMMUTABLE`.
+
+Migration 166 permits `posted → draft` only when all of the following are true:
+
+- the caller is inside one of the reset RPCs;
+- `wardah.voucher_unpost` is transaction-locally set to `on`;
+- the GL reference type is `CUSTOMER_RECEIPT` or `SUPPLIER_PAYMENT`;
+- the GL entry has a non-null voucher reference.
+
+The GUC is set immediately before the GL update and reset to `off` immediately afterward.
+
+## 7. Generated invoice balances
+
+These columns are generated by PostgreSQL:
+
+```text
+sales_invoices.balance
+supplier_invoices.balance
+```
+
+They derive from:
+
+```text
+total_amount - paid_amount
+```
+
+Migration 166 updates `paid_amount` and invoice status only. Never include `balance` in an `INSERT` or `UPDATE` statement.
+
+## 8. Dedicated Fresh DB acceptance
+
+Workflow:
+
+```text
+Voucher Reset 166 Acceptance
+```
+
+Files:
+
+```text
+.github/workflows/voucher-reset-166-acceptance.yml
+scripts/ci/fresh-db/acceptance_166_voucher_reset.sql
+```
+
+The acceptance gate builds a Fresh DB through the complete migration chain and executes the actual RPC bodies. It proves:
+
+- posting a customer receipt with an invoice allocation;
+- posting a supplier payment with an invoice allocation;
+- generated balances after posting;
+- rejection of a user who only owns an ordinary accounting permission;
+- acceptance of a user who owns the exact unpost permission;
+- rejection of direct `posted → draft` GL updates;
+- rejection when the accounting period is closed;
+- reset of voucher, GL, invoice paid amount, generated balance, and status;
+- creation of the reset audit records;
+- correction of voucher amount and allocation while draft;
+- reposting with the same `gl_entry_id`;
+- rebuilding exactly two balanced GL lines with corrected amounts;
+- idempotent duplicate post calls;
+- no leaked `wardah.voucher_unpost = on` state.
+
+Success marker:
+
+```text
+VOUCHER_RESET_166_ACCEPTANCE_PASS
+```
+
+## 9. Pre-deployment checks
+
+Do not apply Migration 166 unless:
+
+1. every required PR check is green on the exact head SHA;
+2. `Voucher Reset 166 Acceptance` is green;
+3. the PR remains mergeable and its reviewed head has not moved;
+4. no UI deployment depending on 166 has been enabled;
+5. the Production accounting period and voucher state preflight below returns no unexpected result.
+
+Check current RPC and trigger state:
+
+```sql
+SELECT to_regprocedure('public.rpc_post_customer_receipt(uuid)'),
+       to_regprocedure('public.rpc_post_supplier_payment(uuid)'),
+       to_regprocedure('public.rpc_reset_customer_receipt_to_draft(uuid,text)'),
+       to_regprocedure('public.rpc_reset_supplier_payment_to_draft(uuid,text)');
+
+SELECT tgname, tgenabled, pg_get_triggerdef(oid)
+FROM pg_trigger
+WHERE tgrelid = 'public.gl_entries'::regclass
+  AND tgname = 'trg_protect_posted_gl_entries'
+  AND NOT tgisinternal;
+```
+
+Check generated balances:
+
+```sql
+SELECT table_name, column_name, is_generated, generation_expression
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name IN ('sales_invoices', 'supplier_invoices')
+  AND column_name = 'balance'
+ORDER BY table_name;
+```
+
+Expected: both rows show `is_generated = 'ALWAYS'`.
+
+Review posted vouchers before rollout:
+
+```sql
+SELECT 'customer_receipt' AS voucher_type,
+       c.id, c.collection_number AS voucher_number,
+       c.status, c.gl_entry_id, e.status AS gl_status, e.entry_date
+FROM public.customer_collections c
+LEFT JOIN public.gl_entries e ON e.id = c.gl_entry_id
+WHERE c.status = 'posted'
+UNION ALL
+SELECT 'supplier_payment',
+       p.id, p.payment_number,
+       p.status, p.gl_entry_id, e.status, e.entry_date
+FROM public.supplier_payments p
+LEFT JOIN public.gl_entries e ON e.id = p.gl_entry_id
+WHERE p.status = 'posted'
+ORDER BY entry_date, voucher_number;
+```
+
+Investigate any posted voucher with a missing GL entry, a non-posted linked GL entry, or a mismatched reference before applying 166.
+
+## 10. Apply Migration 166
+
+Apply the exact merged migration file as one migration. Do not copy selected function bodies manually.
+
+After application, record:
+
+- Production project reference;
+- migration name and version;
+- merged main SHA;
+- operator and timestamp;
+- output of the structural checks in the next section.
+
+## 11. Post-deployment structural verification
+
+```sql
+SELECT to_regprocedure('public.wardah_has_exact_permission(uuid,uuid,text)') IS NOT NULL
+       AS exact_guard_exists,
+       to_regprocedure('public.rpc_reset_customer_receipt_to_draft(uuid,text)') IS NOT NULL
+       AS receipt_reset_exists,
+       to_regprocedure('public.rpc_reset_supplier_payment_to_draft(uuid,text)') IS NOT NULL
+       AS payment_reset_exists;
+```
+
+Verify grants:
+
+```sql
+SELECT
+  has_function_privilege('anon',
+    'public.rpc_reset_customer_receipt_to_draft(uuid,text)', 'EXECUTE') AS anon_receipt,
+  has_function_privilege('authenticated',
+    'public.rpc_reset_customer_receipt_to_draft(uuid,text)', 'EXECUTE') AS auth_receipt,
+  has_function_privilege('anon',
+    'public.rpc_reset_supplier_payment_to_draft(uuid,text)', 'EXECUTE') AS anon_payment,
+  has_function_privilege('authenticated',
+    'public.rpc_reset_supplier_payment_to_draft(uuid,text)', 'EXECUTE') AS auth_payment,
+  has_function_privilege('authenticated',
+    'public.wardah_has_exact_permission(uuid,uuid,text)', 'EXECUTE') AS auth_exact_helper;
+```
+
+Expected:
+
+```text
+anon_receipt = false
+auth_receipt = true
+anon_payment = false
+auth_payment = true
+auth_exact_helper = false
+```
+
+Verify the permission is not automatically granted to ordinary roles:
+
+```sql
+SELECT r.org_id, r.name, p.permission_key
+FROM public.role_permissions rp
+JOIN public.roles r ON r.id = rp.role_id
+JOIN public.permissions p ON p.id = rp.permission_id
+WHERE p.permission_key = 'accounting.vouchers.unpost'
+ORDER BY r.org_id, r.name;
+```
+
+Every returned role must be an explicitly approved grant.
+
+## 12. Controlled Production verification
+
+Use a dedicated test organization and test vouchers only. Do not mutate an existing real posted voucher merely to prove deployment.
+
+Required sequence:
+
+1. Create one test sales invoice and one draft receipt with one allocation.
+2. Create one test supplier invoice and one draft payment with one allocation.
+3. Post both through the normal application/RPC path.
+4. Capture both `gl_entry_id` values.
+5. Verify a test user with an ordinary accounting read permission is rejected.
+6. Grant the exact permission to a dedicated test role.
+7. Reset both vouchers with documented reasons.
+8. Correct amounts and allocation lines.
+9. Repost both.
+10. Verify the two captured `gl_entry_id` values did not change.
+11. Verify each GL entry has exactly two balanced lines and corrected totals.
+12. Verify invoice `paid_amount`, generated `balance`, and payment status.
+13. Verify two audit records.
+14. Revoke the test role permission when verification is complete.
+
+This controlled verification is deployment evidence, not human Pilot UI signoff.
+
+## 13. Failure handling
+
+### Migration application failure
+
+Migration 166 runs inside one transaction. A failure before `COMMIT` must leave the prior functions and permissions unchanged.
+
+Do not edit the already reviewed migration in Production. Fix the repository migration, rerun Fresh DB and acceptance gates, merge a new reviewed head, and apply the corrected migration version.
+
+### Reset RPC failure
+
+The reset is atomic. Any failure rolls back:
+
+- invoice paid/status changes;
+- generated balance recalculation;
+- GL status change;
+- voucher status change;
+- audit insert.
+
+Capture the full database error and investigate the specific fail-closed code. Do not bypass the guard with direct SQL updates.
+
+### Voucher already draft
+
+The RPC is idempotent only when both the voucher and its linked GL entry are valid drafts. A draft voucher with a missing or non-draft linked GL entry raises an integrity error and must be investigated.
+
+## 14. Rollback policy
+
+After Production use begins, do not drop the functions or permission while any voucher remains in the correction cycle.
+
+Before removing or replacing Migration 166 behavior, confirm:
+
+```sql
+SELECT count(*) AS draft_receipts_with_linked_gl
+FROM public.customer_collections c
+JOIN public.gl_entries e ON e.id = c.gl_entry_id
+WHERE c.status='draft'
+  AND e.status='draft'
+  AND e.reference_type='CUSTOMER_RECEIPT';
+
+SELECT count(*) AS draft_payments_with_linked_gl
+FROM public.supplier_payments p
+JOIN public.gl_entries e ON e.id = p.gl_entry_id
+WHERE p.status='draft'
+  AND e.status='draft'
+  AND e.reference_type='SUPPLIER_PAYMENT';
+```
+
+Both counts must be reviewed and resolved. A voucher in draft correction must be either corrected and reposted or handled through a separately approved recovery plan.
+
+## 15. Evidence to retain
+
+Keep the following with the deployment record:
+
+- PR number and merged main SHA;
+- all green check names and run IDs;
+- dedicated acceptance run ID and success marker;
+- migration version from Production;
+- post-deployment function/privilege output;
+- approved role grant and later revocation, when applicable;
+- controlled test voucher IDs and stable GL entry IDs;
+- balanced GL totals and invoice paid/balance status;
+- audit-log evidence;
+- any remaining Pilot or UI rollout issue kept open until human signoff.

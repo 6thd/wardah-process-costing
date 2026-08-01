@@ -1,0 +1,115 @@
+name: Voucher Reset 166 Acceptance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/166_voucher_reset_to_draft_workflow.sql'
+      - 'scripts/ci/fresh-db/acceptance_166_voucher_reset.sql'
+      - 'scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql'
+      - '.github/workflows/voucher-reset-166-acceptance.yml'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'scripts/ci/fresh-db/build_apply_order.py'
+      - 'scripts/ci/fresh-db/run_chain.sh'
+      - 'scripts/ci/fresh-db/supabase_shim.sql'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Migration 166 Voucher Reset Cycle
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 166
+        run: |
+          set -Eeuo pipefail
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          test "$PAIR_STATUS" -eq 0
+
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regprocedure('public.rpc_reset_customer_receipt_to_draft(uuid,text)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_reset_supplier_payment_to_draft(uuid,text)') IS NOT NULL
+                    AND to_regprocedure('public.wardah_has_exact_permission(uuid,uuid,text)') IS NOT NULL" \
+            | grep -qx t
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Execute voucher reset acceptance suites
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : > /tmp/voucher-reset-166.out
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset.sql \
+            | tee -a /tmp/voucher-reset-166.out
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql \
+            | tee -a /tmp/voucher-reset-166.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      # These markers are an independent completion contract, not duplicate
+      # logging. They prevent a future shell/pipeline change from reporting a
+      # green job after psql stopped before the end of either acceptance suite.
+      - name: Verify acceptance markers
+        run: |
+          set -Eeuo pipefail
+          grep -q 'VOUCHER_RESET_166_ACCEPTANCE_PASS' /tmp/voucher-reset-166.out
+          grep -q 'VOUCHER_RESET_166_ISOLATION_IDEMPOTENCY_PASS' /tmp/voucher-reset-166.out
+
+      - name: Upload voucher reset acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voucher-reset-166-${{ github.run_id }}
+          path: |
+            /tmp/voucher-reset-166.out
+            /tmp/chain_order.txt
+            /tmp/chain_report.txt
+          if-no-files-found: error
+          retention-days: 30

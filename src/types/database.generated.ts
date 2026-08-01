@@ -11093,6 +11093,14 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_reset_customer_receipt_to_draft: {
+        Args: { p_reason: string; p_receipt_id: string }
+        Returns: Json
+      }
+      rpc_reset_supplier_payment_to_draft: {
+        Args: { p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
       rpc_resolve_uom_backfill_issue: {
         Args: {
           p_issue_id: string
@@ -11554,6 +11562,10 @@ export type Database = {
           p_reference_type: string
         }
         Returns: string
+      }
+      wardah_has_exact_permission: {
+        Args: { p_org_id: string; p_permission_key: string; p_user_id: string }
+        Returns: boolean
       }
       wardah_is_org_admin: { Args: { p_org: string }; Returns: boolean }
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
