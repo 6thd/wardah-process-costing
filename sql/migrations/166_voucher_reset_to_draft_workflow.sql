@@ -6,8 +6,9 @@
 --
 --   posted -> draft -> corrected -> posted
 --
--- The same GL entry identity is retained. Invoice paid/balance state, voucher
--- state and GL state move atomically. Closed periods remain fail-closed.
+-- The same GL entry identity is retained. Invoice paid state (and therefore
+-- its generated balance), voucher state and GL state move atomically. Closed
+-- periods remain fail-closed.
 -- =====================================================================
 
 BEGIN;
@@ -33,8 +34,8 @@ $preflight$;
 
 -- ---------------------------------------------------------------------
 -- 1. Sensitive permission: not automatically assigned to ordinary roles.
--- Org admins and super admins already receive all active permissions through
--- the existing RBAC functions; other users require an explicit role grant.
+-- Org admins and super admins retain their existing all-permission behavior;
+-- every other user must hold this exact permission through an active role.
 -- ---------------------------------------------------------------------
 INSERT INTO public.permissions (
   module_id, resource, resource_ar, action, action_ar,
@@ -52,6 +53,55 @@ SELECT
 FROM public.modules m
 WHERE m.name = 'accounting'
 ON CONFLICT (permission_key) DO NOTHING;
+
+-- has_permission intentionally supports module-level fallback for ordinary
+-- screens. Unposting is an exceptional control and must bypass that fallback.
+CREATE OR REPLACE FUNCTION public.wardah_has_exact_permission(
+  p_user_id uuid,
+  p_org_id uuid,
+  p_permission_key text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $function$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.super_admins sa
+      WHERE sa.user_id = p_user_id
+        AND sa.is_active = true
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.user_organizations uo
+      WHERE uo.user_id = p_user_id
+        AND uo.org_id = p_org_id
+        AND uo.is_active = true
+        AND uo.is_org_admin = true
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.roles r
+        ON r.id = ur.role_id
+       AND r.org_id = p_org_id
+       AND coalesce(r.is_active, true)
+      JOIN public.role_permissions rp ON rp.role_id = ur.role_id
+      JOIN public.permissions p ON p.id = rp.permission_id
+      WHERE ur.user_id = p_user_id
+        AND ur.org_id = p_org_id
+        AND p.permission_key = p_permission_key
+        AND (ur.expires_at IS NULL OR ur.expires_at > now())
+    );
+$function$;
+
+REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text) FROM anon;
+REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text) FROM authenticated;
+REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text) FROM service_role;
 
 -- ---------------------------------------------------------------------
 -- 2. Preserve posted-entry immutability while allowing exactly one internal
@@ -275,6 +325,7 @@ DECLARE
   v_entry public.gl_entries%ROWTYPE;
   v_line record;
   v_new_paid numeric;
+  v_gl_update_count integer;
 BEGIN
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
   IF length(trim(coalesce(p_reason,''))) < 5 THEN
@@ -285,7 +336,7 @@ BEGIN
   IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
-  IF NOT public.has_permission(v_actor, v_org, 'accounting.vouchers.unpost') THEN
+  IF NOT public.wardah_has_exact_permission(v_actor, v_org, 'accounting.vouchers.unpost') THEN
     RAISE EXCEPTION 'VOUCHER_UNPOST_PERMISSION_REQUIRED';
   END IF;
 
@@ -338,7 +389,6 @@ BEGIN
     v_new_paid := round(v_line.paid_amount - v_line.allocated_amount,2);
     UPDATE public.sales_invoices
     SET paid_amount=v_new_paid,
-        balance=round(total_amount-v_new_paid,2),
         payment_status=CASE
           WHEN v_new_paid <= 0 THEN 'unpaid'
           WHEN v_new_paid >= round(total_amount,2) THEN 'paid'
@@ -352,7 +402,9 @@ BEGIN
   UPDATE public.gl_entries
   SET status='draft', posted_at=NULL, posted_by=NULL, updated_at=now()
   WHERE id=v_entry.id AND org_id=v_org AND status='posted';
-  IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_RECEIPT_GL_STATE_CHANGED'; END IF;
+  GET DIAGNOSTICS v_gl_update_count = ROW_COUNT;
+  PERFORM set_config('wardah.voucher_unpost','off',true);
+  IF v_gl_update_count <> 1 THEN RAISE EXCEPTION 'CUSTOMER_RECEIPT_GL_STATE_CHANGED'; END IF;
 
   UPDATE public.customer_collections
   SET status='draft', posted_at=NULL, posted_by=NULL, updated_at=now()
@@ -393,6 +445,7 @@ DECLARE
   v_entry public.gl_entries%ROWTYPE;
   v_line record;
   v_new_paid numeric;
+  v_gl_update_count integer;
 BEGIN
   IF v_actor IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
   IF length(trim(coalesce(p_reason,''))) < 5 THEN
@@ -403,7 +456,7 @@ BEGIN
   IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
-  IF NOT public.has_permission(v_actor, v_org, 'accounting.vouchers.unpost') THEN
+  IF NOT public.wardah_has_exact_permission(v_actor, v_org, 'accounting.vouchers.unpost') THEN
     RAISE EXCEPTION 'VOUCHER_UNPOST_PERMISSION_REQUIRED';
   END IF;
 
@@ -456,7 +509,6 @@ BEGIN
     v_new_paid := round(v_line.paid_amount-v_line.allocated_amount,2);
     UPDATE public.supplier_invoices
     SET paid_amount=v_new_paid,
-        balance=round(total_amount-v_new_paid,2),
         status=CASE
           WHEN v_new_paid >= round(total_amount,2) THEN 'paid'
           WHEN v_new_paid > 0 THEN 'partially_paid'
@@ -471,7 +523,9 @@ BEGIN
   UPDATE public.gl_entries
   SET status='draft', posted_at=NULL, posted_by=NULL, updated_at=now()
   WHERE id=v_entry.id AND org_id=v_org AND status='posted';
-  IF NOT FOUND THEN RAISE EXCEPTION 'SUPPLIER_PAYMENT_GL_STATE_CHANGED'; END IF;
+  GET DIAGNOSTICS v_gl_update_count = ROW_COUNT;
+  PERFORM set_config('wardah.voucher_unpost','off',true);
+  IF v_gl_update_count <> 1 THEN RAISE EXCEPTION 'SUPPLIER_PAYMENT_GL_STATE_CHANGED'; END IF;
 
   UPDATE public.supplier_payments
   SET status='draft', posted_at=NULL, posted_by=NULL, updated_at=now()
@@ -504,7 +558,8 @@ REVOKE ALL ON FUNCTION public.rpc_reset_supplier_payment_to_draft(uuid,text) FRO
 GRANT EXECUTE ON FUNCTION public.rpc_reset_supplier_payment_to_draft(uuid,text) TO authenticated;
 
 -- ---------------------------------------------------------------------
--- 6. Keep invoice balance synchronized during normal posting too.
+-- 6. Keep invoice paid state synchronized during normal posting. The balance
+-- columns are GENERATED ALWAYS from total_amount - paid_amount.
 -- ---------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.rpc_post_customer_receipt(p_receipt_id uuid)
 RETURNS jsonb
@@ -545,7 +600,7 @@ BEGIN
   v_entry_id:=public.wardah_create_posted_voucher_gl(v_org,'CUSTOMER_RECEIPT',v_receipt.id,v_receipt.collection_number,v_receipt.collection_date,'سند قبض '||v_receipt.collection_number,v_payment_account,v_ar_account,v_receipt.amount,v_actor);
   FOR v_line IN SELECT l.invoice_id,l.allocated_amount,i.total_amount,coalesce(i.paid_amount,0) paid_amount FROM public.customer_collection_lines l JOIN public.sales_invoices i ON i.id=l.invoice_id WHERE l.collection_id=v_receipt.id ORDER BY i.id FOR UPDATE OF i LOOP
     v_new_paid:=round(v_line.paid_amount+v_line.allocated_amount,2);
-    UPDATE public.sales_invoices SET paid_amount=v_new_paid,balance=round(total_amount-v_new_paid,2),payment_status=CASE WHEN v_new_paid>=round(total_amount,2) THEN 'paid' ELSE 'partially_paid' END,updated_at=now() WHERE id=v_line.invoice_id AND org_id=v_org;
+    UPDATE public.sales_invoices SET paid_amount=v_new_paid,payment_status=CASE WHEN v_new_paid>=round(total_amount,2) THEN 'paid' ELSE 'partially_paid' END,updated_at=now() WHERE id=v_line.invoice_id AND org_id=v_org;
   END LOOP;
   UPDATE public.customer_collections SET status='posted',gl_entry_id=v_entry_id,posted_at=now(),posted_by=v_actor,updated_at=now() WHERE id=v_receipt.id AND org_id=v_org AND status='draft';
   IF NOT FOUND THEN RAISE EXCEPTION 'CUSTOMER_RECEIPT_STATE_CHANGED'; END IF;
@@ -593,7 +648,7 @@ BEGIN
   v_entry_id:=public.wardah_create_posted_voucher_gl(v_org,'SUPPLIER_PAYMENT',v_payment.id,v_payment.payment_number,v_payment.payment_date,'سند صرف '||v_payment.payment_number,v_ap_account,v_payment_account,v_payment.amount,v_actor);
   FOR v_line IN SELECT l.invoice_id,l.allocated_amount,i.total_amount,coalesce(i.paid_amount,0) paid_amount FROM public.supplier_payment_lines l JOIN public.supplier_invoices i ON i.id=l.invoice_id WHERE l.payment_id=v_payment.id ORDER BY i.id FOR UPDATE OF i LOOP
     v_new_paid:=round(v_line.paid_amount+v_line.allocated_amount,2);
-    UPDATE public.supplier_invoices SET paid_amount=v_new_paid,balance=round(total_amount-v_new_paid,2),status=CASE WHEN v_new_paid>=round(total_amount,2) THEN 'paid' ELSE 'partially_paid' END,updated_at=now() WHERE id=v_line.invoice_id AND org_id=v_org;
+    UPDATE public.supplier_invoices SET paid_amount=v_new_paid,status=CASE WHEN v_new_paid>=round(total_amount,2) THEN 'paid' ELSE 'partially_paid' END,updated_at=now() WHERE id=v_line.invoice_id AND org_id=v_org;
   END LOOP;
   UPDATE public.supplier_payments SET status='posted',gl_entry_id=v_entry_id,posted_at=now(),posted_by=v_actor,updated_at=now() WHERE id=v_payment.id AND org_id=v_org AND status='draft';
   IF NOT FOUND THEN RAISE EXCEPTION 'SUPPLIER_PAYMENT_STATE_CHANGED'; END IF;
@@ -619,7 +674,9 @@ BEGIN
   IF has_function_privilege('anon','public.rpc_reset_customer_receipt_to_draft(uuid,text)','EXECUTE')
      OR has_function_privilege('anon','public.rpc_reset_supplier_payment_to_draft(uuid,text)','EXECUTE')
      OR NOT has_function_privilege('authenticated','public.rpc_reset_customer_receipt_to_draft(uuid,text)','EXECUTE')
-     OR NOT has_function_privilege('authenticated','public.rpc_reset_supplier_payment_to_draft(uuid,text)','EXECUTE') THEN
+     OR NOT has_function_privilege('authenticated','public.rpc_reset_supplier_payment_to_draft(uuid,text)','EXECUTE')
+     OR has_function_privilege('authenticated','public.wardah_has_exact_permission(uuid,uuid,text)','EXECUTE')
+     OR has_function_privilege('anon','public.wardah_has_exact_permission(uuid,uuid,text)','EXECUTE') THEN
     RAISE EXCEPTION 'VOUCHER_166_RPC_GRANT_VERIFY_FAILED';
   END IF;
 END
