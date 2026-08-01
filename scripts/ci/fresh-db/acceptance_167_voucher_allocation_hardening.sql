@@ -201,17 +201,18 @@ SELECT pg_temp.expect_error(
     WHERE id='77c21000-0000-0000-0000-000000000001'$$,
   'permission denied');
 
--- NULL invoice IDs and cross-org invoices are rejected.
+-- NULL invoice IDs are rejected explicitly by the allocation trigger, while
+-- NOT NULL remains the storage-level invariant behind it.
 SELECT pg_temp.expect_error(
   $$INSERT INTO public.customer_collection_lines
       (collection_id,invoice_id,allocated_amount)
     VALUES ('77c10000-0000-0000-0000-000000000001',NULL,1)$$,
-  'null value');
+  'CUSTOMER_ALLOCATION_INSERT_SCOPE_INVALID');
 SELECT pg_temp.expect_error(
   $$INSERT INTO public.supplier_payment_lines
       (payment_id,invoice_id,allocated_amount)
     VALUES ('77c20000-0000-0000-0000-000000000001',NULL,1)$$,
-  'null value');
+  'SUPPLIER_ALLOCATION_INSERT_SCOPE_INVALID');
 SELECT pg_temp.expect_error(
   $$INSERT INTO public.customer_collection_lines
       (collection_id,invoice_id,allocated_amount)
