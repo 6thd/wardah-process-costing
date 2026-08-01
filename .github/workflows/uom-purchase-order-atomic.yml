@@ -7,6 +7,8 @@ on:
       - 'sql/migrations/147_atomic_uom_purchase_order_creation.sql'
       - 'scripts/ci/fresh-db/acceptance_147_atomic_uom_purchase_order.sql'
       - '.github/workflows/uom-purchase-order-atomic.yml'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'sql/baseline/**'
   workflow_dispatch:
 
 jobs:
@@ -36,16 +38,22 @@ jobs:
       - name: Build fresh database through migration 147
         run: |
           set -Eeuo pipefail
-          BASELINE=$(ls sql/baseline/000_schema_baseline_*.sql 2>/dev/null | sort | tail -1)
-          test -n "$BASELINE"
-          CUTOFF=$(grep -oE '^-- migration_cutoff: ([0-9]+)' "$BASELINE" \
-            | grep -oE '[0-9]+$' | head -1)
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          test "$PAIR_STATUS" -eq 0
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
           CUTOFF=${CUTOFF:-0}
 
           createdb wardah_fresh
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
 
           python3 scripts/ci/fresh-db/build_apply_order.py \
             sql/migrations "$CUTOFF" > /tmp/chain_order.txt
