@@ -84,7 +84,10 @@ VALUES
    'ASSET', 'AR', 'DEBIT', true, true),
   ('77a10000-0000-0000-0000-000000000004',
    '77111111-1111-1111-1111-111111111111', '270100', 'Voucher 167 AP A',
-   'LIABILITY', 'AP', 'CREDIT', true, true);
+   'LIABILITY', 'AP', 'CREDIT', true, true),
+  ('77a10000-0000-0000-0000-000000000005',
+   '77222222-2222-2222-2222-222222222222', '170201', 'Voucher 167 Cash B',
+   'ASSET', 'CASH', 'DEBIT', true, true);
 
 INSERT INTO public.journals
   (id, org_id, code, name, journal_type, is_active) VALUES
@@ -147,6 +150,30 @@ VALUES
    300, 'bank_transfer', '77a10000-0000-0000-0000-000000000002', 'draft',
    '77aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 
+-- Organization B vouchers exist only so an active organization A user can be
+-- proven unable to attach a line to a foreign voucher *header*. Cross-org
+-- invoice tests exercise the child side of the scope check; nothing before this
+-- exercised the parent side.
+INSERT INTO public.customer_collections
+  (id, org_id, collection_number, customer_id, collection_date,
+   amount, payment_method, payment_account_id, status, created_by)
+VALUES
+  ('77c10000-0000-0000-0000-000000000002',
+   '77222222-2222-2222-2222-222222222222', 'V167-CR-B1',
+   '77d00000-0000-0000-0000-000000000002', DATE '2026-08-06',
+   500, 'cash', '77a10000-0000-0000-0000-000000000005', 'draft',
+   '77cccccc-cccc-cccc-cccc-cccccccccccc');
+
+INSERT INTO public.supplier_payments
+  (id, org_id, payment_number, vendor_id, payment_date,
+   amount, payment_method, payment_account_id, status, created_by)
+VALUES
+  ('77c20000-0000-0000-0000-000000000002',
+   '77222222-2222-2222-2222-222222222222', 'V167-SP-B1',
+   '77e00000-0000-0000-0000-000000000002', DATE '2026-08-06',
+   250, 'cash', '77a10000-0000-0000-0000-000000000005', 'draft',
+   '77cccccc-cccc-cccc-cccc-cccccccccccc');
+
 -- ---------------------------------------------------------------------------
 -- 2. Current UI creation path remains valid for active authenticated users.
 -- ---------------------------------------------------------------------------
@@ -177,6 +204,64 @@ BEGIN
      OR (SELECT count(*) FROM public.supplier_payment_lines
          WHERE payment_id='77c20000-0000-0000-0000-000000000001') <> 1 THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: active draft line creation failed';
+  END IF;
+END;
+$$;
+
+-- The complete two-step UI flow, not only its second half. The headers above
+-- were seeded with owner privileges, which cannot prove the Migration 163
+-- insert policy still admits a browser client. These are created by the
+-- authenticated role itself, then given lines the same way.
+INSERT INTO public.customer_collections
+  (id, org_id, collection_number, customer_id, collection_date,
+   amount, payment_method, payment_account_id, status, created_by)
+VALUES
+  ('77c10000-0000-0000-0000-000000000003',
+   '77111111-1111-1111-1111-111111111111', 'V167-CR-A2',
+   '77d00000-0000-0000-0000-000000000001', DATE '2026-08-07',
+   100, 'cash', '77a10000-0000-0000-0000-000000000001', 'draft',
+   '77aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+INSERT INTO public.supplier_payments
+  (id, org_id, payment_number, vendor_id, payment_date,
+   amount, payment_method, payment_account_id, status, created_by)
+VALUES
+  ('77c20000-0000-0000-0000-000000000003',
+   '77111111-1111-1111-1111-111111111111', 'V167-SP-A2',
+   '77e00000-0000-0000-0000-000000000001', DATE '2026-08-07',
+   100, 'bank_transfer', '77a10000-0000-0000-0000-000000000002', 'draft',
+   '77aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+
+INSERT INTO public.customer_collection_lines
+  (id, collection_id, invoice_id, allocated_amount, discount_amount)
+VALUES
+  ('77c11000-0000-0000-0000-000000000003',
+   '77c10000-0000-0000-0000-000000000003',
+   '77b10000-0000-0000-0000-000000000001', 100, 0);
+
+INSERT INTO public.supplier_payment_lines
+  (id, payment_id, invoice_id, allocated_amount, discount_amount)
+VALUES
+  ('77c21000-0000-0000-0000-000000000003',
+   '77c20000-0000-0000-0000-000000000003',
+   '77b20000-0000-0000-0000-000000000001', 100, 0);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.customer_collections
+    WHERE id='77c10000-0000-0000-0000-000000000003'
+      AND status='draft' AND gl_entry_id IS NULL
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.supplier_payments
+    WHERE id='77c20000-0000-0000-0000-000000000003'
+      AND status='draft' AND gl_entry_id IS NULL
+  ) OR (SELECT count(*) FROM public.customer_collection_lines
+        WHERE collection_id='77c10000-0000-0000-0000-000000000003') <> 1
+    OR (SELECT count(*) FROM public.supplier_payment_lines
+        WHERE payment_id='77c20000-0000-0000-0000-000000000003') <> 1 THEN
+    RAISE EXCEPTION
+      'ACCEPTANCE_FAIL: client-side two-step voucher creation broke under Migration 167';
   END IF;
 END;
 $$;
@@ -226,7 +311,36 @@ SELECT pg_temp.expect_error(
             '77b20000-0000-0000-0000-000000000002',1)$$,
   'SUPPLIER_ALLOCATION_INSERT_SCOPE_INVALID');
 
+-- Parent-side scope: a foreign voucher header rejects the line even when the
+-- invoice belongs to that same foreign organization, so the pair is internally
+-- consistent and only the tenant boundary stands between them.
+SELECT pg_temp.expect_error(
+  $$INSERT INTO public.customer_collection_lines
+      (collection_id,invoice_id,allocated_amount)
+    VALUES ('77c10000-0000-0000-0000-000000000002',
+            '77b10000-0000-0000-0000-000000000002',1)$$,
+  'CUSTOMER_ALLOCATION_INSERT_SCOPE_INVALID');
+SELECT pg_temp.expect_error(
+  $$INSERT INTO public.supplier_payment_lines
+      (payment_id,invoice_id,allocated_amount)
+    VALUES ('77c20000-0000-0000-0000-000000000002',
+            '77b20000-0000-0000-0000-000000000002',1)$$,
+  'SUPPLIER_ALLOCATION_INSERT_SCOPE_INVALID');
+
 RESET ROLE;
+
+-- Counted after RESET ROLE on purpose. The same count under the organization A
+-- role is unfalsifiable: RLS would hide a leaked foreign line and report zero.
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM public.customer_collection_lines
+      WHERE collection_id='77c10000-0000-0000-0000-000000000002') <> 0
+     OR (SELECT count(*) FROM public.supplier_payment_lines
+         WHERE payment_id='77c20000-0000-0000-0000-000000000002') <> 0 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: cross-org voucher header received a line';
+  END IF;
+END;
+$$;
 
 -- ---------------------------------------------------------------------------
 -- 3. Inactive membership and anon have no usable line access.
