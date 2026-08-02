@@ -42,11 +42,9 @@ import {
   type SupplierPayment,
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
-import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
+import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { vendorsService } from '@/services/supabase-service'
-
-type PendingPaymentAction = { kind: 'reset' | 'cancel'; payment: SupplierPayment } | null
 
 export function SupplierPayments() {
   const { t, i18n } = useTranslation()
@@ -56,8 +54,7 @@ export function SupplierPayments() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<SupplierPayment | null>(null)
   const [editingPayment, setEditingPayment] = useState<SupplierPayment | null>(null)
-  const [pendingAction, setPendingAction] = useState<PendingPaymentAction>(null)
-  const [actionPending, setActionPending] = useState(false)
+  const [pendingAction, setPendingAction] = useState<VoucherReasonAction | null>(null)
 
   useEffect(() => {
     loadPayments()
@@ -90,35 +87,6 @@ export function SupplierPayments() {
       }
     } catch (error: any) {
       toast.error(`خطأ: ${error.message}`)
-    }
-  }
-
-  const runReasonAction = async (reason: string) => {
-    if (!pendingAction?.payment.id) return
-    const { kind, payment } = pendingAction
-    setActionPending(true)
-    try {
-      const result =
-        kind === 'reset'
-          ? await resetSupplierPaymentToDraft(payment.id, reason)
-          : await cancelSupplierPayment(payment.id, reason)
-
-      if (!result.success) {
-        toast.error(result.error || (kind === 'reset' ? 'خطأ في إعادة السند إلى مسودة' : 'خطأ في إلغاء السند'))
-        return
-      }
-
-      if (result.duplicate) {
-        toast.info(kind === 'reset' ? 'السند مسودة بالفعل' : 'السند ملغى بالفعل')
-      } else {
-        toast.success(kind === 'reset' ? 'أُعيد السند إلى مسودة' : 'أُلغي السند')
-      }
-      setPendingAction(null)
-      await loadPayments()
-    } catch (error: any) {
-      toast.error(`خطأ: ${error.message}`)
-    } finally {
-      setActionPending(false)
     }
   }
 
@@ -266,7 +234,7 @@ export function SupplierPayments() {
                               <Button
                                 size="sm"
                                 variant="destructive"
-                                onClick={() => setPendingAction({ kind: 'cancel', payment })}
+                                onClick={() => payment.id && setPendingAction({ kind: 'cancel', voucherId: payment.id })}
                               >
                                 إلغاء
                               </Button>
@@ -276,7 +244,7 @@ export function SupplierPayments() {
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => setPendingAction({ kind: 'reset', payment })}
+                              onClick={() => payment.id && setPendingAction({ kind: 'reset', voucherId: payment.id })}
                             >
                               إعادة إلى مسودة
                             </Button>
@@ -332,21 +300,13 @@ export function SupplierPayments() {
         </Dialog>
       )}
 
-      <VoucherReasonDialog
-        open={Boolean(pendingAction)}
-        pending={actionPending}
-        title={pendingAction?.kind === 'reset' ? 'إعادة السند إلى مسودة' : 'إلغاء السند'}
-        description={
-          pendingAction?.kind === 'reset'
-            ? 'يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة فواتير المورد كما كانت.'
-            : 'يُنهي دورة السند دون حذف أي تاريخ. لا يمكن التراجع عن الإلغاء.'
-        }
-        confirmLabel={pendingAction?.kind === 'reset' ? 'إعادة إلى مسودة' : 'تأكيد الإلغاء'}
-        confirmVariant={pendingAction?.kind === 'cancel' ? 'destructive' : 'default'}
-        onConfirm={runReasonAction}
-        onOpenChange={open => {
-          if (!open) setPendingAction(null)
-        }}
+      <VoucherReasonActionDialog
+        action={pendingAction}
+        resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة فواتير المورد كما كانت."
+        resetVoucher={resetSupplierPaymentToDraft}
+        cancelVoucher={cancelSupplierPayment}
+        onClose={() => setPendingAction(null)}
+        onChanged={loadPayments}
       />
     </div>
   )

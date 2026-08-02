@@ -39,8 +39,8 @@ import {
   type CustomerReceipt,
   type PaymentMethod,
 } from '@/services/payment-vouchers-service'
-import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
+import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { customersService } from '@/services/supabase-service'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
@@ -66,16 +66,13 @@ function accountMatchesMethod(account: PaymentAccount | undefined, method: Payme
   return Boolean(account?.subtype && allowedAccountSubtypes(method).has(account.subtype))
 }
 
-type PendingAction = { kind: 'reset' | 'cancel'; receipt: CustomerReceipt } | null
-
 export function CustomerReceipts() {
   const [receipts, setReceipts] = useState<CustomerReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<CustomerReceipt | null>(null)
   const [editingReceipt, setEditingReceipt] = useState<CustomerReceipt | null>(null)
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
-  const [actionPending, setActionPending] = useState(false)
+  const [pendingAction, setPendingAction] = useState<VoucherReasonAction | null>(null)
 
   useEffect(() => {
     void loadReceipts()
@@ -108,37 +105,6 @@ export function CustomerReceipts() {
       }
     } catch (error: any) {
       toast.error(`خطأ: ${error.message}`)
-    }
-  }
-
-  const runReasonAction = async (reason: string) => {
-    if (!pendingAction?.receipt.id) return
-    const { kind, receipt } = pendingAction
-    setActionPending(true)
-    try {
-      const result =
-        kind === 'reset'
-          ? await resetCustomerReceiptToDraft(receipt.id, reason)
-          : await cancelCustomerReceipt(receipt.id, reason)
-
-      if (!result.success) {
-        toast.error(result.error || (kind === 'reset' ? 'خطأ في إعادة السند إلى مسودة' : 'خطأ في إلغاء السند'))
-        return
-      }
-
-      if (result.duplicate) {
-        // The RPCs are idempotent: a repeated call reports the same end state
-        // rather than failing or writing a second audit record.
-        toast.info(kind === 'reset' ? 'السند مسودة بالفعل' : 'السند ملغى بالفعل')
-      } else {
-        toast.success(kind === 'reset' ? 'أُعيد السند إلى مسودة' : 'أُلغي السند')
-      }
-      setPendingAction(null)
-      await loadReceipts()
-    } catch (error: any) {
-      toast.error(`خطأ: ${error.message}`)
-    } finally {
-      setActionPending(false)
     }
   }
 
@@ -248,11 +214,11 @@ export function CustomerReceipts() {
                             <>
                               <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
                               <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
-                              <Button size="sm" variant="destructive" onClick={() => setPendingAction({ kind: 'cancel', receipt })}>إلغاء</Button>
+                              <Button size="sm" variant="destructive" onClick={() => receipt.id && setPendingAction({ kind: 'cancel', voucherId: receipt.id })}>إلغاء</Button>
                             </>
                           )}
                           {receipt.status === 'posted' && (
-                            <Button size="sm" variant="outline" onClick={() => setPendingAction({ kind: 'reset', receipt })}>إعادة إلى مسودة</Button>
+                            <Button size="sm" variant="outline" onClick={() => receipt.id && setPendingAction({ kind: 'reset', voucherId: receipt.id })}>إعادة إلى مسودة</Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => setSelectedReceipt(receipt)}>عرض</Button>
                         </div>
@@ -296,21 +262,13 @@ export function CustomerReceipts() {
         </Dialog>
       )}
 
-      <VoucherReasonDialog
-        open={Boolean(pendingAction)}
-        pending={actionPending}
-        title={pendingAction?.kind === 'reset' ? 'إعادة السند إلى مسودة' : 'إلغاء السند'}
-        description={
-          pendingAction?.kind === 'reset'
-            ? 'يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة الفواتير كما كانت.'
-            : 'يُنهي دورة السند دون حذف أي تاريخ. لا يمكن التراجع عن الإلغاء.'
-        }
-        confirmLabel={pendingAction?.kind === 'reset' ? 'إعادة إلى مسودة' : 'تأكيد الإلغاء'}
-        confirmVariant={pendingAction?.kind === 'cancel' ? 'destructive' : 'default'}
-        onConfirm={runReasonAction}
-        onOpenChange={open => {
-          if (!open) setPendingAction(null)
-        }}
+      <VoucherReasonActionDialog
+        action={pendingAction}
+        resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة الفواتير كما كانت."
+        resetVoucher={resetCustomerReceiptToDraft}
+        cancelVoucher={cancelCustomerReceipt}
+        onClose={() => setPendingAction(null)}
+        onChanged={loadReceipts}
       />
     </div>
   )

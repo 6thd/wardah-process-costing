@@ -384,24 +384,40 @@ export async function postCustomerReceipt(
  * what later authorizes editing or cancelling the corrected voucher — nothing
  * else counts as proof the voucher reached the correction phase.
  */
-export async function resetCustomerReceiptToDraft(
-  receiptId: string,
-  reason: string
-): Promise<{ success: boolean; data?: any; duplicate?: boolean; error?: any }> {
+type VoucherResetResult = { success: boolean; data?: any; duplicate?: boolean; error?: any }
+
+async function resetVoucherToDraft(
+  rpcName: 'rpc_reset_customer_receipt_to_draft' | 'rpc_reset_supplier_payment_to_draft',
+  idParameter: 'p_receipt_id' | 'p_payment_id',
+  voucherId: string,
+  reason: string,
+  failureMessage: string
+): Promise<VoucherResetResult> {
   try {
-    const { data, error } = await supabase.rpc('rpc_reset_customer_receipt_to_draft', {
-      p_receipt_id: receiptId,
-      p_reason: reason
-    })
+    const parameters = { [idParameter]: voucherId, p_reason: reason }
+    const { data, error } = await supabase.rpc(rpcName, parameters)
 
     if (error) throw error
-    if (!data?.success) throw new Error('Customer receipt reset failed')
+    if (!data?.success) throw new Error(failureMessage)
 
     return { success: true, data, duplicate: Boolean(data.duplicate) }
   } catch (error: any) {
-    console.error('Error resetting customer receipt:', error)
+    console.error(`${failureMessage}:`, error)
     return { success: false, error: describeVoucherError(error) }
   }
+}
+
+export async function resetCustomerReceiptToDraft(
+  receiptId: string,
+  reason: string
+): Promise<VoucherResetResult> {
+  return resetVoucherToDraft(
+    'rpc_reset_customer_receipt_to_draft',
+    'p_receipt_id',
+    receiptId,
+    reason,
+    'Customer receipt reset failed'
+  )
 }
 
 /**
@@ -611,21 +627,14 @@ export async function postSupplierPayment(
 export async function resetSupplierPaymentToDraft(
   paymentId: string,
   reason: string
-): Promise<{ success: boolean; data?: any; duplicate?: boolean; error?: any }> {
-  try {
-    const { data, error } = await supabase.rpc('rpc_reset_supplier_payment_to_draft', {
-      p_payment_id: paymentId,
-      p_reason: reason
-    })
-
-    if (error) throw error
-    if (!data?.success) throw new Error('Supplier payment reset failed')
-
-    return { success: true, data, duplicate: Boolean(data.duplicate) }
-  } catch (error: any) {
-    console.error('Error resetting supplier payment:', error)
-    return { success: false, error: describeVoucherError(error) }
-  }
+): Promise<VoucherResetResult> {
+  return resetVoucherToDraft(
+    'rpc_reset_supplier_payment_to_draft',
+    'p_payment_id',
+    paymentId,
+    reason,
+    'Supplier payment reset failed'
+  )
 }
 
 /**
@@ -829,4 +838,3 @@ export async function getSupplierOutstandingInvoices(
     return { success: false, error: error.message || error }
   }
 }
-
