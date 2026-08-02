@@ -246,16 +246,30 @@ Remaining `.from('<voucher table>')` call sites, all read-only:
 | `payment-vouchers-service.ts` — `getAllCustomerReceipts`, `getAllSupplierPayments` | `select` |
 | `sales-reports-service.ts` — collection totals | `select` |
 
-Two legacy functions still hold direct writes and are **not** reached by any UI:
-`recordCustomerCollection` in `enhanced-sales-service.ts` (inserts a
-`customer_collections` header with swallowed errors, then mutates
-`sales_invoices.paid_amount` directly) and `recordCustomerCollection` in
-`sales-service.ts` (mutates `paid_amount` and `payment_status` directly). Both
-are referenced only by their own unit tests. They must be resolved — converted or
-removed — before Migration 169 revokes the direct write grants, since 169 would
-otherwise turn them from dead code into runtime failures.
+Two legacy writers were **removed** rather than converted:
 
-`payment-vouchers-rpc-contract.test.ts` gates the service against drift: it
+| Removed | What it did |
+|---|---|
+| `recordCustomerCollection` — `enhanced-sales-service.ts` | Inserted a `customer_collections` header inside a `try/catch` that swallowed the failure and continued, then mutated `sales_invoices.paid_amount` and `payment_status` directly |
+| `recordCustomerCollection` — `sales-service.ts` | Mutated `paid_amount` and `payment_status` directly |
+
+Neither had a caller in any component or feature — only their own unit tests.
+Converting them would have kept the name while changing the semantics: they
+performed an immediate collection, whereas the RPC creates a **draft** and
+posting stays owned by `rpc_post_customer_receipt`. The swallowed insert was the
+sharper problem: the invoice could end up marked paid with no collection record
+behind it. Keeping them would have made Migration 169 a deferred failure — a
+revived dead path breaks at runtime once the direct write grants are revoked.
+
+The collection scenarios they covered are restated in
+`voucher-collection-cycle.test.ts` against `create → post`, with posting kept as
+an explicit second step. `paid_amount` and `payment_status` are derived
+server-side by the posting RPC and are never computed by the client.
+
+Two gates keep this from drifting back. `payment-vouchers-rpc-contract.test.ts`
 asserts the six RPC call sites exist, that no `.from()` chain on a voucher table
 terminates in a write, that numbering is not derived on the client, and that the
-compensating delete is gone.
+compensating delete is gone. A second block in the same file asserts that neither
+collection service reintroduces `recordCustomerCollection`, writes to
+`customer_collections`, or sets `paid_amount` / `payment_status` in a
+`sales_invoices` update.

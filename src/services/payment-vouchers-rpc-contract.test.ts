@@ -69,3 +69,58 @@ describe('payment voucher RPC contract', () => {
     expect(source).not.toMatch(/\.delete\(\)/)
   })
 })
+
+/**
+ * The legacy collection writers are gone. They inserted a `customer_collections`
+ * header with swallowed errors and then mutated `sales_invoices.paid_amount` and
+ * `payment_status` directly — bypassing the voucher, the posting step and the
+ * audit trail entirely.
+ *
+ * They had no caller, which is exactly why they were dangerous: Migration 169
+ * revokes the direct write grants, and a dead path that gets revived after that
+ * fails at runtime, in Production, for whichever org reaches it first.
+ */
+describe('legacy collection writers stay removed', () => {
+  const COLLECTION_SERVICES = [
+    'src/services/enhanced-sales-service.ts',
+    'src/services/sales-service.ts'
+  ]
+
+  const sources = COLLECTION_SERVICES.map(path => ({
+    path,
+    source: readFileSync(path, 'utf8')
+  }))
+
+  it.each(COLLECTION_SERVICES)('%s exposes no recordCustomerCollection', path => {
+    const { source } = sources.find(entry => entry.path === path)!
+    expect(source).not.toContain('recordCustomerCollection')
+    expect(source).not.toContain('createCollectionAccountingEntry')
+  })
+
+  it.each(COLLECTION_SERVICES)('%s never writes to customer_collections', path => {
+    const { source } = sources.find(entry => entry.path === path)!
+    const chains = source.split(".from('customer_collections')").slice(1)
+    for (const chain of chains) {
+      expect(chain.split('\n').slice(0, 12).join('\n')).not.toMatch(
+        /\.(insert|update|delete|upsert)\s*\(/
+      )
+    }
+  })
+
+  it.each(COLLECTION_SERVICES)('%s never writes paid_amount or payment_status', path => {
+    const { source } = sources.find(entry => entry.path === path)!
+
+    // Both fields are derived by the posting RPC from the allocation lines.
+    // A client-side write is what let a swallowed header insert leave the
+    // invoice marked paid with no collection record behind it.
+    const chains = source.split(".from('sales_invoices')").slice(1)
+    for (const chain of chains) {
+      const head = chain.split('\n').slice(0, 20).join('\n')
+      const writes = /\.(update|upsert)\s*\(/.exec(head)
+      if (!writes) continue
+      const block = head.slice(writes.index)
+      expect(block).not.toMatch(/\bpaid_amount\s*:/)
+      expect(block).not.toMatch(/\bpayment_status\s*:/)
+    }
+  })
+})
