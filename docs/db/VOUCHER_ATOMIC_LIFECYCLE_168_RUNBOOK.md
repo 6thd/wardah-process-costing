@@ -67,6 +67,8 @@ Do not grant it to every role that already holds `unpost`. The acceptance gate p
 
 **B — posted, then reset for correction.** The voucher keeps `gl_entry_id`; only the linked entry's `status` moves to `cancelled`. `entry_number` and every GL line are retained — nothing is deleted, zeroed or recreated, so the entry sequence has no unexplained gap and no draft entry is left dangling. The audit record names the reset it closes through `metadata.reset_audit_id`.
 
+When a voucher has been through more than one correction cycle it has more than one reset record, and the cancel names the most recent one — ordered by `created_at`, then by `id`. In Production each reset is its own transaction, so `created_at` separates them exactly. Inside a single transaction it cannot: `audit_logs.created_at` defaults to `now()`, which is the transaction timestamp, and `id` is a random UUID, so two resets committed together have no total order. Nothing in the cancel contract depends on which of them is named — the acceptance gate therefore pins what is actually guaranteed: the named record is a `voucher_reset_to_draft` for **this** voucher in **this** organization, never a bare id and never another voucher's history.
+
 **Refused outright:** cancelling a `posted` voucher. It must go through `rpc_reset_*_to_draft` first, so the paid amounts and invoice states are unwound by the Migration 166 RPC rather than by a second implementation of the same reversal.
 
 A second cancel of an already-cancelled voucher returns the same result with `duplicate: true` and writes no second audit record.

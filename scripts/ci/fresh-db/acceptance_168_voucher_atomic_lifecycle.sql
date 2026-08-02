@@ -751,6 +751,89 @@ SELECT pg_temp.expect_error(
   'CUSTOMER_RECEIPT_CORRECTION_UNPROVEN');
 RESET ROLE;
 
+-- ---------------------------------------------------------------------------
+-- 11. A second correction cycle on the same voucher. The receipt was reset,
+-- edited and reposted earlier, so this run makes two reset records exist for
+-- it. The cancel must name a reset record belonging to this voucher and this
+-- organization — never another voucher's, and never a bare id with no
+-- provenance.
+-- ---------------------------------------------------------------------------
+SELECT set_config('request.jwt.claim.sub',
+                  '88aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
+SET LOCAL ROLE authenticated;
+SELECT public.rpc_reset_customer_receipt_to_draft(
+  (SELECT receipt_id FROM v168), 'acceptance 168 second correction cycle');
+RESET ROLE;
+
+SELECT set_config('request.jwt.claim.sub',
+                  '88cccccc-cccc-cccc-cccc-cccccccccccc', false);
+SET LOCAL ROLE authenticated;
+SELECT public.rpc_cancel_customer_receipt(
+  (SELECT receipt_id FROM v168), 'closing the second correction cycle');
+RESET ROLE;
+
+DO $$
+DECLARE
+  v_receipt uuid;
+  v_entry uuid;
+  v_reset_count integer;
+  v_named uuid;
+BEGIN
+  SELECT receipt_id INTO v_receipt FROM v168;
+  SELECT receipt_entry_id INTO v_entry FROM v168_entries;
+
+  SELECT count(*) INTO v_reset_count
+  FROM public.audit_logs
+  WHERE action='voucher_reset_to_draft'
+    AND entity_type='customer_receipt'
+    AND entity_id = v_receipt::text;
+  IF v_reset_count <> 2 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: expected two reset records for the repeated cycle, found %',
+      v_reset_count;
+  END IF;
+
+  SELECT (metadata->>'reset_audit_id')::uuid INTO v_named
+  FROM public.audit_logs
+  WHERE action='voucher_cancelled' AND entity_id = v_receipt::text;
+  IF v_named IS NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: the cancel record does not name a reset record';
+  END IF;
+
+  -- Provenance, not just presence: the named record must be a reset of this
+  -- voucher, in this organization.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.audit_logs a
+    WHERE a.id = v_named
+      AND a.action = 'voucher_reset_to_draft'
+      AND a.entity_type = 'customer_receipt'
+      AND a.entity_id = v_receipt::text
+      AND a.org_id = (SELECT org_id FROM public.customer_collections WHERE id = v_receipt)
+  ) THEN
+    RAISE EXCEPTION
+      'ACCEPTANCE_FAIL: reset_audit_id % does not belong to this voucher and organization',
+      v_named;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.customer_collections
+    WHERE id = v_receipt AND status='cancelled' AND gl_entry_id = v_entry
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.gl_entries WHERE id = v_entry AND status='cancelled'
+  ) OR (SELECT count(*) FROM public.gl_entry_lines WHERE entry_id = v_entry) < 2 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: the second cycle cancel did not retain the GL entry intact';
+  END IF;
+
+  -- The reset unwound the allocation; cancel must not touch the invoice again.
+  IF NOT EXISTS (
+    SELECT 1 FROM public.sales_invoices
+    WHERE id='88b10000-0000-0000-0000-000000000001'
+      AND paid_amount = 0 AND payment_status='unpaid'
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: cancel altered invoice state the reset already settled';
+  END IF;
+END;
+$$;
+
 DO $$
 BEGIN
   IF coalesce(current_setting('wardah.voucher_lines_write', true), '') <> 'off'
