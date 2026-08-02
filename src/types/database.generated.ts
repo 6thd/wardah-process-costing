@@ -10919,8 +10919,16 @@ export type Database = {
         Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
         Returns: Json
       }
+      rpc_cancel_customer_receipt: {
+        Args: { p_reason: string; p_receipt_id: string }
+        Returns: Json
+      }
       rpc_cancel_stock_adjustment: {
         Args: { p_adjustment_id: string; p_reason: string }
+        Returns: Json
+      }
+      rpc_cancel_supplier_payment: {
+        Args: { p_payment_id: string; p_reason: string }
         Returns: Json
       }
       rpc_complete_manufacturing_order: {
@@ -10948,6 +10956,7 @@ export type Database = {
         Args: { p_mo_id: string; p_stage_no?: number; p_tenant?: string }
         Returns: Json
       }
+      rpc_create_customer_receipt: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_journal_entry: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_matched_supplier_invoice: {
         Args: { p_payload: Json }
@@ -10977,6 +10986,7 @@ export type Database = {
         Returns: Json
       }
       rpc_create_stock_adjustment: { Args: { p_payload: Json }; Returns: Json }
+      rpc_create_supplier_payment: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_uom_purchase_order: {
         Args: { p_payload: Json }
         Returns: Json
@@ -11166,6 +11176,14 @@ export type Database = {
           p_status: string
           p_tenant?: string
         }
+        Returns: Json
+      }
+      rpc_update_customer_receipt_draft: {
+        Args: { p_payload: Json; p_receipt_id: string }
+        Returns: Json
+      }
+      rpc_update_supplier_payment_draft: {
+        Args: { p_payload: Json; p_payment_id: string }
         Returns: Json
       }
       rpc_upsert_event_mapping: {
@@ -11569,6 +11587,10 @@ export type Database = {
       }
       wardah_is_org_admin: { Args: { p_org: string }; Returns: boolean }
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
+      wardah_next_voucher_number: {
+        Args: { p_kind: string; p_org: string }
+        Returns: string
+      }
       wardah_org_id: { Args: { p_explicit?: string }; Returns: string }
       wardah_periods_org_col: { Args: never; Returns: string }
       wardah_receipt_line_uninvoiced_base: {
