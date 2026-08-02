@@ -34,11 +34,16 @@ import {
   getAllSupplierPayments,
   createSupplierPayment,
   postSupplierPayment,
+  updateSupplierPaymentDraft,
+  cancelSupplierPayment,
+  resetSupplierPaymentToDraft,
   getSupplierOutstandingInvoices,
   getPaymentAccounts,
   type SupplierPayment,
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
+import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
+import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { vendorsService } from '@/services/supabase-service'
 
 export function SupplierPayments() {
@@ -48,6 +53,8 @@ export function SupplierPayments() {
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<SupplierPayment | null>(null)
+  const [editingPayment, setEditingPayment] = useState<SupplierPayment | null>(null)
+  const [pendingAction, setPendingAction] = useState<VoucherReasonAction | null>(null)
 
   useEffect(() => {
     loadPayments()
@@ -215,14 +222,31 @@ export function SupplierPayments() {
                       <TableCell>{getPaymentMethodLabel(payment.payment_method)}</TableCell>
                       <TableCell>{getStatusBadge(payment.status)}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {payment.status === 'draft' && (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => handlePost(payment.id!)}>
+                                إقرار
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingPayment(payment)}>
+                                تعديل
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => payment.id && setPendingAction({ kind: 'cancel', voucherId: payment.id })}
+                              >
+                                إلغاء
+                              </Button>
+                            </>
+                          )}
+                          {payment.status === 'posted' && (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handlePost(payment.id!)}
+                              onClick={() => payment.id && setPendingAction({ kind: 'reset', voucherId: payment.id })}
                             >
-                              إقرار
+                              إعادة إلى مسودة
                             </Button>
                           )}
                           <Button
@@ -254,7 +278,57 @@ export function SupplierPayments() {
           </DialogContent>
         </Dialog>
       )}
+
+      {editingPayment && (
+        <Dialog open={Boolean(editingPayment)} onOpenChange={() => setEditingPayment(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>تعديل مسودة سند الصرف {editingPayment.payment_number}</DialogTitle>
+              <DialogDescription>
+                تُستبدل مجموعة التخصيصات بالكامل بما تُدخله هنا — والمجموعة الفارغة تحذف كل السطور.
+              </DialogDescription>
+            </DialogHeader>
+            <EditPaymentAllocationsForm
+              payment={editingPayment}
+              onCancel={() => setEditingPayment(null)}
+              onSuccess={() => {
+                setEditingPayment(null)
+                loadPayments()
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <VoucherReasonActionDialog
+        action={pendingAction}
+        resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة فواتير المورد كما كانت."
+        resetVoucher={resetSupplierPaymentToDraft}
+        cancelVoucher={cancelSupplierPayment}
+        onClose={() => setPendingAction(null)}
+        onChanged={loadPayments}
+      />
     </div>
+  )
+}
+
+function EditPaymentAllocationsForm({
+  payment,
+  onSuccess,
+  onCancel,
+}: Readonly<{ payment: SupplierPayment; onSuccess: () => void; onCancel: () => void }>) {
+  return (
+    <VoucherAllocationsForm
+      voucherId={payment.id}
+      scopeId={payment.vendor_id}
+      voucherAmount={payment.amount}
+      currentLines={payment.lines}
+      emptyMessage="لا توجد فواتير قابلة للسداد لهذا المورد"
+      loadInvoices={getSupplierOutstandingInvoices}
+      updateDraft={updateSupplierPaymentDraft}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
   )
 }
 
@@ -612,4 +686,3 @@ function PaymentDetails({ payment }: { payment: SupplierPayment }) {
     </div>
   )
 }
-

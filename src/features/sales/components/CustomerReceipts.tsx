@@ -31,11 +31,16 @@ import {
   getAllCustomerReceipts,
   createCustomerReceipt,
   postCustomerReceipt,
+  updateCustomerReceiptDraft,
+  cancelCustomerReceipt,
+  resetCustomerReceiptToDraft,
   getCustomerOutstandingInvoices,
   getPaymentAccounts,
   type CustomerReceipt,
   type PaymentMethod,
 } from '@/services/payment-vouchers-service'
+import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
+import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { customersService } from '@/services/supabase-service'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
@@ -66,6 +71,8 @@ export function CustomerReceipts() {
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<CustomerReceipt | null>(null)
+  const [editingReceipt, setEditingReceipt] = useState<CustomerReceipt | null>(null)
+  const [pendingAction, setPendingAction] = useState<VoucherReasonAction | null>(null)
 
   useEffect(() => {
     void loadReceipts()
@@ -202,9 +209,16 @@ export function CustomerReceipts() {
                       <TableCell>{getPaymentMethodLabel(receipt.payment_method)}</TableCell>
                       <TableCell>{getStatusBadge(receipt.status)}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {receipt.status === 'draft' && (
-                            <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
+                              <Button size="sm" variant="destructive" onClick={() => receipt.id && setPendingAction({ kind: 'cancel', voucherId: receipt.id })}>إلغاء</Button>
+                            </>
+                          )}
+                          {receipt.status === 'posted' && (
+                            <Button size="sm" variant="outline" onClick={() => receipt.id && setPendingAction({ kind: 'reset', voucherId: receipt.id })}>إعادة إلى مسودة</Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => setSelectedReceipt(receipt)}>عرض</Button>
                         </div>
@@ -226,7 +240,57 @@ export function CustomerReceipts() {
           </DialogContent>
         </Dialog>
       )}
+
+      {editingReceipt && (
+        <Dialog open={Boolean(editingReceipt)} onOpenChange={() => setEditingReceipt(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>تعديل مسودة سند القبض {editingReceipt.receipt_number}</DialogTitle>
+              <DialogDescription>
+                تُستبدل مجموعة التخصيصات بالكامل بما تُدخله هنا — والمجموعة الفارغة تحذف كل السطور.
+              </DialogDescription>
+            </DialogHeader>
+            <EditReceiptAllocationsForm
+              receipt={editingReceipt}
+              onCancel={() => setEditingReceipt(null)}
+              onSuccess={() => {
+                setEditingReceipt(null)
+                void loadReceipts()
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <VoucherReasonActionDialog
+        action={pendingAction}
+        resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة الفواتير كما كانت."
+        resetVoucher={resetCustomerReceiptToDraft}
+        cancelVoucher={cancelCustomerReceipt}
+        onClose={() => setPendingAction(null)}
+        onChanged={loadReceipts}
+      />
     </div>
+  )
+}
+
+function EditReceiptAllocationsForm({
+  receipt,
+  onSuccess,
+  onCancel,
+}: Readonly<{ receipt: CustomerReceipt; onSuccess: () => void; onCancel: () => void }>) {
+  return (
+    <VoucherAllocationsForm
+      voucherId={receipt.id}
+      scopeId={receipt.customer_id}
+      voucherAmount={receipt.amount}
+      currentLines={receipt.lines}
+      emptyMessage="لا توجد فواتير مفتوحة لهذا العميل"
+      loadInvoices={getCustomerOutstandingInvoices}
+      updateDraft={updateCustomerReceiptDraft}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
   )
 }
 

@@ -257,6 +257,109 @@ describe('payment-vouchers-service', () => {
     })
   })
 
+  describe('reset to draft', () => {
+    it('delegates to rpc_reset_customer_receipt_to_draft with the reason', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: { success: true, duplicate: false, receipt_id: 'receipt-1', entry_id: 'gl-1', status: 'draft' },
+        error: null
+      })
+
+      const result = await service.resetCustomerReceiptToDraft('receipt-1', 'تصحيح مبلغ')
+
+      expect(result.success).toBe(true)
+      expect(result.duplicate).toBe(false)
+      expect(supabase.rpc).toHaveBeenCalledWith('rpc_reset_customer_receipt_to_draft', {
+        p_receipt_id: 'receipt-1',
+        p_reason: 'تصحيح مبلغ'
+      })
+      expect(supabase.from).not.toHaveBeenCalled()
+    })
+
+    it('reports an already-draft receipt as a duplicate, not a failure', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: { success: true, duplicate: true, receipt_id: 'receipt-1', status: 'draft' },
+        error: null
+      })
+
+      const result = await service.resetCustomerReceiptToDraft('receipt-1', 'تصحيح مبلغ')
+
+      expect(result.success).toBe(true)
+      expect(result.duplicate).toBe(true)
+    })
+
+    it('surfaces the missing unpost permission', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: null,
+        error: { message: 'VOUCHER_UNPOST_PERMISSION_REQUIRED' }
+      })
+
+      const result = await service.resetCustomerReceiptToDraft('receipt-1', 'تصحيح مبلغ')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('لا تملك صلاحية إعادة السندات إلى مسودة')
+    })
+
+    it('surfaces an invoice that drifted since posting', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: null,
+        error: { message: 'SUPPLIER_PAYMENT_UNPOST_INVOICE_DRIFT: invoice=inv-1 paid=0 allocated=100' }
+      })
+
+      const result = await service.resetSupplierPaymentToDraft('pay-1', 'تصحيح مبلغ')
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('رصيد الفاتورة تغيّر منذ الترحيل')
+      expect(supabase.rpc).toHaveBeenCalledWith('rpc_reset_supplier_payment_to_draft', {
+        p_payment_id: 'pay-1',
+        p_reason: 'تصحيح مبلغ'
+      })
+    })
+  })
+
+  describe('payment account guards (Migration 165)', () => {
+    it('explains a non-postable or cross-org account', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: null,
+        error: { message: 'VOUCHER_PAYMENT_ACCOUNT_INVALID_OR_CROSS_ORG' }
+      })
+
+      const result = await service.createCustomerReceipt({
+        customer_id: 'cust-1',
+        receipt_date: '2026-01-15',
+        amount: 100,
+        payment_method: 'cash',
+        payment_account_id: 'parent-account'
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('يقبل الترحيل')
+    })
+
+    it('explains a method/account subtype mismatch', async () => {
+      const { service, supabase } = await loadService()
+      supabase.rpc.mockResolvedValue({
+        data: null,
+        error: { message: 'VOUCHER_PAYMENT_ACCOUNT_METHOD_MISMATCH: method=cash account_subtype=BANK expected=CASH' }
+      })
+
+      const result = await service.createCustomerReceipt({
+        customer_id: 'cust-1',
+        receipt_date: '2026-01-15',
+        amount: 100,
+        payment_method: 'cash',
+        payment_account_id: 'bank-account'
+      })
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('لا يتوافق مع طريقة السداد')
+    })
+  })
+
   describe('cancellation', () => {
     it('cancels a customer receipt with a reason', async () => {
       const { service, supabase } = await loadService()

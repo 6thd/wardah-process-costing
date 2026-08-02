@@ -9,15 +9,19 @@ const mocks = vi.hoisted(() => ({
   getCustomerOutstandingInvoices: vi.fn(),
   getPaymentAccounts: vi.fn(),
   postCustomerReceipt: vi.fn(),
+  resetCustomerReceiptToDraft: vi.fn(),
+  cancelCustomerReceipt: vi.fn(),
   getCustomers: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
 }))
 
 vi.mock('sonner', () => ({
   toast: {
     success: mocks.toastSuccess,
     error: mocks.toastError,
+    info: mocks.toastInfo,
   },
 }))
 
@@ -27,6 +31,8 @@ vi.mock('@/services/payment-vouchers-service', () => ({
   getCustomerOutstandingInvoices: mocks.getCustomerOutstandingInvoices,
   getPaymentAccounts: mocks.getPaymentAccounts,
   postCustomerReceipt: mocks.postCustomerReceipt,
+  resetCustomerReceiptToDraft: mocks.resetCustomerReceiptToDraft,
+  cancelCustomerReceipt: mocks.cancelCustomerReceipt,
 }))
 
 vi.mock('@/services/supabase-service', () => ({
