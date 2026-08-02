@@ -42,6 +42,8 @@ public.wardah_org_id(NULL::uuid)
 
 `service_role` intentionally retains its existing server-side table privileges and has `rolbypassrls=true`. RLS is not a security boundary for it. The allocation-line trigger is the only database guard for direct service-role mutation when the internal GUC is off.
 
+Fresh DB must mirror that fact or the gate cannot test it. `scripts/ci/fresh-db/supabase_shim.sql` created `service_role` without `BYPASSRLS`, so RLS filtered its statements to zero rows instead of letting them reach the trigger — a silent pass, not a rejection. The shim now creates the role with `BYPASSRLS` and asserts `pg_roles.rolbypassrls` immediately, so any future gate that depends on service-role behavior tests the production shape.
+
 Never expose the service-role key to browsers, mobile clients, logs, or third-party integrations.
 
 ## Trigger contract
@@ -70,6 +72,15 @@ wardah.voucher_lines_write=on
 ```
 
 They must turn it off immediately after the final controlled statement and before raising any later error.
+
+### Consequence for the Migration 166 correction cycle
+
+Read this before applying 167 to Production. The cycle `posted → draft → corrected → posted` loses its middle step:
+
+- `reset` stays fully available — it runs inside a `SECURITY DEFINER` RPC and does not write allocation lines.
+- `corrected` has **no legal path** for any client after 167. Direct `UPDATE`/`DELETE` on allocation lines is refused for `authenticated` (privilege revoked) and for `service_role` (trigger), and `customer_collections` / `supplier_payments` still expose no client `UPDATE` policy.
+
+So a voucher reset for correction between applying 167 and shipping 168 can be reset but not edited. Migration 168's atomic edit RPC restores the step through `wardah.voucher_lines_write`. Until then, do not grant `accounting.vouchers.unpost` to new roles, and treat any reset voucher as parked. The Migration 166 acceptance suite documents the same shape: its correction step now runs through the internal GUC contract rather than a direct client write.
 
 ## Data contract
 
@@ -145,6 +156,8 @@ The gate proves:
 - inactive membership cannot read or insert;
 - anon has no access;
 - NULL and cross-org invoice links are rejected;
+- a cross-org **voucher header** cannot receive a line, not only a cross-org invoice;
+- the header itself is created through the Migration 163 policy as `authenticated`, so the complete two-step UI flow is exercised, not just its second half;
 - client `UPDATE` and `DELETE` are rejected;
 - service-role direct mutation is stopped by the trigger;
 - post and reset RPCs still execute;
