@@ -205,3 +205,57 @@ REVOKE EXECUTE ON FUNCTION public.rpc_cancel_supplier_payment(uuid,text) FROM au
 ```
 
 Do not restore the previous `protect_posted_gl_entries` body: that reopens `posted → cancelled` on voucher entries. Removing an applied migration is not an option under the project's golden rule — correct forward with a new numbered migration.
+
+## 11. Client integration (`payment-vouchers-service`)
+
+The service layer calls the six RPCs and no longer writes to the voucher tables.
+
+| Service function | RPC |
+|---|---|
+| `createCustomerReceipt` | `rpc_create_customer_receipt` |
+| `createSupplierPayment` | `rpc_create_supplier_payment` |
+| `updateCustomerReceiptDraft` | `rpc_update_customer_receipt_draft` |
+| `updateSupplierPaymentDraft` | `rpc_update_supplier_payment_draft` |
+| `cancelCustomerReceipt` | `rpc_cancel_customer_receipt` |
+| `cancelSupplierPayment` | `rpc_cancel_supplier_payment` |
+
+What the client stopped doing:
+
+- **Client-side numbering.** `generateReceiptNumber` and `generatePaymentNumber`
+  read the highest existing number and added one, so two concurrent creations
+  produced the same number. Numbering is now server-side under an advisory lock.
+- **The compensating delete.** The old create inserted the header, then the
+  lines, and on line failure issued a delete that checked neither its error nor
+  its row count — and the customer has no `DELETE` policy on
+  `customer_collections`, so it passed over zero rows in silence.
+
+Line replacement on edit is explicit: `lines` is always sent, including as an
+empty array. The service never infers "no lines key" as "keep the current set",
+matching `VOUCHER_UPDATE_LINES_REQUIRED`.
+
+RPC error codes are mapped to Arabic sentences for the user while the raw code
+is kept in the message for logs and support. Client-side amount checks remain as
+convenience only — the RPC re-enforces every one of them.
+
+### Direct-write audit
+
+Remaining `.from('<voucher table>')` call sites, all read-only:
+
+| Location | Kind |
+|---|---|
+| `payment-vouchers-service.ts` — `getAllCustomerReceipts`, `getAllSupplierPayments` | `select` |
+| `sales-reports-service.ts` — collection totals | `select` |
+
+Two legacy functions still hold direct writes and are **not** reached by any UI:
+`recordCustomerCollection` in `enhanced-sales-service.ts` (inserts a
+`customer_collections` header with swallowed errors, then mutates
+`sales_invoices.paid_amount` directly) and `recordCustomerCollection` in
+`sales-service.ts` (mutates `paid_amount` and `payment_status` directly). Both
+are referenced only by their own unit tests. They must be resolved — converted or
+removed — before Migration 169 revokes the direct write grants, since 169 would
+otherwise turn them from dead code into runtime failures.
+
+`payment-vouchers-rpc-contract.test.ts` gates the service against drift: it
+asserts the six RPC call sites exist, that no `.from()` chain on a voucher table
+terminates in a write, that numbering is not derived on the client, and that the
+compensating delete is gone.

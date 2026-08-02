@@ -8,5 +8,12 @@ describe('payment voucher optional date contract', () => {
     expect(source).toContain('check_date: payment.check_date || null')
     expect(source).not.toContain('check_date: receipt.check_date,')
     expect(source).not.toContain('check_date: payment.check_date,')
+
+    // The draft-edit RPC payloads carry the same date field and need the same
+    // normalization: `??` would forward an empty string, and only `||` maps it
+    // to null. The RPC's own nullif() is the second line of defence, not the first.
+    expect(source).toContain('check_date: changes.check_date || null')
+    expect(source).not.toContain('check_date: changes.check_date ?? null')
+    expect(source).not.toContain('check_date: changes.check_date,')
   })
 })
