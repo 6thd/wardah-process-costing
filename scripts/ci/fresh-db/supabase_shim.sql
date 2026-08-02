@@ -1,7 +1,39 @@
 -- محاكاة بيئة Supabase الدنيا لاختبار بناء قاعدة فارغة
-CREATE ROLE anon NOLOGIN;
-CREATE ROLE authenticated NOLOGIN;
-CREATE ROLE service_role NOLOGIN;
+--
+-- service_role في Supabase Production يحمل `rolbypassrls = true`. الشيم كان
+-- ينشئه دورًا عاديًا، فتُطبَّق عليه RLS في Fresh DB وحدها. والفارق لا يُظهر
+-- نفسه رفضًا بل **ترشيحًا صامتًا**: عبارة UPDATE/DELETE على جدول بلا سياسة
+-- مطابقة تنتهي بصفر صفوف بلا خطأ، فلا يُستدعى أي trigger دفاعي، فتمر بوابة
+-- تظن أنها أثبتت حارسًا بينما لم يُشغَّل الحارس أصلًا.
+--
+-- والأدوار عنقودية بينما مخططات auth وstorage محلية لكل قاعدة، فبوابة تبني
+-- قاعدتين في عنقود واحد كانت تحذف أسطر CREATE ROLE بـsed مثبَّت على نص السطر
+-- حرفيًا. إنشاء الأدوار هنا صار idempotent بذاته، فلا يبقى عقد نصي هش بين
+-- الشيم وأي سكربت بوابة.
+DO $shim_roles$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+    CREATE ROLE anon NOLOGIN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+    CREATE ROLE authenticated NOLOGIN;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+    CREATE ROLE service_role NOLOGIN BYPASSRLS;
+  ELSE
+    ALTER ROLE service_role BYPASSRLS;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles WHERE rolname = 'service_role' AND rolbypassrls
+  ) THEN
+    RAISE EXCEPTION
+      'SHIM_SERVICE_ROLE_BYPASSRLS_MISSING: fresh DB does not mirror Supabase production';
+  END IF;
+END
+$shim_roles$;
 
 -- supabase_admin لا يستقبل صلاحيات في المخطط، لكنه يظهر بوصفه **المانح** في
 -- الصلاحيات الافتراضية التي يُصدرها pg_dump بعد استعادة ACL:
@@ -11,7 +43,13 @@ CREATE ROLE service_role NOLOGIN;
 --
 -- وبيان كهذا يفشل بـ`role "supabase_admin" does not exist` قبل أن يبلغ أي منح.
 -- فحص المستفيدين وحده لا يكشفه — المانح عمود آخر في pg_default_acl.
-CREATE ROLE supabase_admin NOLOGIN;
+DO $shim_admin_role$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'supabase_admin') THEN
+    CREATE ROLE supabase_admin NOLOGIN;
+  END IF;
+END
+$shim_admin_role$;
 
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;

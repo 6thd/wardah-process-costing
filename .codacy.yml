@@ -1,0 +1,25 @@
+---
+# Codacy configuration.
+#
+# The only SQL analyzer Codacy runs here is SQLint, an ANSI-SQL parser. Every
+# SQL file in this repository is PostgreSQL: numbered migrations use PL/pgSQL
+# (`DO $$ ... BEGIN ... EXCEPTION ... END $$;`), and the Fresh DB acceptance
+# suites additionally use psql meta-commands (`\set ON_ERROR_STOP on`). SQLint
+# cannot parse either, so it reports the language itself as a "syntax error":
+# seven High/Compatibility findings on
+# scripts/ci/fresh-db/acceptance_167_voucher_allocation_hardening.sql alone, at
+# exactly the `\set` line (6) and the boundaries of the PL/pgSQL helper
+# (15, 17, 18, 23, 26, 32).
+#
+# None of them is a defect. PostgreSQL 17 parses and executes these same files
+# on every pull request — the Fresh DB chain, the pglast migration syntax gate
+# and each acceptance workflow — which is the authoritative check for the
+# dialect that is actually deployed. Leaving the wrong parser pointed at them
+# keeps the quality signal permanently red and buries findings that matter.
+#
+# Excluding the SQL sources costs no coverage: SQLint is the only Codacy tool
+# that reads them. Shell, TypeScript and security analyzers keep running on
+# every other path, including the gate scripts next to these files.
+exclude_paths:
+  - 'sql/**/*.sql'
+  - 'scripts/**/*.sql'

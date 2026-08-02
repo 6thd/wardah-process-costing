@@ -1385,7 +1385,7 @@ export type Database = {
           created_at: string | null
           discount_amount: number | null
           id: string
-          invoice_id: string | null
+          invoice_id: string
           notes: string | null
         }
         Insert: {
@@ -1394,7 +1394,7 @@ export type Database = {
           created_at?: string | null
           discount_amount?: number | null
           id?: string
-          invoice_id?: string | null
+          invoice_id: string
           notes?: string | null
         }
         Update: {
@@ -1403,7 +1403,7 @@ export type Database = {
           created_at?: string | null
           discount_amount?: number | null
           id?: string
-          invoice_id?: string | null
+          invoice_id?: string
           notes?: string | null
         }
         Relationships: [
@@ -8601,7 +8601,7 @@ export type Database = {
           created_at: string | null
           discount_amount: number | null
           id: string
-          invoice_id: string | null
+          invoice_id: string
           notes: string | null
           payment_id: string
         }
@@ -8610,7 +8610,7 @@ export type Database = {
           created_at?: string | null
           discount_amount?: number | null
           id?: string
-          invoice_id?: string | null
+          invoice_id: string
           notes?: string | null
           payment_id: string
         }
@@ -8619,7 +8619,7 @@ export type Database = {
           created_at?: string | null
           discount_amount?: number | null
           id?: string
-          invoice_id?: string | null
+          invoice_id?: string
           notes?: string | null
           payment_id?: string
         }

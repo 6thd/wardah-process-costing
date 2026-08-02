@@ -184,6 +184,15 @@ VALUES
    400, 'cash', '66a10000-0000-0000-0000-000000000001', 'draft',
    '66aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
 
+-- Migration 167 gives allocation lines a tenant-scoped insert guard that reads
+-- auth.uid() and the active tenant. Seeding lines with no session identity is
+-- exactly what that guard rejects, so the fixtures adopt the same identity the
+-- UI uses. The values match the ones re-applied before the posting step below.
+SELECT set_config('request.jwt.claim.sub',
+                  '66aaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false);
+SELECT set_config('request.jwt.claims',
+                  '{"org_id":"66111111-1111-1111-1111-111111111111"}', false);
+
 INSERT INTO public.customer_collection_lines
   (id, collection_id, invoice_id, allocated_amount, discount_amount)
 VALUES
@@ -466,22 +475,32 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- 8. Correct draft amounts and allocations, then repost.
+--
+-- Migration 167 removed every direct allocation-line UPDATE path, for clients
+-- and for service_role alike. The correction step therefore runs through the
+-- transaction-local internal contract that Migration 168's atomic edit RPC will
+-- own. This is the honest shape of the cycle after 167: reset stays reachable,
+-- but editing allocations is an internal operation, never a direct client write.
 -- ---------------------------------------------------------------------------
 UPDATE public.customer_collections
 SET amount=250, notes='corrected by acceptance 166'
 WHERE id='66c10000-0000-0000-0000-000000000001' AND status='draft';
 
+SELECT set_config('wardah.voucher_lines_write','on',true);
 UPDATE public.customer_collection_lines
 SET allocated_amount=250
 WHERE id='66c11000-0000-0000-0000-000000000001';
+SELECT set_config('wardah.voucher_lines_write','off',true);
 
 UPDATE public.supplier_payments
 SET amount=200, notes='corrected by acceptance 166'
 WHERE id='66c20000-0000-0000-0000-000000000001' AND status='draft';
 
+SELECT set_config('wardah.voucher_lines_write','on',true);
 UPDATE public.supplier_payment_lines
 SET allocated_amount=200
 WHERE id='66c21000-0000-0000-0000-000000000001';
+SELECT set_config('wardah.voucher_lines_write','off',true);
 
 SELECT public.rpc_post_customer_receipt(
   '66c10000-0000-0000-0000-000000000001');
