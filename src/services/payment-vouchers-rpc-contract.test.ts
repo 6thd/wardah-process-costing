@@ -43,8 +43,9 @@ describe('payment voucher RPC contract', () => {
       'rpc_reset_customer_receipt_to_draft',
       'rpc_reset_supplier_payment_to_draft'
     ]) {
-      expect(source).toContain(`supabase.rpc('${rpc}'`)
+      expect(source).toContain(`'${rpc}'`)
     }
+    expect(source).toContain('supabase.rpc(rpcName, parameters)')
   })
 
   it('never writes to a voucher table directly', () => {
