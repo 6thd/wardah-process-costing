@@ -1,0 +1,156 @@
+name: Voucher Atomic Lifecycle 168 Acceptance
+
+on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'sql/migrations/166_voucher_reset_to_draft_workflow.sql'
+      - 'sql/migrations/167_voucher_allocation_lines_hardening.sql'
+      - 'sql/migrations/168_voucher_atomic_lifecycle_rpcs.sql'
+      - 'scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql'
+      - 'scripts/ci/fresh-db/acceptance_168_concurrency.sh'
+      - '.github/workflows/voucher-atomic-168-acceptance.yml'
+      - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
+      - 'scripts/ci/fresh-db/build_apply_order.py'
+      - 'scripts/ci/fresh-db/run_chain.sh'
+      - 'scripts/ci/fresh-db/supabase_shim.sql'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Migration 168 Atomic Voucher Lifecycle
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 168
+        run: |
+          set -Eeuo pipefail
+          set +e
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          PAIR_STATUS=$?
+          set -e
+          test "$PAIR_STATUS" -eq 0
+
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
+            "SELECT to_regprocedure('public.rpc_create_customer_receipt(jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_create_supplier_payment(jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_update_customer_receipt_draft(uuid,jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_update_supplier_payment_draft(uuid,jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_cancel_customer_receipt(uuid,text)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_cancel_supplier_payment(uuid,text)') IS NOT NULL" \
+            | grep -qx t
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Execute atomic lifecycle acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : > /tmp/voucher-atomic-168.out
+
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql \
+            | tee -a /tmp/voucher-atomic-168.out
+
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_168_concurrency.sh \
+            | tee -a /tmp/voucher-atomic-168.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      # Migration 168 replaces protect_posted_gl_entries, which the earlier
+      # voucher gates depend on. Re-running them here proves the replacement did
+      # not quietly change behaviour those suites already rely on.
+      - name: Re-run the dependent voucher gates against the 168 chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # A separate database: the suites below seed their own tenants and
+          # must not meet the fixtures the 168 suite committed.
+          createdb wardah_regression
+          psql -v ON_ERROR_STOP=1 -d wardah_regression \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          psql -v ON_ERROR_STOP=1 -d wardah_regression -f "$(pair_field BASELINE_PATH)" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_regression -f "$(pair_field REFERENCE_PATH)" -q
+          REPORT=/tmp/regression_chain.txt PGDATABASE=wardah_regression \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_regression \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset.sql \
+            | tee -a /tmp/voucher-atomic-168.out
+          psql -v ON_ERROR_STOP=1 -d wardah_regression \
+            -f scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql \
+            | tee -a /tmp/voucher-atomic-168.out
+          psql -v ON_ERROR_STOP=1 -d wardah_regression \
+            -f scripts/ci/fresh-db/acceptance_167_voucher_allocation_hardening.sql \
+            | tee -a /tmp/voucher-atomic-168.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      # An independent completion contract. Without it a future pipeline change
+      # could stop after the first suite and still report a green job.
+      - name: Verify acceptance markers
+        run: |
+          set -Eeuo pipefail
+          grep -q 'VOUCHER_ATOMIC_168_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_ATOMIC_168_CONCURRENCY_PASS' /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_RESET_166_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_RESET_166_ISOLATION_IDEMPOTENCY_PASS' /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_ALLOCATION_167_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
+
+      - name: Upload atomic lifecycle acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: voucher-atomic-168-${{ github.run_id }}
+          path: |
+            /tmp/voucher-atomic-168.out
+            /tmp/chain_order.txt
+            /tmp/chain_report.txt
+            /tmp/regression_chain.txt
+          if-no-files-found: error
+          retention-days: 30
