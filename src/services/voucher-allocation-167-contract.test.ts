@@ -43,7 +43,13 @@ describe('Migration 167 voucher allocation hardening contract', () => {
 
   it('makes invoice identity mandatory and preserves reset audit evidence', () => {
     expect(migration.match(/ALTER COLUMN invoice_id SET NOT NULL/g)).toHaveLength(2)
-    expect(migration.match(/ON DELETE RESTRICT/g)).toHaveLength(2)
+
+    // Count the executable DDL only. A bare /ON DELETE RESTRICT/ scan also
+    // matches the pg_get_constraintdef assertions inside the DO $verify$ block,
+    // so it measures documentation rather than the two rebuilt foreign keys.
+    const restrictingForeignKeys =
+      migration.match(/ADD CONSTRAINT \w+_invoice_id_fkey[\s\S]*?ON DELETE RESTRICT;/g) ?? []
+    expect(restrictingForeignKeys).toHaveLength(2)
     expect(migration).toContain("'entry_number',v_entry.entry_number")
     expect(migration).toContain("'gl_posted_at',v_entry.posted_at")
     expect(migration).toContain("'allocations',v_allocations")

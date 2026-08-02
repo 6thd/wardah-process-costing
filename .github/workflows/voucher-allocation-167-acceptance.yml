@@ -102,5 +102,5 @@ jobs:
             /tmp/voucher-allocation-167.out
             /tmp/chain_order.txt
             /tmp/chain_report.txt
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30

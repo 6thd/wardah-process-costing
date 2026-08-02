@@ -1,7 +1,26 @@
 -- محاكاة بيئة Supabase الدنيا لاختبار بناء قاعدة فارغة
 CREATE ROLE anon NOLOGIN;
 CREATE ROLE authenticated NOLOGIN;
-CREATE ROLE service_role NOLOGIN;
+
+-- service_role في Supabase Production يحمل `rolbypassrls = true`. الشيم كان
+-- ينشئه دورًا عاديًا، فتُطبَّق عليه RLS في Fresh DB وحدها. والفارق لا يُظهر
+-- نفسه رفضًا بل **ترشيحًا صامتًا**: عبارة UPDATE/DELETE على جدول بلا سياسة
+-- مطابقة تنتهي بصفر صفوف بلا خطأ، فلا يُستدعى أي trigger دفاعي، فتمر بوابة
+-- تظن أنها أثبتت حارسًا بينما لم يُشغَّل الحارس أصلًا. أي فحص ينكسر بعد هذه
+-- المطابقة يكشف افتراضًا خاطئًا مبنيًا على محاكاة ناقصة، ويُصلَح ولا يُخفى.
+CREATE ROLE service_role NOLOGIN BYPASSRLS;
+
+DO $shim_service_role$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles
+    WHERE rolname = 'service_role' AND rolbypassrls
+  ) THEN
+    RAISE EXCEPTION
+      'SHIM_SERVICE_ROLE_BYPASSRLS_MISSING: fresh DB does not mirror Supabase production';
+  END IF;
+END
+$shim_service_role$;
 
 -- supabase_admin لا يستقبل صلاحيات في المخطط، لكنه يظهر بوصفه **المانح** في
 -- الصلاحيات الافتراضية التي يُصدرها pg_dump بعد استعادة ACL:
