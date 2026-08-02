@@ -106,4 +106,13 @@ describe('VoucherAllocationsForm', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('رفض محاسبي'))
     expect(onSuccess).not.toHaveBeenCalled()
   })
+
+  it('shows an exception raised while saving', async () => {
+    renderForm({ updateDraft: vi.fn().mockRejectedValue(new Error('انقطع الاتصال')) })
+    await screen.findByText('INV-OPEN')
+
+    await userEvent.click(screen.getByRole('button', { name: 'حفظ التعديل' }))
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('خطأ: انقطع الاتصال'))
+  })
 })

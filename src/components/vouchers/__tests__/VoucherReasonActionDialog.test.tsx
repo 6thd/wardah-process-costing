@@ -82,4 +82,13 @@ describe('VoucherReasonActionDialog', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(resetVoucher).not.toHaveBeenCalled()
   })
+
+  it('closes when the user abandons an idle dialog', async () => {
+    const onClose = vi.fn()
+    renderDialog({ onClose })
+
+    await userEvent.click(screen.getByRole('button', { name: 'تراجع' }))
+
+    expect(onClose).toHaveBeenCalledOnce()
+  })
 })
