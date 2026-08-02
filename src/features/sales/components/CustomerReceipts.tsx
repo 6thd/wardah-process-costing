@@ -31,11 +31,16 @@ import {
   getAllCustomerReceipts,
   createCustomerReceipt,
   postCustomerReceipt,
+  updateCustomerReceiptDraft,
+  cancelCustomerReceipt,
+  resetCustomerReceiptToDraft,
   getCustomerOutstandingInvoices,
   getPaymentAccounts,
   type CustomerReceipt,
+  type CustomerReceiptLine,
   type PaymentMethod,
 } from '@/services/payment-vouchers-service'
+import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
 import { customersService } from '@/services/supabase-service'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
@@ -61,11 +66,16 @@ function accountMatchesMethod(account: PaymentAccount | undefined, method: Payme
   return Boolean(account?.subtype && allowedAccountSubtypes(method).has(account.subtype))
 }
 
+type PendingAction = { kind: 'reset' | 'cancel'; receipt: CustomerReceipt } | null
+
 export function CustomerReceipts() {
   const [receipts, setReceipts] = useState<CustomerReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<CustomerReceipt | null>(null)
+  const [editingReceipt, setEditingReceipt] = useState<CustomerReceipt | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null)
+  const [actionPending, setActionPending] = useState(false)
 
   useEffect(() => {
     void loadReceipts()
@@ -98,6 +108,37 @@ export function CustomerReceipts() {
       }
     } catch (error: any) {
       toast.error(`خطأ: ${error.message}`)
+    }
+  }
+
+  const runReasonAction = async (reason: string) => {
+    if (!pendingAction?.receipt.id) return
+    const { kind, receipt } = pendingAction
+    setActionPending(true)
+    try {
+      const result =
+        kind === 'reset'
+          ? await resetCustomerReceiptToDraft(receipt.id, reason)
+          : await cancelCustomerReceipt(receipt.id, reason)
+
+      if (!result.success) {
+        toast.error(result.error || (kind === 'reset' ? 'خطأ في إعادة السند إلى مسودة' : 'خطأ في إلغاء السند'))
+        return
+      }
+
+      if (result.duplicate) {
+        // The RPCs are idempotent: a repeated call reports the same end state
+        // rather than failing or writing a second audit record.
+        toast.info(kind === 'reset' ? 'السند مسودة بالفعل' : 'السند ملغى بالفعل')
+      } else {
+        toast.success(kind === 'reset' ? 'أُعيد السند إلى مسودة' : 'أُلغي السند')
+      }
+      setPendingAction(null)
+      await loadReceipts()
+    } catch (error: any) {
+      toast.error(`خطأ: ${error.message}`)
+    } finally {
+      setActionPending(false)
     }
   }
 
@@ -202,9 +243,16 @@ export function CustomerReceipts() {
                       <TableCell>{getPaymentMethodLabel(receipt.payment_method)}</TableCell>
                       <TableCell>{getStatusBadge(receipt.status)}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {receipt.status === 'draft' && (
-                            <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
+                              <Button size="sm" variant="destructive" onClick={() => setPendingAction({ kind: 'cancel', receipt })}>إلغاء</Button>
+                            </>
+                          )}
+                          {receipt.status === 'posted' && (
+                            <Button size="sm" variant="outline" onClick={() => setPendingAction({ kind: 'reset', receipt })}>إعادة إلى مسودة</Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => setSelectedReceipt(receipt)}>عرض</Button>
                         </div>
@@ -226,7 +274,162 @@ export function CustomerReceipts() {
           </DialogContent>
         </Dialog>
       )}
+
+      {editingReceipt && (
+        <Dialog open={Boolean(editingReceipt)} onOpenChange={() => setEditingReceipt(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>تعديل مسودة سند القبض {editingReceipt.receipt_number}</DialogTitle>
+              <DialogDescription>
+                تُستبدل مجموعة التخصيصات بالكامل بما تُدخله هنا — والمجموعة الفارغة تحذف كل السطور.
+              </DialogDescription>
+            </DialogHeader>
+            <EditReceiptAllocationsForm
+              receipt={editingReceipt}
+              onCancel={() => setEditingReceipt(null)}
+              onSuccess={() => {
+                setEditingReceipt(null)
+                void loadReceipts()
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <VoucherReasonDialog
+        open={Boolean(pendingAction)}
+        pending={actionPending}
+        title={pendingAction?.kind === 'reset' ? 'إعادة السند إلى مسودة' : 'إلغاء السند'}
+        description={
+          pendingAction?.kind === 'reset'
+            ? 'يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة الفواتير كما كانت.'
+            : 'يُنهي دورة السند دون حذف أي تاريخ. لا يمكن التراجع عن الإلغاء.'
+        }
+        confirmLabel={pendingAction?.kind === 'reset' ? 'إعادة إلى مسودة' : 'تأكيد الإلغاء'}
+        confirmVariant={pendingAction?.kind === 'cancel' ? 'destructive' : 'default'}
+        onConfirm={runReasonAction}
+        onOpenChange={open => {
+          if (!open) setPendingAction(null)
+        }}
+      />
     </div>
+  )
+}
+
+function EditReceiptAllocationsForm({
+  receipt,
+  onSuccess,
+  onCancel,
+}: Readonly<{ receipt: CustomerReceipt; onSuccess: () => void; onCancel: () => void }>) {
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [allocations, setAllocations] = useState<Record<string, number>>(() =>
+    Object.fromEntries((receipt.lines ?? []).map(line => [line.invoice_id, Number(line.allocated_amount) || 0])),
+  )
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const result = await getCustomerOutstandingInvoices(receipt.customer_id)
+      const open = result.success && result.data ? result.data : []
+      // An invoice already allocated by this draft may no longer be listed as
+      // outstanding; keep it visible so the current allocation can be seen and
+      // changed rather than silently dropped from the replacement set.
+      const known = new Set(open.map((invoice: any) => invoice.id))
+      const missing = (receipt.lines ?? [])
+        .filter(line => !known.has(line.invoice_id))
+        .map(line => ({
+          id: line.invoice_id,
+          invoice_number: line.invoice_id,
+          total_amount: null,
+          paid_amount: null,
+          outstanding_balance: null,
+        }))
+      setInvoices([...open, ...missing])
+    }
+    void load()
+  }, [receipt.customer_id, receipt.lines])
+
+  const total = useMemo(
+    () => Object.values(allocations).reduce((sum, value) => sum + (value || 0), 0),
+    [allocations],
+  )
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!receipt.id) return
+
+    // Always send the complete set — the RPC refuses a payload with no `lines`
+    // key rather than inferring "keep the current allocations".
+    const lines: CustomerReceiptLine[] = Object.entries(allocations)
+      .filter(([, amount]) => amount > 0)
+      .map(([invoice_id, allocated_amount]) => ({ invoice_id, allocated_amount, discount_amount: 0 }))
+
+    setLoading(true)
+    try {
+      const result = await updateCustomerReceiptDraft(receipt.id, {
+        amount: lines.length > 0 ? total : receipt.amount,
+        lines,
+      })
+      if (result.success) {
+        toast.success(
+          lines.length === 0 ? 'حُذفت كل سطور التخصيص' : `حُفظت ${lines.length} سطر تخصيص`,
+        )
+        onSuccess()
+      } else {
+        toast.error(result.error || 'خطأ في تعديل المسودة')
+      }
+    } catch (error: any) {
+      toast.error(`خطأ: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>رقم الفاتورة</TableHead>
+            <TableHead>الإجمالي</TableHead>
+            <TableHead>المتبقي</TableHead>
+            <TableHead>المخصص</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {invoices.length === 0 ? (
+            <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground">لا توجد فواتير مفتوحة لهذا العميل</TableCell></TableRow>
+          ) : invoices.map(invoice => (
+            <TableRow key={invoice.id}>
+              <TableCell>{invoice.invoice_number}</TableCell>
+              <TableCell>{invoice.total_amount != null ? `${Number(invoice.total_amount).toFixed(2)} ريال` : '-'}</TableCell>
+              <TableCell>{invoice.outstanding_balance != null ? `${Number(invoice.outstanding_balance).toFixed(2)} ريال` : '-'}</TableCell>
+              <TableCell>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  value={allocations[invoice.id] || 0}
+                  onChange={event =>
+                    setAllocations(prev => ({ ...prev, [invoice.id]: Number.parseFloat(event.target.value) || 0 }))
+                  }
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+
+      <div className="flex items-center justify-between rounded-md border p-3">
+        <span className="text-sm text-muted-foreground">إجمالي التخصيصات</span>
+        <span className="font-medium">{total.toFixed(2)} ريال</span>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>تراجع</Button>
+        <Button type="submit" disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button>
+      </div>
+    </form>
   )
 }
 

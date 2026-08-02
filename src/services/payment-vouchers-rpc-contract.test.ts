@@ -33,6 +33,20 @@ describe('payment voucher RPC contract', () => {
     }
   })
 
+  it('routes posting and reset through their owning RPCs', () => {
+    // Unposting stays owned by Migration 166: the cancel and edit RPCs read the
+    // audit record it writes as proof the voucher reached the correction phase,
+    // so the client must never unwind a posted voucher by another route.
+    for (const rpc of [
+      'rpc_post_customer_receipt',
+      'rpc_post_supplier_payment',
+      'rpc_reset_customer_receipt_to_draft',
+      'rpc_reset_supplier_payment_to_draft'
+    ]) {
+      expect(source).toContain(`supabase.rpc('${rpc}'`)
+    }
+  })
+
   it('never writes to a voucher table directly', () => {
     // Every `.from('<voucher table>')` chain must terminate in a read.
     for (const table of VOUCHER_TABLES) {

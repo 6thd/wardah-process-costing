@@ -34,12 +34,19 @@ import {
   getAllSupplierPayments,
   createSupplierPayment,
   postSupplierPayment,
+  updateSupplierPaymentDraft,
+  cancelSupplierPayment,
+  resetSupplierPaymentToDraft,
   getSupplierOutstandingInvoices,
   getPaymentAccounts,
   type SupplierPayment,
+  type SupplierPaymentLine,
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
+import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
 import { vendorsService } from '@/services/supabase-service'
+
+type PendingPaymentAction = { kind: 'reset' | 'cancel'; payment: SupplierPayment } | null
 
 export function SupplierPayments() {
   const { t, i18n } = useTranslation()
@@ -48,6 +55,9 @@ export function SupplierPayments() {
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<SupplierPayment | null>(null)
+  const [editingPayment, setEditingPayment] = useState<SupplierPayment | null>(null)
+  const [pendingAction, setPendingAction] = useState<PendingPaymentAction>(null)
+  const [actionPending, setActionPending] = useState(false)
 
   useEffect(() => {
     loadPayments()
@@ -80,6 +90,35 @@ export function SupplierPayments() {
       }
     } catch (error: any) {
       toast.error(`خطأ: ${error.message}`)
+    }
+  }
+
+  const runReasonAction = async (reason: string) => {
+    if (!pendingAction?.payment.id) return
+    const { kind, payment } = pendingAction
+    setActionPending(true)
+    try {
+      const result =
+        kind === 'reset'
+          ? await resetSupplierPaymentToDraft(payment.id, reason)
+          : await cancelSupplierPayment(payment.id, reason)
+
+      if (!result.success) {
+        toast.error(result.error || (kind === 'reset' ? 'خطأ في إعادة السند إلى مسودة' : 'خطأ في إلغاء السند'))
+        return
+      }
+
+      if (result.duplicate) {
+        toast.info(kind === 'reset' ? 'السند مسودة بالفعل' : 'السند ملغى بالفعل')
+      } else {
+        toast.success(kind === 'reset' ? 'أُعيد السند إلى مسودة' : 'أُلغي السند')
+      }
+      setPendingAction(null)
+      await loadPayments()
+    } catch (error: any) {
+      toast.error(`خطأ: ${error.message}`)
+    } finally {
+      setActionPending(false)
     }
   }
 
@@ -215,14 +254,31 @@ export function SupplierPayments() {
                       <TableCell>{getPaymentMethodLabel(payment.payment_method)}</TableCell>
                       <TableCell>{getStatusBadge(payment.status)}</TableCell>
                       <TableCell>
-                        <div className="flex gap-2">
+                        <div className="flex flex-wrap gap-2">
                           {payment.status === 'draft' && (
+                            <>
+                              <Button size="sm" variant="outline" onClick={() => handlePost(payment.id!)}>
+                                إقرار
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => setEditingPayment(payment)}>
+                                تعديل
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => setPendingAction({ kind: 'cancel', payment })}
+                              >
+                                إلغاء
+                              </Button>
+                            </>
+                          )}
+                          {payment.status === 'posted' && (
                             <Button
                               size="sm"
                               variant="outline"
-                              onClick={() => handlePost(payment.id!)}
+                              onClick={() => setPendingAction({ kind: 'reset', payment })}
                             >
-                              إقرار
+                              إعادة إلى مسودة
                             </Button>
                           )}
                           <Button
@@ -254,7 +310,162 @@ export function SupplierPayments() {
           </DialogContent>
         </Dialog>
       )}
+
+      {editingPayment && (
+        <Dialog open={Boolean(editingPayment)} onOpenChange={() => setEditingPayment(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>تعديل مسودة سند الصرف {editingPayment.payment_number}</DialogTitle>
+              <DialogDescription>
+                تُستبدل مجموعة التخصيصات بالكامل بما تُدخله هنا — والمجموعة الفارغة تحذف كل السطور.
+              </DialogDescription>
+            </DialogHeader>
+            <EditPaymentAllocationsForm
+              payment={editingPayment}
+              onCancel={() => setEditingPayment(null)}
+              onSuccess={() => {
+                setEditingPayment(null)
+                loadPayments()
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
+
+      <VoucherReasonDialog
+        open={Boolean(pendingAction)}
+        pending={actionPending}
+        title={pendingAction?.kind === 'reset' ? 'إعادة السند إلى مسودة' : 'إلغاء السند'}
+        description={
+          pendingAction?.kind === 'reset'
+            ? 'يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة فواتير المورد كما كانت.'
+            : 'يُنهي دورة السند دون حذف أي تاريخ. لا يمكن التراجع عن الإلغاء.'
+        }
+        confirmLabel={pendingAction?.kind === 'reset' ? 'إعادة إلى مسودة' : 'تأكيد الإلغاء'}
+        confirmVariant={pendingAction?.kind === 'cancel' ? 'destructive' : 'default'}
+        onConfirm={runReasonAction}
+        onOpenChange={open => {
+          if (!open) setPendingAction(null)
+        }}
+      />
     </div>
+  )
+}
+
+function EditPaymentAllocationsForm({
+  payment,
+  onSuccess,
+  onCancel,
+}: Readonly<{ payment: SupplierPayment; onSuccess: () => void; onCancel: () => void }>) {
+  const [invoices, setInvoices] = useState<any[]>([])
+  const [allocations, setAllocations] = useState<Record<string, number>>(() =>
+    Object.fromEntries((payment.lines ?? []).map(line => [line.invoice_id, Number(line.allocated_amount) || 0])),
+  )
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    const load = async () => {
+      const result = await getSupplierOutstandingInvoices(payment.vendor_id)
+      const open = result.success && result.data ? result.data : []
+      // Keep an already-allocated invoice visible even when it no longer shows
+      // up as payable, so its allocation can be changed rather than silently
+      // dropped from the replacement set.
+      const known = new Set(open.map((invoice: any) => invoice.id))
+      const missing = (payment.lines ?? [])
+        .filter(line => !known.has(line.invoice_id))
+        .map(line => ({
+          id: line.invoice_id,
+          invoice_number: line.invoice_id,
+          total_amount: null,
+          outstanding_balance: null,
+        }))
+      setInvoices([...open, ...missing])
+    }
+    load()
+  }, [payment.vendor_id, payment.lines])
+
+  const total = Object.values(allocations).reduce((sum, value) => sum + (value || 0), 0)
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!payment.id) return
+
+    // Always send the complete set — the RPC refuses a payload with no `lines`
+    // key rather than inferring "keep the current allocations".
+    const lines: SupplierPaymentLine[] = Object.entries(allocations)
+      .filter(([, amount]) => amount > 0)
+      .map(([invoice_id, allocated_amount]) => ({ invoice_id, allocated_amount, discount_amount: 0 }))
+
+    setLoading(true)
+    try {
+      const result = await updateSupplierPaymentDraft(payment.id, {
+        amount: lines.length > 0 ? total : payment.amount,
+        lines,
+      })
+      if (result.success) {
+        toast.success(lines.length === 0 ? 'حُذفت كل سطور التخصيص' : `حُفظت ${lines.length} سطر تخصيص`)
+        onSuccess()
+      } else {
+        toast.error(result.error || 'خطأ في تعديل المسودة')
+      }
+    } catch (error: any) {
+      toast.error(`خطأ: ${error.message}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>رقم الفاتورة</TableHead>
+            <TableHead>الإجمالي</TableHead>
+            <TableHead>المتبقي</TableHead>
+            <TableHead>المخصص</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {invoices.length === 0 ? (
+            <TableRow>
+              <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
+                لا توجد فواتير قابلة للسداد لهذا المورد
+              </TableCell>
+            </TableRow>
+          ) : (
+            invoices.map(invoice => (
+              <TableRow key={invoice.id}>
+                <TableCell>{invoice.invoice_number}</TableCell>
+                <TableCell>{invoice.total_amount != null ? `${Number(invoice.total_amount).toFixed(2)} ريال` : '-'}</TableCell>
+                <TableCell>{invoice.outstanding_balance != null ? `${Number(invoice.outstanding_balance).toFixed(2)} ريال` : '-'}</TableCell>
+                <TableCell>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    value={allocations[invoice.id] || 0}
+                    onChange={event =>
+                      setAllocations(prev => ({ ...prev, [invoice.id]: Number.parseFloat(event.target.value) || 0 }))
+                    }
+                  />
+                </TableCell>
+              </TableRow>
+            ))
+          )}
+        </TableBody>
+      </Table>
+
+      <div className="flex items-center justify-between rounded-md border p-3">
+        <span className="text-sm text-muted-foreground">إجمالي التخصيصات</span>
+        <span className="font-medium">{total.toFixed(2)} ريال</span>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>تراجع</Button>
+        <Button type="submit" disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button>
+      </div>
+    </form>
   )
 }
 

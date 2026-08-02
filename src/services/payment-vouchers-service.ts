@@ -123,6 +123,17 @@ const VOUCHER_ERROR_MESSAGES: Record<string, string> = {
   VOUCHER_CANCEL_REASON_REQUIRED: 'سبب الإلغاء مطلوب',
   VOUCHER_CANCEL_PERMISSION_REQUIRED: 'لا تملك صلاحية إلغاء السندات',
   VOUCHER_CANCEL_REQUIRES_RESET: 'أعد السند إلى مسودة قبل إلغائه',
+  VOUCHER_UNPOST_REASON_REQUIRED: 'سبب الإعادة إلى مسودة مطلوب (5 أحرف على الأقل)',
+  VOUCHER_UNPOST_PERMISSION_REQUIRED: 'لا تملك صلاحية إعادة السندات إلى مسودة',
+  VOUCHER_PAYMENT_ACCOUNT_INVALID_OR_CROSS_ORG:
+    'حساب السداد غير صالح — يجب أن يكون حسابًا نشطًا يقبل الترحيل في هذه المؤسسة',
+  VOUCHER_PAYMENT_ACCOUNT_METHOD_MISMATCH: 'حساب السداد لا يتوافق مع طريقة السداد المختارة',
+  CUSTOMER_RECEIPT_NOT_POSTED: 'السند ليس مرحّلًا',
+  SUPPLIER_PAYMENT_NOT_POSTED: 'السند ليس مرحّلًا',
+  CUSTOMER_RECEIPT_UNPOST_INVOICE_DRIFT: 'رصيد الفاتورة تغيّر منذ الترحيل — راجع الفاتورة قبل الإعادة',
+  SUPPLIER_PAYMENT_UNPOST_INVOICE_DRIFT: 'رصيد الفاتورة تغيّر منذ الترحيل — راجع الفاتورة قبل الإعادة',
+  PERIOD_CLOSED: 'الفترة المحاسبية مغلقة',
+  POSTED_ENTRY_IMMUTABLE: 'القيد المرحّل غير قابل للتعديل',
   CUSTOMER_RECEIPT_CUSTOMER_REQUIRED: 'اختر العميل',
   CUSTOMER_RECEIPT_CUSTOMER_CROSS_ORG: 'العميل لا يتبع هذه المؤسسة',
   CUSTOMER_RECEIPT_NOT_FOUND_OR_CROSS_ORG: 'السند غير موجود في هذه المؤسسة',
@@ -365,6 +376,35 @@ export async function postCustomerReceipt(
 }
 
 /**
+ * Return a posted customer receipt to draft for correction (إعادة إلى مسودة)
+ *
+ * Owned by `rpc_reset_customer_receipt_to_draft` from Migration 166: it unwinds
+ * the allocated amounts on each invoice and moves the GL entry back to draft
+ * while keeping `entry_number` and every GL line. The audit record it writes is
+ * what later authorizes editing or cancelling the corrected voucher — nothing
+ * else counts as proof the voucher reached the correction phase.
+ */
+export async function resetCustomerReceiptToDraft(
+  receiptId: string,
+  reason: string
+): Promise<{ success: boolean; data?: any; duplicate?: boolean; error?: any }> {
+  try {
+    const { data, error } = await supabase.rpc('rpc_reset_customer_receipt_to_draft', {
+      p_receipt_id: receiptId,
+      p_reason: reason
+    })
+
+    if (error) throw error
+    if (!data?.success) throw new Error('Customer receipt reset failed')
+
+    return { success: true, data, duplicate: Boolean(data.duplicate) }
+  } catch (error: any) {
+    console.error('Error resetting customer receipt:', error)
+    return { success: false, error: describeVoucherError(error) }
+  }
+}
+
+/**
  * Get all customer receipts
  */
 export async function getAllCustomerReceipts(filters?: {
@@ -562,6 +602,29 @@ export async function postSupplierPayment(
   } catch (error: any) {
     console.error('Error posting supplier payment:', error)
     return { success: false, error: error.message || error }
+  }
+}
+
+/**
+ * Return a posted supplier payment to draft for correction (إعادة إلى مسودة)
+ */
+export async function resetSupplierPaymentToDraft(
+  paymentId: string,
+  reason: string
+): Promise<{ success: boolean; data?: any; duplicate?: boolean; error?: any }> {
+  try {
+    const { data, error } = await supabase.rpc('rpc_reset_supplier_payment_to_draft', {
+      p_payment_id: paymentId,
+      p_reason: reason
+    })
+
+    if (error) throw error
+    if (!data?.success) throw new Error('Supplier payment reset failed')
+
+    return { success: true, data, duplicate: Boolean(data.duplicate) }
+  } catch (error: any) {
+    console.error('Error resetting supplier payment:', error)
+    return { success: false, error: describeVoucherError(error) }
   }
 }
 
