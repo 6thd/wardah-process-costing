@@ -159,7 +159,8 @@ WHERE n.nspname = 'public'
                     'rpc_cancel_customer_receipt','rpc_cancel_supplier_payment')
 ORDER BY 1;
 
--- 2. The cancel key exists and is granted to nobody yet.
+-- 2. The cancel key exists and is granted to no *role* yet.
+-- This counts RBAC grants, not effective authorization — see the note below.
 SELECT p.permission_key, count(rp.role_id) AS granted_roles
 FROM public.permissions p
 LEFT JOIN public.role_permissions rp ON rp.permission_id = p.id
@@ -190,6 +191,26 @@ WHERE c.status = 'cancelled';
 ```
 
 Expected: `auth_exec` true and `anon_exec` false on all six; `granted_roles` zero until an admin grants it; `cancel_guard_present` true; both orphan counts zero; every cancelled voucher in query 5 showing `gl_status = 'cancelled'` with its line count intact.
+
+> **`granted_roles = 0` means "granted to no role", not "held by no user."**
+> `wardah_has_exact_permission` returns true for any active `is_org_admin`
+> member without reading the permission key at all, so every org admin holds
+> `accounting.vouchers.cancel` from the moment this migration is applied. The
+> migration's own `$verify$` block is correct in its scope — it asserts the key
+> was not auto-granted to a *role* — but it is not a statement about effective
+> authorization. To measure that, call the function per active member:
+>
+> ```sql
+> SELECT uo.user_id,
+>        public.wardah_has_exact_permission(uo.user_id, uo.org_id,
+>                                           'accounting.vouchers.cancel') AS effective
+> FROM public.user_organizations uo
+> WHERE uo.is_active IS TRUE;
+> ```
+>
+> The architectural decision — keep the admin bypass and document it, or carve
+> out a sensitive-permission class it cannot cross — is tracked in issue #93 and
+> is deliberately not resolved by changing this migration.
 
 ## 10. Rollback
 
