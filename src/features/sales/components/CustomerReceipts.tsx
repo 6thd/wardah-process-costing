@@ -37,10 +37,10 @@ import {
   getCustomerOutstandingInvoices,
   getPaymentAccounts,
   type CustomerReceipt,
-  type CustomerReceiptLine,
   type PaymentMethod,
 } from '@/services/payment-vouchers-service'
 import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
+import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { customersService } from '@/services/supabase-service'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
@@ -321,115 +321,18 @@ function EditReceiptAllocationsForm({
   onSuccess,
   onCancel,
 }: Readonly<{ receipt: CustomerReceipt; onSuccess: () => void; onCancel: () => void }>) {
-  const [invoices, setInvoices] = useState<any[]>([])
-  const [allocations, setAllocations] = useState<Record<string, number>>(() =>
-    Object.fromEntries((receipt.lines ?? []).map(line => [line.invoice_id, Number(line.allocated_amount) || 0])),
-  )
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    const load = async () => {
-      const result = await getCustomerOutstandingInvoices(receipt.customer_id)
-      const open = result.success && result.data ? result.data : []
-      // An invoice already allocated by this draft may no longer be listed as
-      // outstanding; keep it visible so the current allocation can be seen and
-      // changed rather than silently dropped from the replacement set.
-      const known = new Set(open.map((invoice: any) => invoice.id))
-      const missing = (receipt.lines ?? [])
-        .filter(line => !known.has(line.invoice_id))
-        .map(line => ({
-          id: line.invoice_id,
-          invoice_number: line.invoice_id,
-          total_amount: null,
-          paid_amount: null,
-          outstanding_balance: null,
-        }))
-      setInvoices([...open, ...missing])
-    }
-    void load()
-  }, [receipt.customer_id, receipt.lines])
-
-  const total = useMemo(
-    () => Object.values(allocations).reduce((sum, value) => sum + (value || 0), 0),
-    [allocations],
-  )
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!receipt.id) return
-
-    // Always send the complete set — the RPC refuses a payload with no `lines`
-    // key rather than inferring "keep the current allocations".
-    const lines: CustomerReceiptLine[] = Object.entries(allocations)
-      .filter(([, amount]) => amount > 0)
-      .map(([invoice_id, allocated_amount]) => ({ invoice_id, allocated_amount, discount_amount: 0 }))
-
-    setLoading(true)
-    try {
-      const result = await updateCustomerReceiptDraft(receipt.id, {
-        amount: lines.length > 0 ? total : receipt.amount,
-        lines,
-      })
-      if (result.success) {
-        toast.success(
-          lines.length === 0 ? 'حُذفت كل سطور التخصيص' : `حُفظت ${lines.length} سطر تخصيص`,
-        )
-        onSuccess()
-      } else {
-        toast.error(result.error || 'خطأ في تعديل المسودة')
-      }
-    } catch (error: any) {
-      toast.error(`خطأ: ${error.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>رقم الفاتورة</TableHead>
-            <TableHead>الإجمالي</TableHead>
-            <TableHead>المتبقي</TableHead>
-            <TableHead>المخصص</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoices.length === 0 ? (
-            <TableRow><TableCell colSpan={4} className="text-center py-6 text-muted-foreground">لا توجد فواتير مفتوحة لهذا العميل</TableCell></TableRow>
-          ) : invoices.map(invoice => (
-            <TableRow key={invoice.id}>
-              <TableCell>{invoice.invoice_number}</TableCell>
-              <TableCell>{invoice.total_amount != null ? `${Number(invoice.total_amount).toFixed(2)} ريال` : '-'}</TableCell>
-              <TableCell>{invoice.outstanding_balance != null ? `${Number(invoice.outstanding_balance).toFixed(2)} ريال` : '-'}</TableCell>
-              <TableCell>
-                <Input
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  value={allocations[invoice.id] || 0}
-                  onChange={event =>
-                    setAllocations(prev => ({ ...prev, [invoice.id]: Number.parseFloat(event.target.value) || 0 }))
-                  }
-                />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      <div className="flex items-center justify-between rounded-md border p-3">
-        <span className="text-sm text-muted-foreground">إجمالي التخصيصات</span>
-        <span className="font-medium">{total.toFixed(2)} ريال</span>
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>تراجع</Button>
-        <Button type="submit" disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button>
-      </div>
-    </form>
+    <VoucherAllocationsForm
+      voucherId={receipt.id}
+      scopeId={receipt.customer_id}
+      voucherAmount={receipt.amount}
+      currentLines={receipt.lines}
+      emptyMessage="لا توجد فواتير مفتوحة لهذا العميل"
+      loadInvoices={getCustomerOutstandingInvoices}
+      updateDraft={updateCustomerReceiptDraft}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
   )
 }
 

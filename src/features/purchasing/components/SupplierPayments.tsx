@@ -40,10 +40,10 @@ import {
   getSupplierOutstandingInvoices,
   getPaymentAccounts,
   type SupplierPayment,
-  type SupplierPaymentLine,
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
 import { VoucherReasonDialog } from '@/components/vouchers/VoucherReasonDialog'
+import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { vendorsService } from '@/services/supabase-service'
 
 type PendingPaymentAction = { kind: 'reset' | 'cancel'; payment: SupplierPayment } | null
@@ -357,115 +357,18 @@ function EditPaymentAllocationsForm({
   onSuccess,
   onCancel,
 }: Readonly<{ payment: SupplierPayment; onSuccess: () => void; onCancel: () => void }>) {
-  const [invoices, setInvoices] = useState<any[]>([])
-  const [allocations, setAllocations] = useState<Record<string, number>>(() =>
-    Object.fromEntries((payment.lines ?? []).map(line => [line.invoice_id, Number(line.allocated_amount) || 0])),
-  )
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    const load = async () => {
-      const result = await getSupplierOutstandingInvoices(payment.vendor_id)
-      const open = result.success && result.data ? result.data : []
-      // Keep an already-allocated invoice visible even when it no longer shows
-      // up as payable, so its allocation can be changed rather than silently
-      // dropped from the replacement set.
-      const known = new Set(open.map((invoice: any) => invoice.id))
-      const missing = (payment.lines ?? [])
-        .filter(line => !known.has(line.invoice_id))
-        .map(line => ({
-          id: line.invoice_id,
-          invoice_number: line.invoice_id,
-          total_amount: null,
-          outstanding_balance: null,
-        }))
-      setInvoices([...open, ...missing])
-    }
-    load()
-  }, [payment.vendor_id, payment.lines])
-
-  const total = Object.values(allocations).reduce((sum, value) => sum + (value || 0), 0)
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    if (!payment.id) return
-
-    // Always send the complete set — the RPC refuses a payload with no `lines`
-    // key rather than inferring "keep the current allocations".
-    const lines: SupplierPaymentLine[] = Object.entries(allocations)
-      .filter(([, amount]) => amount > 0)
-      .map(([invoice_id, allocated_amount]) => ({ invoice_id, allocated_amount, discount_amount: 0 }))
-
-    setLoading(true)
-    try {
-      const result = await updateSupplierPaymentDraft(payment.id, {
-        amount: lines.length > 0 ? total : payment.amount,
-        lines,
-      })
-      if (result.success) {
-        toast.success(lines.length === 0 ? 'حُذفت كل سطور التخصيص' : `حُفظت ${lines.length} سطر تخصيص`)
-        onSuccess()
-      } else {
-        toast.error(result.error || 'خطأ في تعديل المسودة')
-      }
-    } catch (error: any) {
-      toast.error(`خطأ: ${error.message}`)
-    } finally {
-      setLoading(false)
-    }
-  }
-
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>رقم الفاتورة</TableHead>
-            <TableHead>الإجمالي</TableHead>
-            <TableHead>المتبقي</TableHead>
-            <TableHead>المخصص</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoices.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={4} className="text-center py-6 text-muted-foreground">
-                لا توجد فواتير قابلة للسداد لهذا المورد
-              </TableCell>
-            </TableRow>
-          ) : (
-            invoices.map(invoice => (
-              <TableRow key={invoice.id}>
-                <TableCell>{invoice.invoice_number}</TableCell>
-                <TableCell>{invoice.total_amount != null ? `${Number(invoice.total_amount).toFixed(2)} ريال` : '-'}</TableCell>
-                <TableCell>{invoice.outstanding_balance != null ? `${Number(invoice.outstanding_balance).toFixed(2)} ريال` : '-'}</TableCell>
-                <TableCell>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    min={0}
-                    value={allocations[invoice.id] || 0}
-                    onChange={event =>
-                      setAllocations(prev => ({ ...prev, [invoice.id]: Number.parseFloat(event.target.value) || 0 }))
-                    }
-                  />
-                </TableCell>
-              </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
-
-      <div className="flex items-center justify-between rounded-md border p-3">
-        <span className="text-sm text-muted-foreground">إجمالي التخصيصات</span>
-        <span className="font-medium">{total.toFixed(2)} ريال</span>
-      </div>
-
-      <div className="flex justify-end gap-2">
-        <Button type="button" variant="outline" onClick={onCancel} disabled={loading}>تراجع</Button>
-        <Button type="submit" disabled={loading}>{loading ? 'جاري الحفظ...' : 'حفظ التعديل'}</Button>
-      </div>
-    </form>
+    <VoucherAllocationsForm
+      voucherId={payment.id}
+      scopeId={payment.vendor_id}
+      voucherAmount={payment.amount}
+      currentLines={payment.lines}
+      emptyMessage="لا توجد فواتير قابلة للسداد لهذا المورد"
+      loadInvoices={getSupplierOutstandingInvoices}
+      updateDraft={updateSupplierPaymentDraft}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
   )
 }
 
@@ -823,4 +726,3 @@ function PaymentDetails({ payment }: { payment: SupplierPayment }) {
     </div>
   )
 }
-
