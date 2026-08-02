@@ -55,7 +55,6 @@ import {
   createSalesInvoice,
   getSalesInvoiceWithDetails,
   deliverGoods,
-  recordCustomerCollection,
   getAllSalesInvoices,
   getAllDeliveryNotes,
   type SalesInvoice,
@@ -241,75 +240,6 @@ describe('Sales Service', () => {
       const result = await deliverGoods(delivery, deliveryLines);
 
       expect(result.success).toBe(false);
-    });
-  });
-
-  describe('recordCustomerCollection', () => {
-    it('should update invoice paid amount and status', async () => {
-      // Mock fetch invoice
-      mockSupabaseSingle.mockResolvedValueOnce({
-        data: {
-          id: 'inv-1',
-          invoice_number: 'INV-001',
-          total_amount: 1000,
-          paid_amount: 0,
-        },
-        error: null,
-      });
-
-      const result = await recordCustomerCollection('inv-1', 500, '2025-12-20', 'cash');
-
-      expect(mockSupabaseFrom).toHaveBeenCalledWith('sales_invoices');
-      expect(mockSupabaseUpdate).toHaveBeenCalled();
-    });
-
-    it('should set status to paid when fully collected', async () => {
-      mockSupabaseSingle.mockResolvedValueOnce({
-        data: {
-          id: 'inv-1',
-          invoice_number: 'INV-001',
-          total_amount: 1000,
-          paid_amount: 500,
-        },
-        error: null,
-      });
-
-      // Collecting remaining 500
-      const result = await recordCustomerCollection('inv-1', 500, '2025-12-20', 'bank');
-
-      // Verify update was called
-      expect(mockSupabaseUpdate).toHaveBeenCalled();
-    });
-
-    it('should set status to partially_paid when partially collected', async () => {
-      const totalAmount = 1000;
-      const paidAmount = 0;
-      const collectionAmount = 300;
-      const newPaidAmount = paidAmount + collectionAmount;
-      const balance = totalAmount - newPaidAmount;
-
-      let status = 'unpaid';
-      if (balance === 0) status = 'paid';
-      else if (newPaidAmount > 0) status = 'partially_paid';
-
-      expect(status).toBe('partially_paid');
-      expect(newPaidAmount).toBe(300);
-      expect(balance).toBe(700);
-    });
-
-    it('should create correct GL entry for cash collection', async () => {
-      // Cash collection uses account 1110
-      const paymentMethod: string = 'cash';
-      const accountCode = paymentMethod === 'cash' ? '1110' : '1111';
-
-      expect(accountCode).toBe('1110');
-    });
-
-    it('should create correct GL entry for bank collection', async () => {
-      const paymentMethod: string = 'bank';
-      const accountCode = paymentMethod === 'cash' ? '1110' : '1111';
-
-      expect(accountCode).toBe('1111');
     });
   });
 

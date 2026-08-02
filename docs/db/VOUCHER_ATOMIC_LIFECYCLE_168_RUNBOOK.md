@@ -159,7 +159,8 @@ WHERE n.nspname = 'public'
                     'rpc_cancel_customer_receipt','rpc_cancel_supplier_payment')
 ORDER BY 1;
 
--- 2. The cancel key exists and is granted to nobody yet.
+-- 2. The cancel key exists and is granted to no *role* yet.
+-- This counts RBAC grants, not effective authorization — see the note below.
 SELECT p.permission_key, count(rp.role_id) AS granted_roles
 FROM public.permissions p
 LEFT JOIN public.role_permissions rp ON rp.permission_id = p.id
@@ -191,6 +192,26 @@ WHERE c.status = 'cancelled';
 
 Expected: `auth_exec` true and `anon_exec` false on all six; `granted_roles` zero until an admin grants it; `cancel_guard_present` true; both orphan counts zero; every cancelled voucher in query 5 showing `gl_status = 'cancelled'` with its line count intact.
 
+> **`granted_roles = 0` means "granted to no role", not "held by no user."**
+> `wardah_has_exact_permission` returns true for any active `is_org_admin`
+> member without reading the permission key at all, so every org admin holds
+> `accounting.vouchers.cancel` from the moment this migration is applied. The
+> migration's own `$verify$` block is correct in its scope — it asserts the key
+> was not auto-granted to a *role* — but it is not a statement about effective
+> authorization. To measure that, call the function per active member:
+>
+> ```sql
+> SELECT uo.user_id,
+>        public.wardah_has_exact_permission(uo.user_id, uo.org_id,
+>                                           'accounting.vouchers.cancel') AS effective
+> FROM public.user_organizations uo
+> WHERE uo.is_active IS TRUE;
+> ```
+>
+> The architectural decision — keep the admin bypass and document it, or carve
+> out a sensitive-permission class it cannot cross — is tracked in issue #93 and
+> is deliberately not resolved by changing this migration.
+
 ## 10. Rollback
 
 The migration is additive apart from the `protect_posted_gl_entries` replacement, which only adds refusals. To disable the new client paths without reverting schema, revoke execution:
@@ -205,3 +226,71 @@ REVOKE EXECUTE ON FUNCTION public.rpc_cancel_supplier_payment(uuid,text) FROM au
 ```
 
 Do not restore the previous `protect_posted_gl_entries` body: that reopens `posted → cancelled` on voucher entries. Removing an applied migration is not an option under the project's golden rule — correct forward with a new numbered migration.
+
+## 11. Client integration (`payment-vouchers-service`)
+
+The service layer calls the six RPCs and no longer writes to the voucher tables.
+
+| Service function | RPC |
+|---|---|
+| `createCustomerReceipt` | `rpc_create_customer_receipt` |
+| `createSupplierPayment` | `rpc_create_supplier_payment` |
+| `updateCustomerReceiptDraft` | `rpc_update_customer_receipt_draft` |
+| `updateSupplierPaymentDraft` | `rpc_update_supplier_payment_draft` |
+| `cancelCustomerReceipt` | `rpc_cancel_customer_receipt` |
+| `cancelSupplierPayment` | `rpc_cancel_supplier_payment` |
+
+What the client stopped doing:
+
+- **Client-side numbering.** `generateReceiptNumber` and `generatePaymentNumber`
+  read the highest existing number and added one, so two concurrent creations
+  produced the same number. Numbering is now server-side under an advisory lock.
+- **The compensating delete.** The old create inserted the header, then the
+  lines, and on line failure issued a delete that checked neither its error nor
+  its row count — and the customer has no `DELETE` policy on
+  `customer_collections`, so it passed over zero rows in silence.
+
+Line replacement on edit is explicit: `lines` is always sent, including as an
+empty array. The service never infers "no lines key" as "keep the current set",
+matching `VOUCHER_UPDATE_LINES_REQUIRED`.
+
+RPC error codes are mapped to Arabic sentences for the user while the raw code
+is kept in the message for logs and support. Client-side amount checks remain as
+convenience only — the RPC re-enforces every one of them.
+
+### Direct-write audit
+
+Remaining `.from('<voucher table>')` call sites, all read-only:
+
+| Location | Kind |
+|---|---|
+| `payment-vouchers-service.ts` — `getAllCustomerReceipts`, `getAllSupplierPayments` | `select` |
+| `sales-reports-service.ts` — collection totals | `select` |
+
+Two legacy writers were **removed** rather than converted:
+
+| Removed | What it did |
+|---|---|
+| `recordCustomerCollection` — `enhanced-sales-service.ts` | Inserted a `customer_collections` header inside a `try/catch` that swallowed the failure and continued, then mutated `sales_invoices.paid_amount` and `payment_status` directly |
+| `recordCustomerCollection` — `sales-service.ts` | Mutated `paid_amount` and `payment_status` directly |
+
+Neither had a caller in any component or feature — only their own unit tests.
+Converting them would have kept the name while changing the semantics: they
+performed an immediate collection, whereas the RPC creates a **draft** and
+posting stays owned by `rpc_post_customer_receipt`. The swallowed insert was the
+sharper problem: the invoice could end up marked paid with no collection record
+behind it. Keeping them would have made Migration 169 a deferred failure — a
+revived dead path breaks at runtime once the direct write grants are revoked.
+
+The collection scenarios they covered are restated in
+`voucher-collection-cycle.test.ts` against `create → post`, with posting kept as
+an explicit second step. `paid_amount` and `payment_status` are derived
+server-side by the posting RPC and are never computed by the client.
+
+Two gates keep this from drifting back. `payment-vouchers-rpc-contract.test.ts`
+asserts the six RPC call sites exist, that no `.from()` chain on a voucher table
+terminates in a write, that numbering is not derived on the client, and that the
+compensating delete is gone. A second block in the same file asserts that neither
+collection service reintroduces `recordCustomerCollection`, writes to
+`customer_collections`, or sets `paid_amount` / `payment_status` in a
+`sales_invoices` update.
