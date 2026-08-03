@@ -5,7 +5,7 @@
  * Similar to CustomerReceipts but for suppliers
  */
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -42,6 +42,10 @@ import {
   type SupplierPayment,
   type PaymentMethod
 } from '@/services/payment-vouchers-service'
+import {
+  accountMatchesMethod,
+  filterAccountsForMethod,
+} from '@/services/voucher-payment-accounts'
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { vendorsService } from '@/services/supabase-service'
@@ -352,6 +356,26 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
   const [selectedInvoices, setSelectedInvoices] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(false)
 
+  // القائمة تعرض الحسابات التي يقبلها الـtrigger مع الطريقة المختارة وحدها،
+  // بدل عرض كل حسابات السداد ثم الفشل بـVOUCHER_PAYMENT_ACCOUNT_METHOD_MISMATCH.
+  const selectableAccounts = useMemo(
+    () => filterAccountsForMethod(paymentAccounts, 'supplier_payment', formData.payment_method),
+    [paymentAccounts, formData.payment_method]
+  )
+
+  const handlePaymentMethodChange = (method: PaymentMethod) => {
+    setFormData(prev => {
+      const selected = paymentAccounts.find(account => account.id === prev.payment_account_id)
+      return {
+        ...prev,
+        payment_method: method,
+        payment_account_id: accountMatchesMethod(selected, 'supplier_payment', method)
+          ? prev.payment_account_id
+          : '',
+      }
+    })
+  }
+
   useEffect(() => {
     loadVendors()
     loadPaymentAccounts()
@@ -403,6 +427,17 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    const selectedAccount = paymentAccounts.find(account => account.id === formData.payment_account_id)
+    if (!selectedAccount) {
+      toast.error('اختر حساب السداد')
+      return
+    }
+    if (!accountMatchesMethod(selectedAccount, 'supplier_payment', formData.payment_method)) {
+      toast.error('حساب السداد لا يتوافق مع طريقة السداد المختارة')
+      return
+    }
+
     setLoading(true)
 
     try {
@@ -491,7 +526,7 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
           <Label>طريقة السداد *</Label>
           <Select
             value={formData.payment_method}
-            onValueChange={(value) => setFormData(prev => ({ ...prev, payment_method: value as PaymentMethod }))}
+            onValueChange={(value) => handlePaymentMethodChange(value as PaymentMethod)}
           >
             <SelectTrigger>
               <SelectValue />
@@ -519,12 +554,12 @@ function CreatePaymentForm({ onSuccess }: { onSuccess: () => void }) {
               <SelectValue placeholder="اختر الحساب" />
             </SelectTrigger>
             <SelectContent>
-              {paymentAccounts.length === 0 ? (
+              {selectableAccounts.length === 0 ? (
                 <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                  لا توجد حسابات سداد متاحة
+                  لا توجد حسابات سداد تناسب طريقة السداد المختارة
                 </div>
               ) : (
-                paymentAccounts.map((account) => (
+                selectableAccounts.map((account) => (
                   <SelectItem key={account.id} value={account.id}>
                     {account.code} - {account.name_ar || account.name}
                   </SelectItem>

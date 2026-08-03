@@ -710,7 +710,7 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
     // Try with full columns first
     const { data, error } = await supabase
       .from('gl_accounts')
-      .select('id, code, name, name_ar, name_en, subtype')
+      .select('id, code, name, name_ar, name_en, subtype, allow_posting')
       .eq('org_id', tenantId)
       .eq('is_active', true)
       .order('code')
@@ -727,31 +727,37 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
       
       if (error2) throw error2
       
-      // Filter manually by checking if code starts with cash/bank codes
+      // مسار احتياطي لمخطط بلا عمودَي subtype/allow_posting. يقتصر على نطاقَي
+      // النقد (1101) والبنوك (1102) — الشرط السابق كان يضيف `startsWith('110')`
+      // فيبتلع النطاقين الآخرين ويُلغي أثر التضييق. لا يمكنه التحقق من
+      // allow_posting، فيبقى الـtrigger هو الحارس الأخير في هذا المسار.
       const filtered = (data2 || []).filter((acc: any) => {
         const code = acc.code?.toString() || ''
-        return code.startsWith('1101') || code.startsWith('1102') || code.startsWith('110')
+        return code.startsWith('1101') || code.startsWith('1102')
       })
-      
-      return { 
-        success: true, 
+
+      return {
+        success: true,
         data: filtered.map((acc: any) => ({
           ...acc,
           name_ar: acc.name,
           name_en: acc.name,
-          subtype: acc.code?.startsWith('1101') ? 'CASH' : 'BANK'
+          subtype: acc.code?.toString().startsWith('1101') ? 'CASH' : 'BANK'
         }))
       }
     }
 
     if (error) throw error
 
-    // Filter by subtype and ensure name_ar/name_en
-    const filtered = (data || []).filter((acc: any) => 
-      acc.subtype === 'CASH' || acc.subtype === 'BANK' ||
-      acc.code?.toString().startsWith('110')
+    // حسابات السداد هي CASH/BANK القابلة للترحيل وحدها. الشرط السابق كان يقبل أي
+    // حساب يبدأ رمزه بـ'110'، فيسرّب الحسابات الأب غير القابلة للترحيل (110100،
+    // 110200) والمدينين والمصروفات المقدمة وضريبة المدخلات إلى القائمة — ثم يرفضها
+    // الـtrigger بـVOUCHER_PAYMENT_ACCOUNT_INVALID_OR_CROSS_ORG بعد أن يختارها
+    // المستخدم. القائمة تعكس الآن شرط الـtrigger نفسه.
+    const filtered = (data || []).filter((acc: any) =>
+      (acc.subtype === 'CASH' || acc.subtype === 'BANK') && acc.allow_posting !== false
     )
-    
+
     const accounts = filtered.map((acc: any) => ({
       ...acc,
       name_ar: acc.name_ar || acc.name,
@@ -815,7 +821,12 @@ export async function getSupplierOutstandingInvoices(
       .from('supplier_invoices')
       .select('*')
       .eq('vendor_id', vendorId)
-      .or('status.eq.draft,status.eq.submitted,status.eq.approved')
+      // مطابق لحارس القابلية للسداد في دالة ترحيل سند الصرف:
+      // status NOT IN ('approved','partially_paid','overdue') → SUPPLIER_INVOICE_NOT_PAYABLE.
+      // الفلتر السابق كان يخالفه في الاتجاهين: يعرض draft/submitted فتفشل عند
+      // الترحيل، ويخفي partially_paid/overdue رغم أنها قابلة للسداد — فتصير أي
+      // فاتورة مورد سُدّدت جزئيًا أو تجاوزت استحقاقها غير قابلة للإكمال من الواجهة.
+      .in('status', ['approved', 'partially_paid', 'overdue'])
       .order('invoice_date', { ascending: false })
 
     if (tenantId) {
