@@ -715,35 +715,18 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
       .eq('is_active', true)
       .order('code')
     
-    // If error with specific columns, fallback to basic
+    // فشل مغلق حين يعجز المخطط عن التعبير عن العقد. المسار الاحتياطي السابق كان
+    // يستنتج subtype من بادئة الرمز ولا يعرف allow_posting، فيعرض الحسابين
+    // الأبويين 110100 و110200 بوصفهما صالحين ثم يرفضهما الـtrigger.
+    // والاستنتاج بلا طائل أصلًا: wardah_validate_voucher_payment_account يقرأ
+    // a.subtype، فمخطط بلا هذا العمود لا يقبل أي سند مهما كان الحساب المختار —
+    // أي أن كل خيار يعرضه المسار الاحتياطي مضمون الفشل. الامتناع عن العرض أصدق
+    // من عرض خيارات لا تعمل.
     if (error?.code === '42703') {
-      console.warn('Some columns missing, using fallback query')
-      const { data: data2, error: error2 } = await supabase
-        .from('gl_accounts')
-        .select('id, code, name')
-        .eq('org_id', tenantId)
-        .eq('is_active', true)
-        .order('code')
-      
-      if (error2) throw error2
-      
-      // مسار احتياطي لمخطط بلا عمودَي subtype/allow_posting. يقتصر على نطاقَي
-      // النقد (1101) والبنوك (1102) — الشرط السابق كان يضيف `startsWith('110')`
-      // فيبتلع النطاقين الآخرين ويُلغي أثر التضييق. لا يمكنه التحقق من
-      // allow_posting، فيبقى الـtrigger هو الحارس الأخير في هذا المسار.
-      const filtered = (data2 || []).filter((acc: any) => {
-        const code = acc.code?.toString() || ''
-        return code.startsWith('1101') || code.startsWith('1102')
-      })
-
+      console.error('gl_accounts is missing subtype/allow_posting — cannot verify payment accounts')
       return {
-        success: true,
-        data: filtered.map((acc: any) => ({
-          ...acc,
-          name_ar: acc.name,
-          name_en: acc.name,
-          subtype: acc.code?.toString().startsWith('1101') ? 'CASH' : 'BANK'
-        }))
+        success: false,
+        error: 'تعذّر التحقق من حسابات السداد: مخطط الحسابات لا يحتوي subtype/allow_posting'
       }
     }
 
