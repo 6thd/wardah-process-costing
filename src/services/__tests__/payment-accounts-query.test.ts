@@ -65,7 +65,27 @@ describe('getPaymentAccounts', () => {
     }
   })
 
-  it('يفشل مغلقًا على مخطط بلا subtype/allow_posting بدل استنتاجهما', async () => {
+  it('يُكمل بأعمدة العقد وحدها حين ينقص عمود عرضي فقط', async () => {
+    // غياب name_ar/name_en يرفع 42703 نفسه الذي يرفعه غياب أعمدة العقد.
+    // الأول لا يمنع التحقق، فيجب ألا يُسقط الحسابات.
+    orderResult.mockImplementation((columns: string) =>
+      Promise.resolve(
+        columns.includes('name_ar')
+          ? { data: null, error: { code: '42703' } }
+          : { data: fullSchemaRows.map(({ ...row }) => row), error: null }
+      )
+    )
+
+    const result = await getPaymentAccounts()
+
+    expect(result.success).toBe(true)
+    expect(result.data?.map((a: any) => a.code)).toEqual(['110101', '110201'])
+    // الاسم العربي يعوَّض من name عند غياب عموده
+    expect(result.data?.[0].name_ar).toBe('النقدية في الخزينة')
+    expect(orderResult).toHaveBeenCalledTimes(2)
+  })
+
+  it('يفشل مغلقًا حين تنقص أعمدة العقد نفسها بدل استنتاجها', async () => {
     orderResult.mockResolvedValue({ data: null, error: { code: '42703' } })
 
     const result = await getPaymentAccounts()
@@ -74,5 +94,7 @@ describe('getPaymentAccounts', () => {
     // فأي حساب معروض سيفشل حتمًا. لا استنتاج من بادئة الرمز، ولا 110100/110200.
     expect(result.success).toBe(false)
     expect(result.data).toBeUndefined()
+    // حاول بأعمدة العقد وحدها قبل أن يستسلم
+    expect(orderResult).toHaveBeenCalledTimes(2)
   })
 })

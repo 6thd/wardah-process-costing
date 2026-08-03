@@ -707,27 +707,42 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
     const tenantId = await getEffectiveTenantId()
     if (!tenantId) throw new Error('Tenant ID not found')
 
+    const selectAccounts = (columns: string) =>
+      supabase
+        .from('gl_accounts')
+        .select(columns)
+        .eq('org_id', tenantId)
+        .eq('is_active', true)
+        .order('code')
+
     // Try with full columns first
-    const { data, error } = await supabase
-      .from('gl_accounts')
-      .select('id, code, name, name_ar, name_en, subtype, allow_posting')
-      .eq('org_id', tenantId)
-      .eq('is_active', true)
-      .order('code')
-    
-    // فشل مغلق حين يعجز المخطط عن التعبير عن العقد. المسار الاحتياطي السابق كان
-    // يستنتج subtype من بادئة الرمز ولا يعرف allow_posting، فيعرض الحسابين
-    // الأبويين 110100 و110200 بوصفهما صالحين ثم يرفضهما الـtrigger.
-    // والاستنتاج بلا طائل أصلًا: wardah_validate_voucher_payment_account يقرأ
-    // a.subtype، فمخطط بلا هذا العمود لا يقبل أي سند مهما كان الحساب المختار —
-    // أي أن كل خيار يعرضه المسار الاحتياطي مضمون الفشل. الامتناع عن العرض أصدق
-    // من عرض خيارات لا تعمل.
+    let { data, error } = await selectAccounts(
+      'id, code, name, name_ar, name_en, subtype, allow_posting'
+    )
+
     if (error?.code === '42703') {
-      console.error('gl_accounts is missing subtype/allow_posting — cannot verify payment accounts')
-      return {
-        success: false,
-        error: 'تعذّر التحقق من حسابات السداد: مخطط الحسابات لا يحتوي subtype/allow_posting'
+      // العمود المفقود قد يكون عرضيًا (name_ar/name_en) أو عقديًا
+      // (subtype/allow_posting)، و42703 واحد لا يميّز بينهما. استعلام العقد وحده
+      // يفصل الحالتين: نجاحه يعني أن الناقص عرضي فحسب — والمُخرج يعوّضه أصلًا
+      // بـ`acc.name_ar || acc.name` — فنكمل بحسابات موثوقة.
+      const contractOnly = await selectAccounts('id, code, name, subtype, allow_posting')
+
+      if (contractOnly.error?.code === '42703') {
+        // العقد نفسه غير قابل للتحقق. لا استنتاج من بادئة الرمز هنا: المسار
+        // السابق كان يخمّن subtype ويجهل allow_posting فيعرض الحسابين الأبويين
+        // 110100 و110200 صالحين ثم يرفضهما الـtrigger. والتخمين بلا طائل أصلًا،
+        // إذ يقرأ wardah_validate_voucher_payment_account العمود a.subtype، فمخطط
+        // بلا هذا العمود يرفض كل سند مهما كان الحساب — أي أن كل خيار معروض
+        // مضمون الفشل. الامتناع عن العرض أصدق من عرض خيارات لا تعمل.
+        console.error('gl_accounts is missing subtype/allow_posting — cannot verify payment accounts')
+        return {
+          success: false,
+          error: 'تعذّر التحقق من حسابات السداد: مخطط الحسابات لا يحتوي subtype/allow_posting'
+        }
       }
+
+      data = contractOnly.data
+      error = contractOnly.error
     }
 
     if (error) throw error
