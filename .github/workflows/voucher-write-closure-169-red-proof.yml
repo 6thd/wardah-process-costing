@@ -71,7 +71,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Execute immutable 169 contract after Migration 169
+      - name: Execute reviewed 169 contract after Migration 169
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -83,7 +83,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Upload red-proof evidence
+      - name: Upload voucher-closure evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
