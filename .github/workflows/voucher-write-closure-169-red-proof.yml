@@ -1,16 +1,17 @@
-name: Voucher Write Closure 169 Red Proof
+name: Voucher Write Closure 169 Acceptance
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'scripts/ci/fresh-db/acceptance_169_voucher_write_closure.sql'
+      - 'sql/migrations/169_voucher_write_closure.sql'
       - '.github/workflows/voucher-write-closure-169-red-proof.yml'
   workflow_dispatch:
 
 jobs:
-  red-proof:
-    name: Confirm 168 baseline fails the 169 contract
+  acceptance:
+    name: Confirm Migration 169 satisfies the immutable contract
     runs-on: ubuntu-latest
 
     services:
@@ -70,7 +71,7 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Execute immutable 169 contract against the 168 baseline
+      - name: Execute immutable 169 contract after Migration 169
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -86,7 +87,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: voucher-write-closure-169-red-${{ github.run_id }}
+          name: voucher-write-closure-169-${{ github.run_id }}
           path: |
             /tmp/voucher-write-closure-169.out
             /tmp/chain_order.txt
