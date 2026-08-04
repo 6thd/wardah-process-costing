@@ -11537,6 +11537,48 @@ export type Database = {
           is_valid: boolean
         }[]
       }
+      wardah_169_enter_write_context: { Args: never; Returns: undefined }
+      wardah_169_internal_cancel_customer_receipt: {
+        Args: { p_reason: string; p_receipt_id: string }
+        Returns: Json
+      }
+      wardah_169_internal_cancel_supplier_payment: {
+        Args: { p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
+      wardah_169_internal_create_customer_receipt: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      wardah_169_internal_create_supplier_payment: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      wardah_169_internal_post_customer_receipt: {
+        Args: { p_receipt_id: string }
+        Returns: Json
+      }
+      wardah_169_internal_post_supplier_payment: {
+        Args: { p_payment_id: string }
+        Returns: Json
+      }
+      wardah_169_internal_reset_customer_receipt_to_draft: {
+        Args: { p_reason: string; p_receipt_id: string }
+        Returns: Json
+      }
+      wardah_169_internal_reset_supplier_payment_to_draft: {
+        Args: { p_payment_id: string; p_reason: string }
+        Returns: Json
+      }
+      wardah_169_internal_update_customer_receipt_draft: {
+        Args: { p_payload: Json; p_receipt_id: string }
+        Returns: Json
+      }
+      wardah_169_internal_update_supplier_payment_draft: {
+        Args: { p_payload: Json; p_payment_id: string }
+        Returns: Json
+      }
+      wardah_169_leave_write_context: { Args: never; Returns: undefined }
       wardah_apply_stock_incoming: {
         Args: {
           p_org: string
@@ -11632,6 +11674,10 @@ export type Database = {
           p_uom: string
         }
         Returns: number
+      }
+      wardah_voucher_write_is_trusted: {
+        Args: { p_capability: string }
+        Returns: boolean
       }
     }
     Enums: {
