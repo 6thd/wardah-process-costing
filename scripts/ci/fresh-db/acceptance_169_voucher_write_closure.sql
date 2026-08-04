@@ -205,14 +205,14 @@ SELECT pg_temp.expect_error($sql$
   WHERE id = '88b20000-0000-0000-0000-000000000002'
 $sql$, 'VOUCHER_DERIVED_PAYMENT_FIELDS_WRITE_FORBIDDEN');
 
-DO $
+DO $$
 BEGIN
   IF (SELECT status FROM public.supplier_invoices
       WHERE id = '88b20000-0000-0000-0000-000000000002') IS DISTINCT FROM 'paid' THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: rejected paid status drift changed the invoice';
   END IF;
 END;
-$;
+$$;
 
 RESET ROLE;
 UPDATE public.supplier_invoices
@@ -226,14 +226,14 @@ SELECT pg_temp.expect_error($sql$
   WHERE id = '88b20000-0000-0000-0000-000000000002'
 $sql$, 'VOUCHER_DERIVED_PAYMENT_FIELDS_WRITE_FORBIDDEN');
 
-DO $
+DO $$
 BEGIN
   IF (SELECT status FROM public.supplier_invoices
       WHERE id = '88b20000-0000-0000-0000-000000000002') IS DISTINCT FROM 'partially_paid' THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: rejected partially-paid status drift changed the invoice';
   END IF;
 END;
-$;
+$$;
 
 -- Normalize the 168 fixture to the start of the approval workflow, then prove
 -- the real forward path. These writes do not mutate payment state and must
@@ -259,7 +259,7 @@ RESET ROLE;
 -- A failing internal RPC must not leave any trusted write capability enabled
 -- for subsequent statements in the same outer transaction.
 SET LOCAL ROLE authenticated;
-DO $
+DO $$
 DECLARE
   v_failed boolean := false;
 BEGIN
@@ -281,7 +281,7 @@ BEGIN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL: failed RPC leaked voucher write context';
   END IF;
 END;
-$;
+$$;
 RESET ROLE;
 
 -- 4. All ten RPC grants remain exactly available to authenticated and denied
