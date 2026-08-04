@@ -138,7 +138,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_create_customer_receipt(p_payload);
+  BEGIN
+    v_result := public.wardah_169_internal_create_customer_receipt(p_payload);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -153,7 +158,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_create_supplier_payment(p_payload);
+  BEGIN
+    v_result := public.wardah_169_internal_create_supplier_payment(p_payload);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -168,7 +178,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_update_customer_receipt_draft(p_receipt_id, p_payload);
+  BEGIN
+    v_result := public.wardah_169_internal_update_customer_receipt_draft(p_receipt_id, p_payload);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -183,7 +198,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_update_supplier_payment_draft(p_payment_id, p_payload);
+  BEGIN
+    v_result := public.wardah_169_internal_update_supplier_payment_draft(p_payment_id, p_payload);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -198,7 +218,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_cancel_customer_receipt(p_receipt_id, p_reason);
+  BEGIN
+    v_result := public.wardah_169_internal_cancel_customer_receipt(p_receipt_id, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -213,7 +238,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_cancel_supplier_payment(p_payment_id, p_reason);
+  BEGIN
+    v_result := public.wardah_169_internal_cancel_supplier_payment(p_payment_id, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -228,7 +258,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_post_customer_receipt(p_receipt_id);
+  BEGIN
+    v_result := public.wardah_169_internal_post_customer_receipt(p_receipt_id);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -243,7 +278,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_post_supplier_payment(p_payment_id);
+  BEGIN
+    v_result := public.wardah_169_internal_post_supplier_payment(p_payment_id);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -258,7 +298,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_reset_customer_receipt_to_draft(p_receipt_id, p_reason);
+  BEGIN
+    v_result := public.wardah_169_internal_reset_customer_receipt_to_draft(p_receipt_id, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -273,7 +318,12 @@ BEGIN
     RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
   END IF;
   PERFORM public.wardah_169_enter_write_context();
-  v_result := public.wardah_169_internal_reset_supplier_payment_to_draft(p_payment_id, p_reason);
+  BEGIN
+    v_result := public.wardah_169_internal_reset_supplier_payment_to_draft(p_payment_id, p_reason);
+  EXCEPTION WHEN OTHERS THEN
+    PERFORM public.wardah_169_leave_write_context();
+    RAISE;
+  END;
   PERFORM public.wardah_169_leave_write_context();
   RETURN v_result;
 END $function$;
@@ -318,7 +368,13 @@ BEGIN
       OR NEW.payment_status IS DISTINCT FROM OLD.payment_status;
   ELSE
     v_payment_change := NEW.paid_amount IS DISTINCT FROM OLD.paid_amount
-      OR (NEW.status IS DISTINCT FROM OLD.status AND NEW.status IN ('partially_paid', 'paid'));
+      OR (
+        NEW.status IS DISTINCT FROM OLD.status
+        AND (
+          OLD.status IN ('partially_paid', 'paid')
+          OR NEW.status IN ('partially_paid', 'paid')
+        )
+      );
   END IF;
 
   IF v_payment_change
