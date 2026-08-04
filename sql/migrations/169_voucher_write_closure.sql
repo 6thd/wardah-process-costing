@@ -99,6 +99,7 @@ AS $function$
 $function$;
 
 REVOKE ALL ON FUNCTION public.wardah_voucher_write_is_trusted(text) FROM PUBLIC, anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.wardah_voucher_write_is_trusted(text) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.wardah_169_enter_write_context()
 RETURNS void
@@ -131,6 +132,11 @@ CREATE OR REPLACE FUNCTION public.rpc_create_customer_receipt(p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_create_customer_receipt(p_payload);
   PERFORM public.wardah_169_leave_write_context();
@@ -141,6 +147,11 @@ CREATE OR REPLACE FUNCTION public.rpc_create_supplier_payment(p_payload jsonb)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_create_supplier_payment(p_payload);
   PERFORM public.wardah_169_leave_write_context();
@@ -151,6 +162,11 @@ CREATE OR REPLACE FUNCTION public.rpc_update_customer_receipt_draft(p_receipt_id
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_update_customer_receipt_draft(p_receipt_id, p_payload);
   PERFORM public.wardah_169_leave_write_context();
@@ -161,6 +177,11 @@ CREATE OR REPLACE FUNCTION public.rpc_update_supplier_payment_draft(p_payment_id
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_update_supplier_payment_draft(p_payment_id, p_payload);
   PERFORM public.wardah_169_leave_write_context();
@@ -171,6 +192,11 @@ CREATE OR REPLACE FUNCTION public.rpc_cancel_customer_receipt(p_receipt_id uuid,
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_cancel_customer_receipt(p_receipt_id, p_reason);
   PERFORM public.wardah_169_leave_write_context();
@@ -181,6 +207,11 @@ CREATE OR REPLACE FUNCTION public.rpc_cancel_supplier_payment(p_payment_id uuid,
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_cancel_supplier_payment(p_payment_id, p_reason);
   PERFORM public.wardah_169_leave_write_context();
@@ -191,6 +222,11 @@ CREATE OR REPLACE FUNCTION public.rpc_post_customer_receipt(p_receipt_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_post_customer_receipt(p_receipt_id);
   PERFORM public.wardah_169_leave_write_context();
@@ -201,6 +237,11 @@ CREATE OR REPLACE FUNCTION public.rpc_post_supplier_payment(p_payment_id uuid)
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_post_supplier_payment(p_payment_id);
   PERFORM public.wardah_169_leave_write_context();
@@ -211,6 +252,11 @@ CREATE OR REPLACE FUNCTION public.rpc_reset_customer_receipt_to_draft(p_receipt_
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_reset_customer_receipt_to_draft(p_receipt_id, p_reason);
   PERFORM public.wardah_169_leave_write_context();
@@ -221,6 +267,11 @@ CREATE OR REPLACE FUNCTION public.rpc_reset_supplier_payment_to_draft(p_payment_
 RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $function$
 DECLARE v_result jsonb;
 BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
+  IF public.get_current_tenant_id() IS NULL
+     OR NOT public.wardah_is_org_member(public.get_current_tenant_id()) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
   PERFORM public.wardah_169_enter_write_context();
   v_result := public.wardah_169_internal_reset_supplier_payment_to_draft(p_payment_id, p_reason);
   PERFORM public.wardah_169_leave_write_context();
