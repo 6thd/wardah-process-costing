@@ -707,51 +707,55 @@ export async function getPaymentAccounts(): Promise<{ success: boolean; data?: a
     const tenantId = await getEffectiveTenantId()
     if (!tenantId) throw new Error('Tenant ID not found')
 
-    // Try with full columns first
-    const { data, error } = await supabase
-      .from('gl_accounts')
-      .select('id, code, name, name_ar, name_en, subtype')
-      .eq('org_id', tenantId)
-      .eq('is_active', true)
-      .order('code')
-    
-    // If error with specific columns, fallback to basic
-    if (error?.code === '42703') {
-      console.warn('Some columns missing, using fallback query')
-      const { data: data2, error: error2 } = await supabase
+    const selectAccounts = (columns: string) =>
+      supabase
         .from('gl_accounts')
-        .select('id, code, name')
+        .select(columns)
         .eq('org_id', tenantId)
         .eq('is_active', true)
         .order('code')
-      
-      if (error2) throw error2
-      
-      // Filter manually by checking if code starts with cash/bank codes
-      const filtered = (data2 || []).filter((acc: any) => {
-        const code = acc.code?.toString() || ''
-        return code.startsWith('1101') || code.startsWith('1102') || code.startsWith('110')
-      })
-      
-      return { 
-        success: true, 
-        data: filtered.map((acc: any) => ({
-          ...acc,
-          name_ar: acc.name,
-          name_en: acc.name,
-          subtype: acc.code?.startsWith('1101') ? 'CASH' : 'BANK'
-        }))
+
+    // Try with full columns first
+    let { data, error } = await selectAccounts(
+      'id, code, name, name_ar, name_en, subtype, allow_posting'
+    )
+
+    if (error?.code === '42703') {
+      // العمود المفقود قد يكون عرضيًا (name_ar/name_en) أو عقديًا
+      // (subtype/allow_posting)، و42703 واحد لا يميّز بينهما. استعلام العقد وحده
+      // يفصل الحالتين: نجاحه يعني أن الناقص عرضي فحسب — والمُخرج يعوّضه أصلًا
+      // بـ`acc.name_ar || acc.name` — فنكمل بحسابات موثوقة.
+      const contractOnly = await selectAccounts('id, code, name, subtype, allow_posting')
+
+      if (contractOnly.error?.code === '42703') {
+        // العقد نفسه غير قابل للتحقق. لا استنتاج من بادئة الرمز هنا: المسار
+        // السابق كان يخمّن subtype ويجهل allow_posting فيعرض الحسابين الأبويين
+        // 110100 و110200 صالحين ثم يرفضهما الـtrigger. والتخمين بلا طائل أصلًا،
+        // إذ يقرأ wardah_validate_voucher_payment_account العمود a.subtype، فمخطط
+        // بلا هذا العمود يرفض كل سند مهما كان الحساب — أي أن كل خيار معروض
+        // مضمون الفشل. الامتناع عن العرض أصدق من عرض خيارات لا تعمل.
+        console.error('gl_accounts is missing subtype/allow_posting — cannot verify payment accounts')
+        return {
+          success: false,
+          error: 'تعذّر التحقق من حسابات السداد: مخطط الحسابات لا يحتوي subtype/allow_posting'
+        }
       }
+
+      data = contractOnly.data
+      error = contractOnly.error
     }
 
     if (error) throw error
 
-    // Filter by subtype and ensure name_ar/name_en
-    const filtered = (data || []).filter((acc: any) => 
-      acc.subtype === 'CASH' || acc.subtype === 'BANK' ||
-      acc.code?.toString().startsWith('110')
+    // حسابات السداد هي CASH/BANK القابلة للترحيل وحدها. الشرط السابق كان يقبل أي
+    // حساب يبدأ رمزه بـ'110'، فيسرّب الحسابات الأب غير القابلة للترحيل (110100،
+    // 110200) والمدينين والمصروفات المقدمة وضريبة المدخلات إلى القائمة — ثم يرفضها
+    // الـtrigger بـVOUCHER_PAYMENT_ACCOUNT_INVALID_OR_CROSS_ORG بعد أن يختارها
+    // المستخدم. القائمة تعكس الآن شرط الـtrigger نفسه.
+    const filtered = (data || []).filter((acc: any) =>
+      (acc.subtype === 'CASH' || acc.subtype === 'BANK') && acc.allow_posting !== false
     )
-    
+
     const accounts = filtered.map((acc: any) => ({
       ...acc,
       name_ar: acc.name_ar || acc.name,
@@ -815,7 +819,12 @@ export async function getSupplierOutstandingInvoices(
       .from('supplier_invoices')
       .select('*')
       .eq('vendor_id', vendorId)
-      .or('status.eq.draft,status.eq.submitted,status.eq.approved')
+      // مطابق لحارس القابلية للسداد في دالة ترحيل سند الصرف:
+      // status NOT IN ('approved','partially_paid','overdue') → SUPPLIER_INVOICE_NOT_PAYABLE.
+      // الفلتر السابق كان يخالفه في الاتجاهين: يعرض draft/submitted فتفشل عند
+      // الترحيل، ويخفي partially_paid/overdue رغم أنها قابلة للسداد — فتصير أي
+      // فاتورة مورد سُدّدت جزئيًا أو تجاوزت استحقاقها غير قابلة للإكمال من الواجهة.
+      .in('status', ['approved', 'partially_paid', 'overdue'])
       .order('invoice_date', { ascending: false })
 
     if (tenantId) {

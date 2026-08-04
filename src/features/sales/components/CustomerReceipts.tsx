@@ -39,6 +39,7 @@ import {
   type CustomerReceipt,
   type PaymentMethod,
 } from '@/services/payment-vouchers-service'
+import { accountMatchesMethod as sharedAccountMatchesMethod } from '@/services/voucher-payment-accounts'
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { customersService } from '@/services/supabase-service'
@@ -50,20 +51,15 @@ type PaymentAccount = {
   name?: string
   name_ar?: string
   subtype?: string
+  allow_posting?: boolean
 }
 
 function getReceiptDate(receipt: ReceiptRow): string | undefined {
   return receipt.receipt_date || receipt.collection_date
 }
 
-function allowedAccountSubtypes(method: PaymentMethod): ReadonlySet<string> {
-  if (method === 'cash' || method === 'check') return new Set(['CASH'])
-  if (method === 'other') return new Set(['CASH', 'BANK'])
-  return new Set(['BANK'])
-}
-
 function accountMatchesMethod(account: PaymentAccount | undefined, method: PaymentMethod): boolean {
-  return Boolean(account?.subtype && allowedAccountSubtypes(method).has(account.subtype))
+  return sharedAccountMatchesMethod(account, 'customer_receipt', method)
 }
 
 export function CustomerReceipts() {
