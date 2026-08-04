@@ -1,8 +1,8 @@
--- RED acceptance contract for Migration 169 (review revision 1.3).
+-- Acceptance contract for Migration 169 (review revision 1.4).
 --
--- This file is intentionally red against the 168 baseline. It must be run only
--- after the 168 lifecycle acceptance has committed its fixtures. Migration 169
--- turns it green without changing the expectations below.
+-- Revision 1.4 extends the reviewed v1.3 closure contract with reverse
+-- payment-status drift checks and failed-RPC write-context restoration. It runs
+-- after the 168 lifecycle acceptance has committed its fixtures.
 \set ON_ERROR_STOP on
 
 CREATE OR REPLACE FUNCTION pg_temp.expect_error(p_sql text, p_needle text)
@@ -190,6 +190,51 @@ SELECT pg_temp.expect_error($sql$
   WHERE id = '88b20000-0000-0000-0000-000000000001'
 $sql$, 'VOUCHER_DERIVED_PAYMENT_FIELDS_WRITE_FORBIDDEN');
 
+-- Payment-derived supplier status is protected in both directions. Prepare the
+-- otherwise-unused invoice 0002 as the migration owner, then prove service_role
+-- cannot hide a paid/partially-paid state while leaving paid_amount untouched.
+RESET ROLE;
+UPDATE public.supplier_invoices
+SET status = 'paid'
+WHERE id = '88b20000-0000-0000-0000-000000000002';
+SET LOCAL ROLE service_role;
+
+SELECT pg_temp.expect_error($sql$
+  UPDATE public.supplier_invoices
+  SET status = 'approved'
+  WHERE id = '88b20000-0000-0000-0000-000000000002'
+$sql$, 'VOUCHER_DERIVED_PAYMENT_FIELDS_WRITE_FORBIDDEN');
+
+DO $
+BEGIN
+  IF (SELECT status FROM public.supplier_invoices
+      WHERE id = '88b20000-0000-0000-0000-000000000002') IS DISTINCT FROM 'paid' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: rejected paid status drift changed the invoice';
+  END IF;
+END;
+$;
+
+RESET ROLE;
+UPDATE public.supplier_invoices
+SET status = 'partially_paid'
+WHERE id = '88b20000-0000-0000-0000-000000000002';
+SET LOCAL ROLE service_role;
+
+SELECT pg_temp.expect_error($sql$
+  UPDATE public.supplier_invoices
+  SET status = 'approved'
+  WHERE id = '88b20000-0000-0000-0000-000000000002'
+$sql$, 'VOUCHER_DERIVED_PAYMENT_FIELDS_WRITE_FORBIDDEN');
+
+DO $
+BEGIN
+  IF (SELECT status FROM public.supplier_invoices
+      WHERE id = '88b20000-0000-0000-0000-000000000002') IS DISTINCT FROM 'partially_paid' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: rejected partially-paid status drift changed the invoice';
+  END IF;
+END;
+$;
+
 -- Normalize the 168 fixture to the start of the approval workflow, then prove
 -- the real forward path. These writes do not mutate payment state and must
 -- remain legal. Matching uses match_status and must likewise remain untouched.
@@ -209,6 +254,34 @@ SELECT set_config('wardah.voucher_header_write', 'off', true);
 SELECT set_config('wardah.voucher_lines_write', 'off', true);
 SELECT set_config('wardah.voucher_invoice_payment_write', 'off', true);
 
+RESET ROLE;
+
+-- A failing internal RPC must not leave any trusted write capability enabled
+-- for subsequent statements in the same outer transaction.
+SET LOCAL ROLE authenticated;
+DO $
+DECLARE
+  v_failed boolean := false;
+BEGIN
+  BEGIN
+    PERFORM public.rpc_update_customer_receipt_draft(
+      '00000000-0000-0000-0000-000000000169', '{}'::jsonb
+    );
+  EXCEPTION WHEN OTHERS THEN
+    v_failed := true;
+  END;
+
+  IF NOT v_failed THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: failed-RPC fixture unexpectedly succeeded';
+  END IF;
+
+  IF coalesce(current_setting('wardah.voucher_header_write', true), 'off') <> 'off'
+     OR coalesce(current_setting('wardah.voucher_lines_write', true), 'off') <> 'off'
+     OR coalesce(current_setting('wardah.voucher_invoice_payment_write', true), 'off') <> 'off' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL: failed RPC leaked voucher write context';
+  END IF;
+END;
+$;
 RESET ROLE;
 
 -- 4. All ten RPC grants remain exactly available to authenticated and denied
