@@ -58,11 +58,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/VOUCHER_RESET_166_RUNBOOK.md`، `docs/db/VOUCHER_ALLOCATION_167_RUNBOOK.md`،
   `docs/db/VOUCHER_ATOMIC_LIFECYCLE_168_RUNBOOK.md` — 166–168: انتقال دورة سندات
   القبض والصرف إلى RPCs ذرية (Create/Edit/Post/Reset/Cancel).
-  **169 (`169_voucher_write_closure`)** أغلق سطح الكتابة المؤقت على رؤوس السندات
-  وأسطر التخصيص وحقول الدفع المشتقة عبر حارس مزدوج (مالك RPC موثوق + GUC محلي
-  للمعاملة معًا، لا GUC وحده)، وطُبِّق على Production بتاريخ 2026-08-05 ومتحقَّق
-  منه مباشرة عبر Supabase MCP. لا يوجد بعد ملف Runbook مستقل مدموج لـ169 في
-  `docs/db/`؛ المرجع الحالي الوحيد هو مراجعة PR #96 (دُمج بـ`0bcce21a`).
+- `docs/db/VOUCHER_WRITE_CLOSURE_169_RUNBOOK.md` — **169 (`169_voucher_write_closure`)**
+  أغلق سطح الكتابة المؤقت على رؤوس السندات وأسطر التخصيص وحقول الدفع المشتقة عبر
+  حارس مزدوج (مالك RPC موثوق + GUC محلي للمعاملة معًا، لا GUC وحده). طُبِّق على
+  Production بتاريخ 2026-08-05 (`0bcce21a` عبر PR #96) ومتحقَّق منه مباشرة عبر
+  Supabase MCP. الـRunbook يوثّق العقد الأمني والتحقق الفعلي المطبَّق على
+  Production، ويوضّح صراحة أن Acceptance 169 الكاملة شُغِّلت على Fresh PostgreSQL
+  17 في CI فقط، لا على بيانات Production.
 
 ## Baseline
 
