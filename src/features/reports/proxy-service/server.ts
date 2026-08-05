@@ -15,6 +15,7 @@ import { router as testRoutes } from './routes/test.routes';
 import { dataRoutes } from './routes/data.routes';
 import financialRoutes from './routes/financial.routes';
 import geminiProxyRoutes from './routes/gemini-proxy.routes';
+import { supabase } from '@/lib/supabase';
 
 const app = express();
 
@@ -46,13 +47,19 @@ app.use('/api', financialRoutes);
 // Gemini Proxy Routes (Real Data Integration)
 app.use('/api/wardah', geminiProxyRoutes);
 
-// ميدلوير المصادقة
-const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+// ميدلوير المصادقة — يتحقق من التوكن كجلسة Supabase حقيقية، لا من شكله فقط
+const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'غير مصرح' });
   }
-  // تحقق من التوكن مع نظام وردة
+
+  const token = authHeader.slice('Bearer '.length);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'غير مصرح' });
+  }
+
   next();
 };
 
