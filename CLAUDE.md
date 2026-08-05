@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-07-29  
+**آخر تحديث موثق:** 2026-08-05  
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,12 +27,12 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد Baseline المولد في 2026-07-29:
+الحالة الحية الموثقة بعد تطبيق Migration 169 في 2026-08-05 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152.
-- Production: مطبقة حتى 152 (`152_ap_allow_fully_received_purchase_orders`).
-- Repository: أعلى migration مرقمة هي 152.
-- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–169 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
+- Production: مطبقة حتى 169 (`169_voucher_write_closure`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 فوق cutoff 152. تحقَّق من الحالة مباشرة بعد التطبيق عبر Supabase MCP: صلاحيات الجداول الأربعة (`authenticated` بلا INSERT/UPDATE/DELETE)، غياب السياسات المؤقتة الأربع، الحراس الستة، ومنح الـRPCs العشرة لـ`authenticated` فقط.
+- Repository: أعلى migration مرقمة هي 169 (`169_voucher_write_closure.sql`).
+- Fresh DB: 153–169 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -41,6 +41,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 - 101 و102 طُبقتا مرتين بإصدارات زمنية محددة؛ أي تكرار إضافي يفشل التدقيق.
 - سجل 121 يحمل الاسم التاريخي `fail_closed_tenant_isolation` ويطابق قانونيًا الملف `121_fail_closed_tenant_isolation.sql`.
+- سجل 163 يحمل الاسم التاريخي `payment_voucher_guarded_draft_inserts` ويطابق قانونيًا الملف `163_payment_voucher_atomic_draft_creation.sql`.
 
 المراجع:
 
@@ -54,6 +55,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/AP_THREE_WAY_MATCH_149_152_RUNBOOK.md` — 149–152: المطابقة الثلاثية،
   idempotency، hardening أمني، وترتيب تطبيق Production الإلزامي
   `149 → 150 → 151 → 152` مع فحوص قبل/بعد التطبيق.
+- `docs/db/VOUCHER_RESET_166_RUNBOOK.md`، `docs/db/VOUCHER_ALLOCATION_167_RUNBOOK.md`،
+  `docs/db/VOUCHER_ATOMIC_LIFECYCLE_168_RUNBOOK.md` — 166–168: انتقال دورة سندات
+  القبض والصرف إلى RPCs ذرية (Create/Edit/Post/Reset/Cancel).
+  **169 (`169_voucher_write_closure`)** أغلق سطح الكتابة المؤقت على رؤوس السندات
+  وأسطر التخصيص وحقول الدفع المشتقة عبر حارس مزدوج (مالك RPC موثوق + GUC محلي
+  للمعاملة معًا، لا GUC وحده)، وطُبِّق على Production بتاريخ 2026-08-05 ومتحقَّق
+  منه مباشرة عبر Supabase MCP. لا يوجد بعد ملف Runbook مستقل مدموج لـ169 في
+  `docs/db/`؛ المرجع الحالي الوحيد هو مراجعة PR #96 (دُمج بـ`0bcce21a`).
 
 ## Baseline
 
