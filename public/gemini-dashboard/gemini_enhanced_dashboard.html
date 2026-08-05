@@ -1060,14 +1060,28 @@
         // Google Gemini AI Enhanced Financial Dashboard
         class GeminiEnhancedFinancialDashboard {
             constructor() {
-                this.geminiApiKey = 'AIzaSyDAkAe-ZAzTEvmey5C5tXSlMKdiQlzfYA';
-                this.geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+                // Gemini calls now go through the server-side proxy below — the
+                // browser never holds a Google API key. See
+                // src/features/reports/proxy-service/routes/gemini-proxy.routes.ts
+                this.geminiApiUrl = '/api/wardah/generate';
                 // Wardah ERP Integration (Secure backend proxy)
                 this.wardahProxyConfig = {
                     proxyUrl: '/api/wardah', // URL to your proxy service
-                    proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
+                    // Populated by the host page via postMessage on iframe load
+                    // (see src/services/gemini-service.ts); never hardcode a
+                    // real key here — this file is served as a static asset.
+                    proxyAuthKey: ''
                 };
-                
+
+                // Receive the proxy auth key from the same-origin host page —
+                // never accept it from any other origin.
+                window.addEventListener('message', (event) => {
+                    if (event.origin !== window.location.origin) return;
+                    if (event.data && event.data.type === 'WARDHAH_PROXY_CONFIG') {
+                        this.wardahProxyConfig.proxyAuthKey = event.data.proxyAuthKey || '';
+                    }
+                });
+
                 this.data = {
                     assumptions: {
                         cogs_rate: 0.70,
@@ -1180,10 +1194,11 @@
 
             async testGeminiConnection() {
                 try {
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
+                    const response = await fetch(this.geminiApiUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
+                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                         },
                         body: JSON.stringify({
                             contents: [{
@@ -1214,10 +1229,11 @@
                 try {
                     this.showGeminiProcessing(true);
                     
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
+                    const response = await fetch(this.geminiApiUrl, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
+                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                         },
                         body: JSON.stringify({
                             contents: [{

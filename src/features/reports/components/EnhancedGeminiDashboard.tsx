@@ -12,6 +12,7 @@ import { geminiFinancialService } from '@/services/gemini-financial-service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
+import { getConfig } from '@/lib/config';
 
 interface DashboardMetrics {
   kpis: any;
@@ -268,6 +269,16 @@ export function EnhancedGeminiDashboard() {
                   title="Gemini Enhanced Dashboard"
                   onLoad={() => {
                     setLoading(false);
+                    // Relay the proxy auth key to the iframe over a
+                    // same-origin-checked channel — the static dashboard file
+                    // never hardcodes a real secret.
+                    if (iframeRef.current?.contentWindow) {
+                      const proxyAuthKey = getConfig()?.GEMINI_DASHBOARD?.proxy_auth_key || '';
+                      iframeRef.current.contentWindow.postMessage({
+                        type: 'WARDHAH_PROXY_CONFIG',
+                        proxyAuthKey
+                      }, globalThis.window.location.origin);
+                    }
                     // Auto-sync after iframe loads
                     setTimeout(() => {
                       syncWithWardah();

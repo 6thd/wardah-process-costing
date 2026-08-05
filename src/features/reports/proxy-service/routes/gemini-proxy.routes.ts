@@ -11,13 +11,17 @@ const router = Router();
 
 // Middleware للتحقق من API Key
 const verifyApiKey = (req: Request, res: Response, next: any) => {
+  const expectedKey = process.env.PROXY_AUTH_KEY;
+  if (!expectedKey) {
+    console.error('PROXY_AUTH_KEY is not configured; refusing all gemini-proxy requests');
+    return res.status(500).json({ error: 'Service misconfigured' });
+  }
+
   const apiKey = req.headers['x-api-key'] as string;
-  const expectedKey = process.env.PROXY_AUTH_KEY || 'S3cur3Pr0xyK3y!2025#WardahERP';
-  
   if (!apiKey || apiKey !== expectedKey) {
     return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
   }
-  
+
   next();
 };
 
@@ -237,6 +241,36 @@ router.get('/inventory', verifyApiKey, async (req: Request, res: Response) => {
       success: false,
       error: error.message || 'Failed to fetch inventory'
     });
+  }
+});
+
+/**
+ * POST /api/wardah/generate
+ * يمرر طلب توليد محتوى إلى Google Generative Language API باستخدام مفتاح
+ * محفوظ على الخادم فقط. لوحة Gemini لم تعد تحمل مفتاح Google في المتصفح.
+ */
+const GEMINI_GENERATE_URL =
+  'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+
+router.post('/generate', verifyApiKey, async (req: Request, res: Response) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    console.error('GEMINI_API_KEY is not configured; refusing gemini generate request');
+    return res.status(500).json({ error: 'Service misconfigured' });
+  }
+
+  try {
+    const upstream = await fetch(`${GEMINI_GENERATE_URL}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+
+    const data = await upstream.json();
+    res.status(upstream.status).json(data);
+  } catch (error: any) {
+    console.error('Error calling Gemini generateContent:', error);
+    res.status(502).json({ error: 'Upstream Gemini request failed' });
   }
 });
 
