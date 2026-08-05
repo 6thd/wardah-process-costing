@@ -1066,19 +1066,22 @@
                 this.geminiApiUrl = '/api/wardah/generate';
                 // Wardah ERP Integration (Secure backend proxy)
                 this.wardahProxyConfig = {
-                    proxyUrl: '/api/wardah', // URL to your proxy service
-                    // Populated by the host page via postMessage on iframe load
-                    // (see src/services/gemini-service.ts); never hardcode a
-                    // real key here — this file is served as a static asset.
-                    proxyAuthKey: ''
+                    proxyUrl: '/api/wardah' // URL to your proxy service
                 };
+                // The user's own Supabase session access token, relayed from
+                // the host page on iframe load (see
+                // src/features/reports/components/EnhancedGeminiDashboard.tsx).
+                // The proxy verifies this per request via
+                // supabase.auth.getUser() — never a static shared secret,
+                // which would grant indefinite access to anyone who reads it.
+                this.userAccessToken = '';
 
-                // Receive the proxy auth key from the same-origin host page —
+                // Receive the session token from the same-origin host page —
                 // never accept it from any other origin.
                 window.addEventListener('message', (event) => {
                     if (event.origin !== window.location.origin) return;
-                    if (event.data && event.data.type === 'WARDHAH_PROXY_CONFIG') {
-                        this.wardahProxyConfig.proxyAuthKey = event.data.proxyAuthKey || '';
+                    if (event.data && event.data.type === 'WARDHAH_AUTH_TOKEN') {
+                        this.userAccessToken = event.data.accessToken || '';
                     }
                 });
 
@@ -1198,7 +1201,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Authorization': `Bearer ${this.userAccessToken}`,
                         },
                         body: JSON.stringify({
                             contents: [{
@@ -1233,7 +1236,7 @@
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Authorization': `Bearer ${this.userAccessToken}`,
                         },
                         body: JSON.stringify({
                             contents: [{
@@ -2425,7 +2428,7 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/financial-data`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Authorization': `Bearer ${this.userAccessToken}`,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2451,7 +2454,7 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/transactions`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Authorization': `Bearer ${this.userAccessToken}`,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2475,7 +2478,7 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/inventory`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
+                            'Authorization': `Bearer ${this.userAccessToken}`,
                             'Content-Type': 'application/json'
                         }
                     });

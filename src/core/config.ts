@@ -21,7 +21,6 @@ export interface AppConfig {
   }
   GEMINI_DASHBOARD?: {
     proxy_url: string
-    proxy_auth_key: string
   }
 }
 
@@ -72,8 +71,7 @@ const DEFAULT_CONFIG: AppConfig = {
     demo_mode: false
   },
   GEMINI_DASHBOARD: {
-    proxy_url: 'http://localhost:3001/api/wardah',
-    proxy_auth_key: ''
+    proxy_url: 'http://localhost:3001/api/wardah'
   }
 }
 

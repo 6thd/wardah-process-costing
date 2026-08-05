@@ -9,17 +9,18 @@ import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 const router = Router();
 
-// Middleware للتحقق من API Key
-const verifyApiKey = (req: Request, res: Response, next: any) => {
-  const expectedKey = process.env.PROXY_AUTH_KEY;
-  if (!expectedKey) {
-    console.error('PROXY_AUTH_KEY is not configured; refusing all gemini-proxy requests');
-    return res.status(500).json({ error: 'Service misconfigured' });
+// Middleware للتحقق من هوية المستخدم — يتحقق من جلسة Supabase حقيقية للمستخدم
+// المرسل، لا من سر ثابت مشترك يمنح أي حامل له وصولاً دائمًا عند تسربه.
+const verifyApiKey = async (req: Request, res: Response, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const apiKey = req.headers['x-api-key'] as string;
-  if (!apiKey || apiKey !== expectedKey) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+  const token = authHeader.slice('Bearer '.length);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
 
   next();

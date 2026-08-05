@@ -12,7 +12,7 @@ import { geminiFinancialService } from '@/services/gemini-financial-service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
-import { getConfig } from '@/lib/config';
+import { getSupabase } from '@/lib/supabase';
 
 interface DashboardMetrics {
   kpis: any;
@@ -267,16 +267,21 @@ export function EnhancedGeminiDashboard() {
                   src="/gemini-dashboard/gemini_enhanced_dashboard.html?wardah=true&autoSync=true"
                   className="w-full h-full border-0 rounded-lg"
                   title="Gemini Enhanced Dashboard"
-                  onLoad={() => {
+                  onLoad={async () => {
                     setLoading(false);
-                    // Relay the proxy auth key to the iframe over a
-                    // same-origin-checked channel — the static dashboard file
-                    // never hardcodes a real secret.
+                    // Relay the current user's own Supabase session token to
+                    // the iframe over a same-origin-checked channel — this is
+                    // not a new exposure: the browser already holds this
+                    // token to talk to Supabase directly. The proxy verifies
+                    // it server-side (supabase.auth.getUser) instead of
+                    // trusting a static shared secret, which a leaked/expired
+                    // static key would grant forever to anyone; this token is
+                    // scoped to this one user and expires with their session.
                     if (iframeRef.current?.contentWindow) {
-                      const proxyAuthKey = getConfig()?.GEMINI_DASHBOARD?.proxy_auth_key || '';
+                      const { data } = await getSupabase().auth.getSession();
                       iframeRef.current.contentWindow.postMessage({
-                        type: 'WARDHAH_PROXY_CONFIG',
-                        proxyAuthKey
+                        type: 'WARDHAH_AUTH_TOKEN',
+                        accessToken: data.session?.access_token || ''
                       }, globalThis.window.location.origin);
                     }
                     // Auto-sync after iframe loads
