@@ -10,12 +10,11 @@ const reportsRouter = Router();
 reportsRouter.get('/dashboard', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
-import { AuthenticatedRequest } from './types';
 import { router as testRoutes } from './routes/test.routes';
 import { dataRoutes } from './routes/data.routes';
 import financialRoutes from './routes/financial.routes';
 import geminiProxyRoutes from './routes/gemini-proxy.routes';
-import { supabase } from '@/lib/supabase';
+import { authMiddleware } from './auth-middleware';
 
 const app = express();
 
@@ -46,22 +45,6 @@ app.use('/api/data', dataRoutes);
 app.use('/api', financialRoutes);
 // Gemini Proxy Routes (Real Data Integration)
 app.use('/api/wardah', geminiProxyRoutes);
-
-// ميدلوير المصادقة — يتحقق من التوكن كجلسة Supabase حقيقية، لا من شكله فقط
-const authMiddleware = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'غير مصرح' });
-  }
-
-  const token = authHeader.slice('Bearer '.length);
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error || !data.user) {
-    return res.status(401).json({ error: 'غير مصرح' });
-  }
-
-  next();
-};
 
 // إعداد Proxy لـ Wardah API
 const wardahProxy = createProxyMiddleware({

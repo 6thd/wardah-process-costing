@@ -381,7 +381,7 @@ export function registerStageCostingActions() {
  * document.write — order numbers, item names, and work-center names are
  * free-text DB fields, not safe to inject as raw markup.
  */
-function escapeHtml(value) {
+export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (char) => ({
     '&': '&amp;',
     '<': '&lt;',
