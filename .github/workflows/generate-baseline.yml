@@ -345,6 +345,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CUTOFF: ${{ steps.ledger.outputs.live_cutoff }}
           LIVE_NAME: ${{ steps.ledger.outputs.live_name }}
+          REASON: ${{ github.event.inputs.reason }}
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -361,7 +362,7 @@ jobs:
             -m "sql(baseline): production schema cutoff ${CUTOFF}" \
             -m "Generated from production after ${LIVE_NAME}. Clean PostgreSQL rebuild passed." \
             -m "Includes system reference data snapshot: ${reference_name}." \
-            -m "Reason: ${{ github.event.inputs.reason }}"
+            -m "Reason: $REASON"
           git push --set-upstream origin "$BRANCH"
 
           PR_BODY="## Generated baseline

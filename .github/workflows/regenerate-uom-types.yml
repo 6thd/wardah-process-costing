@@ -221,6 +221,8 @@ jobs:
 
       - name: Commit regenerated types
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          PUSH_REF: ${{ github.head_ref || github.ref_name }}
         run: |
           set -Eeuo pipefail
           if git diff --quiet -- src/types/database.generated.ts; then
@@ -232,4 +234,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add src/types/database.generated.ts
           git commit -m 'chore(db): regenerate UoM database types'
-          git push origin HEAD:${{ github.head_ref || github.ref_name }}
+          git push origin "HEAD:$PUSH_REF"
