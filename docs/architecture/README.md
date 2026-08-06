@@ -23,6 +23,8 @@
 | [ADR-002](./ADR-002-CQRS-Pattern.md) | تبني CQRS Pattern | 2025-12-13 | ✅ Accepted |
 | [ADR-003](./ADR-003-Process-Costing-Implementation.md) | Process Costing Implementation (EUP, Scrap, FIFO) | 2025-12-25 | ✅ Accepted |
 
+**مرتبط بالتنفيذ:** [خطة التصنيع المتقدمة — إغلاق فجوات المحرك/الواجهة](../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) · [Known Limitations](./PROCESS_COSTING_LIMITATIONS.md)
+
 ### ⏳ قيد المراجعة (Proposed)
 
 _لا يوجد حالياً_
