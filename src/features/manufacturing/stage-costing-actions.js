@@ -21,7 +21,13 @@ const ProcessCosting = {
   postStageToGL: async () => ({ success: true, data: {} })
 }
 const Manufacturing = {
-  getManufacturingOrder: async () => ({ success: true, data: null })
+  // Matches generateStageCostReport()'s call below — was previously named
+  // getManufacturingOrder(), which meant every "view stage report" click
+  // threw "Manufacturing.getManufacturingOrderById is not a function"
+  // before ever reaching the report window. Still a stub (data layer not
+  // implemented here — see the disabled domain import above), but now at
+  // least fails as a handled "no data" case instead of a raw exception.
+  getManufacturingOrderById: async () => ({ success: true, data: null })
 }
 const Audit = {
   logAction: async () => ({ success: true }),
@@ -392,18 +398,25 @@ export function escapeHtml(value) {
 }
 
 /**
- * Generate stage cost report
+ * Generate stage cost report. `deps` is injectable so tests can supply a
+ * fake manufacturing order (including a deliberately malicious one, to
+ * prove escapeHtml() actually reaches every interpolated field in the
+ * final HTML) without depending on the still-unimplemented Manufacturing
+ * stub above.
  */
-async function generateStageCostReport(moId, stageCosts) {
+export async function generateStageCostReport(moId, stageCosts, deps = {}) {
+  const manufacturing = deps.manufacturing ?? Manufacturing
+  const openReportWindow = deps.openWindow ?? ((...args) => window.open(...args))
+
   try {
     // Get MO details
-    const moResult = await Manufacturing.getManufacturingOrderById(moId)
-    if (!moResult.success) return
+    const moResult = await manufacturing.getManufacturingOrderById(moId)
+    if (!moResult?.success || !moResult.data) return
 
     const mo = moResult.data
-    
+
     // Create report window
-    const reportWindow = window.open('', '_blank', 'width=800,height=600')
+    const reportWindow = openReportWindow('', '_blank', 'width=800,height=600')
     reportWindow.document.write(`
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
