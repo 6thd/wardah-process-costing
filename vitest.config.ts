@@ -38,7 +38,7 @@ export default defineConfig({
         functions: 38,
         branches: 60
       },
-      include: ['src/**/*.{ts,tsx}'],
+      include: ['src/**/*.{ts,tsx,js,jsx}'],
       exclude: [
         'node_modules/',
         'src/test/',

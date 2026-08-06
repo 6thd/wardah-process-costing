@@ -21,7 +21,13 @@ const ProcessCosting = {
   postStageToGL: async () => ({ success: true, data: {} })
 }
 const Manufacturing = {
-  getManufacturingOrder: async () => ({ success: true, data: null })
+  // Matches generateStageCostReport()'s call below — was previously named
+  // getManufacturingOrder(), which meant every "view stage report" click
+  // threw "Manufacturing.getManufacturingOrderById is not a function"
+  // before ever reaching the report window. Still a stub (data layer not
+  // implemented here — see the disabled domain import above), but now at
+  // least fails as a handled "no data" case instead of a raw exception.
+  getManufacturingOrderById: async () => ({ success: true, data: null })
 }
 const Audit = {
   logAction: async () => ({ success: true }),
@@ -377,24 +383,46 @@ export function registerStageCostingActions() {
 }
 
 /**
- * Generate stage cost report
+ * Escapes text interpolated into the print-report HTML written via
+ * document.write — order numbers, item names, and work-center names are
+ * free-text DB fields, not safe to inject as raw markup.
  */
-async function generateStageCostReport(moId, stageCosts) {
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char])
+}
+
+/**
+ * Generate stage cost report. `deps` is injectable so tests can supply a
+ * fake manufacturing order (including a deliberately malicious one, to
+ * prove escapeHtml() actually reaches every interpolated field in the
+ * final HTML) without depending on the still-unimplemented Manufacturing
+ * stub above.
+ */
+export async function generateStageCostReport(moId, stageCosts, deps = {}) {
+  const manufacturing = deps.manufacturing ?? Manufacturing
+  const openReportWindow = deps.openWindow ?? ((...args) => window.open(...args))
+
   try {
     // Get MO details
-    const moResult = await Manufacturing.getManufacturingOrderById(moId)
-    if (!moResult.success) return
+    const moResult = await manufacturing.getManufacturingOrderById(moId)
+    if (!moResult?.success || !moResult.data) return
 
     const mo = moResult.data
-    
+
     // Create report window
-    const reportWindow = window.open('', '_blank', 'width=800,height=600')
+    const reportWindow = openReportWindow('', '_blank', 'width=800,height=600')
     reportWindow.document.write(`
       <!DOCTYPE html>
       <html lang="ar" dir="rtl">
       <head>
         <meta charset="UTF-8">
-        <title>تقرير مراحل التكلفة - ${mo.order_number}</title>
+        <title>تقرير مراحل التكلفة - ${escapeHtml(mo.order_number)}</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 20px; direction: rtl; }
           .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
@@ -410,13 +438,13 @@ async function generateStageCostReport(moId, stageCosts) {
       <body>
         <div class="header">
           <h1>تقرير مراحل التكلفة</h1>
-          <h2>أمر التصنيع: ${mo.order_number}</h2>
+          <h2>أمر التصنيع: ${escapeHtml(mo.order_number)}</h2>
         </div>
-        
+
         <div class="info">
-          <p><strong>الصنف:</strong> ${mo.item?.name || 'غير محدد'}</p>
-          <p><strong>الكمية المطلوبة:</strong> ${mo.quantity}</p>
-          <p><strong>حالة الأمر:</strong> ${mo.status}</p>
+          <p><strong>الصنف:</strong> ${escapeHtml(mo.item?.name || 'غير محدد')}</p>
+          <p><strong>الكمية المطلوبة:</strong> ${escapeHtml(mo.quantity)}</p>
+          <p><strong>حالة الأمر:</strong> ${escapeHtml(mo.status)}</p>
           <p><strong>تاريخ التقرير:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
         </div>
 
@@ -435,17 +463,17 @@ async function generateStageCostReport(moId, stageCosts) {
           <tbody>
             ${stageCosts.map(stage => `
               <tr>
-                <td>${stage.stage_number}</td>
-                <td>${stage.work_center?.name || stage.work_center_id}</td>
-                <td>${stage.good_quantity}</td>
-                <td>${stage.total_cost?.toFixed(2)} ريال</td>
-                <td>${stage.unit_cost?.toFixed(2)} ريال</td>
+                <td>${escapeHtml(stage.stage_number)}</td>
+                <td>${escapeHtml(stage.work_center?.name || stage.work_center_id)}</td>
+                <td>${escapeHtml(stage.good_quantity)}</td>
+                <td>${escapeHtml(stage.total_cost?.toFixed(2))} ريال</td>
+                <td>${escapeHtml(stage.unit_cost?.toFixed(2))} ريال</td>
                 <td>${(() => {
                   if (stage.status === 'completed') return 'مكتملة';
                   if (stage.status === 'actual') return 'فعلية';
                   return 'مقدرة';
                 })()}</td>
-                <td>${new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA')}</td>
+                <td>${escapeHtml(new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA'))}</td>
               </tr>
             `).join('')}
             <tr class="total-row">
