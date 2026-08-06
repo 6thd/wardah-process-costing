@@ -1,0 +1,33 @@
+name: Reports Insights Edge Function
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/reports-insights/**'
+      - 'public/reports-insights/escape-html.js'
+      - '.github/workflows/reports-insights-edge-function.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Type-check, lint, and test the reports-insights Edge Function
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Type-check
+        run: deno check supabase/functions/reports-insights/index.ts
+
+      - name: Lint
+        run: deno lint supabase/functions/reports-insights/index.ts supabase/functions/reports-insights/index.test.ts
+
+      - name: Test
+        run: deno test --allow-env supabase/functions/reports-insights/index.test.ts

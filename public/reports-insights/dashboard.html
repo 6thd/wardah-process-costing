@@ -1056,18 +1056,8 @@
     <!-- Notification Container -->
     <div id="notificationContainer"></div>
 
+    <script src="./escape-html.js"></script>
     <script>
-        // Escapes text that gets interpolated into innerHTML template literals —
-        // chat messages and AI-generated insight text (whether from the
-        // provider or the local deterministic fallback) are not
-        // attacker-proof by construction, so they must never be inserted as
-        // raw markup.
-        function escapeHtml(value) {
-            const div = document.createElement('div');
-            div.textContent = String(value ?? '');
-            return div.innerHTML;
-        }
-
         // AI Enhanced Financial Insights Dashboard
         class InsightsFinancialDashboard {
             constructor() {

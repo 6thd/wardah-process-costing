@@ -165,6 +165,7 @@ export function EnhancedInsightsDashboard() {
           body: {
             operation: msg.operation,
             locale: msg.locale,
+            requestId: msg.requestId,
             ...(msg.operation === 'ask' ? { question: msg.question } : { data: msg.data ?? {} })
           }
         });
