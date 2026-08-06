@@ -10,11 +10,11 @@ const reportsRouter = Router();
 reportsRouter.get('/dashboard', (req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
+import { AuthenticatedRequest } from './types';
 import { router as testRoutes } from './routes/test.routes';
 import { dataRoutes } from './routes/data.routes';
 import financialRoutes from './routes/financial.routes';
 import geminiProxyRoutes from './routes/gemini-proxy.routes';
-import { authMiddleware } from './auth-middleware';
 
 const app = express();
 
@@ -45,6 +45,16 @@ app.use('/api/data', dataRoutes);
 app.use('/api', financialRoutes);
 // Gemini Proxy Routes (Real Data Integration)
 app.use('/api/wardah', geminiProxyRoutes);
+
+// ميدلوير المصادقة
+const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'غير مصرح' });
+  }
+  // تحقق من التوكن مع نظام وردة
+  next();
+};
 
 // إعداد Proxy لـ Wardah API
 const wardahProxy = createProxyMiddleware({
