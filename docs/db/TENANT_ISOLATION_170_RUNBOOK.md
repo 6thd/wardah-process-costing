@@ -2,7 +2,9 @@
 
 **Migration:** `170_tenant_isolation_and_permission_hardening.sql`
 **Scope:** Fix a real cross-tenant RLS bypass, remove a default-organization fallback reachable by `anon`, and close a cross-user permission-disclosure path.
-**State:** Repository implementation, not yet applied to Production. Do not apply before the paired Fresh DB acceptance gate is green and this runbook's preflight/postflight queries have been reviewed.
+**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-06, verified via the postflight queries below run directly against the live database. Ledger row: `170_tenant_isolation_and_permission_hardening`, version `20260806043140`.
+
+**Note on the gap between merge and apply:** this migration was merged to `main` in PR #98 well before it was actually applied to Production — the ledger had stalled at 169 with 170 sitting unapplied. Independent verification against the live database on 2026-08-06 confirmed all three original vulnerabilities were still fully live in Production for that entire window (self-referencing `physical_count_*` policies, `anon` holding SELECT+INSERT on the three manufacturing tables via the default-org fallback, `has_permission` with no caller-identity guard). A migration landing on `main` closes the gap in the repository, not in Production — the apply step is not optional follow-up, it is the fix. Do not treat a merged migration as resolved until this section (or the ledger itself) says otherwise.
 
 ## 1. Purpose
 
