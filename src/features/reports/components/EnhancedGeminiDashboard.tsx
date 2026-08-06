@@ -268,6 +268,15 @@ export function EnhancedGeminiDashboard() {
                   title="Gemini Enhanced Dashboard"
                   onLoad={() => {
                     setLoading(false);
+                    // Gemini AI generation inside the iframe is temporarily
+                    // disabled (see gemini_enhanced_dashboard.html) — a prior
+                    // version relayed the user's Supabase session token into
+                    // this iframe so it could call a proxy directly, but the
+                    // iframe loads third-party CDN scripts that could read
+                    // anything held in its JS memory. No credential is passed
+                    // into the iframe. Financial data still reaches it via
+                    // the WARDHAH_DATA_SYNC postMessage below, which carries
+                    // only already-fetched, non-secret display data.
                     // Auto-sync after iframe loads
                     setTimeout(() => {
                       syncWithWardah();

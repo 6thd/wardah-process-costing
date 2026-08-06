@@ -107,7 +107,7 @@ const monthlyData = await geminiFinancialService.fetchMonthlyFinancialData(year)
 
 ### متغيرات البيئة المطلوبة:
 ```env
-PROXY_AUTH_KEY=S3cur3Pr0xyK3y!2025#WardahERP
+PROXY_AUTH_KEY=<REDACTED — rotated 2026-08-05, set your own value here>
 PORT=3001
 ```
 
@@ -116,7 +116,7 @@ PORT=3001
 {
   "GEMINI_DASHBOARD": {
     "proxy_url": "/api/wardah",
-    "proxy_auth_key": "S3cur3Pr0xyK3y!2025#WardahERP"
+    "proxy_auth_key": "<REDACTED — rotated 2026-08-05, set your own value here>"
   }
 }
 ```

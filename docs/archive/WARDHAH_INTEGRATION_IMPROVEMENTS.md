@@ -27,7 +27,7 @@ I've synchronized both files by copying the enhanced version to the public folde
    ```javascript
    this.wardahProxyConfig = {
        proxyUrl: '/api/wardah', // URL to your proxy service
-       proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
+       proxyAuthKey: '<REDACTED — rotated 2026-08-05, never hardcode a real value here>'
    };
    ```
 

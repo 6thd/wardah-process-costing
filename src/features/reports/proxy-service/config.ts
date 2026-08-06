@@ -13,11 +13,21 @@ const defaults = {
   PROXY_AUTH_KEY: 'dev_proxy_key'
 };
 
-// استخدام القيم الافتراضية إذا لم تكن المتغيرات موجودة
-for (const [key, value] of Object.entries(defaults)) {
-  if (!process.env[key]) {
-    process.env[key] = value;
-    console.log(`تم تعيين قيمة افتراضية للمتغير ${key} للتطوير`);
+// استخدام القيم الافتراضية إذا لم تكن المتغيرات موجودة — في التطوير فقط.
+// في الإنتاج: فشل فوري وواضح بدل الاعتماد الصامت على سر معروف علنًا.
+if (process.env.NODE_ENV !== 'production') {
+  for (const [key, value] of Object.entries(defaults)) {
+    if (!process.env[key]) {
+      process.env[key] = value;
+      console.log(`تم تعيين قيمة افتراضية للمتغير ${key} للتطوير`);
+    }
+  }
+} else {
+  const missing = Object.keys(defaults).filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(
+      `Missing required production environment variable(s): ${missing.join(', ')}`
+    );
   }
 }
 

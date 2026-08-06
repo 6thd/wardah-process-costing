@@ -1060,14 +1060,23 @@
         // Google Gemini AI Enhanced Financial Dashboard
         class GeminiEnhancedFinancialDashboard {
             constructor() {
-                this.geminiApiKey = 'AIzaSyDAkAe-ZAzTEvmey5C5tXSlMKdiQlzfYA';
-                this.geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+                // Gemini AI generation is temporarily disabled. It used to call
+                // a server-side proxy for this (a standalone Express service
+                // that turned out to have no real production deployment), and
+                // briefly relayed the user's Supabase session token into this
+                // iframe to authenticate that call — but this iframe loads
+                // several third-party CDN scripts, any of which could read
+                // anything held in its JS memory, token included. Re-enabling
+                // this needs a message-passing redesign (this iframe asks the
+                // React host page for a result over postMessage and never
+                // holds any credential itself) backed by a real Supabase Edge
+                // Function. See getFallbackResponse() below for the
+                // degraded-mode behavior used until then.
                 // Wardah ERP Integration (Secure backend proxy)
                 this.wardahProxyConfig = {
-                    proxyUrl: '/api/wardah', // URL to your proxy service
-                    proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
+                    proxyUrl: '/api/wardah' // URL to your proxy service
                 };
-                
+
                 this.data = {
                     assumptions: {
                         cogs_rate: 0.70,
@@ -1179,72 +1188,13 @@
             }
 
             async testGeminiConnection() {
-                try {
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{
-                                    text: 'Test connection'
-                                }]
-                            }]
-                        })
-                    });
-
-                    if (response.ok) {
-                        this.data.geminiStatus.connected = true;
-                        console.log('Google Gemini AI connected successfully');
-                    } else {
-                        throw new Error('Connection failed');
-                    }
-                } catch (error) {
-                    console.warn('Google Gemini AI connection failed, using fallback mode:', error);
-                    this.data.geminiStatus.connected = false;
-                }
+                // Temporarily disabled — see the constructor comment above.
+                this.data.geminiStatus.connected = false;
             }
 
-            async callGeminiAPI(prompt, maxTokens = 500) {
-                if (!this.data.geminiStatus.connected) {
-                    return this.getFallbackResponse(prompt);
-                }
-
-                try {
-                    this.showGeminiProcessing(true);
-                    
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{
-                                    text: prompt
-                                }]
-                            }],
-                            generationConfig: {
-                                maxOutputTokens: maxTokens,
-                                temperature: 0.7
-                            }
-                        })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`API call failed: ${response.status}`);
-                    }
-
-                    const data = await response.json();
-                    this.showGeminiProcessing(false);
-                    
-                    return data.candidates[0].content.parts[0].text;
-                } catch (error) {
-                    console.error('Gemini API error:', error);
-                    this.showGeminiProcessing(false);
-                    return this.getFallbackResponse(prompt);
-                }
+            async callGeminiAPI(prompt, _maxTokens = 500) {
+                // Temporarily disabled — see the constructor comment above.
+                return this.getFallbackResponse(prompt);
             }
 
             getFallbackResponse(userMessage) {
@@ -2409,7 +2359,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/financial-data`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2435,7 +2384,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/transactions`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2459,7 +2407,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/inventory`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
