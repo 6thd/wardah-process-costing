@@ -42,7 +42,11 @@ function isValidInsightRequest(msg: unknown): msg is InsightRequestMessage {
   if (m.locale !== 'ar' && m.locale !== 'en') return false;
   if (m.operation === 'ask') {
     if (typeof m.question !== 'string' || m.question.length === 0 || m.question.length > 500) return false;
-  } else if (m.data !== undefined && (typeof m.data !== 'object' || m.data === null || Array.isArray(m.data))) {
+  }
+  // data is optional context on every operation, including 'ask' (the
+  // dashboard's already-computed financial figures, so the model can
+  // answer questions grounded in the organization's real numbers).
+  if (m.data !== undefined && (typeof m.data !== 'object' || m.data === null || Array.isArray(m.data))) {
     return false;
   }
   return true;
@@ -166,7 +170,9 @@ export function EnhancedInsightsDashboard() {
             operation: msg.operation,
             locale: msg.locale,
             requestId: msg.requestId,
-            ...(msg.operation === 'ask' ? { question: msg.question } : { data: msg.data ?? {} })
+            ...(msg.operation === 'ask'
+              ? { question: msg.question, ...(msg.data !== undefined ? { data: msg.data } : {}) }
+              : { data: msg.data ?? {} })
           }
         });
 

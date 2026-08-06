@@ -113,6 +113,35 @@ Deno.test('validateBody ignores any org_id the caller supplies — org is never 
   }
 })
 
+Deno.test('validateBody accepts optional financial context alongside an ask question', () => {
+  const result = validateBody({
+    operation: 'ask',
+    locale: 'en',
+    question: 'Why is margin low?',
+    data: { totalSales: 1000, marginOfSafety: 0.1 },
+  })
+  assertEquals(result.ok, true)
+  if (result.ok) {
+    assertEquals(result.body.question, 'Why is margin low?')
+    assertEquals(result.body.data, { totalSales: 1000, marginOfSafety: 0.1 })
+  }
+})
+
+Deno.test('buildUserPrompt includes financial context in an ask prompt when provided', () => {
+  const withContext = buildUserPrompt({
+    operation: 'ask',
+    locale: 'en',
+    question: 'Why is margin low?',
+    data: { marginOfSafety: 0.1 },
+  })
+  assertEquals(withContext.includes('Why is margin low?'), true)
+  assertEquals(withContext.includes('marginOfSafety'), true)
+
+  const withoutContext = buildUserPrompt({ operation: 'ask', locale: 'en', question: 'Why is margin low?' })
+  assertEquals(withoutContext.includes('Why is margin low?'), true)
+  assertEquals(withoutContext.includes('Financial context'), false)
+})
+
 // --- Prompt building never leaks limits or lets the caller override them ---
 
 Deno.test('buildSystemPrompt and buildUserPrompt never mention the quota constants', () => {

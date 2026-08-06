@@ -44,6 +44,10 @@ export function ReportsModule() {
       <Route path="/advanced" element={<ReportsDashboard />} />
       <Route path="/insights" element={<EnhancedInsightsDashboard />} />
       <Route path="/gemini/legacy" element={<GeminiDashboard />} />
+      {/* Compat: /reports/gemini was the Enhanced dashboard's route before
+          the Gemini-branding removal; existing bookmarks/links still point
+          here, so redirect rather than let them dead-end on the wildcard. */}
+      <Route path="/gemini" element={<Navigate to="/insights" replace />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )

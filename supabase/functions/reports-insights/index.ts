@@ -90,18 +90,22 @@ export function validateBody(
     return { ok: false, error: 'invalid_request' }
   }
 
+  const data = raw.data
+  if (data !== undefined && !isPlainObject(data)) {
+    return { ok: false, error: 'invalid_request' }
+  }
+
   if (operation === 'ask') {
     const question = raw.question
     if (typeof question !== 'string' || question.length === 0 || question.length > MAX_QUESTION_LENGTH) {
       return { ok: false, error: 'invalid_request' }
     }
-    return { ok: true, body: { operation, locale, question, requestId } }
+    // data is optional context for 'ask' — the dashboard's already-computed
+    // financial figures, so the model can ground its answer in the
+    // organization's real numbers instead of the question alone.
+    return { ok: true, body: { operation, locale, question, data, requestId } }
   }
 
-  const data = raw.data
-  if (data !== undefined && !isPlainObject(data)) {
-    return { ok: false, error: 'invalid_request' }
-  }
   return {
     ok: true,
     body: { operation: operation as InsightOperation, locale, data: data ?? {}, requestId },
@@ -144,7 +148,10 @@ export function buildSystemPrompt(locale: 'ar' | 'en'): string {
 export function buildUserPrompt(body: InsightRequestBody): string {
   const instruction = OPERATION_INSTRUCTIONS[body.operation][body.locale]
   if (body.operation === 'ask') {
-    return `${instruction}\n\nUser question: ${body.question}`
+    const context = body.data && Object.keys(body.data).length > 0
+      ? `\n\nFinancial context (JSON): ${JSON.stringify(body.data)}`
+      : ''
+    return `${instruction}\n\nUser question: ${body.question}${context}`
   }
   return `${instruction}\n\nData (JSON): ${JSON.stringify(body.data ?? {})}`
 }
