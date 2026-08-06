@@ -1,0 +1,101 @@
+name: AI Usage Daily 171 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_171_ai_usage_daily.sql'
+      - 'scripts/ci/fresh-db/acceptance_171_ai_usage_concurrency.sh'
+      - 'sql/migrations/171_ai_usage_daily_and_reports_insights_permission.sql'
+      - '.github/workflows/ai-usage-daily-171-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm Migration 171 satisfies the AI usage quota contract
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 171
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run AI usage daily 171 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_171_ai_usage_daily.sql \
+            2>&1 | tee /tmp/ai-usage-daily-171.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run real two-connection quota race
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_171_ai_usage_concurrency.sh \
+            2>&1 | tee /tmp/ai-usage-daily-171-concurrency.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-usage-daily-171-${{ github.run_id }}
+          path: |
+            /tmp/ai-usage-daily-171.out
+            /tmp/ai-usage-daily-171-concurrency.out
+            /tmp/ai-usage-171-race-a.out
+            /tmp/ai-usage-171-race-b.out
+            /tmp/ai-usage-171-blocker.out
+            /tmp/chain_order.txt
+            /tmp/chain_report.txt
+          if-no-files-found: warn
+          retention-days: 30

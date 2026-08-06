@@ -210,6 +210,47 @@ export type Database = {
           },
         ]
       }
+      ai_usage_daily: {
+        Row: {
+          accepted_count: number
+          created_at: string
+          id: string
+          org_id: string
+          rejected_count: number
+          updated_at: string
+          usage_date: string
+          user_id: string
+        }
+        Insert: {
+          accepted_count?: number
+          created_at?: string
+          id?: string
+          org_id: string
+          rejected_count?: number
+          updated_at?: string
+          usage_date: string
+          user_id: string
+        }
+        Update: {
+          accepted_count?: number
+          created_at?: string
+          id?: string
+          org_id?: string
+          rejected_count?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_daily_org_id_fkey"
+            columns: ["org_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       attendance_records: {
         Row: {
           check_in_time: string | null
@@ -10930,6 +10971,14 @@ export type Database = {
       rpc_cancel_supplier_payment: {
         Args: { p_payment_id: string; p_reason: string }
         Returns: Json
+      }
+      rpc_check_and_record_ai_usage: {
+        Args: { p_org_id: string; p_user_id: string }
+        Returns: {
+          allowed: boolean
+          org_accepted_count: number
+          user_accepted_count: number
+        }[]
       }
       rpc_complete_manufacturing_order: {
         Args: { p_payload: Json }
