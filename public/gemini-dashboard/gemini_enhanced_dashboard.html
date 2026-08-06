@@ -1248,6 +1248,8 @@
             }
 
             setupEventListeners() {
+                this.setupWardahDataSyncListener();
+
                 // Language Toggle
                 document.querySelectorAll('.lang-btn').forEach(btn => {
                     btn.addEventListener('click', () => {
@@ -2461,51 +2463,58 @@
                 return mappedData;
             }
 
+            // Listens for the real financial figures the React host page
+            // computes and posts (EnhancedGeminiDashboard.tsx already
+            // implements syncWithWardah()/the WARDHAH_DATA_SYNC path and
+            // its REQUEST_WARDHAH_DATA handler — this iframe just never
+            // consumed either side of it). This iframe has no backend of
+            // its own and no credential of any kind — calling
+            // /api/wardah/financial-data directly always 401s under the
+            // Supabase-session auth this PR adds, and the previous code
+            // silently swallowed that into a misleading "success"
+            // notification while still showing stale/sample data.
+            setupWardahDataSyncListener() {
+                window.addEventListener('message', (event) => {
+                    if (event.origin !== window.location.origin) return;
+                    const msg = event.data;
+                    if (!msg || msg.type !== 'WARDHAH_DATA_SYNC') return;
+                    if (!msg.data || typeof msg.data !== 'object' || !msg.data.monthlyData) return;
+
+                    this.data.baseFinancialData = msg.data.monthlyData;
+                    this.render();
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
+                        'success'
+                    );
+                });
+            }
+
             async syncWithWardah() {
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'جاري مزامنة بيانات وردة ERP...' : 'Syncing with Wardah ERP...',
                     'info'
                 );
-                
-                try {
-                    const wardahData = await this.fetchWardahFinancialData();
-                    this.data.baseFinancialData = wardahData;
-                    this.render();
-                    
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
-                        'success'
-                    );
-                } catch (error) {
-                    console.error('Wardah sync error:', error);
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في مزامنة بيانات وردة ERP' : 'Failed to sync with Wardah ERP',
-                        'error'
-                    );
-                }
+                // The response arrives asynchronously through
+                // setupWardahDataSyncListener() above — this iframe cannot
+                // reach Wardah's backend directly, only the authenticated
+                // host page can.
+                window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA' }, window.location.origin);
             }
 
             async loadData() {
                 await this.delay(1000);
-                
+
                 // Check if we should load data from Wardah ERP
                 const urlParams = new URLSearchParams(window.location.search);
                 const useWardah = urlParams.get('wardah') === 'true';
-                
+
+                // Show deterministic sample-derived insights immediately so
+                // the UI never appears empty — real figures replace them
+                // via setupWardahDataSyncListener() once the host responds.
+                this.generateBasicInsights();
+
                 if (useWardah) {
-                    try {
-                        this.data.baseFinancialData = await this.fetchWardahFinancialData();
-                        this.showNotification(
-                            this.data.currentLanguage === 'ar' ? 'تم تحميل البيانات من وردة ERP' : 'Data loaded from Wardah ERP',
-                            'success'
-                        );
-                    } catch (error) {
-                        console.error('Error loading Wardah data:', error);
-                        // Fallback to default data
-                        this.generateBasicInsights();
-                    }
-                } else {
-                    this.generateBasicInsights();
+                    window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA' }, window.location.origin);
                 }
             }
         }
