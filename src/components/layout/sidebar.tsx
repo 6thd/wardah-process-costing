@@ -472,7 +472,7 @@ export function Sidebar() {
         { key: 'purchasing', href: '/reports/purchasing', labelKey: 'navigation.purchasing' },
         { key: 'advanced', href: '/reports/advanced', labelKey: 'navigation.advanced' },
         { key: 'analytics', href: '/reports/analytics', labelKey: 'navigation.analytics' },
-        { key: 'gemini-dashboard', href: '/reports/gemini', labelKey: 'navigation.gemini-dashboard' }
+        { key: 'reports-insights', href: '/reports/insights', labelKey: 'navigation.reports-insights' }
       ]
     },
     {

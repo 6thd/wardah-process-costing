@@ -55,7 +55,7 @@
     "system": "إعدادات النظام",
     "integrations": "التكاملات",
     "backup": "النسخ الاحتياطي",
-    "gemini-dashboard": "لوحة معلومات Gemini",
+    "reports-insights": "رؤى التقارير الذكية",
     "journal-entries": "قيود اليومية",
     "org-admin": "إدارة المنظمة",
     "orgAdminDashboard": "لوحة التحكم",
@@ -846,9 +846,9 @@
       }
     }
   },
-  "geminiDashboard": {
-    "title": "لوحة معلومات الأداء المالي الثورية مع Google Gemini AI",
-    "loadingMessage": "جاري تحميل لوحة المعلومات المدعومة بـ Google Gemini AI...",
+  "reportsInsights": {
+    "title": "لوحة معلومات الأداء المالي الذكية",
+    "loadingMessage": "جاري تحميل لوحة المعلومات المدعومة بالذكاء الاصطناعي...",
     "loadingOptimizedMessage": "جاري تحميل النسخة المحسّنة من لوحة المعلومات...",
     "loadingStatus": "حالة التحميل",
     "loadingHtml": "جاري تحميل محتوى اللوحة",
@@ -857,8 +857,8 @@
     "timeoutError": "انتهت مهلة تحميل لوحة المعلومات. يرجى المحاولة مرة أخرى.",
     "syncSuccess": "تم مزامنة البيانات بنجاح",
     "syncFailed": "فشل في مزامنة البيانات",
-    "enhancedTitle": "لوحة Gemini المالية الذكية",
-    "enhancedDescription": "تحليل مالي متقدم مع Google Gemini AI - بيانات حقيقية من وردة ERP",
+    "enhancedTitle": "لوحة الرؤى المالية الذكية",
+    "enhancedDescription": "تحليل مالي متقدم مدعوم بالذكاء الاصطناعي - بيانات حقيقية من وردة ERP",
     "autoRefresh": "تحديث تلقائي",
     "syncNow": "مزامنة الآن",
     "totalSales": "إجمالي المبيعات",
@@ -870,7 +870,7 @@
     "breakEvenSales": "نقطة التعادل (مبيعات)",
     "fixedCosts": "التكاليف الثابتة",
     "lowMarginWarning": "تحذير: هامش الأمان منخفض. يجب زيادة المبيعات أو تقليل التكاليف.",
-    "loadingEnhanced": "جاري تحميل لوحة Gemini..."
+    "loadingEnhanced": "جاري تحميل لوحة الرؤى..."
   },
   "accounting": {
     "debit": "مدين",
