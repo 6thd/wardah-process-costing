@@ -30,4 +30,10 @@ jobs:
         run: deno lint supabase/functions/reports-insights/index.ts supabase/functions/reports-insights/index.test.ts
 
       - name: Test
-        run: deno test --allow-env supabase/functions/reports-insights/index.test.ts
+        # --no-check: the dedicated Type-check step above already proves
+        # index.ts itself. Without it, `deno test`'s own implicit
+        # type-check pulls in @supabase/supabase-js's transitive .d.ts
+        # graph, which references @types/node — resolvable in a dev
+        # environment that happens to have a root node_modules/, but not
+        # in this workflow's clean checkout (no `npm install` step here).
+        run: deno test --no-check --allow-env supabase/functions/reports-insights/index.test.ts
