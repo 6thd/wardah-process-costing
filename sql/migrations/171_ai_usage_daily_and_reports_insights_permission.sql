@@ -85,7 +85,12 @@ CREATE POLICY ai_usage_daily_select_own ON public.ai_usage_daily
   FOR SELECT TO authenticated
   USING (user_id = auth.uid());
 
-REVOKE ALL ON TABLE public.ai_usage_daily FROM PUBLIC, anon;
+-- The baseline's ALTER DEFAULT PRIVILEGES grants ALL on every new public
+-- table to anon/authenticated/service_role at CREATE TABLE time (mirroring
+-- real Supabase behavior) — authenticated must be explicitly revoked here
+-- too, not just anon/PUBLIC, or it silently keeps its default INSERT/
+-- UPDATE/DELETE grant and ends up relying on RLS alone as the only guard.
+REVOKE ALL ON TABLE public.ai_usage_daily FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON TABLE public.ai_usage_daily TO authenticated;
 GRANT ALL ON TABLE public.ai_usage_daily TO service_role;
 
@@ -192,7 +197,7 @@ BEGIN
   SELECT string_agg(grantee, ', ') INTO v_bad_grants
   FROM information_schema.role_table_grants
   WHERE table_schema = 'public' AND table_name = 'ai_usage_daily'
-    AND grantee IN ('anon', 'PUBLIC')
+    AND grantee IN ('anon', 'PUBLIC', 'authenticated')
     AND privilege_type IN ('INSERT', 'UPDATE', 'DELETE');
   IF v_bad_grants IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL[171-1b] ai_usage_daily has write grants for: %', v_bad_grants;
