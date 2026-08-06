@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة معلومات الأداء المالي الثورية مع Google Gemini AI - فرع الدمام</title>
+    <title>لوحة معلومات الأداء المالي الذكية - فرع الدمام</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
@@ -25,7 +25,7 @@
             --dark-gradient: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
             --glass-bg: rgba(255, 255, 255, 0.05);
             --glass-border: rgba(255, 255, 255, 0.1);
-            --gemini-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
+            --ai-gradient: linear-gradient(135deg, #4285f4 0%, #34a853 25%, #fbbc04 50%, #ea4335 75%, #9c27b0 100%);
         }
 
         * {
@@ -65,10 +65,10 @@
                 radial-gradient(circle at 80% 20%, rgba(52, 168, 83, 0.15) 0%, transparent 50%),
                 radial-gradient(circle at 40% 80%, rgba(251, 188, 4, 0.15) 0%, transparent 50%),
                 radial-gradient(circle at 60% 30%, rgba(234, 67, 53, 0.1) 0%, transparent 50%);
-            animation: geminiParticleShift 25s ease-in-out infinite;
+            animation: aiParticleShift 25s ease-in-out infinite;
         }
 
-        @keyframes geminiParticleShift {
+        @keyframes aiParticleShift {
             0%, 100% { 
                 background: 
                     radial-gradient(circle at 20% 50%, rgba(66, 133, 244, 0.15) 0%, transparent 50%),
@@ -140,14 +140,14 @@
                 inset 0 1px 0 rgba(255, 255, 255, 0.3);
         }
 
-        /* Gemini AI Enhanced Elements */
-        .gemini-enhanced {
-            background: var(--gemini-gradient);
+        /* AI Enhanced Elements */
+        .ai-enhanced {
+            background: var(--ai-gradient);
             background-size: 500% 500%;
-            animation: geminiGradientShift 10s ease-in-out infinite;
+            animation: aiGradientShift 10s ease-in-out infinite;
         }
 
-        @keyframes geminiGradientShift {
+        @keyframes aiGradientShift {
             0%, 100% { background-position: 0% 50%; }
             20% { background-position: 100% 0%; }
             40% { background-position: 100% 100%; }
@@ -157,7 +157,7 @@
 
         /* Holographic Effects */
         .holographic {
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 400% 400%;
             animation: holographicShift 6s ease-in-out infinite;
             -webkit-background-clip: text;
@@ -172,8 +172,8 @@
             75% { background-position: 0% 100%; }
         }
 
-        /* Advanced Gemini Chat Interface */
-        .gemini-chat-container {
+        /* Advanced AI Chat Interface */
+        .ai-chat-container {
             background: linear-gradient(145deg, rgba(66, 133, 244, 0.1), rgba(52, 168, 83, 0.1));
             backdrop-filter: blur(30px);
             border: 1px solid rgba(66, 133, 244, 0.3);
@@ -182,19 +182,19 @@
             overflow: hidden;
         }
 
-        .gemini-chat-container::before {
+        .ai-chat-container::before {
             content: '';
             position: absolute;
             top: 0;
             left: 0;
             right: 0;
             height: 3px;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 500% 100%;
-            animation: geminiGradientShift 4s ease infinite;
+            animation: aiGradientShift 4s ease infinite;
         }
 
-        .gemini-message {
+        .ai-message {
             background: linear-gradient(135deg, rgba(66, 133, 244, 0.2), rgba(52, 168, 83, 0.2));
             backdrop-filter: blur(15px);
             border: 1px solid rgba(66, 133, 244, 0.3);
@@ -240,14 +240,14 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background: var(--gemini-gradient);
-            animation: geminiTypingDot 1.4s ease-in-out infinite;
+            background: var(--ai-gradient);
+            animation: aiTypingDot 1.4s ease-in-out infinite;
         }
 
         .typing-dot:nth-child(2) { animation-delay: 0.2s; }
         .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
-        @keyframes geminiTypingDot {
+        @keyframes aiTypingDot {
             0%, 60%, 100% { transform: translateY(0) scale(1); }
             30% { transform: translateY(-10px) scale(1.2); }
         }
@@ -272,13 +272,13 @@
             left: 0;
             right: 0;
             height: 3px;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 500% 100%;
-            animation: geminiGradientShift 4s ease infinite;
+            animation: aiGradientShift 4s ease infinite;
         }
 
-        /* Gemini Insights Panel */
-        .gemini-insight-card {
+        /* AI Insights Panel */
+        .ai-insight-card {
             background: linear-gradient(135deg, rgba(66, 133, 244, 0.15), rgba(52, 168, 83, 0.15));
             backdrop-filter: blur(20px);
             border: 1px solid rgba(66, 133, 244, 0.3);
@@ -290,7 +290,7 @@
             transition: all 0.3s ease;
         }
 
-        .gemini-insight-card:hover {
+        .ai-insight-card:hover {
             transform: translateY(-5px) scale(1.02);
             box-shadow: 0 15px 35px rgba(66, 133, 244, 0.2);
         }
@@ -305,7 +305,7 @@
 
         .confidence-fill {
             height: 100%;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             border-radius: 2px;
             transition: width 1s ease;
         }
@@ -345,10 +345,10 @@
             box-shadow: 0 8px 25px rgba(66, 133, 244, 0.6);
         }
 
-        .gemini-button {
-            background: var(--gemini-gradient);
+        .ai-button {
+            background: var(--ai-gradient);
             background-size: 500% 500%;
-            animation: geminiGradientShift 10s ease-in-out infinite;
+            animation: aiGradientShift 10s ease-in-out infinite;
         }
 
         /* Language Toggle */
@@ -383,15 +383,15 @@
             box-shadow: 0 2px 10px rgba(66, 133, 244, 0.4);
         }
 
-        /* Gemini Status Indicator */
-        .gemini-status {
+        /* AI Status Indicator */
+        .ai-status {
             position: fixed;
             bottom: 20px;
             left: 20px;
             z-index: 1000;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 500% 500%;
-            animation: geminiGradientShift 10s ease-in-out infinite;
+            animation: aiGradientShift 10s ease-in-out infinite;
             backdrop-filter: blur(25px);
             border: 1px solid rgba(66, 133, 244, 0.3);
             border-radius: 15px;
@@ -404,16 +404,16 @@
             font-weight: 600;
         }
 
-        .gemini-indicator {
+        .ai-indicator {
             width: 12px;
             height: 12px;
             border-radius: 50%;
             background: #ffffff;
             box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
-            animation: geminiPulse 2s infinite;
+            animation: aiPulse 2s infinite;
         }
 
-        @keyframes geminiPulse {
+        @keyframes aiPulse {
             0%, 100% { 
                 transform: scale(1);
                 box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
@@ -459,9 +459,9 @@
             right: 30px;
             width: 60px;
             height: 60px;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 400% 400%;
-            animation: geminiGradientShift 8s ease-in-out infinite;
+            animation: aiGradientShift 8s ease-in-out infinite;
             border-radius: 50%;
             display: flex;
             align-items: center;
@@ -478,16 +478,16 @@
         }
 
         .voice-indicator.active {
-            animation: geminiVoicePulse 1s ease-in-out infinite;
+            animation: aiVoicePulse 1s ease-in-out infinite;
         }
 
-        @keyframes geminiVoicePulse {
+        @keyframes aiVoicePulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.2); }
         }
 
-        /* Gemini Assistant Panel */
-        .gemini-assistant {
+        /* AI Assistant Panel */
+        .ai-assistant {
             position: fixed;
             top: 50%;
             right: -450px;
@@ -504,7 +504,7 @@
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
         }
 
-        .gemini-assistant.active {
+        .ai-assistant.active {
             right: 30px;
         }
 
@@ -552,7 +552,7 @@
 
         .loading-progress-bar {
             height: 100%;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             border-radius: 2px;
             animation: loadingProgress 3s ease-in-out;
         }
@@ -606,13 +606,13 @@
                 border-radius: 15px;
             }
             
-            .gemini-assistant {
+            .ai-assistant {
                 width: 90vw;
                 right: -100vw;
                 height: 80vh;
             }
             
-            .gemini-assistant.active {
+            .ai-assistant.active {
                 right: 5vw;
             }
 
@@ -621,7 +621,7 @@
                 left: 10px;
             }
 
-            .gemini-status {
+            .ai-status {
                 bottom: 10px;
                 left: 10px;
             }
@@ -638,7 +638,7 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             border-radius: 10px;
         }
 
@@ -671,27 +671,27 @@
             75% { transform: translateY(-10px) rotate(-0.5deg); }
         }
 
-        /* Gemini Processing Indicator */
-        .gemini-processing {
+        /* AI Processing Indicator */
+        .ai-processing {
             display: inline-flex;
             align-items: center;
             gap: 0.5rem;
             padding: 0.5rem 1rem;
-            background: var(--gemini-gradient);
+            background: var(--ai-gradient);
             background-size: 500% 500%;
-            animation: geminiGradientShift 3s ease-in-out infinite;
+            animation: aiGradientShift 3s ease-in-out infinite;
             border-radius: 20px;
             color: white;
             font-size: 0.875rem;
             font-weight: 600;
         }
 
-        .gemini-processing-dots {
+        .ai-processing-dots {
             display: flex;
             gap: 2px;
         }
 
-        .gemini-processing-dot {
+        .ai-processing-dot {
             width: 4px;
             height: 4px;
             border-radius: 50%;
@@ -699,21 +699,21 @@
             animation: processingDot 1s ease-in-out infinite;
         }
 
-        .gemini-processing-dot:nth-child(2) { animation-delay: 0.2s; }
-        .gemini-processing-dot:nth-child(3) { animation-delay: 0.4s; }
+        .ai-processing-dot:nth-child(2) { animation-delay: 0.2s; }
+        .ai-processing-dot:nth-child(3) { animation-delay: 0.4s; }
 
         @keyframes processingDot {
             0%, 60%, 100% { opacity: 0.3; }
             30% { opacity: 1; }
         }
 
-        /* Gemini Sparkle Effect */
-        .gemini-sparkle {
+        /* AI Sparkle Effect */
+        .ai-sparkle {
             position: relative;
             overflow: hidden;
         }
 
-        .gemini-sparkle::after {
+        .ai-sparkle::after {
             content: '';
             position: absolute;
             top: -50%;
@@ -739,7 +739,7 @@
     <!-- Loading Overlay -->
     <div id="loadingOverlay" class="loading-overlay">
         <div class="loading-spinner"></div>
-        <div id="loadingText" class="loading-text">جاري تحميل لوحة المعلومات المدعومة بـ Google Gemini AI...</div>
+        <div id="loadingText" class="loading-text">جاري تحميل لوحة المعلومات المدعومة بالذكاء الاصطناعي...</div>
         <div class="loading-progress">
             <div class="loading-progress-bar"></div>
         </div>
@@ -751,10 +751,10 @@
         <button class="lang-btn" data-lang="en">English</button>
     </div>
 
-    <!-- Gemini Status Indicator -->
-    <div class="gemini-status">
-        <div class="gemini-indicator"></div>
-        <span id="geminiStatusText" data-ar="Google Gemini AI متصل" data-en="Google Gemini AI Connected">Google Gemini AI متصل</span>
+    <!-- AI Status Indicator -->
+    <div class="ai-status">
+        <div class="ai-indicator"></div>
+        <span id="aiStatusText" data-ar="الرؤى الذكية جاهزة" data-en="AI Insights Ready">الرؤى الذكية جاهزة</span>
     </div>
 
     <!-- Particles Background -->
@@ -764,37 +764,37 @@
     <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
         <div class="flex items-center justify-between">
             <div class="flex items-center space-x-4">
-                <div class="w-12 h-12 gemini-enhanced rounded-xl flex items-center justify-center gemini-sparkle">
+                <div class="w-12 h-12 ai-enhanced rounded-xl flex items-center justify-center ai-sparkle">
                     <i class="fas fa-brain text-white text-xl"></i>
                 </div>
                 <div>
                     <h1 id="mainTitle" class="text-2xl font-bold holographic" 
-                        data-ar="لوحة معلومات الأداء المالي الثورية مع Google Gemini AI" 
-                        data-en="Revolutionary AI-Powered Financial Dashboard with Google Gemini">
-                        لوحة معلومات الأداء المالي الثورية مع Google Gemini AI
+                        data-ar="لوحة معلومات الأداء المالي الذكية" 
+                        data-en="AI-Powered Financial Insights Dashboard">
+                        لوحة معلومات الأداء المالي الذكية
                     </h1>
                     <p id="subtitle" class="text-sm text-gray-400" 
-                       data-ar="فرع الدمام - مدعوم بـ Google Gemini AI" 
-                       data-en="Dammam Branch - Powered by Google Gemini AI">
-                       فرع الدمام - مدعوم بـ Google Gemini AI
+                       data-ar="فرع الدمام - مدعوم بالذكاء الاصطناعي" 
+                       data-en="Dammam Branch - AI-Powered">
+                       فرع الدمام - مدعوم بالذكاء الاصطناعي
                     </p>
                 </div>
             </div>
             <div class="flex items-center space-x-4">
-                <div class="gemini-processing" id="geminiProcessingIndicator" style="display: none;">
+                <div class="ai-processing" id="aiProcessingIndicator" style="display: none;">
                     <i class="fas fa-brain"></i>
-                    <span data-ar="معالجة بـ Gemini AI" data-en="Gemini AI Processing">معالجة بـ Gemini AI</span>
-                    <div class="gemini-processing-dots">
-                        <div class="gemini-processing-dot"></div>
-                        <div class="gemini-processing-dot"></div>
-                        <div class="gemini-processing-dot"></div>
+                    <span data-ar="معالجة ذكية" data-en="AI Processing">معالجة ذكية</span>
+                    <div class="ai-processing-dots">
+                        <div class="ai-processing-dot"></div>
+                        <div class="ai-processing-dot"></div>
+                        <div class="ai-processing-dot"></div>
                     </div>
                 </div>
-                <button id="geminiAssistantBtn" class="gemini-button interactive-button">
+                <button id="aiAssistantBtn" class="ai-button interactive-button">
                     <i class="fas fa-robot mr-2"></i>
-                    <span data-ar="مساعد Gemini AI" data-en="Gemini AI Assistant">مساعد Gemini AI</span>
+                    <span data-ar="مساعد ذكي" data-en="AI Assistant">مساعد ذكي</span>
                 </button>
-                <button id="geminiAnalysisBtn" class="gemini-button interactive-button">
+                <button id="aiAnalysisBtn" class="ai-button interactive-button">
                     <i class="fas fa-chart-line mr-2"></i>
                     <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
                 </button>
@@ -809,25 +809,25 @@
     <div class="flex min-h-screen pt-20">
         <!-- Advanced Sidebar -->
         <aside class="glass w-96 p-6 space-y-6 overflow-y-auto m-4 rounded-3xl">
-            <!-- Gemini Insights Panel -->
-            <div class="gemini-chat-container slide-in-advanced">
+            <!-- AI Insights Panel -->
+            <div class="ai-chat-container slide-in-advanced">
                 <div class="flex items-center mb-6">
-                    <div class="w-12 h-12 gemini-enhanced rounded-xl flex items-center justify-center mr-4 gemini-sparkle">
+                    <div class="w-12 h-12 ai-enhanced rounded-xl flex items-center justify-center mr-4 ai-sparkle">
                         <i class="fas fa-brain text-white neon-glow"></i>
                     </div>
                     <div>
-                        <h2 id="geminiInsightsTitle" class="text-xl font-bold text-white" 
-                            data-ar="رؤى Google Gemini AI" data-en="Google Gemini AI Insights">رؤى Google Gemini AI</h2>
-                        <p id="geminiInsightsSubtitle" class="text-xs text-gray-400" 
+                        <h2 id="aiInsightsTitle" class="text-xl font-bold text-white" 
+                            data-ar="رؤى ذكية" data-en="AI Insights">رؤى ذكية</h2>
+                        <p id="aiInsightsSubtitle" class="text-xs text-gray-400" 
                            data-ar="تحليل متقدم وتوقعات ذكية" data-en="Advanced Analysis & Smart Predictions">تحليل متقدم وتوقعات ذكية</p>
                     </div>
                 </div>
                 
-                <div id="geminiInsights" class="space-y-4">
-                    <!-- Gemini insights will be populated here -->
+                <div id="aiInsights" class="space-y-4">
+                    <!-- AI insights will be populated here -->
                 </div>
                 
-                <button id="generateInsightsBtn" class="gemini-button interactive-button w-full mt-4">
+                <button id="generateInsightsBtn" class="ai-button interactive-button w-full mt-4">
                     <i class="fas fa-magic mr-2"></i>
                     <span data-ar="توليد رؤى جديدة" data-en="Generate New Insights">توليد رؤى جديدة</span>
                 </button>
@@ -845,28 +845,28 @@
                     <!-- Advanced controls will be populated here -->
                 </div>
 
-                <!-- Gemini-Powered Scenario Suggestions -->
+                <!-- AI-Powered Scenario Suggestions -->
                 <div class="mt-6 pt-4 border-t border-gray-700">
-                    <h3 id="geminiSuggestionsTitle" class="text-sm font-bold text-gray-300 mb-3"
-                        data-ar="اقتراحات Gemini AI" data-en="Gemini AI Suggestions">اقتراحات Gemini AI</h3>
-                    <div id="geminiSuggestions" class="space-y-2">
-                        <!-- Gemini suggestions will be populated here -->
+                    <h3 id="aiSuggestionsTitle" class="text-sm font-bold text-gray-300 mb-3"
+                        data-ar="اقتراحات ذكية" data-en="AI Suggestions">اقتراحات ذكية</h3>
+                    <div id="aiSuggestions" class="space-y-2">
+                        <!-- AI suggestions will be populated here -->
                     </div>
                 </div>
             </div>
 
-            <!-- Real-time Gemini Analytics -->
-            <div class="gemini-chat-container slide-in-advanced">
+            <!-- Real-time AI Analytics -->
+            <div class="ai-chat-container slide-in-advanced">
                 <h3 id="realtimeTitle" class="text-lg font-bold text-white mb-4 flex items-center"
-                    data-ar="التحليل الفوري بـ Gemini AI" data-en="Real-time Gemini AI Analysis">
+                    data-ar="التحليل الفوري الذكي" data-en="Real-time AI Analysis">
                     <i class="fas fa-chart-pulse text-green-400 ml-2 neon-glow"></i>
-                    التحليل الفوري بـ Gemini AI
+                    التحليل الفوري الذكي
                 </h3>
                 <div id="realtimeMetrics" class="space-y-3">
                     <!-- Real-time metrics will be populated here -->
                 </div>
                 
-                <button id="geminiPredictionBtn" class="gemini-button interactive-button w-full mt-4">
+                <button id="aiPredictionBtn" class="ai-button interactive-button w-full mt-4">
                     <i class="fas fa-crystal-ball mr-2"></i>
                     <span data-ar="توقعات ذكية" data-en="Smart Predictions">توقعات ذكية</span>
                 </button>
@@ -880,23 +880,23 @@
                     إجراءات ذكية متقدمة
                 </h3>
                 <div class="space-y-3">
-                    <button id="wardahSyncBtn" class="gemini-button interactive-button w-full">
+                    <button id="wardahSyncBtn" class="ai-button interactive-button w-full">
                         <i class="fas fa-sync-alt mr-2"></i>
                         <span data-ar="مزامنة مع وردة ERP" data-en="Sync with Wardah ERP">مزامنة مع وردة ERP</span>
                     </button>
-                    <button id="geminiReportBtn" class="gemini-button interactive-button w-full">
+                    <button id="aiReportBtn" class="ai-button interactive-button w-full">
                         <i class="fas fa-file-alt mr-2"></i>
                         <span data-ar="تقرير ذكي" data-en="Smart Report">تقرير ذكي</span>
                     </button>
-                    <button id="geminiOptimizationBtn" class="gemini-button interactive-button w-full">
+                    <button id="aiOptimizationBtn" class="ai-button interactive-button w-full">
                         <i class="fas fa-cogs mr-2"></i>
                         <span data-ar="تحسين ذكي" data-en="Smart Optimization">تحسين ذكي</span>
                     </button>
-                    <button id="geminiRiskAnalysisBtn" class="gemini-button interactive-button w-full">
+                    <button id="aiRiskAnalysisBtn" class="ai-button interactive-button w-full">
                         <i class="fas fa-shield-alt mr-2"></i>
                         <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
                     </button>
-                    <button id="geminiStrategyBtn" class="gemini-button interactive-button w-full">
+                    <button id="aiStrategyBtn" class="ai-button interactive-button w-full">
                         <i class="fas fa-chess mr-2"></i>
                         <span data-ar="استراتيجية ذكية" data-en="Smart Strategy">استراتيجية ذكية</span>
                     </button>
@@ -913,15 +913,15 @@
 
             <!-- Interactive Charts Section -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                <!-- Gemini-Enhanced Performance Chart -->
+                <!-- AI-Enhanced Performance Chart -->
                 <div class="chart-container-advanced float-animation">
                     <div class="flex items-center justify-between mb-4">
                         <h3 id="chart3DTitle" class="text-xl font-bold text-white flex items-center"
-                            data-ar="تحليل الأداء المدعوم بـ Gemini AI" data-en="Gemini AI-Enhanced Performance Analysis">
+                            data-ar="تحليل الأداء المدعوم بالذكاء الاصطناعي" data-en="AI-Enhanced Performance Analysis">
                             <i class="fas fa-brain text-blue-400 ml-2 neon-glow"></i>
-                            تحليل الأداء المدعوم بـ Gemini AI
+                            تحليل الأداء المدعوم بالذكاء الاصطناعي
                         </h3>
-                        <button id="geminiChartAnalysisBtn" class="gemini-button interactive-button text-xs">
+                        <button id="aiChartAnalysisBtn" class="ai-button interactive-button text-xs">
                             <i class="fas fa-magic mr-1"></i>
                             <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
                         </button>
@@ -933,20 +933,20 @@
                 <div class="chart-container-advanced float-animation">
                     <div class="flex items-center justify-between mb-4">
                         <h3 id="predictiveChartTitle" class="text-xl font-bold text-white flex items-center"
-                            data-ar="التحليل التنبؤي بـ Gemini AI" data-en="Gemini AI Predictive Analysis">
+                            data-ar="التحليل التنبؤي الذكي" data-en="AI Predictive Analysis">
                             <i class="fas fa-chart-line text-green-400 ml-2 neon-glow"></i>
-                            التحليل التنبؤي بـ Gemini AI
+                            التحليل التنبؤي الذكي
                         </h3>
-                        <div class="gemini-processing" style="font-size: 0.75rem;">
+                        <div class="ai-processing" style="font-size: 0.75rem;">
                             <i class="fas fa-brain"></i>
-                            <span data-ar="مدعوم بـ Gemini" data-en="Gemini Powered">مدعوم بـ Gemini</span>
+                            <span data-ar="مدعوم بالذكاء الاصطناعي" data-en="AI Powered">مدعوم بالذكاء الاصطناعي</span>
                         </div>
                     </div>
                     <div id="predictiveChart" class="h-96"></div>
                 </div>
             </div>
 
-            <!-- Gemini-Enhanced Financial Breakdown -->
+            <!-- AI-Enhanced Financial Breakdown -->
             <div class="chart-container-advanced mb-8 float-animation">
                 <div class="flex items-center justify-between mb-4">
                     <h3 id="financialBreakdownTitle" class="text-xl font-bold text-white flex items-center"
@@ -955,7 +955,7 @@
                         التحليل المالي الذكي التفاعلي
                     </h3>
                     <div class="flex space-x-2">
-                        <button id="geminiInsightBtn" class="gemini-button interactive-button text-xs">
+                        <button id="aiInsightBtn" class="ai-button interactive-button text-xs">
                             <i class="fas fa-lightbulb mr-1"></i>
                             <span data-ar="رؤى ذكية" data-en="Smart Insights">رؤى ذكية</span>
                         </button>
@@ -969,17 +969,17 @@
                 </div>
             </div>
 
-            <!-- Gemini Recommendations Panel -->
-            <div class="gemini-chat-container mb-8 float-animation">
+            <!-- AI Recommendations Panel -->
+            <div class="ai-chat-container mb-8 float-animation">
                 <div class="flex items-center justify-between mb-4">
-                    <h3 id="geminiRecommendationsTitle" class="text-xl font-bold text-white flex items-center"
-                        data-ar="توصيات Google Gemini AI الذكية" data-en="Google Gemini AI Smart Recommendations">
+                    <h3 id="aiRecommendationsTitle" class="text-xl font-bold text-white flex items-center"
+                        data-ar="التوصيات الذكية" data-en="AI Smart Recommendations">
                         <i class="fas fa-lightbulb text-yellow-400 ml-2 neon-glow"></i>
-                        توصيات Google Gemini AI الذكية
+                        التوصيات الذكية
                     </h3>
                 </div>
-                <div id="geminiRecommendations" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <!-- Gemini recommendations will be populated here -->
+                <div id="aiRecommendations" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- AI recommendations will be populated here -->
                 </div>
             </div>
         </main>
@@ -990,36 +990,36 @@
         <i class="fas fa-microphone text-white text-xl"></i>
     </div>
 
-    <!-- Gemini Assistant Panel -->
-    <div id="geminiAssistant" class="gemini-assistant">
+    <!-- AI Assistant Panel -->
+    <div id="aiAssistant" class="ai-assistant">
         <div class="flex items-center justify-between mb-4">
-            <h3 id="geminiAssistantTitle" class="text-lg font-bold text-white flex items-center"
-                data-ar="مساعد Google Gemini AI" data-en="Google Gemini AI Assistant">
+            <h3 id="aiAssistantTitle" class="text-lg font-bold text-white flex items-center"
+                data-ar="المساعد الذكي" data-en="AI Assistant">
                 <i class="fas fa-brain text-blue-400 mr-2"></i>
-                مساعد Google Gemini AI
+                المساعد الذكي
             </h3>
-            <button id="closeGeminiAssistant" class="text-gray-400 hover:text-white">
+            <button id="closeAiAssistant" class="text-gray-400 hover:text-white">
                 <i class="fas fa-times"></i>
             </button>
         </div>
         
         <div class="mb-4">
-            <div class="gemini-processing" style="font-size: 0.75rem;">
+            <div class="ai-processing" style="font-size: 0.75rem;">
                 <i class="fas fa-brain"></i>
-                <span data-ar="نموذج: Gemini Pro" data-en="Model: Gemini Pro">نموذج: Gemini Pro</span>
+                <span data-ar="مساعد التحليل المالي الذكي" data-en="AI Financial Analysis Assistant">مساعد التحليل المالي الذكي</span>
             </div>
         </div>
         
-        <div id="geminiChat" class="h-80 overflow-y-auto mb-4 space-y-3 p-4 bg-black bg-opacity-20 rounded-lg">
-            <div class="gemini-message">
+        <div id="aiChat" class="h-80 overflow-y-auto mb-4 space-y-3 p-4 bg-black bg-opacity-20 rounded-lg">
+            <div class="ai-message">
                 <div class="flex items-start space-x-3">
-                    <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0">
+                    <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0">
                         <i class="fas fa-brain text-white text-sm"></i>
                     </div>
                     <div class="flex-1">
-                        <p class="text-sm text-white" data-ar="مرحباً! أنا مساعد Google Gemini AI الذكي. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة بقوة الذكاء الاصطناعي من Google. كيف يمكنني مساعدتك اليوم؟" 
-                           data-en="Hello! I'm your Google Gemini AI smart assistant. I can help you analyze financial data and provide advanced strategic insights powered by Google's AI. How can I assist you today?">
-                           مرحباً! أنا مساعد Google Gemini AI الذكي. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة بقوة الذكاء الاصطناعي من Google. كيف يمكنني مساعدتك اليوم؟
+                        <p class="text-sm text-white" data-ar="مرحباً! أنا مساعدك الذكي لتحليل البيانات المالية. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة. كيف يمكنني مساعدتك اليوم؟" 
+                           data-en="Hello! I'm your AI financial analysis assistant. I can help you analyze financial data and provide advanced strategic insights. How can I assist you today?">
+                           مرحباً! أنا مساعدك الذكي لتحليل البيانات المالية. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة. كيف يمكنني مساعدتك اليوم؟
                         </p>
                     </div>
                 </div>
@@ -1027,27 +1027,27 @@
         </div>
         
         <div class="flex space-x-2">
-            <input type="text" id="geminiInput" 
-                   data-ar-placeholder="اسأل Google Gemini AI عن أي شيء..." 
-                   data-en-placeholder="Ask Google Gemini AI anything..."
-                   placeholder="اسأل Google Gemini AI عن أي شيء..." 
+            <input type="text" id="aiInput" 
+                   data-ar-placeholder="اسأل المساعد الذكي عن أي شيء..." 
+                   data-en-placeholder="Ask the AI assistant anything..."
+                   placeholder="اسأل المساعد الذكي عن أي شيء..." 
                    class="flex-1 bg-black bg-opacity-20 border border-blue-500 border-opacity-30 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none">
-            <button id="sendGeminiMessage" class="gemini-button interactive-button">
+            <button id="sendAiMessage" class="ai-button interactive-button">
                 <i class="fas fa-paper-plane"></i>
             </button>
         </div>
         
         <div class="mt-4 flex flex-wrap gap-2">
-            <button class="quick-question gemini-button interactive-button text-xs" data-question="تحليل الأداء المالي">
+            <button class="quick-question ai-button interactive-button text-xs" data-question="تحليل الأداء المالي">
                 <span data-ar="تحليل الأداء" data-en="Performance Analysis">تحليل الأداء</span>
             </button>
-            <button class="quick-question gemini-button interactive-button text-xs" data-question="توصيات التحسين">
+            <button class="quick-question ai-button interactive-button text-xs" data-question="توصيات التحسين">
                 <span data-ar="توصيات التحسين" data-en="Improvement Tips">توصيات التحسين</span>
             </button>
-            <button class="quick-question gemini-button interactive-button text-xs" data-question="تحليل المخاطر">
+            <button class="quick-question ai-button interactive-button text-xs" data-question="تحليل المخاطر">
                 <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
             </button>
-            <button class="quick-question gemini-button interactive-button text-xs" data-question="استراتيجية النمو">
+            <button class="quick-question ai-button interactive-button text-xs" data-question="استراتيجية النمو">
                 <span data-ar="استراتيجية النمو" data-en="Growth Strategy">استراتيجية النمو</span>
             </button>
         </div>
@@ -1056,18 +1056,28 @@
     <!-- Notification Container -->
     <div id="notificationContainer"></div>
 
+    <script src="./escape-html.js"></script>
     <script>
-        // Google Gemini AI Enhanced Financial Dashboard
-        class GeminiEnhancedFinancialDashboard {
+        // AI Enhanced Financial Insights Dashboard
+        class InsightsFinancialDashboard {
             constructor() {
-                this.geminiApiKey = 'AIzaSyDAkAe-ZAzTEvmey5C5tXSlMKdiQlzfYA';
-                this.geminiApiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+                // AI-generated insight text is requested via requestInsight()
+                // below, which posts a message to the React host page and
+                // never talks to any backend directly from this iframe. This
+                // iframe loads several third-party CDN scripts, any of which
+                // could read anything held in its own JS memory — so no
+                // Supabase session token or API key is ever handed to it, in
+                // any form. The host page owns the authenticated call to the
+                // reports-insights Edge Function and relays only the
+                // resulting text back. If no response arrives (provider
+                // unavailable, over quota, network issue), requestInsight()
+                // resolves to buildLocalInsight()'s deterministic local text
+                // instead — the dashboard must never appear disabled.
                 // Wardah ERP Integration (Secure backend proxy)
                 this.wardahProxyConfig = {
-                    proxyUrl: '/api/wardah', // URL to your proxy service
-                    proxyAuthKey: 'S3cur3Pr0xyK3y!2025#WardahERP' // Same as PROXY_AUTH_KEY in .env
+                    proxyUrl: '/api/wardah' // URL to your proxy service
                 };
-                
+
                 this.data = {
                     assumptions: {
                         cogs_rate: 0.70,
@@ -1088,7 +1098,7 @@
                     months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو"],
                     monthsEn: ["January", "February", "March", "April", "May", "June"],
                     charts: {},
-                    geminiInsights: [],
+                    aiInsights: [],
                     voiceRecognition: null,
                     isListening: false,
                     currentLanguage: 'ar',
@@ -1098,17 +1108,17 @@
                         autoSync: true,
                         soundEffects: true
                     },
-                    geminiStatus: {
+                    aiStatus: {
                         connected: true,
                         processing: false,
                         lastQuery: null
                     },
                     loadingSteps: [
-                        { ar: 'تحميل Google Gemini AI...', en: 'Loading Google Gemini AI...' },
+                        { ar: 'تحميل الذكاء الاصطناعي...', en: 'Loading AI engine...' },
                         { ar: 'إعداد الواجهة الذكية...', en: 'Setting up smart interface...' },
                         { ar: 'تحميل البيانات المالية...', en: 'Loading financial data...' },
                         { ar: 'إنشاء المخططات الذكية...', en: 'Creating smart charts...' },
-                        { ar: 'تطبيق ذكاء Gemini...', en: 'Applying Gemini intelligence...' },
+                        { ar: 'تطبيق الذكاء الاصطناعي...', en: 'Applying AI intelligence...' },
                         { ar: 'اكتمل التحميل!', en: 'Loading complete!' }
                     ]
                 };
@@ -1142,8 +1152,7 @@
             async init() {
                 try {
                     this.showLoadingStep(0);
-                    await this.testGeminiConnection();
-                    
+
                     this.showLoadingStep(1);
                     await this.delay(500);
                     this.setupEventListeners();
@@ -1159,7 +1168,7 @@
                     
                     this.showLoadingStep(4);
                     await this.delay(500);
-                    await this.generateInitialGeminiInsights();
+                    await this.generateInitialInsights();
                     
                     this.showLoadingStep(5);
                     await this.delay(500);
@@ -1178,72 +1187,82 @@
                 }
             }
 
-            async testGeminiConnection() {
-                try {
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{
-                                    text: 'Test connection'
-                                }]
-                            }]
-                        })
-                    });
+            // Requests an AI-generated insight for one of the fixed, allowed
+            // operations. Never talks to a provider directly: sends a
+            // postMessage to the React host page (which owns the user's
+            // session and calls the reports-insights Edge Function), and
+            // resolves to a locally-built deterministic answer if no
+            // response arrives in time — the dashboard must never appear
+            // disabled just because the AI provider is unavailable.
+            requestInsight(operation, payload) {
+                return new Promise((resolve) => {
+                    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const timeoutMs = 15000;
 
-                    if (response.ok) {
-                        this.data.geminiStatus.connected = true;
-                        console.log('Google Gemini AI connected successfully');
-                    } else {
-                        throw new Error('Connection failed');
-                    }
-                } catch (error) {
-                    console.warn('Google Gemini AI connection failed, using fallback mode:', error);
-                    this.data.geminiStatus.connected = false;
-                }
+                    const cleanup = () => {
+                        window.removeEventListener('message', onMessage);
+                        clearTimeout(timer);
+                    };
+
+                    const onMessage = (event) => {
+                        if (event.origin !== window.location.origin) return;
+                        const msg = event.data;
+                        if (!msg || msg.type !== 'WARDHAH_INSIGHT_RESPONSE' || msg.requestId !== requestId) return;
+                        cleanup();
+                        if (msg.success && typeof msg.text === 'string') {
+                            resolve({ text: msg.text, source: msg.source || 'ai' });
+                        } else {
+                            resolve({ text: this.buildLocalInsight(operation, payload), source: 'fallback' });
+                        }
+                    };
+
+                    const timer = setTimeout(() => {
+                        cleanup();
+                        resolve({ text: this.buildLocalInsight(operation, payload), source: 'fallback' });
+                    }, timeoutMs);
+
+                    window.addEventListener('message', onMessage);
+
+                    const message = operation === 'ask'
+                        ? { type: 'WARDHAH_INSIGHT_REQUEST', requestId, operation, locale: this.data.currentLanguage, question: payload.question, data: payload.data }
+                        : { type: 'WARDHAH_INSIGHT_REQUEST', requestId, operation, locale: this.data.currentLanguage, data: payload };
+                    window.parent.postMessage(message, window.location.origin);
+                });
             }
 
-            async callGeminiAPI(prompt, maxTokens = 500) {
-                if (!this.data.geminiStatus.connected) {
-                    return this.getFallbackResponse(prompt);
-                }
+            // Local, deterministic (no LLM) text built from already-computed
+            // numeric data — used when the AI provider is unavailable, slow,
+            // or the caller is over quota. Never fabricates numbers: only
+            // narrates values the caller already computed locally.
+            buildLocalInsight(operation, payload) {
+                const ar = this.data.currentLanguage === 'ar';
+                const num = (n) => Number(n || 0).toLocaleString(ar ? 'ar-SA' : 'en-US', { maximumFractionDigits: 0 });
+                const safety = Number(payload.marginOfSafety || 0);
 
-                try {
-                    this.showGeminiProcessing(true);
-                    
-                    const response = await fetch(`${this.geminiApiUrl}?key=${this.geminiApiKey}`, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            contents: [{
-                                parts: [{
-                                    text: prompt
-                                }]
-                            }],
-                            generationConfig: {
-                                maxOutputTokens: maxTokens,
-                                temperature: 0.7
-                            }
-                        })
-                    });
-
-                    if (!response.ok) {
-                        throw new Error(`API call failed: ${response.status}`);
-                    }
-
-                    const data = await response.json();
-                    this.showGeminiProcessing(false);
-                    
-                    return data.candidates[0].content.parts[0].text;
-                } catch (error) {
-                    console.error('Gemini API error:', error);
-                    this.showGeminiProcessing(false);
-                    return this.getFallbackResponse(prompt);
+                switch (operation) {
+                    case 'summary':
+                        return ar
+                            ? `إجمالي المبيعات ${num(payload.totalSales)} ر.س، وصافي الربح ${num(payload.totalNetProfit)} ر.س، بنقطة تعادل ${num(payload.breakEven)} ر.س وهامش أمان ${safety.toFixed(1)}%.`
+                            : `Total sales ${num(payload.totalSales)} SAR, net profit ${num(payload.totalNetProfit)} SAR, break-even ${num(payload.breakEven)} SAR, margin of safety ${safety.toFixed(1)}%.`;
+                    case 'predictions':
+                        return ar
+                            ? 'التوقعات التفصيلية غير متاحة من المحرك الذكي حاليًا؛ استمر بمراقبة اتجاه الأرباح الشهرية الحالي كمؤشر مبدئي.'
+                            : 'Detailed predictions are not available from the AI engine right now; keep monitoring the current monthly profit trend as an initial indicator.';
+                    case 'optimization':
+                        return ar
+                            ? 'راجع التكاليف الثابتة والمتغيرة لتحديد فرص خفض التكلفة، وقيّم فرص زيادة الإيراد من المنتجات الأعلى هامشًا.'
+                            : 'Review fixed and variable costs for cost-reduction opportunities, and evaluate revenue growth from higher-margin products.';
+                    case 'risk':
+                        return ar
+                            ? `هامش الأمان الحالي ${safety.toFixed(1)}%؛ ${safety < 10 ? 'منخفض ويستدعي مراجعة التكاليف الثابتة فورًا.' : 'ضمن نطاق مقبول حاليًا.'}`
+                            : `Current margin of safety is ${safety.toFixed(1)}%; ${safety < 10 ? 'low, and warrants an immediate review of fixed costs.' : 'within an acceptable range for now.'}`;
+                    case 'strategy':
+                        return ar
+                            ? 'ركّز على تحسين هامش المساهمة عبر تسعير أدق ومزيج منتجات أفضل قبل التوسع في الإنفاق التشغيلي.'
+                            : 'Focus on improving contribution margin through more precise pricing and a better product mix before expanding operating spend.';
+                    case 'ask':
+                    default:
+                        return this.getFallbackResponse(payload.question || '');
                 }
             }
 
@@ -1254,14 +1273,14 @@
                         'توصيات': 'أنصح بتركيز الجهود على تقليل التكاليف الإدارية بنسبة 15% وزيادة كفاءة المبيعات من خلال التسويق الرقمي.',
                         'مخاطر': 'المخاطر الرئيسية تتمثل في تقلبات السوق وارتفاع التكاليف التشغيلية. يُنصح بوضع خطة طوارئ مالية.',
                         'استراتيجية': 'الاستراتيجية المقترحة تركز على التوسع المدروس وتحسين الكفاءة التشغيلية مع الاستثمار في التكنولوجيا.',
-                        'default': 'شكراً لسؤالك. يمكنني مساعدتك في تحليل البيانات المالية وتقديم التوصيات المناسبة باستخدام قوة Google Gemini AI.'
+                        'default': 'شكراً لسؤالك. يمكنني مساعدتك في تحليل البيانات المالية وتقديم التوصيات المناسبة.'
                     },
                     en: {
                         'analysis': 'Based on available data, financial performance shows gradual improvement with promising growth potential. Focus on operational efficiency is recommended.',
                         'recommendations': 'I recommend focusing efforts on reducing administrative costs by 15% and increasing sales efficiency through digital marketing.',
                         'risks': 'Main risks include market fluctuations and rising operational costs. A financial contingency plan is recommended.',
                         'strategy': 'The proposed strategy focuses on measured expansion and operational efficiency improvement with technology investment.',
-                        'default': 'Thank you for your question. I can help you analyze financial data and provide appropriate recommendations using Google Gemini AI power.'
+                        'default': 'Thank you for your question. I can help you analyze financial data and provide appropriate recommendations.'
                     }
                 };
 
@@ -1277,12 +1296,12 @@
                 return responses.default;
             }
 
-            showGeminiProcessing(show) {
-                const indicator = document.getElementById('geminiProcessingIndicator');
+            showAiProcessing(show) {
+                const indicator = document.getElementById('aiProcessingIndicator');
                 if (indicator) {
                     indicator.style.display = show ? 'flex' : 'none';
                 }
-                this.data.geminiStatus.processing = show;
+                this.data.aiStatus.processing = show;
             }
 
             delay(ms) {
@@ -1298,6 +1317,8 @@
             }
 
             setupEventListeners() {
+                this.setupWardahDataSyncListener();
+
                 // Language Toggle
                 document.querySelectorAll('.lang-btn').forEach(btn => {
                     btn.addEventListener('click', () => {
@@ -1305,23 +1326,23 @@
                     });
                 });
 
-                // Gemini Assistant
-                document.getElementById('geminiAssistantBtn').addEventListener('click', () => {
-                    document.getElementById('geminiAssistant').classList.toggle('active');
+                // AI Assistant
+                document.getElementById('aiAssistantBtn').addEventListener('click', () => {
+                    document.getElementById('aiAssistant').classList.toggle('active');
                 });
 
-                document.getElementById('closeGeminiAssistant').addEventListener('click', () => {
-                    document.getElementById('geminiAssistant').classList.remove('active');
+                document.getElementById('closeAiAssistant').addEventListener('click', () => {
+                    document.getElementById('aiAssistant').classList.remove('active');
                 });
 
-                // Gemini Chat
-                document.getElementById('sendGeminiMessage').addEventListener('click', () => {
-                    this.sendGeminiMessage();
+                // AI Chat
+                document.getElementById('sendAiMessage').addEventListener('click', () => {
+                    this.sendAiMessage();
                 });
 
-                document.getElementById('geminiInput').addEventListener('keypress', (e) => {
+                document.getElementById('aiInput').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
-                        this.sendGeminiMessage();
+                        this.sendAiMessage();
                     }
                 });
 
@@ -1329,37 +1350,37 @@
                 document.querySelectorAll('.quick-question').forEach(btn => {
                     btn.addEventListener('click', (e) => {
                         const question = e.target.closest('.quick-question').dataset.question;
-                        document.getElementById('geminiInput').value = question;
-                        this.sendGeminiMessage();
+                        document.getElementById('aiInput').value = question;
+                        this.sendAiMessage();
                     });
                 });
 
-                // Gemini Analysis Buttons
-                document.getElementById('geminiAnalysisBtn').addEventListener('click', () => {
-                    this.performGeminiAnalysis();
+                // AI Analysis Buttons
+                document.getElementById('aiAnalysisBtn').addEventListener('click', () => {
+                    this.performAnalysis();
                 });
 
                 document.getElementById('generateInsightsBtn').addEventListener('click', () => {
-                    this.generateGeminiInsights();
+                    this.generateInsights();
                 });
 
-                document.getElementById('geminiPredictionBtn').addEventListener('click', () => {
-                    this.generateGeminiPredictions();
+                document.getElementById('aiPredictionBtn').addEventListener('click', () => {
+                    this.generatePredictions();
                 });
 
-                document.getElementById('geminiReportBtn').addEventListener('click', () => {
-                    this.generateGeminiReport();
+                document.getElementById('aiReportBtn').addEventListener('click', () => {
+                    this.generateReport();
                 });
 
-                document.getElementById('geminiOptimizationBtn').addEventListener('click', () => {
+                document.getElementById('aiOptimizationBtn').addEventListener('click', () => {
                     this.generateOptimizationSuggestions();
                 });
 
-                document.getElementById('geminiRiskAnalysisBtn').addEventListener('click', () => {
+                document.getElementById('aiRiskAnalysisBtn').addEventListener('click', () => {
                     this.performRiskAnalysis();
                 });
 
-                document.getElementById('geminiStrategyBtn').addEventListener('click', () => {
+                document.getElementById('aiStrategyBtn').addEventListener('click', () => {
                     this.generateStrategicRecommendations();
                 });
 
@@ -1466,29 +1487,26 @@
                     ]
                 };
                 
-                this.data.geminiInsights = insights[this.data.currentLanguage];
+                this.data.aiInsights = insights[this.data.currentLanguage];
             }
 
-            async generateInitialGeminiInsights() {
-                const { monthly, annual } = this.calculateFinancials();
-                
-                const prompt = `As a financial analyst AI, analyze this financial data for Dammam branch (Jan-Jun 2025):
-                - Total Sales: ${annual.totalSales.toLocaleString()} SAR
-                - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
-                - Break Even: ${annual.breakEven.toLocaleString()} SAR
-                - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
-                
-                Provide 3 key insights in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'} language, each with a confidence score. Focus on actionable recommendations.`;
+            async generateInitialInsights() {
+                const { annual } = this.calculateFinancials();
 
                 try {
-                    const response = await this.callGeminiAPI(prompt);
-                    this.parseGeminiInsights(response);
+                    const { text } = await this.requestInsight('summary', {
+                        totalSales: annual.totalSales,
+                        totalNetProfit: annual.totalNetProfit,
+                        breakEven: annual.breakEven,
+                        marginOfSafety: annual.marginOfSafety
+                    });
+                    this.parseInsights(text);
                 } catch (error) {
-                    console.error('Error generating Gemini insights:', error);
+                    console.error('Error generating insights:', error);
                 }
             }
 
-            parseGeminiInsights(response) {
+            parseInsights(response) {
                 // Simple parsing - in production, you'd want more sophisticated parsing
                 const insights = [];
                 const lines = response.split('\n').filter(line => line.trim());
@@ -1496,8 +1514,8 @@
                 lines.forEach((line, index) => {
                     if (line.trim() && index < 3) {
                         insights.push({
-                            type: 'gemini-generated',
-                            title: `رؤية Gemini ${index + 1}`,
+                            type: 'ai-generated',
+                            title: `رؤية ذكية ${index + 1}`,
                             content: line.trim(),
                             confidence: 85 + Math.random() * 10,
                             icon: 'fas fa-brain'
@@ -1506,62 +1524,64 @@
                 });
 
                 if (insights.length > 0) {
-                    this.data.geminiInsights = insights;
-                    this.renderGeminiInsights();
+                    this.data.aiInsights = insights;
+                    this.renderInsights();
                 }
             }
 
-            async sendGeminiMessage() {
-                const input = document.getElementById('geminiInput');
+            async sendAiMessage() {
+                const input = document.getElementById('aiInput');
                 if (!input) return;
-                
+
                 const message = input.value.trim();
                 if (!message) return;
-                
-                this.addGeminiMessage('user', message);
+
+                if (message.length > 500) {
+                    this.addAiMessage('user', message);
+                    input.value = '';
+                    this.addAiMessage('assistant', this.data.currentLanguage === 'ar'
+                        ? 'السؤال طويل جدًا — الحد الأقصى 500 حرف.'
+                        : 'Question is too long — 500 character limit.');
+                    return;
+                }
+
+                this.addAiMessage('user', message);
                 input.value = '';
-                
+
                 // Show typing indicator
                 this.showTypingIndicator();
-                
+
                 try {
-                    const { monthly, annual } = this.calculateFinancials();
-                    
-                    const contextPrompt = `You are Google Gemini AI, a financial analysis assistant. 
-                    
-                    Financial context for Dammam branch:
-                    - Total Sales: ${annual.totalSales.toLocaleString()} SAR
-                    - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
-                    - Break Even: ${annual.breakEven.toLocaleString()} SAR
-                    - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
-                    
-                    User question: ${message}
-                    
-                    Please respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'} with specific financial insights and actionable recommendations.`;
-
-                    const response = await this.callGeminiAPI(contextPrompt);
-
+                    const { annual } = this.calculateFinancials();
+                    const { text } = await this.requestInsight('ask', {
+                        question: message,
+                        data: {
+                            totalSales: annual.totalSales,
+                            totalNetProfit: annual.totalNetProfit,
+                            breakEven: annual.breakEven,
+                            marginOfSafety: annual.marginOfSafety
+                        }
+                    });
                     this.hideTypingIndicator();
-                    this.addGeminiMessage('assistant', response);
-                    
+                    this.addAiMessage('assistant', text);
                 } catch (error) {
                     this.hideTypingIndicator();
-                    this.addGeminiMessage('assistant', this.getFallbackResponse(message));
+                    this.addAiMessage('assistant', this.getFallbackResponse(message));
                 }
             }
 
-            addGeminiMessage(sender, message) {
-                const chatContainer = document.getElementById('geminiChat');
+            addAiMessage(sender, message) {
+                const chatContainer = document.getElementById('aiChat');
                 if (!chatContainer) return;
                 
                 const messageDiv = document.createElement('div');
-                messageDiv.className = sender === 'user' ? 'user-message' : 'gemini-message';
+                messageDiv.className = sender === 'user' ? 'user-message' : 'ai-message';
                 
                 if (sender === 'user') {
                     messageDiv.innerHTML = `
                         <div class="flex items-start space-x-3 justify-end">
                             <div class="flex-1 text-right">
-                                <p class="text-sm text-white">${message}</p>
+                                <p class="text-sm text-white">${escapeHtml(message)}</p>
                             </div>
                             <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
                                 <i class="fas fa-user text-white text-sm"></i>
@@ -1571,11 +1591,11 @@
                 } else {
                     messageDiv.innerHTML = `
                         <div class="flex items-start space-x-3">
-                            <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0">
+                            <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0">
                                 <i class="fas fa-brain text-white text-sm"></i>
                             </div>
                             <div class="flex-1">
-                                <p class="text-sm text-white">${message}</p>
+                                <p class="text-sm text-white">${escapeHtml(message)}</p>
                             </div>
                         </div>
                     `;
@@ -1586,14 +1606,14 @@
             }
 
             showTypingIndicator() {
-                const chatContainer = document.getElementById('geminiChat');
+                const chatContainer = document.getElementById('aiChat');
                 if (!chatContainer) return;
                 
                 const typingDiv = document.createElement('div');
                 typingDiv.className = 'typing-indicator';
                 typingDiv.id = 'typingIndicator';
                 typingDiv.innerHTML = `
-                    <div class="w-8 h-8 gemini-enhanced rounded-full flex items-center justify-center flex-shrink-0 mr-3">
+                    <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0 mr-3">
                         <i class="fas fa-brain text-white text-sm"></i>
                     </div>
                     <div class="typing-dots">
@@ -1601,7 +1621,7 @@
                         <div class="typing-dot"></div>
                         <div class="typing-dot"></div>
                     </div>
-                    <span class="text-sm text-gray-400 mr-2">Gemini AI يكتب...</span>
+                    <span class="text-sm text-gray-400 mr-2">${this.data.currentLanguage === 'ar' ? 'المساعد الذكي يكتب...' : 'AI assistant is typing...'}</span>
                 `;
                 
                 chatContainer.appendChild(typingDiv);
@@ -1615,54 +1635,56 @@
                 }
             }
 
-            async performGeminiAnalysis() {
+            async performAnalysis() {
                 this.showNotification(
-                    this.data.currentLanguage === 'ar' ? 'جاري تشغيل التحليل الذكي بـ Gemini...' : 'Running Gemini AI analysis...'
+                    this.data.currentLanguage === 'ar' ? 'جاري تشغيل التحليل الذكي...' : 'Running AI analysis...'
                 );
 
                 const { monthly, annual } = this.calculateFinancials();
-                
-                const prompt = `As Google Gemini AI, perform comprehensive financial analysis for this data:
-                Monthly profits: ${monthly.map(m => Math.round(m.netProfit)).join(', ')} SAR
-                Total sales: ${annual.totalSales.toLocaleString()} SAR
-                Break-even: ${annual.breakEven.toLocaleString()} SAR
-                
-                Provide detailed analysis with specific recommendations in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
 
                 try {
-                    const response = await this.callGeminiAPI(prompt, 800);
+                    const { text } = await this.requestInsight('summary', {
+                        totalSales: annual.totalSales,
+                        totalNetProfit: annual.totalNetProfit,
+                        breakEven: annual.breakEven,
+                        marginOfSafety: annual.marginOfSafety,
+                        monthlyNetProfits: monthly.map(m => Math.round(m.netProfit))
+                    });
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
-                    
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
+
                     this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'تم إكمال التحليل الذكي' : 'Gemini AI analysis completed',
+                        this.data.currentLanguage === 'ar' ? 'تم إكمال التحليل الذكي' : 'AI analysis completed',
                         'success'
                     );
                 } catch (error) {
                     this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في التحليل الذكي' : 'Gemini AI analysis failed',
+                        this.data.currentLanguage === 'ar' ? 'فشل في التحليل الذكي' : 'AI analysis failed',
                         'error'
                     );
                 }
             }
 
-            async generateGeminiInsights() {
-                await this.generateInitialGeminiInsights();
+            async generateInsights() {
+                await this.generateInitialInsights();
                 this.showNotification(
-                    this.data.currentLanguage === 'ar' ? 'تم توليد رؤى جديدة بـ Gemini' : 'New Gemini insights generated',
+                    this.data.currentLanguage === 'ar' ? 'تم توليد رؤى جديدة' : 'New insights generated',
                     'success'
                 );
             }
 
-            async generateGeminiPredictions() {
-                const prompt = `As Google Gemini AI, based on the financial trend data, predict the next 3 months performance with specific numbers and reasoning. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
-                
-                try {
-                    const response = await this.callGeminiAPI(prompt, 600);
+            async generatePredictions() {
+                const { monthly, annual } = this.calculateFinancials();
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
+                try {
+                    const { text } = await this.requestInsight('predictions', {
+                        monthlyNetProfits: monthly.map(m => Math.round(m.netProfit)),
+                        totalSales: annual.totalSales
+                    });
+
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
                 } catch (error) {
                     console.error('Prediction error:', error);
                 }
@@ -1712,10 +1734,10 @@
                     const { monthly, annual } = this.calculateFinancials();
                     this.renderAdvancedKPIs(annual);
                     this.renderAdvancedCharts(monthly, annual);
-                    this.renderGeminiInsights();
+                    this.renderInsights();
                     this.renderAdvancedControls();
                     this.renderRealtimeMetrics(annual);
-                    this.renderGeminiRecommendations(annual);
+                    this.renderRecommendations(annual);
                 } catch (error) {
                     console.error('Render error:', error);
                 }
@@ -1766,7 +1788,7 @@
                 ];
 
                 container.innerHTML = kpis.map((kpi, index) => `
-                    <div class="kpi-advanced slide-in-advanced gemini-sparkle" style="animation-delay: ${index * 0.1}s">
+                    <div class="kpi-advanced slide-in-advanced ai-sparkle" style="animation-delay: ${index * 0.1}s">
                         <div class="flex items-center justify-between mb-4">
                             <div class="w-12 h-12 bg-gradient-to-r ${kpi.gradient} rounded-xl flex items-center justify-center">
                                 <i class="${kpi.icon} text-white text-xl"></i>
@@ -1903,7 +1925,7 @@
                             data: monthlyData.map(m => Math.round(m.netProfit))
                         },
                         {
-                            name: this.data.currentLanguage === 'ar' ? 'توقعات Gemini AI' : 'Gemini AI Predictions',
+                            name: this.data.currentLanguage === 'ar' ? 'توقعات ذكية' : 'AI Predictions',
                             data: [...Array(6).fill(null), ...predictiveData]
                         }
                     ],
@@ -2002,19 +2024,19 @@
                 }
             }
 
-            renderGeminiInsights() {
-                const container = document.getElementById('geminiInsights');
+            renderInsights() {
+                const container = document.getElementById('aiInsights');
                 if (!container) return;
                 
-                container.innerHTML = this.data.geminiInsights.map(insight => `
-                    <div class="gemini-insight-card">
+                container.innerHTML = this.data.aiInsights.map(insight => `
+                    <div class="ai-insight-card">
                         <div class="flex items-start space-x-3">
-                            <div class="w-10 h-10 gemini-enhanced rounded-lg flex items-center justify-center flex-shrink-0">
+                            <div class="w-10 h-10 ai-enhanced rounded-lg flex items-center justify-center flex-shrink-0">
                                 <i class="${insight.icon} text-white"></i>
                             </div>
                             <div class="flex-1">
-                                <h4 class="font-bold text-white text-sm mb-1">${insight.title}</h4>
-                                <p class="text-gray-300 text-xs mb-2">${insight.content}</p>
+                                <h4 class="font-bold text-white text-sm mb-1">${escapeHtml(insight.title)}</h4>
+                                <p class="text-gray-300 text-xs mb-2">${escapeHtml(insight.content)}</p>
                                 <div class="flex items-center justify-between">
                                     <div class="confidence-bar flex-1 mr-2">
                                         <div class="confidence-fill" style="width: ${insight.confidence}%"></div>
@@ -2106,39 +2128,39 @@
                 `).join('');
             }
 
-            renderGeminiRecommendations(annual) {
-                const container = document.getElementById('geminiRecommendations');
+            renderRecommendations(annual) {
+                const container = document.getElementById('aiRecommendations');
                 if (!container) return;
 
                 const recommendations = [
                     {
-                        title: this.data.currentLanguage === 'ar' ? 'تحسين الكفاءة بـ Gemini' : 'Gemini Efficiency Improvement',
+                        title: this.data.currentLanguage === 'ar' ? 'تحسين الكفاءة بالذكاء الاصطناعي' : 'AI Efficiency Improvement',
                         description: this.data.currentLanguage === 'ar' ? 'تقليل التكاليف الإدارية بنسبة 15% باستخدام الذكاء الاصطناعي' : 'Reduce administrative costs by 15% using AI',
                         impact: 'high',
                         icon: 'fas fa-brain'
                     },
                     {
                         title: this.data.currentLanguage === 'ar' ? 'نمو المبيعات الذكي' : 'Smart Sales Growth',
-                        description: this.data.currentLanguage === 'ar' ? 'استهداف قطاعات جديدة بتحليل Gemini المتقدم' : 'Target new segments with advanced Gemini analysis',
+                        description: this.data.currentLanguage === 'ar' ? 'استهداف قطاعات جديدة بتحليل ذكي متقدم' : 'Target new segments with advanced AI analysis',
                         impact: 'medium',
                         icon: 'fas fa-chart-line'
                     },
                     {
                         title: this.data.currentLanguage === 'ar' ? 'إدارة المخاطر الذكية' : 'Smart Risk Management',
-                        description: this.data.currentLanguage === 'ar' ? 'تنويع مصادر الدخل بناءً على توقعات Gemini' : 'Diversify income sources based on Gemini predictions',
+                        description: this.data.currentLanguage === 'ar' ? 'تنويع مصادر الدخل بناءً على توقعات ذكية' : 'Diversify income sources based on AI predictions',
                         impact: 'high',
                         icon: 'fas fa-shield-alt'
                     },
                     {
                         title: this.data.currentLanguage === 'ar' ? 'الاستثمار المدعوم بالذكاء الاصطناعي' : 'AI-Powered Investment',
-                        description: this.data.currentLanguage === 'ar' ? 'استثمار في التكنولوجيا بتوجيه من Gemini AI' : 'Invest in technology guided by Gemini AI',
+                        description: this.data.currentLanguage === 'ar' ? 'استثمار في التكنولوجيا بتوجيه من الذكاء الاصطناعي' : 'Invest in technology guided by AI',
                         impact: 'medium',
                         icon: 'fas fa-lightbulb'
                     }
                 ];
 
                 container.innerHTML = recommendations.map(rec => `
-                    <div class="gemini-insight-card">
+                    <div class="ai-insight-card">
                         <div class="flex items-start space-x-3">
                             <div class="w-10 h-10 ${rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500'} rounded-lg flex items-center justify-center flex-shrink-0">
                                 <i class="${rec.icon} text-white"></i>
@@ -2206,29 +2228,26 @@
                 }
             }
 
-            async generateGeminiReport() {
+            async generateReport() {
                 this.showNotification(
-                    this.data.currentLanguage === 'ar' ? 'جاري إنشاء التقرير الذكي بـ Gemini...' : 'Generating Gemini smart report...'
+                    this.data.currentLanguage === 'ar' ? 'جاري إنشاء التقرير الذكي...' : 'Generating AI report...'
                 );
 
                 const { annual } = this.calculateFinancials();
-                
-                const prompt = `As Google Gemini AI, generate a comprehensive financial report for Dammam branch with these metrics:
-                - Total Sales: ${annual.totalSales.toLocaleString()} SAR
-                - Net Profit: ${annual.totalNetProfit.toLocaleString()} SAR
-                - Break Even: ${annual.breakEven.toLocaleString()} SAR
-                - Margin of Safety: ${annual.marginOfSafety.toFixed(1)}%
-                
-                Include executive summary, key findings, strategic recommendations, and future outlook in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
 
                 try {
-                    const response = await this.callGeminiAPI(prompt, 1200);
+                    const { text } = await this.requestInsight('summary', {
+                        totalSales: annual.totalSales,
+                        totalNetProfit: annual.totalNetProfit,
+                        breakEven: annual.breakEven,
+                        marginOfSafety: annual.marginOfSafety
+                    });
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
-                    
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
+
                     this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'تم إنشاء التقرير الذكي بـ Gemini' : 'Gemini smart report generated',
+                        this.data.currentLanguage === 'ar' ? 'تم إنشاء التقرير الذكي' : 'AI report generated',
                         'success'
                     );
                 } catch (error) {
@@ -2240,39 +2259,53 @@
             }
 
             async generateOptimizationSuggestions() {
-                const prompt = `As Google Gemini AI, analyze the financial data and provide specific optimization suggestions for improving profitability. Include cost reduction strategies, revenue enhancement methods, and operational improvements. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
-                
-                try {
-                    const response = await this.callGeminiAPI(prompt, 800);
+                const { annual } = this.calculateFinancials();
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
+                try {
+                    const { text } = await this.requestInsight('optimization', {
+                        totalSales: annual.totalSales,
+                        totalNetProfit: annual.totalNetProfit,
+                        totalCogs: annual.totalCogs,
+                        totalSellingExpenses: annual.totalSellingExpenses,
+                        totalAdminExpenses: annual.totalAdminExpenses
+                    });
+
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
                 } catch (error) {
                     console.error('Optimization error:', error);
                 }
             }
 
             async performRiskAnalysis() {
-                const prompt = `As Google Gemini AI, perform a comprehensive risk analysis for the financial data. Identify potential risks, assess their impact, and provide mitigation strategies. Include market risks, operational risks, and financial risks. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
-                
-                try {
-                    const response = await this.callGeminiAPI(prompt, 800);
+                const { annual } = this.calculateFinancials();
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
+                try {
+                    const { text } = await this.requestInsight('risk', {
+                        marginOfSafety: annual.marginOfSafety,
+                        breakEven: annual.breakEven,
+                        totalSales: annual.totalSales
+                    });
+
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
                 } catch (error) {
                     console.error('Risk analysis error:', error);
                 }
             }
 
             async generateStrategicRecommendations() {
-                const prompt = `As Google Gemini AI, based on the financial performance, provide strategic recommendations for the next quarter. Include growth strategies, operational improvements, market expansion opportunities, and technology investments. Respond in ${this.data.currentLanguage === 'ar' ? 'Arabic' : 'English'}.`;
-                
-                try {
-                    const response = await this.callGeminiAPI(prompt, 800);
+                const { annual } = this.calculateFinancials();
 
-                    this.addGeminiMessage('assistant', response);
-                    document.getElementById('geminiAssistant').classList.add('active');
+                try {
+                    const { text } = await this.requestInsight('strategy', {
+                        totalNetProfit: annual.totalNetProfit,
+                        contributionMarginRatio: annual.contributionMarginRatio,
+                        totalSales: annual.totalSales
+                    });
+
+                    this.addAiMessage('assistant', text);
+                    document.getElementById('aiAssistant').classList.add('active');
                 } catch (error) {
                     console.error('Strategy error:', error);
                 }
@@ -2331,8 +2364,8 @@
 
             processVoiceCommand(command) {
                 console.log('Voice command:', command);
-                document.getElementById('geminiInput').value = command;
-                this.sendGeminiMessage();
+                document.getElementById('aiInput').value = command;
+                this.sendAiMessage();
                 
                 this.data.isListening = false;
                 document.getElementById('voiceIndicator').classList.remove('active');
@@ -2409,7 +2442,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/financial-data`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2435,7 +2467,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/transactions`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2459,7 +2490,6 @@
                 try {
                     const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/inventory`, {
                         headers: {
-                            'x-api-key': this.wardahProxyConfig.proxyAuthKey,
                             'Content-Type': 'application/json'
                         }
                     });
@@ -2514,59 +2544,63 @@
                 return mappedData;
             }
 
+            // Listens for the real financial figures the React host page
+            // computes and posts (via the existing syncWithWardah()/
+            // WARDHAH_DATA_SYNC path in EnhancedInsightsDashboard.tsx). This
+            // iframe has no backend of its own and no credential of any
+            // kind — the host is the only source of real Wardah data, and
+            // this listener is what actually consumes it. Same-origin
+            // check mirrors the one requestInsight() already applies.
+            setupWardahDataSyncListener() {
+                window.addEventListener('message', (event) => {
+                    if (event.origin !== window.location.origin) return;
+                    const msg = event.data;
+                    if (!msg || msg.type !== 'WARDHAH_DATA_SYNC') return;
+                    if (!msg.data || typeof msg.data !== 'object' || !msg.data.monthlyData) return;
+
+                    this.data.baseFinancialData = msg.data.monthlyData;
+                    this.render();
+                    this.showNotification(
+                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
+                        'success'
+                    );
+                });
+            }
+
             async syncWithWardah() {
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'جاري مزامنة بيانات وردة ERP...' : 'Syncing with Wardah ERP...',
                     'info'
                 );
-                
-                try {
-                    const wardahData = await this.fetchWardahFinancialData();
-                    this.data.baseFinancialData = wardahData;
-                    this.render();
-                    
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
-                        'success'
-                    );
-                } catch (error) {
-                    console.error('Wardah sync error:', error);
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في مزامنة بيانات وردة ERP' : 'Failed to sync with Wardah ERP',
-                        'error'
-                    );
-                }
+                // The response arrives asynchronously through
+                // setupWardahDataSyncListener() above — this iframe cannot
+                // reach Wardah's backend directly, only the authenticated
+                // host page can.
+                window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA' }, window.location.origin);
             }
 
             async loadData() {
                 await this.delay(1000);
-                
+
                 // Check if we should load data from Wardah ERP
                 const urlParams = new URLSearchParams(window.location.search);
                 const useWardah = urlParams.get('wardah') === 'true';
-                
+
+                // Show deterministic sample-derived insights immediately so
+                // the UI never appears empty — real figures replace them
+                // via setupWardahDataSyncListener() once the host responds.
+                this.generateBasicInsights();
+
                 if (useWardah) {
-                    try {
-                        this.data.baseFinancialData = await this.fetchWardahFinancialData();
-                        this.showNotification(
-                            this.data.currentLanguage === 'ar' ? 'تم تحميل البيانات من وردة ERP' : 'Data loaded from Wardah ERP',
-                            'success'
-                        );
-                    } catch (error) {
-                        console.error('Error loading Wardah data:', error);
-                        // Fallback to default data
-                        this.generateBasicInsights();
-                    }
-                } else {
-                    this.generateBasicInsights();
+                    window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA' }, window.location.origin);
                 }
             }
         }
 
-        // Initialize the Google Gemini AI Enhanced Dashboard
+        // Initialize the AI Enhanced Insights Dashboard
         document.addEventListener('DOMContentLoaded', () => {
             try {
-                new GeminiEnhancedFinancialDashboard();
+                new InsightsFinancialDashboard();
             } catch (error) {
                 console.error('Dashboard initialization error:', error);
                 const overlay = document.getElementById('loadingOverlay');

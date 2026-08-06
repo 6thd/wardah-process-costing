@@ -9,15 +9,20 @@ import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 
 const router = Router();
 
-// Middleware للتحقق من API Key
-const verifyApiKey = (req: Request, res: Response, next: any) => {
-  const apiKey = req.headers['x-api-key'] as string;
-  const expectedKey = process.env.PROXY_AUTH_KEY || 'S3cur3Pr0xyK3y!2025#WardahERP';
-  
-  if (!apiKey || apiKey !== expectedKey) {
-    return res.status(401).json({ error: 'Unauthorized: Invalid API key' });
+// Middleware للتحقق من هوية المستخدم — يتحقق من جلسة Supabase حقيقية للمستخدم
+// المرسل، لا من سر ثابت مشترك يمنح أي حامل له وصولاً دائمًا عند تسربه.
+const verifyApiKey = async (req: Request, res: Response, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized' });
   }
-  
+
+  const token = authHeader.slice('Bearer '.length);
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   next();
 };
 
@@ -239,6 +244,14 @@ router.get('/inventory', verifyApiKey, async (req: Request, res: Response) => {
     });
   }
 });
+
+// A POST /generate route (Gemini content-generation proxy) used to live
+// here. Removed: this Express service has no confirmed production
+// deployment (no Vercel/Netlify rewrite, no Vercel Function, no working
+// standalone deploy target found), so the route was dead code pointing at
+// an endpoint nothing could reach. Gemini generation is being redesigned as
+// a Supabase Edge Function with real auth/authorization/quota — tracked as
+// separate follow-up work, not rebuilt here on a service with no deployment.
 
 export default router;
 

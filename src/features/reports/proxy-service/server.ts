@@ -36,6 +36,9 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
+// تحليل جسم الطلبات JSON (مطلوب لمسارات POST مثل /api/wardah/generate)
+app.use(express.json());
+
 // الملفات الساكنة
 app.use(express.static(path.join(__dirname, '../public')));
 

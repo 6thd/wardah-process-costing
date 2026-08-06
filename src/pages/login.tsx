@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, LogIn, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { DEMO_CREDENTIALS, isDevelopment } from '@/config/demo-credentials';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -207,17 +208,18 @@ export function LoginPage() {
             </Button>
           </form>
           
-          {/* معلومات تجريبية */}
-          <div className="mt-6 p-4 bg-muted rounded-lg">
-            <p className="text-sm text-muted-foreground text-center mb-2">
-              <strong>بيانات تجريبية:</strong>
-            </p>
-            <div className="text-xs text-muted-foreground space-y-1">
-              {/* NOSONAR - Demo credentials display for development only */}
-              <p className="text-center">📧 admin@wardah.sa</p>
-              <p className="text-center">🔑 {import.meta.env.VITE_DEMO_ADMIN_PASSWORD || 'admin123'}</p> {/* NOSONAR */}
+          {/* معلومات تجريبية — للتطوير فقط */}
+          {isDevelopment() && (
+            <div className="mt-6 p-4 bg-muted rounded-lg">
+              <p className="text-sm text-muted-foreground text-center mb-2">
+                <strong>بيانات تجريبية:</strong>
+              </p>
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p className="text-center">📧 {DEMO_CREDENTIALS.admin.email}</p>
+                <p className="text-center">🔑 {DEMO_CREDENTIALS.admin.password}</p>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Sign Up Link */}
           <div className="mt-6 text-center">

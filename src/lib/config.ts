@@ -29,7 +29,6 @@ export interface AppConfig {
   };
   GEMINI_DASHBOARD?: {
     proxy_url: string;
-    proxy_auth_key: string;
   };
 }
 
