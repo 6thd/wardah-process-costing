@@ -377,6 +377,21 @@ export function registerStageCostingActions() {
 }
 
 /**
+ * Escapes text interpolated into the print-report HTML written via
+ * document.write — order numbers, item names, and work-center names are
+ * free-text DB fields, not safe to inject as raw markup.
+ */
+export function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[char])
+}
+
+/**
  * Generate stage cost report
  */
 async function generateStageCostReport(moId, stageCosts) {
@@ -394,7 +409,7 @@ async function generateStageCostReport(moId, stageCosts) {
       <html lang="ar" dir="rtl">
       <head>
         <meta charset="UTF-8">
-        <title>تقرير مراحل التكلفة - ${mo.order_number}</title>
+        <title>تقرير مراحل التكلفة - ${escapeHtml(mo.order_number)}</title>
         <style>
           body { font-family: Arial, sans-serif; margin: 20px; direction: rtl; }
           .header { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 20px; }
@@ -410,13 +425,13 @@ async function generateStageCostReport(moId, stageCosts) {
       <body>
         <div class="header">
           <h1>تقرير مراحل التكلفة</h1>
-          <h2>أمر التصنيع: ${mo.order_number}</h2>
+          <h2>أمر التصنيع: ${escapeHtml(mo.order_number)}</h2>
         </div>
-        
+
         <div class="info">
-          <p><strong>الصنف:</strong> ${mo.item?.name || 'غير محدد'}</p>
-          <p><strong>الكمية المطلوبة:</strong> ${mo.quantity}</p>
-          <p><strong>حالة الأمر:</strong> ${mo.status}</p>
+          <p><strong>الصنف:</strong> ${escapeHtml(mo.item?.name || 'غير محدد')}</p>
+          <p><strong>الكمية المطلوبة:</strong> ${escapeHtml(mo.quantity)}</p>
+          <p><strong>حالة الأمر:</strong> ${escapeHtml(mo.status)}</p>
           <p><strong>تاريخ التقرير:</strong> ${new Date().toLocaleDateString('ar-SA')}</p>
         </div>
 
@@ -435,17 +450,17 @@ async function generateStageCostReport(moId, stageCosts) {
           <tbody>
             ${stageCosts.map(stage => `
               <tr>
-                <td>${stage.stage_number}</td>
-                <td>${stage.work_center?.name || stage.work_center_id}</td>
-                <td>${stage.good_quantity}</td>
-                <td>${stage.total_cost?.toFixed(2)} ريال</td>
-                <td>${stage.unit_cost?.toFixed(2)} ريال</td>
+                <td>${escapeHtml(stage.stage_number)}</td>
+                <td>${escapeHtml(stage.work_center?.name || stage.work_center_id)}</td>
+                <td>${escapeHtml(stage.good_quantity)}</td>
+                <td>${escapeHtml(stage.total_cost?.toFixed(2))} ريال</td>
+                <td>${escapeHtml(stage.unit_cost?.toFixed(2))} ريال</td>
                 <td>${(() => {
                   if (stage.status === 'completed') return 'مكتملة';
                   if (stage.status === 'actual') return 'فعلية';
                   return 'مقدرة';
                 })()}</td>
-                <td>${new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA')}</td>
+                <td>${escapeHtml(new Date(stage.updated_at || stage.created_at).toLocaleDateString('ar-SA'))}</td>
               </tr>
             `).join('')}
             <tr class="total-row">
