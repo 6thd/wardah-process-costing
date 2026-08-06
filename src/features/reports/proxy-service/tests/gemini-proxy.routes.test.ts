@@ -1,22 +1,27 @@
 /**
- * Tests for the Gemini proxy routes hardening added in the security
- * remediation pass: verifyApiKey now verifies the caller's own Supabase
- * session (via supabase.auth.getUser) instead of a static shared secret —
- * a static PROXY_AUTH_KEY grants indefinite access to anyone who reads it
- * once, while a per-user session token is scoped and expires normally.
- * The POST /generate route keeps the real Google Gemini API key
- * server-side only, forwarding the caller's request body upstream.
+ * Tests for verifyApiKey: it verifies the caller's own Supabase session
+ * (via supabase.auth.getUser) instead of a static shared secret — a static
+ * PROXY_AUTH_KEY grants indefinite access to anyone who reads it once,
+ * while a per-user session token is scoped and expires normally.
+ *
+ * (The POST /generate Gemini content-generation route that used to live in
+ * this router was removed — this Express service has no confirmed
+ * production deployment, so the route pointed at an endpoint nothing could
+ * reach. Gemini generation is being redesigned as a Supabase Edge Function
+ * instead. verifyApiKey itself still gates the other routes below, so it's
+ * exercised here via /kpis.)
  */
 import express from 'express';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const mockGetUser = vi.fn();
+const mockFetchRealFinancialKPIs = vi.fn();
 
 vi.mock('@/services/gemini-financial-service', () => ({
   geminiFinancialService: {
-    fetchRealFinancialKPIs: vi.fn(),
+    fetchRealFinancialKPIs: (...args: unknown[]) => mockFetchRealFinancialKPIs(...args),
     fetchMonthlyFinancialData: vi.fn(),
     formatForGeminiDashboard: vi.fn(),
     calculateBreakEvenAnalysis: vi.fn(),
@@ -40,12 +45,9 @@ async function startTestServer() {
   return { server, baseUrl: `http://127.0.0.1:${port}/api/wardah` };
 }
 
-// Drives requests against the local test server over a real socket via
-// node:http, independent of whatever the test has done to the global
-// `fetch` (which the /generate handler uses internally to call "Google").
 function request(
   url: string,
-  options: { method: string; headers?: Record<string, string>; body?: string }
+  options: { method: string; headers?: Record<string, string> }
 ): Promise<{ status: number; json: () => Promise<any> }> {
   return new Promise((resolve, reject) => {
     const req = http.request(url, { method: options.method, headers: options.headers }, (res) => {
@@ -60,33 +62,21 @@ function request(
       });
     });
     req.on('error', reject);
-    if (options.body) req.write(options.body);
     req.end();
   });
 }
 
-describe('gemini-proxy routes', () => {
-  const originalFetch = global.fetch;
-
+describe('gemini-proxy routes: verifyApiKey', () => {
   beforeEach(() => {
     vi.resetModules();
     mockGetUser.mockReset();
-    delete process.env.GEMINI_API_KEY;
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-    delete process.env.GEMINI_API_KEY;
+    mockFetchRealFinancialKPIs.mockReset();
   });
 
   it('rejects requests with no Authorization header', async () => {
     const { server, baseUrl } = await startTestServer();
     try {
-      const res = await request(`${baseUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{}',
-      });
+      const res = await request(`${baseUrl}/kpis`, { method: 'GET' });
       expect(res.status).toBe(401);
       expect(mockGetUser).not.toHaveBeenCalled();
     } finally {
@@ -98,10 +88,9 @@ describe('gemini-proxy routes', () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: { message: 'invalid token' } });
     const { server, baseUrl } = await startTestServer();
     try {
-      const res = await request(`${baseUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer forged-token' },
-        body: '{}',
+      const res = await request(`${baseUrl}/kpis`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer forged-token' },
       });
       expect(res.status).toBe(401);
     } finally {
@@ -109,66 +98,18 @@ describe('gemini-proxy routes', () => {
     }
   });
 
-  it('returns 500 when GEMINI_API_KEY is not configured, even for a valid session', async () => {
+  it('calls through to the route handler for a Bearer token that resolves to a real user', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
+    mockFetchRealFinancialKPIs.mockResolvedValue({ totalSales: 100 });
     const { server, baseUrl } = await startTestServer();
     try {
-      const res = await request(`${baseUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer real-session-token' },
-        body: '{}',
+      const res = await request(`${baseUrl}/kpis`, {
+        method: 'GET',
+        headers: { Authorization: 'Bearer real-session-token' },
       });
-      expect(res.status).toBe(500);
-      expect(await res.json()).toEqual({ error: 'Service misconfigured' });
-    } finally {
-      server.close();
-    }
-  });
-
-  it('forwards the request body to the Google Generative Language API and relays its response', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
-    process.env.GEMINI_API_KEY = 'server-side-google-key';
-    const upstreamJson = { candidates: [{ content: 'hello' }] };
-    const fetchMock = vi.fn().mockResolvedValue({
-      status: 200,
-      json: () => Promise.resolve(upstreamJson),
-    });
-    global.fetch = fetchMock as unknown as typeof fetch;
-
-    const { server, baseUrl } = await startTestServer();
-    try {
-      const res = await request(`${baseUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer real-session-token' },
-        body: JSON.stringify({ contents: [{ parts: [{ text: 'hi' }] }] }),
-      });
-
       expect(res.status).toBe(200);
-      expect(await res.json()).toEqual(upstreamJson);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      const [calledUrl, calledInit] = fetchMock.mock.calls[0];
-      expect(calledUrl).toContain('key=server-side-google-key');
-      expect(calledInit.method).toBe('POST');
+      expect((await res.json()).data).toEqual({ totalSales: 100 });
       expect(mockGetUser).toHaveBeenCalledWith('real-session-token');
-    } finally {
-      server.close();
-    }
-  });
-
-  it('returns 502 when the upstream Gemini call throws', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
-    process.env.GEMINI_API_KEY = 'server-side-google-key';
-    global.fetch = vi.fn().mockRejectedValue(new Error('network down')) as unknown as typeof fetch;
-
-    const { server, baseUrl } = await startTestServer();
-    try {
-      const res = await request(`${baseUrl}/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer real-session-token' },
-        body: '{}',
-      });
-      expect(res.status).toBe(502);
-      expect(await res.json()).toEqual({ error: 'Upstream Gemini request failed' });
     } finally {
       server.close();
     }

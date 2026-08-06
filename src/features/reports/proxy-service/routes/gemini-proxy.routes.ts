@@ -245,35 +245,13 @@ router.get('/inventory', verifyApiKey, async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /api/wardah/generate
- * يمرر طلب توليد محتوى إلى Google Generative Language API باستخدام مفتاح
- * محفوظ على الخادم فقط. لوحة Gemini لم تعد تحمل مفتاح Google في المتصفح.
- */
-const GEMINI_GENERATE_URL =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
-
-router.post('/generate', verifyApiKey, async (req: Request, res: Response) => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error('GEMINI_API_KEY is not configured; refusing gemini generate request');
-    return res.status(500).json({ error: 'Service misconfigured' });
-  }
-
-  try {
-    const upstream = await fetch(`${GEMINI_GENERATE_URL}?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body),
-    });
-
-    const data = await upstream.json();
-    res.status(upstream.status).json(data);
-  } catch (error: any) {
-    console.error('Error calling Gemini generateContent:', error);
-    res.status(502).json({ error: 'Upstream Gemini request failed' });
-  }
-});
+// A POST /generate route (Gemini content-generation proxy) used to live
+// here. Removed: this Express service has no confirmed production
+// deployment (no Vercel/Netlify rewrite, no Vercel Function, no working
+// standalone deploy target found), so the route was dead code pointing at
+// an endpoint nothing could reach. Gemini generation is being redesigned as
+// a Supabase Edge Function with real auth/authorization/quota — tracked as
+// separate follow-up work, not rebuilt here on a service with no deployment.
 
 export default router;
 

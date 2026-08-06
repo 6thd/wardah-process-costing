@@ -12,7 +12,6 @@ import { geminiFinancialService } from '@/services/gemini-financial-service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
-import { getSupabase } from '@/lib/supabase';
 
 interface DashboardMetrics {
   kpis: any;
@@ -267,23 +266,17 @@ export function EnhancedGeminiDashboard() {
                   src="/gemini-dashboard/gemini_enhanced_dashboard.html?wardah=true&autoSync=true"
                   className="w-full h-full border-0 rounded-lg"
                   title="Gemini Enhanced Dashboard"
-                  onLoad={async () => {
+                  onLoad={() => {
                     setLoading(false);
-                    // Relay the current user's own Supabase session token to
-                    // the iframe over a same-origin-checked channel — this is
-                    // not a new exposure: the browser already holds this
-                    // token to talk to Supabase directly. The proxy verifies
-                    // it server-side (supabase.auth.getUser) instead of
-                    // trusting a static shared secret, which a leaked/expired
-                    // static key would grant forever to anyone; this token is
-                    // scoped to this one user and expires with their session.
-                    if (iframeRef.current?.contentWindow) {
-                      const { data } = await getSupabase().auth.getSession();
-                      iframeRef.current.contentWindow.postMessage({
-                        type: 'WARDHAH_AUTH_TOKEN',
-                        accessToken: data.session?.access_token || ''
-                      }, globalThis.window.location.origin);
-                    }
+                    // Gemini AI generation inside the iframe is temporarily
+                    // disabled (see gemini_enhanced_dashboard.html) — a prior
+                    // version relayed the user's Supabase session token into
+                    // this iframe so it could call a proxy directly, but the
+                    // iframe loads third-party CDN scripts that could read
+                    // anything held in its JS memory. No credential is passed
+                    // into the iframe. Financial data still reaches it via
+                    // the WARDHAH_DATA_SYNC postMessage below, which carries
+                    // only already-fetched, non-secret display data.
                     // Auto-sync after iframe loads
                     setTimeout(() => {
                       syncWithWardah();
