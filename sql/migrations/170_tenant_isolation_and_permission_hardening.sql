@@ -18,10 +18,13 @@
 --    no FOR/TO clause (defaulted to ALL commands, role PUBLIC). Combined
 --    with `anon` holding GRANT ALL on all three tables, an unauthenticated
 --    request could read/write that organization's manufacturing data.
---    get_effective_org_id() (feeding journal_entry_attachments) carries the
---    identical fallback pattern; included here for consistency, though its
---    four policies are already TO authenticated and therefore not
---    anon-reachable today.
+--    get_effective_org_id() (feeding journal_entry_attachments, 4 policies
+--    already TO authenticated, so not anon-reachable) read
+--    `current_setting('app.current_org_id', true)` — the exact dead-GUC
+--    pattern migration 118 already eliminated repo-wide (no Supabase client
+--    ever sets it; root cause of silently-empty dashboards on 38 tables).
+--    Reused wardah_org_id() here instead of the default-UUID fallback, so
+--    this migration doesn't reintroduce a bug 118 already closed.
 --
 -- 3. has_permission(p_user_id, p_org_id, p_permission_key): never compared
 --    p_user_id to auth.uid(), so any authenticated user could query any
@@ -85,6 +88,7 @@ CREATE POLICY physical_count_items_del_m ON public.physical_count_items
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_items_ins_m ON public.physical_count_items;
@@ -93,6 +97,7 @@ CREATE POLICY physical_count_items_ins_m ON public.physical_count_items
   WITH CHECK (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_items_sel_m ON public.physical_count_items;
@@ -101,6 +106,7 @@ CREATE POLICY physical_count_items_sel_m ON public.physical_count_items
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_items_upd_m ON public.physical_count_items;
@@ -109,10 +115,12 @@ CREATE POLICY physical_count_items_upd_m ON public.physical_count_items
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ))
   WITH CHECK (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_sessions_del_m ON public.physical_count_sessions;
@@ -121,6 +129,7 @@ CREATE POLICY physical_count_sessions_del_m ON public.physical_count_sessions
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_sessions_ins_m ON public.physical_count_sessions;
@@ -129,6 +138,7 @@ CREATE POLICY physical_count_sessions_ins_m ON public.physical_count_sessions
   WITH CHECK (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_sessions_sel_m ON public.physical_count_sessions;
@@ -137,6 +147,7 @@ CREATE POLICY physical_count_sessions_sel_m ON public.physical_count_sessions
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 DROP POLICY IF EXISTS physical_count_sessions_upd_m ON public.physical_count_sessions;
@@ -145,10 +156,12 @@ CREATE POLICY physical_count_sessions_upd_m ON public.physical_count_sessions
   USING (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ))
   WITH CHECK (organization_id IN (
     SELECT user_organizations.org_id FROM public.user_organizations
     WHERE user_organizations.user_id = auth.uid()
+      AND COALESCE(user_organizations.is_active, true)
   ));
 
 -- ---------------------------------------------------------------------------
@@ -184,9 +197,16 @@ REVOKE ALL ON TABLE public.stage_wip_log FROM anon;
 REVOKE ALL ON TABLE public.standard_costs FROM anon;
 
 -- Lower-urgency, same shape, included for consistency: get_effective_org_id()
--- carries the identical default-org fallback. Its only consumers
+-- carried the identical default-org fallback. Its only consumers
 -- (journal_entry_attachments, 4 policies) are already TO authenticated, so
--- this is defense-in-depth, not a live anon-reachable gap.
+-- this was never anon-reachable — but it was worse than a live gap: it read
+-- `app.current_org_id`, a session GUC no Supabase client ever sets. This is
+-- the exact dead-policy pattern migration 118 already found and eliminated
+-- repo-wide ("جذر «الداشبوردات لا تنبض»" — root cause of blank dashboards,
+-- 38 tables silently returning zero rows). Reusing that literal string here
+-- would have reintroduced the same class of bug for journal_entry_attachments.
+-- Delegates to wardah_org_id() instead — the one fail-closed resolver this
+-- migration already uses everywhere else.
 CREATE OR REPLACE FUNCTION public.get_effective_org_id()
 RETURNS uuid
 LANGUAGE plpgsql
@@ -194,7 +214,7 @@ STABLE
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 BEGIN
-    RETURN current_setting('app.current_org_id', true)::uuid;
+    RETURN public.wardah_org_id();
 END;
 $function$;
 
@@ -290,6 +310,20 @@ BEGIN
     END IF;
   END LOOP;
 
+  -- (1b) All 8 rewritten policies carry the active-membership guard — a
+  -- disabled user_organizations row must not keep the caller's access.
+  FOR v_qual IN
+    SELECT coalesce(pg_get_expr(pol.polqual, pol.polrelid), '')
+           || coalesce(pg_get_expr(pol.polwithcheck, pol.polrelid), '')
+    FROM pg_policy pol
+    WHERE pol.polrelid IN ('public.physical_count_items'::regclass,
+                            'public.physical_count_sessions'::regclass)
+  LOOP
+    IF v_qual !~ 'is_active' THEN
+      RAISE EXCEPTION 'FAIL[170-1b] physical_count_* policy missing active-membership guard: %', v_qual;
+    END IF;
+  END LOOP;
+
   -- (2) None of the 3 rewritten tenant-isolation policies (or
   -- get_effective_org_id) still carry the hardcoded default-org UUID.
   FOR v_qual IN
@@ -309,6 +343,9 @@ BEGIN
   WHERE n.nspname = 'public' AND p.proname = 'get_effective_org_id';
   IF v_src IS NULL OR position(c_default IN v_src) > 0 THEN
     RAISE EXCEPTION 'FAIL[170-2] get_effective_org_id still contains default-org UUID';
+  END IF;
+  IF v_src LIKE '%app.current_org_id%' THEN
+    RAISE EXCEPTION 'FAIL[170-2b] get_effective_org_id still reads the dead app.current_org_id GUC (the exact pattern migration 118 eliminated repo-wide)';
   END IF;
 
   SELECT string_agg(t, ', ') INTO v_bad_tables
