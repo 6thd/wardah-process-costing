@@ -114,13 +114,14 @@ BEGIN
   -- this privileged RPC independently validates the supplied pair. A stale,
   -- disabled, or fabricated membership therefore fails closed before the
   -- quota lock or any counter write.
-  IF NOT EXISTS (
-    SELECT 1
-    FROM public.user_organizations AS uo
-    WHERE uo.org_id = p_org_id
-      AND uo.user_id = p_user_id
-      AND uo.is_active IS TRUE
-  ) THEN
+  PERFORM 1
+  FROM public.user_organizations AS uo
+  WHERE uo.org_id = p_org_id
+    AND uo.user_id = p_user_id
+    AND uo.is_active IS TRUE
+  FOR SHARE;
+
+  IF NOT FOUND THEN
     RAISE EXCEPTION 'AI_USAGE_171_ACTIVE_MEMBERSHIP_REQUIRED'
       USING ERRCODE = '42501';
   END IF;
