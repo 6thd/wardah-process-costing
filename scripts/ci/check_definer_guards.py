@@ -28,6 +28,12 @@ KNOWN_EXEMPT = {
     # weakening the final-state acceptance gate, which verifies the 151 bodies.
     "wardah_guard_allocation_immutability",
     "wardah_receipt_line_uninvoiced_base",
+    # has_permission (migration 170): guarded by a direct
+    # `p_user_id IS DISTINCT FROM auth.uid()` self-check, not an
+    # org-membership helper — the generic guard patterns don't apply here
+    # because this function's whole purpose is validating identity, not org
+    # membership, for a caller checking their own permissions.
+    "has_permission",
 }
 
 GUARD_PATTERNS = [
