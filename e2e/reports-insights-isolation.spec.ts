@@ -486,3 +486,184 @@ test.describe('no sample/trial financial data — a financial ERP dashboard must
     expect(chatText).not.toContain('12345');
   });
 });
+
+test.describe('no unsupported identity or status claims — this document is served identically to every tenant', () => {
+  test('the served dashboard names no specific branch or site, in either language', async ({ request }) => {
+    // This is one static file handed to every organization on the system.
+    // It is told nothing but financial figures over the MessageChannel — no
+    // org name, no branch, no site — so any specific place-name baked into
+    // it is asserted rather than known, and is simply wrong for every tenant
+    // it does not happen to describe. It previously read "فرع الدمام" /
+    // "Dammam Branch" in the page title and the header subtitle.
+    const res = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
+
+    expect(html).not.toContain('الدمام');
+    expect(html).not.toMatch(/Dammam/i);
+    // The generic product identity is what should be there instead.
+    expect(html).toContain('وردة ERP');
+  });
+
+  test('does not claim the AI insights engine is ready before any data has arrived', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'never';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+
+    // The status indicator used to be hardcoded to "الرؤى الذكية جاهزة" /
+    // "AI Insights Ready" in the markup, and this.data.aiStatus.connected
+    // was initialized to true — both asserted a working AI connection at a
+    // point where the port handshake had not run, no data had arrived, and
+    // the provider may well be unreachable or over quota.
+    await expect(frame.locator('#aiStatusText')).toHaveText('بانتظار البيانات', { timeout: 10000 });
+
+    const statusText = await frame.locator('#aiStatusText').innerText();
+    expect(statusText).not.toContain('جاهزة');
+
+    // The indicator's own data-* attributes must also be in the awaiting
+    // state, not merely its visible text: switchLanguage() re-reads those
+    // attributes for every [data-ar][data-en] element, so a stale attribute
+    // would let a language toggle silently restore the "ready" wording.
+    await expect(frame.locator('#aiStatusText')).toHaveAttribute('data-ar', 'بانتظار البيانات');
+    await expect(frame.locator('#aiStatusText')).toHaveAttribute('data-en', 'Awaiting data');
+  });
+
+  test('reaches the "ready" status only after a real, schema-validated sync', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    await expect(frame.locator('#aiStatusText')).toHaveText('الرؤى الذكية جاهزة', { timeout: 10000 });
+    await expect(frame.locator('#aiStatusText')).toHaveAttribute('data-en', 'AI Insights Ready');
+  });
+
+  test('a malformed sync leaves the status at "awaiting", never flipping it to ready', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'malformed';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+
+    await expect
+      .poll(async () => page.evaluate(() => (window as any).__harness.receivedFromIframe.some((m: any) => m.type === 'REQUEST_WARDHAH_DATA')), { timeout: 15000 })
+      .toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    await expect(frame.locator('#aiStatusText')).toHaveText('بانتظار البيانات');
+  });
+});
+
+test.describe('cost-to-sales ratio — labeled for what it computes, and undefined when it is undefined', () => {
+  test('is labeled as a cost-to-sales ratio, not as "cost efficiency"', async ({ page }) => {
+    // The figure is (COGS + OpEx) / sales. Efficiency reads better when it
+    // rises; this ratio reads better when it falls, so the old label
+    // inverted the meaning of its own number — a 50.9% reading is not a
+    // 50.9% efficiency score.
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#realtimeMetrics')).not.toBeEmpty({ timeout: 15000 });
+
+    const realtimeText = await frame.locator('#realtimeMetrics').innerText();
+    expect(realtimeText).toContain('نسبة التكلفة إلى المبيعات');
+    expect(realtimeText).not.toContain('كفاءة التكاليف');
+    // The underlying value is unchanged by the relabeling.
+    expect(realtimeText).toContain('50.9%');
+  });
+
+  test('renders "غير متاح" instead of NaN%/Infinity% when sales are genuinely zero', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'zeroSales';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#realtimeMetrics')).not.toBeEmpty({ timeout: 15000 });
+
+    const realtimeText = await frame.locator('#realtimeMetrics').innerText();
+    // 0 cost / 0 sales produced "NaN%"; a non-zero cost over 0 sales
+    // produced "Infinity%". Neither is a number, and both used to render
+    // beside a green "good" status dot.
+    expect(realtimeText).not.toContain('NaN');
+    expect(realtimeText).not.toContain('Infinity');
+    expect(realtimeText).toContain('غير متاح');
+  });
+
+  test('shows no green "good" verdict dot next to the ratio', async ({ page }) => {
+    // The dot was hardcoded to the green gradient regardless of the value,
+    // so a business spending 300% of its revenue still reported green.
+    // There is no threshold in this schema defining a healthy ratio, so no
+    // color-coded verdict is rendered at all.
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#realtimeMetrics')).not.toBeEmpty({ timeout: 15000 });
+
+    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    const hasVerdictDot = await childFrame!.evaluate(() => {
+      const container = document.getElementById('realtimeMetrics');
+      return !!container?.querySelector('[class*="from-green"], [class*="rounded-full"]');
+    });
+    expect(hasVerdictDot).toBe(false);
+  });
+});
+
+test.describe('the forward projection is a linear trend estimate, and is withheld without enough complete months', () => {
+  test('names the projected series a linear trend estimate, not an AI prediction', async ({ page }) => {
+    // The series is a least-squares fit over past monthly net profit
+    // extended forward — arithmetic over at most twelve numbers, with no
+    // model behind it. Naming it "AI Predictions" claimed a basis it does
+    // not have, next to an insights panel that genuinely is model-generated.
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    // ApexCharts renders legend entries as real text nodes in the chart DOM.
+    const chartText = await frame.locator('#predictiveChart').textContent();
+    expect(chartText).toContain('تقدير اتجاه خطي');
+    expect(chartText).not.toContain('توقعات ذكية');
+
+    const titleText = await frame.locator('#predictiveChartTitle').innerText();
+    expect(titleText).toContain('اتجاه صافي الربح الشهري');
+    expect(titleText).not.toContain('التنبؤي الذكي');
+  });
+
+  test('draws no projection at all from a single complete month', async ({ page }) => {
+    // One complete month + the current partial one. calculateTrend() returns
+    // 0 for n < 2, so the old code drew a perfectly flat line across every
+    // remaining month of the year — the most confident-looking output the
+    // function can produce, from the least evidence it can have.
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'oneRealMonth';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    const chartText = await frame.locator('#predictiveChart').textContent();
+    expect(chartText).not.toContain('تقدير اتجاه خطي');
+
+    // The real months are still plotted — this withholds the projection, it
+    // does not blank the chart. (ApexCharts draws no legend entry at all for
+    // a single-series chart, so the axis categories are what proves the
+    // actual-data series rendered.)
+    expect(chartText).toContain('يناير');
+    expect(chartText).toContain('فبراير (حتى تاريخه)');
+
+    // ApexCharts renders one .apexcharts-series group per series, so this
+    // counts what was actually drawn: exactly the actual-data series, with
+    // no second, projected one beside it.
+    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    const seriesCount = await childFrame!.evaluate(
+      () => document.querySelectorAll('#predictiveChart .apexcharts-series').length
+    );
+    expect(seriesCount).toBe(1);
+  });
+});

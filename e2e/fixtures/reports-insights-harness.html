@@ -88,7 +88,20 @@
   window.__harness = {
     receivedFromIframe: [],
     respondMode: 'success', // insight requests: 'success' | 'unauthenticated' | 'timeout' | 'malformed'
-    dataSyncMode: 'success', // REQUEST_WARDHAH_DATA replies: 'success' | 'never' | 'malformed'
+    // REQUEST_WARDHAH_DATA replies:
+    //   'success'      — the eight-month SAMPLE_DATA_SYNC below
+    //   'never'        — no reply at all (exercises awaiting → unavailable)
+    //   'malformed'    — fails schema validation, must be dropped
+    //   'zeroSales'    — real, well-formed months whose sales are genuinely
+    //                    zero (a new org, or a period with no posted
+    //                    revenue). Every ratio with sales in the denominator
+    //                    must render an explicit "unavailable", never NaN%
+    //                    or Infinity%.
+    //   'oneRealMonth' — a single complete month plus the current partial
+    //                    one. Below the two-complete-month floor a straight
+    //                    line has no defined slope, so no projection may be
+    //                    drawn at all.
+    dataSyncMode: 'success',
     port: null,
     decoyReceivedCount: 0,
   };
@@ -135,6 +148,39 @@
     profitLoss: {},
   };
 
+  // Genuinely zero sales — not malformed, not missing, just an organization
+  // with no posted revenue in the period. Every figure here is a real,
+  // schema-valid zero, so the dashboard must render it as data rather than
+  // reject it, which puts a 0 in the denominator of any sales-based ratio.
+  const ZERO_SALES_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: {
+      monthlyData: {
+        'يناير': { p: [0, 0, 0], opex: [0, 0], cogs: 0, grossProfit: 0, netProfit: 0, isMTD: false },
+        'فبراير': { p: [0, 0, 0], opex: [1500, 500], cogs: 0, grossProfit: 0, netProfit: -2000, isMTD: false },
+      },
+    },
+    kpis: { totalSales: 0, totalCOGS: 0, totalOperatingExpenses: 2000, netProfit: -2000, grossProfit: 0, profitMargin: 0 },
+    breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 0 },
+    profitLoss: {},
+  };
+
+  // One complete month + the current month-to-date one. Only ONE complete
+  // month is available to fit a line through, which is below the floor at
+  // which a slope is defined at all.
+  const ONE_REAL_MONTH_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: {
+      monthlyData: {
+        'يناير': { p: [90000, 0, 0], opex: [3500, 1200], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false },
+        'فبراير': { p: [30000, 0, 0], opex: [1200, 400], cogs: 14000, grossProfit: 16000, netProfit: 14400, isMTD: true },
+      },
+    },
+    kpis: { totalSales: 120000, totalCOGS: 54000, totalOperatingExpenses: 6300, netProfit: 59700, grossProfit: 66000, profitMargin: 49.8 },
+    breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 120000 },
+    profitLoss: {},
+  };
+
   function handlePortMessage(event) {
     const msg = event.data;
     window.__harness.receivedFromIframe.push(msg);
@@ -145,6 +191,14 @@
       }
       if (window.__harness.dataSyncMode === 'malformed') {
         window.__harness.port.postMessage({ requestId: msg.requestId, ...MALFORMED_DATA_SYNC });
+        return;
+      }
+      if (window.__harness.dataSyncMode === 'zeroSales') {
+        window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...ZERO_SALES_DATA_SYNC });
+        return;
+      }
+      if (window.__harness.dataSyncMode === 'oneRealMonth') {
+        window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...ONE_REAL_MONTH_DATA_SYNC });
         return;
       }
       window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...SAMPLE_DATA_SYNC });

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>لوحة معلومات الأداء المالي الذكية - فرع الدمام</title>
+    <title>لوحة معلومات الأداء المالي الذكية - وردة ERP</title>
 
     <link rel="stylesheet" href="./vendor/tailwind.css">
     <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css">
@@ -28,7 +28,14 @@
     <!-- AI Status Indicator -->
     <div class="ai-status">
         <div class="ai-indicator"></div>
-        <span id="aiStatusText" data-ar="الرؤى الذكية جاهزة" data-en="AI Insights Ready">الرؤى الذكية جاهزة</span>
+        <!-- Starts in the "awaiting data" state and stays there until a real,
+             schema-validated WARDHAH_DATA_SYNC arrives: claiming the insights
+             engine is ready before any data exists is an unsupported status
+             claim, the same class of problem as showing sample figures.
+             dashboard.js owns every transition from here (setAiStatus()); the
+             data-ar/data-en attributes are rewritten alongside the text so a
+             later language switch cannot resurrect this initial wording. -->
+        <span id="aiStatusText" data-ar="بانتظار البيانات" data-en="Awaiting data">بانتظار البيانات</span>
     </div>
 
     <!-- Particles Background -->
@@ -47,10 +54,17 @@
                         data-en="AI-Powered Financial Insights Dashboard">
                         لوحة معلومات الأداء المالي الذكية
                     </h1>
+                    <!-- No branch/organization name here. This dashboard is
+                         served as one static document to every tenant and is
+                         handed nothing but financial figures over the port —
+                         it never learns which organization, branch, or site is
+                         viewing it, so any specific name printed here is
+                         asserted, not known, and would be wrong for everyone
+                         it doesn't happen to describe. -->
                     <p id="subtitle" class="text-sm text-gray-400" 
-                       data-ar="فرع الدمام - مدعوم بالذكاء الاصطناعي" 
-                       data-en="Dammam Branch - AI-Powered">
-                       فرع الدمام - مدعوم بالذكاء الاصطناعي
+                       data-ar="وردة ERP - مدعوم بالذكاء الاصطناعي" 
+                       data-en="Wardah ERP - AI-Powered">
+                       وردة ERP - مدعوم بالذكاء الاصطناعي
                     </p>
                 </div>
             </div>
@@ -203,18 +217,25 @@
                     <div id="advanced3DChart" class="h-96"></div>
                 </div>
 
-                <!-- Predictive Analytics Chart -->
+                <!-- Monthly net-profit trend chart.
+                     Titled for what it actually plots. The forward-looking
+                     series in this chart is a least-squares fit over past
+                     monthly net profit extended forward (see
+                     generatePredictiveData()/calculateTrend() in dashboard.js)
+                     — arithmetic over at most twelve numbers, with no model of
+                     any kind behind it. It was previously headed "AI
+                     Predictive Analysis" under an "AI Powered" badge, which
+                     claimed a basis the series does not have. The AI badge is
+                     removed here rather than reworded: the insights panel
+                     elsewhere on this page IS model-generated, and the two
+                     must stay visually distinguishable. -->
                 <div class="chart-container-advanced float-animation">
                     <div class="flex items-center justify-between mb-4">
                         <h3 id="predictiveChartTitle" class="text-xl font-bold text-white flex items-center"
-                            data-ar="التحليل التنبؤي الذكي" data-en="AI Predictive Analysis">
+                            data-ar="اتجاه صافي الربح الشهري" data-en="Monthly Net Profit Trend">
                             <i class="fas fa-chart-line text-green-400 ml-2 neon-glow"></i>
-                            التحليل التنبؤي الذكي
+                            اتجاه صافي الربح الشهري
                         </h3>
-                        <div class="ai-processing ai-processing-sm">
-                            <i class="fas fa-brain"></i>
-                            <span data-ar="مدعوم بالذكاء الاصطناعي" data-en="AI Powered">مدعوم بالذكاء الاصطناعي</span>
-                        </div>
                     </div>
                     <div id="predictiveChart" class="h-96"></div>
                 </div>
