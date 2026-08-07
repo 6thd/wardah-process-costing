@@ -87,9 +87,19 @@
 
   window.__harness = {
     receivedFromIframe: [],
-    respondMode: 'success', // 'success' | 'unauthenticated' | 'timeout'
+    respondMode: 'success', // insight requests: 'success' | 'unauthenticated' | 'timeout' | 'malformed'
+    dataSyncMode: 'success', // REQUEST_WARDHAH_DATA replies: 'success' | 'never' | 'malformed'
     port: null,
     decoyReceivedCount: 0,
+  };
+
+  // Deliberately fails dashboard.js's own isValidMonthlyData/
+  // isValidInsightResponse schema checks (see the module-level validators
+  // at the top of dashboard.js) — used to prove a malformed message is
+  // silently dropped instead of rendered or crashing the page.
+  const MALFORMED_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: { monthlyData: { 'يناير': { p: 'not-an-array', s_exp: [3500], a_exp: [16164] } } },
   };
 
   const targetFrame = document.getElementById('target');
@@ -121,6 +131,13 @@
     window.__harness.receivedFromIframe.push(msg);
 
     if (isValidDataRequest(msg)) {
+      if (window.__harness.dataSyncMode === 'never') {
+        return; // deliberately never reply — exercises the "data unavailable" state
+      }
+      if (window.__harness.dataSyncMode === 'malformed') {
+        window.__harness.port.postMessage(Object.assign({ requestId: msg.requestId }, MALFORMED_DATA_SYNC));
+        return;
+      }
       window.__harness.port.postMessage(Object.assign({ requestId: 'sync-' + Date.now() }, SAMPLE_DATA_SYNC));
       return;
     }
@@ -137,6 +154,20 @@
         requestId: msg.requestId,
         success: false,
         error: 'not_authenticated',
+      });
+      return;
+    }
+
+    if (window.__harness.respondMode === 'malformed') {
+      // Fails dashboard.js's isValidInsightResponse (success must be a
+      // real boolean, text must be a non-empty string) — the dashboard
+      // must drop this silently and fall back exactly as if no response
+      // had ever arrived, not render whatever this contains.
+      window.__harness.port.postMessage({
+        type: 'WARDHAH_INSIGHT_RESPONSE',
+        requestId: msg.requestId,
+        success: 'yes',
+        text: 12345,
       });
       return;
     }
@@ -159,7 +190,7 @@
 
   window.__harness.loadTarget = function () {
     targetFrame.addEventListener('load', () => sendRealHandshake(), { once: true });
-    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true&parentOrigin=' + encodeURIComponent(window.location.origin);
+    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true';
   };
 
   // Races a forged WARDHAH_CHANNEL_INIT (from the same-page decoy sibling
@@ -175,7 +206,7 @@
       document.getElementById('decoy').contentWindow.postMessage({ type: 'FORGE_HANDSHAKE' }, '*');
       setTimeout(() => sendRealHandshake(), 50);
     }, { once: true });
-    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true&parentOrigin=' + encodeURIComponent(window.location.origin);
+    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true';
   };
 
   window.addEventListener('message', (event) => {

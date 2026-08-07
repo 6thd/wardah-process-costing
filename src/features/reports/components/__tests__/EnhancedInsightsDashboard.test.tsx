@@ -121,6 +121,38 @@ describe('EnhancedInsightsDashboard — MessageChannel handshake and message han
     expect(transfer[0]).toBeInstanceOf(FakePort);
   });
 
+  it('a second load event does not re-open the channel or resend the handshake (exactly-once port delivery)', async () => {
+    const { iframe, fakeContentWindowPostMessage } = renderDashboard();
+
+    let firstChannel: FakeMessageChannel | undefined;
+    class CapturingFakeMessageChannel extends FakeMessageChannel {
+      constructor() {
+        super();
+        if (!firstChannel) firstChannel = this;
+      }
+    }
+    vi.stubGlobal('MessageChannel', CapturingFakeMessageChannel);
+
+    iframe.dispatchEvent(new Event('load'));
+    expect(fakeContentWindowPostMessage).toHaveBeenCalledTimes(1);
+
+    // A second load event (iframe re-navigation/reload) must not open a
+    // new MessageChannel or send a second handshake — see
+    // handshakeSentRef in EnhancedInsightsDashboard.tsx.
+    iframe.dispatchEvent(new Event('load'));
+    expect(fakeContentWindowPostMessage).toHaveBeenCalledTimes(1);
+
+    // The original port must still be the live, working one — not closed
+    // or replaced — proving the guard actually skipped the second
+    // handshake rather than merely suppressing the postMessage call while
+    // leaving the component's own port reference broken.
+    const responses: unknown[] = [];
+    firstChannel!.port2.onmessage = (event) => responses.push(event.data);
+    firstChannel!.port2.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId: 'still-alive-after-second-load' });
+
+    await waitFor(() => expect(responses.some((r: any) => r.type === 'WARDHAH_DATA_SYNC')).toBe(true));
+  });
+
   it('handles a REQUEST_WARDHAH_DATA message from the iframe by re-syncing and pushing WARDHAH_DATA_SYNC back over the port (no auth/network call for this message type)', async () => {
     const { iframe } = renderDashboard();
 

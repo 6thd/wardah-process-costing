@@ -29,6 +29,50 @@ const pendingInsightRequests = new Map();
 // bottom of this file) so the port handler can reach it directly.
 let dashboardInstance = null;
 
+// Default cost-of-goods-sold rate used only to seed the adjustable COGS
+// slider's starting position (see renderAdvancedControls()/
+// updateAssumptions()) — not a claim about any organization's actual COGS.
+const DEFAULT_COGS_RATE = 0.70;
+
+// Full schema validation for the two message types this iframe ever
+// receives over the port. Nothing synced from these messages reaches the
+// screen unless it passes here — a malformed or out-of-range payload is
+// silently dropped rather than rendered, so a bug or a compromised host
+// can never present fabricated-looking numbers as real financial data.
+function isFiniteBoundedAmount(n) {
+    return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1e12;
+}
+function isValidAmountArray(arr) {
+    return Array.isArray(arr) && arr.length > 0 && arr.every(isFiniteBoundedAmount);
+}
+function isValidMonthlyData(monthlyData) {
+    if (!monthlyData || typeof monthlyData !== 'object' || Array.isArray(monthlyData)) return false;
+    const keys = Object.keys(monthlyData);
+    if (keys.length === 0) return false;
+    return keys.every((key) => {
+        const month = monthlyData[key];
+        return month && typeof month === 'object' &&
+            isValidAmountArray(month.p) && isValidAmountArray(month.s_exp) && isValidAmountArray(month.a_exp);
+    });
+}
+function isValidDataSync(msg) {
+    return !!msg && typeof msg === 'object' && msg.type === 'WARDHAH_DATA_SYNC' &&
+        isValidMonthlyData(msg.data && msg.data.monthlyData);
+}
+function isValidInsightResponse(msg) {
+    if (!msg || typeof msg !== 'object') return false;
+    if (msg.type !== 'WARDHAH_INSIGHT_RESPONSE') return false;
+    if (typeof msg.requestId !== 'string' || msg.requestId.length === 0 || msg.requestId.length > 100) return false;
+    if (typeof msg.success !== 'boolean') return false;
+    if (msg.success) {
+        if (typeof msg.text !== 'string' || msg.text.length === 0) return false;
+        if (msg.source !== undefined && typeof msg.source !== 'string') return false;
+    } else if (msg.error !== undefined && typeof msg.error !== 'string') {
+        return false;
+    }
+    return true;
+}
+
 window.addEventListener('message', function onChannelInit(event) {
     if (event.source !== window.parent) return;
     if (!event.data || event.data.type !== 'WARDHAH_CHANNEL_INIT') return;
@@ -41,7 +85,8 @@ window.addEventListener('message', function onChannelInit(event) {
         const msg = portEvent.data;
         if (!msg || typeof msg !== 'object') return;
 
-        if (msg.type === 'WARDHAH_INSIGHT_RESPONSE' && typeof msg.requestId === 'string') {
+        if (msg.type === 'WARDHAH_INSIGHT_RESPONSE') {
+            if (!isValidInsightResponse(msg)) return;
             const resolver = pendingInsightRequests.get(msg.requestId);
             if (resolver) {
                 pendingInsightRequests.delete(msg.requestId);
@@ -51,6 +96,7 @@ window.addEventListener('message', function onChannelInit(event) {
         }
 
         if (msg.type === 'WARDHAH_DATA_SYNC' && dashboardInstance) {
+            if (!isValidDataSync(msg)) return;
             dashboardInstance.handleDataSync(msg);
         }
     };
@@ -98,28 +144,27 @@ class InsightsFinancialDashboard {
                 // unavailable, over quota, network issue), requestInsight()
                 // resolves to buildLocalInsight()'s deterministic local text
                 // instead — the dashboard must never appear disabled.
-                // Wardah ERP Integration (Secure backend proxy)
-                this.wardahProxyConfig = {
-                    proxyUrl: '/api/wardah' // URL to your proxy service
-                };
+                //
+                // This iframe holds no financial data of its own and never
+                // fabricates any: baseFinancialData starts null and
+                // syncState starts 'awaiting'. Nothing numeric renders
+                // until a real, schema-validated WARDHAH_DATA_SYNC arrives
+                // over the port (see handleDataSync()/loadData()/render()
+                // below) — a financial ERP dashboard must never present
+                // sample or placeholder figures as if they were real.
+                this._dataSyncPromise = new Promise((resolve) => { this._resolveDataSync = resolve; });
 
                 this.data = {
                     assumptions: {
-                        cogs_rate: 0.70,
+                        cogs_rate: DEFAULT_COGS_RATE,
                         salesMultiplier: 1.0,
                         sellingExpensesMultiplier: 1.0,
                         adminExpensesMultiplier: 1.0,
                     },
-                    
-                    baseFinancialData: {
-                        'يناير':  {'p':[80833.5,0,0], 's_exp': [3500, 1200], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
-                        'فبراير': {'p':[84651,0,0],   's_exp': [3800, 1350], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
-                        'مارس':   {'p':[56362,0,0],   's_exp': [2900, 1100], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
-                        'أبريل':  {'p':[58171.5,0,0], 's_exp': [3100, 1200], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
-                        'مايو':   {'p':[69151.5,0,0], 's_exp': [3370, 1300], 'a_exp': [16164, 6708, 2250, 1428, 746, 807, 291, 200]},
-                        'يونيو':  {'p':[108758,0,0],  's_exp': [4500, 1500], 'a_exp': [16165, 6710, 2250, 1431, 747, 808, 290, 200]}
-                    },
-                    
+
+                    syncState: 'awaiting', // 'awaiting' | 'ready' | 'failed'
+                    baseFinancialData: null,
+
                     months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو"],
                     monthsEn: ["January", "February", "March", "April", "May", "June"],
                     charts: {},
@@ -155,8 +200,6 @@ class InsightsFinancialDashboard {
                         breakEven: 'نقطة التعادل',
                         marginOfSafety: 'هامش الأمان',
                         costEfficiency: 'كفاءة التكاليف',
-                        growthRate: 'معدل النمو',
-                        performanceIndex: 'مؤشر الأداء',
                         currency: 'ر.س'
                     },
                     en: {
@@ -165,8 +208,6 @@ class InsightsFinancialDashboard {
                         breakEven: 'Break Even',
                         marginOfSafety: 'Margin of Safety',
                         costEfficiency: 'Cost Efficiency',
-                        growthRate: 'Growth Rate',
-                        performanceIndex: 'Performance Index',
                         currency: 'SAR'
                     }
                 };
@@ -186,22 +227,29 @@ class InsightsFinancialDashboard {
                     this.showLoadingStep(2);
                     await this.delay(500);
                     await this.loadData();
-                    
+
                     this.showLoadingStep(3);
                     await this.delay(500);
+                    // render()/generateInitialInsights() only ever show real,
+                    // synced figures — loadData() above has already resolved
+                    // this.data.syncState to 'ready' or 'failed' by this
+                    // point, and render() itself refuses to draw anything
+                    // numeric outside the 'ready' state (see render()).
                     this.render();
-                    
+
                     this.showLoadingStep(4);
                     await this.delay(500);
-                    await this.generateInitialInsights();
-                    
+                    if (this.data.syncState === 'ready') {
+                        await this.generateInitialInsights();
+                    }
+
                     this.showLoadingStep(5);
                     await this.delay(500);
-                    
+
                     this.hideLoadingOverlay();
                     this.startAdvancedAnimations();
                     this.startRealtimeUpdates();
-                    
+
                 } catch (error) {
                     console.error('Initialization error:', error);
                     this.hideLoadingOverlay();
@@ -292,20 +340,27 @@ class InsightsFinancialDashboard {
             }
 
             getFallbackResponse(userMessage) {
+                // Generic, keyword-matched conversational fallback used only
+                // when the AI provider is unreachable — never a substitute
+                // for real computed analysis. Deliberately makes no specific
+                // quantitative or trend claim about this organization (no
+                // invented percentages, no "shows improvement" verdict):
+                // that would be exactly the kind of fabricated-looking
+                // figure this dashboard must never present as real.
                 const fallbackResponses = {
                     ar: {
-                        'تحليل': 'بناءً على البيانات المتاحة، يظهر الأداء المالي تحسناً تدريجياً مع إمكانيات نمو واعدة. يُنصح بالتركيز على تحسين الكفاءة التشغيلية.',
-                        'توصيات': 'أنصح بتركيز الجهود على تقليل التكاليف الإدارية بنسبة 15% وزيادة كفاءة المبيعات من خلال التسويق الرقمي.',
-                        'مخاطر': 'المخاطر الرئيسية تتمثل في تقلبات السوق وارتفاع التكاليف التشغيلية. يُنصح بوضع خطة طوارئ مالية.',
-                        'استراتيجية': 'الاستراتيجية المقترحة تركز على التوسع المدروس وتحسين الكفاءة التشغيلية مع الاستثمار في التكنولوجيا.',
-                        'default': 'شكراً لسؤالك. يمكنني مساعدتك في تحليل البيانات المالية وتقديم التوصيات المناسبة.'
+                        'تحليل': 'التحليل الذكي التفصيلي غير متاح حاليًا؛ يمكنك مراجعة الأرقام المعروضة في اللوحة مباشرة أو إعادة المحاولة لاحقًا.',
+                        'توصيات': 'التوصيات الذكية غير متاحة حاليًا؛ يُنصح عمومًا بمراجعة التكاليف الثابتة والمتغيرة وتقييم فرص تحسين الكفاءة التشغيلية.',
+                        'مخاطر': 'المخاطر الرئيسية تتمثل عادة في تقلبات السوق وارتفاع التكاليف التشغيلية. يُنصح بوضع خطة طوارئ مالية.',
+                        'استراتيجية': 'الاستراتيجية المقترحة عمومًا تركز على التوسع المدروس وتحسين الكفاءة التشغيلية مع الاستثمار المدروس.',
+                        'default': 'شكراً لسؤالك. المحرك الذكي غير متاح حاليًا؛ يمكنني مساعدتك بشكل عام أو أعد المحاولة لاحقًا.'
                     },
                     en: {
-                        'analysis': 'Based on available data, financial performance shows gradual improvement with promising growth potential. Focus on operational efficiency is recommended.',
-                        'recommendations': 'I recommend focusing efforts on reducing administrative costs by 15% and increasing sales efficiency through digital marketing.',
-                        'risks': 'Main risks include market fluctuations and rising operational costs. A financial contingency plan is recommended.',
-                        'strategy': 'The proposed strategy focuses on measured expansion and operational efficiency improvement with technology investment.',
-                        'default': 'Thank you for your question. I can help you analyze financial data and provide appropriate recommendations.'
+                        'analysis': 'A detailed AI analysis is not available right now; you can review the figures shown on the dashboard directly, or try again later.',
+                        'recommendations': 'AI recommendations are not available right now; generally, review fixed and variable costs and evaluate operational-efficiency opportunities.',
+                        'risks': 'Main risks typically include market fluctuations and rising operational costs. A financial contingency plan is recommended.',
+                        'strategy': 'A general strategy usually focuses on measured expansion and operational efficiency improvement with deliberate investment.',
+                        'default': 'Thank you for your question. The AI engine is not available right now; I can help in general terms, or try again later.'
                     }
                 };
 
@@ -466,52 +521,15 @@ class InsightsFinancialDashboard {
                 });
 
                 // Update charts and data if already rendered
-                if (Object.keys(this.data.charts).length > 0) {
+                if (this.data.syncState === 'ready' && Object.keys(this.data.charts).length > 0) {
                     this.render();
+                } else if (this.data.syncState === 'failed') {
+                    this.renderDataUnavailableState();
+                } else if (this.data.syncState === 'awaiting') {
+                    this.renderAwaitingDataState();
                 }
 
                 this.initializeVoiceRecognition(); // refreshes #voiceIndicator's localized title only — see its own comment
-            }
-
-            generateBasicInsights() {
-                const { annual } = this.calculateFinancials();
-                
-                const insights = {
-                    ar: [
-                        {
-                            type: 'performance',
-                            title: 'تحليل الأداء الحالي',
-                            content: `الأداء المالي يظهر ${annual.totalNetProfit >= 0 ? 'ربحية' : 'خسائر'} بقيمة ${Math.abs(annual.totalNetProfit).toLocaleString()} ر.س`,
-                            confidence: 85,
-                            icon: 'fas fa-chart-line'
-                        },
-                        {
-                            type: 'trend',
-                            title: 'اتجاه المبيعات',
-                            content: `إجمالي المبيعات بلغ ${annual.totalSales.toLocaleString()} ر.س مع نمو متوقع`,
-                            confidence: 78,
-                            icon: 'fas fa-arrow-trend-up'
-                        }
-                    ],
-                    en: [
-                        {
-                            type: 'performance',
-                            title: 'Current Performance Analysis',
-                            content: `Financial performance shows ${annual.totalNetProfit >= 0 ? 'profitability' : 'losses'} of ${Math.abs(annual.totalNetProfit).toLocaleString()} SAR`,
-                            confidence: 85,
-                            icon: 'fas fa-chart-line'
-                        },
-                        {
-                            type: 'trend',
-                            title: 'Sales Trend',
-                            content: `Total sales reached ${annual.totalSales.toLocaleString()} SAR with expected growth`,
-                            confidence: 78,
-                            icon: 'fas fa-arrow-trend-up'
-                        }
-                    ]
-                };
-                
-                this.data.aiInsights = insights[this.data.currentLanguage];
             }
 
             async generateInitialInsights() {
@@ -582,16 +600,20 @@ class InsightsFinancialDashboard {
                 this.showTypingIndicator();
 
                 try {
-                    const { annual } = this.calculateFinancials();
-                    const { text } = await this.requestInsight('ask', {
-                        question: message,
-                        data: {
+                    // Only attach real, synced financial figures as context —
+                    // never computed from unsynced/absent data. The question
+                    // itself can still be answered without them.
+                    let data;
+                    if (this.data.syncState === 'ready') {
+                        const { annual } = this.calculateFinancials();
+                        data = {
                             totalSales: annual.totalSales,
                             totalNetProfit: annual.totalNetProfit,
                             breakEven: annual.breakEven,
                             marginOfSafety: annual.marginOfSafety
-                        }
-                    });
+                        };
+                    }
+                    const { text } = await this.requestInsight('ask', { question: message, data });
                     this.hideTypingIndicator();
                     this.addAiMessage('assistant', text);
                 } catch (error) {
@@ -659,6 +681,7 @@ class InsightsFinancialDashboard {
             }
 
             async performAnalysis() {
+                if (!this.requireSyncedData()) return;
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'جاري تشغيل التحليل الذكي...' : 'Running AI analysis...'
                 );
@@ -690,6 +713,7 @@ class InsightsFinancialDashboard {
             }
 
             async generateInsights() {
+                if (!this.requireSyncedData()) return;
                 await this.generateInitialInsights();
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'تم توليد رؤى جديدة' : 'New insights generated',
@@ -698,6 +722,7 @@ class InsightsFinancialDashboard {
             }
 
             async generatePredictions() {
+                if (!this.requireSyncedData()) return;
                 const { monthly, annual } = this.calculateFinancials();
 
                 try {
@@ -752,7 +777,37 @@ class InsightsFinancialDashboard {
                 return { monthly: monthlyCalcs, annual: annualTotals };
             }
 
+            // Guards every AI action that would otherwise call
+            // calculateFinancials() on data that doesn't exist yet (or
+            // failed to sync) — used instead of letting those actions
+            // either crash on a null baseFinancialData or, worse, silently
+            // analyze zeroed-out placeholder numbers as if they were real.
+            requireSyncedData() {
+                if (this.data.syncState === 'ready') return true;
+                this.showNotification(
+                    this.data.currentLanguage === 'ar'
+                        ? 'لا تتوفر بيانات مزامنة بعد من وردة ERP'
+                        : 'No synced Wardah ERP data available yet',
+                    'error'
+                );
+                return false;
+            }
+
             render() {
+                // No real, synced data yet (or sync failed) — never falls
+                // through to drawing charts/KPIs/insights from an absent or
+                // stale baseFinancialData. See renderAwaitingDataState()/
+                // renderDataUnavailableState() and the syncState machine in
+                // loadData()/handleDataSync().
+                if (this.data.syncState !== 'ready' || !this.data.baseFinancialData) {
+                    if (this.data.syncState === 'failed') {
+                        this.renderDataUnavailableState();
+                    } else {
+                        this.renderAwaitingDataState();
+                    }
+                    return;
+                }
+
                 try {
                     const { monthly, annual } = this.calculateFinancials();
                     this.renderAdvancedKPIs(annual);
@@ -760,10 +815,60 @@ class InsightsFinancialDashboard {
                     this.renderInsights();
                     this.renderAdvancedControls();
                     this.renderRealtimeMetrics(annual);
-                    this.renderRecommendations(annual);
                 } catch (error) {
                     console.error('Render error:', error);
                 }
+            }
+
+            // Textual, non-numeric placeholder shown in every content
+            // container while no real synced data is available — used both
+            // pre-sync and after a failed sync. Deliberately shows zero
+            // figures, charts, or insight cards: a financial ERP dashboard
+            // must never present sample/trial data as if it were real.
+            renderSyncPlaceholder(titleAr, titleEn, bodyAr, bodyEn) {
+                const ar = this.data.currentLanguage === 'ar';
+                const buildMessage = () => el('div', { className: 'ai-insight-card col-span-full text-center py-8' }, [
+                    el('h4', { className: 'font-bold text-white text-sm mb-2', text: ar ? titleAr : titleEn }),
+                    el('p', { className: 'text-gray-400 text-xs', text: ar ? bodyAr : bodyEn })
+                ]);
+
+                const kpiContainer = document.getElementById('advancedKpiContainer');
+                if (kpiContainer) kpiContainer.replaceChildren(buildMessage());
+
+                const insights = document.getElementById('aiInsights');
+                if (insights) insights.replaceChildren(buildMessage());
+
+                const recommendations = document.getElementById('aiRecommendations');
+                if (recommendations) recommendations.replaceChildren();
+
+                const realtime = document.getElementById('realtimeMetrics');
+                if (realtime) realtime.replaceChildren(buildMessage());
+
+                const controls = document.getElementById('advancedControls');
+                if (controls) controls.replaceChildren();
+
+                ['advanced3DChart', 'predictiveChart', 'advancedBreakdownChart'].forEach((id) => {
+                    const chartEl = document.getElementById(id);
+                    if (chartEl) chartEl.replaceChildren();
+                });
+            }
+
+            renderAwaitingDataState() {
+                this.renderSyncPlaceholder(
+                    'بانتظار بيانات وردة ERP',
+                    'Awaiting Wardah ERP data',
+                    'لم تصل بيانات مالية حقيقية بعد. لا تُعرض أي أرقام تجريبية.',
+                    'No real financial data has arrived yet. No sample figures are shown.'
+                );
+            }
+
+            renderDataUnavailableState() {
+                this.renderSyncPlaceholder(
+                    'تعذّر تحميل البيانات',
+                    'Data unavailable',
+                    'تعذّرت مزامنة البيانات المالية من وردة ERP. لا تُعرض أي أرقام تجريبية — استخدم زر المزامنة لإعادة المحاولة.',
+                    'Could not sync financial data from Wardah ERP. No sample figures are shown — use the sync button to retry.'
+                );
             }
 
             renderAdvancedKPIs(annual) {
@@ -1155,23 +1260,18 @@ class InsightsFinancialDashboard {
                 const container = document.getElementById('realtimeMetrics');
                 if (!container) return;
                 
-                const t = this.translations[this.data.currentLanguage];
-                
+                // Only costEfficiency is a real, computed figure from the
+                // synced annual totals. This used to also show a fixed
+                // "+12.5%" growth rate and a fixed "8.7/10" performance
+                // index — neither derived from any real computation, both
+                // deleted rather than replaced with a different fabricated
+                // number (there is no real trend-over-time or scoring model
+                // behind either one).
                 const metrics = [
-                    { 
-                        label: t.costEfficiency, 
-                        value: `${((annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses) / annual.totalSales * 100).toFixed(1)}%`, 
-                        status: 'good' 
-                    },
-                    { 
-                        label: t.growthRate, 
-                        value: '+12.5%', 
-                        status: 'excellent' 
-                    },
-                    { 
-                        label: t.performanceIndex, 
-                        value: '8.7/10', 
-                        status: 'good' 
+                    {
+                        label: this.translations[this.data.currentLanguage].costEfficiency,
+                        value: `${((annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses) / annual.totalSales * 100).toFixed(1)}%`,
+                        status: 'good'
                     }
                 ];
 
@@ -1182,58 +1282,6 @@ class InsightsFinancialDashboard {
                         el('div', { className: 'w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-teal-600' })
                     ])
                 ])));
-            }
-
-            renderRecommendations(annual) {
-                const container = document.getElementById('aiRecommendations');
-                if (!container) return;
-
-                const recommendations = [
-                    {
-                        title: this.data.currentLanguage === 'ar' ? 'تحسين الكفاءة بالذكاء الاصطناعي' : 'AI Efficiency Improvement',
-                        description: this.data.currentLanguage === 'ar' ? 'تقليل التكاليف الإدارية بنسبة 15% باستخدام الذكاء الاصطناعي' : 'Reduce administrative costs by 15% using AI',
-                        impact: 'high',
-                        icon: 'fas fa-brain'
-                    },
-                    {
-                        title: this.data.currentLanguage === 'ar' ? 'نمو المبيعات الذكي' : 'Smart Sales Growth',
-                        description: this.data.currentLanguage === 'ar' ? 'استهداف قطاعات جديدة بتحليل ذكي متقدم' : 'Target new segments with advanced AI analysis',
-                        impact: 'medium',
-                        icon: 'fas fa-chart-line'
-                    },
-                    {
-                        title: this.data.currentLanguage === 'ar' ? 'إدارة المخاطر الذكية' : 'Smart Risk Management',
-                        description: this.data.currentLanguage === 'ar' ? 'تنويع مصادر الدخل بناءً على توقعات ذكية' : 'Diversify income sources based on AI predictions',
-                        impact: 'high',
-                        icon: 'fas fa-shield-alt'
-                    },
-                    {
-                        title: this.data.currentLanguage === 'ar' ? 'الاستثمار المدعوم بالذكاء الاصطناعي' : 'AI-Powered Investment',
-                        description: this.data.currentLanguage === 'ar' ? 'استثمار في التكنولوجيا بتوجيه من الذكاء الاصطناعي' : 'Invest in technology guided by AI',
-                        impact: 'medium',
-                        icon: 'fas fa-lightbulb'
-                    }
-                ];
-
-                container.replaceChildren(...recommendations.map((rec) => {
-                    const impactBg = rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500';
-                    const impactLabel = rec.impact === 'high'
-                        ? (this.data.currentLanguage === 'ar' ? 'تأثير عالي' : 'High Impact')
-                        : (this.data.currentLanguage === 'ar' ? 'تأثير متوسط' : 'Medium Impact');
-
-                    return el('div', { className: 'ai-insight-card' }, [
-                        el('div', { className: 'flex items-start space-x-3' }, [
-                            el('div', { className: `w-10 h-10 ${impactBg} rounded-lg flex items-center justify-center flex-shrink-0` }, [
-                                el('i', { className: `${rec.icon} text-white` })
-                            ]),
-                            el('div', { className: 'flex-1' }, [
-                                el('h4', { className: 'font-bold text-white text-sm mb-1', text: rec.title }),
-                                el('p', { className: 'text-gray-300 text-xs mb-2', text: rec.description }),
-                                el('span', { className: `text-xs px-2 py-1 rounded-full ${impactBg} text-white`, text: impactLabel })
-                            ])
-                        ])
-                    ]);
-                }));
             }
 
             // Deterministic linear-trend extrapolation — no simulated noise.
@@ -1293,6 +1341,7 @@ class InsightsFinancialDashboard {
             }
 
             async generateReport() {
+                if (!this.requireSyncedData()) return;
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'جاري إنشاء التقرير الذكي...' : 'Generating AI report...'
                 );
@@ -1323,6 +1372,7 @@ class InsightsFinancialDashboard {
             }
 
             async generateOptimizationSuggestions() {
+                if (!this.requireSyncedData()) return;
                 const { annual } = this.calculateFinancials();
 
                 try {
@@ -1342,6 +1392,7 @@ class InsightsFinancialDashboard {
             }
 
             async performRiskAnalysis() {
+                if (!this.requireSyncedData()) return;
                 const { annual } = this.calculateFinancials();
 
                 try {
@@ -1359,6 +1410,7 @@ class InsightsFinancialDashboard {
             }
 
             async generateStrategicRecommendations() {
+                if (!this.requireSyncedData()) return;
                 const { annual } = this.calculateFinancials();
 
                 try {
@@ -1447,7 +1499,7 @@ class InsightsFinancialDashboard {
 
             startRealtimeUpdates() {
                 setInterval(() => {
-                    if (this.data.settings.autoSync) {
+                    if (this.data.settings.autoSync && this.data.syncState === 'ready') {
                         const { annual } = this.calculateFinancials();
                         this.renderRealtimeMetrics(annual);
                     }
@@ -1468,126 +1520,21 @@ class InsightsFinancialDashboard {
                 return arr.reduce((acc, val) => acc + val, 0);
             }
 
-            // Add secure Wardah ERP integration methods
-            async fetchWardahFinancialData() {
-                try {
-                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/financial-data`, {
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Wardah Proxy error: ${response.status}`);
-                    }
-                    
-                    const wardahData = await response.json();
-                    return this.mapWardahDataToDashboardFormat(wardahData);
-                } catch (error) {
-                    console.error('Error fetching Wardah financial data:', error);
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في جلب بيانات وردة ERP' : 'Failed to fetch Wardah ERP data',
-                        'error'
-                    );
-                    // Return existing data as fallback
-                    return this.data.baseFinancialData;
-                }
-            }
-
-            async fetchWardahTransactions() {
-                try {
-                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/transactions`, {
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Wardah Proxy error: ${response.status}`);
-                    }
-                    
-                    return await response.json();
-                } catch (error) {
-                    console.error('Error fetching Wardah transactions:', error);
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في جلب معاملات وردة ERP' : 'Failed to fetch Wardah transactions',
-                        'error'
-                    );
-                    return [];
-                }
-            }
-
-            async fetchWardahInventory() {
-                try {
-                    const response = await fetch(`${this.wardahProxyConfig.proxyUrl}/inventory`, {
-                        headers: {
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (!response.ok) {
-                        throw new Error(`Wardah Proxy error: ${response.status}`);
-                    }
-                    
-                    return await response.json();
-                } catch (error) {
-                    console.error('Error fetching Wardah inventory:', error);
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'فشل في جلب مخزون وردة ERP' : 'Failed to fetch Wardah inventory',
-                        'error'
-                    );
-                    return {};
-                }
-            }
-
-            mapWardahDataToDashboardFormat(wardahData) {
-                // Map Wardah ERP data structure to dashboard format
-                const mappedData = {};
-                
-                // Handle different data structures from Wardah
-                const monthlyData = wardahData.monthlyData || wardahData.data || wardahData;
-                
-                if (Array.isArray(monthlyData)) {
-                    monthlyData.forEach(monthData => {
-                        const monthName = monthData.monthNameAr || monthData.monthName || monthData.month;
-                        if (monthName) {
-                            mappedData[monthName] = {
-                                'p': [monthData.salesRevenue || monthData.sales || 0, 0, 0], // Sales data
-                                's_exp': [
-                                    monthData.sellingExpenses || 0, 
-                                    monthData.marketingExpenses || monthData.advertising || 0
-                                ], // Selling expenses
-                                'a_exp': [
-                                    monthData.adminSalaries || 0,
-                                    monthData.officeRent || monthData.rent || 0,
-                                    monthData.utilities || 0,
-                                    monthData.insurance || 0,
-                                    monthData.maintenance || 0,
-                                    monthData.softwareLicenses || 0,
-                                    monthData.travel || 0,
-                                    monthData.otherAdminExpenses || 0
-                                ] // Administrative expenses
-                            };
-                        }
-                    });
-                }
-                
-                return mappedData;
-            }
-
             // Handles the real financial figures the React host page
             // computes and sends over the port (see syncWithWardah()/
             // WARDHAH_DATA_SYNC in EnhancedInsightsDashboard.tsx). This
             // iframe has no backend of its own and no credential of any
-            // kind — the host is the only source of real Wardah data.
-            // Called by the module-level port message dispatcher at the
-            // top of this file, not by a listener of its own — the
-            // MessageChannel established at handshake is itself the
-            // identity boundary now (see that dispatcher's comment).
+            // kind — the host is the only source of real Wardah data. The
+            // module-level port dispatcher at the top of this file already
+            // schema-validates msg (isValidDataSync) before ever calling
+            // this, so msg.data.monthlyData is guaranteed well-shaped here.
             handleDataSync(msg) {
-                if (!msg.data || typeof msg.data !== 'object' || !msg.data.monthlyData) return;
-
                 this.data.baseFinancialData = msg.data.monthlyData;
+                this.data.syncState = 'ready';
+                if (this._resolveDataSync) {
+                    this._resolveDataSync();
+                    this._resolveDataSync = null;
+                }
                 this.render();
                 this.showNotification(
                     this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
@@ -1609,20 +1556,53 @@ class InsightsFinancialDashboard {
                 }
             }
 
-            async loadData() {
-                await this.delay(1000);
+            // Polls for the module-level handshake port to be ready — the
+            // parent's onLoad handshake and this iframe's own
+            // DOMContentLoaded/init() race independently, so the port may
+            // not exist yet the instant loadData() runs.
+            waitForPort(timeoutMs) {
+                return new Promise((resolve) => {
+                    const start = Date.now();
+                    const poll = () => {
+                        if (wardahPort) { resolve(true); return; }
+                        if (Date.now() - start >= timeoutMs) { resolve(false); return; }
+                        setTimeout(poll, 50);
+                    };
+                    poll();
+                });
+            }
 
-                // Check if we should load data from Wardah ERP
+            // This iframe never shows sample/placeholder financial data,
+            // before or after sync. It waits for a real, schema-validated
+            // WARDHAH_DATA_SYNC (via handleDataSync()) and shows an
+            // explicit "awaiting data" state until then; if none arrives
+            // within a bounded window it moves to a "data unavailable"
+            // state instead of ever fabricating figures.
+            async loadData() {
+                this.data.syncState = 'awaiting';
+                this.renderAwaitingDataState();
+
                 const urlParams = new URLSearchParams(window.location.search);
                 const useWardah = urlParams.get('wardah') === 'true';
 
-                // Show deterministic sample-derived insights immediately so
-                // the UI never appears empty — real figures replace them
-                // via handleDataSync() once the host responds.
-                this.generateBasicInsights();
+                if (!useWardah) {
+                    // No host to sync real data from at all.
+                    this.data.syncState = 'failed';
+                    return;
+                }
 
-                if (useWardah && wardahPort) {
+                const portReady = await this.waitForPort(5000);
+                if (portReady) {
                     wardahPort.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId: crypto.randomUUID() });
+                }
+
+                const synced = await Promise.race([
+                    this._dataSyncPromise.then(() => true),
+                    this.delay(15000).then(() => false) // matches requestInsight()'s own 15s fallback convention
+                ]);
+
+                if (!synced) {
+                    this.data.syncState = 'failed';
                 }
             }
         }

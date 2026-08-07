@@ -120,6 +120,15 @@ export function EnhancedInsightsDashboard() {
   // send site can just no-op safely if the iframe hasn't finished loading
   // yet instead of needing its own readiness bookkeeping.
   const portRef = useRef<MessagePort | null>(null);
+  // Guards the one-time handshake in the iframe's onLoad below against a
+  // second `load` event (a re-navigation/reload of the iframe) silently
+  // opening a brand-new MessageChannel and re-sending a second handshake.
+  // dashboard.js's own handshake listener already only ever accepts the
+  // first WARDHAH_CHANNEL_INIT it receives (see its module comment), but
+  // without this guard a second `load` here would still tear down the
+  // working port and leave the iframe holding a port nothing writes to
+  // anymore — this makes port delivery exactly-once on this side too.
+  const handshakeSentRef = useRef(false);
 
   // Replies to (or forwards) a single message received over the channel.
   // Pulled out of the port's onmessage handler so it has no event/source
@@ -402,7 +411,7 @@ export function EnhancedInsightsDashboard() {
                 )}
                 <iframe
                   ref={iframeRef}
-                  src={`/reports-insights/dashboard.html?wardah=true&autoSync=true&parentOrigin=${encodeURIComponent(globalThis.window.location.origin)}`}
+                  src="/reports-insights/dashboard.html?wardah=true&autoSync=true"
                   className="w-full h-full border-0 rounded-lg"
                   title="Reports Insights Dashboard"
                   sandbox="allow-scripts allow-downloads"
@@ -410,6 +419,13 @@ export function EnhancedInsightsDashboard() {
                   allowFullScreen
                   onLoad={() => {
                     setLoading(false);
+
+                    // Exactly-once handshake guard: a second `load` event
+                    // (iframe re-navigation/reload) must not tear down the
+                    // working port and open a new one — see
+                    // handshakeSentRef's declaration above.
+                    if (handshakeSentRef.current) return;
+                    handshakeSentRef.current = true;
 
                     // One-time handshake: hand the iframe a private
                     // MessagePort. This is the only postMessage(..., '*')

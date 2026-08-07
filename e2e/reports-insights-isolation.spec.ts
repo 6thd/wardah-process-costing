@@ -311,3 +311,99 @@ test.describe('feature parity through the new postMessage contract', () => {
     expect(chatText).not.toContain('harness-provided-insight-text-ask');
   });
 });
+
+test.describe('no sample/trial financial data — a financial ERP dashboard must never present fabricated figures as real', () => {
+  test('shows an explicit "awaiting data" state — no numbers, no charts, no sample insights — before a real sync arrives', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'never';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+
+    // loadData() renders this placeholder synchronously, well before its
+    // own internal 15s no-sync timeout — this observes the pre-sync state
+    // directly, not the post-timeout "unavailable" state (see the next test).
+    await expect(frame.locator('#advancedKpiContainer')).toContainText('بانتظار بيانات وردة ERP', { timeout: 5000 });
+
+    const kpiText = await frame.locator('#advancedKpiContainer').innerText();
+    expect(kpiText).not.toMatch(/\d/);
+    const recommendationsText = await frame.locator('#aiRecommendations').innerText();
+    expect(recommendationsText).not.toMatch(/\d/);
+
+    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    expect(childFrame).toBeTruthy();
+    const chartHasContent = await childFrame!.evaluate(() => {
+      const ids = ['advanced3DChart', 'predictiveChart', 'advancedBreakdownChart'];
+      return ids.some((id) => {
+        const el = document.getElementById(id);
+        return !!el && (el.querySelector('svg') !== null || el.querySelector('canvas') !== null);
+      });
+    });
+    expect(chartHasContent).toBe(false);
+  });
+
+  test('never shows sample/trial data after a failed sync — a distinct "data unavailable" state instead, still zero numbers', async ({ page }) => {
+    // loadData()'s internal 15s no-sync timeout must fully elapse.
+    test.setTimeout(45000);
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'never';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+
+    await expect(frame.locator('#advancedKpiContainer')).toContainText('بانتظار بيانات وردة ERP', { timeout: 5000 });
+    // syncState flips to 'failed' after loadData()'s own 15s timeout, and
+    // render() immediately re-draws the distinct unavailable-state text —
+    // proves this is a real state transition, not just a stuck "awaiting".
+    await expect(frame.locator('#advancedKpiContainer')).toContainText('تعذّر تحميل البيانات', { timeout: 25000 });
+
+    const kpiText = await frame.locator('#advancedKpiContainer').innerText();
+    expect(kpiText).not.toMatch(/\d/);
+    expect(kpiText).not.toContain('بانتظار');
+  });
+
+  test('drops a malformed WARDHAH_DATA_SYNC instead of rendering it (schema validation)', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.dataSyncMode = 'malformed';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+
+    await expect
+      .poll(async () => page.evaluate(() => (window as any).__harness.receivedFromIframe.some((m: any) => m.type === 'REQUEST_WARDHAH_DATA')), { timeout: 15000 })
+      .toBe(true);
+
+    // Give the (rejected) malformed reply time to have been processed.
+    await frame.locator('#advancedKpiContainer').waitFor({ state: 'attached' });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
+    const kpiText = await frame.locator('#advancedKpiContainer').innerText();
+    expect(kpiText).not.toMatch(/\d/);
+    // Still 'awaiting', not 'ready' — the malformed message never reached
+    // handleDataSync()/render() at all, it was dropped at the port
+    // dispatcher's isValidDataSync() check (see dashboard.js).
+    expect(kpiText).toContain('بانتظار');
+  });
+
+  test('drops a malformed WARDHAH_INSIGHT_RESPONSE and falls back to the local deterministic answer, same as a timeout', async ({ page }) => {
+    test.setTimeout(60000);
+    await gotoHarness(page);
+    await page.evaluate(() => {
+      (window as any).__harness.respondMode = 'malformed';
+      (window as any).__harness.loadTarget();
+    });
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#loadingOverlay')).toHaveCSS('display', 'none', { timeout: 25000 });
+
+    await frame.locator('#aiAssistantBtn').click();
+    await frame.locator('.quick-question').first().click();
+
+    await expect(frame.locator('#aiChat .ai-message').last()).not.toBeEmpty({ timeout: 20000 });
+    const chatText = await frame.locator('#aiChat').innerText();
+    expect(chatText).not.toContain('harness-provided-insight-text-ask');
+    expect(chatText).not.toContain('12345');
+  });
+});
