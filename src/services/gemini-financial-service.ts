@@ -329,11 +329,14 @@ class GeminiFinancialService {
       // an honest "no data yet"). A future year returns no months at all;
       // a past year returns the full twelve, since every month in it has
       // already happened.
-      const months = year > currentYear
-        ? []
-        : year === currentYear
-          ? allMonths.filter(m => m.num <= currentMonthNum)
-          : allMonths;
+      let months: typeof allMonths;
+      if (year > currentYear) {
+        months = [];
+      } else if (year === currentYear) {
+        months = allMonths.filter(m => m.num <= currentMonthNum);
+      } else {
+        months = allMonths;
+      }
 
       const monthlyData: MonthlyFinancialData[] = [];
 
