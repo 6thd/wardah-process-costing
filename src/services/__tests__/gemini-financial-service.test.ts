@@ -32,7 +32,13 @@ type Handler = (state: QueryState) => { data: unknown[] | null; error: { message
 
 const { queryLog, handlers, resetHarness, makeBuilder } = vi.hoisted(() => {
   const queryLog: QueryState[] = [];
-  const handlers: Record<string, Handler> = {};
+  // A Map (not a plain object indexed by bracket notation) specifically so
+  // looking up the per-table handler below reads as Map.get(), not a
+  // dynamic-property-name object index — the latter is what a static
+  // analyzer's "unsafe dynamic method" pattern flags, even though `table`
+  // here is always a literal string baked into gemini-financial-service.ts
+  // itself (e.g. supabase.from('gl_accounts')), never external input.
+  const handlers = new Map<string, Handler>();
 
   function makeBuilder(table: string) {
     const state: QueryState = { table, filters: [] };
@@ -57,7 +63,7 @@ const { queryLog, handlers, resetHarness, makeBuilder } = vi.hoisted(() => {
       range: (from: unknown, to: unknown) => {
         state.range = [from as number, to as number];
         queryLog.push(state);
-        const handler = handlers[table];
+        const handler = handlers.get(table);
         if (!handler) throw new Error(`gemini-financial-service.test.ts: no handler configured for table "${table}"`);
         return Promise.resolve(handler(state));
       },
@@ -67,12 +73,12 @@ const { queryLog, handlers, resetHarness, makeBuilder } = vi.hoisted(() => {
 
   function resetHarness() {
     queryLog.length = 0;
-    for (const key of Object.keys(handlers)) delete handlers[key];
+    handlers.clear();
     const emptyOk = () => ({ data: [], error: null });
-    handlers.gl_accounts = emptyOk;
-    handlers.gl_entries = emptyOk;
-    handlers.gl_entry_lines = emptyOk;
-    handlers.products = emptyOk;
+    handlers.set('gl_accounts', emptyOk);
+    handlers.set('gl_entries', emptyOk);
+    handlers.set('gl_entry_lines', emptyOk);
+    handlers.set('products', emptyOk);
   }
 
   return { queryLog, handlers, resetHarness, makeBuilder };
@@ -190,24 +196,24 @@ describe('gemini-financial-service — pagination past Supabase\'s default 1000-
   it('accumulates all 1001 posted entries across two pages instead of silently truncating at 1000', async () => {
     const TOTAL_ENTRIES = 1001;
 
-    handlers.gl_entries = (state) => {
+    handlers.set('gl_entries', (state) => {
       const [from, to] = state.range!;
       const page = [];
       for (let i = from; i <= to && i < TOTAL_ENTRIES; i++) page.push({ id: `entry-${i}` });
       return { data: page, error: null };
-    };
-    handlers.gl_accounts = (state) => {
+    });
+    handlers.set('gl_accounts', (state) => {
       const categoryFilter = state.filters.find(([col]) => col === 'category');
       if (categoryFilter?.[2] === 'REVENUE') return { data: [{ id: 'rev-1' }], error: null };
       return { data: [], error: null };
-    };
-    handlers.gl_entry_lines = (state) => {
+    });
+    handlers.set('gl_entry_lines', (state) => {
       const inFilter = state.filters.find(([col, op]) => col === 'entry_id' && op === 'in');
       const requestedIds = (inFilter?.[2] as string[]) ?? [];
       const [from, to] = state.range!;
       const page = requestedIds.slice(from, to + 1).map(() => ({ account_id: 'rev-1', debit: 0, credit: 100 }));
       return { data: page, error: null };
-    };
+    });
 
     const kpis = await geminiFinancialService.fetchRealFinancialKPIs(new Date(2026, 0, 1), new Date(2026, 11, 31));
 
@@ -221,13 +227,13 @@ describe('gemini-financial-service — pagination past Supabase\'s default 1000-
   });
 
   it('throws instead of returning a zero total when a query fails', async () => {
-    handlers.gl_accounts = (state) => {
+    handlers.set('gl_accounts', (state) => {
       const categoryFilter = state.filters.find(([col]) => col === 'category');
       if (categoryFilter?.[2] === 'REVENUE') {
         return { data: null, error: { message: 'permission denied for table gl_accounts' } };
       }
       return { data: [], error: null };
-    };
+    });
 
     await expect(
       geminiFinancialService.fetchRealFinancialKPIs(new Date(2026, 0, 1), new Date(2026, 11, 31))
