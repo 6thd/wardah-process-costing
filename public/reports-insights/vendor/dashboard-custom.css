@@ -463,6 +463,18 @@
             animation: aiVoicePulse 1s ease-in-out infinite;
         }
 
+        .voice-indicator.unavailable {
+            background: #4b5563;
+            animation: none;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .voice-indicator.unavailable:hover {
+            transform: none;
+            box-shadow: 0 4px 20px rgba(66, 133, 244, 0.4);
+        }
+
         @keyframes aiVoicePulse {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.2); }

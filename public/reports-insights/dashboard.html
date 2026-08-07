@@ -259,9 +259,17 @@
         </main>
     </div>
 
-    <!-- Voice Command Indicator -->
-    <div id="voiceIndicator" class="voice-indicator">
-        <i class="fas fa-microphone text-white text-xl"></i>
+    <!-- Voice Command Indicator — disabled: vercel.json sets a site-wide
+         Permissions-Policy: microphone=() that blocks microphone access
+         regardless of browser SpeechRecognition support, so this always
+         renders as unavailable rather than attempting and silently
+         failing at click time. Enabling voice for real needs its own
+         design/permissions-policy change and its own tests, out of scope
+         for this isolation rebuild. title is set in JS (switchLanguage()
+         overwrites .textContent for any [data-ar][data-en] element, which
+         would destroy the icon child below if used here). -->
+    <div id="voiceIndicator" class="voice-indicator unavailable">
+        <i class="fas fa-microphone-slash text-white text-xl"></i>
     </div>
 
     <!-- AI Assistant Panel -->

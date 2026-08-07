@@ -40,17 +40,35 @@ async function gotoHarness(page: Page) {
 }
 
 test.describe('reports-insights response headers (vercel.json)', () => {
-  test('the isolated dashboard route sends an enforcing CSP with no unsafe-eval/unsafe-inline, and X-Frame-Options: SAMEORIGIN', async ({ request }) => {
+  test('the isolated dashboard route sends an enforcing CSP — script-src stays strict, style-src allows unsafe-inline only (ApexCharts compatibility), X-Frame-Options: SAMEORIGIN', async ({ request }) => {
     const res = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
     expect(res.status()).toBe(200);
 
     const csp = res.headers()['content-security-policy'];
     expect(csp, 'dashboard.html must send an enforcing CSP, not just Report-Only').toBeTruthy();
-    expect(csp).not.toContain('unsafe-eval');
-    expect(csp).not.toContain('unsafe-inline');
-    expect(csp).toContain("script-src 'self'");
-    expect(csp).toContain("frame-ancestors 'self'");
 
+    // script-src: still strict. No eval, no inline script, of any kind —
+    // this is the directive that actually matters for arbitrary code
+    // execution, and it is not weakened by the style-src decision below.
+    const scriptSrcDirective = csp!.split(';').map((d) => d.trim()).find((d) => d.startsWith('script-src'));
+    expect(scriptSrcDirective, 'script-src directive must be present').toBeTruthy();
+    expect(scriptSrcDirective).toBe("script-src 'self'");
+    expect(scriptSrcDirective).not.toContain('unsafe-eval');
+    expect(scriptSrcDirective).not.toContain('unsafe-inline');
+
+    // style-src: deliberately relaxed to allow 'unsafe-inline', scoped to
+    // this one directive only — ApexCharts 5.3.6 writes some of its
+    // internal SVG sub-element styling via a whole-attribute style write
+    // (`setAttribute('style', ...)`/`.style.cssText = ...`), which CSP's
+    // style-src governs the same as a literal style="..." attribute.
+    // Approved decision: accept this narrow, style-only relaxation inside
+    // an iframe with no allow-same-origin rather than patch a
+    // third-party charting library or accept broken chart rendering.
+    const styleSrcDirective = csp!.split(';').map((d) => d.trim()).find((d) => d.startsWith('style-src'));
+    expect(styleSrcDirective, 'style-src directive must be present').toBeTruthy();
+    expect(styleSrcDirective).toBe("style-src 'self' 'unsafe-inline'");
+
+    expect(csp).toContain("frame-ancestors 'self'");
     expect(res.headers()['x-frame-options']).toBe('SAMEORIGIN');
   });
 
@@ -66,7 +84,7 @@ test.describe('reports-insights response headers (vercel.json)', () => {
 });
 
 test.describe('CSP compliance under the isolated route real headers', () => {
-  test('ApexCharts renders under the route CSP (script-src \'self\', no unsafe-eval) with no console errors or CSP violation reports', async ({ page }) => {
+  test('ApexCharts renders under the route CSP (script-src \'self\' strict; style-src allows unsafe-inline) with zero CSP violation reports', async ({ page }) => {
     const consoleErrors: string[] = [];
     const cspViolations: string[] = [];
     page.on('console', (msg) => {
@@ -112,28 +130,18 @@ test.describe('CSP compliance under the isolated route real headers', () => {
 
     cspViolations.push(...consoleErrors.filter((e) => /content security policy|refused to/i.test(e)));
 
-    // KNOWN, VERIFIED, UNRESOLVED at time of writing (see the final report
-    // for this branch): ApexCharts 5.3.6 sets some of its internal SVG
-    // sub-element styling via a whole-attribute style write (equivalent to
-    // `setAttribute('style', ...)` / `.style.cssText = ...`), not per
-    // -property CSSOM assignment — the former is governed by CSP
-    // style-src and gets blocked under 'self' with no unsafe-inline; the
-    // chart still renders (asserted above: a real <svg> is produced with
-    // correct dimensions) but with degraded internal styling on whatever
-    // sub-elements hit this path. This assertion intentionally does NOT
-    // silently pass over new/different violations — it fails loudly if
-    // the violation set changes (fewer is fine, more or different is not)
-    // so a real regression is never masked by this documented gap.
-    const knownApexChartsStyleSrcViolation = /Refused to apply inline style because it violates.*style-src 'self'/;
-    const unexpectedViolations = cspViolations.filter((v) => !knownApexChartsStyleSrcViolation.test(v));
-    expect(unexpectedViolations, `Unexpected CSP violations: ${unexpectedViolations.join('\n')}`).toEqual([]);
-    if (cspViolations.length > 0) {
-      console.warn(
-        `[known-issue] ${cspViolations.length} ApexCharts style-src CSP violation(s) — dashboard.html's ` +
-        `CSP does not yet accommodate ApexCharts' inline-style writes. Needs a decision: relax style-src ` +
-        `for this route, or replace/patch the charting approach. See the branch report for details.`
-      );
-    }
+    // Previously (script-src 'self'; style-src 'self' with NO
+    // unsafe-inline) this reliably produced 7 "Refused to apply inline
+    // style" violations from ApexCharts' whole-attribute style writes
+    // (setAttribute('style', ...)/.style.cssText = ...) — a real,
+    // browser-verified CSP incompatibility, not a false positive.
+    // Approved fix: style-src now includes 'unsafe-inline' for this
+    // route only (script-src is untouched and stays strict). This
+    // assertion is intentionally a hard zero, not a filtered allowlist —
+    // if ApexCharts (or anything else on this route) produces ANY CSP
+    // violation again, this must fail, since the whole point of the
+    // style-src relaxation was to make the violation set genuinely empty.
+    expect(cspViolations, `CSP violations detected (expected zero after the style-src fix): ${cspViolations.join('\n')}`).toEqual([]);
   });
 });
 

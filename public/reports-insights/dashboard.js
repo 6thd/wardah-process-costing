@@ -413,11 +413,8 @@ class InsightsFinancialDashboard {
                 if (Object.keys(this.data.charts).length > 0) {
                     this.render();
                 }
-            }
 
-            async loadData() {
-                await this.delay(1000);
-                this.generateBasicInsights();
+                this.initializeVoiceRecognition(); // refreshes #voiceIndicator's localized title only — see its own comment
             }
 
             generateBasicInsights() {
@@ -1320,64 +1317,32 @@ class InsightsFinancialDashboard {
                 }
             }
 
+            // Intentionally never initializes the browser's SpeechRecognition
+            // API. vercel.json sets a site-wide Permissions-Policy:
+            // microphone=() for the whole app, which blocks microphone
+            // access regardless of SpeechRecognition support — attempting
+            // init anyway would let the button look "ready" and then fail
+            // unpredictably at the OS/browser permission layer on click.
+            // #voiceIndicator renders in a static "unavailable" state
+            // instead (see the .unavailable CSS class and toggleVoiceRecognition()
+            // below), and this.data.voiceRecognition stays null on purpose.
             initializeVoiceRecognition() {
-                if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-                    try {
-                        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-                        this.data.voiceRecognition = new SpeechRecognition();
-                        this.data.voiceRecognition.lang = this.data.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
-                        this.data.voiceRecognition.continuous = false;
-                        this.data.voiceRecognition.interimResults = false;
-
-                        this.data.voiceRecognition.onresult = (event) => {
-                            const command = event.results[0][0].transcript;
-                            this.processVoiceCommand(command);
-                        };
-
-                        this.data.voiceRecognition.onerror = (event) => {
-                            console.error('Voice recognition error:', event.error);
-                        };
-                    } catch (error) {
-                        console.error('Voice recognition initialization error:', error);
-                    }
+                const indicator = document.getElementById('voiceIndicator');
+                if (indicator) {
+                    indicator.title = this.data.currentLanguage === 'ar'
+                        ? 'الأوامر الصوتية غير متاحة'
+                        : 'Voice commands unavailable';
                 }
             }
 
+            // this.data.voiceRecognition is always null (see
+            // initializeVoiceRecognition()'s comment) — voice is disabled
+            // by design, not by a runtime feature-detection failure.
             toggleVoiceRecognition() {
-                if (!this.data.voiceRecognition) {
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'التعرف على الصوت غير مدعوم' : 'Voice recognition not supported',
-                        'error'
-                    );
-                    return;
-                }
-
-                try {
-                    if (this.data.isListening) {
-                        this.data.voiceRecognition.stop();
-                        this.data.isListening = false;
-                        document.getElementById('voiceIndicator').classList.remove('active');
-                    } else {
-                        this.data.voiceRecognition.lang = this.data.currentLanguage === 'ar' ? 'ar-SA' : 'en-US';
-                        this.data.voiceRecognition.start();
-                        this.data.isListening = true;
-                        document.getElementById('voiceIndicator').classList.add('active');
-                        this.showNotification(
-                            this.data.currentLanguage === 'ar' ? 'استمع للأوامر الصوتية...' : 'Listening for voice commands...'
-                        );
-                    }
-                } catch (error) {
-                    console.error('Voice recognition error:', error);
-                }
-            }
-
-            processVoiceCommand(command) {
-                console.log('Voice command:', command);
-                document.getElementById('aiInput').value = command;
-                this.sendAiMessage();
-                
-                this.data.isListening = false;
-                document.getElementById('voiceIndicator').classList.remove('active');
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'الأوامر الصوتية غير متاحة في هذا العرض' : 'Voice commands are not available in this view',
+                    'error'
+                );
             }
 
             showNotification(message, type = 'info') {
