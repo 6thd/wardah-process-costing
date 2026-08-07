@@ -418,11 +418,22 @@ export function EnhancedInsightsDashboard() {
                     // way — and it carries no data, only the channel that
                     // every subsequent message travels over instead (see
                     // the module comment at the top of this file).
+                    //
+                    // Accepted, reviewed exception to typescript:S2819
+                    // ("specify a target origin"): a real origin string
+                    // cannot ever match an opaque origin, so '*' is not a
+                    // weaker choice here, it is the only one that can ever
+                    // deliver. Every other postMessage call this PR touches
+                    // (on both sides of this boundary) was converted to a
+                    // MessageChannel port specifically to eliminate this
+                    // finding everywhere it could be eliminated; this one
+                    // call is the handshake that hands out that channel in
+                    // the first place, so it structurally cannot be one.
                     portRef.current?.close();
                     const channel = new MessageChannel();
                     portRef.current = channel.port1;
                     channel.port1.onmessage = (event) => { handleIframeMessage(event.data); };
-                    iframeRef.current?.contentWindow?.postMessage(
+                    iframeRef.current?.contentWindow?.postMessage( // NOSONAR typescript:S2819 — see comment above
                       { type: 'WARDHAH_CHANNEL_INIT' },
                       '*',
                       [channel.port2]
