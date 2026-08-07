@@ -33,7 +33,7 @@
       ]
     },
     {
-      "source": "/reports-insights/(.*)",
+      "source": "/reports-insights/((?!vendor/fontawesome/webfonts/).*)",
       "headers": [
         {
           "key": "X-Frame-Options",

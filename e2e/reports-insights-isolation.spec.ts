@@ -59,6 +59,24 @@ async function gotoHarness(page: Page) {
   await page.goto(`${ORIGIN}/__harness__`);
 }
 
+// A single-shot page.frames().find(...) right after the loadingOverlay
+// becomes hidden is a real race against Playwright's own frame-tracking
+// bookkeeping — dashboard.js can hide the overlay (a DOM mutation inside
+// the frame) slightly before Playwright's page.frames() reflects that
+// frame's settled, final URL, especially once real network latency and a
+// same-context bypass-cookie redirect (see
+// playwright.reports-insights.vercel-preview.config.ts's
+// x-vercel-set-bypass-cookie) are both in play against a real Vercel
+// Preview, neither of which the local-server run ever exercises. Polling
+// tolerates that instead of asserting on a single point-in-time snapshot,
+// without weakening anything the tests that use this actually assert.
+async function getChildFrame(page: Page) {
+  await expect
+    .poll(() => page.frames().some((f) => f.url().includes('/reports-insights/dashboard.html')), { timeout: 10000 })
+    .toBe(true);
+  return page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'))!;
+}
+
 test.describe('reports-insights response headers (vercel.json)', () => {
   test('the isolated dashboard route sends an enforcing CSP — script-src stays strict, style-src allows unsafe-inline only (ApexCharts compatibility), X-Frame-Options: SAMEORIGIN', async ({ request }) => {
     const res = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
@@ -106,6 +124,18 @@ test.describe('reports-insights response headers (vercel.json)', () => {
     expect(jsRes.headers()['access-control-allow-origin']).toBeUndefined();
     const htmlRes = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
     expect(htmlRes.headers()['access-control-allow-origin']).toBeUndefined();
+
+    // The two /reports-insights/* vercel.json source patterns
+    // (the route-wide CSP/X-Frame-Options block and the webfonts-only
+    // Access-Control-Allow-Origin block) must be mutually exclusive, not
+    // just non-conflicting in practice — Vercel merges headers from every
+    // matching block, so if a font path ever matched both, dashboard.js's
+    // ACAO-undefined assertion above would still pass today but the
+    // webfont file would silently start carrying stray CSP/X-Frame-Options
+    // it has no reason to need. Asserting their absence here on the font
+    // response is what actually proves exclusivity, not overlap-by-luck.
+    expect(fontRes.headers()['x-frame-options']).toBeUndefined();
+    expect(fontRes.headers()['content-security-policy']).toBeUndefined();
   });
 
   test('every other route keeps X-Frame-Options: DENY and no conflicting header is ever sent for the same path', async ({ request }) => {
@@ -141,8 +171,7 @@ test.describe('CSP compliance under the isolated route real headers', () => {
     const frame = page.frameLocator('#target');
     await expect(frame.locator('#loadingOverlay')).toHaveCSS('display', 'none', { timeout: 15000 });
 
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
-    expect(childFrame).toBeTruthy();
+    const childFrame = await getChildFrame(page);
     // ApexCharts instantiates three charts during render() (advanced3D,
     // predictive, advancedBreakdown), which happens slightly after the
     // loading overlay itself is hidden (startAdvancedAnimations() etc.
@@ -204,8 +233,7 @@ test.describe('sandboxed iframe isolation', () => {
     await page.evaluate(() => (window as any).__harness.loadTarget());
     await page.frameLocator('#target').locator('#loadingOverlay').waitFor({ state: 'hidden', timeout: 15000 });
 
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
-    expect(childFrame).toBeTruthy();
+    const childFrame = await getChildFrame(page);
 
     const parentDomAccess = await childFrame!.evaluate(() => {
       try {
@@ -261,8 +289,7 @@ test.describe('fullscreen permission', () => {
     const frame = page.frameLocator('#target');
     await expect(frame.locator('#loadingOverlay')).toHaveCSS('display', 'none', { timeout: 15000 });
 
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
-    expect(childFrame).toBeTruthy();
+    const childFrame = await getChildFrame(page);
 
     // document.fullscreenEnabled reflects whether the Fullscreen API is
     // permitted in this context at all (Permissions Policy / iframe allow
@@ -351,8 +378,7 @@ test.describe('no sample/trial financial data — a financial ERP dashboard must
     const recommendationsText = await frame.locator('#aiRecommendations').innerText();
     expect(recommendationsText).not.toMatch(/\d/);
 
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
-    expect(childFrame).toBeTruthy();
+    const childFrame = await getChildFrame(page);
     const chartHasContent = await childFrame!.evaluate(() => {
       const ids = ['advanced3DChart', 'predictiveChart', 'advancedBreakdownChart'];
       return ids.some((id) => {
@@ -604,7 +630,7 @@ test.describe('cost-to-sales ratio — labeled for what it computes, and undefin
     const frame = page.frameLocator('#target');
     await expect(frame.locator('#realtimeMetrics')).not.toBeEmpty({ timeout: 15000 });
 
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    const childFrame = await getChildFrame(page);
     const hasVerdictDot = await childFrame!.evaluate(() => {
       const container = document.getElementById('realtimeMetrics');
       return !!container?.querySelector('[class*="from-green"], [class*="rounded-full"]');
@@ -660,7 +686,7 @@ test.describe('the forward projection is a linear trend estimate, and is withhel
     // ApexCharts renders one .apexcharts-series group per series, so this
     // counts what was actually drawn: exactly the actual-data series, with
     // no second, projected one beside it.
-    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    const childFrame = await getChildFrame(page);
     const seriesCount = await childFrame!.evaluate(
       () => document.querySelectorAll('#predictiveChart .apexcharts-series').length
     );
