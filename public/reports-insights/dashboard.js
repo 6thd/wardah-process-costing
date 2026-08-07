@@ -62,7 +62,7 @@ function isValidMonthlyData(monthlyData) {
         return month && typeof month === 'object' &&
             isValidAmountArray(month.p) && isValidAmountArray(month.opex) &&
             isFiniteBoundedAmount(month.cogs) && isFiniteBoundedAmount(month.grossProfit) &&
-            isFiniteBoundedAmount(month.netProfit);
+            isFiniteBoundedAmount(month.netProfit) && typeof month.isMTD === 'boolean';
     });
 }
 function isValidDataSync(msg) {
@@ -342,12 +342,16 @@ class InsightsFinancialDashboard {
             buildLocalInsight(operation, payload) {
                 const ar = this.data.currentLanguage === 'ar';
                 const num = (n) => Number(n || 0).toLocaleString(ar ? 'ar-SA' : 'en-US', { maximumFractionDigits: 0 });
-                // Break-even/margin-of-safety are never in payload (see
-                // calculateFinancials() — no real fixed/variable cost
-                // classification exists to compute them from), so this
-                // never references them; contribution margin ratio is a
-                // real, computed figure instead.
-                const cmr = Number(payload.contributionMarginRatio || 0) * 100;
+                // Break-even/margin-of-safety/contribution margin are never
+                // in payload (see calculateFinancials() — no real
+                // fixed/variable cost classification exists to compute any
+                // of them from), so this never references them. Net profit
+                // margin (netProfit / sales) is a real, always-computable
+                // ratio used below instead — it is NOT the same figure as
+                // contribution margin, and is labeled accordingly.
+                const netMarginPct = Number(payload.totalSales) > 0
+                    ? (Number(payload.totalNetProfit || 0) / Number(payload.totalSales)) * 100
+                    : 0;
 
                 switch (operation) {
                     case 'summary':
@@ -364,12 +368,12 @@ class InsightsFinancialDashboard {
                             : 'Review fixed and variable costs for cost-reduction opportunities, and evaluate revenue growth from higher-margin products.';
                     case 'risk':
                         return ar
-                            ? `نسبة هامش المساهمة الحالية ${cmr.toFixed(1)}%؛ ${cmr < 20 ? 'منخفضة ويستدعي ذلك مراجعة التكاليف التشغيلية.' : 'ضمن نطاق مقبول حاليًا.'}`
-                            : `Current contribution margin ratio is ${cmr.toFixed(1)}%; ${cmr < 20 ? 'low, and warrants a review of operating costs.' : 'within an acceptable range for now.'}`;
+                            ? `صافي هامش الربح الحالي ${netMarginPct.toFixed(1)}%؛ ${netMarginPct < 10 ? 'منخفض ويستدعي ذلك مراجعة التكاليف.' : 'ضمن نطاق مقبول حاليًا.'}`
+                            : `Current net profit margin is ${netMarginPct.toFixed(1)}%; ${netMarginPct < 10 ? 'low, and warrants a review of costs.' : 'within an acceptable range for now.'}`;
                     case 'strategy':
                         return ar
-                            ? 'ركّز على تحسين هامش المساهمة عبر تسعير أدق ومزيج منتجات أفضل قبل التوسع في الإنفاق التشغيلي.'
-                            : 'Focus on improving contribution margin through more precise pricing and a better product mix before expanding operating spend.';
+                            ? 'ركّز على تحسين صافي هامش الربح عبر تسعير أدق ومزيج منتجات أفضل قبل التوسع في الإنفاق التشغيلي.'
+                            : 'Focus on improving net profit margin through more precise pricing and a better product mix before expanding operating spend.';
                     case 'ask':
                     default:
                         return this.getFallbackResponse(payload.question || '');
@@ -781,7 +785,7 @@ class InsightsFinancialDashboard {
                     const opex = this.sum(base.opex) * this.data.assumptions.opexMultiplier;
                     const netProfit = grossProfit - opex;
 
-                    return { month, sales, cogs, grossProfit, opex, netProfit };
+                    return { month, sales, cogs, grossProfit, opex, netProfit, isMTD: base.isMTD };
                 });
 
                 const annualTotals = {
@@ -792,10 +796,14 @@ class InsightsFinancialDashboard {
                     totalNetProfit: this.sum(monthlyCalcs.map(m => m.netProfit)),
                 };
 
-                // Real ratio (gross profit / sales) — no fixed/variable
-                // assumption is needed for this one.
-                annualTotals.contributionMarginRatio = annualTotals.totalSales > 0 ?
-                    annualTotals.totalGrossProfit / annualTotals.totalSales : 0;
+                // No contributionMarginRatio here: contribution margin is
+                // revenue minus VARIABLE costs specifically, not gross
+                // profit (revenue minus COGS) — computing it as
+                // totalGrossProfit / totalSales silently relabels gross
+                // margin as contribution margin. There is no real
+                // fixed/variable cost classification anywhere in this
+                // schema (same gap as break-even below), so this is never
+                // computed under either name.
 
                 // Break-even and margin-of-safety are NOT computed: both
                 // require a real fixed-vs-variable cost classification that
@@ -973,11 +981,20 @@ class InsightsFinancialDashboard {
                 this.renderAdvancedBreakdownChart(annual);
             }
 
+            // Chart-category month names, with the current, partial
+            // (month-to-date) month distinctly labeled so it never reads
+            // as a complete month equal to the others in a chart's x-axis.
+            monthLabels() {
+                const names = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
+                const suffix = this.data.currentLanguage === 'ar' ? ' (حتى تاريخه)' : ' (MTD)';
+                return names.map((name, i) => i === this.data.mtdMonthIndex ? `${name}${suffix}` : name);
+            }
+
             render3DChart(monthlyData) {
                 const chartElement = document.querySelector("#advanced3DChart");
                 if (!chartElement) return;
-                
-                const months = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
+
+                const months = this.monthLabels();
                 const t = this.translations[this.data.currentLanguage];
                 
                 const options = {
@@ -1070,7 +1087,7 @@ class InsightsFinancialDashboard {
                 // how many real months were actually synced.
                 const remainingCount = Math.max(0, 12 - monthlyData.length);
                 const predictiveData = remainingCount > 0 ? this.generatePredictiveData(monthlyData, remainingCount) : [];
-                const months = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
+                const months = this.monthLabels();
                 const allFutureMonths = this.data.currentLanguage === 'ar' ? ALL_MONTHS_AR : ALL_MONTHS_EN;
                 const futureMonths = allFutureMonths.slice(monthlyData.length, monthlyData.length + remainingCount);
                 const t = this.translations[this.data.currentLanguage];
@@ -1316,8 +1333,18 @@ class InsightsFinancialDashboard {
             // which is a fabricated number with no basis on a financial
             // dashboard; the trend line itself is already an honest
             // least-squares fit of the real historical data.
+            //
+            // A trailing month-to-date entry (the current calendar month,
+            // necessarily partial) is excluded from both the trend fit and
+            // the forecast's own starting point: comparing a partial
+            // month's profit directly against complete prior months as if
+            // equivalent reads as a sudden real drop that isn't one, and
+            // projecting forward from a partial figure would understate
+            // every predicted month.
             generatePredictiveData(monthlyData, count) {
-                const profits = monthlyData.map(m => m.netProfit);
+                const completeMonths = monthlyData.filter(m => !m.isMTD);
+                const source = completeMonths.length > 0 ? completeMonths : monthlyData;
+                const profits = source.map(m => m.netProfit);
                 const trend = this.calculateTrend(profits);
                 const lastValue = profits[profits.length - 1];
 
@@ -1409,8 +1436,7 @@ class InsightsFinancialDashboard {
                 try {
                     const { text } = await this.requestInsight('risk', {
                         totalSales: annual.totalSales,
-                        totalNetProfit: annual.totalNetProfit,
-                        contributionMarginRatio: annual.contributionMarginRatio
+                        totalNetProfit: annual.totalNetProfit
                     });
 
                     this.addAiMessage('assistant', text);
@@ -1427,7 +1453,6 @@ class InsightsFinancialDashboard {
                 try {
                     const { text } = await this.requestInsight('strategy', {
                         totalNetProfit: annual.totalNetProfit,
-                        contributionMarginRatio: annual.contributionMarginRatio,
                         totalSales: annual.totalSales
                     });
 
@@ -1549,6 +1574,12 @@ class InsightsFinancialDashboard {
                 // data for (up to 12), not a fixed window.
                 this.data.months = Object.keys(this.data.baseFinancialData);
                 this.data.monthsEn = this.data.months.map((ar) => MONTH_NAME_AR_TO_EN[ar] || ar);
+                // Index of the current, partial (month-to-date) month
+                // within this.data.months, or -1 if the synced data has
+                // none (e.g. only past, fully-complete years) — used to
+                // label that one chart category distinctly so it's never
+                // read as a complete month equal to the others.
+                this.data.mtdMonthIndex = this.data.months.findIndex((m) => this.data.baseFinancialData[m].isMTD);
                 this.data.syncState = 'ready';
                 if (this._resolveDataSync) {
                     this._resolveDataSync();

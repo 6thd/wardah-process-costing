@@ -27,8 +27,6 @@ const mockKpis = {
   netProfit: 20000,
   grossProfit: 40000,
   profitMargin: 20,
-  contributionMarginRatio: 0.4,
-  contributionMargin: 40000,
 };
 // available: true here only to exercise the component's numeric-display
 // branch in this test file; calculateBreakEvenAnalysis() itself always

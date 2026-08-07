@@ -349,10 +349,13 @@ export function EnhancedInsightsDashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm opacity-90">{t('reportsInsights.contributionMargin')}</p>
-                      <p className="text-2xl font-bold">{(metrics.kpis.contributionMarginRatio * 100).toFixed(2)}%</p>
-                      <p className="text-xs opacity-80">
-                        {metrics.kpis.contributionMargin.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </p>
+                      {/* Contribution margin = revenue minus VARIABLE costs
+                          specifically, not gross profit (revenue minus
+                          COGS) — gl_accounts has no fixed/variable cost
+                          classification to compute it from (same gap as
+                          break-even above), so this never shows a number
+                          under this label. */}
+                      <p className="text-sm opacity-90">{t('reportsInsights.breakEvenUnavailable')}</p>
                     </div>
                     <Calculator className="h-8 w-8 opacity-80" />
                   </div>

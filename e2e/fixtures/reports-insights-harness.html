@@ -99,36 +99,38 @@
   // silently dropped instead of rendered or crashing the page.
   const MALFORMED_DATA_SYNC = {
     type: 'WARDHAH_DATA_SYNC',
-    data: { monthlyData: { 'يناير': { p: 'not-an-array', opex: [3500], cogs: 40000, grossProfit: 50000, netProfit: 45300 } } },
+    data: { monthlyData: { 'يناير': { p: 'not-an-array', opex: [3500], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false } } },
   };
 
   const targetFrame = document.getElementById('target');
   // Eight real months (يناير-أغسطس), matching the exact shape
   // gemini-financial-service.ts's formatForGeminiDashboard() sends
-  // ({p, opex, cogs, grossProfit, netProfit} per month) — calculateFinancials()
-  // in dashboard.js reads base.cogs directly rather than deriving it from
-  // sales by an assumed rate, so `cogs` below is deliberately NOT 70% of
-  // `p`'s sum for any month (e.g. يناير: p sums to 90000, cogs is 40000,
-  // not 63000) — this is what
+  // ({p, opex, cogs, grossProfit, netProfit, isMTD} per month) —
+  // calculateFinancials() in dashboard.js reads base.cogs directly rather
+  // than deriving it from sales by an assumed rate, so `cogs` below is
+  // deliberately NOT 70% of `p`'s sum for any month (e.g. يناير: p sums to
+  // 90000, cogs is 40000, not 63000) — this is what
   // e2e/reports-insights-isolation.spec.ts's "uses the real synced COGS"
   // test relies on to prove the real value is used, not a fabricated rate.
   // Eight months (not the historical six) also lets that spec file prove
-  // يوليو/أغسطس are not dropped by a hardcoded month list.
+  // يوليو/أغسطس are not dropped by a hardcoded month list. أغسطس is marked
+  // isMTD: true (a partial/current month) so the same spec can prove it is
+  // excluded from the predictive-chart trend fit and visibly labeled.
   const SAMPLE_DATA_SYNC = {
     type: 'WARDHAH_DATA_SYNC',
     data: {
       monthlyData: {
-        'يناير': { p: [90000, 0, 0], opex: [3500, 1200], cogs: 40000, grossProfit: 50000, netProfit: 45300 },
-        'فبراير': { p: [95000, 0, 0], opex: [3800, 1350], cogs: 42000, grossProfit: 53000, netProfit: 47850 },
-        'مارس': { p: [60000, 0, 0], opex: [2900, 1100], cogs: 28000, grossProfit: 32000, netProfit: 28000 },
-        'أبريل': { p: [62000, 0, 0], opex: [3100, 1200], cogs: 29000, grossProfit: 33000, netProfit: 28700 },
-        'مايو': { p: [72000, 0, 0], opex: [3370, 1300], cogs: 33000, grossProfit: 39000, netProfit: 34330 },
-        'يونيو': { p: [112000, 0, 0], opex: [4500, 1500], cogs: 50000, grossProfit: 62000, netProfit: 56000 },
-        'يوليو': { p: [80000, 0, 0], opex: [3200, 1300], cogs: 36000, grossProfit: 44000, netProfit: 39500 },
-        'أغسطس': { p: [85000, 0, 0], opex: [3300, 1350], cogs: 38000, grossProfit: 47000, netProfit: 42350 },
+        'يناير': { p: [90000, 0, 0], opex: [3500, 1200], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false },
+        'فبراير': { p: [95000, 0, 0], opex: [3800, 1350], cogs: 42000, grossProfit: 53000, netProfit: 47850, isMTD: false },
+        'مارس': { p: [60000, 0, 0], opex: [2900, 1100], cogs: 28000, grossProfit: 32000, netProfit: 28000, isMTD: false },
+        'أبريل': { p: [62000, 0, 0], opex: [3100, 1200], cogs: 29000, grossProfit: 33000, netProfit: 28700, isMTD: false },
+        'مايو': { p: [72000, 0, 0], opex: [3370, 1300], cogs: 33000, grossProfit: 39000, netProfit: 34330, isMTD: false },
+        'يونيو': { p: [112000, 0, 0], opex: [4500, 1500], cogs: 50000, grossProfit: 62000, netProfit: 56000, isMTD: false },
+        'يوليو': { p: [80000, 0, 0], opex: [3200, 1300], cogs: 36000, grossProfit: 44000, netProfit: 39500, isMTD: false },
+        'أغسطس': { p: [85000, 0, 0], opex: [3300, 1350], cogs: 38000, grossProfit: 47000, netProfit: 42350, isMTD: true },
       },
     },
-    kpis: { totalSales: 656000, totalCOGS: 296000, totalOperatingExpenses: 37970, netProfit: 322030, grossProfit: 360000, profitMargin: 49.1, contributionMarginRatio: 0.549, contributionMargin: 360000 },
+    kpis: { totalSales: 656000, totalCOGS: 296000, totalOperatingExpenses: 37970, netProfit: 322030, grossProfit: 360000, profitMargin: 49.1 },
     breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 656000 },
     profitLoss: {},
   };

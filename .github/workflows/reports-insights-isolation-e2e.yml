@@ -57,3 +57,109 @@ jobs:
           name: reports-insights-isolation-playwright-report
           path: playwright-report/
           retention-days: 14
+
+  # TEMPORARY (remove once this PR is merged): runs the same isolation
+  # suite against this PR's own real Vercel Preview deployment, using
+  # Vercel's "Protection Bypass for Automation" header. This exists as a
+  # pull_request job — not the permanent workflow_dispatch job in
+  # reports-insights-vercel-preview-check.yml — specifically because a
+  # workflow_dispatch-triggered workflow cannot be dispatched via the
+  # API/UI until its file exists on the default branch; a pull_request
+  # trigger, uniquely, is evaluated from the PR branch's own version of
+  # the workflow file even before merge, which is what makes it possible
+  # to run this check pre-merge at all. Once main has the permanent job,
+  # this one has no further reason to exist.
+  #
+  # Runs only for same-repo PRs (a fork PR's pull_request run never has
+  # access to repository secrets regardless, per GitHub Actions' own
+  # default; the explicit check below just makes that scoping visible
+  # rather than relying on it silently).
+  vercel-preview-check:
+    name: Playwright — real Vercel Preview (Protection Bypass)
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Vercel's GitHub integration creates a real GitHub Deployment (and
+      # deployment statuses) for every preview build — this polls the
+      # GitHub Deployments API for this PR head SHA's Vercel deployment to
+      # reach a 'success' status and reads its environment/target URL from
+      # there, rather than guessing Vercel's branch-alias URL format
+      # (which is opaquely shortened/hashed for long branch names, not
+      # something this job can derive on its own) or requiring a separate
+      # Vercel API token. Bounded to 5 minutes (20 x 15s), matching the
+      # ~1-2 minute build times observed for this project; fails the job
+      # if no successful deployment shows up in that window rather than
+      # silently skipping the check.
+      - name: Resolve the real Vercel Preview URL for this PR
+        id: resolve_preview
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const maxAttempts = 20;
+            const delayMs = 15000;
+            let previewUrl = null;
+
+            for (let attempt = 0; attempt < maxAttempts && !previewUrl; attempt++) {
+              if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+              const { data: deployments } = await github.rest.repos.listDeployments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                per_page: 10,
+              });
+
+              for (const deployment of deployments) {
+                const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: deployment.id,
+                  per_page: 10,
+                });
+                const success = statuses.find((s) => s.state === 'success' && (s.environment_url || s.target_url));
+                if (success) {
+                  previewUrl = success.environment_url || success.target_url;
+                  break;
+                }
+              }
+            }
+
+            if (!previewUrl) {
+              core.setFailed(
+                `No successful Vercel deployment found for PR head SHA ${sha} within the timeout — ` +
+                `the real Preview check cannot run. Verify Vercel actually built a preview for this commit.`
+              );
+              return;
+            }
+            core.exportVariable('PLAYWRIGHT_VERCEL_PREVIEW_URL', previewUrl);
+
+      - name: Run reports-insights isolation suite against the real Preview
+        if: steps.resolve_preview.outcome == 'success'
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx playwright test e2e/reports-insights-isolation.spec.ts --config=playwright.reports-insights.vercel-preview.config.ts --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports-insights-vercel-preview-playwright-report
+          path: playwright-report/
+          retention-days: 14

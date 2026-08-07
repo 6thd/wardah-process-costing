@@ -450,6 +450,23 @@ test.describe('no sample/trial financial data — a financial ERP dashboard must
     expect(kpiText).not.toContain('240,180');
   });
 
+  test('labels the trailing month-to-date month distinctly instead of showing it as an equal, complete month', async ({ page }) => {
+    // The harness's SAMPLE_DATA_SYNC marks أغسطس isMTD: true (the other
+    // seven months are complete). dashboard.js's monthLabels() appends a
+    // distinct suffix to that one chart category so a partial month is
+    // never read as equivalent to the complete months around it.
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    const chartText = await frame.locator('#advanced3DChart').textContent();
+    expect(chartText).toContain('أغسطس (حتى تاريخه)');
+    // Every other synced month must NOT carry the suffix.
+    expect(chartText).toContain('يوليو');
+    expect(chartText).not.toContain('يوليو (حتى تاريخه)');
+  });
+
   test('drops a malformed WARDHAH_INSIGHT_RESPONSE and falls back to the local deterministic answer, same as a timeout', async ({ page }) => {
     test.setTimeout(60000);
     await gotoHarness(page);
