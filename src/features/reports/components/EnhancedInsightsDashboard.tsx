@@ -6,12 +6,27 @@
  * in a sandboxed iframe (`sandbox="allow-scripts allow-downloads"`, no
  * `allow-same-origin`) so its browsing context has an opaque origin — even
  * third-party script content running inside it cannot read this page's DOM,
- * cookies, or localStorage, and its own `event.origin` when messaging out
- * reads as the literal string "null" rather than a real origin. All
- * authentication, Supabase access, quota enforcement, and AI-provider calls
- * happen exclusively in this component and the reports-insights Edge
- * Function — the iframe never holds a credential of any kind and never
- * calls anything directly.
+ * cookies, or localStorage. All authentication, Supabase access, quota
+ * enforcement, and AI-provider calls happen exclusively in this component
+ * and the reports-insights Edge Function — the iframe never holds a
+ * credential of any kind and never calls anything directly.
+ *
+ * Transport: a MessageChannel, not repeated window.postMessage. `window
+ * .postMessage(msg, '*')` is used exactly once, in the iframe's onLoad
+ * handler below, solely to hand one MessagePort to the iframe (an opaque
+ * origin cannot be targeted by anything other than '*', so this one call is
+ * unavoidable — it carries no data, only a communication channel). Every
+ * KPI/insight message after that handshake travels over that port instead:
+ * MessagePort.postMessage() has no targetOrigin/broadcast concept at all —
+ * a channel's two ports are a private, unforgeable pair once created, so
+ * nothing else in the page (another frame, an injected script sharing this
+ * window) can ever observe or inject into this traffic, which is a
+ * strictly stronger guarantee than re-checking `event.source` on every
+ * message would have been. The one remaining risk is the handshake message
+ * itself being spoofed by a sender that is not this component's own
+ * iframe's parent-of — the iframe side (dashboard.js) still checks
+ * `event.source === window.parent` on that single message before trusting
+ * the port it carries.
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -101,6 +116,67 @@ export function EnhancedInsightsDashboard() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Set once the handshake below completes; null beforehand, so every
+  // send site can just no-op safely if the iframe hasn't finished loading
+  // yet instead of needing its own readiness bookkeeping.
+  const portRef = useRef<MessagePort | null>(null);
+
+  // Replies to (or forwards) a single message received over the channel.
+  // Pulled out of the port's onmessage handler so it has no event/source
+  // plumbing to thread through — the channel itself is the identity
+  // boundary now (see the module comment at the top of this file).
+  const handleIframeMessage = async (msg: unknown) => {
+    if (isValidDataRequest(msg)) {
+      syncWithWardah();
+      return;
+    }
+
+    if (!isValidInsightRequest(msg)) return;
+
+    const reply = (response: Record<string, unknown>) => {
+      portRef.current?.postMessage({ type: 'WARDHAH_INSIGHT_RESPONSE', requestId: msg.requestId, ...response });
+    };
+
+    try {
+      const supabase = getSupabase();
+      const { data: sessionData } = await supabase.auth.getSession();
+      if (!sessionData.session) {
+        reply({ success: false, error: 'not_authenticated' });
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke('reports-insights', {
+        body: {
+          operation: msg.operation,
+          locale: msg.locale,
+          requestId: msg.requestId,
+          ...(msg.operation === 'ask'
+            ? { question: msg.question, ...(msg.data !== undefined ? { data: msg.data } : {}) }
+            : { data: msg.data ?? {} })
+        }
+      });
+
+      if (error) {
+        const { code, status } = classifyInvokeError(error);
+        // A real 5xx or an unclassified failure is logged distinctly
+        // from an expected 401/403/429 so it is never mistaken for
+        // normal, classified degradation in the logs — the iframe still
+        // falls back to its local deterministic text either way (that
+        // fallback is a UX decision made once, in the iframe, not a
+        // reason to blur what actually happened server-side).
+        if (code === 'internal_error' || code === 'request_failed') {
+          console.error('reports-insights invoke failed', { requestId: msg.requestId, operation: msg.operation, code, status });
+        }
+        reply({ success: false, error: code });
+        return;
+      }
+
+      reply({ success: true, source: data?.source, text: data?.text });
+    } catch (err) {
+      console.error('Error handling insight request:', err);
+      reply({ success: false, error: 'request_failed' });
+    }
+  };
 
   // Auto-sync with Wardah data
   const syncWithWardah = async () => {
@@ -118,23 +194,17 @@ export function EnhancedInsightsDashboard() {
 
         const formattedData = geminiFinancialService.formatForGeminiDashboard(kpis, monthlyData);
 
-        // The iframe is sandboxed with an opaque origin, so there is no
-        // real origin string to target — '*' is required for delivery to
-        // succeed at all. This is safe here specifically because the
-        // payload is already-fetched, non-secret display data (never a
-        // credential), and because the *receiving* side's own identity
-        // check (event.source === window.parent) is what actually gates
-        // which window may act on it, not the origin string.
-        if (iframeRef.current?.contentWindow) {
-          iframeRef.current.contentWindow.postMessage({
-            type: 'WARDHAH_DATA_SYNC',
-            requestId: `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-            data: formattedData,
-            kpis,
-            breakEven,
-            profitLoss
-          }, '*');
-        }
+        // No-ops until the handshake in the iframe's onLoad below has run
+        // — harmless, since onLoad triggers its own sync immediately
+        // after establishing the port.
+        portRef.current?.postMessage({
+          type: 'WARDHAH_DATA_SYNC',
+          requestId: `sync-${crypto.randomUUID()}`,
+          data: formattedData,
+          kpis,
+          breakEven,
+          profitLoss
+        });
 
         setMetrics({
           kpis,
@@ -154,6 +224,10 @@ export function EnhancedInsightsDashboard() {
   };
 
   useEffect(() => {
+    // Populates this component's own KPI cards, which read Supabase
+    // directly and don't depend on the iframe/channel at all. The
+    // iframe-facing half of syncWithWardah() safely no-ops until the
+    // channel handshake (iframe onLoad, below) has completed.
     syncWithWardah();
 
     if (autoRefresh) {
@@ -170,94 +244,11 @@ export function EnhancedInsightsDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  // Listen for messages from the sandboxed iframe. The iframe's browsing
-  // context is opaque-origin by design (see the class comment above), so
-  // event.origin from it is always the string "null" and carries no
-  // signal — event.source (a direct WindowProxy reference that cannot be
-  // forged by another window) is the actual identity boundary, checked
-  // first and unconditionally before any message-shape logic runs.
   useEffect(() => {
-    const handleMessage = async (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-
-      const msg = event.data;
-
-      if (isValidDataRequest(msg)) {
-        syncWithWardah();
-        return;
-      }
-
-      if (!isValidInsightRequest(msg)) return;
-
-      const targetWindow = event.source as Window;
-      // Same reasoning as syncWithWardah(): the target has an opaque
-      // origin, so '*' is the only targetOrigin that can ever deliver.
-      const targetOrigin = '*';
-
-      try {
-        const supabase = getSupabase();
-        const { data: sessionData } = await supabase.auth.getSession();
-        if (!sessionData.session) {
-          targetWindow.postMessage({
-            type: 'WARDHAH_INSIGHT_RESPONSE',
-            requestId: msg.requestId,
-            success: false,
-            error: 'not_authenticated'
-          }, targetOrigin);
-          return;
-        }
-
-        const { data, error } = await supabase.functions.invoke('reports-insights', {
-          body: {
-            operation: msg.operation,
-            locale: msg.locale,
-            requestId: msg.requestId,
-            ...(msg.operation === 'ask'
-              ? { question: msg.question, ...(msg.data !== undefined ? { data: msg.data } : {}) }
-              : { data: msg.data ?? {} })
-          }
-        });
-
-        if (error) {
-          const { code, status } = classifyInvokeError(error);
-          // A real 5xx or an unclassified failure is logged distinctly
-          // from an expected 401/403/429 so it is never mistaken for
-          // normal, classified degradation in the logs — the iframe still
-          // falls back to its local deterministic text either way (that
-          // fallback is a UX decision made once, in the iframe, not a
-          // reason to blur what actually happened server-side).
-          if (code === 'internal_error' || code === 'request_failed') {
-            console.error('reports-insights invoke failed', { requestId: msg.requestId, operation: msg.operation, code, status });
-          }
-          targetWindow.postMessage({
-            type: 'WARDHAH_INSIGHT_RESPONSE',
-            requestId: msg.requestId,
-            success: false,
-            error: code
-          }, targetOrigin);
-          return;
-        }
-
-        targetWindow.postMessage({
-          type: 'WARDHAH_INSIGHT_RESPONSE',
-          requestId: msg.requestId,
-          success: true,
-          source: data?.source,
-          text: data?.text
-        }, targetOrigin);
-      } catch (err) {
-        console.error('Error handling insight request:', err);
-        targetWindow.postMessage({
-          type: 'WARDHAH_INSIGHT_RESPONSE',
-          requestId: msg.requestId,
-          success: false,
-          error: 'request_failed'
-        }, targetOrigin);
-      }
+    return () => {
+      portRef.current?.close();
+      portRef.current = null;
     };
-
-    globalThis.window.addEventListener('message', handleMessage);
-    return () => globalThis.window.removeEventListener('message', handleMessage);
   }, []);
 
   return (
@@ -415,8 +406,28 @@ export function EnhancedInsightsDashboard() {
                   className="w-full h-full border-0 rounded-lg"
                   title="Reports Insights Dashboard"
                   sandbox="allow-scripts allow-downloads"
+                  allow="fullscreen"
+                  allowFullScreen
                   onLoad={() => {
                     setLoading(false);
+
+                    // One-time handshake: hand the iframe a private
+                    // MessagePort. This is the only postMessage(..., '*')
+                    // left in this component — required because the
+                    // iframe's opaque origin cannot be targeted any other
+                    // way — and it carries no data, only the channel that
+                    // every subsequent message travels over instead (see
+                    // the module comment at the top of this file).
+                    portRef.current?.close();
+                    const channel = new MessageChannel();
+                    portRef.current = channel.port1;
+                    channel.port1.onmessage = (event) => { handleIframeMessage(event.data); };
+                    iframeRef.current?.contentWindow?.postMessage(
+                      { type: 'WARDHAH_CHANNEL_INIT' },
+                      '*',
+                      [channel.port2]
+                    );
+
                     setTimeout(() => {
                       syncWithWardah();
                     }, 1000);

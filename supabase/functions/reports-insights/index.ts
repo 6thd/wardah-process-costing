@@ -13,9 +13,10 @@
 //     are internal constants, never taken from the request body.
 //   - The question/data payload is never logged, only operation/status/
 //     source/duration metadata.
-//   - Model output is treated as untrusted by the caller (rendered via
-//     escapeHtml()/textContent on the client) — this function does not
-//     attempt to sanitize it, only bounds its length.
+//   - Model output is treated as untrusted by the caller (the client
+//     never puts it through an HTML sink — every dynamic value is set via
+//     .textContent, not innerHTML) — this function does not attempt to
+//     sanitize it, only bounds its length.
 //   - Only a classified provider failure (timeout, missing key, rate limit,
 //     upstream 5xx) returns HTTP 200 with source:'fallback'. A database or
 //     programming error returns a real 4xx/5xx so it is never mistaken for

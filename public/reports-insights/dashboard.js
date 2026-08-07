@@ -6,16 +6,81 @@
 // deliberately gives this document an opaque origin: `window.location.origin`
 // reads as the literal string "null" here, so any `event.origin === ...`
 // or `postMessage(msg, window.location.origin)` check is broken by
-// construction. Two things replace it:
-//   1. Inbound messages are authenticated by identity, not origin string:
-//      `event.source !== window.parent` (an unforgeable WindowProxy
-//      reference), checked first and unconditionally.
-//   2. Outbound messages target the parent's real origin, read once from
-//      the `parentOrigin` query-string parameter the parent embeds in this
-//      iframe's `src` (see below) — more precise than `'*'`, which the
-//      parent must use only because it cannot address our opaque origin
-//      any other way.
-const parentOrigin = new URLSearchParams(window.location.search).get('parentOrigin');
+// construction.
+//
+// Transport: a private MessageChannel, not repeated window.postMessage.
+// The parent hands this document one MessagePort in a single handshake
+// message (WARDHAH_CHANNEL_INIT) — the only postMessage(..., '*') on
+// either side of this boundary, unavoidable because an opaque origin can't
+// be targeted any other way, and it carries no data, only the channel.
+// Every KPI/insight message after that travels over the port instead:
+// MessagePort.postMessage() has no target-origin/broadcast concept at
+// all, so once the two ports are paired, nothing else in either page can
+// observe or inject into this traffic — stronger than re-checking
+// event.source on every message would have been. The handshake message
+// itself is still checked for sender identity (event.source ===
+// window.parent, an unforgeable WindowProxy reference) before its port is
+// trusted, since it is the one message accepted outside the channel.
+let wardahPort = null;
+// requestId -> resolver, so requestInsight() below can await a specific
+// WARDHAH_INSIGHT_RESPONSE without every call needing its own listener.
+const pendingInsightRequests = new Map();
+// Set once InsightsFinancialDashboard is constructed (DOMContentLoaded,
+// bottom of this file) so the port handler can reach it directly.
+let dashboardInstance = null;
+
+window.addEventListener('message', function onChannelInit(event) {
+    if (event.source !== window.parent) return;
+    if (!event.data || event.data.type !== 'WARDHAH_CHANNEL_INIT') return;
+    if (!event.ports || event.ports.length === 0) return;
+
+    wardahPort = event.ports[0];
+    window.removeEventListener('message', onChannelInit);
+
+    wardahPort.onmessage = (portEvent) => {
+        const msg = portEvent.data;
+        if (!msg || typeof msg !== 'object') return;
+
+        if (msg.type === 'WARDHAH_INSIGHT_RESPONSE' && typeof msg.requestId === 'string') {
+            const resolver = pendingInsightRequests.get(msg.requestId);
+            if (resolver) {
+                pendingInsightRequests.delete(msg.requestId);
+                resolver(msg);
+            }
+            return;
+        }
+
+        if (msg.type === 'WARDHAH_DATA_SYNC' && dashboardInstance) {
+            dashboardInstance.handleDataSync(msg);
+        }
+    };
+});
+
+// Small DOM-builder helper — used everywhere this file used to build
+// markup via innerHTML template literals. Every string value here is
+// always set via .textContent (or .className/attribute assignment for
+// non-content attributes), never parsed as HTML, so untrusted text
+// (model output, user chat input) can never execute as markup regardless
+// of what it contains — there is no HTML sink left for it to reach.
+function el(tag, attrs, children) {
+    const node = document.createElement(tag);
+    if (attrs) {
+        for (const key of Object.keys(attrs)) {
+            const value = attrs[key];
+            if (value === undefined || value === null || value === false) continue;
+            if (key === 'className') node.className = value;
+            else if (key === 'text') node.textContent = value;
+            else if (key.startsWith('on') && typeof value === 'function') node.addEventListener(key.slice(2).toLowerCase(), value);
+            else node.setAttribute(key, value === true ? '' : value);
+        }
+    }
+    if (children) {
+        for (const child of children) {
+            if (child) node.appendChild(child);
+        }
+    }
+    return node;
+}
 
 class InsightsFinancialDashboard {
             constructor() {
@@ -156,48 +221,37 @@ class InsightsFinancialDashboard {
             // disabled just because the AI provider is unavailable.
             requestInsight(operation, payload) {
                 return new Promise((resolve) => {
-                    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+                    const requestId = crypto.randomUUID();
                     const timeoutMs = 15000;
 
                     const cleanup = () => {
-                        window.removeEventListener('message', onMessage);
+                        pendingInsightRequests.delete(requestId);
                         clearTimeout(timer);
                     };
 
-                    const onMessage = (event) => {
-                        // Identity check, not origin string: this document is
-                        // opaque-origin (no allow-same-origin), so
-                        // event.origin is always "null" and carries no
-                        // signal. event.source is an unforgeable direct
-                        // WindowProxy reference — only the real parent window
-                        // can ever be window.parent.
-                        if (event.source !== window.parent) return;
-                        const msg = event.data;
-                        if (!msg || msg.type !== 'WARDHAH_INSIGHT_RESPONSE' || msg.requestId !== requestId) return;
+                    pendingInsightRequests.set(requestId, (msg) => {
                         cleanup();
                         if (msg.success && typeof msg.text === 'string') {
                             resolve({ text: msg.text, source: msg.source || 'ai' });
                         } else {
                             resolve({ text: this.buildLocalInsight(operation, payload), source: 'fallback' });
                         }
-                    };
+                    });
 
                     const timer = setTimeout(() => {
                         cleanup();
                         resolve({ text: this.buildLocalInsight(operation, payload), source: 'fallback' });
                     }, timeoutMs);
 
-                    window.addEventListener('message', onMessage);
-
                     const message = operation === 'ask'
                         ? { type: 'WARDHAH_INSIGHT_REQUEST', requestId, operation, locale: this.data.currentLanguage, question: payload.question, data: payload.data }
                         : { type: 'WARDHAH_INSIGHT_REQUEST', requestId, operation, locale: this.data.currentLanguage, data: payload };
-                    // Target the parent's real origin (read once at startup
-                    // from the parentOrigin query param the parent embeds in
-                    // this iframe's src) rather than window.location.origin,
-                    // which is always "null" inside this opaque-origin frame
-                    // and would silently fail to deliver.
-                    window.parent.postMessage(message, parentOrigin);
+                    // No-ops if the WARDHAH_CHANNEL_INIT handshake hasn't
+                    // completed yet — harmless, the timeout above still
+                    // fires and falls back to buildLocalInsight().
+                    if (wardahPort) {
+                        wardahPort.postMessage(message);
+                    }
                 });
             }
 
@@ -288,7 +342,9 @@ class InsightsFinancialDashboard {
             }
 
             setupEventListeners() {
-                this.setupWardahDataSyncListener();
+                // WARDHAH_DATA_SYNC arrives via the module-level MessageChannel
+                // port dispatcher (top of this file), which calls
+                // this.handleDataSync() directly — no listener to set up here.
 
                 // Language Toggle
                 document.querySelectorAll('.lang-btn').forEach(btn => {
@@ -481,11 +537,17 @@ class InsightsFinancialDashboard {
                 
                 lines.forEach((line, index) => {
                     if (line.trim() && index < 3) {
+                        // No confidence score: this insight is a raw line
+                        // from the model's own response text, which never
+                        // states or implies a confidence value — inventing
+                        // one (random or fixed) would be a fabricated
+                        // number on a financial dashboard. renderInsights()
+                        // only shows the confidence bar when the field is
+                        // present, which it deliberately isn't here.
                         insights.push({
                             type: 'ai-generated',
                             title: `رؤية ذكية ${index + 1}`,
                             content: line.trim(),
-                            confidence: 85 + Math.random() * 10,
                             icon: 'fas fa-brain'
                         });
                     }
@@ -541,34 +603,27 @@ class InsightsFinancialDashboard {
             addAiMessage(sender, message) {
                 const chatContainer = document.getElementById('aiChat');
                 if (!chatContainer) return;
-                
-                const messageDiv = document.createElement('div');
-                messageDiv.className = sender === 'user' ? 'user-message' : 'ai-message';
-                
-                if (sender === 'user') {
-                    messageDiv.innerHTML = `
-                        <div class="flex items-start space-x-3 justify-end">
-                            <div class="flex-1 text-right">
-                                <p class="text-sm text-white">${escapeHtml(message)}</p>
-                            </div>
-                            <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0">
-                                <i class="fas fa-user text-white text-sm"></i>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    messageDiv.innerHTML = `
-                        <div class="flex items-start space-x-3">
-                            <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0">
-                                <i class="fas fa-brain text-white text-sm"></i>
-                            </div>
-                            <div class="flex-1">
-                                <p class="text-sm text-white">${escapeHtml(message)}</p>
-                            </div>
-                        </div>
-                    `;
-                }
-                
+
+                // message is either the user's own typed chat input or
+                // model-provider output — untrusted either way. el()
+                // always sets it via .textContent (never innerHTML), so it
+                // can never execute as markup no matter what it contains.
+                const bubble = el('div', { className: sender === 'user' ? 'flex-1 text-right' : 'flex-1' }, [
+                    el('p', { className: 'text-sm text-white', text: message })
+                ]);
+                const avatar = sender === 'user'
+                    ? el('div', { className: 'w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center flex-shrink-0' }, [
+                        el('i', { className: 'fas fa-user text-white text-sm' })
+                    ])
+                    : el('div', { className: 'w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0' }, [
+                        el('i', { className: 'fas fa-brain text-white text-sm' })
+                    ]);
+
+                const messageDiv = el('div', { className: sender === 'user' ? 'user-message' : 'ai-message' }, [
+                    el('div', { className: sender === 'user' ? 'flex items-start space-x-3 justify-end' : 'flex items-start space-x-3' },
+                        sender === 'user' ? [bubble, avatar] : [avatar, bubble])
+                ]);
+
                 chatContainer.appendChild(messageDiv);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
@@ -576,22 +631,22 @@ class InsightsFinancialDashboard {
             showTypingIndicator() {
                 const chatContainer = document.getElementById('aiChat');
                 if (!chatContainer) return;
-                
-                const typingDiv = document.createElement('div');
-                typingDiv.className = 'typing-indicator';
-                typingDiv.id = 'typingIndicator';
-                typingDiv.innerHTML = `
-                    <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0 mr-3">
-                        <i class="fas fa-brain text-white text-sm"></i>
-                    </div>
-                    <div class="typing-dots">
-                        <div class="typing-dot"></div>
-                        <div class="typing-dot"></div>
-                        <div class="typing-dot"></div>
-                    </div>
-                    <span class="text-sm text-gray-400 mr-2">${this.data.currentLanguage === 'ar' ? 'المساعد الذكي يكتب...' : 'AI assistant is typing...'}</span>
-                `;
-                
+
+                const typingDiv = el('div', { className: 'typing-indicator', id: 'typingIndicator' }, [
+                    el('div', { className: 'w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0 mr-3' }, [
+                        el('i', { className: 'fas fa-brain text-white text-sm' })
+                    ]),
+                    el('div', { className: 'typing-dots' }, [
+                        el('div', { className: 'typing-dot' }),
+                        el('div', { className: 'typing-dot' }),
+                        el('div', { className: 'typing-dot' })
+                    ]),
+                    el('span', {
+                        className: 'text-sm text-gray-400 mr-2',
+                        text: this.data.currentLanguage === 'ar' ? 'المساعد الذكي يكتب...' : 'AI assistant is typing...'
+                    })
+                ]);
+
                 chatContainer.appendChild(typingDiv);
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
@@ -755,39 +810,29 @@ class InsightsFinancialDashboard {
                     }
                 ];
 
-                // The two dynamic values below (animation-delay per card,
-                // trend-bar width) used to be inline style="..." attributes.
-                // CSP's style-src 'self' (no unsafe-inline) blocks that HTML
-                // attribute form, so the markup now carries stable hooks
-                // (data-kpi-index / .kpi-trend-bar) and the values are
-                // applied as JS-set DOM properties right after insertion —
-                // that form is unaffected by CSP.
-                container.innerHTML = kpis.map((kpi, index) => `
-                    <div class="kpi-advanced slide-in-advanced ai-sparkle" data-kpi-index="${index}">
-                        <div class="flex items-center justify-between mb-4">
-                            <div class="w-12 h-12 bg-gradient-to-r ${kpi.gradient} rounded-xl flex items-center justify-center">
-                                <i class="${kpi.icon} text-white text-xl"></i>
-                            </div>
-                            <div class="metric-trend trend-${kpi.trendType}">
-                                <i class="fas fa-arrow-${kpi.trendType === 'up' ? 'up' : 'down'} mr-1"></i>
-                                ${kpi.trend}
-                            </div>
-                        </div>
-                        <h3 class="text-gray-300 text-sm font-medium mb-2">${kpi.title}</h3>
-                        <div class="text-3xl font-bold bg-gradient-to-r ${kpi.gradient} bg-clip-text text-transparent mb-1">${kpi.value}</div>
-                        <div class="w-full bg-gray-700 rounded-full h-2 mt-3">
-                            <div class="bg-gradient-to-r ${kpi.gradient} h-2 rounded-full transition-all duration-1000 kpi-trend-bar"
-                                 data-trend-width="${Math.min(100, Math.abs(parseFloat(kpi.trend)) * 5)}"></div>
-                        </div>
-                    </div>
-                `).join('');
+                container.replaceChildren(...kpis.map((kpi, index) => {
+                    const trendBar = el('div', { className: `bg-gradient-to-r ${kpi.gradient} h-2 rounded-full transition-all duration-1000` });
+                    // JS-set DOM property, not an HTML style="..." attribute
+                    // (which CSP's style-src 'self' would otherwise block).
+                    trendBar.style.width = `${Math.min(100, Math.abs(parseFloat(kpi.trend)) * 5)}%`;
 
-                container.querySelectorAll('.kpi-advanced').forEach((card) => {
-                    card.style.animationDelay = `${Number(card.dataset.kpiIndex) * 0.1}s`;
-                });
-                container.querySelectorAll('.kpi-trend-bar').forEach((bar) => {
-                    bar.style.width = `${bar.dataset.trendWidth}%`;
-                });
+                    const card = el('div', { className: 'kpi-advanced slide-in-advanced ai-sparkle' }, [
+                        el('div', { className: 'flex items-center justify-between mb-4' }, [
+                            el('div', { className: `w-12 h-12 bg-gradient-to-r ${kpi.gradient} rounded-xl flex items-center justify-center` }, [
+                                el('i', { className: `${kpi.icon} text-white text-xl` })
+                            ]),
+                            el('div', { className: `metric-trend trend-${kpi.trendType}` }, [
+                                el('i', { className: `fas fa-arrow-${kpi.trendType === 'up' ? 'up' : 'down'} mr-1` }),
+                                document.createTextNode(kpi.trend)
+                            ])
+                        ]),
+                        el('h3', { className: 'text-gray-300 text-sm font-medium mb-2', text: kpi.title }),
+                        el('div', { className: `text-3xl font-bold bg-gradient-to-r ${kpi.gradient} bg-clip-text text-transparent mb-1`, text: kpi.value }),
+                        el('div', { className: 'w-full bg-gray-700 rounded-full h-2 mt-3' }, [trendBar])
+                    ]);
+                    card.style.animationDelay = `${index * 0.1}s`;
+                    return card;
+                }));
             }
 
             renderAdvancedCharts(monthly, annual) {
@@ -1010,34 +1055,37 @@ class InsightsFinancialDashboard {
                 const container = document.getElementById('aiInsights');
                 if (!container) return;
                 
-                // insight.confidence used to be inlined as a style="width: ...%"
-                // attribute; CSP's style-src 'self' blocks that form, so the
-                // width is now set as a JS DOM property right after insertion
-                // (see the querySelectorAll pass below), keyed off
-                // data-confidence.
-                container.innerHTML = this.data.aiInsights.map(insight => `
-                    <div class="ai-insight-card">
-                        <div class="flex items-start space-x-3">
-                            <div class="w-10 h-10 ai-enhanced rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i class="${insight.icon} text-white"></i>
-                            </div>
-                            <div class="flex-1">
-                                <h4 class="font-bold text-white text-sm mb-1">${escapeHtml(insight.title)}</h4>
-                                <p class="text-gray-300 text-xs mb-2">${escapeHtml(insight.content)}</p>
-                                <div class="flex items-center justify-between">
-                                    <div class="confidence-bar flex-1 mr-2">
-                                        <div class="confidence-fill" data-confidence="${insight.confidence}"></div>
-                                    </div>
-                                    <span class="text-xs text-gray-400">${Math.round(insight.confidence)}%</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
+                // insight.title/content can be raw model output (see
+                // parseInsights()) — always set via .textContent below,
+                // never parsed as HTML. insight.confidence is only present
+                // for the fixed, hardcoded insight entries (never for
+                // model-generated ones, which have no real basis for a
+                // confidence figure — see parseInsights()), so the bar is
+                // only built when the field actually exists.
+                container.replaceChildren(...this.data.aiInsights.map((insight) => {
+                    const children = [
+                        el('h4', { className: 'font-bold text-white text-sm mb-1', text: insight.title }),
+                        el('p', { className: 'text-gray-300 text-xs mb-2', text: insight.content })
+                    ];
 
-                container.querySelectorAll('.confidence-fill').forEach((fill) => {
-                    fill.style.width = `${fill.dataset.confidence}%`;
-                });
+                    if (typeof insight.confidence === 'number') {
+                        const fill = el('div', { className: 'confidence-fill' });
+                        fill.style.width = `${insight.confidence}%`;
+                        children.push(el('div', { className: 'flex items-center justify-between' }, [
+                            el('div', { className: 'confidence-bar flex-1 mr-2' }, [fill]),
+                            el('span', { className: 'text-xs text-gray-400', text: `${Math.round(insight.confidence)}%` })
+                        ]));
+                    }
+
+                    return el('div', { className: 'ai-insight-card' }, [
+                        el('div', { className: 'flex items-start space-x-3' }, [
+                            el('div', { className: 'w-10 h-10 ai-enhanced rounded-lg flex items-center justify-center flex-shrink-0' }, [
+                                el('i', { className: `${insight.icon} text-white` })
+                            ]),
+                            el('div', { className: 'flex-1' }, children)
+                        ])
+                    ]);
+                }));
             }
 
             renderAdvancedControls() {
@@ -1082,21 +1130,25 @@ class InsightsFinancialDashboard {
                     red: 'text-red-400'
                 };
 
-                container.innerHTML = controls.map(control => `
-                    <div class="space-y-2">
-                        <label class="block text-sm font-medium text-gray-300">
-                            ${control.label}
-                            <span id="${control.id}Value" class="font-bold ${colorTextClass[control.color]} float-left">${control.value}%</span>
-                        </label>
-                        <input type="range" id="${control.id}" min="${control.min}" max="${control.max}" 
-                               step="${control.id === 'cogsRate' ? 1 : 5}" value="${control.value}" 
-                               class="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer">
-                        <div class="flex justify-between text-xs text-gray-500">
-                            <span>${control.min}%</span>
-                            <span>${control.max}%</span>
-                        </div>
-                    </div>
-                `).join('');
+                container.replaceChildren(...controls.map((control) => el('div', { className: 'space-y-2' }, [
+                    el('label', { className: 'block text-sm font-medium text-gray-300' }, [
+                        document.createTextNode(control.label),
+                        el('span', { id: `${control.id}Value`, className: `font-bold ${colorTextClass[control.color]} float-left`, text: `${control.value}%` })
+                    ]),
+                    el('input', {
+                        type: 'range',
+                        id: control.id,
+                        min: control.min,
+                        max: control.max,
+                        step: control.id === 'cogsRate' ? 1 : 5,
+                        value: control.value,
+                        className: 'w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer'
+                    }),
+                    el('div', { className: 'flex justify-between text-xs text-gray-500' }, [
+                        el('span', { text: `${control.min}%` }),
+                        el('span', { text: `${control.max}%` })
+                    ])
+                ])));
             }
 
             renderRealtimeMetrics(annual) {
@@ -1123,15 +1175,13 @@ class InsightsFinancialDashboard {
                     }
                 ];
 
-                container.innerHTML = metrics.map(metric => `
-                    <div class="flex items-center justify-between p-3 rounded-lg bg-black bg-opacity-20">
-                        <span class="text-sm text-gray-300">${metric.label}</span>
-                        <div class="flex items-center">
-                            <span class="text-sm font-bold text-white mr-2">${metric.value}</span>
-                            <div class="w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-teal-600"></div>
-                        </div>
-                    </div>
-                `).join('');
+                container.replaceChildren(...metrics.map((metric) => el('div', { className: 'flex items-center justify-between p-3 rounded-lg bg-black bg-opacity-20' }, [
+                    el('span', { className: 'text-sm text-gray-300', text: metric.label }),
+                    el('div', { className: 'flex items-center' }, [
+                        el('span', { className: 'text-sm font-bold text-white mr-2', text: metric.value }),
+                        el('div', { className: 'w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-teal-600' })
+                    ])
+                ])));
             }
 
             renderRecommendations(annual) {
@@ -1165,31 +1215,39 @@ class InsightsFinancialDashboard {
                     }
                 ];
 
-                container.innerHTML = recommendations.map(rec => `
-                    <div class="ai-insight-card">
-                        <div class="flex items-start space-x-3">
-                            <div class="w-10 h-10 ${rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500'} rounded-lg flex items-center justify-center flex-shrink-0">
-                                <i class="${rec.icon} text-white"></i>
-                            </div>
-                            <div class="flex-1">
-                                <h4 class="font-bold text-white text-sm mb-1">${rec.title}</h4>
-                                <p class="text-gray-300 text-xs mb-2">${rec.description}</p>
-                                <span class="text-xs px-2 py-1 rounded-full ${rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500'} text-white">
-                                    ${rec.impact === 'high' ? (this.data.currentLanguage === 'ar' ? 'تأثير عالي' : 'High Impact') : (this.data.currentLanguage === 'ar' ? 'تأثير متوسط' : 'Medium Impact')}
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                `).join('');
+                container.replaceChildren(...recommendations.map((rec) => {
+                    const impactBg = rec.impact === 'high' ? 'bg-red-500' : 'bg-yellow-500';
+                    const impactLabel = rec.impact === 'high'
+                        ? (this.data.currentLanguage === 'ar' ? 'تأثير عالي' : 'High Impact')
+                        : (this.data.currentLanguage === 'ar' ? 'تأثير متوسط' : 'Medium Impact');
+
+                    return el('div', { className: 'ai-insight-card' }, [
+                        el('div', { className: 'flex items-start space-x-3' }, [
+                            el('div', { className: `w-10 h-10 ${impactBg} rounded-lg flex items-center justify-center flex-shrink-0` }, [
+                                el('i', { className: `${rec.icon} text-white` })
+                            ]),
+                            el('div', { className: 'flex-1' }, [
+                                el('h4', { className: 'font-bold text-white text-sm mb-1', text: rec.title }),
+                                el('p', { className: 'text-gray-300 text-xs mb-2', text: rec.description }),
+                                el('span', { className: `text-xs px-2 py-1 rounded-full ${impactBg} text-white`, text: impactLabel })
+                            ])
+                        ])
+                    ]);
+                }));
             }
 
+            // Deterministic linear-trend extrapolation — no simulated noise.
+            // This used to add +/-4000 of Math.random() jitter per point,
+            // which is a fabricated number with no basis on a financial
+            // dashboard; the trend line itself is already an honest
+            // least-squares fit of the real historical data.
             generatePredictiveData(monthlyData) {
                 const profits = monthlyData.map(m => m.netProfit);
                 const trend = this.calculateTrend(profits);
                 const lastValue = profits[profits.length - 1];
-                
-                return Array.from({ length: 6 }, (_, i) => 
-                    Math.round(lastValue + (trend * (i + 1)) + (Math.random() - 0.5) * 8000)
+
+                return Array.from({ length: 6 }, (_, i) =>
+                    Math.round(lastValue + (trend * (i + 1)))
                 );
             }
 
@@ -1346,15 +1404,14 @@ class InsightsFinancialDashboard {
             }
 
             showNotification(message, type = 'info') {
-                const notification = document.createElement('div');
-                notification.className = `notification show ${type}`;
-                notification.innerHTML = `
-                    <div class="flex items-center">
-                        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle'} mr-2"></i>
-                        ${message}
-                    </div>
-                `;
-                
+                const iconName = type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : 'info-circle';
+                const notification = el('div', { className: `notification show ${type}` }, [
+                    el('div', { className: 'flex items-center' }, [
+                        el('i', { className: `fas fa-${iconName} mr-2` }),
+                        document.createTextNode(message)
+                    ])
+                ]);
+
                 const container = document.getElementById('notificationContainer');
                 if (container) {
                     container.appendChild(notification);
@@ -1518,29 +1575,24 @@ class InsightsFinancialDashboard {
                 return mappedData;
             }
 
-            // Listens for the real financial figures the React host page
-            // computes and posts (via the existing syncWithWardah()/
-            // WARDHAH_DATA_SYNC path in EnhancedInsightsDashboard.tsx). This
+            // Handles the real financial figures the React host page
+            // computes and sends over the port (see syncWithWardah()/
+            // WARDHAH_DATA_SYNC in EnhancedInsightsDashboard.tsx). This
             // iframe has no backend of its own and no credential of any
-            // kind — the host is the only source of real Wardah data, and
-            // this listener is what actually consumes it. Identity check
-            // mirrors the one requestInsight() already applies (event.source,
-            // not event.origin — see the module-level comment at the top of
-            // this file for why).
-            setupWardahDataSyncListener() {
-                window.addEventListener('message', (event) => {
-                    if (event.source !== window.parent) return;
-                    const msg = event.data;
-                    if (!msg || msg.type !== 'WARDHAH_DATA_SYNC') return;
-                    if (!msg.data || typeof msg.data !== 'object' || !msg.data.monthlyData) return;
+            // kind — the host is the only source of real Wardah data.
+            // Called by the module-level port message dispatcher at the
+            // top of this file, not by a listener of its own — the
+            // MessageChannel established at handshake is itself the
+            // identity boundary now (see that dispatcher's comment).
+            handleDataSync(msg) {
+                if (!msg.data || typeof msg.data !== 'object' || !msg.data.monthlyData) return;
 
-                    this.data.baseFinancialData = msg.data.monthlyData;
-                    this.render();
-                    this.showNotification(
-                        this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
-                        'success'
-                    );
-                });
+                this.data.baseFinancialData = msg.data.monthlyData;
+                this.render();
+                this.showNotification(
+                    this.data.currentLanguage === 'ar' ? 'تمت مزامنة بيانات وردة ERP بنجاح' : 'Successfully synced with Wardah ERP',
+                    'success'
+                );
             }
 
             async syncWithWardah() {
@@ -1548,12 +1600,13 @@ class InsightsFinancialDashboard {
                     this.data.currentLanguage === 'ar' ? 'جاري مزامنة بيانات وردة ERP...' : 'Syncing with Wardah ERP...',
                     'info'
                 );
-                // The response arrives asynchronously through
-                // setupWardahDataSyncListener() above — this iframe cannot
-                // reach Wardah's backend directly, only the authenticated
-                // host page can.
-                const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId }, parentOrigin);
+                // The response arrives asynchronously via handleDataSync()
+                // above — this iframe cannot reach Wardah's backend
+                // directly, only the authenticated host page can. No-ops
+                // if the handshake hasn't completed yet.
+                if (wardahPort) {
+                    wardahPort.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId: crypto.randomUUID() });
+                }
             }
 
             async loadData() {
@@ -1565,12 +1618,11 @@ class InsightsFinancialDashboard {
 
                 // Show deterministic sample-derived insights immediately so
                 // the UI never appears empty — real figures replace them
-                // via setupWardahDataSyncListener() once the host responds.
+                // via handleDataSync() once the host responds.
                 this.generateBasicInsights();
 
-                if (useWardah) {
-                    const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-                    window.parent.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId }, parentOrigin);
+                if (useWardah && wardahPort) {
+                    wardahPort.postMessage({ type: 'REQUEST_WARDHAH_DATA', requestId: crypto.randomUUID() });
                 }
             }
         }
@@ -1578,7 +1630,7 @@ class InsightsFinancialDashboard {
         // Initialize the AI Enhanced Insights Dashboard
         document.addEventListener('DOMContentLoaded', () => {
             try {
-                new InsightsFinancialDashboard();
+                dashboardInstance = new InsightsFinancialDashboard();
             } catch (error) {
                 console.error('Dashboard initialization error:', error);
                 const overlay = document.getElementById('loadingOverlay');

@@ -72,6 +72,22 @@ test.describe('reports-insights response headers (vercel.json)', () => {
     expect(res.headers()['x-frame-options']).toBe('SAMEORIGIN');
   });
 
+  test('Access-Control-Allow-Origin is scoped to the Font Awesome webfont files only, not the whole isolated route', async ({ request }) => {
+    const fontRes = await request.get(`${ORIGIN}/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2`);
+    expect(fontRes.headers()['access-control-allow-origin']).toBe('*');
+
+    // dashboard.js/dashboard.html/the vendored CSS still get the isolated
+    // route's CSP/X-Frame-Options (asserted above) but must NOT also get
+    // a blanket CORS header they have no reason to need — only actual
+    // cross-origin @font-face fetches from inside the opaque-origin
+    // sandbox require it (see the branch history for why this was
+    // narrowed from the whole /reports-insights/* route).
+    const jsRes = await request.get(`${ORIGIN}/reports-insights/dashboard.js`);
+    expect(jsRes.headers()['access-control-allow-origin']).toBeUndefined();
+    const htmlRes = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
+    expect(htmlRes.headers()['access-control-allow-origin']).toBeUndefined();
+  });
+
   test('every other route keeps X-Frame-Options: DENY and no conflicting header is ever sent for the same path', async ({ request }) => {
     const res = await request.get(`${ORIGIN}/reports-insights/../index.html`.replace('/reports-insights/../', '/'));
     expect(res.headers()['x-frame-options']).toBe('DENY');
@@ -194,16 +210,49 @@ test.describe('sandboxed iframe isolation', () => {
     expect(localStorageLeak).not.toBe('TOP-SECRET-PARENT-VALUE');
   });
 
-  test('rejects a forged WARDHAH_INSIGHT_RESPONSE from a sender that is not window.parent', async ({ page }) => {
+  test('rejects a forged WARDHAH_CHANNEL_INIT handshake from a sender that is not window.parent', async ({ page }) => {
+    await gotoHarness(page);
+    // Races a same-page decoy sibling frame's forged handshake against the
+    // real one (see the harness's own comment on this function). If
+    // dashboard.js's event.source check on its one-time handshake
+    // listener is broken, the decoy's fake port gets wired instead and
+    // the real handshake becomes a silent no-op — so the assertions below
+    // (real data sync still works, decoy never receives anything) are
+    // both necessary to prove the forged handshake was actually rejected,
+    // not just that /a/ handshake happened to succeed.
+    await page.evaluate(() => (window as any).__harness.loadTargetWithForgedHandshakeRace());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#loadingOverlay')).toHaveCSS('display', 'none', { timeout: 15000 });
+
+    await expect
+      .poll(async () => page.evaluate(() => (window as any).__harness.receivedFromIframe.some((m: any) => m.type === 'REQUEST_WARDHAH_DATA')), { timeout: 15000 })
+      .toBe(true);
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    const decoyReceivedCount = await page.evaluate(() => (window as any).__harness.decoyReceivedCount);
+    expect(decoyReceivedCount).toBe(0);
+  });
+});
+
+test.describe('fullscreen permission', () => {
+  test('the iframe permissions policy actually allows the Fullscreen API (regression: fullscreenBtn used to silently do nothing)', async ({ page }) => {
     await gotoHarness(page);
     await page.evaluate(() => (window as any).__harness.loadTarget());
-    await page.frameLocator('#target').locator('#loadingOverlay').waitFor({ state: 'hidden', timeout: 15000 });
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#loadingOverlay')).toHaveCSS('display', 'none', { timeout: 15000 });
 
-    await page.evaluate(() => (window as any).__harness.forgeFromDecoy('forged-request-id'));
-    await page.waitForTimeout(1000);
+    const childFrame = page.frames().find((f) => f.url().includes('/reports-insights/dashboard.html'));
+    expect(childFrame).toBeTruthy();
 
-    const chatText = await page.frameLocator('#target').locator('#aiChat').innerText();
-    expect(chatText).not.toContain('INJECTED-BY-DECOY-NOT-REAL-PARENT');
+    // document.fullscreenEnabled reflects whether the Fullscreen API is
+    // permitted in this context at all (Permissions Policy / iframe allow
+    // attribute), independent of the transient user-activation rules that
+    // make actually entering fullscreen unreliable under Playwright/CI.
+    // This is exactly the policy layer the fix (allow="fullscreen" +
+    // allowFullScreen) addresses — before it, this was false and
+    // toggleFullscreen()'s requestFullscreen() call rejected silently.
+    const fullscreenEnabled = await childFrame!.evaluate(() => document.fullscreenEnabled);
+    expect(fullscreenEnabled).toBe(true);
   });
 });
 

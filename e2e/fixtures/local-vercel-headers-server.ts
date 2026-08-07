@@ -7,12 +7,13 @@
  * nothing.
  *
  * This intentionally does NOT reimplement Vercel's full path-to-regexp
- * router. It reads the actual header *values* out of vercel.json (so a
- * value edited there is what the test sees — no hand-copied duplicate to
- * drift out of sync), but decides which header block applies with a
- * simple prefix check equivalent to vercel.json's two mutually-exclusive
- * source patterns (`/reports-insights/(.*)` vs.
- * `/((?!reports-insights/).*)`).
+ * router — each vercel.json rule's `source` is compiled to a real RegExp
+ * here (they're already regex-shaped strings, e.g. `/reports-insights/(.*)`),
+ * and every rule whose source matches the request path contributes its
+ * headers, matching Vercel's own documented behavior for multiple
+ * matching rules (e.g. their own `/service-worker.js` + `/(.*)` example).
+ * Rule *values* always come straight from vercel.json, never a
+ * hand-copied duplicate, so an edit there is what the test sees.
  */
 import { createServer, type Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
@@ -45,18 +46,18 @@ const CONTENT_TYPES: Record<string, string> = {
 
 export async function startLocalVercelHeadersServer(port: number): Promise<Server> {
   const rules = await loadHeaderRules();
-  const isolatedRule = rules.find((r) => r.source === '/reports-insights/(.*)');
-  const generalRule = rules.find((r) => r.source === '/((?!reports-insights/).*)');
-  if (!isolatedRule || !generalRule) {
-    throw new Error('local-vercel-headers-server: vercel.json header rules changed shape — update this test helper');
+  if (rules.length === 0) {
+    throw new Error('local-vercel-headers-server: vercel.json has no header rules — update this test helper');
   }
+  const compiledRules = rules.map((r) => ({ ...r, regex: new RegExp(`^${r.source}$`) }));
 
   const server = createServer(async (req, res) => {
     const urlPath = (req.url ?? '/').split('?')[0];
-    const isIsolated = urlPath.startsWith('/reports-insights/');
-    const rule = isIsolated ? isolatedRule : generalRule;
-    for (const h of rule.headers) {
-      res.setHeader(h.key, h.value);
+    for (const rule of compiledRules) {
+      if (!rule.regex.test(urlPath)) continue;
+      for (const h of rule.headers) {
+        res.setHeader(h.key, h.value);
+      }
     }
 
     const filePath = path.join(PUBLIC_DIR, decodeURIComponent(urlPath));
