@@ -23,7 +23,7 @@ import { ProcessCostingReport } from './process-costing-report'
 import { ProcessCostingDashboard } from './components/ProcessCostingDashboard'
 import { ReportsDashboard } from './components/ReportsDashboard'
 import GeminiDashboard from './components/GeminiDashboard'
-import { EnhancedGeminiDashboard } from './components/EnhancedGeminiDashboard'
+import { EnhancedInsightsDashboard } from './components/EnhancedInsightsDashboard'
 import { SalesReports as SalesReportsComponent } from './components/SalesReports'
 import { InventoryValuationReport } from './components/InventoryValuationReport'
 import { FinancialStatementsReport } from './components/FinancialStatementsReport'
@@ -42,8 +42,12 @@ export function ReportsModule() {
       <Route path="/purchasing" element={<PurchasingReports />} />
       <Route path="/analytics" element={<AdvancedAnalytics />} />
       <Route path="/advanced" element={<ReportsDashboard />} />
-      <Route path="/gemini" element={<EnhancedGeminiDashboard />} />
+      <Route path="/insights" element={<EnhancedInsightsDashboard />} />
       <Route path="/gemini/legacy" element={<GeminiDashboard />} />
+      {/* Compat: /reports/gemini was the Enhanced dashboard's route before
+          the Gemini-branding removal; existing bookmarks/links still point
+          here, so redirect rather than let them dead-end on the wildcard. */}
+      <Route path="/gemini" element={<Navigate to="/insights" replace />} />
       <Route path="*" element={<Navigate to="/reports" replace />} />
     </Routes>
   )
@@ -127,10 +131,10 @@ function ReportsOverview() {
       reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية']
     },
     {
-      title: 'لوحة معلومات Gemini',
+      title: 'رؤى التقارير الذكية',
       description: 'تحليل مالي مدعوم بالذكاء الاصطناعي',
       icon: Brain,
-      href: '/reports/gemini',
+      href: '/reports/insights',
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
       reports: ['تحليل الأداء', 'التوقعات الذكية', 'التوصيات']
@@ -332,7 +336,7 @@ function AdvancedAnalytics() {
   return (
     <div className="space-y-6">
       <PageHeader title="التحليلات المتقدمة" description="مؤشرات ورسوم مالية حية من بيانات المؤسسة الفعلية" hideOnPrint={false} />
-      <EnhancedGeminiDashboard />
+      <EnhancedInsightsDashboard />
     </div>
   )
 }

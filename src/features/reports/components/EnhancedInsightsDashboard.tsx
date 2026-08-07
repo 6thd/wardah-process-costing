@@ -1,6 +1,17 @@
 /**
- * Enhanced Gemini Dashboard Component
- * لوحة Gemini المحسّنة مع ربط البيانات الحقيقية
+ * Enhanced Reports Insights Dashboard Component
+ * لوحة الرؤى المحسّنة مع ربط البيانات الحقيقية
+ *
+ * The embedded dashboard (public/reports-insights/dashboard.html) is loaded
+ * in a sandboxed iframe (`sandbox="allow-scripts allow-downloads"`, no
+ * `allow-same-origin`) so its browsing context has an opaque origin — even
+ * third-party script content running inside it cannot read this page's DOM,
+ * cookies, or localStorage, and its own `event.origin` when messaging out
+ * reads as the literal string "null" rather than a real origin. All
+ * authentication, Supabase access, quota enforcement, and AI-provider calls
+ * happen exclusively in this component and the reports-insights Edge
+ * Function — the iframe never holds a credential of any kind and never
+ * calls anything directly.
  */
 
 import { useEffect, useState, useRef } from 'react';
@@ -9,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, Target, AlertTriangle } from 'lucide-react';
 import { geminiFinancialService } from '@/services/gemini-financial-service';
+import { getSupabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
@@ -20,7 +32,68 @@ interface DashboardMetrics {
   monthlyData: any[];
 }
 
-export function EnhancedGeminiDashboard() {
+const INSIGHT_OPERATIONS = ['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask'] as const;
+type InsightOperation = (typeof INSIGHT_OPERATIONS)[number];
+
+interface InsightRequestMessage {
+  type: 'WARDHAH_INSIGHT_REQUEST';
+  requestId: string;
+  operation: InsightOperation;
+  locale: 'ar' | 'en';
+  data?: Record<string, unknown>;
+  question?: string;
+}
+
+interface DataRequestMessage {
+  type: 'REQUEST_WARDHAH_DATA';
+  requestId: string;
+}
+
+function isValidRequestId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= 100;
+}
+
+function isValidInsightRequest(msg: unknown): msg is InsightRequestMessage {
+  if (!msg || typeof msg !== 'object') return false;
+  const m = msg as Record<string, unknown>;
+  if (m.type !== 'WARDHAH_INSIGHT_REQUEST') return false;
+  if (!isValidRequestId(m.requestId)) return false;
+  if (typeof m.operation !== 'string' || !INSIGHT_OPERATIONS.includes(m.operation as InsightOperation)) return false;
+  if (m.locale !== 'ar' && m.locale !== 'en') return false;
+  if (m.operation === 'ask') {
+    if (typeof m.question !== 'string' || m.question.length === 0 || m.question.length > 500) return false;
+  }
+  // data is optional context on every operation, including 'ask' (the
+  // dashboard's already-computed financial figures, so the model can
+  // answer questions grounded in the organization's real numbers).
+  if (m.data !== undefined && (typeof m.data !== 'object' || m.data === null || Array.isArray(m.data))) {
+    return false;
+  }
+  return true;
+}
+
+function isValidDataRequest(msg: unknown): msg is DataRequestMessage {
+  if (!msg || typeof msg !== 'object') return false;
+  const m = msg as Record<string, unknown>;
+  return m.type === 'REQUEST_WARDHAH_DATA' && isValidRequestId(m.requestId);
+}
+
+/** Classifies an Edge Function invocation failure without ever showing the
+ * caller a fabricated "success" — the iframe's local deterministic fallback
+ * handles UX degradation on its own; this only decides what to log and what
+ * error code to relay so a real bug is never indistinguishable from a
+ * classified provider hiccup in the logs. */
+function classifyInvokeError(error: unknown): { code: string; status?: number } {
+  const withContext = error as { context?: { status?: number }; message?: string } | null;
+  const status = withContext?.context?.status;
+  if (status === 401) return { code: 'not_authenticated', status };
+  if (status === 403) return { code: 'forbidden', status };
+  if (status === 429) return { code: 'quota_exceeded', status };
+  if (typeof status === 'number' && status >= 500) return { code: 'internal_error', status };
+  return { code: 'request_failed', status };
+}
+
+export function EnhancedInsightsDashboard() {
   const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
   const [loading, setLoading] = useState(true);
@@ -35,7 +108,6 @@ export function EnhancedGeminiDashboard() {
       try {
         setLoading(true);
 
-        // Fetch real financial data
         const kpis = await geminiFinancialService.fetchRealFinancialKPIs();
         const breakEven = await geminiFinancialService.calculateBreakEvenAnalysis();
         const monthlyData = await geminiFinancialService.fetchMonthlyFinancialData();
@@ -44,18 +116,24 @@ export function EnhancedGeminiDashboard() {
         const endDate = new Date();
         const profitLoss = await geminiFinancialService.analyzeProfitLoss(startDate, endDate);
 
-        // Format for Gemini dashboard
         const formattedData = geminiFinancialService.formatForGeminiDashboard(kpis, monthlyData);
 
-        // Send data to iframe (using same origin for security)
+        // The iframe is sandboxed with an opaque origin, so there is no
+        // real origin string to target — '*' is required for delivery to
+        // succeed at all. This is safe here specifically because the
+        // payload is already-fetched, non-secret display data (never a
+        // credential), and because the *receiving* side's own identity
+        // check (event.source === window.parent) is what actually gates
+        // which window may act on it, not the origin string.
         if (iframeRef.current?.contentWindow) {
           iframeRef.current.contentWindow.postMessage({
             type: 'WARDHAH_DATA_SYNC',
+            requestId: `sync-${Date.now()}-${Math.random().toString(36).slice(2)}`,
             data: formattedData,
             kpis,
             breakEven,
             profitLoss
-          }, globalThis.window.location.origin);
+          }, '*');
         }
 
         setMetrics({
@@ -65,10 +143,10 @@ export function EnhancedGeminiDashboard() {
           monthlyData
         });
 
-        toast.success(t('geminiDashboard.syncSuccess'));
+        toast.success(t('reportsInsights.syncSuccess'));
       } catch (error: any) {
         console.error('Error syncing data:', error);
-        toast.error(error.message || t('geminiDashboard.syncFailed'));
+        toast.error(error.message || t('reportsInsights.syncFailed'));
       } finally {
         setLoading(false);
       }
@@ -76,14 +154,12 @@ export function EnhancedGeminiDashboard() {
   };
 
   useEffect(() => {
-    // Initial sync
     syncWithWardah();
 
-    // Auto-refresh every 5 minutes if enabled
     if (autoRefresh) {
       refreshIntervalRef.current = setInterval(() => {
         syncWithWardah();
-      }, 5 * 60 * 1000); // 5 minutes
+      }, 5 * 60 * 1000);
     }
 
     return () => {
@@ -91,19 +167,92 @@ export function EnhancedGeminiDashboard() {
         clearInterval(refreshIntervalRef.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoRefresh]);
 
-  // Listen for messages from iframe (verify origin for security)
+  // Listen for messages from the sandboxed iframe. The iframe's browsing
+  // context is opaque-origin by design (see the class comment above), so
+  // event.origin from it is always the string "null" and carries no
+  // signal — event.source (a direct WindowProxy reference that cannot be
+  // forged by another window) is the actual identity boundary, checked
+  // first and unconditionally before any message-shape logic runs.
   useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      // Verify message is from same origin
-      if (event.origin !== globalThis.window.location.origin) {
-        console.warn('Ignoring message from unauthorized origin:', event.origin);
+    const handleMessage = async (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) return;
+
+      const msg = event.data;
+
+      if (isValidDataRequest(msg)) {
+        syncWithWardah();
         return;
       }
-      
-      if (event.data.type === 'REQUEST_WARDHAH_DATA') {
-        syncWithWardah();
+
+      if (!isValidInsightRequest(msg)) return;
+
+      const targetWindow = event.source as Window;
+      // Same reasoning as syncWithWardah(): the target has an opaque
+      // origin, so '*' is the only targetOrigin that can ever deliver.
+      const targetOrigin = '*';
+
+      try {
+        const supabase = getSupabase();
+        const { data: sessionData } = await supabase.auth.getSession();
+        if (!sessionData.session) {
+          targetWindow.postMessage({
+            type: 'WARDHAH_INSIGHT_RESPONSE',
+            requestId: msg.requestId,
+            success: false,
+            error: 'not_authenticated'
+          }, targetOrigin);
+          return;
+        }
+
+        const { data, error } = await supabase.functions.invoke('reports-insights', {
+          body: {
+            operation: msg.operation,
+            locale: msg.locale,
+            requestId: msg.requestId,
+            ...(msg.operation === 'ask'
+              ? { question: msg.question, ...(msg.data !== undefined ? { data: msg.data } : {}) }
+              : { data: msg.data ?? {} })
+          }
+        });
+
+        if (error) {
+          const { code, status } = classifyInvokeError(error);
+          // A real 5xx or an unclassified failure is logged distinctly
+          // from an expected 401/403/429 so it is never mistaken for
+          // normal, classified degradation in the logs — the iframe still
+          // falls back to its local deterministic text either way (that
+          // fallback is a UX decision made once, in the iframe, not a
+          // reason to blur what actually happened server-side).
+          if (code === 'internal_error' || code === 'request_failed') {
+            console.error('reports-insights invoke failed', { requestId: msg.requestId, operation: msg.operation, code, status });
+          }
+          targetWindow.postMessage({
+            type: 'WARDHAH_INSIGHT_RESPONSE',
+            requestId: msg.requestId,
+            success: false,
+            error: code
+          }, targetOrigin);
+          return;
+        }
+
+        targetWindow.postMessage({
+          type: 'WARDHAH_INSIGHT_RESPONSE',
+          requestId: msg.requestId,
+          success: true,
+          source: data?.source,
+          text: data?.text
+        }, targetOrigin);
+      } catch (err) {
+        console.error('Error handling insight request:', err);
+        targetWindow.postMessage({
+          type: 'WARDHAH_INSIGHT_RESPONSE',
+          requestId: msg.requestId,
+          success: false,
+          error: 'request_failed'
+        }, targetOrigin);
       }
     };
 
@@ -119,10 +268,10 @@ export function EnhancedGeminiDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="text-2xl">
-                {t('geminiDashboard.enhancedTitle')}
+                {t('reportsInsights.enhancedTitle')}
               </CardTitle>
               <CardDescription>
-                {t('geminiDashboard.enhancedDescription')}
+                {t('reportsInsights.enhancedDescription')}
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -132,11 +281,11 @@ export function EnhancedGeminiDashboard() {
                 className={cn(autoRefresh && 'bg-primary text-primary-foreground')}
               >
                 <RefreshCw className={cn('h-4 w-4 mr-2', autoRefresh && 'animate-spin')} />
-                {t('geminiDashboard.autoRefresh')}
+                {t('reportsInsights.autoRefresh')}
               </Button>
               <Button onClick={syncWithWardah} disabled={loading}>
                 <RefreshCw className={cn('h-4 w-4 mr-2', loading && 'animate-spin')} />
-                {t('geminiDashboard.syncNow')}
+                {t('reportsInsights.syncNow')}
               </Button>
             </div>
           </div>
@@ -149,7 +298,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{t('geminiDashboard.totalSales')}</p>
+                      <p className="text-sm opacity-90">{t('reportsInsights.totalSales')}</p>
                       <p className="text-2xl font-bold">{metrics.kpis.totalSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                     </div>
                     <DollarSign className="h-8 w-8 opacity-80" />
@@ -161,7 +310,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{t('geminiDashboard.netProfit')}</p>
+                      <p className="text-sm opacity-90">{t('reportsInsights.netProfit')}</p>
                       <p className="text-2xl font-bold">{metrics.kpis.netProfit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                       <p className="text-xs opacity-80">{metrics.kpis.profitMargin.toFixed(2)}%</p>
                     </div>
@@ -178,10 +327,10 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{t('geminiDashboard.breakEvenPoint')}</p>
+                      <p className="text-sm opacity-90">{t('reportsInsights.breakEvenPoint')}</p>
                       <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                       <p className="text-xs opacity-80">
-                        {t('geminiDashboard.marginOfSafety')}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
+                        {t('reportsInsights.marginOfSafety')}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
                       </p>
                     </div>
                     <Target className="h-8 w-8 opacity-80" />
@@ -193,7 +342,7 @@ export function EnhancedGeminiDashboard() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm opacity-90">{t('geminiDashboard.contributionMargin')}</p>
+                      <p className="text-sm opacity-90">{t('reportsInsights.contributionMargin')}</p>
                       <p className="text-2xl font-bold">{(metrics.kpis.contributionMarginRatio * 100).toFixed(2)}%</p>
                       <p className="text-xs opacity-80">
                         {metrics.kpis.contributionMargin.toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -212,34 +361,33 @@ export function EnhancedGeminiDashboard() {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Target className="h-5 w-5" />
-                  {t('geminiDashboard.breakEvenAnalysis')}
+                  {t('reportsInsights.breakEvenAnalysis')}
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.breakEvenSales')}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.breakEvenSales')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                   <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.marginOfSafety')}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.marginOfSafety')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%</p>
                     <p className="text-xs text-muted-foreground mt-1">
                       {metrics.breakEven.marginOfSafety.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </p>
                   </div>
                   <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('geminiDashboard.fixedCosts')}</p>
+                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.fixedCosts')}</p>
                     <p className="text-2xl font-bold">{metrics.breakEven.fixedCosts.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
                   </div>
                 </div>
 
-                {/* Status Alert */}
                 {metrics.breakEven.marginOfSafetyPercent < 10 && (
                   <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
                     <AlertTriangle className="h-5 w-5 text-yellow-600" />
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      {t('geminiDashboard.lowMarginWarning')}
+                      {t('reportsInsights.lowMarginWarning')}
                     </p>
                   </div>
                 )}
@@ -247,7 +395,7 @@ export function EnhancedGeminiDashboard() {
             </Card>
           )}
 
-          {/* Gemini Dashboard Iframe */}
+          {/* Insights Dashboard Iframe — fully sandboxed, opaque origin */}
           <Card>
             <CardContent className="p-0">
               <div className="relative" style={{ height: 'calc(100vh - 400px)', minHeight: '600px' }}>
@@ -256,28 +404,19 @@ export function EnhancedGeminiDashboard() {
                     <div className="flex flex-col items-center gap-4">
                       <RefreshCw className="h-8 w-8 animate-spin text-primary" />
                       <p className="text-muted-foreground">
-                        {t('geminiDashboard.loadingEnhanced')}
+                        {t('reportsInsights.loadingEnhanced')}
                       </p>
                     </div>
                   </div>
                 )}
                 <iframe
                   ref={iframeRef}
-                  src="/gemini-dashboard/gemini_enhanced_dashboard.html?wardah=true&autoSync=true"
+                  src={`/reports-insights/dashboard.html?wardah=true&autoSync=true&parentOrigin=${encodeURIComponent(globalThis.window.location.origin)}`}
                   className="w-full h-full border-0 rounded-lg"
-                  title="Gemini Enhanced Dashboard"
+                  title="Reports Insights Dashboard"
+                  sandbox="allow-scripts allow-downloads"
                   onLoad={() => {
                     setLoading(false);
-                    // Gemini AI generation inside the iframe is temporarily
-                    // disabled (see gemini_enhanced_dashboard.html) — a prior
-                    // version relayed the user's Supabase session token into
-                    // this iframe so it could call a proxy directly, but the
-                    // iframe loads third-party CDN scripts that could read
-                    // anything held in its JS memory. No credential is passed
-                    // into the iframe. Financial data still reaches it via
-                    // the WARDHAH_DATA_SYNC postMessage below, which carries
-                    // only already-fetched, non-secret display data.
-                    // Auto-sync after iframe loads
                     setTimeout(() => {
                       syncWithWardah();
                     }, 1000);
@@ -292,5 +431,4 @@ export function EnhancedGeminiDashboard() {
   );
 }
 
-export default EnhancedGeminiDashboard;
-
+export default EnhancedInsightsDashboard;
