@@ -32,15 +32,16 @@ let dashboardInstance = null;
 // Default cost-of-goods-sold rate used only to seed the adjustable COGS
 // slider's starting position (see renderAdvancedControls()/
 // updateAssumptions()) — not a claim about any organization's actual COGS.
-const DEFAULT_COGS_RATE = 0.70;
+const DEFAULT_COGS_RATE = 0.7;
 
 // Full schema validation for the two message types this iframe ever
 // receives over the port. Nothing synced from these messages reaches the
 // screen unless it passes here — a malformed or out-of-range payload is
 // silently dropped rather than rendered, so a bug or a compromised host
 // can never present fabricated-looking numbers as real financial data.
+const MAX_FINANCIAL_AMOUNT = 1000000000000; // one trillion — a sanity bound, not a claim about any real figure
 function isFiniteBoundedAmount(n) {
-    return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= 1e12;
+    return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_FINANCIAL_AMOUNT;
 }
 function isValidAmountArray(arr) {
     return Array.isArray(arr) && arr.length > 0 && arr.every(isFiniteBoundedAmount);
