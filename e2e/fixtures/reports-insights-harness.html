@@ -59,7 +59,7 @@
 <script>
   window.localStorage.setItem('parent-secret', 'TOP-SECRET-PARENT-VALUE');
 
-  const INSIGHT_OPERATIONS = ['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask'];
+  const INSIGHT_OPERATIONS = new Set(['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask']);
 
   function isValidRequestId(value) {
     return typeof value === 'string' && value.length > 0 && value.length <= 100;
@@ -69,7 +69,7 @@
     if (!msg || typeof msg !== 'object') return false;
     if (msg.type !== 'WARDHAH_INSIGHT_REQUEST') return false;
     if (!isValidRequestId(msg.requestId)) return false;
-    if (typeof msg.operation !== 'string' || !INSIGHT_OPERATIONS.includes(msg.operation)) return false;
+    if (typeof msg.operation !== 'string' || !INSIGHT_OPERATIONS.has(msg.operation)) return false;
     if (msg.locale !== 'ar' && msg.locale !== 'en') return false;
     if (msg.operation === 'ask') {
       if (typeof msg.question !== 'string' || msg.question.length === 0 || msg.question.length > 500) return false;
@@ -135,10 +135,10 @@
         return; // deliberately never reply — exercises the "data unavailable" state
       }
       if (window.__harness.dataSyncMode === 'malformed') {
-        window.__harness.port.postMessage(Object.assign({ requestId: msg.requestId }, MALFORMED_DATA_SYNC));
+        window.__harness.port.postMessage({ requestId: msg.requestId, ...MALFORMED_DATA_SYNC });
         return;
       }
-      window.__harness.port.postMessage(Object.assign({ requestId: 'sync-' + Date.now() }, SAMPLE_DATA_SYNC));
+      window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...SAMPLE_DATA_SYNC });
       return;
     }
 
