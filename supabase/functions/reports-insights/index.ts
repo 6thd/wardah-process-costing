@@ -265,44 +265,54 @@ const defaultDeps: HandleRequestDeps = {
   callProvider: createProvider(GROQ_API_KEY),
 }
 
-export async function handleRequest(req: Request, deps: HandleRequestDeps = defaultDeps): Promise<Response> {
-  const startedAt = Date.now()
+// Each helper below returns either a `Response` to send back verbatim (a
+// failure) or the data the next stage needs — handleRequest() at the
+// bottom just chains them in the exact original order (parse/validate ->
+// authenticate -> authorize -> check quota -> run provider), stopping at
+// the first failure. Splitting handleRequest() up this way (originally one
+// function covering all five concerns) is a pure extraction: every status
+// code, every jsonResponse() field, the quota-before-provider ordering,
+// and every console.log/error call and its fields are unchanged — this is
+// verified by index.test.ts, which drives handleRequest() itself and is
+// untouched by this refactor.
 
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+type StageResult<T> = { ok: true; value: T } | { ok: false; response: Response }
 
-  if (req.method !== 'POST') {
-    return jsonResponse({ success: false, error: 'method_not_allowed' }, 405)
-  }
-
+async function parseAndValidateRequest(
+  req: Request
+): Promise<StageResult<InsightRequestBody>> {
   const contentLengthHeader = req.headers.get('content-length')
   if (contentLengthHeader && Number(contentLengthHeader) > MAX_BODY_BYTES) {
-    return jsonResponse({ success: false, error: 'payload_too_large' }, 413)
+    return { ok: false, response: jsonResponse({ success: false, error: 'payload_too_large' }, 413) }
   }
 
   const rawBody = await req.text()
   if (new TextEncoder().encode(rawBody).length > MAX_BODY_BYTES) {
-    return jsonResponse({ success: false, error: 'payload_too_large' }, 413)
+    return { ok: false, response: jsonResponse({ success: false, error: 'payload_too_large' }, 413) }
   }
 
   let parsed: unknown
   try {
     parsed = rawBody.length > 0 ? JSON.parse(rawBody) : {}
   } catch {
-    return jsonResponse({ success: false, error: 'invalid_request' }, 400)
+    return { ok: false, response: jsonResponse({ success: false, error: 'invalid_request' }, 400) }
   }
 
   const validation = validateBody(parsed)
   if (!validation.ok) {
-    return jsonResponse({ success: false, error: validation.error }, 400)
+    return { ok: false, response: jsonResponse({ success: false, error: validation.error }, 400) }
   }
-  const body = validation.body
-  const requestId = body.requestId
+  return { ok: true, value: validation.body }
+}
 
+async function authenticate(
+  req: Request,
+  deps: HandleRequestDeps,
+  requestId: string | undefined
+): Promise<StageResult<{ userClient: AuthUserClient; user: { id: string } }>> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader) {
-    return jsonResponse({ success: false, error: 'not_authenticated', requestId }, 401)
+    return { ok: false, response: jsonResponse({ success: false, error: 'not_authenticated', requestId }, 401) }
   }
 
   // Request-bound client: carries the caller's own JWT, used exclusively
@@ -312,41 +322,57 @@ export async function handleRequest(req: Request, deps: HandleRequestDeps = defa
 
   const { data: authData, error: authError } = await userClient.auth.getUser()
   if (authError || !authData?.user) {
-    return jsonResponse({ success: false, error: 'not_authenticated', requestId }, 401)
+    return { ok: false, response: jsonResponse({ success: false, error: 'not_authenticated', requestId }, 401) }
   }
-  const user = authData.user
+  return { ok: true, value: { userClient, user: authData.user } }
+}
 
+async function authorize(
+  userClient: AuthUserClient,
+  userId: string,
+  requestId: string | undefined
+): Promise<StageResult<{ orgId: string }>> {
   const { data: orgId, error: orgError } = await userClient.rpc('wardah_org_id')
   if (orgError) {
     console.error('reports-insights: wardah_org_id failed', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       message: orgError.message,
     })
-    return jsonResponse({ success: false, error: 'internal_error', requestId }, 500)
+    return { ok: false, response: jsonResponse({ success: false, error: 'internal_error', requestId }, 500) }
   }
   if (!orgId) {
-    return jsonResponse({ success: false, error: 'forbidden', requestId }, 403)
+    return { ok: false, response: jsonResponse({ success: false, error: 'forbidden', requestId }, 403) }
   }
 
   const { data: hasPerm, error: permError } = await userClient.rpc('has_permission', {
-    p_user_id: user.id,
+    p_user_id: userId,
     p_org_id: orgId,
     p_permission_key: PERMISSION_KEY,
   })
   if (permError) {
     console.error('reports-insights: has_permission failed', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       org_id: orgId,
       message: permError.message,
     })
-    return jsonResponse({ success: false, error: 'internal_error', requestId }, 500)
+    return { ok: false, response: jsonResponse({ success: false, error: 'internal_error', requestId }, 500) }
   }
   if (!hasPerm) {
-    return jsonResponse({ success: false, error: 'forbidden', requestId }, 403)
+    return { ok: false, response: jsonResponse({ success: false, error: 'forbidden', requestId }, 403) }
   }
 
+  return { ok: true, value: { orgId: orgId as string } }
+}
+
+async function checkQuota(
+  deps: HandleRequestDeps,
+  orgId: string,
+  userId: string,
+  operation: InsightOperation,
+  requestId: string | undefined
+): Promise<StageResult<void>> {
   // Separate admin client, service_role-keyed, used only for the quota RPC —
   // kept apart from userClient so a bug can never call the quota RPC with
   // the wrong credential, or a user-scoped lookup with elevated privileges.
@@ -354,28 +380,39 @@ export async function handleRequest(req: Request, deps: HandleRequestDeps = defa
 
   const { data: quotaRows, error: quotaError } = await adminClient.rpc('rpc_check_and_record_ai_usage', {
     p_org_id: orgId,
-    p_user_id: user.id,
+    p_user_id: userId,
   })
   if (quotaError) {
     console.error('reports-insights: rpc_check_and_record_ai_usage failed', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       org_id: orgId,
       message: quotaError.message,
     })
-    return jsonResponse({ success: false, error: 'internal_error', requestId }, 500)
+    return { ok: false, response: jsonResponse({ success: false, error: 'internal_error', requestId }, 500) }
   }
   const quota = Array.isArray(quotaRows) ? quotaRows[0] : quotaRows
   if (!(quota as { allowed?: boolean } | undefined)?.allowed) {
     console.log('reports-insights: quota_exceeded', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       org_id: orgId,
-      operation: body.operation,
+      operation,
     })
-    return jsonResponse({ success: false, error: 'quota_exceeded', requestId }, 429)
+    return { ok: false, response: jsonResponse({ success: false, error: 'quota_exceeded', requestId }, 429) }
   }
 
+  return { ok: true, value: undefined }
+}
+
+async function runProvider(
+  deps: HandleRequestDeps,
+  body: InsightRequestBody,
+  userId: string,
+  orgId: string,
+  startedAt: number
+): Promise<Response> {
+  const requestId = body.requestId
   const systemPrompt = buildSystemPrompt(body.locale)
   const userPrompt = buildUserPrompt(body)
 
@@ -385,7 +422,7 @@ export async function handleRequest(req: Request, deps: HandleRequestDeps = defa
   } catch (err) {
     console.error('reports-insights: provider call raised', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       org_id: orgId,
       operation: body.operation,
       message: err instanceof Error ? err.message : String(err),
@@ -398,7 +435,7 @@ export async function handleRequest(req: Request, deps: HandleRequestDeps = defa
   if (providerResult.kind === 'unavailable') {
     console.log('reports-insights: provider_unavailable', {
       requestId,
-      user_id: user.id,
+      user_id: userId,
       org_id: orgId,
       operation: body.operation,
       reason: providerResult.reason,
@@ -409,13 +446,43 @@ export async function handleRequest(req: Request, deps: HandleRequestDeps = defa
 
   console.log('reports-insights: ok', {
     requestId,
-    user_id: user.id,
+    user_id: userId,
     org_id: orgId,
     operation: body.operation,
     source: 'ai',
     durationMs,
   })
   return jsonResponse({ success: true, source: 'ai', text: providerResult.text, requestId }, 200)
+}
+
+export async function handleRequest(req: Request, deps: HandleRequestDeps = defaultDeps): Promise<Response> {
+  const startedAt = Date.now()
+
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return jsonResponse({ success: false, error: 'method_not_allowed' }, 405)
+  }
+
+  const parsed = await parseAndValidateRequest(req)
+  if (!parsed.ok) return parsed.response
+  const body = parsed.value
+  const requestId = body.requestId
+
+  const authResult = await authenticate(req, deps, requestId)
+  if (!authResult.ok) return authResult.response
+  const { userClient, user } = authResult.value
+
+  const authzResult = await authorize(userClient, user.id, requestId)
+  if (!authzResult.ok) return authzResult.response
+  const { orgId } = authzResult.value
+
+  const quotaResult = await checkQuota(deps, orgId, user.id, body.operation, requestId)
+  if (!quotaResult.ok) return quotaResult.response
+
+  return runProvider(deps, body, user.id, orgId, startedAt)
 }
 
 // Guarded so importing this module from a test (index.test.ts) never binds

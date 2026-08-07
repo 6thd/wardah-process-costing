@@ -29,16 +29,18 @@ const pendingInsightRequests = new Map();
 // bottom of this file) so the port handler can reach it directly.
 let dashboardInstance = null;
 
-// Default cost-of-goods-sold rate used only to seed the adjustable COGS
-// slider's starting position (see renderAdvancedControls()/
-// updateAssumptions()) — not a claim about any organization's actual COGS.
-const DEFAULT_COGS_RATE = 0.7;
-
 // Full schema validation for the two message types this iframe ever
 // receives over the port. Nothing synced from these messages reaches the
 // screen unless it passes here — a malformed or out-of-range payload is
-// silently dropped rather than rendered, so a bug or a compromised host
-// can never present fabricated-looking numbers as real financial data.
+// silently dropped rather than rendered. This guards against a bug or a
+// misbehaving sender producing a structurally invalid message; it is NOT a
+// defense against a compromised host sending well-formed but fabricated
+// numbers — schema validation checks shape and bounds, not truth. The host
+// page (EnhancedInsightsDashboard.tsx) is the trust boundary for accuracy:
+// it is the only source this iframe ever syncs from, and it reads real
+// figures from Supabase rather than inventing them. If that host page were
+// compromised, it could send realistic-looking but false numbers that
+// would still pass every check here.
 const MAX_FINANCIAL_AMOUNT = 1000000000000; // one trillion — a sanity bound, not a claim about any real figure
 function isFiniteBoundedAmount(n) {
     return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_FINANCIAL_AMOUNT;
@@ -49,11 +51,13 @@ function isValidAmountArray(arr) {
 function isValidMonthlyData(monthlyData) {
     if (!monthlyData || typeof monthlyData !== 'object' || Array.isArray(monthlyData)) return false;
     const keys = Object.keys(monthlyData);
-    if (keys.length === 0) return false;
+    if (keys.length === 0 || keys.length > 12) return false;
     return keys.every((key) => {
         const month = monthlyData[key];
         return month && typeof month === 'object' &&
-            isValidAmountArray(month.p) && isValidAmountArray(month.s_exp) && isValidAmountArray(month.a_exp);
+            isValidAmountArray(month.p) && isValidAmountArray(month.opex) &&
+            isFiniteBoundedAmount(month.cogs) && isFiniteBoundedAmount(month.grossProfit) &&
+            isFiniteBoundedAmount(month.netProfit);
     });
 }
 function isValidDataSync(msg) {
@@ -129,6 +133,18 @@ function el(tag, attrs, children) {
     return node;
 }
 
+// Calendar month names in the fixed Jan->Dec order the backend
+// (gemini-financial-service.ts's fetchMonthlyFinancialData()) always
+// serializes monthlyData keys in. This is a label lookup, not financial
+// data — every dashboard.months/monthsEn entry always corresponds to a
+// month that was actually present in a real WARDHAH_DATA_SYNC (see
+// handleDataSync() below); this table is only used to translate a real
+// month's Arabic key to its English label and to name months beyond the
+// synced range for the predictive chart's forward-looking labels.
+const ALL_MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+const ALL_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTH_NAME_AR_TO_EN = Object.fromEntries(ALL_MONTHS_AR.map((ar, i) => [ar, ALL_MONTHS_EN[i]]));
+
 class InsightsFinancialDashboard {
             constructor() {
                 // AI-generated insight text is requested via requestInsight()
@@ -156,18 +172,28 @@ class InsightsFinancialDashboard {
                 this._dataSyncPromise = new Promise((resolve) => { this._resolveDataSync = resolve; });
 
                 this.data = {
+                    // What-if multipliers a user can drag to explore
+                    // scenarios against the real synced figures — they
+                    // default to 1.0 (no distortion) and are only ever
+                    // moved by an explicit, visible user action, unlike a
+                    // silent default ratio applied without disclosure.
+                    // There is no COGS multiplier: cost of goods sold is
+                    // always the real per-month figure synced from Wardah
+                    // ERP (see calculateFinancials()), never derived from
+                    // sales by an assumed rate.
                     assumptions: {
-                        cogs_rate: DEFAULT_COGS_RATE,
                         salesMultiplier: 1.0,
-                        sellingExpensesMultiplier: 1.0,
-                        adminExpensesMultiplier: 1.0,
+                        opexMultiplier: 1.0,
                     },
 
                     syncState: 'awaiting', // 'awaiting' | 'ready' | 'failed'
                     baseFinancialData: null,
 
-                    months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو"],
-                    monthsEn: ["January", "February", "March", "April", "May", "June"],
+                    // Populated by handleDataSync() from the real synced
+                    // months — never a hardcoded subset. See
+                    // MONTH_NAME_AR_TO_EN below for the AR->EN label lookup.
+                    months: [],
+                    monthsEn: [],
                     charts: {},
                     aiInsights: [],
                     voiceRecognition: null,
@@ -311,13 +337,18 @@ class InsightsFinancialDashboard {
             buildLocalInsight(operation, payload) {
                 const ar = this.data.currentLanguage === 'ar';
                 const num = (n) => Number(n || 0).toLocaleString(ar ? 'ar-SA' : 'en-US', { maximumFractionDigits: 0 });
-                const safety = Number(payload.marginOfSafety || 0);
+                // Break-even/margin-of-safety are never in payload (see
+                // calculateFinancials() — no real fixed/variable cost
+                // classification exists to compute them from), so this
+                // never references them; contribution margin ratio is a
+                // real, computed figure instead.
+                const cmr = Number(payload.contributionMarginRatio || 0) * 100;
 
                 switch (operation) {
                     case 'summary':
                         return ar
-                            ? `إجمالي المبيعات ${num(payload.totalSales)} ر.س، وصافي الربح ${num(payload.totalNetProfit)} ر.س، بنقطة تعادل ${num(payload.breakEven)} ر.س وهامش أمان ${safety.toFixed(1)}%.`
-                            : `Total sales ${num(payload.totalSales)} SAR, net profit ${num(payload.totalNetProfit)} SAR, break-even ${num(payload.breakEven)} SAR, margin of safety ${safety.toFixed(1)}%.`;
+                            ? `إجمالي المبيعات ${num(payload.totalSales)} ر.س، وصافي الربح ${num(payload.totalNetProfit)} ر.س.`
+                            : `Total sales ${num(payload.totalSales)} SAR, net profit ${num(payload.totalNetProfit)} SAR.`;
                     case 'predictions':
                         return ar
                             ? 'التوقعات التفصيلية غير متاحة من المحرك الذكي حاليًا؛ استمر بمراقبة اتجاه الأرباح الشهرية الحالي كمؤشر مبدئي.'
@@ -328,8 +359,8 @@ class InsightsFinancialDashboard {
                             : 'Review fixed and variable costs for cost-reduction opportunities, and evaluate revenue growth from higher-margin products.';
                     case 'risk':
                         return ar
-                            ? `هامش الأمان الحالي ${safety.toFixed(1)}%؛ ${safety < 10 ? 'منخفض ويستدعي مراجعة التكاليف الثابتة فورًا.' : 'ضمن نطاق مقبول حاليًا.'}`
-                            : `Current margin of safety is ${safety.toFixed(1)}%; ${safety < 10 ? 'low, and warrants an immediate review of fixed costs.' : 'within an acceptable range for now.'}`;
+                            ? `نسبة هامش المساهمة الحالية ${cmr.toFixed(1)}%؛ ${cmr < 20 ? 'منخفضة ويستدعي ذلك مراجعة التكاليف التشغيلية.' : 'ضمن نطاق مقبول حاليًا.'}`
+                            : `Current contribution margin ratio is ${cmr.toFixed(1)}%; ${cmr < 20 ? 'low, and warrants a review of operating costs.' : 'within an acceptable range for now.'}`;
                     case 'strategy':
                         return ar
                             ? 'ركّز على تحسين هامش المساهمة عبر تسعير أدق ومزيج منتجات أفضل قبل التوسع في الإنفاق التشغيلي.'
@@ -539,9 +570,7 @@ class InsightsFinancialDashboard {
                 try {
                     const { text } = await this.requestInsight('summary', {
                         totalSales: annual.totalSales,
-                        totalNetProfit: annual.totalNetProfit,
-                        breakEven: annual.breakEven,
-                        marginOfSafety: annual.marginOfSafety
+                        totalNetProfit: annual.totalNetProfit
                     });
                     this.parseInsights(text);
                 } catch (error) {
@@ -609,9 +638,7 @@ class InsightsFinancialDashboard {
                         const { annual } = this.calculateFinancials();
                         data = {
                             totalSales: annual.totalSales,
-                            totalNetProfit: annual.totalNetProfit,
-                            breakEven: annual.breakEven,
-                            marginOfSafety: annual.marginOfSafety
+                            totalNetProfit: annual.totalNetProfit
                         };
                     }
                     const { text } = await this.requestInsight('ask', { question: message, data });
@@ -693,8 +720,6 @@ class InsightsFinancialDashboard {
                     const { text } = await this.requestInsight('summary', {
                         totalSales: annual.totalSales,
                         totalNetProfit: annual.totalNetProfit,
-                        breakEven: annual.breakEven,
-                        marginOfSafety: annual.marginOfSafety,
                         monthlyNetProfits: monthly.map(m => Math.round(m.netProfit))
                     });
 
@@ -743,37 +768,41 @@ class InsightsFinancialDashboard {
                 const monthlyCalcs = this.data.months.map(month => {
                     const base = this.data.baseFinancialData[month];
                     const sales = this.sum(base.p) * this.data.assumptions.salesMultiplier;
-                    const cogs = sales * this.data.assumptions.cogs_rate;
+                    // Real, synced COGS — never derived from sales by an
+                    // assumed rate (see the module comment history in this
+                    // file for why that was removed).
+                    const cogs = base.cogs;
                     const grossProfit = sales - cogs;
-                    const sellingExpenses = this.sum(base.s_exp) * this.data.assumptions.sellingExpensesMultiplier;
-                    const operatingProfit = grossProfit - sellingExpenses;
-                    const adminExpenses = this.sum(base.a_exp) * this.data.assumptions.adminExpensesMultiplier;
-                    const netProfit = operatingProfit - adminExpenses;
-                    
-                    return { 
-                        month, sales, cogs, grossProfit, sellingExpenses, 
-                        operatingProfit, adminExpenses, netProfit 
-                    };
+                    const opex = this.sum(base.opex) * this.data.assumptions.opexMultiplier;
+                    const netProfit = grossProfit - opex;
+
+                    return { month, sales, cogs, grossProfit, opex, netProfit };
                 });
 
                 const annualTotals = {
                     totalSales: this.sum(monthlyCalcs.map(m => m.sales)),
                     totalCogs: this.sum(monthlyCalcs.map(m => m.cogs)),
                     totalGrossProfit: this.sum(monthlyCalcs.map(m => m.grossProfit)),
-                    totalSellingExpenses: this.sum(monthlyCalcs.map(m => m.sellingExpenses)),
-                    totalAdminExpenses: this.sum(monthlyCalcs.map(m => m.adminExpenses)),
+                    totalOpex: this.sum(monthlyCalcs.map(m => m.opex)),
                     totalNetProfit: this.sum(monthlyCalcs.map(m => m.netProfit)),
                 };
 
-                // Advanced calculations
-                annualTotals.contributionMarginRatio = annualTotals.totalSales > 0 ? 
-                    (annualTotals.totalGrossProfit - annualTotals.totalSellingExpenses) / annualTotals.totalSales : 0;
-                
-                annualTotals.breakEven = annualTotals.totalAdminExpenses > 0 && annualTotals.contributionMarginRatio > 0 ? 
-                    (annualTotals.totalAdminExpenses / 6 / annualTotals.contributionMarginRatio) : 0;
-                
-                annualTotals.marginOfSafety = annualTotals.totalSales > 0 && annualTotals.breakEven > 0 ?
-                    ((annualTotals.totalSales / 6 - annualTotals.breakEven) / (annualTotals.totalSales / 6)) * 100 : 0;
+                // Real ratio (gross profit / sales) — no fixed/variable
+                // assumption is needed for this one.
+                annualTotals.contributionMarginRatio = annualTotals.totalSales > 0 ?
+                    annualTotals.totalGrossProfit / annualTotals.totalSales : 0;
+
+                // Break-even and margin-of-safety are NOT computed: both
+                // require a real fixed-vs-variable cost classification that
+                // does not exist anywhere in Wardah ERP's chart of accounts
+                // today (see gemini-financial-service.ts's
+                // calculateBreakEvenAnalysis()). The previous version of
+                // this file estimated it as "admin expenses / 6 months",
+                // an invented monthly-fixed-cost assumption with no real
+                // basis — deleted rather than replaced with a different
+                // guess. renderAdvancedKPIs() shows an explicit
+                // "unavailable" state for these two KPIs instead.
+                annualTotals.breakEvenAvailable = false;
 
                 return { monthly: monthlyCalcs, annual: annualTotals };
             }
@@ -875,66 +904,58 @@ class InsightsFinancialDashboard {
             renderAdvancedKPIs(annual) {
                 const container = document.getElementById('advancedKpiContainer');
                 if (!container) return;
-                
-                const formatCurrency = (val) => `${Math.round(val).toLocaleString()} ${this.translations[this.data.currentLanguage].currency}`;
-                const formatPercent = (val) => `${val.toFixed(1)}%`;
-                const t = this.translations[this.data.currentLanguage];
 
+                const formatCurrency = (val) => `${Math.round(val).toLocaleString()} ${this.translations[this.data.currentLanguage].currency}`;
+                const t = this.translations[this.data.currentLanguage];
+                const unavailable = this.data.currentLanguage === 'ar' ? 'غير متاح' : 'Unavailable';
+
+                // No trend badge on any of these: none of them has a real
+                // prior-period comparison computed anywhere in this file.
+                // A previous version showed fixed values here ('+12.5%',
+                // '+8.3%'/'-15.2%', '-5.1%', '+2.8%'/'-1.2%') regardless of
+                // the actual figures — fabricated numbers next to real
+                // ones, which is exactly what this dashboard must never do.
                 const kpis = [
                     {
                         title: t.totalSales,
                         value: formatCurrency(annual.totalSales),
-                        trend: '+12.5%',
-                        trendType: 'up',
                         icon: 'fas fa-chart-line',
                         gradient: 'from-blue-500 to-purple-600'
                     },
                     {
                         title: t.netProfit,
                         value: formatCurrency(annual.totalNetProfit),
-                        trend: annual.totalNetProfit >= 0 ? '+8.3%' : '-15.2%',
-                        trendType: annual.totalNetProfit >= 0 ? 'up' : 'down',
                         icon: annual.totalNetProfit >= 0 ? 'fas fa-arrow-trend-up' : 'fas fa-arrow-trend-down',
                         gradient: annual.totalNetProfit >= 0 ? 'from-green-500 to-teal-600' : 'from-red-500 to-pink-600'
                     },
                     {
+                        // Break-even/margin-of-safety require a real
+                        // fixed-vs-variable cost classification this
+                        // schema has no source for (see
+                        // calculateFinancials()) — shown as an explicit
+                        // "unavailable" state, never a guessed number.
                         title: t.breakEven,
-                        value: formatCurrency(annual.breakEven),
-                        trend: '-5.1%',
-                        trendType: 'up',
+                        value: annual.breakEvenAvailable ? formatCurrency(annual.breakEven) : unavailable,
                         icon: 'fas fa-balance-scale',
                         gradient: 'from-yellow-500 to-orange-600'
                     },
                     {
                         title: t.marginOfSafety,
-                        value: formatPercent(annual.marginOfSafety),
-                        trend: annual.marginOfSafety > 10 ? '+2.8%' : '-1.2%',
-                        trendType: annual.marginOfSafety > 10 ? 'up' : 'down',
+                        value: annual.breakEvenAvailable ? `${annual.marginOfSafety.toFixed(1)}%` : unavailable,
                         icon: 'fas fa-shield-alt',
-                        gradient: annual.marginOfSafety > 20 ? 'from-green-500 to-teal-600' : 
-                                 annual.marginOfSafety > 10 ? 'from-yellow-500 to-orange-600' : 'from-red-500 to-pink-600'
+                        gradient: 'from-yellow-500 to-orange-600'
                     }
                 ];
 
                 container.replaceChildren(...kpis.map((kpi, index) => {
-                    const trendBar = el('div', { className: `bg-gradient-to-r ${kpi.gradient} h-2 rounded-full transition-all duration-1000` });
-                    // JS-set DOM property, not an HTML style="..." attribute
-                    // (which CSP's style-src 'self' would otherwise block).
-                    trendBar.style.width = `${Math.min(100, Math.abs(parseFloat(kpi.trend)) * 5)}%`;
-
                     const card = el('div', { className: 'kpi-advanced slide-in-advanced ai-sparkle' }, [
                         el('div', { className: 'flex items-center justify-between mb-4' }, [
                             el('div', { className: `w-12 h-12 bg-gradient-to-r ${kpi.gradient} rounded-xl flex items-center justify-center` }, [
                                 el('i', { className: `${kpi.icon} text-white text-xl` })
-                            ]),
-                            el('div', { className: `metric-trend trend-${kpi.trendType}` }, [
-                                el('i', { className: `fas fa-arrow-${kpi.trendType === 'up' ? 'up' : 'down'} mr-1` }),
-                                document.createTextNode(kpi.trend)
                             ])
                         ]),
                         el('h3', { className: 'text-gray-300 text-sm font-medium mb-2', text: kpi.title }),
-                        el('div', { className: `text-3xl font-bold bg-gradient-to-r ${kpi.gradient} bg-clip-text text-transparent mb-1`, text: kpi.value }),
-                        el('div', { className: 'w-full bg-gray-700 rounded-full h-2 mt-3' }, [trendBar])
+                        el('div', { className: `text-3xl font-bold bg-gradient-to-r ${kpi.gradient} bg-clip-text text-transparent mb-1`, text: kpi.value })
                     ]);
                     card.style.animationDelay = `${index * 0.1}s`;
                     return card;
@@ -976,7 +997,7 @@ class InsightsFinancialDashboard {
                         {
                             name: this.data.currentLanguage === 'ar' ? 'التكاليف' : 'Costs',
                             type: 'area',
-                            data: monthlyData.map(m => Math.round(m.cogs + m.sellingExpenses + m.adminExpenses))
+                            data: monthlyData.map(m => Math.round(m.cogs + m.opex))
                         },
                         {
                             name: this.data.currentLanguage === 'ar' ? 'صافي الربح' : 'Net Profit',
@@ -1036,14 +1057,19 @@ class InsightsFinancialDashboard {
             renderPredictiveChart(monthlyData) {
                 const chartElement = document.querySelector("#predictiveChart");
                 if (!chartElement) return;
-                
-                const predictiveData = this.generatePredictiveData(monthlyData);
+
+                // Predict only the calendar months genuinely not yet
+                // synced (12 - however many real months arrived) — a
+                // trend extrapolation forward from real data, never a
+                // hardcoded "always predict Jul-Dec" window regardless of
+                // how many real months were actually synced.
+                const remainingCount = Math.max(0, 12 - monthlyData.length);
+                const predictiveData = remainingCount > 0 ? this.generatePredictiveData(monthlyData, remainingCount) : [];
                 const months = this.data.currentLanguage === 'ar' ? this.data.months : this.data.monthsEn;
-                const futureMonths = this.data.currentLanguage === 'ar' ? 
-                    ['يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'] :
-                    ['July', 'August', 'September', 'October', 'November', 'December'];
+                const allFutureMonths = this.data.currentLanguage === 'ar' ? ALL_MONTHS_AR : ALL_MONTHS_EN;
+                const futureMonths = allFutureMonths.slice(monthlyData.length, monthlyData.length + remainingCount);
                 const t = this.translations[this.data.currentLanguage];
-                
+
                 const options = {
                     chart: {
                         type: 'line',
@@ -1059,7 +1085,7 @@ class InsightsFinancialDashboard {
                         },
                         {
                             name: this.data.currentLanguage === 'ar' ? 'توقعات ذكية' : 'AI Predictions',
-                            data: [...Array(6).fill(null), ...predictiveData]
+                            data: [...Array(monthlyData.length).fill(null), ...predictiveData]
                         }
                     ],
                     colors: ['#4285f4', '#34a853'],
@@ -1106,10 +1132,15 @@ class InsightsFinancialDashboard {
                 if (!chartElement) return;
                 
                 const t = this.translations[this.data.currentLanguage];
-                const labels = this.data.currentLanguage === 'ar' ? 
-                    ['تكلفة المبيعات', 'مصاريف البيع', 'المصاريف الإدارية'] :
-                    ['Cost of Sales', 'Selling Expenses', 'Administrative Expenses'];
-                
+                // Two real slices only: gl_accounts has no selling-vs-admin
+                // subtype to split operating expenses by (see
+                // gemini-financial-service.ts's operatingExpenses comment),
+                // so this never fabricates a percentage split between two
+                // categories the ledger doesn't actually distinguish.
+                const labels = this.data.currentLanguage === 'ar' ?
+                    ['تكلفة المبيعات', 'المصاريف التشغيلية'] :
+                    ['Cost of Sales', 'Operating Expenses'];
+
                 const options = {
                     chart: {
                         type: 'donut',
@@ -1118,11 +1149,10 @@ class InsightsFinancialDashboard {
                     },
                     series: [
                         Math.round(annual.totalCogs),
-                        Math.round(annual.totalSellingExpenses),
-                        Math.round(annual.totalAdminExpenses)
+                        Math.round(annual.totalOpex)
                     ],
                     labels: labels,
-                    colors: ['#4285f4', '#34a853', '#fbbc04'],
+                    colors: ['#4285f4', '#34a853'],
                     legend: {
                         position: 'bottom',
                         labels: { colors: '#FFFFFF' }
@@ -1137,7 +1167,7 @@ class InsightsFinancialDashboard {
                                         show: true,
                                         label: this.data.currentLanguage === 'ar' ? 'إجمالي التكاليف' : 'Total Costs',
                                         color: '#FFFFFF',
-                                        formatter: () => `${Math.round(annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses).toLocaleString()} ${t.currency}`
+                                        formatter: () => `${Math.round(annual.totalCogs + annual.totalOpex).toLocaleString()} ${t.currency}`
                                     }
                                 }
                             }
@@ -1198,26 +1228,19 @@ class InsightsFinancialDashboard {
                 const container = document.getElementById('advancedControls');
                 if (!container) return;
                 
+                // COGS has no what-if slider: it is always the real synced
+                // figure, never derived from a user-adjustable rate (see
+                // calculateFinancials()).
                 const controls = [
-                    { 
-                        id: 'salesMultiplier', 
-                        label: this.data.currentLanguage === 'ar' ? 'تعديل المبيعات' : 'Sales Adjustment', 
-                        min: 50, max: 200, value: Math.round(this.data.assumptions.salesMultiplier * 100), color: 'blue' 
+                    {
+                        id: 'salesMultiplier',
+                        label: this.data.currentLanguage === 'ar' ? 'تعديل المبيعات' : 'Sales Adjustment',
+                        min: 50, max: 200, value: Math.round(this.data.assumptions.salesMultiplier * 100), color: 'blue'
                     },
-                    { 
-                        id: 'sellingExpensesMultiplier', 
-                        label: this.data.currentLanguage === 'ar' ? 'مصاريف البيع' : 'Selling Expenses', 
-                        min: 50, max: 150, value: Math.round(this.data.assumptions.sellingExpensesMultiplier * 100), color: 'green' 
-                    },
-                    { 
-                        id: 'adminExpensesMultiplier', 
-                        label: this.data.currentLanguage === 'ar' ? 'المصاريف الإدارية' : 'Admin Expenses', 
-                        min: 50, max: 150, value: Math.round(this.data.assumptions.adminExpensesMultiplier * 100), color: 'yellow' 
-                    },
-                    { 
-                        id: 'cogsRate', 
-                        label: this.data.currentLanguage === 'ar' ? 'نسبة تكلفة المبيعات' : 'COGS Rate', 
-                        min: 50, max: 90, value: Math.round(this.data.assumptions.cogs_rate * 100), color: 'red' 
+                    {
+                        id: 'opexMultiplier',
+                        label: this.data.currentLanguage === 'ar' ? 'المصاريف التشغيلية' : 'Operating Expenses',
+                        min: 50, max: 150, value: Math.round(this.data.assumptions.opexMultiplier * 100), color: 'green'
                     }
                 ];
 
@@ -1231,9 +1254,7 @@ class InsightsFinancialDashboard {
                 // verbatim in this file.
                 const colorTextClass = {
                     blue: 'text-blue-400',
-                    green: 'text-green-400',
-                    yellow: 'text-yellow-400',
-                    red: 'text-red-400'
+                    green: 'text-green-400'
                 };
 
                 container.replaceChildren(...controls.map((control) => el('div', { className: 'space-y-2' }, [
@@ -1246,7 +1267,7 @@ class InsightsFinancialDashboard {
                         id: control.id,
                         min: control.min,
                         max: control.max,
-                        step: control.id === 'cogsRate' ? 1 : 5,
+                        step: 5,
                         value: control.value,
                         className: 'w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer'
                     }),
@@ -1271,7 +1292,7 @@ class InsightsFinancialDashboard {
                 const metrics = [
                     {
                         label: this.translations[this.data.currentLanguage].costEfficiency,
-                        value: `${((annual.totalCogs + annual.totalSellingExpenses + annual.totalAdminExpenses) / annual.totalSales * 100).toFixed(1)}%`,
+                        value: `${((annual.totalCogs + annual.totalOpex) / annual.totalSales * 100).toFixed(1)}%`,
                         status: 'good'
                     }
                 ];
@@ -1290,18 +1311,19 @@ class InsightsFinancialDashboard {
             // which is a fabricated number with no basis on a financial
             // dashboard; the trend line itself is already an honest
             // least-squares fit of the real historical data.
-            generatePredictiveData(monthlyData) {
+            generatePredictiveData(monthlyData, count) {
                 const profits = monthlyData.map(m => m.netProfit);
                 const trend = this.calculateTrend(profits);
                 const lastValue = profits[profits.length - 1];
 
-                return Array.from({ length: 6 }, (_, i) =>
+                return Array.from({ length: count }, (_, i) =>
                     Math.round(lastValue + (trend * (i + 1)))
                 );
             }
 
             calculateTrend(data) {
                 const n = data.length;
+                if (n < 2) return 0;
                 const sumX = n * (n - 1) / 2;
                 const sumY = data.reduce((a, b) => a + b, 0);
                 const sumXY = data.reduce((sum, y, x) => sum + x * y, 0);
@@ -1311,33 +1333,19 @@ class InsightsFinancialDashboard {
             }
 
             updateAssumptions() {
-                const cogsElement = document.getElementById('cogsRate');
                 const salesElement = document.getElementById('salesMultiplier');
-                const sellingElement = document.getElementById('sellingExpensesMultiplier');
-                const adminElement = document.getElementById('adminExpensesMultiplier');
-                
-                if (cogsElement) {
-                    this.data.assumptions.cogs_rate = parseFloat(cogsElement.value) / 100;
-                    const valueElement = document.getElementById('cogsRateValue');
-                    if (valueElement) valueElement.textContent = `${cogsElement.value}%`;
-                }
-                
+                const opexElement = document.getElementById('opexMultiplier');
+
                 if (salesElement) {
                     this.data.assumptions.salesMultiplier = parseFloat(salesElement.value) / 100;
                     const valueElement = document.getElementById('salesMultiplierValue');
                     if (valueElement) valueElement.textContent = `${salesElement.value}%`;
                 }
-                
-                if (sellingElement) {
-                    this.data.assumptions.sellingExpensesMultiplier = parseFloat(sellingElement.value) / 100;
-                    const valueElement = document.getElementById('sellingExpensesMultiplierValue');
-                    if (valueElement) valueElement.textContent = `${sellingElement.value}%`;
-                }
-                
-                if (adminElement) {
-                    this.data.assumptions.adminExpensesMultiplier = parseFloat(adminElement.value) / 100;
-                    const valueElement = document.getElementById('adminExpensesMultiplierValue');
-                    if (valueElement) valueElement.textContent = `${adminElement.value}%`;
+
+                if (opexElement) {
+                    this.data.assumptions.opexMultiplier = parseFloat(opexElement.value) / 100;
+                    const valueElement = document.getElementById('opexMultiplierValue');
+                    if (valueElement) valueElement.textContent = `${opexElement.value}%`;
                 }
             }
 
@@ -1352,9 +1360,7 @@ class InsightsFinancialDashboard {
                 try {
                     const { text } = await this.requestInsight('summary', {
                         totalSales: annual.totalSales,
-                        totalNetProfit: annual.totalNetProfit,
-                        breakEven: annual.breakEven,
-                        marginOfSafety: annual.marginOfSafety
+                        totalNetProfit: annual.totalNetProfit
                     });
 
                     this.addAiMessage('assistant', text);
@@ -1381,8 +1387,7 @@ class InsightsFinancialDashboard {
                         totalSales: annual.totalSales,
                         totalNetProfit: annual.totalNetProfit,
                         totalCogs: annual.totalCogs,
-                        totalSellingExpenses: annual.totalSellingExpenses,
-                        totalAdminExpenses: annual.totalAdminExpenses
+                        totalOpex: annual.totalOpex
                     });
 
                     this.addAiMessage('assistant', text);
@@ -1398,9 +1403,9 @@ class InsightsFinancialDashboard {
 
                 try {
                     const { text } = await this.requestInsight('risk', {
-                        marginOfSafety: annual.marginOfSafety,
-                        breakEven: annual.breakEven,
-                        totalSales: annual.totalSales
+                        totalSales: annual.totalSales,
+                        totalNetProfit: annual.totalNetProfit,
+                        contributionMarginRatio: annual.contributionMarginRatio
                     });
 
                     this.addAiMessage('assistant', text);
@@ -1531,6 +1536,14 @@ class InsightsFinancialDashboard {
             // this, so msg.data.monthlyData is guaranteed well-shaped here.
             handleDataSync(msg) {
                 this.data.baseFinancialData = msg.data.monthlyData;
+                // Real months only, in the order the backend serialized
+                // them (JSON object key order is preserved for string
+                // keys) — never a hardcoded 6-month subset. See
+                // fetchMonthlyFinancialData() in gemini-financial-service.ts,
+                // which already sends all months the organization has real
+                // data for (up to 12), not a fixed window.
+                this.data.months = Object.keys(this.data.baseFinancialData);
+                this.data.monthsEn = this.data.months.map((ar) => MONTH_NAME_AR_TO_EN[ar] || ar);
                 this.data.syncState = 'ready';
                 if (this._resolveDataSync) {
                     this._resolveDataSync();

@@ -34,7 +34,7 @@ import { useTranslation } from 'react-i18next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { RefreshCw, TrendingUp, TrendingDown, DollarSign, Calculator, Target, AlertTriangle } from 'lucide-react';
-import { geminiFinancialService } from '@/services/gemini-financial-service';
+import { geminiFinancialService, type BreakEvenAnalysis } from '@/services/gemini-financial-service';
 import { getSupabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -42,7 +42,7 @@ import { PerformanceMonitor } from '@/lib/performance-monitor';
 
 interface DashboardMetrics {
   kpis: any;
-  breakEven: any;
+  breakEven: BreakEvenAnalysis;
   profitLoss: any;
   monthlyData: any[];
 }
@@ -328,10 +328,16 @@ export function EnhancedInsightsDashboard() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm opacity-90">{t('reportsInsights.breakEvenPoint')}</p>
-                      <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                      <p className="text-xs opacity-80">
-                        {t('reportsInsights.marginOfSafety')}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
-                      </p>
+                      {metrics.breakEven.available ? (
+                        <>
+                          <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                          <p className="text-xs opacity-80">
+                            {t('reportsInsights.marginOfSafety')}: {metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm opacity-90">{t('reportsInsights.breakEvenUnavailable')}</p>
+                      )}
                     </div>
                     <Target className="h-8 w-8 opacity-80" />
                   </div>
@@ -365,31 +371,37 @@ export function EnhancedInsightsDashboard() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.breakEvenSales')}</p>
-                    <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                  <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.marginOfSafety')}</p>
-                    <p className="text-2xl font-bold">{metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      {metrics.breakEven.marginOfSafety.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                    <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.fixedCosts')}</p>
-                    <p className="text-2xl font-bold">{metrics.breakEven.fixedCosts.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                </div>
+                {metrics.breakEven.available ? (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.breakEvenSales')}</p>
+                        <p className="text-2xl font-bold">{metrics.breakEven.breakEvenSales.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                      <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.marginOfSafety')}</p>
+                        <p className="text-2xl font-bold">{metrics.breakEven.marginOfSafetyPercent.toFixed(2)}%</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {metrics.breakEven.marginOfSafety.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                        <p className="text-sm text-muted-foreground mb-1">{t('reportsInsights.fixedCosts')}</p>
+                        <p className="text-2xl font-bold">{metrics.breakEven.fixedCosts.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                    </div>
 
-                {metrics.breakEven.marginOfSafetyPercent < 10 && (
-                  <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
-                    <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      {t('reportsInsights.lowMarginWarning')}
-                    </p>
-                  </div>
+                    {metrics.breakEven.marginOfSafetyPercent < 10 && (
+                      <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                        <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                          {t('reportsInsights.lowMarginWarning')}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-muted-foreground">{t('reportsInsights.breakEvenUnavailable')}</p>
                 )}
               </CardContent>
             </Card>

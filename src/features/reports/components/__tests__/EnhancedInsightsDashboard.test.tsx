@@ -21,16 +21,30 @@ import { EnhancedInsightsDashboard } from '../EnhancedInsightsDashboard';
 
 const mockKpis = {
   totalSales: 100000,
+  totalCosts: 80000,
+  totalCOGS: 60000,
+  totalOperatingExpenses: 20000,
   netProfit: 20000,
+  grossProfit: 40000,
   profitMargin: 20,
   contributionMarginRatio: 0.4,
   contributionMargin: 40000,
 };
+// available: true here only to exercise the component's numeric-display
+// branch in this test file; calculateBreakEvenAnalysis() itself always
+// returns available: false in the real service (see its own comment) since
+// no real fixed/variable cost classification exists anywhere in this schema.
 const mockBreakEven = {
+  available: true as const,
   breakEvenSales: 50000,
+  breakEvenUnits: 100,
   marginOfSafetyPercent: 50,
   marginOfSafety: 50000,
   fixedCosts: 10000,
+  variableCosts: 5000,
+  contributionMargin: 40000,
+  contributionMarginRatio: 0.4,
+  currentSales: 100000,
 };
 
 vi.mock('@/services/gemini-financial-service', () => ({

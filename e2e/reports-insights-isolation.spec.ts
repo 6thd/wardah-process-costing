@@ -19,16 +19,36 @@ import { startLocalVercelHeadersServer } from './fixtures/local-vercel-headers-s
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 4174;
-const ORIGIN = `http://localhost:${PORT}`;
 
-let server: Server;
+// Two modes, selected by PLAYWRIGHT_VERCEL_PREVIEW_URL:
+//  - Default (unset): starts the local static server that reproduces
+//    vercel.json's headers (see local-vercel-headers-server.ts) — used by
+//    the pull_request-gated CI run, needs no live deployment.
+//  - Set: points ORIGIN at a real Vercel Preview deployment instead and
+//    skips the local server entirely. Every test in this file is written
+//    against ORIGIN, not a hardcoded host, so the same suite runs
+//    unchanged against the real deployment — this is what proves vercel.json
+//    is actually applied on Vercel, not just correctly reproduced locally.
+//    Requests to a protected Preview need the
+//    x-vercel-protection-bypass header, set for the whole run via
+//    playwright.reports-insights.vercel-preview.config.ts's
+//    use.extraHTTPHeaders (both the `page` context and the `request`
+//    fixture inherit it) — never hardcoded here, and never logged.
+const VERCEL_PREVIEW_URL = process.env.PLAYWRIGHT_VERCEL_PREVIEW_URL;
+const ORIGIN = VERCEL_PREVIEW_URL ? VERCEL_PREVIEW_URL.replace(/\/+$/, '') : `http://localhost:${PORT}`;
+
+let server: Server | undefined;
 
 test.beforeAll(async () => {
-  server = await startLocalVercelHeadersServer(PORT);
+  if (!VERCEL_PREVIEW_URL) {
+    server = await startLocalVercelHeadersServer(PORT);
+  }
 });
 
 test.afterAll(async () => {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+  if (server) {
+    await new Promise<void>((resolve) => server!.close(() => resolve()));
+  }
 });
 
 async function gotoHarness(page: Page) {
@@ -386,6 +406,48 @@ test.describe('no sample/trial financial data — a financial ERP dashboard must
     // handleDataSync()/render() at all, it was dropped at the port
     // dispatcher's isValidDataSync() check (see dashboard.js).
     expect(kpiText).toContain('بانتظار');
+  });
+
+  test('uses the real per-month COGS from the sync, never a fixed rate applied to sales', async ({ page }) => {
+    // The harness's SAMPLE_DATA_SYNC sets COGS well below 70% of sales for
+    // every month (e.g. يناير: sales 90000, COGS 40000, not 63000) — a
+    // previous version of dashboard.js computed cogs = sales * 0.7
+    // (DEFAULT_COGS_RATE) regardless of any real value sent, which would
+    // produce a total net profit of 158,830 and a cost-efficiency of
+    // 75.8% here. This asserts the real, synced totals appear instead.
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    const kpiText = await frame.locator('#advancedKpiContainer').innerText();
+    expect(kpiText).toContain('322,030');
+    expect(kpiText).not.toContain('158,830');
+
+    const realtimeText = await frame.locator('#realtimeMetrics').innerText();
+    expect(realtimeText).toContain('50.9%');
+    expect(realtimeText).not.toContain('75.8%');
+  });
+
+  test('does not drop months beyond a hardcoded six — يوليو/أغسطس from the sync are included, not just يناير-يونيو', async ({ page }) => {
+    await gotoHarness(page);
+    await page.evaluate(() => (window as any).__harness.loadTarget());
+    const frame = page.frameLocator('#target');
+    await expect(frame.locator('#advancedKpiContainer')).not.toBeEmpty({ timeout: 15000 });
+
+    // Two independent proofs: the chart's own category labels (ApexCharts
+    // renders them as real <text> nodes inside the chart's SVG, so
+    // textContent() picks them up) show both new months, and the annual
+    // totals reflect all eight synced months, not just the historical six
+    // (Jan-Jun alone would total 240,180 net profit / 49.1% cost
+    // efficiency instead of the eight-month 322,030 / 50.9% asserted in
+    // the previous test).
+    const chartText = await frame.locator('#advanced3DChart').textContent();
+    expect(chartText).toContain('يوليو');
+    expect(chartText).toContain('أغسطس');
+
+    const kpiText = await frame.locator('#advancedKpiContainer').innerText();
+    expect(kpiText).not.toContain('240,180');
   });
 
   test('drops a malformed WARDHAH_INSIGHT_RESPONSE and falls back to the local deterministic answer, same as a timeout', async ({ page }) => {

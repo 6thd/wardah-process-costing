@@ -8,6 +8,11 @@ import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 export interface FinancialKPIs {
   totalSales: number;
   totalCosts: number;
+  // Real, separately-queried totals (category='COGS' vs category='EXPENSE'
+  // in gl_accounts) — kept apart so callers never need to guess a split of
+  // the combined totalCosts figure above.
+  totalCOGS: number;
+  totalOperatingExpenses: number;
   netProfit: number;
   grossProfit: number;
   inventoryValue: number;
@@ -17,8 +22,6 @@ export interface FinancialKPIs {
   profitMargin: number;
   revenueGrowth: number;
   operationalEfficiency: number;
-  breakEvenPoint: number;
-  marginOfSafety: number;
   contributionMargin: number;
   contributionMarginRatio: number;
 }
@@ -29,24 +32,42 @@ export interface MonthlyFinancialData {
   sales: number;
   cogs: number;
   grossProfit: number;
-  sellingExpenses: number;
-  adminExpenses: number;
+  // A single real operating-expenses figure (category='EXPENSE' GL
+  // accounts). There is no selling-vs-administrative subtype recorded in
+  // gl_accounts today, so this is deliberately not split into two —
+  // inventing a percentage split between two categories neither the chart
+  // of accounts nor the ledger actually distinguishes would itself be
+  // fabricated data, the exact failure mode this file exists to avoid.
+  operatingExpenses: number;
   netProfit: number;
-  fixedCosts: number;
-  variableCosts: number;
 }
 
-export interface BreakEvenAnalysis {
-  breakEvenSales: number;
-  breakEvenUnits: number;
-  marginOfSafety: number;
-  marginOfSafetyPercent: number;
-  contributionMargin: number;
-  contributionMarginRatio: number;
-  fixedCosts: number;
-  variableCosts: number;
-  currentSales: number;
-}
+// Break-even/margin-of-safety requires a real fixed-vs-variable cost
+// classification to be meaningful (breakEvenSales = fixedCosts /
+// contributionMarginRatio). No such classification exists anywhere in this
+// schema (gl_accounts has no cost-behavior column), so this is a
+// discriminated union instead of a single always-numeric shape: every
+// caller must handle the unavailable case explicitly rather than a
+// silently-fabricated split (e.g. "assume 30% variable") standing in for
+// real data. See calculateBreakEvenAnalysis() below.
+export type BreakEvenAnalysis =
+  | {
+      available: false;
+      reason: 'fixed_variable_classification_unavailable';
+      currentSales: number;
+    }
+  | {
+      available: true;
+      breakEvenSales: number;
+      breakEvenUnits: number;
+      marginOfSafety: number;
+      marginOfSafetyPercent: number;
+      contributionMargin: number;
+      contributionMarginRatio: number;
+      fixedCosts: number;
+      variableCosts: number;
+      currentSales: number;
+    };
 
 export interface ProfitLossAnalysis {
   revenue: number;
@@ -132,12 +153,12 @@ class GeminiFinancialService {
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
       const equity = totalAssets - totalLiabilities;
 
-      // Break-even calculations
+      // Contribution margin is a real ratio (gross profit over revenue) —
+      // no assumption baked in. Break-even/margin-of-safety are NOT
+      // computed here: both require a real fixed-vs-variable cost split,
+      // which this schema has no data for (see BreakEvenAnalysis above).
       const contributionMargin = grossProfit;
       const contributionMarginRatio = totalRevenue > 0 ? (contributionMargin / totalRevenue) : 0;
-      const fixedCosts = totalExpenses; // Simplified - all expenses as fixed
-      const breakEvenPoint = contributionMarginRatio > 0 ? (fixedCosts / contributionMarginRatio) : 0;
-      const marginOfSafety = totalRevenue > breakEvenPoint ? totalRevenue - breakEvenPoint : 0;
 
       // Growth calculation (compare with previous period)
       const previousStart = new Date(start);
@@ -151,6 +172,8 @@ class GeminiFinancialService {
       return {
         totalSales: totalRevenue,
         totalCosts: totalCOGS + totalExpenses,
+        totalCOGS,
+        totalOperatingExpenses: totalExpenses,
         netProfit,
         grossProfit,
         inventoryValue,
@@ -160,8 +183,6 @@ class GeminiFinancialService {
         profitMargin,
         revenueGrowth,
         operationalEfficiency,
-        breakEvenPoint,
-        marginOfSafety,
         contributionMargin,
         contributionMarginRatio
       };
@@ -173,38 +194,24 @@ class GeminiFinancialService {
 
   /**
    * حساب نقطة التعادل
+   *
+   * Always returns `available: false`: a real break-even point requires a
+   * real fixed-vs-variable cost classification, and gl_accounts has no
+   * such column today (only category/subtype, neither of which encodes
+   * cost behavior). Earlier versions of this method assumed "30% of total
+   * costs are variable" and derived an average unit price as
+   * totalSales/1000 — both invented constants with no basis in any real
+   * data, silently feeding into net profit, break-even, and margin of
+   * safety displayed as if they were real financial figures. Do not
+   * reintroduce a guessed split here; wire this up to a real cost-behavior
+   * classification (e.g. a column on gl_accounts) when one exists instead.
    */
   async calculateBreakEvenAnalysis(): Promise<BreakEvenAnalysis> {
     try {
       const kpis = await this.fetchRealFinancialKPIs();
-      
-      const fixedCosts = kpis.totalCosts - (kpis.totalCosts * 0.3); // Assume 30% variable
-      const variableCosts = kpis.totalCosts * 0.3;
-      const contributionMargin = kpis.grossProfit;
-      const contributionMarginRatio = kpis.contributionMarginRatio;
-      
-      const breakEvenSales = contributionMarginRatio > 0 
-        ? fixedCosts / contributionMarginRatio 
-        : 0;
-      
-      // Assume average unit price (simplified)
-      const avgUnitPrice = kpis.totalSales > 0 ? kpis.totalSales / 1000 : 0; // Simplified
-      const breakEvenUnits = avgUnitPrice > 0 ? breakEvenSales / avgUnitPrice : 0;
-      
-      const marginOfSafety = kpis.totalSales - breakEvenSales;
-      const marginOfSafetyPercent = kpis.totalSales > 0 
-        ? (marginOfSafety / kpis.totalSales) * 100 
-        : 0;
-
       return {
-        breakEvenSales,
-        breakEvenUnits,
-        marginOfSafety,
-        marginOfSafetyPercent,
-        contributionMargin,
-        contributionMarginRatio,
-        fixedCosts,
-        variableCosts,
+        available: false,
+        reason: 'fixed_variable_classification_unavailable',
         currentSales: kpis.totalSales
       };
     } catch (error: unknown) {
@@ -240,13 +247,10 @@ class GeminiFinancialService {
           month: `${year}-${String(month.num).padStart(2, '0')}`,
           monthNameAr: month.nameAr,
           sales: monthKPIs.totalSales,
-          cogs: monthKPIs.totalCosts - (monthKPIs.totalCosts * 0.4), // Simplified split
+          cogs: monthKPIs.totalCOGS,
           grossProfit: monthKPIs.grossProfit,
-          sellingExpenses: monthKPIs.totalCosts * 0.2, // Simplified
-          adminExpenses: monthKPIs.totalCosts * 0.4, // Simplified
-          netProfit: monthKPIs.netProfit,
-          fixedCosts: monthKPIs.totalCosts * 0.7,
-          variableCosts: monthKPIs.totalCosts * 0.3
+          operatingExpenses: monthKPIs.totalOperatingExpenses,
+          netProfit: monthKPIs.netProfit
         });
       }
 
@@ -274,9 +278,9 @@ class GeminiFinancialService {
 
       return {
         revenue: kpis.totalSales,
-        cogs: kpis.totalCosts - (kpis.totalCosts * 0.4), // Simplified
+        cogs: kpis.totalCOGS,
         grossProfit: kpis.grossProfit,
-        operatingExpenses: kpis.totalCosts * 0.6, // Simplified
+        operatingExpenses: kpis.totalOperatingExpenses,
         netProfit: kpis.netProfit,
         profitMargin: kpis.profitMargin,
         operatingMargin,
@@ -374,24 +378,22 @@ class GeminiFinancialService {
     monthlyData.forEach(month => {
       formattedMonthly[month.monthNameAr] = {
         'p': [month.sales, 0, 0], // Sales
-        's_exp': [month.sellingExpenses, 0], // Selling expenses
-        'a_exp': [
-          month.adminExpenses,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0,
-          0
-        ], // Admin expenses
+        // A single real operating-expenses figure — see MonthlyFinancialData's
+        // operatingExpenses comment for why this is not split into
+        // selling/admin sub-categories.
+        'opex': [month.operatingExpenses, 0],
         'cogs': month.cogs,
         'grossProfit': month.grossProfit,
         'netProfit': month.netProfit
       };
     });
 
+    // No breakEven/breakEvenPoint field here: a real one requires a real
+    // fixed-vs-variable cost classification this schema doesn't have (see
+    // BreakEvenAnalysis/calculateBreakEvenAnalysis() above) — callers that
+    // need break-even data call calculateBreakEvenAnalysis() directly and
+    // handle its `available: false` case instead of reading a number from
+    // here.
     return {
       kpis: {
         totalSales: kpis.totalSales,
@@ -399,19 +401,10 @@ class GeminiFinancialService {
         netProfit: kpis.netProfit,
         grossProfit: kpis.grossProfit,
         profitMargin: kpis.profitMargin,
-        breakEvenPoint: kpis.breakEvenPoint,
-        marginOfSafety: kpis.marginOfSafety,
         contributionMargin: kpis.contributionMargin,
         contributionMarginRatio: kpis.contributionMarginRatio
       },
       monthlyData: formattedMonthly,
-      breakEven: {
-        breakEvenSales: kpis.breakEvenPoint,
-        marginOfSafety: kpis.marginOfSafety,
-        marginOfSafetyPercent: kpis.totalSales > 0 
-          ? (kpis.marginOfSafety / kpis.totalSales) * 100 
-          : 0
-      },
       timestamp: new Date().toISOString()
     };
   }

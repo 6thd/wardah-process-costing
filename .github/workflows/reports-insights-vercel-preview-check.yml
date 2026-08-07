@@ -1,0 +1,62 @@
+name: Reports Insights Vercel Preview Check
+
+# Manual-only: runs the full sandboxed-dashboard isolation suite (the same
+# spec reports-insights-isolation-e2e.yml runs against a local server on
+# every pull_request) against a REAL, already-deployed Vercel Preview
+# instead. This proves vercel.json's CSP/X-Frame-Options/CORS headers, the
+# zero-CDN-request guarantee, and the "no sample/trial financial data"
+# behavior all hold on Vercel itself, not only in the local reproduction.
+#
+# Requires a Preview deployment to already exist for the commit being
+# checked (this workflow does not deploy anything) and, if the project has
+# deployment protection enabled, a "Protection Bypass for Automation"
+# secret created in Vercel Project Settings -> Deployment Protection and
+# stored here as VERCEL_AUTOMATION_BYPASS_SECRET. That secret is a
+# persistent-until-rotated header value scoped to requests carrying it — it
+# does not disable SSO/password protection for the project. Rotate/revoke
+# it from the same Vercel settings page once this check is done; do not
+# leave it active longer than needed. Never paste the secret value into a
+# workflow_dispatch input, a log line, or a PR comment — only into the
+# repository secret itself.
+on:
+  workflow_dispatch:
+    inputs:
+      preview_url:
+        description: 'Vercel Preview URL to check, e.g. https://<preview>.vercel.app (no trailing slash)'
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Playwright — sandboxed dashboard isolation + CSP on a real Vercel Preview
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run reports-insights isolation suite against the real Preview
+        env:
+          PLAYWRIGHT_VERCEL_PREVIEW_URL: ${{ inputs.preview_url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: npx playwright test e2e/reports-insights-isolation.spec.ts --config=playwright.reports-insights.vercel-preview.config.ts --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports-insights-vercel-preview-playwright-report
+          path: playwright-report/
+          retention-days: 14

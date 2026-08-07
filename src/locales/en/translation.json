@@ -874,7 +874,8 @@
     "breakEvenSales": "Break-Even (Sales)",
     "fixedCosts": "Fixed Costs",
     "lowMarginWarning": "Warning: Low margin of safety. Consider increasing sales or reducing costs.",
-    "loadingEnhanced": "Loading Insights Dashboard..."
+    "loadingEnhanced": "Loading Insights Dashboard...",
+    "breakEvenUnavailable": "Unavailable — requires a real fixed/variable cost classification not currently available"
   },
   "accounting": {
     "debit": "Debit",
