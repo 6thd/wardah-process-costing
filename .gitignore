@@ -79,3 +79,7 @@ supabase/.temp/
 
 # Python bytecode from CI scripts
 __pycache__/
+
+# Playwright local run artifacts
+playwright-report/
+test-results/
