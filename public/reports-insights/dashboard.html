@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة معلومات الأداء المالي الذكية - فرع الدمام</title>
+
+    <link rel="stylesheet" href="./vendor/tailwind.css">
+    <link rel="stylesheet" href="./vendor/fontawesome/css/all.min.css">
+    <link rel="stylesheet" href="./vendor/dashboard-custom.css">
+</head>
+<body class="text-gray-200 rtl">
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="loading-spinner"></div>
+        <div id="loadingText" class="loading-text">جاري تحميل لوحة المعلومات المدعومة بالذكاء الاصطناعي...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar"></div>
+        </div>
+    </div>
+
+    <!-- Language Toggle -->
+    <div class="language-toggle">
+        <button class="lang-btn active" data-lang="ar">عربي</button>
+        <button class="lang-btn" data-lang="en">English</button>
+    </div>
+
+    <!-- AI Status Indicator -->
+    <div class="ai-status">
+        <div class="ai-indicator"></div>
+        <span id="aiStatusText" data-ar="الرؤى الذكية جاهزة" data-en="AI Insights Ready">الرؤى الذكية جاهزة</span>
+    </div>
+
+    <!-- Particles Background -->
+    <div id="particles-js"></div>
+
+    <!-- Navigation Header -->
+    <nav class="glass fixed top-0 left-0 right-0 z-50 px-6 py-4">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-4">
+                <div class="w-12 h-12 ai-enhanced rounded-xl flex items-center justify-center ai-sparkle">
+                    <i class="fas fa-brain text-white text-xl"></i>
+                </div>
+                <div>
+                    <h1 id="mainTitle" class="text-2xl font-bold holographic" 
+                        data-ar="لوحة معلومات الأداء المالي الذكية" 
+                        data-en="AI-Powered Financial Insights Dashboard">
+                        لوحة معلومات الأداء المالي الذكية
+                    </h1>
+                    <p id="subtitle" class="text-sm text-gray-400" 
+                       data-ar="فرع الدمام - مدعوم بالذكاء الاصطناعي" 
+                       data-en="Dammam Branch - AI-Powered">
+                       فرع الدمام - مدعوم بالذكاء الاصطناعي
+                    </p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-4">
+                <div class="ai-processing hidden" id="aiProcessingIndicator">
+                    <i class="fas fa-brain"></i>
+                    <span data-ar="معالجة ذكية" data-en="AI Processing">معالجة ذكية</span>
+                    <div class="ai-processing-dots">
+                        <div class="ai-processing-dot"></div>
+                        <div class="ai-processing-dot"></div>
+                        <div class="ai-processing-dot"></div>
+                    </div>
+                </div>
+                <button id="aiAssistantBtn" class="ai-button interactive-button">
+                    <i class="fas fa-robot mr-2"></i>
+                    <span data-ar="مساعد ذكي" data-en="AI Assistant">مساعد ذكي</span>
+                </button>
+                <button id="aiAnalysisBtn" class="ai-button interactive-button">
+                    <i class="fas fa-chart-line mr-2"></i>
+                    <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
+                </button>
+                <button id="fullscreenBtn" class="interactive-button">
+                    <i class="fas fa-expand mr-2"></i>
+                    <span data-ar="ملء الشاشة" data-en="Fullscreen">ملء الشاشة</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex min-h-screen pt-20">
+        <!-- Advanced Sidebar -->
+        <aside class="glass w-96 p-6 space-y-6 overflow-y-auto m-4 rounded-3xl">
+            <!-- AI Insights Panel -->
+            <div class="ai-chat-container slide-in-advanced">
+                <div class="flex items-center mb-6">
+                    <div class="w-12 h-12 ai-enhanced rounded-xl flex items-center justify-center mr-4 ai-sparkle">
+                        <i class="fas fa-brain text-white neon-glow"></i>
+                    </div>
+                    <div>
+                        <h2 id="aiInsightsTitle" class="text-xl font-bold text-white" 
+                            data-ar="رؤى ذكية" data-en="AI Insights">رؤى ذكية</h2>
+                        <p id="aiInsightsSubtitle" class="text-xs text-gray-400" 
+                           data-ar="تحليل متقدم وتوقعات ذكية" data-en="Advanced Analysis & Smart Predictions">تحليل متقدم وتوقعات ذكية</p>
+                    </div>
+                </div>
+                
+                <div id="aiInsights" class="space-y-4">
+                    <!-- AI insights will be populated here -->
+                </div>
+                
+                <button id="generateInsightsBtn" class="ai-button interactive-button w-full mt-4">
+                    <i class="fas fa-magic mr-2"></i>
+                    <span data-ar="توليد رؤى جديدة" data-en="Generate New Insights">توليد رؤى جديدة</span>
+                </button>
+            </div>
+
+            <!-- Advanced Scenario Controls -->
+            <div class="glass-card slide-in-advanced">
+                <h2 id="scenarioTitle" class="text-xl font-bold text-white text-center mb-6 flex items-center justify-center"
+                    data-ar="محاكاة السيناريوهات الذكية" data-en="Smart Scenario Simulation">
+                    <i class="fas fa-sliders-h text-blue-400 ml-2 neon-glow"></i>
+                    محاكاة السيناريوهات الذكية
+                </h2>
+                
+                <div id="advancedControls" class="space-y-6">
+                    <!-- Advanced controls will be populated here -->
+                </div>
+
+                <!-- AI-Powered Scenario Suggestions -->
+                <div class="mt-6 pt-4 border-t border-gray-700">
+                    <h3 id="aiSuggestionsTitle" class="text-sm font-bold text-gray-300 mb-3"
+                        data-ar="اقتراحات ذكية" data-en="AI Suggestions">اقتراحات ذكية</h3>
+                    <div id="aiSuggestions" class="space-y-2">
+                        <!-- AI suggestions will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time AI Analytics -->
+            <div class="ai-chat-container slide-in-advanced">
+                <h3 id="realtimeTitle" class="text-lg font-bold text-white mb-4 flex items-center"
+                    data-ar="التحليل الفوري الذكي" data-en="Real-time AI Analysis">
+                    <i class="fas fa-wave-square text-green-400 ml-2 neon-glow"></i>
+                    التحليل الفوري الذكي
+                </h3>
+                <div id="realtimeMetrics" class="space-y-3">
+                    <!-- Real-time metrics will be populated here -->
+                </div>
+                
+                <button id="aiPredictionBtn" class="ai-button interactive-button w-full mt-4">
+                    <i class="fas fa-wand-magic-sparkles mr-2"></i>
+                    <span data-ar="توقعات ذكية" data-en="Smart Predictions">توقعات ذكية</span>
+                </button>
+            </div>
+
+            <!-- Advanced Actions -->
+            <div class="glass-card slide-in-advanced">
+                <h3 id="actionsTitle" class="text-lg font-bold text-white mb-4 flex items-center"
+                    data-ar="إجراءات ذكية متقدمة" data-en="Advanced Smart Actions">
+                    <i class="fas fa-rocket text-yellow-400 ml-2 neon-glow"></i>
+                    إجراءات ذكية متقدمة
+                </h3>
+                <div class="space-y-3">
+                    <button id="wardahSyncBtn" class="ai-button interactive-button w-full">
+                        <i class="fas fa-sync-alt mr-2"></i>
+                        <span data-ar="مزامنة مع وردة ERP" data-en="Sync with Wardah ERP">مزامنة مع وردة ERP</span>
+                    </button>
+                    <button id="aiReportBtn" class="ai-button interactive-button w-full">
+                        <i class="fas fa-file-alt mr-2"></i>
+                        <span data-ar="تقرير ذكي" data-en="Smart Report">تقرير ذكي</span>
+                    </button>
+                    <button id="aiOptimizationBtn" class="ai-button interactive-button w-full">
+                        <i class="fas fa-cogs mr-2"></i>
+                        <span data-ar="تحسين ذكي" data-en="Smart Optimization">تحسين ذكي</span>
+                    </button>
+                    <button id="aiRiskAnalysisBtn" class="ai-button interactive-button w-full">
+                        <i class="fas fa-shield-alt mr-2"></i>
+                        <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
+                    </button>
+                    <button id="aiStrategyBtn" class="ai-button interactive-button w-full">
+                        <i class="fas fa-chess mr-2"></i>
+                        <span data-ar="استراتيجية ذكية" data-en="Smart Strategy">استراتيجية ذكية</span>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard Content -->
+        <main class="flex-1 p-8 overflow-y-auto">
+            <!-- Advanced KPI Grid -->
+            <div id="advancedKpiContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Advanced KPI cards will be injected here -->
+            </div>
+
+            <!-- Interactive Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                <!-- AI-Enhanced Performance Chart -->
+                <div class="chart-container-advanced float-animation">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 id="chart3DTitle" class="text-xl font-bold text-white flex items-center"
+                            data-ar="تحليل الأداء المدعوم بالذكاء الاصطناعي" data-en="AI-Enhanced Performance Analysis">
+                            <i class="fas fa-brain text-blue-400 ml-2 neon-glow"></i>
+                            تحليل الأداء المدعوم بالذكاء الاصطناعي
+                        </h3>
+                        <button id="aiChartAnalysisBtn" class="ai-button interactive-button text-xs">
+                            <i class="fas fa-magic mr-1"></i>
+                            <span data-ar="تحليل ذكي" data-en="Smart Analysis">تحليل ذكي</span>
+                        </button>
+                    </div>
+                    <div id="advanced3DChart" class="h-96"></div>
+                </div>
+
+                <!-- Predictive Analytics Chart -->
+                <div class="chart-container-advanced float-animation">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 id="predictiveChartTitle" class="text-xl font-bold text-white flex items-center"
+                            data-ar="التحليل التنبؤي الذكي" data-en="AI Predictive Analysis">
+                            <i class="fas fa-chart-line text-green-400 ml-2 neon-glow"></i>
+                            التحليل التنبؤي الذكي
+                        </h3>
+                        <div class="ai-processing ai-processing-sm">
+                            <i class="fas fa-brain"></i>
+                            <span data-ar="مدعوم بالذكاء الاصطناعي" data-en="AI Powered">مدعوم بالذكاء الاصطناعي</span>
+                        </div>
+                    </div>
+                    <div id="predictiveChart" class="h-96"></div>
+                </div>
+            </div>
+
+            <!-- AI-Enhanced Financial Breakdown -->
+            <div class="chart-container-advanced mb-8 float-animation">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="financialBreakdownTitle" class="text-xl font-bold text-white flex items-center"
+                        data-ar="التحليل المالي الذكي التفاعلي" data-en="Interactive Smart Financial Analysis">
+                        <i class="fas fa-chart-pie text-purple-400 ml-2 neon-glow"></i>
+                        التحليل المالي الذكي التفاعلي
+                    </h3>
+                    <div class="flex space-x-2">
+                        <button id="aiInsightBtn" class="ai-button interactive-button text-xs">
+                            <i class="fas fa-lightbulb mr-1"></i>
+                            <span data-ar="رؤى ذكية" data-en="Smart Insights">رؤى ذكية</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div id="advancedBreakdownChart" class="h-80"></div>
+                    <div id="financialInsights" class="space-y-4">
+                        <!-- Financial insights will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Recommendations Panel -->
+            <div class="ai-chat-container mb-8 float-animation">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 id="aiRecommendationsTitle" class="text-xl font-bold text-white flex items-center"
+                        data-ar="التوصيات الذكية" data-en="AI Smart Recommendations">
+                        <i class="fas fa-lightbulb text-yellow-400 ml-2 neon-glow"></i>
+                        التوصيات الذكية
+                    </h3>
+                </div>
+                <div id="aiRecommendations" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- AI recommendations will be populated here -->
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Voice Command Indicator -->
+    <div id="voiceIndicator" class="voice-indicator">
+        <i class="fas fa-microphone text-white text-xl"></i>
+    </div>
+
+    <!-- AI Assistant Panel -->
+    <div id="aiAssistant" class="ai-assistant">
+        <div class="flex items-center justify-between mb-4">
+            <h3 id="aiAssistantTitle" class="text-lg font-bold text-white flex items-center"
+                data-ar="المساعد الذكي" data-en="AI Assistant">
+                <i class="fas fa-brain text-blue-400 mr-2"></i>
+                المساعد الذكي
+            </h3>
+            <button id="closeAiAssistant" class="text-gray-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        
+        <div class="mb-4">
+            <div class="ai-processing ai-processing-sm">
+                <i class="fas fa-brain"></i>
+                <span data-ar="مساعد التحليل المالي الذكي" data-en="AI Financial Analysis Assistant">مساعد التحليل المالي الذكي</span>
+            </div>
+        </div>
+        
+        <div id="aiChat" class="h-80 overflow-y-auto mb-4 space-y-3 p-4 bg-black bg-opacity-20 rounded-lg">
+            <div class="ai-message">
+                <div class="flex items-start space-x-3">
+                    <div class="w-8 h-8 ai-enhanced rounded-full flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-brain text-white text-sm"></i>
+                    </div>
+                    <div class="flex-1">
+                        <p class="text-sm text-white" data-ar="مرحباً! أنا مساعدك الذكي لتحليل البيانات المالية. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة. كيف يمكنني مساعدتك اليوم؟" 
+                           data-en="Hello! I'm your AI financial analysis assistant. I can help you analyze financial data and provide advanced strategic insights. How can I assist you today?">
+                           مرحباً! أنا مساعدك الذكي لتحليل البيانات المالية. يمكنني مساعدتك في تحليل البيانات المالية وتقديم رؤى استراتيجية متقدمة. كيف يمكنني مساعدتك اليوم؟
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex space-x-2">
+            <input type="text" id="aiInput" 
+                   data-ar-placeholder="اسأل المساعد الذكي عن أي شيء..." 
+                   data-en-placeholder="Ask the AI assistant anything..."
+                   placeholder="اسأل المساعد الذكي عن أي شيء..." 
+                   class="flex-1 bg-black bg-opacity-20 border border-blue-500 border-opacity-30 rounded-lg px-3 py-2 text-white placeholder-gray-400 focus:border-blue-400 focus:outline-none">
+            <button id="sendAiMessage" class="ai-button interactive-button">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+        
+        <div class="mt-4 flex flex-wrap gap-2">
+            <button class="quick-question ai-button interactive-button text-xs" data-question="تحليل الأداء المالي">
+                <span data-ar="تحليل الأداء" data-en="Performance Analysis">تحليل الأداء</span>
+            </button>
+            <button class="quick-question ai-button interactive-button text-xs" data-question="توصيات التحسين">
+                <span data-ar="توصيات التحسين" data-en="Improvement Tips">توصيات التحسين</span>
+            </button>
+            <button class="quick-question ai-button interactive-button text-xs" data-question="تحليل المخاطر">
+                <span data-ar="تحليل المخاطر" data-en="Risk Analysis">تحليل المخاطر</span>
+            </button>
+            <button class="quick-question ai-button interactive-button text-xs" data-question="استراتيجية النمو">
+                <span data-ar="استراتيجية النمو" data-en="Growth Strategy">استراتيجية النمو</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Notification Container -->
+    <div id="notificationContainer"></div>
+
+    <script src="./escape-html.js"></script>
+    <script src="./vendor/apexcharts.min.js"></script>
+    <script src="./dashboard.js"></script>
+</body>
+</html>
