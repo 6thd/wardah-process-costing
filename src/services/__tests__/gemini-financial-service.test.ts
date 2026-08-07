@@ -26,6 +26,7 @@ import { describe, it, expect, vi, beforeEach, beforeAll, afterAll, afterEach } 
 interface QueryState {
   table: string;
   filters: Array<[string, string, unknown]>;
+  order?: [string, { ascending: boolean }];
   range?: [number, number];
 }
 type Handler = (state: QueryState) => { data: unknown[] | null; error: { message: string } | null };
@@ -58,6 +59,10 @@ const { queryLog, handlers, resetHarness, makeBuilder } = vi.hoisted(() => {
       },
       in: (col: unknown, vals: unknown) => {
         state.filters.push([col as string, 'in', vals]);
+        return builder;
+      },
+      order: (col: unknown, opts: unknown) => {
+        state.order = [col as string, opts as { ascending: boolean }];
         return builder;
       },
       range: (from: unknown, to: unknown) => {
@@ -189,6 +194,102 @@ describe('gemini-financial-service — fetchMonthlyFinancialData never fabricate
     const monthly = await geminiFinancialService.fetchMonthlyFinancialData(2027);
 
     expect(monthly).toHaveLength(0);
+  });
+});
+
+describe('gemini-financial-service — the month-to-date month never queries into the future', () => {
+  it('ends August\'s window at 2026-08-08 (exclusive) on August 7th, not 2026-09-01', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 7, 13, 45)); // August 7th 2026, mid-afternoon
+
+    await geminiFinancialService.fetchMonthlyFinancialData(2026);
+
+    // The LAST gl_entries query issued for a month window is August's —
+    // the month-to-date one. Its upper bound must be the day after today,
+    // so entries dated 2026-08-08..2026-08-31 (scheduled accruals,
+    // post-dated invoices, typos) are excluded from a "month-to-date"
+    // total rather than silently inflating it.
+    const augustQuery = queryLog
+      .filter(q => q.table === 'gl_entries' && q.filters.some(([c, o, v]) => c === 'entry_date' && o === 'gte' && v === '2026-08-01'))
+      .pop();
+    expect(augustQuery).toBeDefined();
+
+    const ltFilter = augustQuery!.filters.find(([col, op]) => col === 'entry_date' && op === 'lt');
+    expect(ltFilter?.[2]).toBe('2026-08-08');
+    expect(ltFilter?.[2]).not.toBe('2026-09-01');
+  });
+
+  it('keeps a completed month\'s real calendar end (يوليو ends 2026-08-01 exclusive)', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 7, 13, 45));
+
+    await geminiFinancialService.fetchMonthlyFinancialData(2026);
+
+    const julyQuery = queryLog
+      .filter(q => q.table === 'gl_entries' && q.filters.some(([c, o, v]) => c === 'entry_date' && o === 'gte' && v === '2026-07-01'))
+      .pop();
+    const ltFilter = julyQuery!.filters.find(([col, op]) => col === 'entry_date' && op === 'lt');
+
+    // July is complete and entirely in the past — it is NOT truncated to
+    // "today"; only the current month is.
+    expect(ltFilter?.[2]).toBe('2026-08-01');
+  });
+
+  it('does not truncate any month of a fully past year to today\'s date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 7, 7, 13, 45));
+
+    await geminiFinancialService.fetchMonthlyFinancialData(2025);
+
+    const decemberQuery = queryLog
+      .filter(q => q.table === 'gl_entries' && q.filters.some(([c, o, v]) => c === 'entry_date' && o === 'gte' && v === '2025-12-01'))
+      .pop();
+    const ltFilter = decemberQuery!.filters.find(([col, op]) => col === 'entry_date' && op === 'lt');
+
+    expect(ltFilter?.[2]).toBe('2026-01-01');
+  });
+});
+
+describe('gemini-financial-service — every paginated query has a stable total ordering', () => {
+  // .range() is a LIMIT/OFFSET window. Without an ORDER BY, PostgreSQL
+  // gives no guarantee that page N+1 continues where page N stopped, so
+  // rows can be duplicated across pages or skipped outright once a table
+  // grows past the point the planner changes plan — silently wrong
+  // financial totals with no error raised. Ordering by the primary key
+  // makes the sort unique and total, which is what removes the ambiguity.
+  it('orders every gl_accounts/gl_entries/gl_entry_lines/products page by id ascending', async () => {
+    handlers.set('gl_accounts', (state) => {
+      const categoryFilter = state.filters.find(([col]) => col === 'category');
+      if (categoryFilter?.[2] === 'REVENUE') return { data: [{ id: 'rev-1' }], error: null };
+      return { data: [], error: null };
+    });
+    handlers.set('gl_entries', () => ({ data: [{ id: 'entry-1' }], error: null }));
+    handlers.set('gl_entry_lines', () => ({ data: [{ account_id: 'rev-1', debit: 0, credit: 10 }], error: null }));
+    handlers.set('products', () => ({ data: [{ stock_quantity: 1, cost_price: 2 }], error: null }));
+
+    await geminiFinancialService.fetchRealFinancialKPIs(new Date(2026, 0, 1), new Date(2026, 11, 31));
+
+    const paginatedTables = ['gl_accounts', 'gl_entries', 'gl_entry_lines', 'products'];
+    for (const table of paginatedTables) {
+      const queries = queryLog.filter(q => q.table === table);
+      expect(queries.length, `expected at least one ${table} query`).toBeGreaterThan(0);
+      for (const q of queries) {
+        expect(q.order, `${table} paginated without an ORDER BY`).toEqual(['id', { ascending: true }]);
+      }
+    }
+  });
+
+  it('leaves no ranged query anywhere in the service without an ordering', async () => {
+    handlers.set('gl_accounts', () => ({ data: [{ id: 'a-1' }], error: null }));
+    handlers.set('gl_entries', () => ({ data: [{ id: 'entry-1' }], error: null }));
+    handlers.set('gl_entry_lines', () => ({ data: [{ account_id: 'a-1', debit: 5, credit: 0 }], error: null }));
+    handlers.set('products', () => ({ data: [], error: null }));
+
+    await geminiFinancialService.fetchMonthlyFinancialData(2025);
+
+    expect(queryLog.length).toBeGreaterThan(0);
+    const unordered = queryLog.filter(q => q.range !== undefined && q.order === undefined);
+    expect(unordered.map(q => q.table)).toEqual([]);
   });
 });
 

@@ -150,6 +150,14 @@ const ALL_MONTHS_AR = ["يناير", "فبراير", "مارس", "أبريل", "
 const ALL_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const MONTH_NAME_AR_TO_EN = Object.fromEntries(ALL_MONTHS_AR.map((ar, i) => [ar, ALL_MONTHS_EN[i]]));
 
+// Minimum number of COMPLETE (non-month-to-date) months required before any
+// forward projection is drawn. Two is the floor at which a straight-line fit
+// has a defined slope at all; below it, calculateTrend() returns 0 and the
+// "projection" is just the one observed value repeated forward, which looks
+// far more certain than the single data point behind it justifies. See
+// generatePredictiveData().
+const MIN_MONTHS_FOR_TREND = 2;
+
 class InsightsFinancialDashboard {
             constructor() {
                 // AI-generated insight text is requested via requestInsight()
@@ -211,7 +219,17 @@ class InsightsFinancialDashboard {
                         soundEffects: true
                     },
                     aiStatus: {
-                        connected: true,
+                        // Starts false. Nothing has connected yet at
+                        // construction time — the port handshake hasn't run,
+                        // no WARDHAH_DATA_SYNC has arrived, and the insights
+                        // provider may well be unreachable or over quota.
+                        // Declaring `connected: true` up front made the
+                        // status indicator assert a working AI connection
+                        // that had never been established, which is the same
+                        // failure mode as rendering sample figures: a claim
+                        // the page has no evidence for. setAiStatus() below
+                        // owns every transition out of this state.
+                        connected: false,
                         processing: false,
                         lastQuery: null
                     },
@@ -231,7 +249,14 @@ class InsightsFinancialDashboard {
                         netProfit: 'صافي الربح',
                         breakEven: 'نقطة التعادل',
                         marginOfSafety: 'هامش الأمان',
-                        costEfficiency: 'كفاءة التكاليف',
+                        // NOT "كفاءة التكاليف" (cost efficiency): the figure
+                        // rendered under this label is (COGS + OpEx) / sales,
+                        // which is a cost-to-sales ratio. Efficiency improves
+                        // as it goes UP; this ratio improves as it goes DOWN,
+                        // so the old label inverted the reading of its own
+                        // number. See renderRealtimeMetrics().
+                        costToSalesRatio: 'نسبة التكلفة إلى المبيعات',
+                        unavailable: 'غير متاح',
                         currency: 'ر.س'
                     },
                     en: {
@@ -239,7 +264,8 @@ class InsightsFinancialDashboard {
                         netProfit: 'Net Profit',
                         breakEven: 'Break Even',
                         marginOfSafety: 'Margin of Safety',
-                        costEfficiency: 'Cost Efficiency',
+                        costToSalesRatio: 'Cost-to-Sales Ratio',
+                        unavailable: 'Unavailable',
                         currency: 'SAR'
                     }
                 };
@@ -896,6 +922,35 @@ class InsightsFinancialDashboard {
                 });
             }
 
+            // Single owner of the #aiStatusText indicator. The three states
+            // map exactly onto the real syncState machine — there is no
+            // "ready" wording available before a schema-validated
+            // WARDHAH_DATA_SYNC has actually been processed.
+            //
+            // Both data-ar/data-en attributes are rewritten alongside
+            // textContent, not just the visible text: switchLanguage()
+            // re-reads those attributes for every [data-ar][data-en] element,
+            // so leaving them at their previous values would let a language
+            // toggle silently restore a stale status (e.g. flip back to
+            // "ready" after a failed sync).
+            setAiStatus(state) {
+                const AI_STATUS_TEXT = {
+                    awaiting: { ar: 'بانتظار البيانات', en: 'Awaiting data' },
+                    ready: { ar: 'الرؤى الذكية جاهزة', en: 'AI Insights Ready' },
+                    unavailable: { ar: 'الرؤى الذكية غير متاحة', en: 'AI Insights unavailable' }
+                };
+                const label = AI_STATUS_TEXT[state];
+                if (!label) return;
+
+                this.data.aiStatus.connected = state === 'ready';
+
+                const element = document.getElementById('aiStatusText');
+                if (!element) return;
+                element.setAttribute('data-ar', label.ar);
+                element.setAttribute('data-en', label.en);
+                element.textContent = label[this.data.currentLanguage] || label.ar;
+            }
+
             renderAwaitingDataState() {
                 this.renderSyncPlaceholder(
                     'بانتظار بيانات وردة ERP',
@@ -1089,8 +1144,30 @@ class InsightsFinancialDashboard {
                 const predictiveData = remainingCount > 0 ? this.generatePredictiveData(monthlyData, remainingCount) : [];
                 const months = this.monthLabels();
                 const allFutureMonths = this.data.currentLanguage === 'ar' ? ALL_MONTHS_AR : ALL_MONTHS_EN;
-                const futureMonths = allFutureMonths.slice(monthlyData.length, monthlyData.length + remainingCount);
+                // Label future months only for projected points that actually
+                // exist. generatePredictiveData() returns [] below
+                // MIN_MONTHS_FOR_TREND complete months, and padding the x-axis
+                // with empty future categories in that case would imply a
+                // forecast that was deliberately not produced.
+                const futureMonths = allFutureMonths.slice(monthlyData.length, monthlyData.length + predictiveData.length);
                 const t = this.translations[this.data.currentLanguage];
+
+                // "تقدير اتجاه خطي" / "Linear trend estimate", not "توقعات
+                // ذكية" / "AI Predictions". This series is an ordinary
+                // least-squares fit over past monthly net profit extended
+                // forward (see generatePredictiveData()/calculateTrend()) —
+                // arithmetic on twelve numbers at most. No model, AI or
+                // otherwise, is involved in producing it, and naming it "AI
+                // Predictions" claims a basis it does not have. The insights
+                // panel elsewhere on this page is genuinely model-generated;
+                // this line is not, and the two must not read alike.
+                const trendSeries = [];
+                if (predictiveData.length > 0) {
+                    trendSeries.push({
+                        name: this.data.currentLanguage === 'ar' ? 'تقدير اتجاه خطي' : 'Linear trend estimate',
+                        data: [...Array(monthlyData.length).fill(null), ...predictiveData]
+                    });
+                }
 
                 const options = {
                     chart: {
@@ -1105,10 +1182,7 @@ class InsightsFinancialDashboard {
                             name: this.data.currentLanguage === 'ar' ? 'البيانات الفعلية' : 'Actual Data',
                             data: monthlyData.map(m => Math.round(m.netProfit))
                         },
-                        {
-                            name: this.data.currentLanguage === 'ar' ? 'توقعات ذكية' : 'AI Predictions',
-                            data: [...Array(monthlyData.length).fill(null), ...predictiveData]
-                        }
+                        ...trendSeries
                     ],
                     colors: ['#4285f4', '#34a853'],
                     stroke: {
@@ -1304,27 +1378,47 @@ class InsightsFinancialDashboard {
                 const container = document.getElementById('realtimeMetrics');
                 if (!container) return;
                 
-                // Only costEfficiency is a real, computed figure from the
-                // synced annual totals. This used to also show a fixed
-                // "+12.5%" growth rate and a fixed "8.7/10" performance
-                // index — neither derived from any real computation, both
-                // deleted rather than replaced with a different fabricated
-                // number (there is no real trend-over-time or scoring model
-                // behind either one).
+                // One real, computed figure from the synced annual totals.
+                // This used to also show a fixed "+12.5%" growth rate and a
+                // fixed "8.7/10" performance index — neither derived from any
+                // real computation, both deleted rather than replaced with a
+                // different fabricated number (there is no real
+                // trend-over-time or scoring model behind either one).
+                const t = this.translations[this.data.currentLanguage];
+
+                // (COGS + OpEx) / sales. Two things were wrong with the
+                // previous version of this one metric:
+                //
+                // 1. It was labeled "cost efficiency", which reads inverted:
+                //    efficiency is better when it rises, this ratio is better
+                //    when it falls. A 95% reading is close to break-even, not
+                //    a 95% efficiency score.
+                // 2. It divided by annual.totalSales with no guard. With zero
+                //    sales — a brand-new organization, or any period with no
+                //    posted revenue, both perfectly ordinary — 0/0 renders as
+                //    "NaN%" and a non-zero cost over zero sales renders as
+                //    "Infinity%". Neither is a number; both appeared beside a
+                //    green status dot.
+                //
+                // The dot itself was hardcoded to the "good" gradient no
+                // matter what the ratio was, so a business spending 300% of
+                // its revenue was still reported green. There is no
+                // threshold anywhere in this schema that says what a healthy
+                // cost-to-sales ratio is for a given industry, so no
+                // color-coded verdict is rendered at all — just the number.
+                const hasSales = Number.isFinite(annual.totalSales) && annual.totalSales > 0;
                 const metrics = [
                     {
-                        label: this.translations[this.data.currentLanguage].costEfficiency,
-                        value: `${((annual.totalCogs + annual.totalOpex) / annual.totalSales * 100).toFixed(1)}%`,
-                        status: 'good'
+                        label: t.costToSalesRatio,
+                        value: hasSales
+                            ? `${((annual.totalCogs + annual.totalOpex) / annual.totalSales * 100).toFixed(1)}%`
+                            : t.unavailable
                     }
                 ];
 
                 container.replaceChildren(...metrics.map((metric) => el('div', { className: 'flex items-center justify-between p-3 rounded-lg bg-black bg-opacity-20' }, [
                     el('span', { className: 'text-sm text-gray-300', text: metric.label }),
-                    el('div', { className: 'flex items-center' }, [
-                        el('span', { className: 'text-sm font-bold text-white mr-2', text: metric.value }),
-                        el('div', { className: 'w-3 h-3 rounded-full bg-gradient-to-r from-green-500 to-teal-600' })
-                    ])
+                    el('span', { className: 'text-sm font-bold text-white', text: metric.value })
                 ])));
             }
 
@@ -1341,10 +1435,24 @@ class InsightsFinancialDashboard {
             // equivalent reads as a sudden real drop that isn't one, and
             // projecting forward from a partial figure would understate
             // every predicted month.
+            // Requires at least MIN_MONTHS_FOR_TREND complete months and
+            // returns [] below that. A least-squares fit through fewer than
+            // two points is not a trend: calculateTrend() already returns 0
+            // for n < 2, which would have drawn a perfectly flat line from a
+            // single month's profit out across every remaining month of the
+            // year — the most confident-looking output this function can
+            // produce, from the least evidence it can have. An empty series
+            // renders no forecast line at all, which is the honest result.
+            //
+            // The MTD month is not a substitute for a complete one here
+            // either: falling back to `monthlyData` when no complete month
+            // exists (the previous behavior) meant a single partial month
+            // could seed the entire projection.
             generatePredictiveData(monthlyData, count) {
                 const completeMonths = monthlyData.filter(m => !m.isMTD);
-                const source = completeMonths.length > 0 ? completeMonths : monthlyData;
-                const profits = source.map(m => m.netProfit);
+                if (completeMonths.length < MIN_MONTHS_FOR_TREND) return [];
+
+                const profits = completeMonths.map(m => m.netProfit);
                 const trend = this.calculateTrend(profits);
                 const lastValue = profits[profits.length - 1];
 
@@ -1581,6 +1689,9 @@ class InsightsFinancialDashboard {
                 // read as a complete month equal to the others.
                 this.data.mtdMonthIndex = this.data.months.findIndex((m) => this.data.baseFinancialData[m].isMTD);
                 this.data.syncState = 'ready';
+                // The only place the status indicator is allowed to reach
+                // "ready": real data has arrived and passed validation.
+                this.setAiStatus('ready');
                 if (this._resolveDataSync) {
                     this._resolveDataSync();
                     this._resolveDataSync = null;
@@ -1630,6 +1741,7 @@ class InsightsFinancialDashboard {
             // state instead of ever fabricating figures.
             async loadData() {
                 this.data.syncState = 'awaiting';
+                this.setAiStatus('awaiting');
                 this.renderAwaitingDataState();
 
                 const urlParams = new URLSearchParams(window.location.search);
@@ -1638,6 +1750,7 @@ class InsightsFinancialDashboard {
                 if (!useWardah) {
                     // No host to sync real data from at all.
                     this.data.syncState = 'failed';
+                    this.setAiStatus('unavailable');
                     return;
                 }
 
@@ -1653,6 +1766,7 @@ class InsightsFinancialDashboard {
 
                 if (!synced) {
                     this.data.syncState = 'failed';
+                    this.setAiStatus('unavailable');
                 }
             }
         }

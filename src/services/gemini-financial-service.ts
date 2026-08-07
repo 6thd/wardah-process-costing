@@ -91,6 +91,21 @@ export interface ProfitLossAnalysis {
 // dropped. fetchAllRows() below pages through with .range() until a page
 // comes back short.
 const SUPABASE_PAGE_SIZE = 1000;
+// Every paginated query below MUST also carry a total, deterministic sort.
+// PostgREST's .range() is a LIMIT/OFFSET window over whatever order the
+// planner happened to produce; without an ORDER BY, PostgreSQL makes no
+// guarantee that page N+1 continues where page N stopped. In practice a
+// seq scan is stable enough to hide this until the table grows past the
+// point the planner switches plan (or a concurrent UPDATE moves a row's
+// physical position), and then rows are silently duplicated across pages
+// or skipped entirely — under-reporting or over-reporting a financial
+// total with no error and no visible symptom. `id` is the primary key on
+// all four tables read here (gl_accounts, gl_entries, gl_entry_lines,
+// products), so ordering by it is unique and total: no ties, and
+// therefore no ambiguity left for the planner to resolve differently
+// between one page and the next. PostgREST does not require the sort
+// column to appear in select(), so this adds no columns to the payload.
+const PAGE_ORDER_COLUMN = 'id';
 // gl_entry_lines is looked up by `entry_id IN (...)` — a very large entries
 // result would otherwise build one enormous IN-list. Batched to keep each
 // query a reasonable size regardless of how many entries a period covers.
@@ -174,7 +189,7 @@ class GeminiFinancialService {
 
       // 1. الإيرادات
       const revenueAccounts = await this.fetchAllRows<{ id: string }>(
-        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'REVENUE').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'REVENUE').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching revenue accounts'
       );
       const revenueIds = new Set(revenueAccounts.map(a => a.id));
@@ -184,7 +199,7 @@ class GeminiFinancialService {
 
       // 2. COGS
       const cogsAccounts = await this.fetchAllRows<{ id: string }>(
-        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'COGS').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'COGS').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching COGS accounts'
       );
       const cogsIds = new Set(cogsAccounts.map(a => a.id));
@@ -194,7 +209,7 @@ class GeminiFinancialService {
 
       // 3. المصروفات التشغيلية
       const expenseAccounts = await this.fetchAllRows<{ id: string }>(
-        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'EXPENSE').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'EXPENSE').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching expense accounts'
       );
       const expenseIds = new Set(expenseAccounts.map(a => a.id));
@@ -204,7 +219,7 @@ class GeminiFinancialService {
 
       // 4. حساب قيم المخزون
       const inventoryItems = await this.fetchAllRows<{ stock_quantity: number | null; cost_price: number | null }>(
-        (from, to) => supabase.from('products').select('stock_quantity, cost_price').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('products').select('stock_quantity, cost_price').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching inventory items'
       );
 
@@ -215,12 +230,12 @@ class GeminiFinancialService {
 
       // 5. حساب الأصول والخصوم من الميزانية العمومية
       const assetAccounts = await this.fetchAllRows<{ id: string }>(
-        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'ASSET').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'ASSET').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching asset accounts'
       );
 
       const liabilityAccounts = await this.fetchAllRows<{ id: string }>(
-        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'LIABILITY').eq('is_active', true).range(from, to),
+        (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'LIABILITY').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching liability accounts'
       );
 
@@ -342,8 +357,18 @@ class GeminiFinancialService {
 
       for (const month of months) {
         const startDate = new Date(year, month.num - 1, 1);
-        const endDate = new Date(year, month.num, 0);
         const isMTD = year === currentYear && month.num === currentMonthNum;
+        // A month-to-date month ends TODAY, not on its last calendar day.
+        // Using the calendar end (e.g. 2026-08-31 while it is only
+        // 2026-08-07) makes the window reach eight weeks into the future,
+        // so any entry posted with a future entry_date — a scheduled
+        // accrual, a post-dated invoice, a data-entry typo — lands inside
+        // the "month-to-date" figure. That inflates the current month with
+        // amounts that have not happened yet, and the isMTD flag doesn't
+        // warn about it: the flag says "partial", while the query was in
+        // fact over-inclusive. A complete (past) month keeps its real
+        // calendar end, which is already in the past.
+        const endDate = isMTD ? now : new Date(year, month.num, 0);
 
         const monthKPIs = await this.fetchRealFinancialKPIs(startDate, endDate);
 
@@ -417,7 +442,7 @@ class GeminiFinancialService {
       let q = supabase.from('gl_entries').select('id').eq('status', 'posted');
       if (startDate) q = q.gte('entry_date', this.toLocalDateString(startDate));
       if (endDate) q = q.lt('entry_date', this.toExclusiveUpperBoundDateString(endDate));
-      return q.range(from, to);
+      return q.order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to);
     }, 'Error fetching posted GL entries');
 
     if (entries.length === 0) return [];
@@ -428,7 +453,7 @@ class GeminiFinancialService {
     for (let i = 0; i < entryIds.length; i += ENTRY_ID_BATCH_SIZE) {
       const batch = entryIds.slice(i, i + ENTRY_ID_BATCH_SIZE);
       const batchLines = await this.fetchAllRows<{ account_id: string | null; debit: number | null; credit: number | null }>(
-        (from, to) => supabase.from('gl_entry_lines').select('account_id, debit, credit').in('entry_id', batch).range(from, to),
+        (from, to) => supabase.from('gl_entry_lines').select('account_id, debit, credit').in('entry_id', batch).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
         'Error fetching posted GL entry lines'
       );
       lines.push(...batchLines.map(l => ({
@@ -458,7 +483,7 @@ class GeminiFinancialService {
    */
   private async getRevenueForPeriod(startDate: Date, endDate: Date): Promise<number> {
     const revenueAccounts = await this.fetchAllRows<{ id: string }>(
-      (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'REVENUE').eq('is_active', true).range(from, to),
+      (from, to) => supabase.from('gl_accounts').select('id').eq('category', 'REVENUE').eq('is_active', true).order(PAGE_ORDER_COLUMN, { ascending: true }).range(from, to),
       'Error fetching revenue accounts for period comparison'
     );
 
