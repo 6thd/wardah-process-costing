@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>reports-insights isolation test harness</title>
+</head>
+<body>
+<!--
+  Test-only stand-in for EnhancedInsightsDashboard.tsx. Reimplements the
+  same MessageChannel handshake (one postMessage('*') carrying a
+  MessagePort, event.source-checked, then all further traffic over the
+  port — see the module comment at the top of EnhancedInsightsDashboard.tsx
+  and public/reports-insights/dashboard.js) so
+  e2e/reports-insights-isolation.spec.ts can drive and observe both sides
+  of the sandboxed iframe boundary without needing a live Supabase
+  session — dashboard.html itself never talks to Supabase directly, only
+  this parent layer does in the real app.
+
+  Secrets this page holds that the sandboxed iframe must NOT be able to
+  read (proves the opaque-origin isolation actually holds):
+-->
+<div id="parent-secret-dom" style="display:none">TOP-SECRET-DOM-VALUE</div>
+
+<!-- The real, legitimate target iframe — same sandbox/src/allow contract as production. -->
+<iframe
+  id="target"
+  sandbox="allow-scripts allow-downloads"
+  allow="fullscreen"
+  allowfullscreen
+  style="width: 1024px; height: 768px; border: 0;"
+></iframe>
+
+<!--
+  A same-page, same-origin *sibling* frame standing in for "some other
+  window that is not this iframe's real parent" — e.g. a compromised or
+  simply unrelated frame elsewhere in the page. Used to prove
+  dashboard.js's one-time handshake listener
+  (`event.source !== window.parent`) rejects a forged WARDHAH_CHANNEL_INIT
+  from a sender that isn't its actual parent, even when the sender is
+  same-origin and holds a direct reference to the target iframe. This is
+  the only remaining message dashboard.js accepts from outside its
+  MessageChannel at all — everything after a successful handshake travels
+  over the port, which nothing outside that specific pair of ports can
+  ever observe or inject into (see the module comments in both
+  EnhancedInsightsDashboard.tsx and dashboard.js for why).
+-->
+<iframe id="decoy" srcdoc="<script>
+  window.addEventListener('message', (event) => {
+    if (!event.data || event.data.type !== 'FORGE_HANDSHAKE') return;
+    var target = window.parent.frames['target'];
+    var fakeChannel = new MessageChannel();
+    fakeChannel.port1.onmessage = function (portEvent) {
+      window.parent.postMessage({ __decoyReceived: portEvent.data }, '*');
+    };
+    target.postMessage({ type: 'WARDHAH_CHANNEL_INIT' }, '*', [fakeChannel.port2]);
+  });
+</script>" style="display:none"></iframe>
+
+<script>
+  window.localStorage.setItem('parent-secret', 'TOP-SECRET-PARENT-VALUE');
+
+  const INSIGHT_OPERATIONS = new Set(['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask']);
+
+  function isValidRequestId(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 100;
+  }
+
+  function isValidInsightRequest(msg) {
+    if (!msg || typeof msg !== 'object') return false;
+    if (msg.type !== 'WARDHAH_INSIGHT_REQUEST') return false;
+    if (!isValidRequestId(msg.requestId)) return false;
+    if (typeof msg.operation !== 'string' || !INSIGHT_OPERATIONS.has(msg.operation)) return false;
+    if (msg.locale !== 'ar' && msg.locale !== 'en') return false;
+    if (msg.operation === 'ask') {
+      if (typeof msg.question !== 'string' || msg.question.length === 0 || msg.question.length > 500) return false;
+    }
+    if (msg.data !== undefined && (typeof msg.data !== 'object' || msg.data === null || Array.isArray(msg.data))) {
+      return false;
+    }
+    return true;
+  }
+
+  function isValidDataRequest(msg) {
+    if (!msg || typeof msg !== 'object') return false;
+    return msg.type === 'REQUEST_WARDHAH_DATA' && isValidRequestId(msg.requestId);
+  }
+
+  window.__harness = {
+    receivedFromIframe: [],
+    respondMode: 'success', // insight requests: 'success' | 'unauthenticated' | 'timeout' | 'malformed'
+    // REQUEST_WARDHAH_DATA replies:
+    //   'success'      — the eight-month SAMPLE_DATA_SYNC below
+    //   'never'        — no reply at all (exercises awaiting → unavailable)
+    //   'malformed'    — fails schema validation, must be dropped
+    //   'zeroSales'    — real, well-formed months whose sales are genuinely
+    //                    zero (a new org, or a period with no posted
+    //                    revenue). Every ratio with sales in the denominator
+    //                    must render an explicit "unavailable", never NaN%
+    //                    or Infinity%.
+    //   'oneRealMonth' — a single complete month plus the current partial
+    //                    one. Below the two-complete-month floor a straight
+    //                    line has no defined slope, so no projection may be
+    //                    drawn at all.
+    dataSyncMode: 'success',
+    port: null,
+    decoyReceivedCount: 0,
+  };
+
+  // Deliberately fails dashboard.js's own isValidMonthlyData/
+  // isValidInsightResponse schema checks (see the module-level validators
+  // at the top of dashboard.js) — used to prove a malformed message is
+  // silently dropped instead of rendered or crashing the page.
+  const MALFORMED_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: { monthlyData: { 'يناير': { p: 'not-an-array', opex: [3500], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false } } },
+  };
+
+  const targetFrame = document.getElementById('target');
+  // Eight real months (يناير-أغسطس), matching the exact shape
+  // gemini-financial-service.ts's formatForGeminiDashboard() sends
+  // ({p, opex, cogs, grossProfit, netProfit, isMTD} per month) —
+  // calculateFinancials() in dashboard.js reads base.cogs directly rather
+  // than deriving it from sales by an assumed rate, so `cogs` below is
+  // deliberately NOT 70% of `p`'s sum for any month (e.g. يناير: p sums to
+  // 90000, cogs is 40000, not 63000) — this is what
+  // e2e/reports-insights-isolation.spec.ts's "uses the real synced COGS"
+  // test relies on to prove the real value is used, not a fabricated rate.
+  // Eight months (not the historical six) also lets that spec file prove
+  // يوليو/أغسطس are not dropped by a hardcoded month list. أغسطس is marked
+  // isMTD: true (a partial/current month) so the same spec can prove it is
+  // excluded from the predictive-chart trend fit and visibly labeled.
+  const SAMPLE_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: {
+      monthlyData: {
+        'يناير': { p: [90000, 0, 0], opex: [3500, 1200], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false },
+        'فبراير': { p: [95000, 0, 0], opex: [3800, 1350], cogs: 42000, grossProfit: 53000, netProfit: 47850, isMTD: false },
+        'مارس': { p: [60000, 0, 0], opex: [2900, 1100], cogs: 28000, grossProfit: 32000, netProfit: 28000, isMTD: false },
+        'أبريل': { p: [62000, 0, 0], opex: [3100, 1200], cogs: 29000, grossProfit: 33000, netProfit: 28700, isMTD: false },
+        'مايو': { p: [72000, 0, 0], opex: [3370, 1300], cogs: 33000, grossProfit: 39000, netProfit: 34330, isMTD: false },
+        'يونيو': { p: [112000, 0, 0], opex: [4500, 1500], cogs: 50000, grossProfit: 62000, netProfit: 56000, isMTD: false },
+        'يوليو': { p: [80000, 0, 0], opex: [3200, 1300], cogs: 36000, grossProfit: 44000, netProfit: 39500, isMTD: false },
+        'أغسطس': { p: [85000, 0, 0], opex: [3300, 1350], cogs: 38000, grossProfit: 47000, netProfit: 42350, isMTD: true },
+      },
+    },
+    kpis: { totalSales: 656000, totalCOGS: 296000, totalOperatingExpenses: 37970, netProfit: 322030, grossProfit: 360000, profitMargin: 49.1 },
+    breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 656000 },
+    profitLoss: {},
+  };
+
+  // Genuinely zero sales — not malformed, not missing, just an organization
+  // with no posted revenue in the period. Every figure here is a real,
+  // schema-valid zero, so the dashboard must render it as data rather than
+  // reject it, which puts a 0 in the denominator of any sales-based ratio.
+  const ZERO_SALES_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: {
+      monthlyData: {
+        'يناير': { p: [0, 0, 0], opex: [0, 0], cogs: 0, grossProfit: 0, netProfit: 0, isMTD: false },
+        'فبراير': { p: [0, 0, 0], opex: [1500, 500], cogs: 0, grossProfit: 0, netProfit: -2000, isMTD: false },
+      },
+    },
+    kpis: { totalSales: 0, totalCOGS: 0, totalOperatingExpenses: 2000, netProfit: -2000, grossProfit: 0, profitMargin: 0 },
+    breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 0 },
+    profitLoss: {},
+  };
+
+  // One complete month + the current month-to-date one. Only ONE complete
+  // month is available to fit a line through, which is below the floor at
+  // which a slope is defined at all.
+  const ONE_REAL_MONTH_DATA_SYNC = {
+    type: 'WARDHAH_DATA_SYNC',
+    data: {
+      monthlyData: {
+        'يناير': { p: [90000, 0, 0], opex: [3500, 1200], cogs: 40000, grossProfit: 50000, netProfit: 45300, isMTD: false },
+        'فبراير': { p: [30000, 0, 0], opex: [1200, 400], cogs: 14000, grossProfit: 16000, netProfit: 14400, isMTD: true },
+      },
+    },
+    kpis: { totalSales: 120000, totalCOGS: 54000, totalOperatingExpenses: 6300, netProfit: 59700, grossProfit: 66000, profitMargin: 49.8 },
+    breakEven: { available: false, reason: 'fixed_variable_classification_unavailable', currentSales: 120000 },
+    profitLoss: {},
+  };
+
+  function handlePortMessage(event) {
+    const msg = event.data;
+    window.__harness.receivedFromIframe.push(msg);
+
+    if (isValidDataRequest(msg)) {
+      if (window.__harness.dataSyncMode === 'never') {
+        return; // deliberately never reply — exercises the "data unavailable" state
+      }
+      if (window.__harness.dataSyncMode === 'malformed') {
+        window.__harness.port.postMessage({ requestId: msg.requestId, ...MALFORMED_DATA_SYNC });
+        return;
+      }
+      if (window.__harness.dataSyncMode === 'zeroSales') {
+        window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...ZERO_SALES_DATA_SYNC });
+        return;
+      }
+      if (window.__harness.dataSyncMode === 'oneRealMonth') {
+        window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...ONE_REAL_MONTH_DATA_SYNC });
+        return;
+      }
+      window.__harness.port.postMessage({ requestId: 'sync-' + Date.now(), ...SAMPLE_DATA_SYNC });
+      return;
+    }
+
+    if (!isValidInsightRequest(msg)) return;
+
+    if (window.__harness.respondMode === 'timeout') {
+      return; // deliberately never reply — exercises the iframe's own local fallback path
+    }
+
+    if (window.__harness.respondMode === 'unauthenticated') {
+      window.__harness.port.postMessage({
+        type: 'WARDHAH_INSIGHT_RESPONSE',
+        requestId: msg.requestId,
+        success: false,
+        error: 'not_authenticated',
+      });
+      return;
+    }
+
+    if (window.__harness.respondMode === 'malformed') {
+      // Fails dashboard.js's isValidInsightResponse (success must be a
+      // real boolean, text must be a non-empty string) — the dashboard
+      // must drop this silently and fall back exactly as if no response
+      // had ever arrived, not render whatever this contains.
+      window.__harness.port.postMessage({
+        type: 'WARDHAH_INSIGHT_RESPONSE',
+        requestId: msg.requestId,
+        success: 'yes',
+        text: 12345,
+      });
+      return;
+    }
+
+    window.__harness.port.postMessage({
+      type: 'WARDHAH_INSIGHT_RESPONSE',
+      requestId: msg.requestId,
+      success: true,
+      source: 'ai',
+      text: 'harness-provided-insight-text-' + msg.operation,
+    });
+  }
+
+  function sendRealHandshake() {
+    const channel = new MessageChannel();
+    window.__harness.port = channel.port1;
+    channel.port1.onmessage = handlePortMessage;
+    targetFrame.contentWindow.postMessage({ type: 'WARDHAH_CHANNEL_INIT' }, '*', [channel.port2]);
+  }
+
+  window.__harness.loadTarget = function () {
+    targetFrame.addEventListener('load', () => sendRealHandshake(), { once: true });
+    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true';
+  };
+
+  // Races a forged WARDHAH_CHANNEL_INIT (from the same-page decoy sibling
+  // frame, not this harness — dashboard.js's real parent) against the
+  // real handshake. If dashboard.js's `event.source !== window.parent`
+  // check on that one-time listener works correctly, the decoy's fake
+  // port is never wired and the real handshake still succeeds normally
+  // afterward; if it didn't, the decoy's port would be accepted instead
+  // and the real handshake would silently become a no-op (the one-time
+  // listener already having removed itself).
+  window.__harness.loadTargetWithForgedHandshakeRace = function () {
+    targetFrame.addEventListener('load', () => {
+      document.getElementById('decoy').contentWindow.postMessage({ type: 'FORGE_HANDSHAKE' }, '*');
+      setTimeout(() => sendRealHandshake(), 50);
+    }, { once: true });
+    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true';
+  };
+
+  window.addEventListener('message', (event) => {
+    if (event.data && event.data.__decoyReceived !== undefined) {
+      window.__harness.decoyReceivedCount++;
+    }
+  });
+</script>
+</body>
+</html>
