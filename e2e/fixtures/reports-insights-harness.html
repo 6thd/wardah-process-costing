@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>reports-insights isolation test harness</title>
+</head>
+<body>
+<!--
+  Test-only stand-in for EnhancedInsightsDashboard.tsx. Reimplements the
+  same postMessage contract (validators, event.source identity check,
+  targetOrigin '*') so e2e/reports-insights-isolation.spec.ts can drive
+  and observe both sides of the sandboxed iframe boundary without needing
+  a live Supabase session — dashboard.html itself never talks to Supabase
+  directly, only this parent layer does in the real app.
+
+  Secrets this page holds that the sandboxed iframe must NOT be able to
+  read (proves the opaque-origin isolation actually holds):
+-->
+<div id="parent-secret-dom" style="display:none">TOP-SECRET-DOM-VALUE</div>
+
+<!-- The real, legitimate target iframe — same sandbox/src contract as production. -->
+<iframe
+  id="target"
+  sandbox="allow-scripts allow-downloads"
+  style="width: 1024px; height: 768px; border: 0;"
+></iframe>
+
+<!--
+  A same-page, same-origin *sibling* frame standing in for "some other
+  window that is not this iframe's real parent" — e.g. a compromised or
+  simply unrelated frame elsewhere in the page. Used to prove
+  dashboard.html's `event.source !== window.parent` check rejects
+  messages that don't come from its actual parent, even when the sender
+  is same-origin and holds a direct reference to the target iframe.
+-->
+<iframe id="decoy" srcdoc="<script>
+  window.addEventListener('message', (event) => {
+    if (!event.data || event.data.type !== 'FORGE_NOW') return;
+    var target = window.parent.frames['target'];
+    target.postMessage({
+      type: 'WARDHAH_INSIGHT_RESPONSE',
+      requestId: event.data.requestId,
+      success: true,
+      source: 'ai',
+      text: 'INJECTED-BY-DECOY-NOT-REAL-PARENT'
+    }, '*');
+  });
+</script>" style="display:none"></iframe>
+
+<script>
+  window.localStorage.setItem('parent-secret', 'TOP-SECRET-PARENT-VALUE');
+
+  const INSIGHT_OPERATIONS = ['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask'];
+
+  function isValidRequestId(value) {
+    return typeof value === 'string' && value.length > 0 && value.length <= 100;
+  }
+
+  function isValidInsightRequest(msg) {
+    if (!msg || typeof msg !== 'object') return false;
+    if (msg.type !== 'WARDHAH_INSIGHT_REQUEST') return false;
+    if (!isValidRequestId(msg.requestId)) return false;
+    if (typeof msg.operation !== 'string' || !INSIGHT_OPERATIONS.includes(msg.operation)) return false;
+    if (msg.locale !== 'ar' && msg.locale !== 'en') return false;
+    if (msg.operation === 'ask') {
+      if (typeof msg.question !== 'string' || msg.question.length === 0 || msg.question.length > 500) return false;
+    }
+    if (msg.data !== undefined && (typeof msg.data !== 'object' || msg.data === null || Array.isArray(msg.data))) {
+      return false;
+    }
+    return true;
+  }
+
+  function isValidDataRequest(msg) {
+    if (!msg || typeof msg !== 'object') return false;
+    return msg.type === 'REQUEST_WARDHAH_DATA' && isValidRequestId(msg.requestId);
+  }
+
+  window.__harness = {
+    receivedFromIframe: [],
+    respondMode: 'success', // 'success' | 'unauthenticated' | 'timeout'
+  };
+
+  const targetFrame = document.getElementById('target');
+
+  window.addEventListener('message', (event) => {
+    // Mirrors EnhancedInsightsDashboard.tsx: event.source identity check
+    // FIRST, unconditionally, before any shape validation.
+    if (event.source !== targetFrame.contentWindow) return;
+
+    const msg = event.data;
+    window.__harness.receivedFromIframe.push(msg);
+
+    if (isValidDataRequest(msg)) {
+      targetFrame.contentWindow.postMessage({
+        type: 'WARDHAH_DATA_SYNC',
+        requestId: 'sync-' + Date.now(),
+        data: {
+          // Must match the exact shape dashboard.js's own default
+          // baseFinancialData uses (keyed by the same Arabic month names
+          // in this.data.months, each {p, s_exp, a_exp}) — calculateFinancials()
+          // indexes it that way regardless of where the data came from,
+          // so a differently-shaped sync payload breaks every downstream
+          // KPI/chart computation instead of just being ignored.
+          monthlyData: {
+            'يناير': { p: [90000, 0, 0], s_exp: [3500, 1200], a_exp: [16164, 6708, 2250, 1428, 746, 807, 291, 200] },
+            'فبراير': { p: [95000, 0, 0], s_exp: [3800, 1350], a_exp: [16164, 6708, 2250, 1428, 746, 807, 291, 200] },
+            'مارس': { p: [60000, 0, 0], s_exp: [2900, 1100], a_exp: [16164, 6708, 2250, 1428, 746, 807, 291, 200] },
+            'أبريل': { p: [62000, 0, 0], s_exp: [3100, 1200], a_exp: [16164, 6708, 2250, 1428, 746, 807, 291, 200] },
+            'مايو': { p: [72000, 0, 0], s_exp: [3370, 1300], a_exp: [16164, 6708, 2250, 1428, 746, 807, 291, 200] },
+            'يونيو': { p: [112000, 0, 0], s_exp: [4500, 1500], a_exp: [16165, 6710, 2250, 1431, 747, 808, 290, 200] },
+          },
+        },
+        kpis: { totalSales: 100000, netProfit: 20000, profitMargin: 20, contributionMarginRatio: 0.4, contributionMargin: 40000 },
+        breakEven: { breakEvenSales: 50000, marginOfSafetyPercent: 50, marginOfSafety: 50000, fixedCosts: 10000 },
+        profitLoss: {},
+      }, '*');
+      return;
+    }
+
+    if (!isValidInsightRequest(msg)) return;
+
+    if (window.__harness.respondMode === 'timeout') {
+      return; // deliberately never reply — exercises the iframe's own local fallback path
+    }
+
+    if (window.__harness.respondMode === 'unauthenticated') {
+      targetFrame.contentWindow.postMessage({
+        type: 'WARDHAH_INSIGHT_RESPONSE',
+        requestId: msg.requestId,
+        success: false,
+        error: 'not_authenticated',
+      }, '*');
+      return;
+    }
+
+    targetFrame.contentWindow.postMessage({
+      type: 'WARDHAH_INSIGHT_RESPONSE',
+      requestId: msg.requestId,
+      success: true,
+      source: 'ai',
+      text: 'harness-provided-insight-text-' + msg.operation,
+    }, '*');
+  });
+
+  window.__harness.loadTarget = function () {
+    targetFrame.src = '/reports-insights/dashboard.html?wardah=true&autoSync=true&parentOrigin=' + encodeURIComponent(window.location.origin);
+  };
+
+  window.__harness.forgeFromDecoy = function (requestId) {
+    document.getElementById('decoy').contentWindow.postMessage({ type: 'FORGE_NOW', requestId: requestId }, '*');
+  };
+</script>
+</body>
+</html>
