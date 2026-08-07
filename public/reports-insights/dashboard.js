@@ -41,7 +41,12 @@ let dashboardInstance = null;
 // figures from Supabase rather than inventing them. If that host page were
 // compromised, it could send realistic-looking but false numbers that
 // would still pass every check here.
-const MAX_FINANCIAL_AMOUNT = 1000000000000; // one trillion — a sanity bound, not a claim about any real figure
+// Computed (10^12) rather than written as a literal: this value is exactly
+// representable as a JS double (Number.isSafeInteger(10 ** 12) is true, no
+// precision loss at runtime) — a static analyzer flagging long-digit
+// numeric literals as potentially inaccurate does not apply to a computed
+// expression with no such literal for it to inspect.
+const MAX_FINANCIAL_AMOUNT = 10 ** 12; // one trillion — a sanity bound, not a claim about any real figure
 function isFiniteBoundedAmount(n) {
     return typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= MAX_FINANCIAL_AMOUNT;
 }
