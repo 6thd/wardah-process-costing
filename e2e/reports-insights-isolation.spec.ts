@@ -13,12 +13,18 @@
 import { test, expect, type Page } from '@playwright/test';
 import type { Server } from 'node:http';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startLocalVercelHeadersServer } from './fixtures/local-vercel-headers-server';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = path.resolve(__dirname, '..');
 const PORT = 4174;
+
+function sha256(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex');
+}
 
 // Two modes, selected by PLAYWRIGHT_VERCEL_PREVIEW_URL:
 //  - Default (unset): starts the local static server that reproduces
@@ -110,60 +116,80 @@ test.describe('reports-insights response headers (vercel.json)', () => {
     expect(res.headers()['x-frame-options']).toBe('SAMEORIGIN');
   });
 
+  test('reports-insights static assets are the real checked-out files, not a silently substituted SPA-fallback response', async ({ request }) => {
+    // A missing/renamed file under /reports-insights/ used to still answer
+    // 200 with the SPA shell's index.html (vercel.json's single catch-all
+    // rewrite matched everything, this route included) — same ETag, same
+    // byte count, on every path tried, confirmed live on a real deployment.
+    // A 200 status and a plausible content-type both survive that
+    // substitution, so neither is sufficient on its own; only a body-identity
+    // check against the actual checked-out file can catch it. This runs
+    // before any header assertion in this file, deliberately: asserting on
+    // headers of a response that turns out to be the wrong file proves
+    // nothing about the route this suite is actually testing.
+    const assets = [
+      { url: `${ORIGIN}/reports-insights/dashboard.html`, localPath: 'public/reports-insights/dashboard.html', mimeFamily: /^text\/html/ },
+      { url: `${ORIGIN}/reports-insights/dashboard.js`, localPath: 'public/reports-insights/dashboard.js', mimeFamily: /^(text|application)\/javascript/ },
+      { url: `${ORIGIN}/reports-insights/vendor/tailwind.css`, localPath: 'public/reports-insights/vendor/tailwind.css', mimeFamily: /^text\/css/ },
+      { url: `${ORIGIN}/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2`, localPath: 'public/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2', mimeFamily: /^font\/woff2/ },
+    ] as const;
+
+    const responses = await Promise.all(assets.map((a) => request.get(a.url)));
+
+    for (let i = 0; i < assets.length; i++) {
+      const { localPath, mimeFamily } = assets[i];
+      const res = responses[i];
+      expect(res.status(), `${localPath}: expected a real 200`).toBe(200);
+
+      const body = await res.body();
+      const expectedHash = sha256(await readFile(path.join(REPO_ROOT, localPath)));
+      expect(sha256(body), `${localPath}: response body must byte-match the checked-out file (a mismatch means this URL is serving something else)`).toBe(expectedHash);
+
+      const contentType = res.headers()['content-type'] ?? '';
+      expect(contentType, `${localPath}: content-type must match its real MIME family`).toMatch(mimeFamily);
+    }
+  });
+
   test('Access-Control-Allow-Origin is scoped to the Font Awesome webfont files only, not the whole isolated route', async ({ request }) => {
     const fontRes = await request.get(`${ORIGIN}/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2`);
     expect(fontRes.headers()['access-control-allow-origin']).toBe('*');
     expect(fontRes.headers()['access-control-allow-credentials']).toBeUndefined();
 
-    // dashboard.js/dashboard.html/the vendored CSS still get the isolated
-    // route's CSP/X-Frame-Options (asserted above) but must NOT also get
-    // a blanket CORS header they have no reason to need — only actual
-    // cross-origin @font-face fetches from inside the opaque-origin
-    // sandbox require it (see the branch history for why this was
-    // narrowed from the whole /reports-insights/* route).
     const nonFontAssets = [
       await request.get(`${ORIGIN}/reports-insights/dashboard.js`),
       await request.get(`${ORIGIN}/reports-insights/dashboard.html`),
       await request.get(`${ORIGIN}/reports-insights/vendor/tailwind.css`),
     ];
 
-    // Real Vercel Preview deployments are protected; this suite only ever
-    // reaches one through Vercel's Protection Bypass for Automation
-    // (x-vercel-protection-bypass / x-vercel-set-bypass-cookie — see
-    // playwright.reports-insights.vercel-preview.config.ts). On that
-    // authenticated path, non-font static assets have been observed
-    // carrying Access-Control-Allow-Origin: "*" that vercel.json does not
-    // configure — its two /reports-insights/* header blocks are mutually
-    // exclusive (see the negative lookahead in vercel.json), and
-    // e2e/fixtures/local-vercel-headers-server.ts, which compiles those
-    // same source patterns to real anchored RegExps, never reproduces it
-    // (see the local-lane branch below, which stays strict). A direct,
-    // unauthenticated curl to a protected Preview URL gets a 302 to
-    // vercel.com/sso-api with no ACAO at all and never reaches the origin,
-    // so the "*" is only correlated with the bypass-authenticated request,
-    // not proven to be caused by it — Vercel's public docs for Protection
-    // Bypass for Automation describe what it bypasses but document no
-    // header side effect.
+    // Two separate, deliberately distinct contracts here — config-intent
+    // and live-platform — because they were confirmed to genuinely differ,
+    // not because of any bypass, cache, or per-file artifact (all three
+    // were investigated and falsified; see git history on this file for
+    // that investigation if it matters later).
     //
-    // This is NOT scoped to dashboard.js specifically: across two separate
-    // Preview deployments in this branch's own CI history, the "*" showed
-    // up on a *different* one of these three assets each time — dashboard.js
-    // on one run, dashboard.html on the next, both reproducible 3/3 within
-    // their own run. That rules out a per-file cause and points at
-    // something environment-wide on the bypass-authenticated path (a
-    // leading hypothesis is edge-cache state at request time, but that is
-    // not confirmed either — recorded here as variable behavior observed
-    // across bypass-authenticated Preview deployments, not as proven
-    // edge-cache behavior or a documented bypass side effect). So the
-    // exception is scoped to the *lane*, not to any one filename: every
-    // inspected non-font asset may be absent-or-"*" only when running
-    // against a real Preview through the bypass; the local-server lane,
-    // which never goes through Vercel's protection layer at all, keeps the
-    // original strict contract for all three. Real end users never carry
-    // the bypass secret, so real production/preview traffic is unaffected
-    // regardless of which file the artifact lands on in a given CI run — a
-    // strict no-bypass check against the public production deployment is
-    // required after merge to confirm that directly.
+    // Config-intent (local-server lane, PLAYWRIGHT_VERCEL_PREVIEW_URL
+    // unset): e2e/fixtures/local-vercel-headers-server.ts compiles
+    // vercel.json's own header rules to real anchored RegExps and applies
+    // only what they declare — vercel.json declares Access-Control-Allow-Origin
+    // for exactly one rule, the webfonts path, and nothing else does. This
+    // lane proves that intent: strictly no ACAO on any non-font asset.
+    //
+    // Live-platform (real Preview or production, PLAYWRIGHT_VERCEL_PREVIEW_URL
+    // set): confirmed directly — both on this project's own pre-#106
+    // production deployment (real JS/SVG assets on a fresh cache MISS) and
+    // independently on Vercel's own official zero-config Vite example
+    // deployment — that Vercel serves ACAO: "*" on public static assets as
+    // a platform-level default, unrelated to vercel.json, Protection
+    // Bypass, or caching. It is not configured by this repo and cannot be
+    // unconfigured by vercel.json's headers array (there is no "unset a
+    // header" directive), so a real deployment's non-font assets may
+    // legitimately answer with ACAO absent or "*" — either is correct
+    // platform behavior. What must still hold, and does: the font path
+    // always gets "*" (this repo's own explicit grant, needed for the
+    // sandboxed iframe's cross-origin @font-face fetches), and
+    // Access-Control-Allow-Credentials — which would actually be
+    // dangerous paired with a wildcard origin — stays absent everywhere,
+    // on every asset, in both lanes, no exception.
     for (const res of nonFontAssets) {
       if (process.env.PLAYWRIGHT_VERCEL_PREVIEW_URL) {
         const acao = res.headers()['access-control-allow-origin'];
@@ -186,6 +212,22 @@ test.describe('reports-insights response headers (vercel.json)', () => {
     // lanes, real Preview or not.
     expect(fontRes.headers()['x-frame-options']).toBeUndefined();
     expect(fontRes.headers()['content-security-policy']).toBeUndefined();
+  });
+
+  test('a missing /reports-insights/* asset returns a real 404, never the SPA-fallback app shell', async ({ request }) => {
+    // vercel.json's single rewrite used to catch every unmatched path,
+    // /reports-insights/* included, and answer 200 with index.html — same
+    // ETag and byte count for a typo'd filename as for the real index
+    // route. The rewrite now explicitly excludes /reports-insights/, so a
+    // missing file falls through to Vercel's ordinary static 404 instead.
+    const res = await request.get(`${ORIGIN}/reports-insights/this-file-does-not-exist-e2e-probe.js`);
+    expect(res.status()).toBe(404);
+    const body = await res.text();
+    // Belt and suspenders on top of the status code: the SPA shell's root
+    // mount point must not appear in a 404 body either, so a future rewrite
+    // regression that returns 404 with the app shell's HTML (a plausible
+    // half-fix) still fails this test.
+    expect(body).not.toContain('<div id="root">');
   });
 
   test('every other route keeps X-Frame-Options: DENY and no conflicting header is ever sent for the same path', async ({ request }) => {
