@@ -22,12 +22,12 @@ on:
   workflow_dispatch:
     inputs:
       preview_url:
-        description: 'Vercel Preview URL to check, e.g. https://<preview>.vercel.app (no trailing slash)'
+        description: 'Vercel Preview URL to check, e.g. https://<preview>.vercel.app (no trailing slash). Validated below (https:// + exact .vercel.app hostname) before any step receives VERCEL_AUTOMATION_BYPASS_SECRET — the job fails closed if this is not a genuine Vercel URL.'
         required: true
         type: string
       revision:
-        description: 'Git ref/SHA that preview_url was actually built from. The isolation suite compares response bytes for dashboard.html/dashboard.js/vendor/tailwind.css/the webfont against the checked-out files on disk, so this must match the deployed commit exactly. Leave blank to check out whichever branch is selected above in the "Use workflow from" picker — that is NOT guaranteed to match an arbitrary preview_url and will falsely fail the identity check if it does not.'
-        required: false
+        description: 'Git ref/SHA that preview_url was actually built from. The isolation suite compares response bytes for dashboard.html/dashboard.js/vendor/tailwind.css/the webfont against the checked-out files on disk, so this must match the deployed commit exactly. Required — do not guess this from the branch picker above, which is not guaranteed to match an arbitrary preview_url and will falsely fail the identity check if it does not.'
+        required: true
         type: string
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          ref: ${{ inputs.revision || github.ref }}
+          ref: ${{ inputs.revision }}
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -53,7 +53,44 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
+      # This is the actual security boundary for VERCEL_AUTOMATION_BYPASS_SECRET,
+      # not an assumption about how preview_url was obtained: preview_url is an
+      # arbitrary operator-supplied string, and the next step sends the secret
+      # to whatever host it names via x-vercel-protection-bypass. Parsing with
+      # the URL constructor (not a regex/sed match against the raw string)
+      # rejects malformed input outright and gives an exact hostname to check —
+      # required scheme https:// and a hostname ending in the literal
+      # ".vercel.app" suffix, which also rejects lookalikes such as
+      # "vercel.app.attacker.example" (fails the suffix check) or
+      # "attacker.example/.vercel.app" (the path, not the hostname). Fails
+      # closed: any parse error or mismatch stops the job here, before the
+      # step below ever runs.
+      - name: Validate preview_url before it ever reaches a step with the bypass secret
+        id: validate_preview_url
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+        env:
+          PREVIEW_URL: ${{ inputs.preview_url }}
+        with:
+          script: |
+            const raw = process.env.PREVIEW_URL;
+            let url;
+            try {
+              url = new URL(raw);
+            } catch {
+              core.setFailed(`preview_url is not a valid URL: ${raw}`);
+              return;
+            }
+            if (url.protocol !== 'https:') {
+              core.setFailed(`preview_url must use https://, got protocol "${url.protocol}" for: ${raw}`);
+              return;
+            }
+            if (!url.hostname.endsWith('.vercel.app')) {
+              core.setFailed(`preview_url host must end with .vercel.app exactly, got host "${url.hostname}" for: ${raw}`);
+              return;
+            }
+
       - name: Run reports-insights isolation suite against the real Preview
+        if: steps.validate_preview_url.outcome == 'success'
         env:
           PLAYWRIGHT_VERCEL_PREVIEW_URL: ${{ inputs.preview_url }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}

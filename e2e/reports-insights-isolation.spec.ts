@@ -84,6 +84,41 @@ async function getChildFrame(page: Page) {
 }
 
 test.describe('reports-insights response headers (vercel.json)', () => {
+  // Deliberately the first test in this file, not just commented as such:
+  // a missing/renamed file under /reports-insights/ used to still answer
+  // 200 with the SPA shell's index.html (vercel.json's single catch-all
+  // rewrite matched everything, this route included) — same ETag, same
+  // byte count, on every path tried, confirmed live on a real deployment.
+  // A 200 status and a plausible content-type both survive that
+  // substitution, so neither is sufficient on its own; only a body-identity
+  // check against the actual checked-out file can catch it. Every other
+  // test in this file asserts on response headers for these same routes,
+  // so this one runs before all of them — a header assertion on a response
+  // that turns out to be the wrong file would prove nothing.
+  test('reports-insights static assets are the real checked-out files, not a silently substituted SPA-fallback response', async ({ request }) => {
+    const assets = [
+      { url: `${ORIGIN}/reports-insights/dashboard.html`, localPath: 'public/reports-insights/dashboard.html', mimeFamily: /^text\/html/ },
+      { url: `${ORIGIN}/reports-insights/dashboard.js`, localPath: 'public/reports-insights/dashboard.js', mimeFamily: /^(text|application)\/javascript/ },
+      { url: `${ORIGIN}/reports-insights/vendor/tailwind.css`, localPath: 'public/reports-insights/vendor/tailwind.css', mimeFamily: /^text\/css/ },
+      { url: `${ORIGIN}/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2`, localPath: 'public/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2', mimeFamily: /^font\/woff2/ },
+    ] as const;
+
+    const responses = await Promise.all(assets.map((a) => request.get(a.url)));
+
+    for (let i = 0; i < assets.length; i++) {
+      const { localPath, mimeFamily } = assets[i];
+      const res = responses[i];
+      expect(res.status(), `${localPath}: expected a real 200`).toBe(200);
+
+      const body = await res.body();
+      const expectedHash = sha256(await readFile(path.join(REPO_ROOT, localPath)));
+      expect(sha256(body), `${localPath}: response body must byte-match the checked-out file (a mismatch means this URL is serving something else)`).toBe(expectedHash);
+
+      const contentType = res.headers()['content-type'] ?? '';
+      expect(contentType, `${localPath}: content-type must match its real MIME family`).toMatch(mimeFamily);
+    }
+  });
+
   test('the isolated dashboard route sends an enforcing CSP — script-src stays strict, style-src allows unsafe-inline only (ApexCharts compatibility), X-Frame-Options: SAMEORIGIN', async ({ request }) => {
     const res = await request.get(`${ORIGIN}/reports-insights/dashboard.html`);
     expect(res.status()).toBe(200);
@@ -114,40 +149,6 @@ test.describe('reports-insights response headers (vercel.json)', () => {
 
     expect(csp).toContain("frame-ancestors 'self'");
     expect(res.headers()['x-frame-options']).toBe('SAMEORIGIN');
-  });
-
-  test('reports-insights static assets are the real checked-out files, not a silently substituted SPA-fallback response', async ({ request }) => {
-    // A missing/renamed file under /reports-insights/ used to still answer
-    // 200 with the SPA shell's index.html (vercel.json's single catch-all
-    // rewrite matched everything, this route included) — same ETag, same
-    // byte count, on every path tried, confirmed live on a real deployment.
-    // A 200 status and a plausible content-type both survive that
-    // substitution, so neither is sufficient on its own; only a body-identity
-    // check against the actual checked-out file can catch it. This runs
-    // before any header assertion in this file, deliberately: asserting on
-    // headers of a response that turns out to be the wrong file proves
-    // nothing about the route this suite is actually testing.
-    const assets = [
-      { url: `${ORIGIN}/reports-insights/dashboard.html`, localPath: 'public/reports-insights/dashboard.html', mimeFamily: /^text\/html/ },
-      { url: `${ORIGIN}/reports-insights/dashboard.js`, localPath: 'public/reports-insights/dashboard.js', mimeFamily: /^(text|application)\/javascript/ },
-      { url: `${ORIGIN}/reports-insights/vendor/tailwind.css`, localPath: 'public/reports-insights/vendor/tailwind.css', mimeFamily: /^text\/css/ },
-      { url: `${ORIGIN}/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2`, localPath: 'public/reports-insights/vendor/fontawesome/webfonts/fa-solid-900.woff2', mimeFamily: /^font\/woff2/ },
-    ] as const;
-
-    const responses = await Promise.all(assets.map((a) => request.get(a.url)));
-
-    for (let i = 0; i < assets.length; i++) {
-      const { localPath, mimeFamily } = assets[i];
-      const res = responses[i];
-      expect(res.status(), `${localPath}: expected a real 200`).toBe(200);
-
-      const body = await res.body();
-      const expectedHash = sha256(await readFile(path.join(REPO_ROOT, localPath)));
-      expect(sha256(body), `${localPath}: response body must byte-match the checked-out file (a mismatch means this URL is serving something else)`).toBe(expectedHash);
-
-      const contentType = res.headers()['content-type'] ?? '';
-      expect(contentType, `${localPath}: content-type must match its real MIME family`).toMatch(mimeFamily);
-    }
   });
 
   test('Access-Control-Allow-Origin is scoped to the Font Awesome webfont files only, not the whole isolated route', async ({ request }) => {
