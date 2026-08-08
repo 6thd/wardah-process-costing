@@ -180,7 +180,22 @@ export function EnhancedInsightsDashboard() {
         return;
       }
 
-      reply({ success: true, source: data?.source, text: data?.text });
+      if (!data?.success) {
+        // The Edge Function answers a classified provider failure (missing
+        // key, timeout, rate limit, upstream 5xx) with HTTP 200 and
+        // success:false/source:'fallback' by design (see its own module
+        // comment) — supabase-js's `error` above is only set for a non-2xx
+        // status, so it stays null here exactly like a real success would.
+        // Replying success:true regardless of data.success sent the iframe
+        // a shape its own isValidInsightResponse() rejects (success:true
+        // with no text), so the reply was silently dropped and the caller
+        // sat out the full 15s local-fallback timeout instead of failing
+        // over immediately.
+        reply({ success: false, error: typeof data?.error === 'string' ? data.error : 'provider_unavailable' });
+        return;
+      }
+
+      reply({ success: true, source: data.source, text: data.text });
     } catch (err) {
       console.error('Error handling insight request:', err);
       reply({ success: false, error: 'request_failed' });
