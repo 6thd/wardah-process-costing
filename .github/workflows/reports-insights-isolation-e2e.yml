@@ -80,8 +80,21 @@ jobs:
     if: github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
+      # Explicit head SHA, not the default merge ref: the content-identity
+      # assertions in the isolation suite (dashboard.html/dashboard.js/
+      # vendor/tailwind.css/the webfont) compare the real Preview's response
+      # bytes against the checked-out files on disk, and the Preview URL
+      # resolved below is looked up for this exact head SHA via the
+      # Deployments API. actions/checkout defaults to refs/pull/<pr>/merge
+      # on a pull_request event — head merged into whatever main currently
+      # is — so a base-branch change to any of those files between the
+      # Vercel build and this job running would make the checkout diverge
+      # from what Vercel actually deployed, failing the identity check for
+      # a reason unrelated to this PR's own diff.
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

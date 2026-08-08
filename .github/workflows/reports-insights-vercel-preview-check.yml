@@ -25,6 +25,10 @@ on:
         description: 'Vercel Preview URL to check, e.g. https://<preview>.vercel.app (no trailing slash)'
         required: true
         type: string
+      revision:
+        description: 'Git ref/SHA that preview_url was actually built from. The isolation suite compares response bytes for dashboard.html/dashboard.js/vendor/tailwind.css/the webfont against the checked-out files on disk, so this must match the deployed commit exactly. Leave blank to check out whichever branch is selected above in the "Use workflow from" picker — that is NOT guaranteed to match an arbitrary preview_url and will falsely fail the identity check if it does not.'
+        required: false
+        type: string
 
 jobs:
   test:
@@ -34,6 +38,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          ref: ${{ inputs.revision || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
