@@ -1,0 +1,123 @@
+name: has_permission 173 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_173_has_permission_active_role_check.sql'
+      - 'sql/migrations/173_has_permission_active_role_check.sql'
+      - '.github/workflows/has-permission-173-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm Migration 173 satisfies the active-role contract
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 173
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py \
+            sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Run has_permission 173 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_173_has_permission_active_role_check.sql \
+            2>&1 | tee /tmp/has-permission-173.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Re-run Migration 172 acceptance to confirm no regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_172_has_permission_exact_key_match.sql \
+            2>&1 | tee /tmp/has-permission-172-rerun.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Re-run Migration 170 acceptance to confirm no regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_170_tenant_isolation_and_permission_hardening.sql \
+            2>&1 | tee /tmp/tenant-isolation-170-rerun.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Re-run Migration 171 acceptance to confirm no regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_171_ai_usage_daily.sql \
+            2>&1 | tee /tmp/ai-usage-daily-171-rerun.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: has-permission-173-${{ github.run_id }}
+          path: |
+            /tmp/has-permission-173.out
+            /tmp/has-permission-172-rerun.out
+            /tmp/tenant-isolation-170-rerun.out
+            /tmp/ai-usage-daily-171-rerun.out
+            /tmp/chain_order.txt
+            /tmp/chain_report.txt
+          if-no-files-found: warn
+          retention-days: 30
