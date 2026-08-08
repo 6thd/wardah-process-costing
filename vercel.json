@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!reports-insights/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
