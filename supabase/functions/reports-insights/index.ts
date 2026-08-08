@@ -33,8 +33,11 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 // runs with the service_role key, so an unreviewed transitive upgrade
 // landing between deploys is not an acceptable way to pick up a new
 // @supabase/supabase-js release. Bump deliberately, alongside the npm
-// dependency, and regenerate supabase/functions/deno.lock in the same
-// change.
+// dependency, and regenerate the repo's root-level deno.lock in the same
+// change — every `deno check`/`lint`/`test` invocation here (CI included)
+// runs from the repo root, so that root deno.lock is the one that's
+// actually consulted, not a per-function lock next to
+// supabase/functions/deno.json.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.86.0'
 import { corsHeaders } from '../_shared/cors.ts'
 
@@ -53,8 +56,14 @@ export const MAX_BODY_BYTES = 16 * 1024
 export const MAX_QUESTION_LENGTH = 500
 export const MAX_OUTPUT_CHARS = 4000
 export const PROVIDER_TIMEOUT_MS = 10000
-const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
-const GROQ_MODEL = 'qwen/qwen3.6-27b'
+export const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions'
+// openai/gpt-oss-120b, not qwen/qwen3.6-27b: Groq classifies Qwen 3.6 27B as
+// Preview ("evaluation purposes only," may be discontinued without notice),
+// while GPT-OSS 120B is Production-tier, lists the same ~500 t/s speed, and
+// is materially cheaper — no reason to run this function's real traffic on
+// an eval-only model when a Production one matches or beats it on every
+// axis that matters here.
+export const GROQ_MODEL = 'openai/gpt-oss-120b'
 
 export const INSIGHT_OPERATIONS = ['summary', 'predictions', 'optimization', 'risk', 'strategy', 'ask'] as const
 export type InsightOperation = (typeof INSIGHT_OPERATIONS)[number]

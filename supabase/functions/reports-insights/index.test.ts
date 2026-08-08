@@ -16,19 +16,23 @@
 // nothing concurrent to exercise at this layer, since each Edge Function
 // invocation is an independent request that defers all shared-state
 // arbitration to that single RPC call.
-import { assertEquals, assertNotEquals } from 'https://deno.land/std@0.168.0/testing/asserts.ts'
+import { assertEquals, assertNotEquals, assertRejects } from 'https://deno.land/std@0.168.0/testing/asserts.ts'
 import {
   handleRequest,
   validateBody,
   buildSystemPrompt,
   buildUserPrompt,
+  createProvider,
   INSIGHT_OPERATIONS,
   MAX_QUESTION_LENGTH,
   PERMISSION_KEY,
+  GROQ_URL,
+  GROQ_MODEL,
   type AuthUserClient,
   type AdminClient,
   type HandleRequestDeps,
   type ProviderCaller,
+  type FetchImpl,
 } from './index.ts'
 
 const ORG_ID = '11111111-1111-1111-1111-111111111111'
@@ -145,6 +149,80 @@ Deno.test('buildUserPrompt includes financial context in an ask prompt when prov
 Deno.test('buildSystemPrompt never mentions any operation-specific data', () => {
   const sys = buildSystemPrompt('en')
   assertEquals(sys.includes('totalSales'), false)
+})
+
+// --- createProvider() direct coverage --------------------------------------
+//
+// handleRequest()'s own tests above drive callProvider through the injected
+// ProviderCaller fake, which never exercises createProvider()'s actual HTTP
+// request/response handling. These tests call createProvider() itself with
+// an injected fake fetch (matching the real `fetch` signature) so the
+// request Groq actually receives, and every one of its response-status
+// branches, is proven directly rather than only through hand-written
+// ProviderResult stand-ins.
+
+function fakeFetch(handler: (input: RequestInfo | URL, init?: RequestInit) => Response): FetchImpl {
+  return ((input: RequestInfo | URL, init?: RequestInit) => Promise.resolve(handler(input, init))) as FetchImpl
+}
+
+Deno.test('createProvider with no API key returns unavailable without ever calling fetch', async () => {
+  let fetchCalled = false
+  const provider = createProvider('', fakeFetch(() => {
+    fetchCalled = true
+    return new Response('should not be reached', { status: 200 })
+  }))
+  const result = await provider('sys', 'user')
+  assertEquals(result, { kind: 'unavailable', reason: 'provider_not_configured' })
+  assertEquals(fetchCalled, false)
+})
+
+Deno.test('createProvider sends the exact URL, model, messages, max_tokens, and temperature Groq expects', async () => {
+  let capturedUrl: string | undefined
+  let capturedInit: RequestInit | undefined
+  const provider = createProvider('real-key', fakeFetch((input, init) => {
+    capturedUrl = String(input)
+    capturedInit = init
+    return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })
+  }))
+
+  await provider('system prompt', 'user prompt')
+
+  assertEquals(capturedUrl, GROQ_URL)
+  assertEquals(capturedInit?.method, 'POST')
+  assertEquals(capturedInit?.headers, { 'Content-Type': 'application/json', Authorization: 'Bearer real-key' })
+  const body = JSON.parse(capturedInit?.body as string)
+  assertEquals(body.model, GROQ_MODEL)
+  assertEquals(body.messages, [
+    { role: 'system', content: 'system prompt' },
+    { role: 'user', content: 'user prompt' },
+  ])
+  assertEquals(body.max_tokens, 500)
+  assertEquals(body.temperature, 0.3)
+})
+
+Deno.test('createProvider parses a successful Groq response into kind:ok with the model text', async () => {
+  const provider = createProvider('real-key', fakeFetch(() =>
+    new Response(JSON.stringify({ choices: [{ message: { content: 'Real model answer' } }] }), { status: 200 })
+  ))
+  const result = await provider('sys', 'user')
+  assertEquals(result, { kind: 'ok', text: 'Real model answer' })
+})
+
+Deno.test('createProvider classifies a 429 response as unavailable, not a thrown error', async () => {
+  const provider = createProvider('real-key', fakeFetch(() => new Response('rate limited', { status: 429 })))
+  const result = await provider('sys', 'user')
+  assertEquals(result, { kind: 'unavailable', reason: 'provider_status_429' })
+})
+
+Deno.test('createProvider classifies a 5xx response as unavailable, not a thrown error', async () => {
+  const provider = createProvider('real-key', fakeFetch(() => new Response('upstream error', { status: 503 })))
+  const result = await provider('sys', 'user')
+  assertEquals(result, { kind: 'unavailable', reason: 'provider_status_503' })
+})
+
+Deno.test('createProvider treats a non-429 4xx as our own request bug, not a classified provider failure — it throws instead of returning unavailable', async () => {
+  const provider = createProvider('real-key', fakeFetch(() => new Response('bad request', { status: 400 })))
+  await assertRejects(() => provider('sys', 'user'), Error, 'provider_request_error_400')
 })
 
 // --- HTTP-level behavior -----------------------------------------------------
