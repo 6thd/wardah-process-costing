@@ -282,6 +282,59 @@ describe('EnhancedInsightsDashboard — MessageChannel handshake and message han
     });
   });
 
+  it('replies success:false immediately (not a fabricated success) when the Edge Function classifies the provider as unavailable', async () => {
+    mockGetSession.mockResolvedValue({ data: { session: { access_token: 'fake' } } });
+    // The Edge Function's own contract (supabase/functions/reports-insights/index.ts):
+    // a classified provider failure is HTTP 200 with success:false/source:'fallback'.
+    // supabase-js's `error` is only set for a non-2xx status, so it is null here
+    // exactly like a real success — the component must branch on data.success,
+    // not on the absence of `error`, to avoid relaying a fabricated success.
+    mockInvoke.mockResolvedValue({
+      data: { success: false, error: 'provider_unavailable', source: 'fallback', requestId: 'req-3' },
+      error: null,
+    });
+
+    const { iframe } = renderDashboard();
+
+    let capturedChannel: FakeMessageChannel | undefined;
+    class CapturingFakeMessageChannel extends FakeMessageChannel {
+      constructor() {
+        super();
+        capturedChannel = this;
+      }
+    }
+    vi.stubGlobal('MessageChannel', CapturingFakeMessageChannel);
+
+    iframe.dispatchEvent(new Event('load'));
+    const responses: unknown[] = [];
+    capturedChannel!.port2.onmessage = (event) => responses.push(event.data);
+
+    capturedChannel!.port2.postMessage({
+      type: 'WARDHAH_INSIGHT_REQUEST',
+      requestId: 'req-3',
+      operation: 'summary',
+      locale: 'en',
+      data: {},
+    });
+
+    await waitFor(() =>
+      expect(responses.some((r: any) => r.type === 'WARDHAH_INSIGHT_RESPONSE' && r.requestId === 'req-3')).toBe(true)
+    );
+    const insightResponse = responses.find((r: any) => r.type === 'WARDHAH_INSIGHT_RESPONSE') as any;
+    // success:false so the iframe's own isValidInsightResponse() (which
+    // requires a non-empty string `text` whenever success:true) accepts the
+    // message and its resolver fires right away — never a fabricated
+    // success, and never a silently dropped reply that stalls until the
+    // iframe's own 15s local-fallback timeout.
+    expect(insightResponse).toMatchObject({
+      type: 'WARDHAH_INSIGHT_RESPONSE',
+      requestId: 'req-3',
+      success: false,
+      error: 'provider_unavailable',
+    });
+    expect(insightResponse.text).toBeUndefined();
+  });
+
   it('ignores a message with an invalid/unrecognized shape instead of replying to it', async () => {
     mockGetSession.mockResolvedValue({ data: { session: { access_token: 'fake' } } });
     const { iframe } = renderDashboard();

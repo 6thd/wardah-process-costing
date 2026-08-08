@@ -28,7 +28,14 @@
 // — auth, org resolution, permission, quota, provider success/failure —
 // without a live database or network call.
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+// Pinned to the exact version resolved in package-lock.json (the npm side
+// of this same client) rather than the floating "@2" tag: this function
+// runs with the service_role key, so an unreviewed transitive upgrade
+// landing between deploys is not an acceptable way to pick up a new
+// @supabase/supabase-js release. Bump deliberately, alongside the npm
+// dependency, and regenerate supabase/functions/deno.lock in the same
+// change.
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.86.0'
 import { corsHeaders } from '../_shared/cors.ts'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
