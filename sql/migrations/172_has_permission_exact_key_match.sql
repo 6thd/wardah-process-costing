@@ -169,6 +169,14 @@ BEGIN
   IF v_src !~ 'expires_at' THEN
     RAISE EXCEPTION 'FAIL[172] has_permission lost role-expiry enforcement';
   END IF;
+  -- The org-scoping predicate itself: without this, the exact-equality fix
+  -- above would still let a grant in ANY org satisfy a check against a
+  -- DIFFERENT org, as long as the permission_key matched exactly. This is
+  -- the predicate acceptance_172's cross-org assertion (172-6) is built to
+  -- regression-guard.
+  IF v_src !~ 'ur\.org_id\s*=\s*p_org_id' THEN
+    RAISE EXCEPTION 'FAIL[172] has_permission lost the ur.org_id = p_org_id scoping predicate';
+  END IF;
 
   RAISE NOTICE 'PASS[172] has_permission now requires exact permission_key equality; same-module wildcard match removed';
 END

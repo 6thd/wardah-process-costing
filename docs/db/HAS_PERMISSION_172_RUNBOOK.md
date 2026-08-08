@@ -53,20 +53,22 @@ The `OR LIKE` clause predates any tenant-scoping work in this codebase (`sql/mig
 scripts/ci/fresh-db/acceptance_172_has_permission_exact_key_match.sql
 ```
 
-Seeds two organizations and six fixture users covering every case in scope, then calls `has_permission()` as each (via `request.jwt.claim.sub`, matching the function's own `auth.uid()` self-check):
+Seeds two organizations and **seven** fixture users covering every case in scope, then calls `has_permission()` as each (via `request.jwt.claim.sub`, matching the function's own `auth.uid()` self-check):
 
 1. **The bug scenario itself**: a user whose only role grants `reports.financial.read` (same module, different permission) — `has_permission(..., 'reports.ai_insights.use')` must return `false`. Before the fix, this returned `true`; confirmed empirically by reverting the function to the pre-172 text on the same fixtures and observing this exact assertion fail (`ACCEPTANCE_FAIL[172-1]`) before restoring the fix and re-confirming a clean pass.
 2. An explicit, exact grant of `reports.ai_insights.use` itself still returns `true`.
 3. Org-admin override (`is_org_admin = true`, no explicit grant) still returns `true`.
 4. Super-admin override (`super_admins` row, no explicit grant, not an org admin) still returns `true`.
 5. Cross-user: a caller cannot query a different user's permission state (Migration 170 behavior, unchanged).
-6. Cross-org: a real member of org B evaluated against org A's id returns `false`, even for the exact permission key.
+6. **Cross-org**: the `CrossOrg` user holds the *exact* `reports.ai_insights.use` key via a real `user_roles` row scoped to org B — first checked against org B itself (must return `true`, proving the grant is real, not a broken fixture), then checked against org A (must return `false`). This fixture shape is deliberate: an earlier draft used a `CrossOrg` user with *no* grant anywhere, which made the org-A assertion pass regardless of whether `ur.org_id = p_org_id` was even present in the function — indistinguishable from case 8 (ungranted) and not a real proof of org scoping. Granting the exact key in the *wrong* org is the only shape that isolates the org predicate specifically. **Mutation-tested**: temporarily removed `AND ur.org_id = p_org_id` from `has_permission` on the same fixtures and confirmed the org-A assertion failed exactly as expected (`ACCEPTANCE_FAIL[172-6]: ... evaluated true against org A`), then restored the predicate and re-confirmed a clean pass.
 7. Expired role: an exact-key grant via a `user_roles` row whose `expires_at` is in the past returns `false`.
-8. Ungranted: a real, active org member with zero role/permission rows returns `false`, not an error.
+8. Ungranted: a **separate, distinct** user (`Ungranted`, not `CrossOrg` — which now genuinely holds a grant) with zero role/permission rows anywhere returns `false`, not an error.
 
 Final marker: `HAS_PERMISSION_172_ACCEPTANCE_PASS`.
 
-**Confirmed green locally on real PostgreSQL 17** (installed from the PGDG apt repository in this session's sandbox, since Docker was unavailable here): Fresh DB built from `000_schema_baseline_20260729_210941.sql` + `001_system_reference_data_20260729_210941.sql` through the full chain (`153` → `172`) via `run_chain.sh`, `11/11 PASS`; `acceptance_172_has_permission_exact_key_match.sql` → `HAS_PERMISSION_172_ACCEPTANCE_PASS`; `acceptance_170_tenant_isolation_and_permission_hardening.sql` → `TENANT_ISOLATION_170_ACCEPTANCE_PASS` (re-run after 172, confirming no regression); `acceptance_171_ai_usage_daily.sql` → `AI_USAGE_DAILY_171_ACCEPTANCE_PASS` (same). The dedicated `has-permission-172-acceptance.yml` workflow mirrors this exactly for CI.
+Migration 172's own postflight `$verify$` block also asserts `has_permission`'s `prosrc` still contains the `ur\.org_id\s*=\s*p_org_id` predicate text, independent of the acceptance suite's behavioral proof — a static, in-migration check that the org-scoping join condition specifically was not dropped.
+
+**Confirmed green locally on real PostgreSQL 17** (installed from the PGDG apt repository in this session's sandbox, since Docker was unavailable here): Fresh DB built from `000_schema_baseline_20260729_210941.sql` + `001_system_reference_data_20260729_210941.sql` through the full chain (`153` → `172`) via `run_chain.sh`, `11/11 PASS`; `acceptance_172_has_permission_exact_key_match.sql` → `HAS_PERMISSION_172_ACCEPTANCE_PASS` (9 assertions, including the cross-org setup check); `acceptance_170_tenant_isolation_and_permission_hardening.sql` → `TENANT_ISOLATION_170_ACCEPTANCE_PASS` (re-run after 172, confirming no regression); `acceptance_171_ai_usage_daily.sql` → `AI_USAGE_DAILY_171_ACCEPTANCE_PASS` (same). Both the same-module mutation (case 1) and the org-scoping mutation (case 6) were independently confirmed to fail acceptance when reverted, then pass cleanly when restored. The dedicated `has-permission-172-acceptance.yml` workflow mirrors this exactly for CI.
 
 ## 5. Production apply
 
@@ -96,7 +98,8 @@ SELECT
   prosrc ~ 'p_user_id IS DISTINCT FROM auth\.uid\(\)' AS identity_guard_present,
   prosrc ~ 'super_admins' AS super_admin_override_present,
   prosrc ~ 'is_org_admin' AS org_admin_override_present,
-  prosrc ~ 'expires_at' AS role_expiry_present
+  prosrc ~ 'expires_at' AS role_expiry_present,
+  prosrc ~ 'ur\.org_id\s*=\s*p_org_id' AS org_scoping_present
 FROM pg_proc WHERE proname = 'has_permission';
 -- Expect every column true.
 
@@ -108,7 +111,7 @@ SELECT version, name FROM supabase_migrations.schema_migrations
 WHERE name = '172_has_permission_exact_key_match';
 ```
 
-Expected: `like_removed`, `exact_match_present`, `identity_guard_present`, `super_admin_override_present`, `org_admin_override_present`, and `role_expiry_present` all `true`; `has_function_privilege` `true`; exactly one ledger row for 172.
+Expected: `like_removed`, `exact_match_present`, `identity_guard_present`, `super_admin_override_present`, `org_admin_override_present`, `role_expiry_present`, and `org_scoping_present` all `true`; `has_function_privilege` `true`; exactly one ledger row for 172.
 
 ## 6. Rollback
 
