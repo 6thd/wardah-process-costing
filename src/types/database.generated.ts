@@ -11633,6 +11633,10 @@ export type Database = {
         Returns: Json
       }
       wardah_169_leave_write_context: { Args: never; Returns: undefined }
+      wardah_175_internal_replace_user_roles: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       wardah_apply_stock_incoming: {
         Args: {
           p_org: string
