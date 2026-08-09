@@ -11040,6 +11040,7 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: Json
       }
+      rpc_delete_org_role: { Args: { p_payload: Json }; Returns: Json }
       rpc_generate_fiscal_periods: {
         Args: { p_tenant?: string; p_year: number }
         Returns: Json
@@ -11114,6 +11115,7 @@ export type Database = {
         Returns: Json
       }
       rpc_manual_stock_movement_v2: { Args: { p_payload: Json }; Returns: Json }
+      rpc_permission_snapshot: { Args: { p_org_id: string }; Returns: Json }
       rpc_post_customer_receipt: {
         Args: { p_receipt_id: string }
         Returns: Json
@@ -11152,6 +11154,7 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
       rpc_reset_customer_receipt_to_draft: {
         Args: { p_reason: string; p_receipt_id: string }
         Returns: Json
@@ -11246,6 +11249,7 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_upsert_org_role: { Args: { p_payload: Json }; Returns: Json }
       schedule_work_order: {
         Args: {
           p_schedule_id?: string
@@ -11678,6 +11682,10 @@ export type Database = {
       }
       wardah_is_org_admin: { Args: { p_org: string }; Returns: boolean }
       wardah_is_org_member: { Args: { p_org: string }; Returns: boolean }
+      wardah_is_sensitive_permission: {
+        Args: { p_permission_key: string }
+        Returns: boolean
+      }
       wardah_next_voucher_number: {
         Args: { p_kind: string; p_org: string }
         Returns: string

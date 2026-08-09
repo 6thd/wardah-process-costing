@@ -1,0 +1,136 @@
+name: Sensitive Permission 174 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_174_sensitive_permission_class.sql'
+      - 'sql/migrations/174_sensitive_permission_class_and_rbac_rpcs.sql'
+      - '.github/workflows/sensitive-permission-174-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm Migration 174 narrows the org-admin override without regressing 170-173
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 174
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 174 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_174_sensitive_permission_class.sql \
+            2>&1 | tee /tmp/sensitive-permission-174.out
+          grep -q 'SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS' /tmp/sensitive-permission-174.out
+
+      - name: Re-run 172 and 173 acceptance to confirm no regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_172_has_permission_exact_key_match.sql \
+            2>&1 | tee /tmp/has-permission-172-rerun.out
+          grep -q 'HAS_PERMISSION_172_ACCEPTANCE_PASS' /tmp/has-permission-172-rerun.out
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_173_has_permission_active_role_check.sql \
+            2>&1 | tee /tmp/has-permission-173-rerun.out
+          grep -q 'HAS_PERMISSION_173_ACCEPTANCE_PASS' /tmp/has-permission-173-rerun.out
+
+      # A suite that cannot fail proves nothing. Build the same database WITHOUT
+      # migration 174 and show the vulnerability is live there: an org admin with
+      # no explicit grant passes accounting.vouchers.unpost. The job fails if that
+      # pre-174 database answers anything other than `t`.
+      - name: Red proof — the same contract fails without 174
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field BASELINE_PATH)" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field REFERENCE_PATH)" -q
+          grep -v '^174_' /tmp/chain_order.txt > /tmp/chain_red.txt
+          REPORT=/tmp/red_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_red.txt
+
+          RESULT=$(psql -t -A -v ON_ERROR_STOP=1 -d wardah_red <<'SQL'
+          BEGIN;
+          INSERT INTO auth.users (id, email)
+            VALUES ('99175175-0001-0001-0001-000000000001','red-admin@example.test');
+          INSERT INTO public.organizations (id, name, code)
+            VALUES ('99175175-a000-a000-a000-00000000000a','Red Org','RED-A');
+          INSERT INTO public.user_organizations (user_id, org_id, is_active, is_org_admin)
+            VALUES ('99175175-0001-0001-0001-000000000001','99175175-a000-a000-a000-00000000000a',true,true);
+          SELECT set_config('request.jwt.claim.sub','99175175-0001-0001-0001-000000000001',false);
+          SET LOCAL ROLE authenticated;
+          SELECT public.has_permission('99175175-0001-0001-0001-000000000001',
+                                       '99175175-a000-a000-a000-00000000000a',
+                                       'accounting.vouchers.unpost');
+          RESET ROLE;
+          ROLLBACK;
+          SQL
+          )
+          echo "pre-174 ungranted org admin -> unpost: $RESULT"
+          if ! printf '%s' "$RESULT" | grep -qx 't'; then
+            echo "RED PROOF FAILED: the pre-174 database did not reproduce the Issue #93 bypass."
+            echo "Either the fixture is wrong or the vulnerability is not where the suite claims."
+            exit 1
+          fi
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sensitive-permission-174-acceptance-${{ github.run_id }}
+          path: |
+            /tmp/sensitive-permission-174.out
+            /tmp/has-permission-172-rerun.out
+            /tmp/has-permission-173-rerun.out
+            /tmp/chain_report.txt
+            /tmp/red_report.txt
+          retention-days: 30
