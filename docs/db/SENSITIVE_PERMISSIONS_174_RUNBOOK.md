@@ -106,6 +106,10 @@ Executed locally on a real **PostgreSQL 17.10** cluster, building the baseline p
 
 The red proof is wired into the workflow as its own failing step, not left as a manual note: if a pre-174 database ever stops reproducing the bypass, the job fails rather than quietly reporting a green suite that proves nothing.
 
+The same gate then ran in CI on `postgres:17` and passed end to end — `Sensitive Permission 174 Acceptance`, including the red-proof step, on PR #112. Local and CI agree; neither is treated as sufficient alone.
+
+**Generated types.** `Regenerate UoM Database Types` rebuilds a Fresh DB from the repository migrations and runs `supabase gen types` against **that** database (`localhost/wardah_fresh`), never against Production. It therefore commits the four new RPCs and the classifier into `src/types/database.generated.ts` as soon as 174 is in the repository — which is expected and is **not** evidence that 174 has been applied to Production. The ledger remains the only authority for that.
+
 ## 6. Mandatory Production order
 
 **Steps 1–4 are not preparation for the fix; they are part of it.** With zero super admins, zero role assignments, and both sensitive keys granted to zero roles, applying 174 first would leave **nobody** able to unpost or cancel. Note that assigning the existing `Full Access` role does **not** help — it holds 166 of 169 keys and these two are among the three it lacks.
