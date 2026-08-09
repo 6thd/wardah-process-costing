@@ -2,7 +2,7 @@
 
 **Migration:** `172_has_permission_exact_key_match.sql`
 **Scope:** Close a same-module authorization-scope bug in `has_permission()`, inherited unchanged through Migration 170, that let any granted permission in a module implicitly satisfy every other permission key in that same module.
-**State:** Repository implementation, not yet applied to Production. Do not apply before the paired Fresh DB acceptance gate is green and this runbook's preflight/postflight queries have been reviewed.
+**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-08, ledger version `20260808153737`, name `172_has_permission_exact_key_match`. Postflight verified live; the exact-match predicate was re-confirmed on 2026-08-09 after 173 replaced the same function — see `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §4. Superseded in body but **not** in effect by Migration 173, which `CREATE OR REPLACE`s the same function and preserves this migration's exact-key predicate verbatim.
 
 ## 1. Purpose
 
