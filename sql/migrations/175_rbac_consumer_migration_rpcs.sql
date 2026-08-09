@@ -36,7 +36,8 @@
 --      fixes the import; this migration only adds the missing audit trail.
 --   3. user_roles membership invariant — every INSERT/UPDATE must point at an
 --      active membership; membership deletion/deactivation is refused while
---      role rows still exist. Both sides serialize on the membership row.
+--      role rows still exist. Direct writes and rpc_replace_user_roles take
+--      locks in the same organization-then-membership order as removal.
 --   4. rpc_set_org_admin + rpc_remove_org_member — serialize the last-admin
 --      decision on the organization row and re-authorize after taking it.
 --   5. has_permission + wardah_has_exact_permission — explicit-role grants
@@ -99,6 +100,9 @@ BEGIN
   IF to_regprocedure('public.rpc_set_org_admin(uuid,uuid,boolean)') IS NULL THEN
     RAISE EXCEPTION 'PERMISSION_175_SET_ORG_ADMIN_MISSING';
   END IF;
+  IF to_regprocedure('public.rpc_replace_user_roles(jsonb)') IS NULL THEN
+    RAISE EXCEPTION 'PERMISSION_175_REPLACE_USER_ROLES_MISSING';
+  END IF;
   IF to_regclass('public.user_organizations') IS NULL
      OR to_regclass('public.user_roles') IS NULL
      OR to_regclass('public.roles') IS NULL
@@ -132,7 +136,53 @@ END
 $data_preflight$;
 
 -- ---------------------------------------------------------------------------
--- 1. Database-boundary invariant: a role assignment exists only while the
+-- 1. Preserve 174's complete replace contract behind an organization-first
+--    wrapper. The old function already locks the target membership row; taking
+--    the org row first makes its lock order consistent with member removal and
+--    with the direct-write trigger below.
+-- ---------------------------------------------------------------------------
+ALTER FUNCTION public.rpc_replace_user_roles(jsonb)
+  RENAME TO wardah_175_internal_replace_user_roles;
+
+REVOKE ALL ON FUNCTION public.wardah_175_internal_replace_user_roles(jsonb)
+  FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.rpc_replace_user_roles(p_payload jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_org uuid := NULLIF(p_payload->>'org_id','')::uuid;
+BEGIN
+  IF v_org IS NULL THEN
+    RAISE EXCEPTION 'RBAC_174_ORG_AND_USER_REQUIRED';
+  END IF;
+
+  -- Reject unauthorized callers before they can hold an organization lock.
+  PERFORM public.wardah_assert_org_admin(v_org);
+
+  PERFORM 1
+  FROM public.organizations o
+  WHERE o.id = v_org
+  FOR KEY SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RBAC_175_ORG_NOT_FOUND';
+  END IF;
+
+  -- The internal 174 body re-runs the admin guard after this lock, then takes
+  -- the target membership FOR UPDATE and executes its byte-identical replace,
+  -- expiry-preservation, sensitive-key, and audit logic.
+  RETURN public.wardah_175_internal_replace_user_roles(p_payload);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.rpc_replace_user_roles(jsonb) FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.rpc_replace_user_roles(jsonb) TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 2. Database-boundary invariant: a role assignment exists only while the
 --    corresponding membership is active.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.wardah_175_require_active_role_membership()
@@ -144,6 +194,17 @@ AS $function$
 DECLARE
   v_active boolean;
 BEGIN
+  -- Lock order is organization -> membership everywhere. The organization
+  -- lock also prevents the audit FK from forming a member<->org deadlock with
+  -- rpc_remove_org_member, which holds the org row before deleting membership.
+  PERFORM 1
+  FROM public.organizations o
+  WHERE o.id = NEW.org_id
+  FOR KEY SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED';
+  END IF;
+
   SELECT uo.is_active
     INTO v_active
   FROM public.user_organizations uo
@@ -212,7 +273,7 @@ FOR EACH ROW
 EXECUTE FUNCTION public.wardah_175_protect_role_membership_parent();
 
 -- ---------------------------------------------------------------------------
--- 2. Defense in depth: an explicit role grant is effective only while the
+-- 3. Defense in depth: an explicit role grant is effective only while the
 --    assignee remains an active member of that same organization.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.has_permission(
@@ -330,7 +391,7 @@ REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text)
   FROM PUBLIC, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 3. Replace rpc_set_org_admin with the same caller contract plus a shared
+-- 4. Replace rpc_set_org_admin with the same caller contract plus a shared
 --    organization-row lock. The authorization check is repeated after the
 --    lock, so a caller removed or demoted while waiting cannot act afterward.
 -- ---------------------------------------------------------------------------
@@ -429,7 +490,7 @@ GRANT EXECUTE ON FUNCTION public.rpc_set_org_admin(uuid,uuid,boolean)
   TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 4. rpc_remove_org_member — atomic, audited replacement for the client's
+-- 5. rpc_remove_org_member — atomic, audited replacement for the client's
 --    two-step "delete user_roles, then delete user_organizations" sequence.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.rpc_remove_org_member(p_payload jsonb)
@@ -549,7 +610,7 @@ REVOKE ALL ON FUNCTION public.rpc_remove_org_member(jsonb) FROM PUBLIC, anon, se
 GRANT EXECUTE ON FUNCTION public.rpc_remove_org_member(jsonb) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 5. create_role_from_template — same signature, same return type. Adds the
+-- 6. create_role_from_template — same signature, same return type. Adds the
 --    audit_logs row that was the only gap; everything else about this
 --    function (guard, template lookup, permission-pattern matching) is
 --    unchanged from its original body.
@@ -633,7 +694,7 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------
--- 6. wardah_is_sensitive_permission — add an explicit search_path. The
+-- 7. wardah_is_sensitive_permission — add an explicit search_path. The
 --    function body references no table, view or unqualified name (it is a
 --    pure `p_permission_key IN ('literal', 'literal')`), so this changes
 --    nothing about its result for any input; it only removes the advisory a
@@ -658,12 +719,29 @@ $function$;
 DO $verify$
 DECLARE
   v_remove_src text;
+  v_replace_src text;
   v_set_admin_src text;
   v_has_permission_src text;
   v_exact_permission_src text;
+  v_child_guard_src text;
   v_template_src text;
   v_classifier_config text[];
 BEGIN
+  SELECT prosrc INTO v_replace_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_replace_user_roles';
+  IF v_replace_src !~ 'FOR KEY SHARE'
+     OR v_replace_src !~ 'wardah_175_internal_replace_user_roles'
+     OR v_replace_src !~ 'wardah_assert_org_admin' THEN
+    RAISE EXCEPTION 'FAIL[175] rpc_replace_user_roles lacks organization-first guarded wrapper';
+  END IF;
+  IF has_function_privilege('anon', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.rpc_replace_user_roles(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL[175] replace-user-roles wrapper execute boundary is wrong';
+  END IF;
+
   SELECT prosrc INTO v_remove_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
    WHERE n.nspname = 'public' AND p.proname = 'rpc_remove_org_member';
   IF v_remove_src IS NULL THEN
@@ -741,6 +819,17 @@ BEGIN
      OR has_function_privilege('authenticated', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL[175] invariant trigger function execute boundary is open';
+  END IF;
+
+  SELECT prosrc INTO v_child_guard_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'wardah_175_require_active_role_membership';
+  IF v_child_guard_src !~ 'organizations o'
+     OR v_child_guard_src !~ 'FOR KEY SHARE'
+     OR v_child_guard_src !~ 'user_organizations uo'
+     OR v_child_guard_src !~ 'FOR UPDATE' THEN
+    RAISE EXCEPTION 'FAIL[175] assignment trigger lock order is not org then membership';
   END IF;
 
   IF EXISTS (

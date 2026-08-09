@@ -167,6 +167,24 @@ WHERE user_id = '99175175-0003-0003-0003-000000000003'
 ALTER TABLE public.user_organizations
   ENABLE TRIGGER trg_wardah_175_protect_role_membership_parent;
 
+-- The public 174 contract remains callable through the new organization-first
+-- wrapper, while its renamed implementation is no longer an API surface.
+SELECT set_config('request.jwt.claim.sub', '99175175-0001-0001-0001-000000000001', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE v_res jsonb;
+BEGIN
+  v_res := public.rpc_replace_user_roles(jsonb_build_object(
+    'org_id', '99175175-a000-a000-a000-00000000000a',
+    'user_id', '99175175-0003-0003-0003-000000000003',
+    'role_ids', jsonb_build_array('99175175-0000-0000-0000-000000000020')));
+  IF (v_res->>'role_count')::int <> 1 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I8]: replace wrapper changed the 174 result contract: %', v_res;
+  END IF;
+END;
+$$;
+RESET ROLE;
+
 -- A role template for create_role_from_template, with one sensitive key.
 INSERT INTO public.role_templates (id, name, name_ar, description, description_ar, permission_keys, is_active)
 VALUES (
@@ -441,6 +459,11 @@ BEGIN
      OR NOT has_function_privilege('authenticated', 'public.rpc_delete_org_role(jsonb)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.rpc_permission_snapshot(uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M6]: a 174 RPC lost its authenticated execute grant';
+  END IF;
+  IF has_function_privilege('authenticated', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.wardah_175_internal_replace_user_roles(jsonb)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M6b]: internal replace implementation is externally callable';
   END IF;
 
   -- No table grant has been touched: authenticated still has direct write

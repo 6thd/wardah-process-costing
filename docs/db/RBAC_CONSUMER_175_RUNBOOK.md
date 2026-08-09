@@ -40,6 +40,7 @@ all before this migration.
 | Change | Detail |
 |---|---|
 | Active-membership boundary | A `BEFORE INSERT/UPDATE` trigger on `user_roles` locks and requires the matching active `user_organizations` row. A parent-side trigger refuses deleting, moving, or deactivating a membership while role rows remain. This covers RPCs and the still-permitted direct writes during the 175→176 deployment window. |
+| `rpc_replace_user_roles(jsonb)` lock wrapper | The 174 body is renamed to a non-callable internal function without changing it. The public function keeps the same signature/result, takes the organization lock first, then delegates to the 174 body, which locks membership and preserves every replace/expiry/audit rule. This gives assignments and removals the same lock order. |
 | Permission defense in depth | The explicit-role branches of both `has_permission` and `wardah_has_exact_permission` now join an active membership. Even deliberately corrupted legacy data cannot authorize a user whose membership is inactive or absent. |
 | `rpc_set_org_admin(...)` | Same signature and JSON contract. It now shares an organization-row `FOR UPDATE` lock with member removal, re-authorizes the caller after the lock, and applies `LAST_ORG_ADMIN` only when the target is currently an active admin. |
 | `rpc_remove_org_member(jsonb)` | **New.** Atomic, audited replacement for `removeUserFromOrg()`'s two-step client sequence. `{org_id, user_id}` payload. Guarded by `wardah_assert_org_admin`. Refuses self-removal (`RBAC_175_CANNOT_REMOVE_SELF`) and removing the last active admin (`RBAC_175_LAST_ORG_ADMIN`). It takes the shared organization lock, re-authorizes, locks the membership row, deletes `user_roles` then `user_organizations`, and writes the full pre-removal snapshot to `audit_logs`. |
@@ -91,9 +92,10 @@ scripts/ci/fresh-db/acceptance_175_rbac_concurrency.sh
 Markers: `RBAC_CONSUMER_175_ACCEPTANCE_PASS` and
 `RBAC_CONSUMER_175_CONCURRENCY_PASS`. Coverage:
 
-1. **Database invariant** (`175-I1…I7`) — inactive-member INSERT/UPDATE and
+1. **Database invariant** (`175-I1…I8`) — inactive-member INSERT/UPDATE and
    parent deletion/deactivation are rejected; both permission helpers deny a
-   deliberately injected inactive-member grant.
+   deliberately injected inactive-member grant; the wrapped 174 replace
+   contract remains live with its internal implementation inaccessible.
 2. **Cross-org rejection** (`175-1`) — an org admin of one org cannot remove a
    member of another.
 3. **Self-removal rejection** (`175-2`) — `RBAC_175_CANNOT_REMOVE_SELF`, own
