@@ -1,7 +1,12 @@
 -- =====================================================================
 -- 174_sensitive_permission_class_and_rbac_rpcs
 -- =====================================================================
--- Closes Issue #93: the org-admin override branch of both permission
+-- Part of Issue #93 — the database half. The issue is NOT closed by this
+-- migration: it also needs the UI moved onto rpc_permission_snapshot and the
+-- atomic RBAC RPCs, and Migration 175 to close the direct-write surface on
+-- roles/role_permissions/user_roles. See §4.1 and the runbook.
+--
+-- What this migration does fix: the org-admin override branch of both permission
 -- functions never reads p_permission_key at all, so any active org admin
 -- passes EVERY key, including the accounting controls that exist
 -- precisely to be exceptional. Verified live on 2026-08-09 before this
@@ -299,6 +304,7 @@ DECLARE
   v_old         jsonb;
   v_created     boolean := false;
   v_sensitive   text[];
+  v_old_keys    jsonb := '[]'::jsonb;
 BEGIN
   IF v_org IS NULL THEN
     RAISE EXCEPTION 'RBAC_174_ORG_REQUIRED';
@@ -369,6 +375,16 @@ BEGIN
      WHERE id = v_role_id AND org_id = v_org;
   END IF;
 
+  -- Capture the OUTGOING permission set before it is deleted. Without this the
+  -- audit row records what a role became but not what it lost, which is the
+  -- half that matters when reconstructing how someone came to hold a sensitive
+  -- key — or stopped holding it.
+  SELECT COALESCE(jsonb_agg(p.permission_key ORDER BY p.permission_key), '[]'::jsonb)
+    INTO v_old_keys
+  FROM public.role_permissions rp
+  JOIN public.permissions p ON p.id = rp.permission_id
+  WHERE rp.role_id = v_role_id;
+
   -- Replace the permission set atomically: both statements are in the same
   -- transaction as the role row itself, so a failure leaves neither applied.
   DELETE FROM public.role_permissions WHERE role_id = v_role_id;
@@ -388,11 +404,25 @@ BEGIN
   VALUES (
     v_org, auth.uid(),
     CASE WHEN v_created THEN 'rbac.role.create' ELSE 'rbac.role.update' END,
-    'role', v_role_id::text, v_old,
-    jsonb_build_object('name', v_name, 'is_active', v_is_active, 'permission_keys', to_jsonb(v_keys)),
+    'role', v_role_id::text,
+    -- Complete before/after snapshots, same shape on both sides, so a reader
+    -- can diff them without knowing which fields the RPC happened to touch.
+    jsonb_build_object('role', v_old, 'permission_keys', v_old_keys),
+    jsonb_build_object(
+      'role', jsonb_build_object(
+        'id', v_role_id, 'org_id', v_org, 'name', v_name,
+        'name_ar', COALESCE(v_name_ar, v_name), 'description', v_description,
+        'is_active', v_is_active, 'is_system_role', false),
+      'permission_keys', to_jsonb(v_keys)),
     jsonb_build_object(
       'migration', 174,
       'permission_count', COALESCE(array_length(v_keys, 1), 0),
+      'permissions_added', to_jsonb(ARRAY(
+        SELECT k FROM unnest(v_keys) AS k
+        WHERE NOT v_old_keys @> to_jsonb(k) ORDER BY k)),
+      'permissions_removed', to_jsonb(ARRAY(
+        SELECT ok FROM jsonb_array_elements_text(v_old_keys) AS o(ok)
+        WHERE NOT (ok = ANY (v_keys)) ORDER BY ok)),
       'sensitive_keys', to_jsonb(v_sensitive),
       'grants_sensitive', COALESCE(array_length(v_sensitive, 1), 0) > 0)
   );
@@ -422,6 +452,9 @@ DECLARE
   v_sensitive text[];
   v_existing_expiry jsonb;
   v_requested jsonb;
+  v_new       jsonb;
+  v_total     int;
+  v_distinct  int;
 BEGIN
   IF v_org IS NULL OR v_user IS NULL THEN
     RAISE EXCEPTION 'RBAC_174_ORG_AND_USER_REQUIRED';
@@ -454,23 +487,30 @@ BEGIN
   -- temp-table name inside a SECURITY DEFINER function whose search_path puts
   -- `public` first could be shadowed by a same-named table in public.
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
-           'role_id', rid, 'has_explicit', has_exp, 'expires_at', exp)), '[]'::jsonb)
-    INTO v_requested
+           'role_id', rid, 'has_explicit', has_exp, 'expires_at', exp) ORDER BY rid), '[]'::jsonb),
+         count(*), count(DISTINCT rid)
+    INTO v_requested, v_total, v_distinct
   FROM (
-    SELECT DISTINCT ON (rid) rid, has_exp, exp
-    FROM (
-      SELECT
-        CASE WHEN jsonb_typeof(elem) = 'object'
-             THEN NULLIF(elem->>'role_id','')::uuid
-             ELSE NULLIF(elem #>> '{}','')::uuid END AS rid,
-        CASE WHEN jsonb_typeof(elem) = 'object' AND elem ? 'expires_at'
-             THEN NULLIF(elem->>'expires_at','')::timestamptz END AS exp,
-        (jsonb_typeof(elem) = 'object' AND elem ? 'expires_at') AS has_exp
-      FROM jsonb_array_elements(COALESCE(p_payload->'role_ids','[]'::jsonb)) AS t(elem)
-    ) raw
-    WHERE rid IS NOT NULL
-    ORDER BY rid
-  ) s;
+    SELECT
+      CASE WHEN jsonb_typeof(elem) = 'object'
+           THEN NULLIF(elem->>'role_id','')::uuid
+           ELSE NULLIF(elem #>> '{}','')::uuid END AS rid,
+      CASE WHEN jsonb_typeof(elem) = 'object' AND elem ? 'expires_at'
+           THEN NULLIF(elem->>'expires_at','')::timestamptz END AS exp,
+      (jsonb_typeof(elem) = 'object' AND elem ? 'expires_at') AS has_exp
+    FROM jsonb_array_elements(COALESCE(p_payload->'role_ids','[]'::jsonb)) AS t(elem)
+  ) raw
+  WHERE rid IS NOT NULL;
+
+  -- Reject a repeated role_id rather than silently keeping one of them. With
+  -- per-role expiry a duplicate can carry two conflicting deadlines, and any
+  -- de-duplication rule would be picking one on the caller's behalf without
+  -- telling them — for a sensitive grant that is the difference between a
+  -- 30-day authorization and a permanent one. This runs before any mutation,
+  -- so a rejected payload leaves the existing assignments untouched.
+  IF v_total <> v_distinct THEN
+    RAISE EXCEPTION 'RBAC_174_DUPLICATE_ROLE_ID';
+  END IF;
 
   SELECT COALESCE(array_agg((elem->>'role_id')::uuid), ARRAY[]::uuid[])
     INTO v_role_ids
@@ -486,7 +526,12 @@ BEGIN
     RAISE EXCEPTION 'RBAC_174_ROLE_NOT_IN_ORG';
   END IF;
 
-  SELECT COALESCE(jsonb_agg(ur.role_id), '[]'::jsonb) INTO v_old
+  -- Full before snapshot: role_id AND its deadline. Recording ids alone loses
+  -- the change this RPC is most likely to make invisibly — a grant's expiry
+  -- moving, or being cleared.
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'role_id', ur.role_id, 'expires_at', ur.expires_at) ORDER BY ur.role_id), '[]'::jsonb)
+    INTO v_old
   FROM public.user_roles ur
   WHERE ur.user_id = v_user AND ur.org_id = v_org;
 
@@ -527,14 +572,23 @@ BEGIN
   WHERE rp.role_id = ANY (v_role_ids)
     AND public.wardah_is_sensitive_permission(p.permission_key);
 
+  -- Full after snapshot, read back from the rows actually written rather than
+  -- reconstructed from the payload, so the audit records what the database now
+  -- holds — including deadlines resolved from the retained-expiry rule above.
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'role_id', ur.role_id, 'expires_at', ur.expires_at) ORDER BY ur.role_id), '[]'::jsonb)
+    INTO v_new
+  FROM public.user_roles ur
+  WHERE ur.user_id = v_user AND ur.org_id = v_org;
+
   INSERT INTO public.audit_logs (org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (
     v_org, auth.uid(), 'rbac.user_roles.replace', 'user', v_user::text,
-    v_old, to_jsonb(v_role_ids),
+    v_old, v_new,
     jsonb_build_object(
       'migration', 174,
       'role_count', COALESCE(array_length(v_role_ids, 1), 0),
-      'expires_at', v_expires,
+      'payload_default_expires_at', v_expires,
       'sensitive_keys_granted', to_jsonb(v_sensitive),
       'self_assignment', v_user = auth.uid())
   );
@@ -556,8 +610,10 @@ AS $function$
 DECLARE
   v_org     uuid := NULLIF(p_payload->>'org_id','')::uuid;
   v_role_id uuid := NULLIF(p_payload->>'role_id','')::uuid;
-  v_old     jsonb;
-  v_users   int;
+  v_old       jsonb;
+  v_users     int;
+  v_old_keys  jsonb := '[]'::jsonb;
+  v_sensitive text[];
 BEGIN
   IF v_org IS NULL OR v_role_id IS NULL THEN
     RAISE EXCEPTION 'RBAC_174_ORG_AND_ROLE_REQUIRED';
@@ -584,12 +640,32 @@ BEGIN
     RAISE EXCEPTION 'RBAC_174_ROLE_STILL_ASSIGNED: % user(s)', v_users;
   END IF;
 
+  -- Record what is being destroyed, before destroying it. A delete row that
+  -- names the role but not its permissions cannot answer "did this role carry
+  -- a sensitive key at the moment it was removed?" — which is precisely the
+  -- question an audit of sensitive access has to answer.
+  SELECT COALESCE(jsonb_agg(p.permission_key ORDER BY p.permission_key), '[]'::jsonb)
+    INTO v_old_keys
+  FROM public.role_permissions rp
+  JOIN public.permissions p ON p.id = rp.permission_id
+  WHERE rp.role_id = v_role_id;
+
+  SELECT COALESCE(array_agg(k ORDER BY k), ARRAY[]::text[]) INTO v_sensitive
+  FROM jsonb_array_elements_text(v_old_keys) AS t(k)
+  WHERE public.wardah_is_sensitive_permission(k);
+
   DELETE FROM public.role_permissions WHERE role_id = v_role_id;
   DELETE FROM public.roles WHERE id = v_role_id AND org_id = v_org;
 
   INSERT INTO public.audit_logs (org_id, user_id, action, entity_type, entity_id, old_data, new_data, metadata)
   VALUES (v_org, auth.uid(), 'rbac.role.delete', 'role', v_role_id::text,
-          v_old, NULL, jsonb_build_object('migration', 174));
+          jsonb_build_object('role', v_old, 'permission_keys', v_old_keys),
+          NULL,
+          jsonb_build_object(
+            'migration', 174,
+            'permission_count', jsonb_array_length(v_old_keys),
+            'sensitive_keys_removed', to_jsonb(v_sensitive),
+            'removed_sensitive', COALESCE(array_length(v_sensitive, 1), 0) > 0));
 
   RETURN jsonb_build_object('role_id', v_role_id, 'deleted', true);
 END;

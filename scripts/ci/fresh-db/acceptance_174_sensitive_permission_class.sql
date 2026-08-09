@@ -510,6 +510,136 @@ END;
 $$;
 RESET ROLE;
 
+-- 6l. A repeated role_id is rejected outright, and the rejection mutates
+--     nothing. Silently de-duplicating would pick one of two conflicting
+--     deadlines on the caller's behalf.
+SELECT set_config('request.jwt.claim.sub', '99174174-0001-0001-0001-000000000001', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_before jsonb;
+  v_after  jsonb;
+BEGIN
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('r', role_id, 'e', expires_at) ORDER BY role_id), '[]'::jsonb)
+    INTO v_before
+  FROM public.user_roles
+  WHERE user_id = '99174174-0006-0006-0006-000000000006'
+    AND org_id  = '99174174-a000-a000-a000-00000000000a';
+
+  BEGIN
+    PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+      'org_id', '99174174-a000-a000-a000-00000000000a',
+      'user_id', '99174174-0006-0006-0006-000000000006',
+      'role_ids', jsonb_build_array(
+        jsonb_build_object('role_id', '99174174-0000-0000-0000-000000000020',
+                           'expires_at', (now() + interval '10 days')::text),
+        jsonb_build_object('role_id', '99174174-0000-0000-0000-000000000020',
+                           'expires_at', NULL))));
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-39]: a duplicated role_id with conflicting expiry was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_174_DUPLICATE_ROLE_ID%' THEN RAISE; END IF;
+  END;
+
+  SELECT COALESCE(jsonb_agg(jsonb_build_object('r', role_id, 'e', expires_at) ORDER BY role_id), '[]'::jsonb)
+    INTO v_after
+  FROM public.user_roles
+  WHERE user_id = '99174174-0006-0006-0006-000000000006'
+    AND org_id  = '99174174-a000-a000-a000-00000000000a';
+
+  IF v_before IS DISTINCT FROM v_after THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-40]: the rejected duplicate payload still mutated user_roles';
+  END IF;
+
+  -- A plain repeated string must be rejected the same way.
+  BEGIN
+    PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+      'org_id', '99174174-a000-a000-a000-00000000000a',
+      'user_id', '99174174-0006-0006-0006-000000000006',
+      'role_ids', jsonb_build_array('99174174-0000-0000-0000-000000000020',
+                                    '99174174-0000-0000-0000-000000000020')));
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-41]: a duplicated plain role_id was accepted';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_174_DUPLICATE_ROLE_ID%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+RESET ROLE;
+
+-- 6m. Audit completeness: every RBAC mutation must record a full before/after
+--     snapshot, not just an identifier. These assertions are what stop the
+--     audit trail from silently degrading in a later refactor.
+SELECT set_config('request.jwt.claim.sub', '99174174-0001-0001-0001-000000000001', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_role  uuid;
+  v_row   public.audit_logs%ROWTYPE;
+BEGIN
+  -- Create with one key, then update to a different key: the update's audit row
+  -- must carry the OLD key set, not only the new one.
+  v_role := (public.rpc_upsert_org_role(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a',
+    'name', 'P174 Audit Probe',
+    'permission_keys', jsonb_build_array('accounting.vouchers.unpost')))->>'role_id')::uuid;
+
+  PERFORM public.rpc_upsert_org_role(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a',
+    'role_id', v_role, 'name', 'P174 Audit Probe',
+    'permission_keys', jsonb_build_array('accounting.vouchers.cancel')));
+
+  SELECT * INTO v_row FROM public.audit_logs
+   WHERE entity_id = v_role::text AND action = 'rbac.role.update'
+   ORDER BY created_at DESC LIMIT 1;
+
+  IF v_row.old_data IS NULL OR NOT (v_row.old_data->'permission_keys' @> '"accounting.vouchers.unpost"'::jsonb) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-42]: role update did not record the outgoing permission set';
+  END IF;
+  IF NOT (v_row.new_data->'permission_keys' @> '"accounting.vouchers.cancel"'::jsonb) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-43]: role update did not record the incoming permission set';
+  END IF;
+  IF NOT (v_row.metadata->'permissions_removed' @> '"accounting.vouchers.unpost"'::jsonb) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-44]: role update did not record which permissions were removed';
+  END IF;
+
+  -- Delete must record the permissions it destroyed.
+  PERFORM public.rpc_delete_org_role(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a', 'role_id', v_role));
+
+  SELECT * INTO v_row FROM public.audit_logs
+   WHERE entity_id = v_role::text AND action = 'rbac.role.delete'
+   ORDER BY created_at DESC LIMIT 1;
+
+  IF v_row.old_data IS NULL
+     OR NOT (v_row.old_data->'permission_keys' @> '"accounting.vouchers.cancel"'::jsonb) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-45]: role delete did not record the destroyed permission set';
+  END IF;
+  IF NOT COALESCE((v_row.metadata->>'removed_sensitive')::boolean, false) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-46]: role delete did not flag that a sensitive key was removed';
+  END IF;
+
+  -- Assignment replacement must record per-role expires_at on both sides.
+  SELECT * INTO v_row FROM public.audit_logs
+   WHERE action = 'rbac.user_roles.replace'
+     AND entity_id = '99174174-0006-0006-0006-000000000006'
+   ORDER BY created_at DESC LIMIT 1;
+
+  IF v_row.old_data IS NULL OR jsonb_typeof(v_row.old_data) <> 'array' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-47]: user_roles replace did not record a before snapshot';
+  END IF;
+  IF jsonb_array_length(v_row.old_data) > 0
+     AND NOT (v_row.old_data->0 ? 'expires_at') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-48]: user_roles before snapshot omits expires_at';
+  END IF;
+  IF jsonb_array_length(v_row.new_data) > 0
+     AND NOT (v_row.new_data->0 ? 'expires_at') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-49]: user_roles after snapshot omits expires_at';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
 -- 6k. A platform super admin who is NOT a member of the organization must
 --     still get a snapshot, because has_permission grants them the override
 --     independently of membership. The earlier fixture masked this by making

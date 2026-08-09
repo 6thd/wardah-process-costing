@@ -1,7 +1,7 @@
 # Migration 174 — Sensitive Permission Class & Atomic RBAC Control Plane
 
 **Migration:** `174_sensitive_permission_class_and_rbac_rpcs.sql`
-**Closes:** Issue #93 — the org-admin override branch never read `p_permission_key`, so every active org admin passed every key.
+**Part of:** Issue #93 — the org-admin override branch never read `p_permission_key`, so every active org admin passed every key. **This migration does not close the issue on its own:** it is the database half. Closing #93 additionally requires the UI moved onto `rpc_permission_snapshot` and the atomic RBAC RPCs, and Migration 175 to close the direct-write surface (§4.1).
 **State:** Repository implementation, **not yet applied to Production**. The operational transaction in §6 must run and be verified *before* this migration is applied, or the organization is locked out of unpost/cancel entirely. Do not apply out of order.
 
 ## 1. The verified problem
@@ -58,10 +58,10 @@ Both permission functions call this one classifier, so the two cannot drift — 
 | `has_permission(uuid,uuid,varchar)` | Org-admin branch gains `NOT v_sensitive`. All five layers of the 170–173 chain reproduced verbatim. |
 | `wardah_has_exact_permission(uuid,uuid,text)` | Same narrowing, same classifier. Execute boundary re-asserted: `postgres` only. |
 | `rpc_upsert_org_role(jsonb)` | Creates or updates a role **and its complete permission set** in one transaction. Rejects unknown keys (`RBAC_174_UNKNOWN_PERMISSION_KEY`), duplicate names, system roles. `FOR UPDATE` on the role row. |
-| `rpc_replace_user_roles(jsonb)` | Atomic replace of a user's roles for one org. Rejects non-members (`RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER`) and foreign roles (`RBAC_174_ROLE_NOT_IN_ORG`). |
+| `rpc_replace_user_roles(jsonb)` | Atomic replace of a user's roles for one org. Locks the membership row `FOR UPDATE` so concurrent replacements serialize. Rejects non-members (`RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER`), foreign roles (`RBAC_174_ROLE_NOT_IN_ORG`) and repeated ids (`RBAC_174_DUPLICATE_ROLE_ID`). Accepts `["<uuid>"]` or `[{"role_id":…,"expires_at":…}]`; a retained role keeps its existing deadline unless one is given explicitly. |
 | `rpc_delete_org_role(jsonb)` | Refuses while users still hold the role (`RBAC_174_ROLE_STILL_ASSIGNED`) and refuses system roles. |
 | `rpc_permission_snapshot(uuid)` | Returns the caller's effective keys, `is_org_admin`, `is_super_admin`, and the sensitive-key set for badging. **The single source of truth for UI decisions.** |
-| Audit | Every mutation writes `audit_logs` with `sensitive_keys` / `sensitive_keys_granted` and a `self_assignment` flag. |
+| Audit | Every mutation writes a **complete before/after snapshot** to `old_data`/`new_data`, in the same shape on both sides so they can be diffed directly. Role create/update records the outgoing *and* incoming permission key sets plus `permissions_added` / `permissions_removed`; delete records the destroyed key set and `removed_sensitive`; assignment replacement records `{role_id, expires_at}` per role on both sides, with the after-side read back from the rows actually written rather than reconstructed from the payload. Plus `sensitive_keys` / `sensitive_keys_granted` and a `self_assignment` flag. |
 | Grants | Four RPCs: `REVOKE ALL FROM PUBLIC, anon, service_role`; `GRANT EXECUTE TO authenticated`. |
 
 ### 4.1 What this migration deliberately does **not** do
@@ -89,6 +89,8 @@ Marker: `SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS`. Coverage, all eight scenario
 7. Caller-identity guard — denied when asking about another user, 170 preserved (`174-7`).
 8. Ordinary keys — override intact (`174-1c`, `174-15`).
 9. **Mutation proof** (`174-M1…M9`) — each 166–173 guarantee re-asserted as its own named assertion, so a regression in any single layer fails identifiably rather than being masked by a neighbouring check.
+10. **Duplicate `role_id` rejected** (`174-39/40/41`) — for both payload shapes, and `174-40` proves the rejected call left `user_roles` byte-identical, so the refusal cannot be a partial write.
+11. **Audit completeness** (`174-42…49`) — the outgoing permission set on update, the destroyed set and `removed_sensitive` on delete, and per-role `expires_at` on both sides of an assignment replacement. These exist so the audit trail cannot silently degrade in a later refactor.
 
 The whole matrix runs against **both** functions (§3 and §4 of the script), plus the RBAC control plane: atomicity of a rejected update, self-assignment, audit rows, delete refusal, cross-org write refusal, and snapshot correctness for granted and ungranted admins.
 
@@ -114,7 +116,7 @@ The same gate then ran in CI on `postgres:17` and passed end to end — `Sensiti
 
 **Steps 1–4 are not preparation for the fix; they are part of it.** With zero super admins, zero role assignments, and both sensitive keys granted to zero roles, applying 174 first would leave **nobody** able to unpost or cancel. Note that assigning the existing `Full Access` role does **not** help — it holds 166 of 169 keys and these two are among the three it lacks.
 
-### Step 1–3 — operational transaction (before the migration)
+### Steps 1–4 — operational transaction (before the migration)
 
 Org-scoped data, so it is **not** part of any migration and not part of the Baseline (`roles`/`user_roles` are excluded from the system reference snapshot by design). Run once, as a single transaction, against Production:
 
@@ -146,10 +148,50 @@ FROM public.roles r
 WHERE r.org_id = '00000000-0000-0000-0000-000000000001'
   AND r.name = 'Financial Controller';
 
+-- 4. Audit the bootstrap, in the SAME transaction.
+--
+-- This step creates the most consequential grant in the system — the two
+-- sensitive accounting keys, to the only administrator — and it runs BEFORE
+-- 174 exists, so none of the RPCs that would normally write audit_logs are
+-- involved. Without this insert the single most sensitive authority change in
+-- the whole rollout would be the one event with no audit row, and the trail
+-- would begin mid-story: every later grant recorded, the original one not.
+-- It is inside the transaction deliberately — if any step above rolls back,
+-- the claim that it happened must roll back with it.
+INSERT INTO public.audit_logs (org_id, user_id, action, entity_type, entity_id,
+                               old_data, new_data, metadata)
+SELECT '00000000-0000-0000-0000-000000000001',
+       'd572eb14-5a8a-4ec9-ad3b-6945fcc8be0e',
+       'rbac.sensitive_bootstrap',
+       'role',
+       r.id::text,
+       NULL,
+       jsonb_build_object(
+         'role', jsonb_build_object('id', r.id, 'name', r.name,
+                                    'org_id', r.org_id, 'is_active', r.is_active),
+         'permission_keys', jsonb_build_array('accounting.vouchers.unpost',
+                                              'accounting.vouchers.cancel'),
+         'assigned_to', jsonb_build_array('d572eb14-5a8a-4ec9-ad3b-6945fcc8be0e')),
+       jsonb_build_object(
+         'migration', 174,
+         'phase', 'pre-apply operational transaction',
+         'reason', 'Issue #93 lockout prevention: grant the sensitive keys explicitly '
+                   'before the org-admin override is narrowed by Migration 174',
+         'performed_by', 'operator (manual transaction, not an RPC)',
+         'grants_sensitive', true)
+FROM public.roles r
+WHERE r.org_id = '00000000-0000-0000-0000-000000000001'
+  AND r.name = 'Financial Controller';
+
 COMMIT;
 ```
 
-### Step 4 — prove the grant before applying anything
+The `user_id` recorded is the grant's subject, since a manual transaction has no
+`auth.uid()`; `metadata.performed_by` states plainly that no RPC was involved.
+Record the operator's identity out of band (change ticket / runbook sign-off) —
+do not invent a UUID for them.
+
+### Step 4b — prove the grant before applying anything
 
 ```sql
 SELECT p.permission_key,
