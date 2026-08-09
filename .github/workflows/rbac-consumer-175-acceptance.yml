@@ -5,13 +5,14 @@ on:
     branches: [main]
     paths:
       - 'scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql'
+      - 'scripts/ci/fresh-db/acceptance_175_rbac_concurrency.sh'
       - 'sql/migrations/175_rbac_consumer_migration_rpcs.sql'
       - '.github/workflows/rbac-consumer-175-acceptance.yml'
   workflow_dispatch:
 
 jobs:
   acceptance:
-    name: Confirm Migration 175 adds the RPCs without disturbing 170-174
+    name: Confirm Migration 175 closes membership and last-admin races
     runs-on: ubuntu-latest
 
     services:
@@ -67,6 +68,16 @@ jobs:
             2>&1 | tee /tmp/rbac-consumer-175.out
           grep -q 'RBAC_CONSUMER_175_ACCEPTANCE_PASS' /tmp/rbac-consumer-175.out
 
+      - name: Run real multi-session RBAC races
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_175_rbac_concurrency.sh \
+            2>&1 | tee /tmp/rbac-consumer-175-concurrency.out
+          grep -q 'RBAC_CONSUMER_175_CONCURRENCY_PASS' \
+            /tmp/rbac-consumer-175-concurrency.out
+
       - name: Re-run Migration 174 acceptance to confirm no regression
         shell: bash
         run: |
@@ -102,6 +113,48 @@ jobs:
             exit 1
           fi
 
+          # A pre-existing assignment without an active membership must stop
+          # 175 before any object change is committed. This is remediation by
+          # explicit operator choice, never silent deletion by a migration.
+          psql -v ON_ERROR_STOP=1 -d wardah_red -q <<'SQL'
+          INSERT INTO auth.users (id, email)
+          VALUES ('99175175-dead-dead-dead-000000000001', 'p175-preflight-red@example.test');
+          INSERT INTO public.organizations (id, name, code)
+          VALUES ('99175175-dead-dead-dead-000000000002', 'P175 Preflight Red', 'P175-RED');
+          INSERT INTO public.user_organizations
+            (user_id, org_id, is_active, is_org_admin)
+          VALUES (
+            '99175175-dead-dead-dead-000000000001',
+            '99175175-dead-dead-dead-000000000002',
+            false,
+            false);
+          INSERT INTO public.roles (id, org_id, name, name_ar, is_active)
+          VALUES (
+            '99175175-dead-dead-dead-000000000003',
+            '99175175-dead-dead-dead-000000000002',
+            'P175 Invalid Preflight Role',
+            'دور فحص مسبق غير صالح',
+            true);
+          INSERT INTO public.user_roles (user_id, role_id, org_id)
+          VALUES (
+            '99175175-dead-dead-dead-000000000001',
+            '99175175-dead-dead-dead-000000000003',
+            '99175175-dead-dead-dead-000000000002');
+          SQL
+
+          set +e
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f sql/migrations/175_rbac_consumer_migration_rpcs.sql \
+            > /tmp/rbac-consumer-175-preflight-red.out 2>&1
+          PREFLIGHT_STATUS=$?
+          set -e
+          if [ "$PREFLIGHT_STATUS" -eq 0 ]; then
+            echo 'RED PROOF FAILED: 175 accepted an inactive-member assignment.'
+            exit 1
+          fi
+          grep -q 'RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT' \
+            /tmp/rbac-consumer-175-preflight-red.out
+
       - name: Upload acceptance evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -109,7 +162,11 @@ jobs:
           name: rbac-consumer-175-acceptance-${{ github.run_id }}
           path: |
             /tmp/rbac-consumer-175.out
+            /tmp/rbac-consumer-175-concurrency.out
+            /tmp/rbac-consumer-175-preflight-red.out
             /tmp/sensitive-permission-174-rerun.out
             /tmp/chain_report.txt
             /tmp/red_report.txt
+            /tmp/rbac-175-*.out
+            /tmp/rbac-175-*.err
           retention-days: 30

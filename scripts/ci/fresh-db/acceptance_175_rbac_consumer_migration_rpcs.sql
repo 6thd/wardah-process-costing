@@ -1,15 +1,20 @@
 -- Acceptance for Migration 175.
 --
 -- Proves, behaviourally:
---   (1) rpc_remove_org_member: org-admin guard, self-removal guard, last-admin
+--   (1) user_roles can only point at active memberships and membership
+--       deletion/deactivation cannot strand assignments.
+--   (2) explicit-role authorization requires active membership.
+--   (3) rpc_remove_org_member: org-admin guard, self-removal guard, last-admin
 --       guard, atomic removal of roles + membership, audit row with a full
 --       before snapshot.
---   (2) create_role_from_template: still creates the role and grants the
+--   (4) rpc_set_org_admin applies LAST_ORG_ADMIN only to a currently active
+--       admin target.
+--   (5) create_role_from_template: still creates the role and grants the
 --       template's permissions exactly as before, AND now writes an audit row
 --       carrying the granted permission keys and any sensitive ones among them.
---   (3) wardah_is_sensitive_permission: behavior is byte-identical to before
+--   (6) wardah_is_sensitive_permission: behavior is byte-identical to before
 --       this migration for every input that mattered in 174's acceptance.
---   (4) Mutation proof: every 170-174 guarantee this migration must not have
+--   (7) Mutation proof: every 170-174 guarantee this migration must not have
 --       disturbed, re-asserted individually.
 --
 -- Marker on success: RBAC_CONSUMER_175_ACCEPTANCE_PASS
@@ -25,7 +30,8 @@ INSERT INTO auth.users (id, email) VALUES
   ('99175175-0002-0002-0002-000000000002', 'p175-admin-b@example.test'),
   ('99175175-0003-0003-0003-000000000003', 'p175-member@example.test'),
   ('99175175-0004-0004-0004-000000000004', 'p175-sole-admin@example.test'),
-  ('99175175-0005-0005-0005-000000000005', 'p175-otherorg-admin@example.test');
+  ('99175175-0005-0005-0005-000000000005', 'p175-otherorg-admin@example.test'),
+  ('99175175-0006-0006-0006-000000000006', 'p175-inactive-member@example.test');
 
 INSERT INTO public.organizations (id, name, code) VALUES
   ('99175175-a000-a000-a000-00000000000a', 'Perm175 Org A', 'P175-A'),
@@ -36,6 +42,7 @@ INSERT INTO public.user_organizations (user_id, org_id, is_active, is_org_admin)
   ('99175175-0001-0001-0001-000000000001', '99175175-a000-a000-a000-00000000000a', true, true),
   ('99175175-0002-0002-0002-000000000002', '99175175-a000-a000-a000-00000000000a', true, true),
   ('99175175-0003-0003-0003-000000000003', '99175175-a000-a000-a000-00000000000a', true, false),
+  ('99175175-0006-0006-0006-000000000006', '99175175-a000-a000-a000-00000000000a', false, false),
   ('99175175-0005-0005-0005-000000000005', '99175175-b000-b000-b000-00000000000b', true, true);
 
 -- Org B: exactly ONE active admin, for the last-admin guard.
@@ -53,6 +60,113 @@ WHERE p.permission_key = 'accounting.entries.approve';
 INSERT INTO public.user_roles (user_id, role_id, org_id) VALUES
   ('99175175-0003-0003-0003-000000000003', '99175175-0000-0000-0000-000000000020', '99175175-a000-a000-a000-00000000000a');
 
+-- ---------------------------------------------------------------------------
+-- 2. Active-membership invariant, both child and parent sides.
+-- ---------------------------------------------------------------------------
+DO $$
+BEGIN
+  BEGIN
+    INSERT INTO public.user_roles (user_id, role_id, org_id) VALUES (
+      '99175175-0006-0006-0006-000000000006',
+      '99175175-0000-0000-0000-000000000020',
+      '99175175-a000-a000-a000-00000000000a');
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I1]: inactive member received a role';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED%' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    UPDATE public.user_roles
+    SET user_id = '99175175-0006-0006-0006-000000000006'
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2]: assignment moved to an inactive member';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED%' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    UPDATE public.user_organizations
+    SET is_active = false
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I3]: membership deactivated while roles remained';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS%' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    DELETE FROM public.user_organizations
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I4]: membership deleted while roles remained';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+-- Defense-in-depth proof: emulate legacy invalid data by temporarily disabling
+-- only the new parent guard. Both authorization helpers must still deny the
+-- explicit role while the membership is inactive.
+ALTER TABLE public.user_organizations
+  DISABLE TRIGGER trg_wardah_175_protect_role_membership_parent;
+UPDATE public.user_organizations
+SET is_active = false
+WHERE user_id = '99175175-0003-0003-0003-000000000003'
+  AND org_id = '99175175-a000-a000-a000-00000000000a';
+
+DO $$
+BEGIN
+  BEGIN
+    UPDATE public.user_roles
+    SET expires_at = now() + interval '1 day'
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I5]: non-key UPDATE bypassed active-membership validation';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED%' THEN RAISE; END IF;
+  END;
+END;
+$$;
+
+SELECT set_config('request.jwt.claim.sub', '99175175-0003-0003-0003-000000000003', false);
+SET LOCAL ROLE authenticated;
+DO $$
+BEGIN
+  IF public.has_permission(
+    '99175175-0003-0003-0003-000000000003',
+    '99175175-a000-a000-a000-00000000000a',
+    'accounting.entries.approve') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I6]: has_permission accepted an inactive-member grant';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+DO $$
+BEGIN
+  IF public.wardah_has_exact_permission(
+    '99175175-0003-0003-0003-000000000003',
+    '99175175-a000-a000-a000-00000000000a',
+    'accounting.entries.approve') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I7]: exact helper accepted an inactive-member grant';
+  END IF;
+END;
+$$;
+
+UPDATE public.user_organizations
+SET is_active = true
+WHERE user_id = '99175175-0003-0003-0003-000000000003'
+  AND org_id = '99175175-a000-a000-a000-00000000000a';
+ALTER TABLE public.user_organizations
+  ENABLE TRIGGER trg_wardah_175_protect_role_membership_parent;
+
 -- A role template for create_role_from_template, with one sensitive key.
 INSERT INTO public.role_templates (id, name, name_ar, description, description_ar, permission_keys, is_active)
 VALUES (
@@ -62,7 +176,7 @@ VALUES (
 );
 
 -- ---------------------------------------------------------------------------
--- 2. rpc_remove_org_member — cross-org rejection, self-removal, last-admin,
+-- 3. rpc_remove_org_member — cross-org rejection, self-removal, last-admin,
 --    then the real removal with audit proof.
 -- ---------------------------------------------------------------------------
 
@@ -138,6 +252,24 @@ INSERT INTO public.super_admins (user_id, email, is_active) VALUES
 INSERT INTO public.user_organizations (user_id, org_id, is_active, is_org_admin) VALUES
   ('99175175-0007-0007-0007-000000000007', '99175175-c000-c000-c000-00000000000c', true, false);
 
+-- A false -> false request against an ordinary target must not run the
+-- last-admin guard merely because the organization has only one real admin.
+SELECT set_config('request.jwt.claim.sub', '99175175-0004-0004-0004-000000000004', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE v_res jsonb;
+BEGIN
+  v_res := public.rpc_set_org_admin(
+    '99175175-0007-0007-0007-000000000007',
+    '99175175-c000-c000-c000-00000000000c',
+    false);
+  IF NOT COALESCE((v_res->>'ok')::boolean, false) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-3b]: ordinary target hit last-admin guard: %', v_res;
+  END IF;
+END;
+$$;
+RESET ROLE;
+
 SELECT set_config('request.jwt.claim.sub', '99175175-0007-0007-0007-000000000007', false);
 SET LOCAL ROLE authenticated;
 DO $$
@@ -164,7 +296,7 @@ $$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- 2d. The real removal: org A's ordinary member (0003), by admin 0001.
+-- 3d. The real removal: org A's ordinary member (0003), by admin 0001.
 -- ---------------------------------------------------------------------------
 SELECT set_config('request.jwt.claim.sub', '99175175-0001-0001-0001-000000000001', false);
 SET LOCAL ROLE authenticated;
@@ -208,7 +340,7 @@ $$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- 3. create_role_from_template — still works, and now audits.
+-- 4. create_role_from_template — still works, and now audits.
 -- ---------------------------------------------------------------------------
 SELECT set_config('request.jwt.claim.sub', '99175175-0001-0001-0001-000000000001', false);
 SET LOCAL ROLE authenticated;
@@ -271,7 +403,7 @@ $$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- 4. Mutation proof — this migration must not have disturbed 170-174.
+-- 5. Mutation proof — this migration must not have disturbed 170-174.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE v_hp text; v_ex text; v_cls text;
@@ -292,6 +424,10 @@ BEGIN
   IF v_hp !~ 'r\.is_active' OR v_ex !~ 'r\.is_active' THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M3]: 173 active-role join missing';
   END IF;
+  IF v_hp !~ 'user_organizations uo' OR v_hp !~ 'uo\.is_active IS TRUE'
+     OR v_ex !~ 'user_organizations uo' OR v_ex !~ 'uo\.is_active IS TRUE' THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M3b]: active-membership defense missing';
+  END IF;
   IF v_hp !~ 'wardah_is_sensitive_permission' OR v_ex !~ 'wardah_is_sensitive_permission' THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M4]: 174 sensitive-permission narrowing missing';
   END IF;
@@ -308,7 +444,8 @@ BEGIN
   END IF;
 
   -- No table grant has been touched: authenticated still has direct write
-  -- access (175 is additive-only; revocation is Migration 176).
+  -- access. Invalid writes are now narrowed by triggers; grant revocation is
+  -- still Migration 176.
   IF NOT has_table_privilege('authenticated', 'public.user_roles', 'INSERT')
      OR NOT has_table_privilege('authenticated', 'public.roles', 'INSERT') THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M7]: 175 revoked a table grant it must not touch';

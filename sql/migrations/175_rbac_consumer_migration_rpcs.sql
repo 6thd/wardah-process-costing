@@ -1,7 +1,9 @@
 -- =====================================================================
 -- 175_rbac_consumer_migration_rpcs
 -- =====================================================================
--- Additive-only. No privilege revocation in this migration. Part of Issue
+-- Backward-compatible RPC expansion plus integrity hardening. No table grant
+-- is revoked in this migration, but invalid direct writes are now rejected at
+-- the database boundary. Part of Issue
 -- #93's second phase: an audit of every production TS/TSX file that writes
 -- to roles, role_permissions or user_roles found four surfaces, only two of
 -- which Migration 174 actually covered:
@@ -32,7 +34,14 @@
 --      direct-write function from org-admin-service.ts instead of the one
 --      in rbac-service.ts that correctly calls this RPC. The consumer PR
 --      fixes the import; this migration only adds the missing audit trail.
---   3. wardah_is_sensitive_permission — CREATE OR REPLACE, adds an explicit
+--   3. user_roles membership invariant — every INSERT/UPDATE must point at an
+--      active membership; membership deletion/deactivation is refused while
+--      role rows still exist. Both sides serialize on the membership row.
+--   4. rpc_set_org_admin + rpc_remove_org_member — serialize the last-admin
+--      decision on the organization row and re-authorize after taking it.
+--   5. has_permission + wardah_has_exact_permission — explicit-role grants
+--      require an active membership as defense in depth.
+--   6. wardah_is_sensitive_permission — CREATE OR REPLACE, adds an explicit
 --      empty search_path. The function has zero table or schema references
 --      (a pure literal comparison), so this changes nothing about its
 --      behavior; it exists to close the "Function Search Path Mutable"
@@ -58,6 +67,9 @@
 --     deserves its own migration and review, not a rider on this one.
 --   * No table grant is revoked here. authenticated keeps direct
 --     INSERT/UPDATE/DELETE on roles, role_permissions and user_roles.
+--     Invalid user_roles writes are nevertheless rejected by invariant
+--     triggers; this deliberate narrowing is required before the consumer
+--     migration window can be safe.
 --     That closure is Migration 176, applied only after the consumer PR has
 --     moved every real caller onto the RPC surface this migration and 174
 --     together provide, and the browser smoke has proven it end to end.
@@ -84,17 +96,340 @@ BEGIN
   IF to_regprocedure('public.wardah_is_sensitive_permission(text)') IS NULL THEN
     RAISE EXCEPTION 'PERMISSION_175_CLASSIFIER_MISSING';
   END IF;
+  IF to_regprocedure('public.rpc_set_org_admin(uuid,uuid,boolean)') IS NULL THEN
+    RAISE EXCEPTION 'PERMISSION_175_SET_ORG_ADMIN_MISSING';
+  END IF;
   IF to_regclass('public.user_organizations') IS NULL
      OR to_regclass('public.user_roles') IS NULL
      OR to_regclass('public.roles') IS NULL
+     OR to_regclass('public.organizations') IS NULL
      OR to_regclass('public.audit_logs') IS NULL THEN
     RAISE EXCEPTION 'PERMISSION_175_REQUIRED_TABLE_MISSING';
   END IF;
 END
 $preflight$;
 
+-- Prevent DML from slipping between the data preflight and trigger install.
+-- SHARE ROW EXCLUSIVE conflicts with every ordinary INSERT/UPDATE/DELETE while
+-- still allowing the read-only checks below.
+LOCK TABLE public.user_organizations, public.user_roles
+  IN SHARE ROW EXCLUSIVE MODE;
+
+DO $data_preflight$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    LEFT JOIN public.user_organizations uo
+      ON uo.user_id = ur.user_id
+     AND uo.org_id = ur.org_id
+     AND uo.is_active IS TRUE
+    WHERE uo.user_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT';
+  END IF;
+END
+$data_preflight$;
+
 -- ---------------------------------------------------------------------------
--- 1. rpc_remove_org_member — atomic, audited replacement for the client's
+-- 1. Database-boundary invariant: a role assignment exists only while the
+--    corresponding membership is active.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.wardah_175_require_active_role_membership()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_active boolean;
+BEGIN
+  SELECT uo.is_active
+    INTO v_active
+  FROM public.user_organizations uo
+  WHERE uo.user_id = NEW.user_id
+    AND uo.org_id = NEW.org_id
+  FOR UPDATE;
+
+  IF NOT FOUND OR v_active IS NOT TRUE THEN
+    RAISE EXCEPTION 'RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED';
+  END IF;
+
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.wardah_175_require_active_role_membership() FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION public.wardah_175_protect_role_membership_parent()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_invalidates_membership boolean := false;
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    v_invalidates_membership := true;
+  ELSE
+    v_invalidates_membership :=
+      OLD.user_id IS DISTINCT FROM NEW.user_id
+      OR OLD.org_id IS DISTINCT FROM NEW.org_id
+      OR (OLD.is_active IS TRUE AND NEW.is_active IS NOT TRUE);
+  END IF;
+
+  IF v_invalidates_membership AND EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    WHERE ur.user_id = OLD.user_id
+      AND ur.org_id = OLD.org_id
+  ) THEN
+    RAISE EXCEPTION 'RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS';
+  END IF;
+
+  IF TG_OP = 'DELETE' THEN
+    RETURN OLD;
+  END IF;
+  RETURN NEW;
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.wardah_175_protect_role_membership_parent() FROM PUBLIC, anon, authenticated, service_role;
+
+DROP TRIGGER IF EXISTS trg_wardah_175_require_active_role_membership
+  ON public.user_roles;
+CREATE TRIGGER trg_wardah_175_require_active_role_membership
+BEFORE INSERT OR UPDATE ON public.user_roles
+FOR EACH ROW
+EXECUTE FUNCTION public.wardah_175_require_active_role_membership();
+
+DROP TRIGGER IF EXISTS trg_wardah_175_protect_role_membership_parent
+  ON public.user_organizations;
+CREATE TRIGGER trg_wardah_175_protect_role_membership_parent
+BEFORE UPDATE OR DELETE ON public.user_organizations
+FOR EACH ROW
+EXECUTE FUNCTION public.wardah_175_protect_role_membership_parent();
+
+-- ---------------------------------------------------------------------------
+-- 2. Defense in depth: an explicit role grant is effective only while the
+--    assignee remains an active member of that same organization.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.has_permission(
+  p_user_id uuid,
+  p_org_id uuid,
+  p_permission_key character varying
+)
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_has_permission boolean;
+  v_sensitive boolean;
+BEGIN
+  IF p_user_id IS DISTINCT FROM auth.uid() THEN
+    RETURN false;
+  END IF;
+
+  v_sensitive := COALESCE(
+    public.wardah_is_sensitive_permission(p_permission_key::text), false);
+
+  IF EXISTS (
+    SELECT 1 FROM public.super_admins
+    WHERE user_id = p_user_id AND is_active = true
+  ) THEN
+    RETURN true;
+  END IF;
+
+  IF NOT v_sensitive AND EXISTS (
+    SELECT 1 FROM public.user_organizations
+    WHERE user_id = p_user_id
+      AND org_id = p_org_id
+      AND is_active = true
+      AND is_org_admin = true
+  ) THEN
+    RETURN true;
+  END IF;
+
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    INNER JOIN public.user_organizations uo
+      ON uo.user_id = ur.user_id
+     AND uo.org_id = ur.org_id
+     AND uo.is_active IS TRUE
+    INNER JOIN public.roles r
+      ON r.id = ur.role_id
+     AND r.org_id = p_org_id
+     AND COALESCE(r.is_active, true)
+    INNER JOIN public.role_permissions rp ON ur.role_id = rp.role_id
+    INNER JOIN public.permissions p ON rp.permission_id = p.id
+    WHERE ur.user_id = p_user_id
+      AND ur.org_id = p_org_id
+      AND p.permission_key = p_permission_key
+      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+  ) INTO v_has_permission;
+
+  RETURN COALESCE(v_has_permission, false);
+END;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.wardah_has_exact_permission(
+  p_user_id uuid,
+  p_org_id uuid,
+  p_permission_key text
+)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT
+    EXISTS (
+      SELECT 1
+      FROM public.super_admins sa
+      WHERE sa.user_id = p_user_id
+        AND sa.is_active = true
+    )
+    OR (
+      NOT COALESCE(public.wardah_is_sensitive_permission(p_permission_key), false)
+      AND EXISTS (
+        SELECT 1
+        FROM public.user_organizations uo
+        WHERE uo.user_id = p_user_id
+          AND uo.org_id = p_org_id
+          AND uo.is_active = true
+          AND uo.is_org_admin = true
+      )
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM public.user_roles ur
+      JOIN public.user_organizations uo
+        ON uo.user_id = ur.user_id
+       AND uo.org_id = ur.org_id
+       AND uo.is_active IS TRUE
+      JOIN public.roles r
+        ON r.id = ur.role_id
+       AND r.org_id = p_org_id
+       AND COALESCE(r.is_active, true)
+      JOIN public.role_permissions rp ON rp.role_id = ur.role_id
+      JOIN public.permissions p ON p.id = rp.permission_id
+      WHERE ur.user_id = p_user_id
+        AND ur.org_id = p_org_id
+        AND p.permission_key = p_permission_key
+        AND (ur.expires_at IS NULL OR ur.expires_at > now())
+    );
+$function$;
+
+REVOKE ALL ON FUNCTION public.wardah_has_exact_permission(uuid,uuid,text)
+  FROM PUBLIC, anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3. Replace rpc_set_org_admin with the same caller contract plus a shared
+--    organization-row lock. The authorization check is repeated after the
+--    lock, so a caller removed or demoted while waiting cannot act afterward.
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.rpc_set_org_admin(
+  p_target_user_id uuid,
+  p_org_id uuid,
+  p_value boolean
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_caller_id uuid := auth.uid();
+  v_admins_count int;
+  v_target_is_active_admin boolean;
+  v_caller_member_active boolean;
+  v_caller_member_admin boolean;
+  v_caller_super_admin boolean := false;
+BEGIN
+  IF NOT (public.wardah_is_org_admin(p_org_id) OR public.is_super_admin()) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'NOT_ORG_ADMIN');
+  END IF;
+  IF p_target_user_id = v_caller_id AND p_value = true THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'CANNOT_PROMOTE_SELF');
+  END IF;
+
+  PERFORM 1
+  FROM public.organizations o
+  WHERE o.id = p_org_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'ORG_NOT_FOUND');
+  END IF;
+
+  -- Re-authorize from locked rows after acquiring the shared organization
+  -- lock. A second call to a STABLE helper would not be as explicit about
+  -- observing a membership changed by the transaction that held this lock.
+  SELECT uo.is_active IS TRUE,
+         (uo.is_org_admin IS TRUE OR uo.role IN ('admin', 'owner'))
+    INTO v_caller_member_active, v_caller_member_admin
+  FROM public.user_organizations uo
+  WHERE uo.user_id = v_caller_id
+    AND uo.org_id = p_org_id
+  FOR UPDATE;
+
+  SELECT sa.is_active IS TRUE
+    INTO v_caller_super_admin
+  FROM public.super_admins sa
+  WHERE sa.user_id = v_caller_id
+  FOR UPDATE;
+
+  IF NOT COALESCE(v_caller_super_admin, false)
+     AND NOT (
+       COALESCE(v_caller_member_active, false)
+       AND COALESCE(v_caller_member_admin, false)
+     ) THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'NOT_ORG_ADMIN');
+  END IF;
+
+  SELECT (uo.is_active IS TRUE AND uo.is_org_admin IS TRUE)
+    INTO v_target_is_active_admin
+  FROM public.user_organizations uo
+  WHERE uo.user_id = p_target_user_id
+    AND uo.org_id = p_org_id
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('ok', false, 'error', 'USER_NOT_MEMBER');
+  END IF;
+
+  IF p_value = false AND v_target_is_active_admin THEN
+    SELECT COUNT(*) INTO v_admins_count
+    FROM public.user_organizations
+    WHERE org_id = p_org_id
+      AND is_org_admin = true
+      AND is_active = true
+      AND user_id <> p_target_user_id;
+    IF v_admins_count = 0 THEN
+      RETURN jsonb_build_object('ok', false, 'error', 'LAST_ORG_ADMIN');
+    END IF;
+  END IF;
+
+  UPDATE public.user_organizations
+  SET is_org_admin = p_value
+  WHERE user_id = p_target_user_id
+    AND org_id = p_org_id;
+
+  RETURN jsonb_build_object('ok', true);
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.rpc_set_org_admin(uuid,uuid,boolean)
+  FROM PUBLIC, anon, service_role;
+GRANT EXECUTE ON FUNCTION public.rpc_set_org_admin(uuid,uuid,boolean)
+  TO authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 4. rpc_remove_org_member — atomic, audited replacement for the client's
 --    two-step "delete user_roles, then delete user_organizations" sequence.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.rpc_remove_org_member(p_payload jsonb)
@@ -110,11 +445,47 @@ DECLARE
   v_old_roles  jsonb;
   v_was_admin  boolean;
   v_other_admins int;
+  v_caller_member_active boolean;
+  v_caller_member_admin boolean;
+  v_caller_super_admin boolean := false;
 BEGIN
   IF v_org IS NULL OR v_target IS NULL THEN
     RAISE EXCEPTION 'RBAC_175_ORG_AND_USER_REQUIRED';
   END IF;
   PERFORM public.wardah_assert_org_admin(v_org);
+
+  PERFORM 1
+  FROM public.organizations o
+  WHERE o.id = v_org
+  FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'RBAC_175_ORG_NOT_FOUND';
+  END IF;
+
+  -- Re-authorize from locked rows. rpc_remove_org_member deliberately keeps
+  -- wardah_assert_org_admin's member-first contract even for super admins.
+  SELECT uo.is_active IS TRUE,
+         (uo.is_org_admin IS TRUE OR uo.role IN ('admin', 'owner'))
+    INTO v_caller_member_active, v_caller_member_admin
+  FROM public.user_organizations uo
+  WHERE uo.user_id = auth.uid()
+    AND uo.org_id = v_org
+  FOR UPDATE;
+
+  IF NOT FOUND OR NOT COALESCE(v_caller_member_active, false) THEN
+    RAISE EXCEPTION 'NOT_ORG_MEMBER';
+  END IF;
+
+  SELECT sa.is_active IS TRUE
+    INTO v_caller_super_admin
+  FROM public.super_admins sa
+  WHERE sa.user_id = auth.uid()
+  FOR UPDATE;
+
+  IF NOT COALESCE(v_caller_member_admin, false)
+     AND NOT COALESCE(v_caller_super_admin, false) THEN
+    RAISE EXCEPTION 'NOT_ORG_ADMIN';
+  END IF;
 
   -- Removal is more drastic than demotion; rpc_set_org_admin (migration 103)
   -- already refuses self-demotion and the last active admin. This mirrors
@@ -133,7 +504,9 @@ BEGIN
     RAISE EXCEPTION 'RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER';
   END IF;
 
-  v_was_admin := COALESCE((v_old_member->>'is_org_admin')::boolean, false);
+  v_was_admin :=
+    COALESCE((v_old_member->>'is_active')::boolean, false)
+    AND COALESCE((v_old_member->>'is_org_admin')::boolean, false);
 
   IF v_was_admin THEN
     SELECT count(*) INTO v_other_admins
@@ -176,7 +549,7 @@ REVOKE ALL ON FUNCTION public.rpc_remove_org_member(jsonb) FROM PUBLIC, anon, se
 GRANT EXECUTE ON FUNCTION public.rpc_remove_org_member(jsonb) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 2. create_role_from_template — same signature, same return type. Adds the
+-- 5. create_role_from_template — same signature, same return type. Adds the
 --    audit_logs row that was the only gap; everything else about this
 --    function (guard, template lookup, permission-pattern matching) is
 --    unchanged from its original body.
@@ -260,7 +633,7 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------
--- 3. wardah_is_sensitive_permission — add an explicit search_path. The
+-- 6. wardah_is_sensitive_permission — add an explicit search_path. The
 --    function body references no table, view or unqualified name (it is a
 --    pure `p_permission_key IN ('literal', 'literal')`), so this changes
 --    nothing about its result for any input; it only removes the advisory a
@@ -285,6 +658,9 @@ $function$;
 DO $verify$
 DECLARE
   v_remove_src text;
+  v_set_admin_src text;
+  v_has_permission_src text;
+  v_exact_permission_src text;
   v_template_src text;
   v_classifier_config text[];
 BEGIN
@@ -306,7 +682,12 @@ BEGIN
     RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member lost the not-a-member guard';
   END IF;
   IF v_remove_src !~ 'FOR UPDATE' THEN
-    RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member no longer locks the membership row';
+    RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member no longer locks rows';
+  END IF;
+  IF v_remove_src !~ 'organizations o'
+     OR v_remove_src !~ 'v_caller_member_active'
+     OR v_remove_src !~ 'v_caller_member_admin' THEN
+    RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member lacks shared org lock or post-lock reauthorization';
   END IF;
   IF v_remove_src !~ 'audit_logs' THEN
     RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member does not write an audit row';
@@ -316,6 +697,75 @@ BEGIN
      OR has_function_privilege('service_role', 'public.rpc_remove_org_member(jsonb)', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.rpc_remove_org_member(jsonb)', 'EXECUTE') THEN
     RAISE EXCEPTION 'FAIL[175] rpc_remove_org_member execute boundary is wrong';
+  END IF;
+
+  SELECT prosrc INTO v_set_admin_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'rpc_set_org_admin';
+  IF v_set_admin_src !~ 'organizations o'
+     OR v_set_admin_src !~ 'v_target_is_active_admin'
+     OR v_set_admin_src !~ 'v_caller_member_active'
+     OR v_set_admin_src !~ 'FOR UPDATE' THEN
+    RAISE EXCEPTION 'FAIL[175] rpc_set_org_admin lacks shared lock or active-target last-admin guard';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'user_roles'
+      AND t.tgname = 'trg_wardah_175_require_active_role_membership'
+      AND t.tgenabled <> 'D'
+      AND NOT t.tgisinternal
+      AND pg_get_triggerdef(t.oid) !~ 'UPDATE OF'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'user_organizations'
+      AND t.tgname = 'trg_wardah_175_protect_role_membership_parent'
+      AND t.tgenabled <> 'D'
+      AND NOT t.tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'FAIL[175] active-membership invariant triggers missing or disabled';
+  END IF;
+
+  IF has_function_privilege('anon', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'FAIL[175] invariant trigger function execute boundary is open';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.user_roles ur
+    LEFT JOIN public.user_organizations uo
+      ON uo.user_id = ur.user_id
+     AND uo.org_id = ur.org_id
+     AND uo.is_active IS TRUE
+    WHERE uo.user_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'FAIL[175] orphan or inactive-member assignment remains';
+  END IF;
+
+  SELECT prosrc INTO v_has_permission_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'has_permission';
+  SELECT prosrc INTO v_exact_permission_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public' AND p.proname = 'wardah_has_exact_permission';
+  IF v_has_permission_src !~ 'user_organizations uo'
+     OR v_has_permission_src !~ 'uo\.is_active IS TRUE'
+     OR v_exact_permission_src !~ 'user_organizations uo'
+     OR v_exact_permission_src !~ 'uo\.is_active IS TRUE' THEN
+    RAISE EXCEPTION 'FAIL[175] permission helpers do not require active explicit-role membership';
   END IF;
 
   SELECT prosrc INTO v_template_src FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -346,7 +796,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL[175] wardah_is_sensitive_permission behavior changed';
   END IF;
 
-  RAISE NOTICE 'PASS[175] rpc_remove_org_member live; create_role_from_template now audited; classifier search_path closed';
+  RAISE NOTICE 'PASS[175] active-membership and last-admin races closed; consumer RPCs live; permission helpers hardened';
 END
 $verify$;
 
