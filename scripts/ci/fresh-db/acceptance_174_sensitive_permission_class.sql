@@ -450,6 +450,96 @@ END;
 $$;
 RESET ROLE;
 
+-- 6j. Per-assignment expiry survives a whole-set replacement.
+--
+-- A replace states WHICH roles are held; it must not silently extend a
+-- time-boxed sensitive grant to permanent just because the caller omitted a
+-- payload-level expires_at. Fixture: give the member two roles, one of them
+-- time-limited, then replace the set with only the time-limited one and no
+-- expires_at in the payload.
+SELECT set_config('request.jwt.claim.sub', '99174174-0001-0001-0001-000000000001', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE
+  v_deadline timestamptz := now() + interval '30 days';
+  v_after    timestamptz;
+BEGIN
+  -- Seed: the member holds the controller role with an explicit deadline.
+  PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a',
+    'user_id', '99174174-0006-0006-0006-000000000006',
+    'role_ids', jsonb_build_array(
+      jsonb_build_object('role_id', '99174174-0000-0000-0000-000000000020',
+                         'expires_at', v_deadline))));
+
+  SELECT expires_at INTO v_after FROM public.user_roles
+   WHERE user_id = '99174174-0006-0006-0006-000000000006'
+     AND role_id = '99174174-0000-0000-0000-000000000020';
+  IF v_after IS NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-34]: per-role expires_at was not honoured on assignment';
+  END IF;
+
+  -- Replace the set again, omitting expires_at entirely.
+  PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a',
+    'user_id', '99174174-0006-0006-0006-000000000006',
+    'role_ids', jsonb_build_array('99174174-0000-0000-0000-000000000020')));
+
+  SELECT expires_at INTO v_after FROM public.user_roles
+   WHERE user_id = '99174174-0006-0006-0006-000000000006'
+     AND role_id = '99174174-0000-0000-0000-000000000020';
+  IF v_after IS NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-35]: a retained time-limited sensitive grant was silently made permanent';
+  END IF;
+
+  -- An explicit null must still be able to clear it deliberately.
+  PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+    'org_id', '99174174-a000-a000-a000-00000000000a',
+    'user_id', '99174174-0006-0006-0006-000000000006',
+    'role_ids', jsonb_build_array(
+      jsonb_build_object('role_id', '99174174-0000-0000-0000-000000000020',
+                         'expires_at', NULL))));
+
+  SELECT expires_at INTO v_after FROM public.user_roles
+   WHERE user_id = '99174174-0006-0006-0006-000000000006'
+     AND role_id = '99174174-0000-0000-0000-000000000020';
+  IF v_after IS NOT NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-36]: an explicit null expires_at did not clear the deadline';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
+-- 6k. A platform super admin who is NOT a member of the organization must
+--     still get a snapshot, because has_permission grants them the override
+--     independently of membership. The earlier fixture masked this by making
+--     the super admin a member; this user deliberately is not.
+INSERT INTO auth.users (id, email)
+VALUES ('99174174-0008-0008-0008-000000000008', 'p174-super-nonmember@example.test');
+INSERT INTO public.super_admins (user_id, email, is_active)
+VALUES ('99174174-0008-0008-0008-000000000008', 'p174-super-nonmember@example.test', true);
+
+SELECT set_config('request.jwt.claim.sub', '99174174-0008-0008-0008-000000000008', false);
+SET LOCAL ROLE authenticated;
+DO $$
+DECLARE v_res jsonb;
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.user_organizations
+              WHERE user_id = '99174174-0008-0008-0008-000000000008') THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FIXTURE_MISSING[174]: the non-member super admin is a member after all';
+  END IF;
+
+  v_res := public.rpc_permission_snapshot('99174174-a000-a000-a000-00000000000a');
+  IF NOT (v_res->>'is_super_admin')::boolean THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-37]: snapshot did not report super-admin status';
+  END IF;
+  IF NOT (v_res->'permission_keys' @> '"accounting.vouchers.unpost"'::jsonb) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[174-38]: super-admin snapshot omits a sensitive key';
+  END IF;
+END;
+$$;
+RESET ROLE;
+
 -- ---------------------------------------------------------------------------
 -- 7. Mutation proof: each 166-173 guarantee re-asserted as its own failure.
 -- ---------------------------------------------------------------------------

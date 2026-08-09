@@ -420,6 +420,8 @@ DECLARE
   v_bad       int;
   v_old       jsonb;
   v_sensitive text[];
+  v_existing_expiry jsonb;
+  v_requested jsonb;
 BEGIN
   IF v_org IS NULL OR v_user IS NULL THEN
     RAISE EXCEPTION 'RBAC_174_ORG_AND_USER_REQUIRED';
@@ -431,13 +433,48 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM public.user_organizations uo
     WHERE uo.user_id = v_user AND uo.org_id = v_org AND uo.is_active IS TRUE
+    FOR UPDATE
   ) THEN
     RAISE EXCEPTION 'RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER';
   END IF;
 
-  SELECT COALESCE(array_agg(DISTINCT rid::uuid), ARRAY[]::uuid[])
+  -- The `FOR UPDATE` above is not only a membership check: it takes a
+  -- transaction-scoped lock on the membership row, which is the stable parent
+  -- of this user's assignments in this org. Without it, two administrators
+  -- replacing the same user's roles concurrently can each delete a set the
+  -- other has not yet inserted and both commit, leaving the union of the two
+  -- requests rather than either one. Serializing on the membership row makes
+  -- "replace" actually mean replace.
+
+  -- Requested roles. Two accepted shapes, so a caller can express per-role
+  -- expiry without a second round-trip:
+  --   ["<role_id>", ...]
+  --   [{"role_id": "...", "expires_at": "..."}, ...]   (expires_at may be null)
+  -- Normalized in a local jsonb value rather than a temp table: an unqualified
+  -- temp-table name inside a SECURITY DEFINER function whose search_path puts
+  -- `public` first could be shadowed by a same-named table in public.
+  SELECT COALESCE(jsonb_agg(jsonb_build_object(
+           'role_id', rid, 'has_explicit', has_exp, 'expires_at', exp)), '[]'::jsonb)
+    INTO v_requested
+  FROM (
+    SELECT DISTINCT ON (rid) rid, has_exp, exp
+    FROM (
+      SELECT
+        CASE WHEN jsonb_typeof(elem) = 'object'
+             THEN NULLIF(elem->>'role_id','')::uuid
+             ELSE NULLIF(elem #>> '{}','')::uuid END AS rid,
+        CASE WHEN jsonb_typeof(elem) = 'object' AND elem ? 'expires_at'
+             THEN NULLIF(elem->>'expires_at','')::timestamptz END AS exp,
+        (jsonb_typeof(elem) = 'object' AND elem ? 'expires_at') AS has_exp
+      FROM jsonb_array_elements(COALESCE(p_payload->'role_ids','[]'::jsonb)) AS t(elem)
+    ) raw
+    WHERE rid IS NOT NULL
+    ORDER BY rid
+  ) s;
+
+  SELECT COALESCE(array_agg((elem->>'role_id')::uuid), ARRAY[]::uuid[])
     INTO v_role_ids
-  FROM jsonb_array_elements_text(COALESCE(p_payload->'role_ids','[]'::jsonb)) AS t(rid);
+  FROM jsonb_array_elements(v_requested) AS t(elem);
 
   -- Every role must belong to this organization.
   SELECT count(*) INTO v_bad
@@ -453,13 +490,35 @@ BEGIN
   FROM public.user_roles ur
   WHERE ur.user_id = v_user AND ur.org_id = v_org;
 
+  -- Capture the expiry of each CURRENT assignment before deleting, so a
+  -- retained role keeps its own deadline. Replacing the whole set is a
+  -- statement about WHICH roles are held, not a licence to quietly extend a
+  -- time-boxed one to permanent — which is exactly what a single payload-level
+  -- expires_at applied to every row would do when the caller omits it.
+  SELECT COALESCE(jsonb_object_agg(role_id::text, to_jsonb(expires_at)), '{}'::jsonb)
+    INTO v_existing_expiry
+  FROM (
+    SELECT ur.role_id, max(ur.expires_at) AS expires_at
+    FROM public.user_roles ur
+    WHERE ur.user_id = v_user AND ur.org_id = v_org
+    GROUP BY ur.role_id
+  ) cur;
+
   DELETE FROM public.user_roles WHERE user_id = v_user AND org_id = v_org;
 
-  IF array_length(v_role_ids, 1) IS NOT NULL THEN
-    INSERT INTO public.user_roles (user_id, role_id, org_id, assigned_by, expires_at)
-    SELECT v_user, rid, v_org, auth.uid(), v_expires
-    FROM unnest(v_role_ids) AS rid;
-  END IF;
+  INSERT INTO public.user_roles (user_id, role_id, org_id, assigned_by, expires_at)
+  SELECT v_user, (elem->>'role_id')::uuid, v_org, auth.uid(),
+         CASE
+           -- 1. An explicit per-role value always wins, including explicit null.
+           WHEN (elem->>'has_explicit')::boolean
+             THEN NULLIF(elem->>'expires_at','')::timestamptz
+           -- 2. A retained role keeps the deadline it already had.
+           WHEN v_existing_expiry ? (elem->>'role_id')
+             THEN (v_existing_expiry->>(elem->>'role_id'))::timestamptz
+           -- 3. Only genuinely new assignments take the payload-level default.
+           ELSE v_expires
+         END
+  FROM jsonb_array_elements(v_requested) AS t(elem);
 
   SELECT COALESCE(array_agg(DISTINCT p.permission_key), ARRAY[]::text[])
     INTO v_sensitive
@@ -560,13 +619,21 @@ BEGIN
   IF p_org_id IS NULL THEN
     RAISE EXCEPTION 'ORG_UNRESOLVED';
   END IF;
-  -- Membership guard: a snapshot is only ever about the caller, in an org
-  -- the caller actually belongs to.
-  PERFORM public.wardah_assert_org_member(p_org_id);
-
   SELECT EXISTS (SELECT 1 FROM public.super_admins sa
                   WHERE sa.user_id = v_uid AND sa.is_active = true)
     INTO v_is_super;
+
+  -- Membership guard: a snapshot is only ever about the caller, in an org the
+  -- caller belongs to — EXCEPT for a platform super admin, whose override in
+  -- has_permission() is deliberately independent of org membership. Asserting
+  -- membership first would make the snapshot contradict the very function it
+  -- exists to mirror, and would break the emergency-access path precisely when
+  -- it is needed: an incident responder who is not a member of the affected
+  -- organization. The super-admin check therefore runs first, and the guard
+  -- applies only to everyone else.
+  IF NOT v_is_super THEN
+    PERFORM public.wardah_assert_org_member(p_org_id);
+  END IF;
 
   SELECT EXISTS (SELECT 1 FROM public.user_organizations uo
                   WHERE uo.user_id = v_uid AND uo.org_id = p_org_id
