@@ -6,7 +6,7 @@
 
 ## 1. Purpose
 
-Pre-deployment verification of the (still undeployed) `reports-insights` Edge Function found that `has_permission(p_user_id, p_org_id, p_permission_key)`'s "ordinary role" branch — unchanged by Migration 170, which only added the caller-identity guard around it — matches not only an exact `permission_key`, but any `permission_key` sharing the same first dot-segment:
+Pre-deployment verification of the `reports-insights` Edge Function (undeployed *at that time* — it went live on 2026-08-08, after this migration was applied; see §7) found that `has_permission(p_user_id, p_org_id, p_permission_key)`'s "ordinary role" branch — unchanged by Migration 170, which only added the caller-identity guard around it — matches not only an exact `permission_key`, but any `permission_key` sharing the same first dot-segment:
 
 ```sql
 p.permission_key = p_permission_key
@@ -121,4 +121,16 @@ Never edit `supabase_migrations.schema_migrations` to remove this row, and never
 
 ## 7. Relationship to `reports-insights` deployment
 
-This migration is a **prerequisite** for deploying the `reports-insights` Edge Function (`verify_jwt=true`), per the repository's `repository-first` migration / `DB-first` interface ordering rule (`CLAUDE.md`). The Edge Function calls `has_permission(auth.uid(), org_id, 'reports.ai_insights.use')` to gate access before ever reaching the AI provider or the daily-quota RPC; without this fix, any role holding an unrelated `reports.*` permission would bypass that gate entirely. The function remains undeployed until: this migration is merged to `main`, applied to Production, and verified via the postflight queries in §5 above — after which the Edge Function deployment and its own agreed Production checks (401 without JWT, 403 without permission, 200 for an authorized user, immediate fallback on provider failure, 429 on quota) proceed as a separate, later step.
+This migration is a **prerequisite** for deploying the `reports-insights` Edge Function (`verify_jwt=true`), per the repository's `repository-first` migration / `DB-first` interface ordering rule (`CLAUDE.md`). The Edge Function calls `has_permission(auth.uid(), org_id, 'reports.ai_insights.use')` to gate access before ever reaching the AI provider or the daily-quota RPC; without this fix, any role holding an unrelated `reports.*` permission would bypass that gate entirely.
+
+**Prerequisite satisfied — the function is deployed.** The ordering held, verified read-only on 2026-08-09:
+
+| Step | When |
+|---|---|
+| Migration 172 merged to `main` (PR #109) | 2026-08-08 |
+| Applied to Production, ledger `20260808153737` | 2026-08-08 15:37:37 UTC |
+| `reports-insights` Edge Function deployed | 2026-08-08 15:55:45 UTC |
+
+The function is live on `uutfztmqvajmsxnrqeiv`: slug `reports-insights`, status `ACTIVE`, version 2, `verify_jwt = true` — deployed 18 minutes after the migration landed, not before it. Its own agreed Production checks (401 without JWT, 403 without permission, 200 for an authorized user, immediate fallback on provider failure, 429 on quota) belong to that deployment, not to this migration, and are not re-asserted here.
+
+Migration 173 later replaced the same function again (active-role requirement) without disturbing this gate; the exact-key predicate this migration introduced is still live — see `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §4.
