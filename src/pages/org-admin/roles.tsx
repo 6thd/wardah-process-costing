@@ -14,6 +14,12 @@ import {
 } from '@/services/org-admin-service';
 import { getSupabase } from '@/lib/supabase';
 import {
+  permissionIdsToKeys,
+  sensitiveAmong,
+  rbacErrorMessage,
+  buildUpsertRolePayload,
+} from './rbac-role-form';
+import {
   Card,
   CardContent,
   CardDescription,
@@ -64,6 +70,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+/**
+ * Migration 174 RPCs raise stable, greppable codes. Surfacing the raw Postgres
+ * message would show the caller an internal string; mapping keeps the cause
+ * legible while the code stays in the console for debugging.
+ */
 interface Permission {
   id: string;
   module_id: string;
@@ -121,6 +132,10 @@ export default function OrgAdminRoles() {
   const navigate = useNavigate();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
+  // Which keys are sensitive is a backend fact (Migration 174's central
+  // classifier), delivered through rpc_permission_snapshot. The client must not
+  // keep its own list — that is exactly the drift this work removes.
+  const [sensitiveKeys, setSensitiveKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   
@@ -277,6 +292,51 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }, []);
 
+  const refreshSnapshot = useCallback(async () => {
+    if (!currentOrgId) return;
+    const { data, error } = await getSupabase().rpc('rpc_permission_snapshot', {
+      p_org_id: currentOrgId,
+    });
+    if (error) {
+      console.error('permission snapshot failed', error);
+      return;
+    }
+    const snapshot = data as { sensitive_permission_keys?: string[] } | null;
+    const next = snapshot?.sensitive_permission_keys ?? [];
+    // Only update when the value actually changed. Writing a fresh array on
+    // every call re-renders for nothing — and, with a listener that can fire
+    // repeatedly, feeds itself.
+    setSensitiveKeys(prev =>
+      prev.length === next.length && prev.every((k, i) => k === next[i]) ? prev : next
+    );
+  }, [currentOrgId]);
+
+  useEffect(() => { void refreshSnapshot(); }, [refreshSnapshot]);
+
+  // The snapshot can go stale while the tab sits in the background — a grant or
+  // revocation made elsewhere must not leave this page acting on old state.
+  //
+  // visibilitychange, not window 'focus': 'focus' also fires when focus moves
+  // inside the page (a dialog opening and trapping focus, for one), which is
+  // not a staleness signal and would re-query on every interaction.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshSnapshot();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshSnapshot]);
+
+  const selectedPermissionKeys = useCallback(
+    (ids: string[]) => permissionIdsToKeys(modules, ids),
+    [modules]
+  );
+
+  const sensitiveSelected = useCallback(
+    (ids: string[]) => sensitiveAmong(permissionIdsToKeys(modules, ids), sensitiveKeys),
+    [modules, sensitiveKeys]
+  );
+
   async function handleSaveRole(e: FormEvent) {
     e.preventDefault();
     if (!currentOrgId) return;
@@ -288,109 +348,52 @@ export default function OrgAdminRoles() {
 
     setSaving(true);
     try {
-      const supabase = getSupabase();
+      // Migration 174: one atomic RPC replaces the previous
+      // update-then-delete-then-insert sequence, whose intermediate failures
+      // could leave a role with no permissions at all.
+      const { error } = await getSupabase().rpc('rpc_upsert_org_role', {
+        p_payload: buildUpsertRolePayload({
+          orgId: currentOrgId,
+          roleId: editingRole?.id ?? null,
+          name: formData.name,
+          nameAr: formData.name_ar,
+          description: formData.description,
+          permissionKeys: selectedPermissionKeys(formData.permission_ids),
+        }),
+      });
 
-      if (editingRole) {
-        // Update role
-        const { error: roleError } = await supabase
-          .from('roles')
-          .update({
-            name: formData.name || formData.name_ar,
-            name_ar: formData.name_ar,
-            description: formData.description,
-            description_ar: formData.description_ar,
-          })
-          .eq('id', editingRole.id);
+      if (error) throw error;
 
-        if (roleError) throw roleError;
-
-        // Delete existing permissions
-        await supabase
-          .from('role_permissions')
-          .delete()
-          .eq('role_id', editingRole.id);
-
-        // Add new permissions
-        if (formData.permission_ids.length > 0) {
-          const rolePerms = formData.permission_ids.map(permId => ({
-            role_id: editingRole.id,
-            permission_id: permId,
-          }));
-
-          await supabase.from('role_permissions').insert(rolePerms);
-        }
-
-        toast.success('تم تحديث الدور');
-      } else {
-        // Create new role
-        const { data: newRole, error: roleError } = await supabase
-          .from('roles')
-          .insert({
-            org_id: currentOrgId,
-            name: formData.name || formData.name_ar,
-            name_ar: formData.name_ar,
-            description: formData.description,
-            description_ar: formData.description_ar,
-            is_system_role: false,
-            is_active: true,
-          })
-          .select()
-          .single();
-
-        if (roleError) throw roleError;
-
-        // Add permissions
-        if (formData.permission_ids.length > 0) {
-          const rolePerms = formData.permission_ids.map(permId => ({
-            role_id: newRole.id,
-            permission_id: permId,
-          }));
-
-          await supabase.from('role_permissions').insert(rolePerms);
-        }
-
-        toast.success('تم إنشاء الدور');
-      }
+      toast.success(editingRole ? 'تم تحديث الدور' : 'تم إنشاء الدور');
 
       setDialogOpen(false);
       loadData();
+      await refreshSnapshot();
     } catch (error: any) {
       console.error('Error saving role:', error);
-      toast.error(error.message || 'فشل حفظ الدور');
+      toast.error(rbacErrorMessage(error));
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDeleteRole(roleId: string) {
+    if (!currentOrgId) return;
     try {
-      const supabase = getSupabase();
-
-      // Delete role permissions first
-      await supabase
-        .from('role_permissions')
-        .delete()
-        .eq('role_id', roleId);
-
-      // Delete user roles
-      await supabase
-        .from('user_roles')
-        .delete()
-        .eq('role_id', roleId);
-
-      // Delete role
-      const { error } = await supabase
-        .from('roles')
-        .delete()
-        .eq('id', roleId);
+      // The RPC refuses a role that users still hold, so deleting can no longer
+      // strip access from people as a side effect of a cascade.
+      const { error } = await getSupabase().rpc('rpc_delete_org_role', {
+        p_payload: { org_id: currentOrgId, role_id: roleId },
+      });
 
       if (error) throw error;
 
       setRoles(roles.filter(r => r.id !== roleId));
       toast.success('تم حذف الدور');
+      await refreshSnapshot();
     } catch (error: any) {
       console.error('Error deleting role:', error);
-      toast.error(error.message || 'فشل حذف الدور');
+      toast.error(rbacErrorMessage(error));
     }
   }
 
@@ -718,8 +721,9 @@ export default function OrgAdminRoles() {
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">الاسم بالعربية *</Label>
+                  <Label htmlFor="role-name-ar" className="text-muted-foreground">الاسم بالعربية *</Label>
                   <Input
+                    id="role-name-ar"
                     placeholder="مثال: محاسب"
                     value={formData.name_ar}
                     onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
@@ -727,8 +731,9 @@ export default function OrgAdminRoles() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">الاسم بالإنجليزية</Label>
+                  <Label htmlFor="role-name-en" className="text-muted-foreground">الاسم بالإنجليزية</Label>
                   <Input
+                    id="role-name-en"
                     placeholder="e.g. Accountant"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -852,6 +857,15 @@ export default function OrgAdminRoles() {
                                 <span className="text-sm text-muted-foreground">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
+                                {sensitiveKeys.includes(perm.permission_key) && (
+                                  <Badge
+                                    variant="destructive"
+                                    className="ms-2 text-[10px] px-1.5 py-0"
+                                    title="صلاحية حساسة: لا يمنحها دور مسؤول المؤسسة تلقائيًا، وتتطلب منحًا صريحًا عبر هذا الدور"
+                                  >
+                                    حساسة
+                                  </Badge>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -860,6 +874,33 @@ export default function OrgAdminRoles() {
                     );
                   })}
                 </div>
+              </div>
+              {/* Always mounted, toggled by CSS: conditionally inserting and
+                  removing this node inside the dialog re-entered React's render
+                  cycle (observed as "Maximum update depth exceeded"). Keeping
+                  the node stable and only changing its contents avoids that
+                  without weakening the warning. */}
+              <div
+                role="alert"
+                aria-live="polite"
+                className={
+                  sensitiveSelected(formData.permission_ids).length > 0
+                    ? 'rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm'
+                    : 'sr-only'
+                }
+              >
+                {sensitiveSelected(formData.permission_ids).length > 0 && (
+                  <>
+                    <strong className="block mb-1">هذا الدور يمنح صلاحيات حساسة</strong>
+                    هذه المفاتيح لا يمنحها دور مسؤول المؤسسة تلقائيًا؛ من يحمل هذا الدور
+                    يكتسبها صراحةً، ويُسجَّل ذلك في سجل التدقيق:
+                    <ul className="list-disc ps-5 mt-1">
+                      {sensitiveSelected(formData.permission_ids).map(key => (
+                        <li key={key}><code>{key}</code></li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
               </div>
             </div>
