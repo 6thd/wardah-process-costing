@@ -1,0 +1,115 @@
+name: RBAC Consumer 175 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql'
+      - 'sql/migrations/175_rbac_consumer_migration_rpcs.sql'
+      - '.github/workflows/rbac-consumer-175-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm Migration 175 adds the RPCs without disturbing 170-174
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through migration 175
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 175 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql \
+            2>&1 | tee /tmp/rbac-consumer-175.out
+          grep -q 'RBAC_CONSUMER_175_ACCEPTANCE_PASS' /tmp/rbac-consumer-175.out
+
+      - name: Re-run Migration 174 acceptance to confirm no regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_174_sensitive_permission_class.sql \
+            2>&1 | tee /tmp/sensitive-permission-174-rerun.out
+          grep -q 'SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS' /tmp/sensitive-permission-174-rerun.out
+
+      # A suite that cannot fail proves nothing. Build the same database WITHOUT
+      # migration 175 and show removeUserFromOrg's replacement did not exist
+      # before it: rpc_remove_org_member must be absent on a chain that stops
+      # at 174. The job fails if the pre-175 database can still call it.
+      - name: Red proof — rpc_remove_org_member does not exist before 175
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field BASELINE_PATH)" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field REFERENCE_PATH)" -q
+          grep -v '^175_' /tmp/chain_order.txt > /tmp/chain_red.txt
+          REPORT=/tmp/red_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_red.txt
+
+          EXISTS=$(psql -tA -v ON_ERROR_STOP=1 -d wardah_red -c \
+            "SELECT to_regprocedure('public.rpc_remove_org_member(jsonb)') IS NOT NULL;")
+          echo "rpc_remove_org_member exists pre-175: $EXISTS"
+          if [ "$EXISTS" != "f" ]; then
+            echo "RED PROOF FAILED: rpc_remove_org_member already existed before 175."
+            exit 1
+          fi
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbac-consumer-175-acceptance-${{ github.run_id }}
+          path: |
+            /tmp/rbac-consumer-175.out
+            /tmp/sensitive-permission-174-rerun.out
+            /tmp/chain_report.txt
+            /tmp/red_report.txt
+          retention-days: 30
