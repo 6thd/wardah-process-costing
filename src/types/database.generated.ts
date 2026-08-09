@@ -11154,6 +11154,7 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
       rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
       rpc_reset_customer_receipt_to_draft: {
         Args: { p_reason: string; p_receipt_id: string }
