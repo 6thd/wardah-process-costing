@@ -67,6 +67,10 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   **الدالة نفسها**، فالعقد الحي هو اتحادها لا آخرها؛ اقرأ هذا الملف قبل أي تعديل
   لاحق على `has_permission`. يتضمن الحالة الحية المتحقَّقة، وما لم تغيّره السلسلة
   عمدًا (تجاوز org admin — Issue #93).
+- `docs/db/SENSITIVE_PERMISSIONS_174_RUNBOOK.md` — 174: فئة الصلاحيات الحساسة عبر
+  مصنّف مركزي، وتضييق تجاوز org admin، وRPCs ذرية لإدارة الأدوار والتعيينات مع
+  `rpc_permission_snapshot` مصدرًا وحيدًا لقرارات الواجهة. يتضمن **المعاملة التشغيلية
+  الإلزامية قبل التطبيق** وترتيب Production السباعي.
 - `docs/db/TENANT_ISOLATION_170_RUNBOOK.md`، `docs/db/AI_USAGE_DAILY_171_RUNBOOK.md`،
   `docs/db/HAS_PERMISSION_172_RUNBOOK.md`، `docs/db/HAS_PERMISSION_173_RUNBOOK.md`
   — تفصيل كل migration على حدة.
@@ -157,9 +161,23 @@ PR #32 أضاف أو حسّن:
 المحاسبية الحساسة (`unpost`/`cancel`/`reverse`). ينطبق ذلك على `has_permission`
 و`wardah_has_exact_permission` معًا — الأخيرة «تامة» في المفتاح لا في التجاوز. ونتيجةً
 لذلك **عدّ صفوف `role_permissions` لا يقيس الصلاحية الفعلية**؛ الفحص الصحيح هو استدعاء
-دالة الصلاحية لكل مستخدم نشط. القرار المعماري مفتوح في Issue #93، ولا يُغيَّر السلوك قبل
-حسمه؛ وإذا اعتُمد استثناء المفاتيح الحساسة فيجب منح المسؤول الحالي الدور الجديد **قبل**
-تضييق التجاوز تفاديًا للـLockout.
+دالة الصلاحية لكل مستخدم نشط.
+
+**Migration 174 (في المستودع، غير مطبّقة على Production بعد)** تحسم Issue #93: مصنّف مركزي
+واحد `wardah_is_sensitive_permission(text)` — `IMMUTABLE STRICT`، مفتاحان فقط
+(`accounting.vouchers.unpost` و`accounting.vouchers.cancel`) — تستدعيه الدالتان معًا فلا
+تتباعدان. Super Admin يحتفظ بالتجاوز الكامل؛ Org Admin يحتفظ به لكل المفاتيح العادية
+وإدارة المستخدمين والأدوار، ويفقده للمفاتيح الحساسة فتحتاج منحًا صريحًا عبر دور نشط
+غير منتهٍ — ويجوز لمسؤول المؤسسة إنشاء الدور ومنحه لنفسه، فتتحول السلطة من تجاوز خفي
+إلى قرار صريح مُدقَّق في `audit_logs`. `accounting.vouchers.reverse` **غير موجود** حيًا ولا
+في المستودع، ولم يُضَف افتراضيًا. التفاصيل وترتيب النشر الإلزامي في
+`docs/db/SENSITIVE_PERMISSIONS_174_RUNBOOK.md`.
+
+**الـLockout ليس احتمالًا نظريًا هنا:** Super Admins = 0، وتعيينات الأدوار = 0، والمفتاحان
+ممنوحان لصفر دور — ودور `Full Access` لا يحتويهما (166 من 169). فإنشاء دور
+`Financial Controller` ومنحه المفتاحين وتعيينه للمسؤول الحالي وإثبات
+`via_explicit_grant = true` خطوات **تسبق** تطبيق 174، لا تتبعه. وهي بيانات org-scoped
+فمكانها معاملة تشغيلية موثقة، لا migration ولا Baseline.
 
 ## i18n
 
