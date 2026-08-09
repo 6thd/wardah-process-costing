@@ -262,9 +262,11 @@ wait "$demote_b_pid" || demote_b_status=$?
 wait "$demote_blocker_pid"
 
 demote_result=$(tr -d '\r' <"${tmp_prefix}-demote-a.out" | sed '/^[[:space:]]*$/d' | tail -1)
-if ! { [[ "$demote_result" == 't' && $demote_b_status -ne 0 ]] \
-       || [[ "$demote_result" == 'f' && $demote_b_status -eq 0 ]]; }; then
-  echo "RBAC_175_CONCURRENCY_FAIL: demote_result=$demote_result remove_status=$demote_b_status" >&2
+if [[ $demote_a_status -ne 0 ]] || ! {
+  [[ "$demote_result" == 't' && $demote_b_status -ne 0 ]] \
+    || [[ "$demote_result" == 'f' && $demote_b_status -eq 0 ]]
+}; then
+  echo "RBAC_175_CONCURRENCY_FAIL: demote_status=$demote_a_status demote_result=$demote_result remove_status=$demote_b_status" >&2
   cat "${tmp_prefix}-demote-a.err" "${tmp_prefix}-demote-b.err" >&2
   exit 1
 fi
@@ -300,4 +302,3 @@ fi
 printf 'RBAC_CONSUMER_175_CONCURRENCY_PASS assign_insert_status=%s mutual_remove=%s,%s demote=%s remove=%s\n' \
   "$assign_insert_status" "$remove_a_status" "$remove_b_status" \
   "$demote_result" "$demote_b_status"
-
