@@ -2,7 +2,9 @@
 
 **Migration:** `170_tenant_isolation_and_permission_hardening.sql`
 **Scope:** Fix a real cross-tenant RLS bypass, remove a default-organization fallback reachable by `anon`, and close a cross-user permission-disclosure path.
-**State:** Repository implementation, not yet applied to Production. Do not apply before the paired Fresh DB acceptance gate is green and this runbook's preflight/postflight queries have been reviewed.
+**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-06, ledger version `20260806043140`, name `170_tenant_isolation_and_permission_hardening`. Verified via the postflight queries in §5 run directly against the live database, and re-verified on 2026-08-09 (see §5.1).
+
+**Note on the gap between merge and apply:** this migration was merged to `main` in PR #98 well before it was actually applied to Production — the ledger had stalled at 169 with 170 sitting unapplied. Independent verification against the live database on 2026-08-06 confirmed all three original vulnerabilities were still fully live in Production for that entire window (self-referencing `physical_count_*` policies, `anon` holding SELECT+INSERT on the three manufacturing tables via the default-org fallback, `has_permission` with no caller-identity guard). A migration landing on `main` closes the gap in the repository, not in Production — the apply step is not optional follow-up, it is the fix. Do not treat a merged migration as resolved until this section (or the ledger itself) says otherwise.
 
 ## 1. Purpose
 
@@ -114,6 +116,24 @@ WHERE name = '170_tenant_isolation_and_permission_hardening';
 ```
 
 Expected: all 8 policy texts reference `user_organizations.org_id` and `is_active`; both `anon` grant checks `false` for all three tables; `delegates_correctly` and `no_dead_guc` both true; `has_guard` true; `has_function_privilege` true (unchanged, still callable — just self-scoped now); exactly one ledger row for 170.
+
+### 5.1 Re-verification on 2026-08-09
+
+After Production advanced to 173, the three closures above were re-checked read-only against the live database to prove that 171–173 did not regress any of them:
+
+```sql
+SELECT
+  (SELECT count(*) FROM pg_policies WHERE schemaname='public'
+     AND tablename IN ('physical_count_items','physical_count_sessions')) AS physical_count_policies,
+  (SELECT count(*) FROM pg_policies WHERE schemaname='public'
+     AND tablename IN ('physical_count_items','physical_count_sessions')
+     AND (qual LIKE '%physical_count_items%' OR qual LIKE '%physical_count_sessions%')) AS self_referencing_policies,
+  (SELECT count(*) FROM information_schema.role_table_grants
+     WHERE grantee='anon' AND table_schema='public'
+       AND table_name IN ('manufacturing_stages','stage_wip_log','standard_costs')) AS anon_grants_on_mfg;
+```
+
+Result: `physical_count_policies = 8`, `self_referencing_policies = 0`, `anon_grants_on_mfg = 0`. The `has_permission` caller-identity guard is also still present — see `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §4, which re-checks all three `has_permission` contracts (170 identity guard, 172 exact key, 173 active role) in one query.
 
 ## 6. Rollback
 
