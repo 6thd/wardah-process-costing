@@ -34,10 +34,11 @@
 --      direct-write function from org-admin-service.ts instead of the one
 --      in rbac-service.ts that correctly calls this RPC. The consumer PR
 --      fixes the import; this migration only adds the missing audit trail.
---   3. user_roles membership invariant — every INSERT/UPDATE must point at an
---      active membership; membership deletion/deactivation is refused while
---      role rows still exist. Direct writes and rpc_replace_user_roles take
---      locks in the same organization-then-membership order as removal.
+--   3. user_roles membership/write invariant — every INSERT must point at an
+--      active membership; every UPDATE is rejected before row locking and
+--      must use rpc_replace_user_roles; membership deletion/deactivation is
+--      refused while role rows still exist. INSERT, replacement, and removal
+--      take locks in the same organization-then-membership order.
 --   4. rpc_set_org_admin + rpc_remove_org_member — serialize the last-admin
 --      decision on the organization row and re-authorize after taking it.
 --   5. has_permission + wardah_has_exact_permission — explicit-role grants
@@ -66,11 +67,12 @@
 --     only the RBAC surface; widening their behavior (e.g. letting a
 --     non-member super admin pass) is a separate, cross-cutting change that
 --     deserves its own migration and review, not a rider on this one.
---   * No table grant is revoked here. authenticated keeps direct
---     INSERT/UPDATE/DELETE on roles, role_permissions and user_roles.
---     Invalid user_roles writes are nevertheless rejected by invariant
---     triggers; this deliberate narrowing is required before the consumer
---     migration window can be safe.
+--   * No table grant is revoked here. authenticated keeps its table-level
+--     INSERT/UPDATE/DELETE grants on roles, role_permissions and user_roles.
+--     At the user_roles database boundary, INSERT requires active membership
+--     and UPDATE is rejected entirely in favor of rpc_replace_user_roles.
+--     This deliberate behavioral narrowing is required before the consumer
+--     migration window can be safe and prevents inverse tuple/org lock order.
 --     That closure is Migration 176, applied only after the consumer PR has
 --     moved every real caller onto the RPC surface this migration and 174
 --     together provide, and the browser smoke has proven it end to end.
@@ -222,6 +224,24 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.wardah_175_require_active_role_membership() FROM PUBLIC, anon, authenticated, service_role;
 
+-- PostgreSQL locks a target tuple before a BEFORE ROW UPDATE trigger runs.
+-- Taking the organization lock from that row trigger therefore inverts the
+-- organization -> assignment order used by member removal. Reject UPDATE at
+-- statement level, before tuple locking, and require the ordered replacement
+-- RPC (whose 174 body uses DELETE + INSERT) for every assignment change.
+CREATE OR REPLACE FUNCTION public.wardah_175_reject_direct_role_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path TO 'pg_catalog', 'pg_temp'
+AS $function$
+BEGIN
+  RAISE EXCEPTION
+    'RBAC_175_DIRECT_USER_ROLES_UPDATE_FORBIDDEN_USE_RPC_REPLACE_USER_ROLES';
+END;
+$function$;
+
+REVOKE ALL ON FUNCTION public.wardah_175_reject_direct_role_update() FROM PUBLIC, anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.wardah_175_protect_role_membership_parent()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -261,9 +281,16 @@ REVOKE ALL ON FUNCTION public.wardah_175_protect_role_membership_parent() FROM P
 DROP TRIGGER IF EXISTS trg_wardah_175_require_active_role_membership
   ON public.user_roles;
 CREATE TRIGGER trg_wardah_175_require_active_role_membership
-BEFORE INSERT OR UPDATE ON public.user_roles
+BEFORE INSERT ON public.user_roles
 FOR EACH ROW
 EXECUTE FUNCTION public.wardah_175_require_active_role_membership();
+
+DROP TRIGGER IF EXISTS trg_wardah_175_reject_direct_role_update
+  ON public.user_roles;
+CREATE TRIGGER trg_wardah_175_reject_direct_role_update
+BEFORE UPDATE ON public.user_roles
+FOR EACH STATEMENT
+EXECUTE FUNCTION public.wardah_175_reject_direct_role_update();
 
 DROP TRIGGER IF EXISTS trg_wardah_175_protect_role_membership_parent
   ON public.user_organizations;
@@ -724,6 +751,7 @@ DECLARE
   v_has_permission_src text;
   v_exact_permission_src text;
   v_child_guard_src text;
+  v_update_guard_src text;
   v_template_src text;
   v_classifier_config text[];
 BEGIN
@@ -797,7 +825,24 @@ BEGIN
       AND t.tgname = 'trg_wardah_175_require_active_role_membership'
       AND t.tgenabled <> 'D'
       AND NOT t.tgisinternal
-      AND pg_get_triggerdef(t.oid) !~ 'UPDATE OF'
+      AND (t.tgtype & 1) = 1
+      AND (t.tgtype & 2) = 2
+      AND (t.tgtype & 4) = 4
+      AND (t.tgtype & 16) = 0
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'user_roles'
+      AND t.tgname = 'trg_wardah_175_reject_direct_role_update'
+      AND t.tgenabled <> 'D'
+      AND NOT t.tgisinternal
+      AND (t.tgtype & 1) = 0
+      AND (t.tgtype & 2) = 2
+      AND (t.tgtype & 4) = 0
+      AND (t.tgtype & 16) = 16
   ) OR NOT EXISTS (
     SELECT 1
     FROM pg_trigger t
@@ -809,12 +854,15 @@ BEGIN
       AND t.tgenabled <> 'D'
       AND NOT t.tgisinternal
   ) THEN
-    RAISE EXCEPTION 'FAIL[175] active-membership invariant triggers missing or disabled';
+    RAISE EXCEPTION 'FAIL[175] membership/update invariant triggers missing, malformed, or disabled';
   END IF;
 
   IF has_function_privilege('anon', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.wardah_175_require_active_role_membership()', 'EXECUTE')
+     OR has_function_privilege('anon', 'public.wardah_175_reject_direct_role_update()', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.wardah_175_reject_direct_role_update()', 'EXECUTE')
+     OR has_function_privilege('service_role', 'public.wardah_175_reject_direct_role_update()', 'EXECUTE')
      OR has_function_privilege('anon', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE')
      OR has_function_privilege('authenticated', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE')
      OR has_function_privilege('service_role', 'public.wardah_175_protect_role_membership_parent()', 'EXECUTE') THEN
@@ -830,6 +878,14 @@ BEGIN
      OR v_child_guard_src !~ 'user_organizations uo'
      OR v_child_guard_src !~ 'FOR UPDATE' THEN
     RAISE EXCEPTION 'FAIL[175] assignment trigger lock order is not org then membership';
+  END IF;
+
+  SELECT prosrc INTO v_update_guard_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'wardah_175_reject_direct_role_update';
+  IF v_update_guard_src !~ 'RBAC_175_DIRECT_USER_ROLES_UPDATE_FORBIDDEN_USE_RPC_REPLACE_USER_ROLES' THEN
+    RAISE EXCEPTION 'FAIL[175] direct user_roles UPDATE guard marker is missing';
   END IF;
 
   IF EXISTS (
@@ -885,7 +941,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL[175] wardah_is_sensitive_permission behavior changed';
   END IF;
 
-  RAISE NOTICE 'PASS[175] active-membership and last-admin races closed; consumer RPCs live; permission helpers hardened';
+  RAISE NOTICE 'PASS[175] membership, last-admin, and direct-update races closed; consumer RPCs live; permission helpers hardened';
 END
 $verify$;
 

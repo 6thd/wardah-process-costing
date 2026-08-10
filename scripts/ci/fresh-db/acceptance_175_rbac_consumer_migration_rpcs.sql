@@ -1,8 +1,9 @@
 -- Acceptance for Migration 175.
 --
 -- Proves, behaviourally:
---   (1) user_roles can only point at active memberships and membership
---       deletion/deactivation cannot strand assignments.
+--   (1) user_roles INSERT can only point at active memberships; every UPDATE
+--       is rejected at statement level in favor of rpc_replace_user_roles;
+--       membership deletion/deactivation cannot strand assignments.
 --   (2) explicit-role authorization requires active membership.
 --   (3) rpc_remove_org_member: org-admin guard, self-removal guard, last-admin
 --       guard, atomic removal of roles + membership, audit row with a full
@@ -81,11 +82,40 @@ BEGIN
     SET user_id = '99175175-0006-0006-0006-000000000006'
     WHERE user_id = '99175175-0003-0003-0003-000000000003'
       AND org_id = '99175175-a000-a000-a000-00000000000a';
-    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2]: assignment moved to an inactive member';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2]: direct key UPDATE was accepted';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
-    IF SQLERRM NOT LIKE '%RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_DIRECT_USER_ROLES_UPDATE_FORBIDDEN_USE_RPC_REPLACE_USER_ROLES%' THEN RAISE; END IF;
   END;
+
+  -- A statement trigger must reject even an UPDATE that matches no rows. This
+  -- proves the guard runs before PostgreSQL can lock a user_roles tuple.
+  BEGIN
+    UPDATE public.user_roles
+    SET expires_at = expires_at
+    WHERE false;
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2b]: zero-row direct UPDATE bypassed the statement guard';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_DIRECT_USER_ROLES_UPDATE_FORBIDDEN_USE_RPC_REPLACE_USER_ROLES%' THEN RAISE; END IF;
+  END;
+
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'user_roles'
+      AND t.tgname = 'trg_wardah_175_reject_direct_role_update'
+      AND t.tgenabled <> 'D'
+      AND NOT t.tgisinternal
+      AND (t.tgtype & 1) = 0
+      AND (t.tgtype & 2) = 2
+      AND (t.tgtype & 16) = 16
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2c]: UPDATE guard is not an enabled BEFORE STATEMENT trigger';
+  END IF;
 
   BEGIN
     UPDATE public.user_organizations
@@ -127,10 +157,10 @@ BEGIN
     SET expires_at = now() + interval '1 day'
     WHERE user_id = '99175175-0003-0003-0003-000000000003'
       AND org_id = '99175175-a000-a000-a000-00000000000a';
-    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I5]: non-key UPDATE bypassed active-membership validation';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I5]: non-key direct UPDATE was accepted';
   EXCEPTION WHEN OTHERS THEN
     IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
-    IF SQLERRM NOT LIKE '%RBAC_175_ACTIVE_MEMBERSHIP_REQUIRED%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_DIRECT_USER_ROLES_UPDATE_FORBIDDEN_USE_RPC_REPLACE_USER_ROLES%' THEN RAISE; END IF;
   END;
 END;
 $$;
@@ -466,10 +496,11 @@ BEGIN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M6b]: internal replace implementation is externally callable';
   END IF;
 
-  -- No table grant has been touched: authenticated still has direct write
-  -- access. Invalid writes are now narrowed by triggers; grant revocation is
-  -- still Migration 176.
+  -- No table grant has been touched: authenticated still has table-level
+  -- write grants. user_roles UPDATE is behaviorally blocked by a statement
+  -- trigger; grant revocation remains Migration 176.
   IF NOT has_table_privilege('authenticated', 'public.user_roles', 'INSERT')
+     OR NOT has_table_privilege('authenticated', 'public.user_roles', 'UPDATE')
      OR NOT has_table_privilege('authenticated', 'public.roles', 'INSERT') THEN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-M7]: 175 revoked a table grant it must not touch';
   END IF;

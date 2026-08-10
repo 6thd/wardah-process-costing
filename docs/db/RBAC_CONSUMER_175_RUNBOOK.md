@@ -5,12 +5,14 @@
 audited RPC surface for role and assignment management, but a follow-up audit
 of every production TS/TSX file writing to `roles`, `role_permissions` or
 `user_roles` found the client did not fully move onto it (§1). This migration
-adds the RPC surface the client needs and closes two database races discovered
+adds the RPC surface the client needs and closes three database races discovered
 during review.
 **State:** Repository implementation, **not yet applied to Production**.
-No privilege revocation and no table grant change. Invalid assignments are,
-however, deliberately narrowed at the database boundary. Apply DB-first only
-after the read-only data preflight in §4 succeeds.
+No privilege revocation and no table grant change. Assignment behavior is,
+however, deliberately narrowed at the database boundary: INSERT requires an
+active membership and every direct UPDATE is rejected in favor of
+`rpc_replace_user_roles`. Apply DB-first only after the read-only data
+preflight in §4 succeeds.
 
 ## 1. The verified gap
 
@@ -39,7 +41,7 @@ all before this migration.
 
 | Change | Detail |
 |---|---|
-| Active-membership boundary | A `BEFORE INSERT/UPDATE` trigger on `user_roles` locks and requires the matching active `user_organizations` row. A parent-side trigger refuses deleting, moving, or deactivating a membership while role rows remain. This covers RPCs and the still-permitted direct writes during the 175→176 deployment window. |
+| Assignment boundary | A `BEFORE INSERT FOR EACH ROW` trigger on `user_roles` takes organization→membership locks and requires the matching active membership. A `BEFORE UPDATE FOR EACH STATEMENT` trigger rejects every UPDATE before PostgreSQL locks a child tuple, requiring `rpc_replace_user_roles`. A parent-side trigger refuses deleting, moving, or deactivating a membership while role rows remain. This prevents both orphan grants and the inverse tuple→organization lock order during the 175→176 deployment window. |
 | `rpc_replace_user_roles(jsonb)` lock wrapper | The 174 body is renamed to a non-callable internal function without changing it. The public function keeps the same signature/result, takes the organization lock first, then delegates to the 174 body, which locks membership and preserves every replace/expiry/audit rule. This gives assignments and removals the same lock order. |
 | Permission defense in depth | The explicit-role branches of both `has_permission` and `wardah_has_exact_permission` now join an active membership. Even deliberately corrupted legacy data cannot authorize a user whose membership is inactive or absent. |
 | `rpc_set_org_admin(...)` | Same signature and JSON contract. It now shares an organization-row `FOR UPDATE` lock with member removal, re-authorizes the caller after the lock, and applies `LAST_ORG_ADMIN` only when the target is currently an active admin. |
@@ -68,10 +70,12 @@ all before this migration.
   including the caller-must-be-a-member-first ordering. Widening either is a
   cross-cutting change that deserves its own migration and review, not a
   rider on this one.
-- **No table grant is revoked.** `authenticated` keeps direct
-  `INSERT`/`UPDATE`/`DELETE` on `roles`, `role_permissions` and `user_roles`.
-  Direct `user_roles` writes must now satisfy active membership, and a
-  membership with assignments must clear them before deletion/deactivation.
+- **No table grant is revoked.** `authenticated` keeps the table-level
+  `INSERT`/`UPDATE`/`DELETE` grants on `roles`, `role_permissions` and
+  `user_roles`. At runtime, direct `user_roles` INSERT must satisfy active
+  membership and all UPDATE statements are rejected before tuple locking;
+  assignment changes must use `rpc_replace_user_roles`. A membership with
+  assignments must clear them before deletion/deactivation.
   That closure is **Migration 176**, applied only after the consumer PR has
   moved every real caller onto the RPC surface this migration and 174
   together provide, and the real browser smoke on the deployed UI has proven
@@ -92,7 +96,9 @@ scripts/ci/fresh-db/acceptance_175_rbac_concurrency.sh
 Markers: `RBAC_CONSUMER_175_ACCEPTANCE_PASS` and
 `RBAC_CONSUMER_175_CONCURRENCY_PASS`. Coverage:
 
-1. **Database invariant** (`175-I1…I8`) — inactive-member INSERT/UPDATE and
+1. **Database invariant** (`175-I1…I8`) — inactive-member INSERT is rejected;
+   key, non-key, and zero-row UPDATE statements all fail with the exact RPC
+   redirect marker; the UPDATE trigger is proven to be `BEFORE STATEMENT`;
    parent deletion/deactivation are rejected; both permission helpers deny a
    deliberately injected inactive-member grant; the wrapped 174 replace
    contract remains live with its internal implementation inaccessible.
@@ -120,10 +126,13 @@ Markers: `RBAC_CONSUMER_175_ACCEPTANCE_PASS` and
 7. **Cross-org template creation rejected** (`175-6`).
 8. **Mutation proof** (`175-M1…M7`) — every 170–174 guarantee re-asserted
    plus the new grants, plus an explicit check that no table grant changed.
-9. **Three real multi-session races** — direct assignment versus removal; two
-   admins removing each other; demotion versus removal. Each uses independent
-   PostgreSQL connections queued behind the exact row lock under test and
-   proves one active admin and zero orphan assignments at completion.
+9. **Four real multi-session races** — direct INSERT versus removal; two admins
+   removing each other; demotion versus removal; and direct UPDATE versus
+   removal. The fourth queues removal first on the organization lock, then
+   proves UPDATE hits the statement guard instead of taking the assignment
+   tuple and recreating the inverse-lock deadlock. All use independent
+   PostgreSQL connections and prove one active admin and zero orphan
+   assignments at completion.
 10. **Preflight red proof** — a pre-175 database is deliberately seeded with
     an inactive-member assignment; applying 175 must fail with the exact
     preflight marker and commit none of its object changes.
@@ -136,7 +145,7 @@ Execute on a fresh **PostgreSQL 17** cluster and retain the CI artifacts:
 |---|---|
 | Baseline + chain through 175 | `PASS=14 FAIL=0 NOT_RUN=0 TOTAL=14` |
 | `acceptance_175` | `RBAC_CONSUMER_175_ACCEPTANCE_PASS` |
-| Three two-connection races | `RBAC_CONSUMER_175_CONCURRENCY_PASS` |
+| Four multi-session races | `RBAC_CONSUMER_175_CONCURRENCY_PASS` |
 | `acceptance_174` re-run on the 175 database | `SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS` (no regression) |
 | **Red proof** — chain built with every `175_*.sql` file excluded | `to_regprocedure('public.rpc_remove_org_member(jsonb)') IS NOT NULL` → `f` |
 | **Preflight red proof** | inactive-member assignment rejects 175 with `RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT` |
@@ -153,8 +162,9 @@ Both red proofs are CI steps, not manual notes.
 
 ## 4. Production order
 
-No privilege is revoked, but the active-membership invariant intentionally
-narrows invalid writes. Run this read-only query against Production first:
+No privilege is revoked, but the assignment boundary intentionally narrows
+writes and makes `rpc_replace_user_roles` the only UPDATE mechanism. Run this
+read-only query against Production first:
 
 ```sql
 SELECT ur.user_id, ur.org_id, ur.role_id, uo.is_active
@@ -199,8 +209,18 @@ JOIN pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public'
   AND t.tgname IN (
     'trg_wardah_175_require_active_role_membership',
+    'trg_wardah_175_reject_direct_role_update',
     'trg_wardah_175_protect_role_membership_parent');
--- Expect two enabled rows.
+-- Expect three enabled rows.
+
+SELECT pg_get_triggerdef(t.oid) AS update_guard
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relname = 'user_roles'
+  AND t.tgname = 'trg_wardah_175_reject_direct_role_update';
+-- Expect BEFORE UPDATE ... FOR EACH STATEMENT.
 
 SELECT proname,
        prosrc ~ 'user_organizations uo' AS joins_membership,
@@ -234,13 +254,15 @@ direct RBAC-table mutation in `src/`.
 
 Migration 176 — the direct-write revocation on `roles`, `role_permissions`,
 `user_roles` — is applied only after the consumer PR is live and the browser
-smoke against the deployed UI has passed. Until then `authenticated` keeps
-both paths: the RPCs are sanctioned, not yet exclusive.
+smoke against the deployed UI has passed. Until then the table grants remain,
+but assignment UPDATE is already RPC-exclusive at the behavioral boundary;
+176 closes the remaining direct-write privilege surface.
 
 ## 5. Rollback
 
 No table grant changed and all public RPC signatures remain stable, but 175
-adds two invariant triggers and replaces authorization/admin function bodies.
+adds three invariant/write triggers and replaces authorization/admin function
+bodies.
 Per the golden rule, use a new numbered forward-fix migration if rollback is
 required; never edit an applied 175 or remove its ledger row.
 
