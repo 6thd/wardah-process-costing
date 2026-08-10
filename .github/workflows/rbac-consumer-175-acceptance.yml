@@ -113,7 +113,7 @@ jobs:
             exit 1
           fi
 
-          # A pre-existing assignment without an active membership must stop
+          # A pre-existing assignment without any matching membership must stop
           # 175 before any object change is committed. This is remediation by
           # explicit operator choice, never silent deletion by a migration.
           psql -v ON_ERROR_STOP=1 -d wardah_red -q <<'SQL'
@@ -121,13 +121,6 @@ jobs:
           VALUES ('99175175-dead-dead-dead-000000000001', 'p175-preflight-red@example.test');
           INSERT INTO public.organizations (id, name, code)
           VALUES ('99175175-dead-dead-dead-000000000002', 'P175 Preflight Red', 'P175-RED');
-          INSERT INTO public.user_organizations
-            (user_id, org_id, is_active, is_org_admin)
-          VALUES (
-            '99175175-dead-dead-dead-000000000001',
-            '99175175-dead-dead-dead-000000000002',
-            false,
-            false);
           INSERT INTO public.roles (id, org_id, name, name_ar, is_active)
           VALUES (
             '99175175-dead-dead-dead-000000000003',
@@ -149,7 +142,7 @@ jobs:
           PREFLIGHT_STATUS=$?
           set -e
           if [ "$PREFLIGHT_STATUS" -eq 0 ]; then
-            echo 'RED PROOF FAILED: 175 accepted an inactive-member assignment.'
+            echo 'RED PROOF FAILED: 175 accepted an orphan assignment.'
             exit 1
           fi
           grep -q 'RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT' \

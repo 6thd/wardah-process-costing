@@ -3,7 +3,8 @@
 -- Proves, behaviourally:
 --   (1) user_roles INSERT can only point at active memberships; every UPDATE
 --       is rejected at statement level in favor of rpc_replace_user_roles;
---       membership deletion/deactivation cannot strand assignments.
+--       membership deletion/movement cannot strand assignments, while
+--       reversible deactivation preserves but suppresses assignments.
 --   (2) explicit-role authorization requires active membership.
 --   (3) rpc_remove_org_member: org-admin guard, self-removal guard, last-admin
 --       guard, atomic removal of roles + membership, audit row with a full
@@ -117,16 +118,22 @@ BEGIN
     RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I2c]: UPDATE guard is not an enabled BEFORE STATEMENT trigger';
   END IF;
 
-  BEGIN
-    UPDATE public.user_organizations
-    SET is_active = false
+  UPDATE public.user_organizations
+  SET is_active = false
+  WHERE user_id = '99175175-0003-0003-0003-000000000003'
+    AND org_id = '99175175-a000-a000-a000-00000000000a';
+  IF NOT EXISTS (
+    SELECT 1 FROM public.user_organizations
     WHERE user_id = '99175175-0003-0003-0003-000000000003'
-      AND org_id = '99175175-a000-a000-a000-00000000000a';
-    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I3]: membership deactivated while roles remained';
-  EXCEPTION WHEN OTHERS THEN
-    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
-    IF SQLERRM NOT LIKE '%RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS%' THEN RAISE; END IF;
-  END;
+      AND org_id = '99175175-a000-a000-a000-00000000000a'
+      AND is_active IS FALSE
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a'
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I3]: deactivation did not preserve membership and assignments';
+  END IF;
 
   BEGIN
     DELETE FROM public.user_organizations
@@ -137,19 +144,22 @@ BEGIN
     IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
     IF SQLERRM NOT LIKE '%RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS%' THEN RAISE; END IF;
   END;
+
+  BEGIN
+    UPDATE public.user_organizations
+    SET org_id = '99175175-b000-b000-b000-00000000000b'
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a';
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I4b]: membership moved while roles remained';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_175_MEMBERSHIP_HAS_ROLE_ASSIGNMENTS%' THEN RAISE; END IF;
+  END;
 END;
 $$;
 
--- Defense-in-depth proof: emulate legacy invalid data by temporarily disabling
--- only the new parent guard. Both authorization helpers must still deny the
--- explicit role while the membership is inactive.
-ALTER TABLE public.user_organizations
-  DISABLE TRIGGER trg_wardah_175_protect_role_membership_parent;
-UPDATE public.user_organizations
-SET is_active = false
-WHERE user_id = '99175175-0003-0003-0003-000000000003'
-  AND org_id = '99175175-a000-a000-a000-00000000000a';
-
+-- Defense-in-depth proof: the role remains stored after the supported direct
+-- status toggle, but both authorization helpers must deny it while inactive.
 DO $$
 BEGIN
   BEGIN
@@ -194,8 +204,30 @@ UPDATE public.user_organizations
 SET is_active = true
 WHERE user_id = '99175175-0003-0003-0003-000000000003'
   AND org_id = '99175175-a000-a000-a000-00000000000a';
-ALTER TABLE public.user_organizations
-  ENABLE TRIGGER trg_wardah_175_protect_role_membership_parent;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM public.user_organizations
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a'
+      AND is_active IS TRUE
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.user_roles
+    WHERE user_id = '99175175-0003-0003-0003-000000000003'
+      AND org_id = '99175175-a000-a000-a000-00000000000a'
+  ) OR NOT public.has_permission(
+    '99175175-0003-0003-0003-000000000003',
+    '99175175-a000-a000-a000-00000000000a',
+    'accounting.entries.approve'
+  ) OR NOT public.wardah_has_exact_permission(
+    '99175175-0003-0003-0003-000000000003',
+    '99175175-a000-a000-a000-00000000000a',
+    'accounting.entries.approve'
+  ) THEN
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I7b]: reactivation did not restore the preserved assignment';
+  END IF;
+END;
+$$;
 
 -- The public 174 contract remains callable through the new organization-first
 -- wrapper, while its renamed implementation is no longer an API surface.

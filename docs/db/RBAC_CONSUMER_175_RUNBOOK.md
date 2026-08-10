@@ -41,14 +41,14 @@ all before this migration.
 
 | Change | Detail |
 |---|---|
-| Assignment boundary | A `BEFORE INSERT FOR EACH ROW` trigger on `user_roles` takes organization→membership locks and requires the matching active membership. A `BEFORE UPDATE FOR EACH STATEMENT` trigger rejects every UPDATE before PostgreSQL locks a child tuple, requiring `rpc_replace_user_roles`. A parent-side trigger refuses deleting, moving, or deactivating a membership while role rows remain. This prevents both orphan grants and the inverse tuple→organization lock order during the 175→176 deployment window. |
+| Assignment boundary | A `BEFORE INSERT FOR EACH ROW` trigger on `user_roles` takes organization→membership locks and requires the matching active membership. A `BEFORE UPDATE FOR EACH STATEMENT` trigger rejects every UPDATE before PostgreSQL locks a child tuple, requiring `rpc_replace_user_roles`. A parent-side trigger refuses deleting or moving a membership while role rows remain. Reversible deactivation is deliberately allowed: assignments stay stored, while both permission helpers suppress them until reactivation. This preserves the live `toggleUserStatus()` flow without allowing inactive access, orphan grants, or the inverse tuple→organization lock order. |
 | `rpc_replace_user_roles(jsonb)` lock wrapper | The 174 body is renamed to a non-callable internal function without changing it. The public function preserves 174's pre-authorization parsing and combined org/user required-field error, takes the organization lock first, then delegates to the 174 body, which locks membership and preserves every replace/expiry/audit rule. This gives assignments and removals the same lock order without changing validation/error ordering. |
 | Permission defense in depth | The explicit-role branches of both `has_permission` and `wardah_has_exact_permission` now join an active membership. Even deliberately corrupted legacy data cannot authorize a user whose membership is inactive or absent. |
 | `rpc_set_org_admin(...)` | Same signature and JSON contract. It now shares an organization-row `FOR UPDATE` lock with member removal, re-authorizes the caller after the lock, and applies `LAST_ORG_ADMIN` only when the target is currently an active admin. |
 | `rpc_remove_org_member(jsonb)` | **New.** Atomic, audited replacement for `removeUserFromOrg()`'s two-step client sequence. `{org_id, user_id}` payload. Guarded by `wardah_assert_org_admin`. Refuses self-removal (`RBAC_175_CANNOT_REMOVE_SELF`) and removing the last active admin (`RBAC_175_LAST_ORG_ADMIN`). It takes the shared organization lock, re-authorizes, locks the membership row, deletes `user_roles` then `user_organizations`, and writes the full pre-removal snapshot to `audit_logs`. |
 | `create_role_from_template(...)` | `CREATE OR REPLACE`, identical signature and return type (`uuid`), every prior statement byte-for-byte unchanged. Adds one `audit_logs` INSERT recording the granted permission keys and flagging any sensitive ones. The consumer PR repoints `roles.tsx`'s import to the already-correct function in `rbac-service.ts`; this migration's only job is to make that function's audit trail complete once it is actually called. |
 | `wardah_is_sensitive_permission(text)` | `CREATE OR REPLACE`, adds `SET search_path = ''`. The body is a pure literal comparison with no table or unqualified-name reference, so this changes nothing about its output for any input (re-asserted in postflight for all four relevant cases including `NULL`). Closes the "Function Search Path Mutable" advisory. |
-| Preflight | Fails closed with `RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT` if any assignment lacks a matching active membership. The two RBAC tables are locked against DML between this check and trigger installation. |
+| Preflight | Fails closed with `RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT` if any assignment lacks a matching membership row. Inactive memberships with retained assignments are valid and safe because authorization requires `is_active = true`. The two RBAC tables are locked against DML between this check and trigger installation. |
 | Grants | `rpc_remove_org_member`: `REVOKE ALL FROM PUBLIC, anon, service_role`; `GRANT EXECUTE TO authenticated`. Existing `rpc_set_org_admin` grants are reasserted. No table grant changes. |
 
 ### 2.1 What this migration deliberately does not do
@@ -75,7 +75,8 @@ all before this migration.
   `user_roles`. At runtime, direct `user_roles` INSERT must satisfy active
   membership and all UPDATE statements are rejected before tuple locking;
   assignment changes must use `rpc_replace_user_roles`. A membership with
-  assignments must clear them before deletion/deactivation.
+  assignments must clear them before deletion or identity/org movement;
+  status deactivation remains reversible and retains the assignments.
   That closure is **Migration 176**, applied only after the consumer PR has
   moved every real caller onto the RPC surface this migration and 174
   together provide, and the real browser smoke on the deployed UI has proven
@@ -99,8 +100,9 @@ Markers: `RBAC_CONSUMER_175_ACCEPTANCE_PASS` and
 1. **Database invariant** (`175-I1…I8`) — inactive-member INSERT is rejected;
    key, non-key, and zero-row UPDATE statements all fail with the exact RPC
    redirect marker; the UPDATE trigger is proven to be `BEFORE STATEMENT`;
-   parent deletion/deactivation are rejected; both permission helpers deny a
-   deliberately injected inactive-member grant; the wrapped 174 replace
+   parent deletion/movement are rejected; direct deactivation/reactivation
+   preserves assignments while both permission helpers deny them during the
+   inactive period; the wrapped 174 replace
    contract remains live with its internal implementation inaccessible, and
    missing/invalid user plus invalid expiry inputs retain 174's validation
    order before authorization.
@@ -136,7 +138,7 @@ Markers: `RBAC_CONSUMER_175_ACCEPTANCE_PASS` and
    PostgreSQL connections and prove one active admin and zero orphan
    assignments at completion.
 10. **Preflight red proof** — a pre-175 database is deliberately seeded with
-    an inactive-member assignment; applying 175 must fail with the exact
+    an assignment that has no matching membership row; applying 175 must fail with the exact
     preflight marker and commit none of its object changes.
 
 ### 3.1 Verification required before merge
@@ -150,7 +152,7 @@ Execute on a fresh **PostgreSQL 17** cluster and retain the CI artifacts:
 | Four multi-session races | `RBAC_CONSUMER_175_CONCURRENCY_PASS` |
 | `acceptance_174` re-run on the 175 database | `SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS` (no regression) |
 | **Red proof** — chain built with every `175_*.sql` file excluded | `to_regprocedure('public.rpc_remove_org_member(jsonb)') IS NOT NULL` → `f` |
-| **Preflight red proof** | inactive-member assignment rejects 175 with `RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT` |
+| **Preflight red proof** | orphan assignment rejects 175 with `RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT` |
 
 Every embedded shell block in `.github/workflows/rbac-consumer-175-acceptance.yml`
 was checked with `bash -n`; the YAML was parsed with `yaml.safe_load`. The
@@ -174,7 +176,7 @@ FROM public.user_roles ur
 LEFT JOIN public.user_organizations uo
   ON uo.user_id = ur.user_id
  AND uo.org_id = ur.org_id
-WHERE uo.user_id IS NULL OR uo.is_active IS NOT TRUE;
+WHERE uo.user_id IS NULL;
 -- Expect zero rows. Stop and remediate explicitly if any row is returned.
 ```
 

@@ -393,13 +393,12 @@ FROM public.user_roles ur
 LEFT JOIN public.user_organizations uo
   ON uo.user_id = ur.user_id
  AND uo.org_id = ur.org_id
- AND uo.is_active IS TRUE
 WHERE ur.org_id IN ('$org_assign', '$org_remove', '$org_demote', '$org_update')
   AND uo.user_id IS NULL;
 SQL
 )
 if [[ "$orphan_count" != '0' ]]; then
-  echo "RBAC_175_CONCURRENCY_FAIL: orphan/inactive assignments=$orphan_count" >&2
+  echo "RBAC_175_CONCURRENCY_FAIL: orphan assignments=$orphan_count" >&2
   exit 1
 fi
 

@@ -36,8 +36,10 @@
 --      fixes the import; this migration only adds the missing audit trail.
 --   3. user_roles membership/write invariant — every INSERT must point at an
 --      active membership; every UPDATE is rejected before row locking and
---      must use rpc_replace_user_roles; membership deletion/deactivation is
---      refused while role rows still exist. INSERT, replacement, and removal
+--      must use rpc_replace_user_roles; membership deletion or identity/org
+--      movement is refused while role rows still exist. Deactivation remains
+--      reversible and preserves assignments, while permission helpers make
+--      them ineffective until reactivation. INSERT, replacement, and removal
 --      take locks in the same organization-then-membership order.
 --   4. rpc_set_org_admin + rpc_remove_org_member — serialize the last-admin
 --      decision on the organization row and re-authorize after taking it.
@@ -129,7 +131,6 @@ BEGIN
     LEFT JOIN public.user_organizations uo
       ON uo.user_id = ur.user_id
      AND uo.org_id = ur.org_id
-     AND uo.is_active IS TRUE
     WHERE uo.user_id IS NULL
   ) THEN
     RAISE EXCEPTION 'RBAC_175_INVALID_USER_ROLE_MEMBERSHIP_PREFLIGHT';
@@ -190,8 +191,10 @@ REVOKE ALL ON FUNCTION public.rpc_replace_user_roles(jsonb) FROM PUBLIC, anon, s
 GRANT EXECUTE ON FUNCTION public.rpc_replace_user_roles(jsonb) TO authenticated;
 
 -- ---------------------------------------------------------------------------
--- 2. Database-boundary invariant: a role assignment exists only while the
---    corresponding membership is active.
+-- 2. Database-boundary invariant: a new role assignment requires an active
+--    membership. Existing assignments may remain while a membership is
+--    inactive so the live reversible toggle keeps working; both permission
+--    helpers below suppress those assignments until reactivation.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.wardah_175_require_active_role_membership()
 RETURNS trigger
@@ -262,8 +265,7 @@ BEGIN
   ELSE
     v_invalidates_membership :=
       OLD.user_id IS DISTINCT FROM NEW.user_id
-      OR OLD.org_id IS DISTINCT FROM NEW.org_id
-      OR (OLD.is_active IS TRUE AND NEW.is_active IS NOT TRUE);
+      OR OLD.org_id IS DISTINCT FROM NEW.org_id;
   END IF;
 
   IF v_invalidates_membership AND EXISTS (
@@ -758,6 +760,7 @@ DECLARE
   v_exact_permission_src text;
   v_child_guard_src text;
   v_update_guard_src text;
+  v_parent_guard_src text;
   v_template_src text;
   v_classifier_config text[];
 BEGIN
@@ -894,16 +897,25 @@ BEGIN
     RAISE EXCEPTION 'FAIL[175] direct user_roles UPDATE guard marker is missing';
   END IF;
 
+  SELECT prosrc INTO v_parent_guard_src
+  FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+  WHERE n.nspname = 'public'
+    AND p.proname = 'wardah_175_protect_role_membership_parent';
+  IF v_parent_guard_src !~ 'OLD\.user_id'
+     OR v_parent_guard_src !~ 'OLD\.org_id'
+     OR v_parent_guard_src ~ 'OLD\.is_active' THEN
+    RAISE EXCEPTION 'FAIL[175] parent guard must block orphaning moves/deletes but allow reversible deactivation';
+  END IF;
+
   IF EXISTS (
     SELECT 1
     FROM public.user_roles ur
     LEFT JOIN public.user_organizations uo
       ON uo.user_id = ur.user_id
      AND uo.org_id = ur.org_id
-     AND uo.is_active IS TRUE
     WHERE uo.user_id IS NULL
   ) THEN
-    RAISE EXCEPTION 'FAIL[175] orphan or inactive-member assignment remains';
+    RAISE EXCEPTION 'FAIL[175] orphan assignment remains';
   END IF;
 
   SELECT prosrc INTO v_has_permission_src
