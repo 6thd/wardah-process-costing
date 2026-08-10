@@ -215,6 +215,49 @@ END;
 $$;
 RESET ROLE;
 
+-- The organization-first wrapper must preserve 174's validation order before
+-- authorization. Use a caller with no authority in Org A so these assertions
+-- would expose any premature wardah_assert_org_admin call.
+SELECT set_config('request.jwt.claim.sub', '99175175-0005-0005-0005-000000000005', false);
+SET LOCAL ROLE authenticated;
+DO $$
+BEGIN
+  BEGIN
+    PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+      'org_id', '99175175-a000-a000-a000-00000000000a',
+      'role_ids', '[]'::jsonb));
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I8a]: missing user_id reached authorization';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLERRM NOT LIKE '%RBAC_174_ORG_AND_USER_REQUIRED%' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+      'org_id', '99175175-a000-a000-a000-00000000000a',
+      'user_id', 'not-a-uuid',
+      'role_ids', '[]'::jsonb));
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I8b]: invalid user_id reached authorization';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLSTATE <> '22P02' THEN RAISE; END IF;
+  END;
+
+  BEGIN
+    PERFORM public.rpc_replace_user_roles(jsonb_build_object(
+      'org_id', '99175175-a000-a000-a000-00000000000a',
+      'user_id', '99175175-0003-0003-0003-000000000003',
+      'expires_at', 'not-a-timestamp',
+      'role_ids', '[]'::jsonb));
+    RAISE EXCEPTION 'ACCEPTANCE_FAIL[175-I8c]: invalid expires_at reached authorization';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE 'ACCEPTANCE_FAIL%' THEN RAISE; END IF;
+    IF SQLSTATE <> '22007' THEN RAISE; END IF;
+  END;
+END;
+$$;
+RESET ROLE;
+
 -- A role template for create_role_from_template, with one sensitive key.
 INSERT INTO public.role_templates (id, name, name_ar, description, description_ar, permission_keys, is_active)
 VALUES (

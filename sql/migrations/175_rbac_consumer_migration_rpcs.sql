@@ -156,9 +156,15 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  v_org uuid := NULLIF(p_payload->>'org_id','')::uuid;
+  -- Preserve 174's pre-authorization payload-validation order. These three
+  -- casts originally ran before wardah_assert_org_admin; moving only v_org
+  -- into the wrapper would turn a missing/invalid user (or invalid expiry)
+  -- into an authorization result for callers outside the organization.
+  v_org     uuid := NULLIF(p_payload->>'org_id','')::uuid;
+  v_user    uuid := NULLIF(p_payload->>'user_id','')::uuid;
+  v_expires timestamptz := NULLIF(p_payload->>'expires_at','')::timestamptz;
 BEGIN
-  IF v_org IS NULL THEN
+  IF v_org IS NULL OR v_user IS NULL THEN
     RAISE EXCEPTION 'RBAC_174_ORG_AND_USER_REQUIRED';
   END IF;
 
