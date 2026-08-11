@@ -74,6 +74,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/TENANT_ISOLATION_170_RUNBOOK.md`، `docs/db/AI_USAGE_DAILY_171_RUNBOOK.md`،
   `docs/db/HAS_PERMISSION_172_RUNBOOK.md`، `docs/db/HAS_PERMISSION_173_RUNBOOK.md`
   — تفصيل كل migration على حدة.
+- `docs/db/RBAC_CONSUMER_175_RUNBOOK.md` — **Migration 175 (في المستودع، غير
+  مطبّقة على Production بعد)**: لا تسحب منح الجداول، لكنها ترفض تعيين دور بلا
+  عضوية نشطة عند حدّ قاعدة البيانات، وتغلق سباق آخر مسؤول بقفل مشترك على صف
+  المؤسسة. تضيف `rpc_remove_org_member` الذرية المدقَّقة، وتحصّن فرعي المنح
+  الصريحة في دالتي الصلاحيات، وتُلحق سجل تدقيق بـ`create_role_from_template`.
+  **تُطبّق 175 أولًا DB-first بعد نجاح preflight**، ثم تأتي PR المستهلك التي
+  تعيد توجيه `users.tsx` و`roles.tsx` إلى الـRPCs. سحب الكتابة المباشرة نفسه
+  مؤجَّل لـMigration 176 بعد نجاح Browser Smoke الفعلي على الواجهة المنشورة.
 
 ## Baseline
 

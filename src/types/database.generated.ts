@@ -11154,6 +11154,7 @@ export type Database = {
         }
         Returns: string
       }
+      rpc_remove_org_member: { Args: { p_payload: Json }; Returns: Json }
       rpc_replace_user_roles: { Args: { p_payload: Json }; Returns: Json }
       rpc_reset_customer_receipt_to_draft: {
         Args: { p_reason: string; p_receipt_id: string }
@@ -11632,6 +11633,10 @@ export type Database = {
         Returns: Json
       }
       wardah_169_leave_write_context: { Args: never; Returns: undefined }
+      wardah_175_internal_replace_user_roles: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       wardah_apply_stock_incoming: {
         Args: {
           p_org: string
