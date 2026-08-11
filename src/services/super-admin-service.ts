@@ -374,24 +374,6 @@ async function createOrgWithUser(
 
     if (linkError) throw linkError;
 
-    // 4. Get org_admin role and assign it
-    const { data: adminRole } = await supabase
-      .from('roles')
-      .select('id')
-      .eq('org_id', org.id)
-      .eq('name', 'org_admin')
-      .single();
-
-    if (adminRole) {
-      await supabase
-        .from('user_roles')
-        .insert({
-          user_id: userId,
-          role_id: adminRole.id,
-          org_id: org.id,
-        });
-    }
-
     return { success: true, organization: org };
   } catch (error: any) {
     console.error('Error in createOrgWithUser:', error);
@@ -559,4 +541,3 @@ export const superAdminService = {
 };
 
 export default superAdminService;
-

@@ -34,8 +34,7 @@ vi.mock('@/lib/supabase', () => ({
 
 vi.mock('@/services/org-admin-service', () => ({
   getOrgRolesWithStats: vi.fn(),
-  getRoleTemplates: vi.fn(),
-  createRoleFromTemplate: vi.fn()
+  getRoleTemplates: vi.fn()
 }));
 
 // Helper Types

@@ -19,6 +19,7 @@ import {
   createRole,
   updateRolePermissions,
   deleteRole,
+  createRoleFromTemplate,
   replaceUserRoles,
   getPermissionSnapshot,
 } from '../rbac-service';
@@ -107,6 +108,30 @@ describe('deleteRole', () => {
     const res = await deleteRole(ROLE, ORG);
     expect(res.success).toBe(false);
     expect(res.error).toContain('RBAC_174_ROLE_STILL_ASSIGNED');
+  });
+});
+
+describe('createRoleFromTemplate', () => {
+  it('uses the audited server function instead of writing roles in the client', async () => {
+    rpcMock.mockResolvedValue({ data: ROLE, error: null });
+
+    const res = await createRoleFromTemplate(ORG, 'template-1', 'Controller');
+
+    expect(rpcMock).toHaveBeenCalledWith('create_role_from_template', {
+      p_org_id: ORG,
+      p_template_id: 'template-1',
+      p_custom_name: 'Controller',
+    });
+    expect(res).toEqual({ success: true, roleId: ROLE });
+  });
+
+  it('surfaces a rejected template call', async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { message: 'Template not found' } });
+
+    const res = await createRoleFromTemplate(ORG, 'missing');
+
+    expect(res.success).toBe(false);
+    expect(res.error).toContain('Template not found');
   });
 });
 
