@@ -38,7 +38,6 @@ vi.mock('@/services/org-admin-service', () => ({
     },
   ]),
   getRoleTemplates: vi.fn(async () => []),
-  createRoleFromTemplate: vi.fn(),
 }));
 
 import OrgAdminRoles from '../roles';

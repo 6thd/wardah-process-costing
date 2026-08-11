@@ -91,6 +91,7 @@ import {
   setUserAsOrgAdmin,
   toggleUserStatus,
   removeUserFromOrg,
+  updateUserRoles,
   type OrgUser,
   type OrgRole,
   type Invitation,
@@ -256,25 +257,69 @@ describe('Org Admin Service', () => {
   });
 
   describe('removeUserFromOrg', () => {
-    it('should remove user and their roles', async () => {
-      await removeUserFromOrg('user-1', 'org-1');
+    it('removes membership and roles through the atomic Migration 175 RPC', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: { user_id: 'user-1', org_id: 'org-1', removed_role_count: 2 },
+        error: null,
+      });
 
-      expect(mockFrom).toHaveBeenCalledWith('user_roles');
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
-      expect(mockDelete).toHaveBeenCalled();
+      const result = await removeUserFromOrg('user-1', 'org-1');
+
+      expect(mockRpc).toHaveBeenCalledWith('rpc_remove_org_member', {
+        p_payload: { org_id: 'org-1', user_id: 'user-1' },
+      });
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
+      expect(mockFrom).not.toHaveBeenCalledWith('user_organizations');
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
 
-    it('should handle deletion error', async () => {
-      mockDelete.mockImplementationOnce(() => ({
-        eq: () => ({
-          eq: () => ({ error: new Error('Delete failed') }),
-        }),
-      }));
+    it('surfaces a server-side removal guard', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: null,
+        error: { message: 'RBAC_175_LAST_ORG_ADMIN' },
+      });
 
-      await removeUserFromOrg('user-1', 'org-1');
+      const result = await removeUserFromOrg('user-1', 'org-1');
 
-      // Should handle error gracefully
-      expect(mockFrom).toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('RBAC_175_LAST_ORG_ADMIN');
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateUserRoles', () => {
+    it('replaces the complete role set through rpc_replace_user_roles', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: { role_count: 2, sensitive_keys_granted: [] },
+        error: null,
+      });
+
+      const result = await updateUserRoles('user-1', 'org-1', ['role-1', 'role-2']);
+
+      expect(mockRpc).toHaveBeenCalledWith('rpc_replace_user_roles', {
+        p_payload: {
+          org_id: 'org-1',
+          user_id: 'user-1',
+          role_ids: ['role-1', 'role-2'],
+          expires_at: null,
+        },
+      });
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
+      expect(result.success).toBe(true);
+    });
+
+    it('does not report success when the replacement RPC rejects the request', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: null,
+        error: { message: 'RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER' },
+      });
+
+      const result = await updateUserRoles('user-1', 'org-1', ['role-1']);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER');
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
     });
   });
 

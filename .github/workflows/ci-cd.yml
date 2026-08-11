@@ -59,6 +59,9 @@ jobs:
           fi
           echo "✅ src/types/database.generated.ts موجود (${LINES} سطر)"
 
+      - name: Enforce audited RBAC write boundary
+        run: node scripts/ci/check-rbac-direct-writes.mjs
+
       - name: TypeScript type check
         id: typecheck
         run: |

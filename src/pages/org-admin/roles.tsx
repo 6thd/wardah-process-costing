@@ -9,9 +9,9 @@ import {
   getOrgRolesWithStats, 
   OrgRole, 
   getRoleTemplates, 
-  createRoleFromTemplate, 
   RoleTemplate 
 } from '@/services/org-admin-service';
+import { createRoleFromTemplate } from '@/services/rbac-service';
 import { getSupabase } from '@/lib/supabase';
 import {
   permissionIdsToKeys,
@@ -932,4 +932,3 @@ export default function OrgAdminRoles() {
     </div>
   );
 }
-
