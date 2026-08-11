@@ -167,6 +167,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
     // محاولة جلب الأدوار (اختياري - قد لا يوجد الجدول)
     const userIds = (data || []).map(u => u.user_id);
     const rolesMap = new Map<string, OrgRole[]>();
+    const profilesMap = new Map<string, OrgUser['user_profile'] & { email?: string }>();
     
     if (userIds.length > 0) {
       try {
@@ -194,12 +195,31 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
       } catch (rolesError) {
         console.warn('Could not fetch user roles:', rolesError);
       }
+
+      try {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('user_id, full_name, full_name_ar, phone, avatar_url, preferred_language, last_login_at, email')
+          .in('user_id', userIds);
+
+        if (profilesError) throw profilesError;
+        (profiles || []).forEach(profile => profilesMap.set(profile.user_id, profile));
+      } catch (profilesError) {
+        // Memberships and roles remain usable even if optional profile metadata
+        // is unavailable; the Users page will fall back to its generic labels.
+        console.warn('Could not fetch user profiles:', profilesError);
+      }
     }
 
-    return (data || []).map(user => ({
-      ...user,
-      roles: rolesMap.get(user.user_id) || [],
-    }));
+    return (data || []).map(user => {
+      const profile = profilesMap.get(user.user_id);
+      return {
+        ...user,
+        user_profile: profile,
+        email: profile?.email,
+        roles: rolesMap.get(user.user_id) || [],
+      };
+    });
   } catch (error) {
     console.error('Error fetching org users:', error);
     return [];

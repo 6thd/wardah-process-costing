@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  permissionKeys: new Set<string>(),
+}))
+
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermissionKey: (key: string) => mocks.permissionKeys.has(key),
+  }),
 }))
 
 vi.mock('sonner', () => ({
@@ -61,6 +68,13 @@ const draftReceipt = {
   ],
 }
 
+const postedReceipt = {
+  ...draftReceipt,
+  id: 'receipt-2',
+  receipt_number: 'CR-202607-00002',
+  status: 'posted',
+}
+
 const paymentAccounts = [
   {
     id: 'cash-1',
@@ -94,6 +108,7 @@ function openSelect(trigger: HTMLElement) {
 describe('CustomerReceipts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.permissionKeys.clear()
     mocks.getAllCustomerReceipts.mockResolvedValue({ success: true, data: [draftReceipt] })
     mocks.postCustomerReceipt.mockResolvedValue({ success: true })
     mocks.getCustomers.mockResolvedValue([{ id: 'customer-1', name: 'عميل اختبار' }])
@@ -112,6 +127,30 @@ describe('CustomerReceipts', () => {
       ],
     })
     mocks.createCustomerReceipt.mockResolvedValue({ success: true, data: { id: 'receipt-2' } })
+  })
+
+  it('shows sensitive voucher controls only when the exact backend keys are granted', async () => {
+    mocks.getAllCustomerReceipts.mockResolvedValue({
+      success: true,
+      data: [draftReceipt, postedReceipt],
+    })
+
+    const { unmount } = renderReceipts()
+    await screen.findByText('CR-202607-00001')
+    expect(screen.queryByRole('button', { name: /إلغاء سند/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.cancel')
+    const cancelOnly = renderReceipts()
+    expect(await screen.findByRole('button', { name: 'إلغاء سند CR-202607-00001' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    cancelOnly.unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.unpost')
+    renderReceipts()
+    expect(await screen.findByRole('button', { name: 'إلغاء سند CR-202607-00001' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'إعادة سند CR-202607-00002 إلى مسودة' })).toBeInTheDocument()
   })
 
   it('uses collection_date in the list and details, then posts the draft receipt', async () => {

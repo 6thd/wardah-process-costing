@@ -22,6 +22,10 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({ hasPermissionKey: () => false }),
+}))
+
 vi.mock('@/services/payment-vouchers-service', () => ({ ...mocks }))
 
 vi.mock('@/services/supabase-service', () => ({

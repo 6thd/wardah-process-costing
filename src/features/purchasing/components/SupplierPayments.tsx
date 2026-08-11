@@ -49,9 +49,16 @@ import {
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { vendorsService } from '@/services/supabase-service'
+import { usePermissions } from '@/hooks/usePermissions'
+
+const CANCEL_PERMISSION = 'accounting.vouchers.cancel'
+const UNPOST_PERMISSION = 'accounting.vouchers.unpost'
 
 export function SupplierPayments() {
   const { t, i18n } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canCancelVoucher = hasPermissionKey(CANCEL_PERMISSION)
+  const canUnpostVoucher = hasPermissionKey(UNPOST_PERMISSION)
   const isRTL = i18n.language === 'ar'
   const [payments, setPayments] = useState<SupplierPayment[]>([])
   const [loading, setLoading] = useState(true)
@@ -235,19 +242,23 @@ export function SupplierPayments() {
                               <Button size="sm" variant="outline" onClick={() => setEditingPayment(payment)}>
                                 تعديل
                               </Button>
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                onClick={() => payment.id && setPendingAction({ kind: 'cancel', voucherId: payment.id })}
-                              >
-                                إلغاء
-                              </Button>
+                              {canCancelVoucher && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  aria-label={`إلغاء سند ${payment.payment_number}`}
+                                  onClick={() => payment.id && setPendingAction({ kind: 'cancel', voucherId: payment.id })}
+                                >
+                                  إلغاء
+                                </Button>
+                              )}
                             </>
                           )}
-                          {payment.status === 'posted' && (
+                          {payment.status === 'posted' && canUnpostVoucher && (
                             <Button
                               size="sm"
                               variant="outline"
+                              aria-label={`إعادة سند ${payment.payment_number} إلى مسودة`}
                               onClick={() => payment.id && setPendingAction({ kind: 'reset', voucherId: payment.id })}
                             >
                               إعادة إلى مسودة

@@ -43,6 +43,10 @@ import { accountMatchesMethod as sharedAccountMatchesMethod } from '@/services/v
 import { VoucherAllocationsForm } from '@/components/vouchers/VoucherAllocationsForm'
 import { VoucherReasonActionDialog, type VoucherReasonAction } from '@/components/vouchers/VoucherReasonActionDialog'
 import { customersService } from '@/services/supabase-service'
+import { usePermissions } from '@/hooks/usePermissions'
+
+const CANCEL_PERMISSION = 'accounting.vouchers.cancel'
+const UNPOST_PERMISSION = 'accounting.vouchers.unpost'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
 type PaymentAccount = {
@@ -63,6 +67,9 @@ function accountMatchesMethod(account: PaymentAccount | undefined, method: Payme
 }
 
 export function CustomerReceipts() {
+  const { hasPermissionKey } = usePermissions()
+  const canCancelVoucher = hasPermissionKey(CANCEL_PERMISSION)
+  const canUnpostVoucher = hasPermissionKey(UNPOST_PERMISSION)
   const [receipts, setReceipts] = useState<CustomerReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -210,11 +217,27 @@ export function CustomerReceipts() {
                             <>
                               <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
                               <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
-                              <Button size="sm" variant="destructive" onClick={() => receipt.id && setPendingAction({ kind: 'cancel', voucherId: receipt.id })}>إلغاء</Button>
+                              {canCancelVoucher && (
+                                <Button
+                                  size="sm"
+                                  variant="destructive"
+                                  aria-label={`إلغاء سند ${receipt.receipt_number}`}
+                                  onClick={() => receipt.id && setPendingAction({ kind: 'cancel', voucherId: receipt.id })}
+                                >
+                                  إلغاء
+                                </Button>
+                              )}
                             </>
                           )}
-                          {receipt.status === 'posted' && (
-                            <Button size="sm" variant="outline" onClick={() => receipt.id && setPendingAction({ kind: 'reset', voucherId: receipt.id })}>إعادة إلى مسودة</Button>
+                          {receipt.status === 'posted' && canUnpostVoucher && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              aria-label={`إعادة سند ${receipt.receipt_number} إلى مسودة`}
+                              onClick={() => receipt.id && setPendingAction({ kind: 'reset', voucherId: receipt.id })}
+                            >
+                              إعادة إلى مسودة
+                            </Button>
                           )}
                           <Button size="sm" variant="ghost" onClick={() => setSelectedReceipt(receipt)}>عرض</Button>
                         </div>

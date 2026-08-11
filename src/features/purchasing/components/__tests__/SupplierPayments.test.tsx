@@ -10,6 +10,13 @@ const mocks = vi.hoisted(() => ({
   cancelSupplierPayment: vi.fn(),
   createSupplierPayment: vi.fn(),
   getPaymentAccounts: vi.fn(),
+  permissionKeys: new Set<string>(),
+}))
+
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermissionKey: (key: string) => mocks.permissionKeys.has(key),
+  }),
 }))
 
 vi.mock('@/services/payment-vouchers-service', () => ({
@@ -29,6 +36,7 @@ import { SupplierPayments } from '../SupplierPayments'
 describe('SupplierPayments', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.permissionKeys.clear()
     mocks.getAllSupplierPayments.mockResolvedValue({
       success: true,
       data: [{
@@ -44,6 +52,39 @@ describe('SupplierPayments', () => {
       }],
     })
     mocks.getSupplierOutstandingInvoices.mockResolvedValue({ success: true, data: [] })
+  })
+
+  it('gates cancel and unpost controls on their exact sensitive keys', async () => {
+    mocks.getAllSupplierPayments.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 'payment-1', payment_number: 'SP-DRAFT', vendor_id: 'vendor-1',
+          payment_date: '2026-08-02', amount: 125, payment_method: 'cash', status: 'draft',
+        },
+        {
+          id: 'payment-2', payment_number: 'SP-POSTED', vendor_id: 'vendor-1',
+          payment_date: '2026-08-02', amount: 125, payment_method: 'cash', status: 'posted',
+        },
+      ],
+    })
+
+    const initial = render(<SupplierPayments />)
+    await screen.findByText('SP-DRAFT')
+    expect(screen.queryByRole('button', { name: /إلغاء سند/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    initial.unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.cancel')
+    const cancelOnly = render(<SupplierPayments />)
+    expect(await screen.findByRole('button', { name: 'إلغاء سند SP-DRAFT' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    cancelOnly.unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.unpost')
+    render(<SupplierPayments />)
+    expect(await screen.findByRole('button', { name: 'إلغاء سند SP-DRAFT' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'إعادة سند SP-POSTED إلى مسودة' })).toBeInTheDocument()
   })
 
   it('opens allocation editing for a draft without losing its existing invoice', async () => {
