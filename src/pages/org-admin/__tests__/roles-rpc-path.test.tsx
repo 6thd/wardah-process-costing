@@ -9,6 +9,7 @@
 // write, which is what it used to do.
 
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const rpcMock = vi.fn();
@@ -109,13 +110,42 @@ describe('roles page — Migration 174 RPC path', () => {
     await waitFor(() => expect(screen.getAllByText('حساسة').length).toBeGreaterThan(0));
   });
 
-  // The save and warning paths are covered as pure logic in
-  // __tests__/rbac-error-message.test.ts (permissionIdsToKeys, sensitiveAmong,
-  // buildUpsertRolePayload). Driving them through a mounted Radix dialog here
-  // re-entered React's render cycle in jsdom; the page itself is fine — that was
-  // reproduced and fixed by keeping the warning node mounted rather than
-  // inserting it conditionally — but the harness remains unreliable for those
-  // two interactions, so they are asserted where they can be asserted honestly.
+  it('toggles a permission row without re-entering the render cycle', async () => {
+    const user = userEvent.setup();
+    await renderPage();
+    await user.click(screen.getByText('دور جديد'));
+    await user.click(await screen.findByText('المحاسبة'));
+
+    const permissionRow = screen.getByRole('button', { name: /القيود - اعتماد/ });
+    await user.click(permissionRow);
+
+    expect(screen.getByText('1 محددة')).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'إنشاء دور جديد' })).toBeInTheDocument();
+  });
+
+  it('lets an org admin explicitly include a sensitive key in a role RPC', async () => {
+    const user = userEvent.setup();
+    await renderPage();
+    await user.click(screen.getByText('دور جديد'));
+    await user.type(screen.getByLabelText('الاسم بالعربية *'), 'مدقق السندات');
+    await user.click(await screen.findByText('المحاسبة'));
+    await user.click(screen.getByRole('button', { name: /السندات - إلغاء ترحيل/ }));
+    await user.click(screen.getByRole('button', { name: 'إنشاء الدور' }));
+
+    await waitFor(() => {
+      expect(rpcMock).toHaveBeenCalledWith('rpc_upsert_org_role', {
+        p_payload: expect.objectContaining({
+          org_id: 'org-1',
+          permission_keys: [SENSITIVE],
+        }),
+      });
+    });
+  });
+
+  // Payload/error helpers remain covered separately in
+  // __tests__/rbac-error-message.test.ts. The mounted interaction above is
+  // intentional: the deployed browser smoke caught a real Maximum update depth
+  // failure that pure helper tests could never observe.
 
   it('surfaces the RPC refusal when a role is still assigned, in readable form', async () => {
     rpcMock.mockImplementation(async (fn: string) => {

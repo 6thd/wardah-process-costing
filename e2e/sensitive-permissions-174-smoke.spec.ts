@@ -234,7 +234,7 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
       await page.locator('#role-name-ar').fill(roleName);
       // The target account needs the ordinary sales module grant to reach the
       // real voucher screen. Sensitive authority is still deliberately absent.
-      await togglePermission(page, /المبيعات/, /المبيعات\s*-\s*عرض/);
+      await togglePermission(page, /المبيعات/, /المقبوضات\s*-\s*عرض/);
       await saveRole(page);
       own.claimRole(roleName);
       await expect(page.getByText(roleName).first()).toBeVisible();

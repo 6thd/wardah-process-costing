@@ -11,7 +11,8 @@ import {
   Users,
   ShoppingCart,
   Clock,
-  BarChart3
+  BarChart3,
+  type LucideIcon,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -24,6 +25,75 @@ import {
   type DashboardData,
   type OperationalCounts,
 } from '@/services/dashboard-data-service'
+import { usePermissions } from '@/hooks/usePermissions'
+
+interface DashboardQuickAction {
+  href: string
+  label: string
+  icon: LucideIcon
+  iconClass: string
+  permissionKey?: string
+  moduleCode?: string
+}
+
+const DASHBOARD_QUICK_ACTIONS: DashboardQuickAction[] = [
+  {
+    href: '/manufacturing/orders',
+    label: 'أمر تصنيع جديد',
+    icon: Factory,
+    iconClass: 'text-primary',
+    permissionKey: 'manufacturing.orders.create',
+  },
+  {
+    href: '/purchasing/orders',
+    label: 'أمر شراء جديد',
+    icon: ShoppingCart,
+    iconClass: 'text-primary',
+    permissionKey: 'purchasing.purchase_orders.create',
+  },
+  {
+    href: '/sales/invoices',
+    label: 'فاتورة مبيعات',
+    icon: DollarSign,
+    iconClass: 'text-primary',
+    permissionKey: 'sales.sales_invoices.create',
+  },
+  {
+    href: '/inventory/adjustments',
+    label: 'تسوية مخزون',
+    icon: Package,
+    iconClass: 'text-primary',
+    permissionKey: 'inventory.adjustments.create',
+  },
+  {
+    href: '/inventory/items',
+    label: 'إضافة صنف جديد',
+    icon: Package,
+    iconClass: 'text-success',
+    permissionKey: 'inventory.items.create',
+  },
+  {
+    href: '/sales/customers',
+    label: 'عميل جديد',
+    icon: Users,
+    iconClass: 'text-info',
+    permissionKey: 'sales.customers.create',
+  },
+  {
+    href: '/purchasing/suppliers',
+    label: 'مورد جديد',
+    icon: ShoppingCart,
+    iconClass: 'text-warning',
+    permissionKey: 'purchasing.suppliers.create',
+  },
+  {
+    href: '/reports/analytics',
+    label: 'تقرير تحليلي',
+    icon: BarChart3,
+    iconClass: 'text-secondary',
+    moduleCode: 'reports',
+  },
+]
 
 interface RecentInvoice {
   id: string
@@ -59,6 +129,7 @@ function TrendLine({ growth }: { readonly growth: number | null }) {
 
 export function DashboardOverview() {
   const { t, i18n } = useTranslation()
+  const { hasModuleAccess, hasPermissionKey } = usePermissions()
   const isRTL = i18n.language === 'ar'
 
   const [data, setData] = useState<DashboardData | null>(null)
@@ -105,6 +176,16 @@ export function DashboardOverview() {
   const profitSeries = charts.revenue.map((r, i) => r - charts.costs[i])
   const profitGrowth = monthOverMonthGrowth(profitSeries)
   const recentInvoices = (data.recentTransactions ?? []) as RecentInvoice[]
+  const canSeeManufacturing = hasModuleAccess('manufacturing')
+  const canSeeInventory = hasModuleAccess('inventory')
+  const canSeePurchasing = hasModuleAccess('purchasing')
+  const canSeeSales = hasModuleAccess('sales')
+  const canSeeAccounting = hasModuleAccess('accounting') || hasModuleAccess('general_ledger')
+  const visibleQuickActions = DASHBOARD_QUICK_ACTIONS.filter(action => {
+    if (action.permissionKey) return hasPermissionKey(action.permissionKey)
+    if (action.moduleCode) return hasModuleAccess(action.moduleCode)
+    return false
+  })
 
   return (
     <div className="space-y-8">
@@ -119,68 +200,76 @@ export function DashboardOverview() {
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Inventory Value */}
-        <div className={getGlassClasses()}>
-          <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
-            <div className={cn(isRTL ? "text-right" : "text-left")}>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t('dashboard.metrics.totalInventoryValue')}
-              </p>
-              <p className="text-2xl font-bold">{formatCurrency(kpis.inventoryValue)}</p>
+        {canSeeInventory ? (
+          <div className={getGlassClasses()}>
+            <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
+              <div className={cn(isRTL ? "text-right" : "text-left")}>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t('dashboard.metrics.totalInventoryValue')}
+                </p>
+                <p className="text-2xl font-bold">{formatCurrency(kpis.inventoryValue)}</p>
+              </div>
+              <Package className="h-8 w-8 text-primary" />
             </div>
-            <Package className="h-8 w-8 text-primary" />
           </div>
-        </div>
+        ) : null}
 
         {/* Total Sales */}
-        <div className={getGlassClasses()}>
-          <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
-            <div className={cn(isRTL ? "text-right" : "text-left")}>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t('dashboard.metrics.totalSales')}
-              </p>
-              <p className="text-2xl font-bold">{formatCurrency(kpis.totalSales)}</p>
+        {canSeeSales ? (
+          <div className={getGlassClasses()}>
+            <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
+              <div className={cn(isRTL ? "text-right" : "text-left")}>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t('dashboard.metrics.totalSales')}
+                </p>
+                <p className="text-2xl font-bold">{formatCurrency(kpis.totalSales)}</p>
+              </div>
+              <DollarSign className="h-8 w-8 text-success" />
             </div>
-            <DollarSign className="h-8 w-8 text-success" />
+            <TrendLine growth={salesGrowth} />
           </div>
-          <TrendLine growth={salesGrowth} />
-        </div>
+        ) : null}
 
         {/* Total Costs */}
-        <div className={getGlassClasses()}>
-          <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
-            <div className={cn(isRTL ? "text-right" : "text-left")}>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t('dashboard.metrics.totalProductionCost')}
-              </p>
-              <p className="text-2xl font-bold">{formatCurrency(kpis.totalCosts)}</p>
+        {canSeeManufacturing ? (
+          <div className={getGlassClasses()}>
+            <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
+              <div className={cn(isRTL ? "text-right" : "text-left")}>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t('dashboard.metrics.totalProductionCost')}
+                </p>
+                <p className="text-2xl font-bold">{formatCurrency(kpis.totalCosts)}</p>
+              </div>
+              <Factory className="h-8 w-8 text-warning" />
             </div>
-            <Factory className="h-8 w-8 text-warning" />
+            <div className={cn("px-6 pb-6 flex items-center text-sm", isRTL ? "text-right" : "text-left")}>
+              <span className="text-muted-foreground">
+                كفاءة التشغيل: {kpis.operationalEfficiency.toFixed(1)}%
+              </span>
+            </div>
           </div>
-          <div className={cn("px-6 pb-6 flex items-center text-sm", isRTL ? "text-right" : "text-left")}>
-            <span className="text-muted-foreground">
-              كفاءة التشغيل: {kpis.operationalEfficiency.toFixed(1)}%
-            </span>
-          </div>
-        </div>
+        ) : null}
 
         {/* Profit Margin */}
-        <div className={getGlassClasses()}>
-          <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
-            <div className={cn(isRTL ? "text-right" : "text-left")}>
-              <p className="text-sm font-medium text-muted-foreground">
-                {t('dashboard.metrics.grossProfitMargin')}
-              </p>
-              <p className="text-2xl font-bold">{kpis.profitMargin.toFixed(1)}%</p>
+        {canSeeAccounting && canSeeSales ? (
+          <div className={getGlassClasses()}>
+            <div className={cn("flex items-center justify-between p-6", isRTL && "flex-row-reverse")}>
+              <div className={cn(isRTL ? "text-right" : "text-left")}>
+                <p className="text-sm font-medium text-muted-foreground">
+                  {t('dashboard.metrics.grossProfitMargin')}
+                </p>
+                <p className="text-2xl font-bold">{kpis.profitMargin.toFixed(1)}%</p>
+              </div>
+              <BarChart3 className="h-8 w-8 text-info" />
             </div>
-            <BarChart3 className="h-8 w-8 text-info" />
+            <TrendLine growth={profitGrowth} />
           </div>
-          <TrendLine growth={profitGrowth} />
-        </div>
+        ) : null}
       </div>
 
       {/* Secondary KPIs — عدّادات تشغيلية حقيقية */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className={getGlassClasses()}>
+        {canSeeManufacturing ? <div className={getGlassClasses()}>
           <div className={cn("flex items-center justify-between p-4", isRTL && "flex-row-reverse")}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
               <p className="text-xs text-muted-foreground">أوامر التصنيع النشطة</p>
@@ -188,9 +277,9 @@ export function DashboardOverview() {
             </div>
             <Badge {...{variant: "success"} as any}>{counts?.activeManufacturingOrders ?? 0}</Badge>
           </div>
-        </div>
+        </div> : null}
 
-        <div className={getGlassClasses()}>
+        {canSeePurchasing ? <div className={getGlassClasses()}>
           <div className={cn("flex items-center justify-between p-4", isRTL && "flex-row-reverse")}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
               <p className="text-xs text-muted-foreground">أوامر الشراء المعلقة</p>
@@ -198,9 +287,9 @@ export function DashboardOverview() {
             </div>
             <Badge {...{variant: "warning"} as any}>{counts?.pendingPurchaseOrders ?? 0}</Badge>
           </div>
-        </div>
+        </div> : null}
 
-        <div className={getGlassClasses()}>
+        {canSeeSales ? <div className={getGlassClasses()}>
           <div className={cn("flex items-center justify-between p-4", isRTL && "flex-row-reverse")}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
               <p className="text-xs text-muted-foreground">إجمالي العملاء</p>
@@ -208,9 +297,9 @@ export function DashboardOverview() {
             </div>
             <Users className="h-5 w-5 text-muted-foreground" />
           </div>
-        </div>
+        </div> : null}
 
-        <div className={getGlassClasses()}>
+        {canSeePurchasing ? <div className={getGlassClasses()}>
           <div className={cn("flex items-center justify-between p-4", isRTL && "flex-row-reverse")}>
             <div className={cn(isRTL ? "text-right" : "text-left")}>
               <p className="text-xs text-muted-foreground">إجمالي الموردين</p>
@@ -218,12 +307,12 @@ export function DashboardOverview() {
             </div>
             <ShoppingCart className="h-5 w-5 text-muted-foreground" />
           </div>
-        </div>
+        </div> : null}
       </div>
 
       {/* Recent Activities + Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className={getGlassClasses()}>
+        {canSeeSales ? <div className={getGlassClasses()}>
           <h3 className={cn(
             "text-lg font-semibold mb-4 p-6 pb-0",
             isRTL ? "text-right" : "text-left"
@@ -258,10 +347,10 @@ export function DashboardOverview() {
               ))
             )}
           </div>
-        </div>
+        </div> : null}
 
         {/* Quick Actions */}
-        <div className={getGlassClasses()}>
+        {visibleQuickActions.length > 0 ? <div className={getGlassClasses()}>
           <h3 className={cn(
             "text-lg font-semibold mb-4 p-6 pb-0",
             isRTL ? "text-right" : "text-left"
@@ -269,47 +358,21 @@ export function DashboardOverview() {
             {t('dashboard.quickActions')}
           </h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-6 pt-0">
-            <Link to="/manufacturing/orders" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <Factory className="h-6 w-6 mx-auto mb-2 text-primary" />
-              <span className="text-sm font-medium">أمر تصنيع جديد</span>
-            </Link>
-
-            <Link to="/purchasing/orders" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <ShoppingCart className="h-6 w-6 mx-auto mb-2 text-primary" />
-              <span className="text-sm font-medium">أمر شراء جديد</span>
-            </Link>
-
-            <Link to="/sales/invoices" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <DollarSign className="h-6 w-6 mx-auto mb-2 text-primary" />
-              <span className="text-sm font-medium">فاتورة مبيعات</span>
-            </Link>
-
-            <Link to="/inventory/adjustments" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <Package className="h-6 w-6 mx-auto mb-2 text-primary" />
-              <span className="text-sm font-medium">تسوية مخزون</span>
-            </Link>
-
-            <Link to="/inventory/items" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <Package className="h-6 w-6 mx-auto mb-2 text-success" />
-              <span className="text-sm font-medium">إضافة صنف جديد</span>
-            </Link>
-
-            <Link to="/sales/customers" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <Users className="h-6 w-6 mx-auto mb-2 text-info" />
-              <span className="text-sm font-medium">عميل جديد</span>
-            </Link>
-
-            <Link to="/purchasing/suppliers" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <ShoppingCart className="h-6 w-6 mx-auto mb-2 text-warning" />
-              <span className="text-sm font-medium">مورد جديد</span>
-            </Link>
-
-            <Link to="/reports/analytics" className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center">
-              <BarChart3 className="h-6 w-6 mx-auto mb-2 text-secondary" />
-              <span className="text-sm font-medium">تقرير تحليلي</span>
-            </Link>
+            {visibleQuickActions.map(action => {
+              const Icon = action.icon
+              return (
+                <Link
+                  key={action.href}
+                  to={action.href}
+                  className="p-4 rounded-lg border border-dashed border-muted-foreground/25 hover:border-primary hover:bg-primary/5 transition-colors text-center"
+                >
+                  <Icon className={cn('h-6 w-6 mx-auto mb-2', action.iconClass)} />
+                  <span className="text-sm font-medium">{action.label}</span>
+                </Link>
+              )
+            })}
           </div>
-        </div>
+        </div> : null}
       </div>
     </div>
   )

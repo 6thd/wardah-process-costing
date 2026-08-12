@@ -100,7 +100,7 @@ function LoadingState() {
 export function ModuleGuard({ 
   children, 
   moduleCode, 
-  action = 'view', 
+  action,
   requireOrgAdmin = false,
   requireSuperAdmin = false,
   redirectTo,
@@ -109,6 +109,7 @@ export function ModuleGuard({
   const location = useLocation();
   const {
     hasPermission,
+    hasModuleAccess,
     isOrgAdmin,
     isSuperAdmin,
     loading,
@@ -133,8 +134,15 @@ export function ModuleGuard({
   }
 
   // التحقق من صلاحية الموديول
-  if (hasAccess && moduleCode && action) {
-    hasAccess = hasPermission(moduleCode, action);
+  if (hasAccess && moduleCode) {
+    // Module routes authorize against the backend snapshot's exact keys as a
+    // group. The catalogue does not use one universal entry action (`read` is
+    // common, General Ledger uses `view`), so imposing `view` here rejects
+    // valid users. Callers that protect one concrete operation may still pass
+    // an explicit action and retain the narrower check.
+    hasAccess = action
+      ? hasPermission(moduleCode, action)
+      : hasModuleAccess(moduleCode);
   }
 
   // إذا لم يكن لديه صلاحية
@@ -179,4 +187,3 @@ export function withModuleGuard<P extends object>(
 }
 
 export default ModuleGuard;
-

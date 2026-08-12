@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { NavLink, useLocation } from 'react-router-dom'
 import { 
@@ -43,14 +43,21 @@ const MODULE_CODES = {
 
 // Helper functions to reduce cognitive complexity
 const shouldShowNavigationItem = (
-  item: { key: string; requireSuperAdmin?: boolean; requireOrgAdmin?: boolean },
+  item: {
+    key: string;
+    moduleCode: string;
+    moduleCodes?: readonly string[];
+    requireSuperAdmin?: boolean;
+    requireOrgAdmin?: boolean;
+  },
   isOrgAdmin: boolean,
-  isSuperAdmin: boolean
+  isSuperAdmin: boolean,
+  hasModuleAccess: (moduleCode: string) => boolean
 ): boolean => {
   if (item.key === 'dashboard') return true
   if (item.requireSuperAdmin) return isSuperAdmin
   if (item.requireOrgAdmin) return isOrgAdmin || isSuperAdmin
-  return true
+  return (item.moduleCodes ?? [item.moduleCode]).some(hasModuleAccess)
 }
 
 // Helper function to render collapsed sidebar item
@@ -321,7 +328,7 @@ export function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<string[]>([])
   
       // 🔐 استخدام صلاحيات المستخدم
-      const { isOrgAdmin, isSuperAdmin } = usePermissions()
+      const { isOrgAdmin, isSuperAdmin, hasModuleAccess } = usePermissions()
 
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const ChevronIcon = isRTL ? ChevronLeft : ChevronRight
@@ -428,6 +435,9 @@ export function Sidebar() {
       href: '/accounting',
       badge: null,
       moduleCode: MODULE_CODES.ACCOUNTING,
+      // The Accounting menu owns both accounting/* and general-ledger/* links.
+      // Either backend module grant makes the group relevant.
+      moduleCodes: [MODULE_CODES.ACCOUNTING, MODULE_CODES.GENERAL_LEDGER],
       subItems: [
         { key: 'overview', href: '/accounting/overview', labelKey: 'navigation.overview' },
         { key: 'chart-of-accounts', href: '/general-ledger/accounts', labelKey: 'navigation.chart-of-accounts' },
@@ -519,11 +529,9 @@ export function Sidebar() {
   ]
 
   // 🔐 فلترة العناصر بناءً على الصلاحيات
-  const navigationItems = useMemo(() => {
-    return allNavigationItems.filter(item => 
-      shouldShowNavigationItem(item, isOrgAdmin, isSuperAdmin)
-    )
-  }, [isOrgAdmin, isSuperAdmin])
+  const navigationItems = allNavigationItems.filter(item =>
+    shouldShowNavigationItem(item, isOrgAdmin, isSuperAdmin, hasModuleAccess)
+  )
 
   const handleItemClick = () => {
     // Close mobile sidebar when item is clicked

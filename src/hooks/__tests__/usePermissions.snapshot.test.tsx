@@ -82,6 +82,20 @@ describe('usePermissions — backend snapshot is the only source of truth', () =
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.hasPermissionKey(ORDINARY)).toBe(true);
     expect(result.current.hasPermission('accounting', 'approve')).toBe(true);
+    expect(result.current.hasModuleAccess('accounting')).toBe(true);
+    expect(result.current.hasModuleAccess('sales')).toBe(false);
+  });
+
+  it('grants module entry from any exact backend key without inventing a view action', async () => {
+    rpcMock.mockResolvedValue(
+      snapshot({ permission_keys: ['sales.receipts.read'] })
+    );
+    const { result } = renderHook(() => usePermissions());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasPermission('sales', 'view')).toBe(false);
+    expect(result.current.hasModuleAccess('sales')).toBe(true);
+    expect(result.current.hasModuleAccess('sale')).toBe(false);
   });
 
   it('allows a sensitive key once the backend reports it as granted', async () => {
@@ -125,6 +139,7 @@ describe('usePermissions — backend snapshot is the only source of truth', () =
     expect(result.current.error).toBeTruthy();
     expect(result.current.isOrgAdmin).toBe(false);
     expect(result.current.hasPermissionKey(ORDINARY)).toBe(false);
+    expect(result.current.hasModuleAccess('accounting')).toBe(false);
   });
 
   it('re-reads the backend after refreshPermissions, so a revocation lands', async () => {

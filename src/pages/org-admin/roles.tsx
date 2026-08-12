@@ -67,6 +67,7 @@ import {
   FileText,
   Copy,
   Sparkles,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -429,6 +430,8 @@ export default function OrgAdminRoles() {
     return module.permissions.filter(p => formData.permission_ids.includes(p.id)).length;
   }, [formData.permission_ids]);
 
+  const selectedSensitiveKeys = sensitiveSelected(formData.permission_ids);
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -776,34 +779,35 @@ export default function OrgAdminRoles() {
                         className="border border-border rounded-lg overflow-hidden"
                       >
                         {/* Module Header */}
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between p-3 bg-muted/30 cursor-pointer hover:bg-muted/30 transition-colors border-0 bg-transparent text-start"
-                          onClick={() => toggleModule(module.id)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Checkbox
-                              checked={allSelected}
-                              onCheckedChange={(checked) => {
-                                toggleModulePermissions(module, !!checked);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              className="border-input"
-                            />
-                            <span className="font-medium text-foreground">
-                              {module.name_ar || module.name}
+                        <div className="flex items-center gap-3 p-3 bg-muted/30 hover:bg-muted/40 transition-colors">
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={(checked) => {
+                              toggleModulePermissions(module, !!checked);
+                            }}
+                            className="border-input"
+                            aria-label={`تحديد كل صلاحيات ${module.name_ar || module.name}`}
+                          />
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center justify-between border-0 bg-transparent p-0 text-start"
+                            onClick={() => toggleModule(module.id)}
+                          >
+                            <span className="flex items-center gap-3">
+                              <span className="font-medium text-foreground">
+                                {module.name_ar || module.name}
+                              </span>
+                              <Badge variant="outline" className="border-border text-muted-foreground text-xs">
+                                {selectedCount}/{module.permissions.length}
+                              </Badge>
                             </span>
-                            <Badge variant="outline" className="border-border text-muted-foreground text-xs">
-                              {selectedCount}/{module.permissions.length}
-                            </Badge>
-                          </div>
-                          {isExpanded ? (
-                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </button>
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </button>
+                        </div>
 
                         {/* Permissions List */}
                         {isExpanded && (
@@ -812,6 +816,7 @@ export default function OrgAdminRoles() {
                               <button
                                 key={perm.id}
                                 type="button"
+                                aria-pressed={formData.permission_ids.includes(perm.id)}
                                 className={`w-full text-start flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
@@ -839,21 +844,16 @@ export default function OrgAdminRoles() {
                                   e.stopPropagation();
                                 }}
                               >
-                                <Checkbox
-                                  checked={formData.permission_ids.includes(perm.id)}
-                                  onCheckedChange={(checked) => {
-                                    setFormData(prev => {
-                                      if (checked) {
-                                        return { ...prev, permission_ids: [...prev.permission_ids, perm.id] };
-                                      } else {
-                                        return { ...prev, permission_ids: prev.permission_ids.filter(id => id !== perm.id) };
-                                      }
-                                    });
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  className="border-input"
-                                />
+                                <span
+                                  aria-hidden="true"
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+                                    formData.permission_ids.includes(perm.id)
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-input'
+                                  }`}
+                                >
+                                  {formData.permission_ids.includes(perm.id) && <Check className="h-4 w-4" />}
+                                </span>
                                 <span className="text-sm text-muted-foreground">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
@@ -884,18 +884,18 @@ export default function OrgAdminRoles() {
                 role="alert"
                 aria-live="polite"
                 className={
-                  sensitiveSelected(formData.permission_ids).length > 0
+                  selectedSensitiveKeys.length > 0
                     ? 'rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm'
                     : 'sr-only'
                 }
               >
-                {sensitiveSelected(formData.permission_ids).length > 0 && (
+                {selectedSensitiveKeys.length > 0 && (
                   <>
                     <strong className="block mb-1">هذا الدور يمنح صلاحيات حساسة</strong>
                     هذه المفاتيح لا يمنحها دور مسؤول المؤسسة تلقائيًا؛ من يحمل هذا الدور
                     يكتسبها صراحةً، ويُسجَّل ذلك في سجل التدقيق:
                     <ul className="list-disc ps-5 mt-1">
-                      {sensitiveSelected(formData.permission_ids).map(key => (
+                      {selectedSensitiveKeys.map(key => (
                         <li key={key}><code>{key}</code></li>
                       ))}
                     </ul>

@@ -65,6 +65,7 @@ export function clearPermissionCache(): void {
 export function usePermissions(): UserPermissions & {
   hasPermission: (moduleCode: string, action: string) => boolean;
   hasPermissionKey: (permissionKey: string) => boolean;
+  hasModuleAccess: (moduleCode: string) => boolean;
   hasAnyPermission: (checks: Array<{ module: string; action: string }>) => boolean;
   hasAllPermissions: (checks: Array<{ module: string; action: string }>) => boolean;
   isSensitivePermission: (permissionKey: string) => boolean;
@@ -227,6 +228,20 @@ export function usePermissions(): UserPermissions & {
     [permissionKeys]
   );
 
+  /**
+   * A module is reachable when the backend snapshot contains at least one
+   * exact key in that module. The live catalogue is intentionally mixed:
+   * most modules use `read`, while General Ledger uses `view`. Requiring one
+   * hard-coded action at the route or navigation layer therefore rejects
+   * legitimate grants. The prefix is only grouping already-authorized exact
+   * keys; it never broadens a backend permission decision.
+   */
+  const hasModuleAccess = useCallback(
+    (moduleCode: string): boolean =>
+      moduleCode.length > 0 && permissionKeys.some(key => key.startsWith(`${moduleCode}.`)),
+    [permissionKeys]
+  );
+
   const hasPermission = useCallback(
     (moduleCode: string, action: string): boolean =>
       permissions.some(p => p.module_code === moduleCode && p.action === action),
@@ -266,6 +281,7 @@ export function usePermissions(): UserPermissions & {
     error,
     hasPermission,
     hasPermissionKey,
+    hasModuleAccess,
     hasAnyPermission,
     hasAllPermissions,
     isSensitivePermission,
@@ -321,4 +337,3 @@ export async function checkPermission(
 }
 
 export default usePermissions;
-
