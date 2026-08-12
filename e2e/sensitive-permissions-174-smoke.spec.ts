@@ -43,17 +43,17 @@
  * 5. Pre-existing roles, assignments, users and vouchers are read-only here. The
  *    voucher controls are asserted for VISIBILITY only; this suite never clicks
  *    cancel or unpost, so no voucher is ever modified.
- * 6. Evidence is captured to test-results/: screenshots at each phase, a
- *    Playwright trace, console errors, failed requests, the RPC call sequence,
- *    and the rbac.* audit rows the run produced.
+ * 6. Evidence is captured as Playwright test attachments (screenshots at each
+ *    phase, a JSON summary, and the trace) plus console errors, failed
+ *    requests, the RPC call sequence, and the rbac.* audit rows the run
+ *    produced — all visible in the HTML report, none of it written by this
+ *    file's own filesystem calls.
  *
  * The guards themselves are unit-tested in
  * src/services/__tests__/e2e-prod-guard.test.ts — a guard that has never been
  * executed is not a guard.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import { test, expect, type Page } from '@playwright/test';
 import { accounts, loginAs, logout, skipIfMissingEnv } from './fixtures/auth';
 import { assertRunAllowed, makeTestRoleName, FixtureOwnership } from './fixtures/prod-guard';
@@ -61,7 +61,6 @@ import { assertRunAllowed, makeTestRoleName, FixtureOwnership } from './fixtures
 const CANCEL_KEY = 'accounting.vouchers.cancel';
 const UNPOST_KEY = 'accounting.vouchers.unpost';
 
-const ARTIFACT_DIR = path.join('test-results', 'sensitive-permissions-174');
 const evidence = {
   consoleErrors: [] as string[],
   failedRequests: [] as string[],
@@ -88,15 +87,18 @@ function watchPage(page: Page) {
 }
 
 async function phase(page: Page, name: string) {
-  // The path carries only a run-generated sequence number. The phase name
-  // itself is recorded in evidence.phases/evidence.json — there is no need
-  // for it to also flow into a filesystem path.
+  // The phase name is recorded in evidence.phases/evidence.json, never in a
+  // filesystem path. The screenshot itself goes through testInfo.attach(),
+  // which writes it into Playwright's own managed test-results output — this
+  // function has no fs/path call of its own to construct at all.
   evidence.phases.push(`${new Date().toISOString()} ${name}`);
-  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
-  await page.screenshot({
-    path: path.join(ARTIFACT_DIR, `${evidence.phases.length}.png`),
-    fullPage: true,
-  }).catch(() => { /* a screenshot must never fail the run */ });
+  const buffer = await page.screenshot({ fullPage: true }).catch(() => null);
+  if (buffer) {
+    await test.info().attach(`phase-${evidence.phases.length}`, {
+      body: buffer,
+      contentType: 'image/png',
+    }).catch(() => { /* a screenshot must never fail the run */ });
+  }
 }
 
 async function openRoleEditor(page: Page, roleName?: string) {
@@ -185,11 +187,9 @@ async function deleteOwnedRole(page: Page, roleName: string, own: FixtureOwnersh
   await expect(deleteButton).toHaveCount(0, { timeout: 15_000 });
 }
 
-function writeEvidence() {
-  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
-  fs.writeFileSync(
-    path.join(ARTIFACT_DIR, 'evidence.json'),
-    JSON.stringify(
+async function writeEvidence(): Promise<void> {
+  await test.info().attach('evidence', {
+    body: JSON.stringify(
       {
         ...evidence,
         rpcCallCounts: evidence.rpcCalls.reduce<Record<string, number>>((acc, c) => {
@@ -199,8 +199,9 @@ function writeEvidence() {
       },
       null,
       2
-    )
-  );
+    ),
+    contentType: 'application/json',
+  });
 }
 
 const missingCredentialReason = skipIfMissingEnv(['orgAdmin', 'regularUser']);
@@ -351,7 +352,7 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
           expect(evidence.rpcCalls).toContain('rpc_delete_org_role');
         }
       } finally {
-        writeEvidence();
+        await writeEvidence();
         if (userPage && !userPage.isClosed()) await logout(userPage).catch(() => {});
       }
     }
