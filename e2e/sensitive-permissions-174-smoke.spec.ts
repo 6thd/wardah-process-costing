@@ -88,25 +88,25 @@ function watchPage(page: Page) {
 }
 
 async function phase(page: Page, name: string) {
+  // The path carries only a run-generated sequence number. The phase name
+  // itself is recorded in evidence.phases/evidence.json — there is no need
+  // for it to also flow into a filesystem path.
   evidence.phases.push(`${new Date().toISOString()} ${name}`);
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
   await page.screenshot({
-    path: path.join(ARTIFACT_DIR, `${evidence.phases.length}-${name.replace(/\W+/g, '-')}.png`),
+    path: path.join(ARTIFACT_DIR, `${evidence.phases.length}.png`),
     fullPage: true,
   }).catch(() => { /* a screenshot must never fail the run */ });
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 async function openRoleEditor(page: Page, roleName?: string) {
   await page.goto('/org-admin/roles');
   await page.waitForLoadState('networkidle');
   if (roleName) {
-    const editButton = page.getByRole('button', {
-      name: new RegExp(`^تعديل دور ${escapeRegExp(roleName)}$`),
-    });
+    // The edit button's accessible name is an exact aria-label — `تعديل دور
+    // <name>` and nothing else — so an exact string match is both correct
+    // and simpler than a dynamically-built RegExp.
+    const editButton = page.getByRole('button', { name: `تعديل دور ${roleName}`, exact: true });
     await expect(editButton, `edit control for owned role ${roleName}`).toBeVisible();
     await editButton.click();
   } else {
@@ -151,7 +151,11 @@ async function setUserRoles(page: Page, userEmail: string, roleNames: string[], 
   await expect(dialog).toBeVisible();
 
   for (const name of own.ownedRoles()) {
-    const row = dialog.getByRole('button', { name: new RegExp(escapeRegExp(name)) });
+    // The assignment row's accessible name also carries its description and
+    // permission-count badge, so it cannot be an exact match — but Playwright's
+    // own hasText filter does the substring match without building a RegExp
+    // out of a variable.
+    const row = dialog.getByRole('button').filter({ hasText: name });
     await expect(row, `owned role ${name} in assignment dialog`).toBeVisible();
     const shouldBeOn = roleNames.includes(name);
     const checkbox = row.getByRole('checkbox');
@@ -169,10 +173,9 @@ async function deleteOwnedRole(page: Page, roleName: string, own: FixtureOwnersh
 
   // The role-specific accessible name is the positive ownership-to-DOM link.
   // If it cannot be found, cleanup aborts instead of falling back to a page-wide
-  // delete button that could target a pre-existing role.
-  const deleteButton = page.getByRole('button', {
-    name: new RegExp(`^حذف دور ${escapeRegExp(roleName)}$`),
-  });
+  // delete button that could target a pre-existing role. Exact match against
+  // the button's aria-label, same as openRoleEditor's edit control.
+  const deleteButton = page.getByRole('button', { name: `حذف دور ${roleName}`, exact: true });
   await expect(deleteButton, `delete control for owned role ${roleName}`).toBeVisible();
   await deleteButton.click();
 

@@ -79,7 +79,7 @@ function fetchPermissionSnapshot(
   orgId: string
 ): ReturnType<typeof getPermissionSnapshot> {
   const existing = inFlightSnapshotRequests.get(requestKey);
-  if (existing) return existing;
+  if (existing !== undefined) return existing;
 
   const promise = getPermissionSnapshot(orgId).finally(() => {
     if (inFlightSnapshotRequests.get(requestKey) === promise) {
