@@ -27,14 +27,30 @@
  *   E2E_USER_EMAIL="…"      E2E_USER_PASSWORD="…" \
  *   npx playwright test e2e/sensitive-permissions-174-smoke.spec.ts
  *
+ * Optionally pin the run to one specific Supabase backend (a staging project
+ * or an isolated branch) regardless of production status — a mismatch is
+ * refused either way, which catches a frontend accidentally built against
+ * the wrong project even when that project is not production:
+ *
+ *   E2E_EXPECTED_SUPABASE_HOST="my-staging-project.supabase.co" \
+ *   PLAYWRIGHT_BASE_URL="https://staging.example.test" \
+ *   …
+ *
  * Pass credentials only as environment variables. Never put them in the repo,
  * a config file, or a shell history you keep.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * SAFETY CONTRACT
  * ─────────────────────────────────────────────────────────────────────────────
- * 1. ALLOW_PROD_E2E=true is required for a production target, and is itself
- *    rejected when the URL is not that exact host (see e2e/fixtures/prod-guard).
+ * 1. ALLOW_PROD_E2E=true is required for a production target — checked TWICE,
+ *    independently: once against PLAYWRIGHT_BASE_URL (the frontend under
+ *    test) before anything happens, and again against the Supabase host the
+ *    page actually talks to, observed from its first login request, before
+ *    the first write. The frontend host alone is not sufficient: a preview
+ *    deployment can be built against the live Supabase project, in which
+ *    case it would look non-production while still writing real rows to it.
+ *    Both checks reject the opt-in when the corresponding host is not the
+ *    one it names (see e2e/fixtures/prod-guard).
  * 2. Everything created carries the ZZ_E2E174_<timestamp> prefix.
  * 3. Deletion consults an ownership ledger, never a page listing: a fixture this
  *    run did not create can never be selected for cleanup.
@@ -56,7 +72,13 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { accounts, loginAs, logout, skipIfMissingEnv } from './fixtures/auth';
-import { assertRunAllowed, makeTestRoleName, FixtureOwnership } from './fixtures/prod-guard';
+import {
+  assertRunAllowed,
+  assertBackendAllowed,
+  watchBackendHost,
+  makeTestRoleName,
+  FixtureOwnership,
+} from './fixtures/prod-guard';
 
 const CANCEL_KEY = 'accounting.vouchers.cancel';
 const UNPOST_KEY = 'accounting.vouchers.unpost';
@@ -212,7 +234,9 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
   test.skip(Boolean(missingCredentialReason), missingCredentialReason ?? undefined);
 
   test('full lifecycle: buttons follow the backend, not the client', async ({ page, baseURL }) => {
-    // Fail closed before a single byte is written anywhere.
+    // Fail closed before a single byte is written anywhere. This checks the
+    // FRONTEND host only — see the backend check right after login below for
+    // why that alone is not enough.
     const target = assertRunAllowed({
       baseURL,
       allowProdEnv: process.env.ALLOW_PROD_E2E,
@@ -225,6 +249,7 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
     const own = new FixtureOwnership();
     const roleName = makeTestRoleName();
     watchPage(page);
+    const backendHost = watchBackendHost(page);
 
     let userPage: Page | undefined;
     let adminPage: Page | undefined;
@@ -232,6 +257,21 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
     try {
       await loginAs(page, accounts.orgAdmin);
       adminPage = page;
+
+      // Second, independent guard: PLAYWRIGHT_BASE_URL says nothing about
+      // which database backs it, and a preview deployment can be wired to
+      // the live Supabase project. loginAs() above only returns once the
+      // token exchange has completed, so the backend host is already
+      // observable here — before this suite's first write, a few lines down.
+      const backendTarget = assertBackendAllowed({
+        backendHost: backendHost.get(),
+        allowProdEnv: process.env.ALLOW_PROD_E2E,
+        expectedSupabaseHost: process.env.E2E_EXPECTED_SUPABASE_HOST,
+      });
+      test.info().annotations.push({
+        type: 'backend',
+        description: `${backendTarget.host} (production: ${backendTarget.targetsProduction})`,
+      });
 
       // ── 1. Create a role with NO sensitive keys ────────────────────────────
       await openRoleEditor(page);
