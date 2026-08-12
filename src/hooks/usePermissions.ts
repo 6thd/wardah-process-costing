@@ -2,9 +2,10 @@
 // بسم الله الرحمن الرحيم
 // Hook للتحقق من صلاحيات المستخدم
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { getSupabase } from '@/lib/supabase';
+import { getPermissionSnapshot } from '@/services/rbac-service';
 import { safeLocalStorage } from '@/lib/safe-storage';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -58,6 +59,30 @@ export function clearPermissionCache(): void {
   permissionCache = null;
 }
 
+// Cross-instance de-duplication: several mounted usePermissions() consumers
+// (sidebar, the active route, dashboard widgets) can all decide to refresh at
+// once — on mount, on an org switch, or on tab refocus. Without this they each
+// fire their own rpc_permission_snapshot call for the same org; with it, the
+// first caller's in-flight promise is handed to every other caller until it
+// settles.
+let inFlightSnapshotRequest: {
+  orgId: string;
+  promise: ReturnType<typeof getPermissionSnapshot>;
+} | null = null;
+
+function fetchPermissionSnapshot(orgId: string): ReturnType<typeof getPermissionSnapshot> {
+  if (inFlightSnapshotRequest?.orgId === orgId) {
+    return inFlightSnapshotRequest.promise;
+  }
+  const promise = getPermissionSnapshot(orgId).finally(() => {
+    if (inFlightSnapshotRequest?.promise === promise) {
+      inFlightSnapshotRequest = null;
+    }
+  });
+  inFlightSnapshotRequest = { orgId, promise };
+  return promise;
+}
+
 // =====================================
 // usePermissions Hook
 // =====================================
@@ -88,6 +113,30 @@ export function usePermissions(): UserPermissions & {
     setIsSuperAdmin(false);
   }, []);
 
+  // The user/org pair this instance most recently asked about. A response
+  // that arrives after a newer request has already been issued — whether it
+  // resolves with data or with an error — belongs to a request this instance
+  // no longer cares about, and must not overwrite the newer state.
+  const latestRequestKeyRef = useRef<string | null>(null);
+
+  // Detecting an org/user switch here, during render, is deliberate rather
+  // than doing it in its own useEffect. An effect runs after the mount/reload
+  // effect below in the same commit, so it would wipe out a result that
+  // effect had already set synchronously from a warm cache — which is
+  // exactly what a separate reset effect did the first time this was tried:
+  // it cleared a correct, just-rendered permission set a moment after it
+  // appeared. Comparing against a ref during render and resetting before
+  // commit (React's documented pattern for reacting to a changed prop) avoids
+  // both the clobbering and any visible flash of the previous org's
+  // permissions, and it only fires on an actual change — never on mount,
+  // since the ref starts equal to the first computed key.
+  const renderRequestKey = user?.id && currentOrgId ? `${user.id}:${currentOrgId}` : null;
+  const lastRenderedKeyRef = useRef(renderRequestKey);
+  if (lastRenderedKeyRef.current !== renderRequestKey) {
+    lastRenderedKeyRef.current = renderRequestKey;
+    reset();
+  }
+
   /**
    * Load the effective permission set from the backend.
    *
@@ -100,6 +149,7 @@ export function usePermissions(): UserPermissions & {
    */
   const loadPermissions = useCallback(async () => {
     if (!user?.id) {
+      latestRequestKeyRef.current = null;
       reset();
       setLoading(false);
       return;
@@ -109,10 +159,14 @@ export function usePermissions(): UserPermissions & {
 
     if (!orgIdToCheck) {
       // No organization resolved: the backend cannot answer, so neither can we.
+      latestRequestKeyRef.current = null;
       reset();
       setLoading(false);
       return;
     }
+
+    const requestKey = `${user.id}:${orgIdToCheck}`;
+    latestRequestKeyRef.current = requestKey;
 
     if (
       permissionCache?.orgId === orgIdToCheck &&
@@ -131,71 +185,71 @@ export function usePermissions(): UserPermissions & {
     setLoading(true);
     setError(null);
 
-    try {
-      const supabase = getSupabase() as SupabaseClient;
-      const { data, error: rpcError } = await supabase.rpc('rpc_permission_snapshot', {
-        p_org_id: orgIdToCheck,
-      });
+    const { snapshot, error: snapshotError } = await fetchPermissionSnapshot(orgIdToCheck);
 
-      if (rpcError) throw rpcError;
+    // A newer call to loadPermissions — a later org/user switch, or an
+    // explicit refresh — has already superseded this one. Applying this
+    // answer now, success or error alike, would silently overwrite the newer
+    // state with a stale one.
+    if (latestRequestKeyRef.current !== requestKey) return;
 
-      const snapshot = (data ?? null) as {
-        is_super_admin?: boolean;
-        is_org_admin?: boolean;
-        permission_keys?: string[];
-        sensitive_permission_keys?: string[];
-      } | null;
-
-      const keys = snapshot?.permission_keys ?? [];
-      const sensitive = snapshot?.sensitive_permission_keys ?? [];
-
-      // module_code/action kept for the existing (module, action) call sites.
-      // A key is `<module>.<resource>.<action>`.
-      const derived: Permission[] = keys.map(key => {
-        const parts = key.split('.');
-        return { module_code: parts[0] ?? '', action: parts[parts.length - 1] ?? '' };
-      });
-
-      setPermissions(derived);
-      setPermissionKeys(keys);
-      setSensitivePermissionKeys(sensitive);
-      setIsOrgAdmin(!!snapshot?.is_org_admin);
-      setIsSuperAdmin(!!snapshot?.is_super_admin);
-
-      permissionCache = {
-        orgId: orgIdToCheck,
-        userId: user.id,
-        permissions: derived,
-        permissionKeys: keys,
-        sensitivePermissionKeys: sensitive,
-        isOrgAdmin: !!snapshot?.is_org_admin,
-        isSuperAdmin: !!snapshot?.is_super_admin,
-        timestamp: Date.now(),
-      };
-    } catch (err: any) {
-      console.error('Error loading permissions:', err);
-      setError(err.message || 'فشل تحميل الصلاحيات');
+    if (snapshotError || !snapshot) {
+      console.error('Error loading permissions:', snapshotError);
+      setError(snapshotError || 'فشل تحميل الصلاحيات');
       // Fail closed: an unreadable snapshot must not leave stale grants in place.
       reset();
-    } finally {
       setLoading(false);
+      return;
     }
+
+    const keys = snapshot.permission_keys ?? [];
+    const sensitive = snapshot.sensitive_permission_keys ?? [];
+
+    // module_code/action kept for the existing (module, action) call sites.
+    // A key is `<module>.<resource>.<action>`.
+    const derived: Permission[] = keys.map(key => {
+      const parts = key.split('.');
+      return { module_code: parts[0] ?? '', action: parts[parts.length - 1] ?? '' };
+    });
+
+    setPermissions(derived);
+    setPermissionKeys(keys);
+    setSensitivePermissionKeys(sensitive);
+    setIsOrgAdmin(!!snapshot.is_org_admin);
+    setIsSuperAdmin(!!snapshot.is_super_admin);
+
+    permissionCache = {
+      orgId: orgIdToCheck,
+      userId: user.id,
+      permissions: derived,
+      permissionKeys: keys,
+      sensitivePermissionKeys: sensitive,
+      isOrgAdmin: !!snapshot.is_org_admin,
+      isSuperAdmin: !!snapshot.is_super_admin,
+      timestamp: Date.now(),
+    };
+    setLoading(false);
   }, [user?.id, currentOrgId, reset]);
 
   useEffect(() => {
     if (isAuthenticated) {
       loadPermissions();
     } else {
+      latestRequestKeyRef.current = null;
       reset();
       setLoading(false);
     }
   }, [isAuthenticated, loadPermissions, reset]);
 
-  // Switching organization invalidates the snapshot outright — it is scoped to
-  // one org, so serving the previous org's answer would be simply wrong.
+  // Switching organization or user invalidates the cached snapshot outright —
+  // it is scoped to one org/user pair. The cache-hit check in loadPermissions
+  // already requires an exact (orgId, userId) match, so this mainly guards
+  // against serving a stale entry back after a round trip through a
+  // different org within the cache window. The visible state itself is
+  // cleared synchronously above, during render, not here.
   useEffect(() => {
     permissionCache = null;
-  }, [currentOrgId]);
+  }, [currentOrgId, user?.id]);
 
   // Returning to the tab re-reads the snapshot: a grant or revocation made
   // elsewhere (another tab, another admin) must not be acted on with stale

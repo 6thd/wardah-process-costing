@@ -15,12 +15,21 @@ vi.mock('@/lib/supabase', () => ({
   getSupabase: () => ({ rpc: rpcMock }),
 }));
 
+// A mutable object, not a fixed literal: several tests below need to move the
+// hook between orgs mid-test (renderHook + rerender) to exercise a real
+// org-switch race, which a frozen mock return value cannot do.
+let authState = {
+  user: { id: 'user-1' } as { id: string } | null,
+  currentOrgId: 'org-1' as string | null,
+  isAuthenticated: true,
+};
+
+function setAuth(overrides: Partial<typeof authState>) {
+  authState = { ...authState, ...overrides };
+}
+
 vi.mock('@/contexts/AuthContext', () => ({
-  useAuth: () => ({
-    user: { id: 'user-1' },
-    currentOrgId: 'org-1',
-    isAuthenticated: true,
-  }),
+  useAuth: () => authState,
 }));
 
 vi.mock('@/lib/safe-storage', () => ({
@@ -48,10 +57,18 @@ function snapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** A promise plus its resolver, for controlling RPC ordering directly in a test. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
+}
+
 describe('usePermissions — backend snapshot is the only source of truth', () => {
   beforeEach(() => {
     rpcMock.mockReset();
     clearPermissionCache();
+    authState = { user: { id: 'user-1' }, currentOrgId: 'org-1', isAuthenticated: true };
   });
 
   it('asks rpc_permission_snapshot for the current org', async () => {
@@ -153,5 +170,135 @@ describe('usePermissions — backend snapshot is the only source of truth', () =
     await act(async () => { await result.current.refreshPermissions(); });
 
     expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
+  });
+});
+
+describe('usePermissions — org-switch races and cross-consumer de-duplication', () => {
+  beforeEach(() => {
+    rpcMock.mockReset();
+    clearPermissionCache();
+    authState = { user: { id: 'user-1' }, currentOrgId: 'org-race-a', isAuthenticated: true };
+  });
+
+  it('ignores a stale org response that resolves after a newer org switch', async () => {
+    const a = deferred<{ data: unknown; error: null }>();
+    const b = deferred<{ data: unknown; error: null }>();
+
+    rpcMock.mockImplementation((_fn: string, args: { p_org_id: string }) => {
+      if (args.p_org_id === 'org-race-a') return a.promise;
+      if (args.p_org_id === 'org-race-b') return b.promise;
+      throw new Error(`unexpected org: ${args.p_org_id}`);
+    });
+
+    const { result, rerender } = renderHook(() => usePermissions());
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith('rpc_permission_snapshot', { p_org_id: 'org-race-a' })
+    );
+
+    // Switch org before A's (slower) response ever arrives.
+    setAuth({ currentOrgId: 'org-race-b' });
+    rerender();
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith('rpc_permission_snapshot', { p_org_id: 'org-race-b' })
+    );
+
+    // B — the org the user is now actually looking at — resolves first.
+    act(() => {
+      b.resolve(
+        snapshot({ org_id: 'org-race-b', permission_keys: ['sales.orders.read'], sensitive_permission_keys: [] })
+      );
+    });
+    await waitFor(() => expect(result.current.hasPermissionKey('sales.orders.read')).toBe(true));
+
+    // A's stale response — for an org this hook no longer represents — arrives late.
+    act(() => {
+      a.resolve(snapshot({ org_id: 'org-race-a', permission_keys: [SENSITIVE], sensitive_permission_keys: [SENSITIVE] }));
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    // Still org B's answer: A's late arrival must not have won the race.
+    expect(result.current.hasPermissionKey('sales.orders.read')).toBe(true);
+    expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
+  });
+
+  it('does not let a late error from an abandoned org request clear a newer org state', async () => {
+    const a = deferred<{ data: null; error: { message: string } }>();
+    const b = deferred<{ data: unknown; error: null }>();
+
+    rpcMock.mockImplementation((_fn: string, args: { p_org_id: string }) => {
+      if (args.p_org_id === 'org-race-a') return a.promise;
+      if (args.p_org_id === 'org-race-b') return b.promise;
+      throw new Error(`unexpected org: ${args.p_org_id}`);
+    });
+
+    const { result, rerender } = renderHook(() => usePermissions());
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith('rpc_permission_snapshot', { p_org_id: 'org-race-a' })
+    );
+
+    setAuth({ currentOrgId: 'org-race-b' });
+    rerender();
+    await waitFor(() =>
+      expect(rpcMock).toHaveBeenCalledWith('rpc_permission_snapshot', { p_org_id: 'org-race-b' })
+    );
+
+    act(() => {
+      b.resolve(snapshot({ org_id: 'org-race-b', permission_keys: [ORDINARY], sensitive_permission_keys: [] }));
+    });
+    await waitFor(() => expect(result.current.hasPermissionKey(ORDINARY)).toBe(true));
+
+    // A's request — abandoned when the user switched away from it — fails late.
+    act(() => {
+      a.resolve({ data: null, error: { message: 'org-race-a timed out' } });
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.hasPermissionKey(ORDINARY)).toBe(true);
+  });
+
+  it('clears the previous org keys synchronously on switch, before any response arrives', async () => {
+    rpcMock.mockResolvedValueOnce(
+      snapshot({ org_id: 'org-race-a', permission_keys: [SENSITIVE], sensitive_permission_keys: [SENSITIVE] })
+    );
+
+    const { result, rerender } = renderHook(() => usePermissions());
+    await waitFor(() => expect(result.current.hasPermissionKey(SENSITIVE)).toBe(true));
+
+    // org-race-b's request is intentionally left unresolved: this test only
+    // covers what is true before any network round trip completes.
+    rpcMock.mockImplementation(() => new Promise(() => {}));
+    setAuth({ currentOrgId: 'org-race-b' });
+    rerender();
+
+    expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
+    expect(result.current.isOrgAdmin).toBe(false);
+  });
+
+  it('coalesces a shared snapshot request across every mounted consumer', async () => {
+    setAuth({ currentOrgId: 'org-race-shared' });
+    rpcMock.mockResolvedValue(snapshot({ org_id: 'org-race-shared' }));
+
+    const { result: r1 } = renderHook(() => usePermissions());
+    const { result: r2 } = renderHook(() => usePermissions());
+    await waitFor(() => expect(r1.current.loading).toBe(false));
+    await waitFor(() => expect(r2.current.loading).toBe(false));
+
+    rpcMock.mockClear();
+    const shared = deferred<{ data: unknown; error: null }>();
+    rpcMock.mockImplementation(() => shared.promise);
+
+    // One event, delivered to both consumers' visibilitychange listeners.
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      shared.resolve(snapshot({ org_id: 'org-race-shared', permission_keys: [ORDINARY] }));
+    });
+    await waitFor(() => expect(r1.current.hasPermissionKey(ORDINARY)).toBe(true));
+    await waitFor(() => expect(r2.current.hasPermissionKey(ORDINARY)).toBe(true));
   });
 });

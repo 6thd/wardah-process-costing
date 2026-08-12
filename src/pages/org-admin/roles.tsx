@@ -5,11 +5,12 @@
 import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getOrgRolesWithStats, 
-  OrgRole, 
-  getRoleTemplates, 
-  RoleTemplate 
+import { usePermissions } from '@/hooks/usePermissions';
+import {
+  getOrgRolesWithStats,
+  OrgRole,
+  getRoleTemplates,
+  RoleTemplate
 } from '@/services/org-admin-service';
 import { createRoleFromTemplate } from '@/services/rbac-service';
 import { getSupabase } from '@/lib/supabase';
@@ -131,12 +132,15 @@ function getCategoryColor(category: string): string {
 export default function OrgAdminRoles() {
   const { currentOrgId } = useAuth();
   const navigate = useNavigate();
+  // Which keys are sensitive is a backend fact (Migration 174's central
+  // classifier), delivered through rpc_permission_snapshot. This page must not
+  // keep its own copy of that call — usePermissions() already owns fetching,
+  // caching, cross-tab revalidation, and de-duplicating that RPC across every
+  // consumer on the page; a second independent implementation here is exactly
+  // the drift this work removes.
+  const { sensitivePermissionKeys: sensitiveKeys, refreshPermissions } = usePermissions();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
-  // Which keys are sensitive is a backend fact (Migration 174's central
-  // classifier), delivered through rpc_permission_snapshot. The client must not
-  // keep its own list — that is exactly the drift this work removes.
-  const [sensitiveKeys, setSensitiveKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   
@@ -293,41 +297,6 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }, []);
 
-  const refreshSnapshot = useCallback(async () => {
-    if (!currentOrgId) return;
-    const { data, error } = await getSupabase().rpc('rpc_permission_snapshot', {
-      p_org_id: currentOrgId,
-    });
-    if (error) {
-      console.error('permission snapshot failed', error);
-      return;
-    }
-    const snapshot = data as { sensitive_permission_keys?: string[] } | null;
-    const next = snapshot?.sensitive_permission_keys ?? [];
-    // Only update when the value actually changed. Writing a fresh array on
-    // every call re-renders for nothing — and, with a listener that can fire
-    // repeatedly, feeds itself.
-    setSensitiveKeys(prev =>
-      prev.length === next.length && prev.every((k, i) => k === next[i]) ? prev : next
-    );
-  }, [currentOrgId]);
-
-  useEffect(() => { void refreshSnapshot(); }, [refreshSnapshot]);
-
-  // The snapshot can go stale while the tab sits in the background — a grant or
-  // revocation made elsewhere must not leave this page acting on old state.
-  //
-  // visibilitychange, not window 'focus': 'focus' also fires when focus moves
-  // inside the page (a dialog opening and trapping focus, for one), which is
-  // not a staleness signal and would re-query on every interaction.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void refreshSnapshot();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [refreshSnapshot]);
-
   const selectedPermissionKeys = useCallback(
     (ids: string[]) => permissionIdsToKeys(modules, ids),
     [modules]
@@ -369,7 +338,7 @@ export default function OrgAdminRoles() {
 
       setDialogOpen(false);
       loadData();
-      await refreshSnapshot();
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error saving role:', error);
       toast.error(rbacErrorMessage(error));
@@ -391,7 +360,7 @@ export default function OrgAdminRoles() {
 
       setRoles(roles.filter(r => r.id !== roleId));
       toast.success('تم حذف الدور');
-      await refreshSnapshot();
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error deleting role:', error);
       toast.error(rbacErrorMessage(error));
