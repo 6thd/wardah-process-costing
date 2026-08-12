@@ -58,7 +58,11 @@
  *    and goes through the same approved RPCs the UI uses — never a direct write.
  * 5. Pre-existing roles, assignments, users and vouchers are read-only here. The
  *    voucher controls are asserted for VISIBILITY only; this suite never clicks
- *    cancel or unpost, so no voucher is ever modified.
+ *    cancel or unpost, so no voucher is ever modified. This means the target
+ *    organization must already contain at least one DRAFT and one POSTED
+ *    receipt for the voucher assertions to run at all — this suite does not
+ *    provision either, deliberately, rather than take on an owned-voucher
+ *    lifecycle in addition to the role/assignment one it already tracks.
  * 6. Evidence is captured as Playwright test attachments (screenshots at each
  *    phase, a JSON summary, and the trace) plus console errors, failed
  *    requests, the RPC call sequence, and the rbac.* audit rows the run
@@ -279,8 +283,14 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
       // The target account needs the ordinary sales module grant to reach the
       // real voucher screen. Sensitive authority is still deliberately absent.
       await togglePermission(page, /المبيعات/, /المقبوضات\s*-\s*عرض/);
-      await saveRole(page);
+      // Claimed BEFORE saveRole(), not after: rpc_upsert_org_role can commit
+      // and still leave saveRole() timing out on the dialog-hide wait that
+      // follows it. If ownership were only recorded after that wait
+      // succeeded, that timeout would skip the claim entirely and this
+      // suite's cleanup guarantee would silently leave a real role behind —
+      // the ledger must reflect intent to create, not confirmed UI success.
       own.claimRole(roleName);
+      await saveRole(page);
       await expect(page.getByText(roleName).first()).toBeVisible();
       await phase(page, 'role-created-no-sensitive');
 
@@ -305,9 +315,25 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
       await userPage.waitForLoadState('networkidle');
 
       // VISIBILITY only — this suite never clicks these; no voucher is touched.
+      //
+      // PREREQUISITE this suite does not provision: at least one DRAFT
+      // receipt now (for this assertion) and one POSTED receipt after step 4
+      // below, both belonging to the target organization. Pre-existing
+      // vouchers are strictly read-only here by design (safety contract
+      // point 5) — creating and later cleaning up owned voucher fixtures
+      // would need its own ownership-tracked lifecycle, which this suite
+      // deliberately does not take on. A fresh org lacking either status
+      // fails these two assertions for an environmental reason, not a
+      // permission-propagation one; the message says so rather than leaving
+      // a bare Playwright timeout to explain it.
       const cancelBtn = userPage.getByRole('button', { name: /إلغاء سند/ });
       const unpostBtn = userPage.getByRole('button', { name: /إعادة سند .* إلى مسودة/ });
-      await expect(cancelBtn.first()).toBeVisible();
+      await expect(
+        cancelBtn.first(),
+        'Requires a pre-existing DRAFT receipt in the target organization — this suite does not ' +
+          'provision one. If this organization has none, this failure is environmental, not a ' +
+          'permission-propagation regression.'
+      ).toBeVisible();
       await expect(unpostBtn).toHaveCount(0);
       await phase(userPage, 'user-sees-cancel-only');
 
@@ -319,7 +345,12 @@ test.describe('Migration 174 — sensitive permission smoke', () => {
 
       await userPage.reload();
       await userPage.waitForLoadState('networkidle');
-      await expect(unpostBtn.first()).toBeVisible();
+      await expect(
+        unpostBtn.first(),
+        'Requires a pre-existing POSTED receipt in the target organization — this suite does not ' +
+          'provision one. If this organization has none, this failure is environmental, not a ' +
+          'permission-propagation regression.'
+      ).toBeVisible();
       await expect(cancelBtn.first()).toBeVisible();
       await phase(userPage, 'user-sees-both-without-relogin');
 
