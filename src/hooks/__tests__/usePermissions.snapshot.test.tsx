@@ -264,15 +264,96 @@ describe('usePermissions — org-switch races and cross-consumer de-duplication'
 
     const { result, rerender } = renderHook(() => usePermissions());
     await waitFor(() => expect(result.current.hasPermissionKey(SENSITIVE)).toBe(true));
+    await waitFor(() => expect(result.current.loading).toBe(false));
 
-    // org-race-b's request is intentionally left unresolved: this test only
-    // covers what is true before any network round trip completes.
-    rpcMock.mockImplementation(() => new Promise(() => {}));
+    // org-race-b's request is left unresolved until cleanup below: this test
+    // mainly covers what is true before any network round trip completes. A
+    // deferred promise, not one that can never settle — an eternally-pending
+    // entry would still be sitting in the shared in-flight request map,
+    // keyed by this exact (user, org) pair, for any later test that asks for
+    // the same switch.
+    const pending = deferred<{ data: unknown; error: null }>();
+    rpcMock.mockImplementation(() => pending.promise);
     setAuth({ currentOrgId: 'org-race-b' });
     rerender();
 
     expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
     expect(result.current.isOrgAdmin).toBe(false);
+    // A ModuleGuard-style consumer reads `loading` before treating empty
+    // permissions as a denial. If this were still false here, switching org
+    // would flash "access denied" for a frame before org-race-b's real
+    // answer (still unresolved above) ever arrives.
+    expect(result.current.loading).toBe(true);
+    expect(result.current.error).toBeNull();
+
+    // Cleanup, not part of the assertion: let the in-flight entry settle.
+    act(() => { pending.resolve(snapshot({ org_id: 'org-race-b' })); });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+  });
+
+  it('does not let a user switch inherit another user\'s in-flight request for the same org', async () => {
+    setAuth({ user: { id: 'user-A' }, currentOrgId: 'org-shared' });
+
+    const a = deferred<{ data: unknown; error: null }>();
+    const b = deferred<{ data: unknown; error: null }>();
+    let calls = 0;
+    rpcMock.mockImplementation(() => {
+      calls += 1;
+      return calls === 1 ? a.promise : b.promise;
+    });
+
+    const { result, rerender } = renderHook(() => usePermissions());
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(1));
+
+    // A different user signs into the SAME org before user-A's request
+    // resolves. The org alone must not be treated as the whole identity: a
+    // dedup key of orgId only would hand user-A's in-flight promise to
+    // user-B here instead of firing a separate request.
+    setAuth({ user: { id: 'user-B' }, currentOrgId: 'org-shared' });
+    rerender();
+    await waitFor(() => expect(rpcMock).toHaveBeenCalledTimes(2));
+
+    act(() => {
+      b.resolve(
+        snapshot({
+          user_id: 'user-B',
+          org_id: 'org-shared',
+          permission_keys: ['inventory.items.read'],
+          sensitive_permission_keys: [],
+        })
+      );
+    });
+    await waitFor(() => expect(result.current.hasPermissionKey('inventory.items.read')).toBe(true));
+
+    // user-A's abandoned request resolves late, carrying user-A's own
+    // permissions under user-A's own identity. Even if some future change
+    // let it reach this instance, the identity check must refuse it rather
+    // than silently apply another user's sensitive grants.
+    act(() => {
+      a.resolve(
+        snapshot({ user_id: 'user-A', org_id: 'org-shared', permission_keys: [SENSITIVE], sensitive_permission_keys: [SENSITIVE] })
+      );
+    });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+
+    expect(result.current.hasPermissionKey('inventory.items.read')).toBe(true);
+    expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
+  });
+
+  it('fails closed if a snapshot ever answers for a different identity than requested', async () => {
+    setAuth({ user: { id: 'user-1' }, currentOrgId: 'org-race-a' });
+    // A defensive check, not a reachable client path today: something
+    // upstream (session, cache, RPC) hands back the wrong identity's answer.
+    rpcMock.mockResolvedValue(
+      snapshot({ user_id: 'someone-else', org_id: 'org-race-a', permission_keys: [ORDINARY, SENSITIVE] })
+    );
+
+    const { result } = renderHook(() => usePermissions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.error).toBeTruthy();
+    expect(result.current.hasPermissionKey(ORDINARY)).toBe(false);
+    expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
   });
 
   it('coalesces a shared snapshot request across every mounted consumer', async () => {

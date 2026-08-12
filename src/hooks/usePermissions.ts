@@ -65,21 +65,28 @@ export function clearPermissionCache(): void {
 // fire their own rpc_permission_snapshot call for the same org; with it, the
 // first caller's in-flight promise is handed to every other caller until it
 // settles.
-let inFlightSnapshotRequest: {
-  orgId: string;
-  promise: ReturnType<typeof getPermissionSnapshot>;
-} | null = null;
+//
+// Keyed by the exact `${userId}:${orgId}` pair, not orgId alone: the RPC's
+// answer depends on the authenticated session that actually sent the
+// request, not on whatever caller happens to ask next. Keying by orgId only
+// let a request in flight for one user be handed to a different user who
+// switched into the same org while it was pending, silently returning the
+// first user's permissions to the second.
+const inFlightSnapshotRequests = new Map<string, ReturnType<typeof getPermissionSnapshot>>();
 
-function fetchPermissionSnapshot(orgId: string): ReturnType<typeof getPermissionSnapshot> {
-  if (inFlightSnapshotRequest?.orgId === orgId) {
-    return inFlightSnapshotRequest.promise;
-  }
+function fetchPermissionSnapshot(
+  requestKey: string,
+  orgId: string
+): ReturnType<typeof getPermissionSnapshot> {
+  const existing = inFlightSnapshotRequests.get(requestKey);
+  if (existing) return existing;
+
   const promise = getPermissionSnapshot(orgId).finally(() => {
-    if (inFlightSnapshotRequest?.promise === promise) {
-      inFlightSnapshotRequest = null;
+    if (inFlightSnapshotRequests.get(requestKey) === promise) {
+      inFlightSnapshotRequests.delete(requestKey);
     }
   });
-  inFlightSnapshotRequest = { orgId, promise };
+  inFlightSnapshotRequests.set(requestKey, promise);
   return promise;
 }
 
@@ -130,11 +137,30 @@ export function usePermissions(): UserPermissions & {
   // both the clobbering and any visible flash of the previous org's
   // permissions, and it only fires on an actual change — never on mount,
   // since the ref starts equal to the first computed key.
+  //
+  // Three things happen together here, not just the visible reset:
+  //
+  // - `latestRequestKeyRef` is updated in the SAME synchronous pass, not left
+  //   for the mount/reload effect below to update later. That effect only
+  //   runs after this render commits and paints. Without updating the ref
+  //   here, a slow response for the OLD identity that resolves in that gap
+  //   would still match `latestRequestKeyRef.current` (still the old key) and
+  //   get applied — reopening the exact race this hook exists to close.
+  // - `loading` is set to true (when the new identity is resolvable) so
+  //   consumers like ModuleGuard show a loader, not "access denied", for the
+  //   commit where permissions are empty because the new identity's answer
+  //   hasn't arrived yet — rather than reading empty permissions as a denied
+  //   grant.
+  // - `error` is cleared so a previous identity's failure doesn't linger
+  //   against the new one.
   const renderRequestKey = user?.id && currentOrgId ? `${user.id}:${currentOrgId}` : null;
   const lastRenderedKeyRef = useRef(renderRequestKey);
   if (lastRenderedKeyRef.current !== renderRequestKey) {
     lastRenderedKeyRef.current = renderRequestKey;
+    latestRequestKeyRef.current = renderRequestKey;
     reset();
+    setError(null);
+    setLoading(renderRequestKey !== null);
   }
 
   /**
@@ -185,7 +211,7 @@ export function usePermissions(): UserPermissions & {
     setLoading(true);
     setError(null);
 
-    const { snapshot, error: snapshotError } = await fetchPermissionSnapshot(orgIdToCheck);
+    const { snapshot, error: snapshotError } = await fetchPermissionSnapshot(requestKey, orgIdToCheck);
 
     // A newer call to loadPermissions — a later org/user switch, or an
     // explicit refresh — has already superseded this one. Applying this
@@ -197,6 +223,23 @@ export function usePermissions(): UserPermissions & {
       console.error('Error loading permissions:', snapshotError);
       setError(snapshotError || 'فشل تحميل الصلاحيات');
       // Fail closed: an unreadable snapshot must not leave stale grants in place.
+      reset();
+      setLoading(false);
+      return;
+    }
+
+    // Defense in depth, on top of keying the in-flight map by identity: trust
+    // an answer only if it actually names the (user, org) pair this request
+    // asked about. This cannot currently be tripped from the client alone —
+    // it exists as a last-resort check against a session, cache, or RPC
+    // change elsewhere in the stack quietly handing back the wrong identity's
+    // permissions.
+    if (snapshot.user_id !== user.id || snapshot.org_id !== orgIdToCheck) {
+      console.error('Permission snapshot identity mismatch', {
+        expected: requestKey,
+        got: `${snapshot.user_id}:${snapshot.org_id}`,
+      });
+      setError('فشل تحميل الصلاحيات');
       reset();
       setLoading(false);
       return;
