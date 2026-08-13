@@ -21,6 +21,7 @@ import { UomGoodsReceiptForm } from '@/components/forms/UomGoodsReceiptForm'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'
 import { SupplierPayments } from './components/SupplierPayments'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function PurchasingModule() {
   return (
@@ -40,26 +41,46 @@ export function PurchasingModule() {
 function PurchasingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول هذه الشاشة عند ModuleGuard هو anyOf بين موارد المشتريات؛ كل
+  // قسم هنا يُحمَّل ويُعرض فقط لمن يملك مفتاح قراءته الفعلي، لا لأي حامل
+  // صلاحية اجتاز الدخول.
+  const canReadSuppliers = hasPermissionKey('purchasing.suppliers.read')
+  const canReadOrders = hasPermissionKey('purchasing.purchase_orders.read')
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [suppliersData, ordersData] = await Promise.all([
-          suppliersService.getAll(),
-          purchaseOrdersService.getAll()
-        ])
-        setSuppliers((suppliersData || []) as Supplier[])
-        setOrders((ordersData || []) as unknown as PurchaseOrder[])
-      } catch (error) {
-        console.error('Error loading purchasing data:', error)
-        toast.error('خطأ في تحميل بيانات المشتريات')
-      } finally {
-      }
+    if (!canReadSuppliers) {
+      setSuppliers([])
+      return
     }
-    loadData()
-  }, [])
+    let cancelled = false
+    suppliersService.getAll()
+      .then(data => { if (!cancelled) setSuppliers((data || []) as Supplier[]) })
+      .catch(error => {
+        console.error('Error loading suppliers:', error)
+        toast.error('خطأ في تحميل بيانات الموردين')
+        if (!cancelled) setSuppliers([])
+      })
+    return () => { cancelled = true }
+  }, [canReadSuppliers])
+
+  useEffect(() => {
+    if (!canReadOrders) {
+      setOrders([])
+      return
+    }
+    let cancelled = false
+    purchaseOrdersService.getAll()
+      .then(data => { if (!cancelled) setOrders((data || []) as unknown as PurchaseOrder[]) })
+      .catch(error => {
+        console.error('Error loading purchase orders:', error)
+        toast.error('خطأ في تحميل أوامر الشراء')
+        if (!cancelled) setOrders([])
+      })
+    return () => { cancelled = true }
+  }, [canReadOrders])
 
   const totalOrderValue = orders.reduce((sum, order) => sum + order.total_amount, 0)
   const pendingOrders = orders.filter(order => order.status === 'draft' || order.status === 'confirmed')
@@ -68,54 +89,68 @@ function PurchasingOverview() {
     <div className="space-y-6">
       <PageHeader title={t('purchasing.title')} description="إدارة المشتريات والموردين" hideOnPrint={false} />
 
-      {/* Key Metrics */}
+      {/* Key Metrics — كل بطاقة تُعرض فقط لمن يملك مفتاح قراءة موردها */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{suppliers.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الموردين</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalOrderValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة الطلبات (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
-          <div className="text-sm text-muted-foreground">طلبات معلقة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الطلبات</div>
-        </div>
+        {canReadSuppliers && (
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{suppliers.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي الموردين</div>
+          </div>
+        )}
+        {canReadOrders && (
+          <>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-green-600">{totalOrderValue.toFixed(2)}</div>
+              <div className="text-sm text-muted-foreground">قيمة الطلبات (ريال)</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
+              <div className="text-sm text-muted-foreground">طلبات معلقة</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
+              <div className="text-sm text-muted-foreground">إجمالي الطلبات</div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions — روابط لشاشات أخرى تُعرض فقط لمن يملك صلاحية دخولها */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link to="suppliers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.suppliers')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة الموردين
-          </p>
-        </Link>
+        {canReadSuppliers && (
+          <Link to="suppliers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.suppliers')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة الموردين
+            </p>
+          </Link>
+        )}
 
-        <Link to="orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.purchaseOrders')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            أوامر الشراء
-          </p>
-        </Link>
+        {canReadOrders && (
+          <Link to="orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.purchaseOrders')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              أوامر الشراء
+            </p>
+          </Link>
+        )}
 
-        <Link to="receipts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.receipts')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            استلام البضائع
-          </p>
-        </Link>
+        {/* الاستلام يعتمد حاليًا على purchasing.purchase_orders.read في العقد
+            (لا مورد مخصص للاستلام) — نفس مفتاح بطاقة أوامر الشراء أعلاه. */}
+        {canReadOrders && (
+          <Link to="receipts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.receipts')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              استلام البضائع
+            </p>
+          </Link>
+        )}
       </div>
     </div>
   )

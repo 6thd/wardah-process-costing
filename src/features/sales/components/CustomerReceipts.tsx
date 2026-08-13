@@ -47,6 +47,9 @@ import { usePermissions } from '@/hooks/usePermissions'
 
 const CANCEL_PERMISSION = 'accounting.vouchers.cancel'
 const UNPOST_PERMISSION = 'accounting.vouchers.unpost'
+const CREATE_PERMISSION = 'sales.receipts.create'
+const APPROVE_PERMISSION = 'sales.receipts.approve'
+const UPDATE_PERMISSION = 'sales.receipts.update'
 
 type ReceiptRow = CustomerReceipt & { collection_date?: string }
 type PaymentAccount = {
@@ -70,6 +73,9 @@ export function CustomerReceipts() {
   const { hasPermissionKey } = usePermissions()
   const canCancelVoucher = hasPermissionKey(CANCEL_PERMISSION)
   const canUnpostVoucher = hasPermissionKey(UNPOST_PERMISSION)
+  const canCreateReceipt = hasPermissionKey(CREATE_PERMISSION)
+  const canApproveReceipt = hasPermissionKey(APPROVE_PERMISSION)
+  const canUpdateReceipt = hasPermissionKey(UPDATE_PERMISSION)
   const [receipts, setReceipts] = useState<CustomerReceipt[]>([])
   const [loading, setLoading] = useState(true)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
@@ -98,6 +104,10 @@ export function CustomerReceipts() {
   }
 
   const handlePost = async (receiptId: string) => {
+    if (!canApproveReceipt) {
+      toast.error('لا تملك صلاحية إقرار سندات القبض')
+      return
+    }
     try {
       const result = await postCustomerReceipt(receiptId)
       if (result.success) {
@@ -142,23 +152,25 @@ export function CustomerReceipts() {
           <h1 className="text-2xl font-bold">سندات القبض</h1>
           <p className="text-muted-foreground">إدارة سندات القبض من العملاء</p>
         </div>
-        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogTrigger asChild>
-            <Button>إضافة سند قبض</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>سند قبض جديد</DialogTitle>
-              <DialogDescription>إنشاء سند قبض جديد من عميل</DialogDescription>
-            </DialogHeader>
-            <CreateReceiptForm
-              onSuccess={() => {
-                setShowCreateDialog(false)
-                void loadReceipts()
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+        {canCreateReceipt && (
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+            <DialogTrigger asChild>
+              <Button>إضافة سند قبض</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>سند قبض جديد</DialogTitle>
+                <DialogDescription>إنشاء سند قبض جديد من عميل</DialogDescription>
+              </DialogHeader>
+              <CreateReceiptForm
+                onSuccess={() => {
+                  setShowCreateDialog(false)
+                  void loadReceipts()
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -215,8 +227,12 @@ export function CustomerReceipts() {
                         <div className="flex flex-wrap gap-2">
                           {receipt.status === 'draft' && (
                             <>
-                              <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
-                              <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
+                              {canApproveReceipt && (
+                                <Button size="sm" variant="outline" onClick={() => receipt.id && handlePost(receipt.id)}>إقرار</Button>
+                              )}
+                              {canUpdateReceipt && (
+                                <Button size="sm" variant="outline" onClick={() => setEditingReceipt(receipt)}>تعديل</Button>
+                              )}
                               {canCancelVoucher && (
                                 <Button
                                   size="sm"
@@ -298,6 +314,18 @@ function EditReceiptAllocationsForm({
   onSuccess,
   onCancel,
 }: Readonly<{ receipt: CustomerReceipt; onSuccess: () => void; onCancel: () => void }>) {
+  const { hasPermissionKey } = usePermissions()
+  const canUpdateReceipt = hasPermissionKey(UPDATE_PERMISSION)
+
+  // بوابة الاستدعاء: تعديل مسودة تُرك مفتوحًا سلفًا لا يُغلَق قسرًا إن سُحبت
+  // الصلاحية أثناء التعبئة — لكن الحفظ الفعلي يُرفَض هنا قبل الوصول للخدمة.
+  const guardedUpdateDraft: typeof updateCustomerReceiptDraft = async (voucherId, changes) => {
+    if (!canUpdateReceipt) {
+      return { success: false, error: 'لا تملك صلاحية تعديل سندات القبض' }
+    }
+    return updateCustomerReceiptDraft(voucherId, changes)
+  }
+
   return (
     <VoucherAllocationsForm
       voucherId={receipt.id}
@@ -306,7 +334,7 @@ function EditReceiptAllocationsForm({
       currentLines={receipt.lines}
       emptyMessage="لا توجد فواتير مفتوحة لهذا العميل"
       loadInvoices={getCustomerOutstandingInvoices}
-      updateDraft={updateCustomerReceiptDraft}
+      updateDraft={guardedUpdateDraft}
       onSuccess={onSuccess}
       onCancel={onCancel}
     />

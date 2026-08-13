@@ -60,9 +60,7 @@ import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
 import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
-import { ManufacturingMetrics } from './components/ManufacturingMetrics'
-import { ManufacturingCards } from './components/ManufacturingCards'
-import { RecentOrders } from './components/RecentOrders'
+import { ManufacturingOverview } from './ManufacturingOverview'
 // New modules
 import { RoutingManagement } from './routing/RoutingManagement'
 import { WorkCenterDashboard } from './mes/WorkCenterDashboard'
@@ -226,33 +224,6 @@ function StandardCostsPage() {
       />
 
       <StandardCostsList />
-    </div>
-  )
-}
-
-function ManufacturingOverview() {
-  const { t, i18n } = useTranslation()
-  const isRTL = i18n.language === 'ar'
-  // بند 11: الـ hook الموحَّد — كاش مشترك مع شاشة الأوامر بدل جلب مكرر
-  const { orders, loading } = useManufacturingOrders()
-
-  return (
-    <div className="space-y-6">
-      <PageHeader
-        title={t('manufacturing.title')}
-        titleClassName="wardah-text-gradient-google"
-        description={t('manufacturing.overviewPage.subtitle')}
-        hideOnPrint={false}
-      />
-
-      {/* Key Metrics */}
-      <ManufacturingMetrics orders={orders} isRTL={isRTL} t={t} />
-
-      {/* Manufacturing Functions Grid */}
-      <ManufacturingCards orders={orders} isRTL={isRTL} t={t} />
-
-      {/* Recent Manufacturing Orders */}
-      <RecentOrders orders={orders} loading={loading} isRTL={isRTL} t={t} />
     </div>
   )
 }

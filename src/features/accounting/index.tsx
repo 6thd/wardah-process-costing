@@ -5,6 +5,7 @@ import { accountingModules, getLocalizedModule } from './config/modules';
 import { ModuleCard, QuickStats } from './components';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { usePermissions } from '@/hooks/usePermissions';
 
 // Lazy load components
 const JournalEntries = lazy(() => import('./journal-entries').then(m => ({ default: m.default })));
@@ -25,8 +26,14 @@ function LoadingSpinner() {
 function AccountingOverview() {
   const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
+  const { hasPermissionKey } = usePermissions();
 
-  const localizedModules = accountingModules.map(m => getLocalizedModule(m, isRTL));
+  // كل بطاقة مربوطة بمتطلب مسارها الفعلي في route-permissions.ts — بعضها
+  // يقود إلى موديول آخر (general_ledger.chart_of_accounts.view، reports.
+  // financial.read)، فلا يُكتفى بأي صلاحية محاسبة عامة لإظهارها.
+  const localizedModules = accountingModules
+    .map(m => getLocalizedModule(m, isRTL))
+    .filter(module => module.requiredKeys.some(hasPermissionKey));
 
   return (
     <div className="container mx-auto p-6 space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>

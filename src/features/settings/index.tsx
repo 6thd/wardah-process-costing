@@ -13,6 +13,7 @@ import {
 import { CompanySettings } from './CompanySettings'
 import { SystemSettingsPage } from './SystemSettingsPage'
 import { BackupSettingsPage } from './BackupSettingsPage'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function SettingsModule() {
   return (
@@ -33,6 +34,10 @@ function SettingsOverview() {
   const { i18n } = useTranslation()
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const tr = (ar: string, en: string) => isRTL ? ar : en
+  const { hasPermissionKey } = usePermissions()
+  const canReadOrganization = hasPermissionKey('settings.organization.read')
+  const canReadUsers = hasPermissionKey('settings.users.read')
+  const canReadRoles = hasPermissionKey('settings.roles.read')
 
   const settingsCategories = [
     {
@@ -47,6 +52,8 @@ function SettingsOverview() {
         tr('عنوان المراسلة', 'Mailing address'),
         tr('الشعار والهوية', 'Logo and branding'),
       ],
+      // يطابق متطلب /settings/company في route-permissions.ts
+      visible: canReadOrganization,
     },
     {
       title: tr('إدارة المؤسسة', 'Organization Management'),
@@ -60,6 +67,8 @@ function SettingsOverview() {
         tr('الأدوار والصلاحيات', 'Roles and permissions'),
         tr('الدعوات', 'Invitations'),
       ],
+      // بطاقة جامعة (مستخدمون + أدوار)؛ أي من المفتاحين يكفي.
+      visible: canReadUsers || canReadRoles,
     },
     {
       title: tr('الأمان والوصول', 'Security & Access'),
@@ -73,6 +82,8 @@ function SettingsOverview() {
         tr('مصفوفة الصلاحيات', 'Permission matrix'),
         tr('سياسات الوصول', 'Access policies'),
       ],
+      // يطابق متطلب /settings/permissions في route-permissions.ts
+      visible: canReadRoles,
     },
     {
       title: tr('إعدادات النظام', 'System Settings'),
@@ -86,6 +97,7 @@ function SettingsOverview() {
         tr('التقويم', 'Calendar'),
         tr('المخزن الافتراضي', 'Default warehouse'),
       ],
+      visible: canReadOrganization,
     },
     {
       title: tr('تصدير البيانات', 'Data Export'),
@@ -99,8 +111,9 @@ function SettingsOverview() {
         tr('تصدير CSV', 'CSV export'),
         tr('تصدير الجداول الرئيسية', 'Main-table export'),
       ],
+      visible: canReadOrganization,
     },
-  ]
+  ].filter(category => category.visible)
 
   return (
     <div className="space-y-8" dir={isRTL ? 'rtl' : 'ltr'}>

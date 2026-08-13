@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { useProductUomStatus } from '@/hooks/use-product-uom-status'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePermissions } from '@/hooks/usePermissions'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
 import { UomStatusBadge } from './components/UomStatusBadge'
@@ -53,21 +54,30 @@ export function InventoryModule() {
 function InventoryOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول هذه الشاشة عند ModuleGuard هو anyOf بين items/stock_moves/
+  // warehouses؛ كل قسم هنا يُحمَّل ويُعرض فقط لمن يملك مفتاح قراءته الفعلي.
+  const canReadItems = hasPermissionKey('inventory.items.read')
+  const canReadStockMoves = hasPermissionKey('inventory.stock_moves.read')
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
+  const canReadAdjustments = hasPermissionKey('inventory.adjustments.read')
   const [items, setItems] = useState<Item[]>([])
 
   useEffect(() => {
-    const loadItems = async () => {
-      try {
-        const data = await itemsService.getAll()
-        setItems(data || [])
-      } catch (error) {
+    if (!canReadItems) {
+      setItems([])
+      return
+    }
+    let cancelled = false
+    itemsService.getAll()
+      .then(data => { if (!cancelled) setItems(data || []) })
+      .catch(error => {
         console.error('Error loading items:', error)
         toast.error('خطأ في تحميل الأصناف')
-      } finally {
-      }
-    }
-    loadItems()
-  }, [])
+        if (!cancelled) setItems([])
+      })
+    return () => { cancelled = true }
+  }, [canReadItems])
 
   const totalValue = items.reduce((sum, item) => sum + (item.stock_quantity * item.cost_price), 0)
   const lowStockItems = items.filter(item => item.stock_quantity <= item.minimum_stock)
@@ -80,105 +90,123 @@ function InventoryOverview() {
         hideOnPrint={false}
       />
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{items.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الأصناف</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة المخزون (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{lowStockItems.length}</div>
-          <div className="text-sm text-muted-foreground">أصناف قليلة المخزون</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">
-            {items.reduce((sum, item) => sum + item.stock_quantity, 0)}
+      {/* Key Metrics — مشتقة كلها من items، فتُعرض فقط بمفتاح قراءتها */}
+      {canReadItems && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{items.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي الأصناف</div>
           </div>
-          <div className="text-sm text-muted-foreground">إجمالي الكمية</div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-green-600">{totalValue.toFixed(2)}</div>
+            <div className="text-sm text-muted-foreground">قيمة المخزون (ريال)</div>
+          </div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-amber-600">{lowStockItems.length}</div>
+            <div className="text-sm text-muted-foreground">أصناف قليلة المخزون</div>
+          </div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-purple-600">
+              {items.reduce((sum, item) => sum + item.stock_quantity, 0)}
+            </div>
+            <div className="text-sm text-muted-foreground">إجمالي الكمية</div>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Quick Actions */}
+      {/* Quick Actions — كل رابط يُعرض فقط بمفتاح دخول مساره في العقد */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.items')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة الأصناف والمواد
-          </p>
-        </Link>
+        {canReadItems && (
+          <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.items')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة الأصناف والمواد
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            فئات المنتجات
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            تصنيف المخزون
-          </p>
-        </Link>
+        {canReadItems && (
+          <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              فئات المنتجات
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              تصنيف المخزون
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/movements" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.stockMoves')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            متابعة حركات المخزون
-          </p>
-        </Link>
+        {canReadStockMoves && (
+          <Link to="/inventory/movements" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.stockMoves')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              متابعة حركات المخزون
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            🏭 المخازن (1)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المخازن الرئيسية
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              🏭 المخازن (1)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المخازن الرئيسية
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            📍 مواقع التخزين (2)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المناطق والأرفف
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              📍 مواقع التخزين (2)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المناطق والأرفف
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            📦 صناديق التخزين (3)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المواقع الدقيقة + باركود
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              📦 صناديق التخزين (3)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المواقع الدقيقة + باركود
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            🔄 تحويلات البضاعة
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            نقل المخزون بين المستودعات
-          </p>
-        </Link>
+        {canReadStockMoves && (
+          <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              🔄 تحويلات البضاعة
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              نقل المخزون بين المستودعات
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.adjustments')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            تسويات المخزون
-          </p>
-        </Link>
+        {canReadAdjustments && (
+          <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.adjustments')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              تسويات المخزون
+            </p>
+          </Link>
+        )}
       </div>
 
-      {/* Low Stock Alert */}
-      {lowStockItems.length > 0 && (
+      {/* Low Stock Alert — مشتقة من items أيضًا */}
+      {canReadItems && lowStockItems.length > 0 && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
           <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2">
             تنبيه: أصناف قليلة المخزون ({lowStockItems.length})

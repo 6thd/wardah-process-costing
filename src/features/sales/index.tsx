@@ -68,70 +68,73 @@ function SalesOverview() {
   const canReadInvoices = hasPermissionKey('sales.sales_invoices.read')
   const canReadSalesActivity = canReadOrders || canReadInvoices
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [orders, setOrders] = useState<any[]>([])
+  const [invoicesData, setInvoicesData] = useState<any[]>([])
+  const [ordersData, setOrdersData] = useState<any[]>([])
 
-  // Helper function to load customers
-  const loadCustomers = async () => {
-    try {
-      const customersData = await customersService.getAll().catch(() => [])
-      setCustomers(customersData || [])
-    } catch (error) {
-      console.warn('Error loading customers:', error)
+  // ثلاث موارد مستقلة تمامًا: حالة، تحميل، ومسح كل واحدة منها معلَّق فقط على
+  // مفتاحها الخاص — لا على boolean مدمَج مثل canReadSalesActivity. التبديل
+  // بين sales.sales_orders.read وsales.sales_invoices.read داخل نفس mount
+  // (بلا unmount) يُعيد تشغيل الـeffect المعني فورًا، ويمسح الـeffect الآخر
+  // بيانات مورده فور فقد مفتاحه بدل تركها ظاهرة (stale).
+  useEffect(() => {
+    if (!canReadCustomers) {
+      setCustomers([])
+      return
     }
-  }
-
-  // Helper function to load orders/invoices — كل مصدر يُستدعى فقط إذا ملك
-  // المستخدم مفتاح قراءته؛ لا يُجرَّب مصدر الفواتير كـfallback صامت لمستخدم
-  // يملك sales.sales_orders.read فقط دون sales.sales_invoices.read.
-  const loadOrdersWithFallback = async () => {
-    if (canReadInvoices) {
-      try {
-        const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
-        const invoicesResult = await getAllSalesInvoices()
-        if (invoicesResult.success && invoicesResult.data) {
-          setOrders(invoicesResult.data || [])
-          return
-        }
-      } catch (invoiceError: any) {
-        console.warn('Error loading sales invoices, trying fallback:', invoiceError)
-      }
-    }
-
-    if (!canReadOrders) return
-
-    // Fallback: try old service
-    try {
-      const ordersData = await salesOrdersService.getAll()
-      setOrders(ordersData || [])
-    } catch (ordersError: any) {
-      if (ordersError.code === 'PGRST205') {
-        console.warn('sales_orders table not found, using empty array')
-        setOrders([])
-      } else {
-        console.error('Error loading sales data:', ordersError)
-        toast.error(`خطأ في تحميل بيانات المبيعات: ${ordersError.message}`)
-      }
-    }
-  }
+    let cancelled = false
+    customersService.getAll()
+      .then(data => { if (!cancelled) setCustomers(data || []) })
+      .catch(error => {
+        console.warn('Error loading customers:', error)
+        if (!cancelled) setCustomers([])
+      })
+    return () => { cancelled = true }
+  }, [canReadCustomers])
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const tasks: Array<Promise<void>> = []
-        if (canReadCustomers) tasks.push(loadCustomers())
-        if (canReadSalesActivity) tasks.push(loadOrdersWithFallback())
-        await Promise.all(tasks)
-      } catch (error: any) {
-        console.error('Error loading sales data:', error)
-        toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
-      }
+    if (!canReadInvoices) {
+      setInvoicesData([])
+      return
     }
-    loadData()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canReadCustomers, canReadSalesActivity])
+    let cancelled = false
+    getAllSalesInvoices()
+      .then(result => {
+        if (cancelled) return
+        setInvoicesData(result.success && result.data ? result.data : [])
+      })
+      .catch(error => {
+        console.warn('Error loading sales invoices:', error)
+        if (!cancelled) setInvoicesData([])
+      })
+    return () => { cancelled = true }
+  }, [canReadInvoices])
 
-  const totalSalesValue = orders.reduce((sum, order) => sum + order.total_amount, 0)
-  const pendingOrders = orders.filter(order => order.status === 'draft' || order.status === 'sent')
+  useEffect(() => {
+    if (!canReadOrders) {
+      setOrdersData([])
+      return
+    }
+    let cancelled = false
+    salesOrdersService.getAll()
+      .then(data => { if (!cancelled) setOrdersData(data || []) })
+      .catch((error: any) => {
+        if (cancelled) return
+        if (error.code === 'PGRST205') {
+          setOrdersData([])
+        } else {
+          console.error('Error loading sales orders:', error)
+          toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
+        }
+      })
+    return () => { cancelled = true }
+  }, [canReadOrders])
+
+  // الفواتير تُفضَّل حين تتوفر صلاحيتها؛ أوامر المبيعات القديمة (fallback
+  // القديم) لا تُعرض إلا حين تغيب صلاحية الفواتير — نفس أولوية المصدر
+  // الأصلية، لكن مبنية الآن على الصلاحية الفعلية لا على نجاح/فشل الطلب.
+  const salesActivity = canReadInvoices ? invoicesData : ordersData
+  const totalSalesValue = salesActivity.reduce((sum, order) => sum + order.total_amount, 0)
+  const pendingOrders = salesActivity.filter(order => order.status === 'draft' || order.status === 'sent')
 
   return (
     <div className="space-y-6">
@@ -156,7 +159,7 @@ function SalesOverview() {
               <div className="text-sm text-muted-foreground">فواتير معلقة</div>
             </div>
             <div className="bg-card rounded-lg border p-4">
-              <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
+              <div className="text-2xl font-bold text-purple-600">{salesActivity.length}</div>
               <div className="text-sm text-muted-foreground">إجمالي الفواتير</div>
             </div>
           </>
@@ -244,8 +247,12 @@ function CustomersManagement() {
 
   const handleAddCustomer = async () => {
     // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create() لا
-    // تُستدعى بلا sales.customers.create مهما كان مصدر الاستدعاء.
-    if (!canCreateCustomer) return
+    // تُستدعى بلا sales.customers.create مهما كان مصدر الاستدعاء — بما فيه
+    // نموذج تُرك مفتوحًا من قبل سُحبت الصلاحية أثناء تعبئته.
+    if (!canCreateCustomer) {
+      toast.error('لم تعد تملك صلاحية إضافة عملاء')
+      return
+    }
     try {
       await customersService.create(newCustomer)
       toast.success('تم إضافة العميل بنجاح')
@@ -295,9 +302,11 @@ function CustomersManagement() {
         />
       </div>
 
-      {/* Add Customer Form — مزدوج الحراسة: showAddForm لا يمكن أن يصبح true
-          بلا الزر أعلاه، وcanCreateCustomer دفاع إضافي إن تغيّر ذلك مستقبلًا. */}
-      {showAddForm && canCreateCustomer && (
+      {/* Add Customer Form — الزر أعلاه هو ما يفتحها، فلا تُفتَح بلا صلاحية.
+          لا تُغلَق قسرًا إن سُحبت الصلاحية أثناء التعبئة (لا تُفقَد بيانات
+          مسودة المستخدم بلا تفسير) — handleAddCustomer نفسها آخر خط دفاع
+          للحفظ الفعلي، ويرفض التنفيذ ويُعلم المستخدم إن حدث ذلك. */}
+      {showAddForm && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة عميل جديد</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -512,6 +521,8 @@ function SalesOrdersManagement() {
 
 function SalesInvoicesManagement() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateInvoice = hasPermissionKey('sales.sales_invoices.create')
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -570,13 +581,17 @@ function SalesInvoicesManagement() {
           <h1 className="text-2xl font-bold">{t('sales.invoices')}</h1>
           <p className="text-muted-foreground">فواتير المبيعات</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          + إضافة فاتورة مبيعات
-        </Button>
+        {canCreateInvoice && (
+          <Button onClick={() => setShowAddForm(true)}>
+            + إضافة فاتورة مبيعات
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا sales.sales_invoices.create،
+          حتى لو بقيت showAddForm=true من قبل سُحبت الصلاحية. */}
       <SalesInvoiceForm
-        open={showAddForm}
+        open={showAddForm && canCreateInvoice}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
           loadInvoices()
@@ -687,6 +702,8 @@ export function SalesModule() {
 function DeliveryManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateDelivery = hasPermissionKey('sales.delivery_notes.create')
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -763,13 +780,16 @@ function DeliveryManagement() {
           <h1 className="text-2xl font-bold">{t('sales.delivery')}</h1>
           <p className="text-muted-foreground">مذكرات التسليم</p>
         </div>
-        <Button onClick={() => setShowDeliveryForm(true)}>
-          + إضافة مذكرة تسليم
-        </Button>
+        {canCreateDelivery && (
+          <Button onClick={() => setShowDeliveryForm(true)}>
+            + إضافة مذكرة تسليم
+          </Button>
+        )}
       </div>
-      
-      <DeliveryNoteForm 
-        open={showDeliveryForm}
+
+      {/* لا يُمرَّر open=true إلى النموذج بلا sales.delivery_notes.create. */}
+      <DeliveryNoteForm
+        open={showDeliveryForm && canCreateDelivery}
         onOpenChange={setShowDeliveryForm}
         onSuccess={async () => {
           toast.success('تم إنشاء مذكرة التسليم بنجاح')
