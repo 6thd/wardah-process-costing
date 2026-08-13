@@ -110,6 +110,66 @@ describe('resolveRoutePermission — fail-closed contract', () => {
       expect(resolveRoutePermission('settings', '/system')).toEqual({ key: 'settings.organization.read' });
     });
   });
+
+  describe('settings — overview entry is anyOf, not organization.read alone', () => {
+    // خلل جولة سابقة: مستخدم settings.users.read-only كان يُرفَض عند
+    // ModuleGuard قبل الوصول إلى بطاقته الخاصة في SettingsOverview، لأن '/'
+    // كانت تطلب settings.organization.read فقط.
+    it('/ and /overview require anyOf(organization/users/roles), not organization.read alone', () => {
+      const expected = {
+        anyOf: ['settings.organization.read', 'settings.users.read', 'settings.roles.read'],
+      };
+      expect(resolveRoutePermission('settings', '/')).toEqual(expected);
+      expect(resolveRoutePermission('settings', '/overview')).toEqual(expected);
+    });
+
+    it('a users-only or roles-only grant satisfies the overview entry requirement', () => {
+      const overview = resolveRoutePermission('settings', '/');
+      const usersOnly = (k: string) => k === 'settings.users.read';
+      const rolesOnly = (k: string) => k === 'settings.roles.read';
+      expect(overview && satisfiesRouteRequirement(overview, usersOnly)).toBe(true);
+      expect(overview && satisfiesRouteRequirement(overview, rolesOnly)).toBe(true);
+    });
+  });
+});
+
+describe('inventory — overview entry includes adjustments.read', () => {
+  // خلل جولة سابقة: adjustments.read غائب عن anyOf الدخول رغم أن
+  // InventoryOverview تعرض بطاقة التسويات بمفتاحها بمعزل عن items/stock_moves/warehouses.
+  it('/ and /overview accept an adjustments-only grant', () => {
+    const overview = resolveRoutePermission('inventory', '/');
+    const adjustmentsOnly = (k: string) => k === 'inventory.adjustments.read';
+    expect(overview && satisfiesRouteRequirement(overview, adjustmentsOnly)).toBe(true);
+    expect(resolveRoutePermission('inventory', '/overview')).toEqual(overview);
+  });
+});
+
+describe('reports — overview entry includes ai_insights and purchasing fallback keys', () => {
+  // خلل جولة سابقة: reports.ai_insights.use وpurchasing.purchase_orders.read/
+  // purchasing.suppliers.read غائبة عن anyOf الدخول رغم أن ReportsOverview
+  // تعرض بطاقات "رؤى التقارير الذكية"/"التحليلات المتقدمة"/"تقارير المشتريات"
+  // بهذه المفاتيح بمعزل عن مفاتيح reports.* الأربعة الأساسية.
+  it('/ accepts an ai_insights-only or purchasing-only grant', () => {
+    const overview = resolveRoutePermission('reports', '/');
+    const aiOnly = (k: string) => k === 'reports.ai_insights.use';
+    const purchasingOnly = (k: string) => k === 'purchasing.suppliers.read';
+    expect(overview && satisfiesRouteRequirement(overview, aiOnly)).toBe(true);
+    expect(overview && satisfiesRouteRequirement(overview, purchasingOnly)).toBe(true);
+  });
+
+  it('/advanced stays on the four base report keys — an ai_insights-only grant does not satisfy it', () => {
+    const advanced = resolveRoutePermission('reports', '/advanced');
+    const aiOnly = (k: string) => k === 'reports.ai_insights.use';
+    expect(advanced).toEqual({
+      anyOf: ['reports.financial.read', 'reports.inventory.read', 'reports.manufacturing.read', 'reports.sales.read'],
+    });
+    expect(advanced && satisfiesRouteRequirement(advanced, aiOnly)).toBe(false);
+  });
+
+  it('/gemini requires the same key as /gemini/legacy — an ai_insights grant, not the broad overview anyOf', () => {
+    expect(resolveRoutePermission('reports', '/gemini')).toEqual({ key: 'reports.ai_insights.use' });
+    expect(resolveRoutePermission('reports', '/gemini/legacy')).toEqual({ key: 'reports.ai_insights.use' });
+  });
 });
 
 describe('satisfiesRouteRequirement', () => {

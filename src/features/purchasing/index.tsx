@@ -159,6 +159,8 @@ function PurchasingOverview() {
 function SuppliersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateSupplier = hasPermissionKey('purchasing.suppliers.create')
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -194,6 +196,12 @@ function SuppliersManagement() {
   )
 
   const handleAddSupplier = async () => {
+    // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create() لا
+    // تُستدعى بلا purchasing.suppliers.create مهما كان مصدر الاستدعاء.
+    if (!canCreateSupplier) {
+      toast.error('لا تملك صلاحية إضافة موردين')
+      return
+    }
     try {
       await suppliersService.create(newSupplier)
       toast.success('تم إضافة المورد بنجاح')
@@ -227,9 +235,11 @@ function SuppliersManagement() {
           <h1 className="text-2xl font-bold">{t('purchasing.suppliers')}</h1>
           <p className="text-muted-foreground">إدارة الموردين</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : t('common.add')}
-        </Button>
+        {canCreateSupplier && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : t('common.add')}
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -241,7 +251,9 @@ function SuppliersManagement() {
         />
       </div>
 
-      {/* Add Supplier Form */}
+      {/* Add Supplier Form — الزر أعلاه هو ما يفتحها، فلا تُفتَح بلا صلاحية.
+          لا تُغلَق قسرًا إن سُحبت الصلاحية أثناء التعبئة — handleAddSupplier
+          نفسها آخر خط دفاع للحفظ الفعلي. */}
       {showAddForm && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة مورد جديد</h3>
@@ -349,6 +361,8 @@ function SuppliersManagement() {
 
 function PurchaseOrdersManagement() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateOrder = hasPermissionKey('purchasing.purchase_orders.create')
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -408,13 +422,16 @@ function PurchaseOrdersManagement() {
           <h1 className="text-2xl font-bold">{t('purchasing.purchaseOrders')}</h1>
           <p className="text-muted-foreground">أوامر الشراء</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          + إضافة أمر شراء
-        </Button>
+        {canCreateOrder && (
+          <Button onClick={() => setShowAddForm(true)}>
+            + إضافة أمر شراء
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا purchasing.purchase_orders.create. */}
       <PurchaseOrderForm
-        open={showAddForm}
+        open={showAddForm && canCreateOrder}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
           loadOrders()
@@ -490,6 +507,11 @@ function GoodsReceiptManagement() {
   const isRTL = i18n.language === 'ar'
   // fail-closed: أثناء التحميل أو عند غياب المؤسسة يبقى المسار التقليدي هو العامل.
   const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
+  const { hasPermissionKey } = usePermissions()
+  // لا مورد "goods_receipts" مخصص في الكتالوج الحي — الاستلام يُقدِّم أمر
+  // شراء قائمًا، فأقرب مفتاح هو تعديل أوامر الشراء (نفس منطق route-permissions.ts
+  // لقراءة هذا المسار على purchasing.purchase_orders.read).
+  const canCreateReceipt = hasPermissionKey('purchasing.purchase_orders.update')
   const [showGRForm, setShowGRForm] = useState(false)
   const [receipts, setReceipts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -533,18 +555,20 @@ function GoodsReceiptManagement() {
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <PageHeader title="استلام البضائع" description="إدارة عمليات استلام البضائع من الموردين" hideOnPrint={false} />
-        <Button onClick={() => setShowGRForm(true)}>
-          + إضافة استلام
-        </Button>
+        {canCreateReceipt && (
+          <Button onClick={() => setShowGRForm(true)}>
+            + إضافة استلام
+          </Button>
+        )}
       </div>
 
       {/* بوابة الطرح: العلم يحكم المسار الجديد ولا يقطع المسار القائم. عند إطفائه
           — وهي حالة كل المؤسسات اليوم — يبقى نموذج الاستلام التقليدي هو العامل،
           وتظل قائمة السندات أعلاه ظاهرة في الحالتين. النمط نفسه المتبع في
-          LegacyPurchaseOrderForm ضمن PR #42. */}
+          LegacyPurchaseOrderForm ضمن PR #42. لا يُمرَّر open=true بلا الصلاحية. */}
       {uomEngineEnabled ? (
         <UomGoodsReceiptForm
-          open={showGRForm}
+          open={showGRForm && canCreateReceipt}
           onOpenChange={setShowGRForm}
           onSuccess={async () => {
             await loadReceipts()
@@ -552,7 +576,7 @@ function GoodsReceiptManagement() {
         />
       ) : (
         <GoodsReceiptForm
-          open={showGRForm}
+          open={showGRForm && canCreateReceipt}
           onOpenChange={setShowGRForm}
           onSuccess={async () => {
             toast.success('تم إنشاء إشعار الاستلام بنجاح')
@@ -609,6 +633,8 @@ function GoodsReceiptManagement() {
 function SupplierInvoicesManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateInvoice = hasPermissionKey('purchasing.purchase_invoices.create')
   const [showInvoiceForm, setShowInvoiceForm] = useState(false)
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -660,13 +686,16 @@ function SupplierInvoicesManagement() {
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <PageHeader title="فواتير المشتريات" description="إدارة فواتير الموردين وقيود اليومية" hideOnPrint={false} />
-        <Button onClick={() => setShowInvoiceForm(true)}>
-          + إضافة فاتورة مشتريات
-        </Button>
+        {canCreateInvoice && (
+          <Button onClick={() => setShowInvoiceForm(true)}>
+            + إضافة فاتورة مشتريات
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا purchasing.purchase_invoices.create. */}
       <SupplierInvoiceForm
-        open={showInvoiceForm}
+        open={showInvoiceForm && canCreateInvoice}
         onOpenChange={setShowInvoiceForm}
         onSuccess={loadInvoices}
       />

@@ -56,19 +56,20 @@ function SettingsOverview() {
       visible: canReadOrganization,
     },
     {
-      title: tr('إدارة المؤسسة', 'Organization Management'),
-      description: tr('إدارة المستخدمين والأدوار والصلاحيات', 'Manage users, roles and permissions'),
+      title: tr('إدارة المستخدمين', 'User Management'),
+      description: tr('إدارة أعضاء المؤسسة ودعواتهم', 'Manage organization members and invitations'),
       icon: Users,
-      href: '/org-admin',
+      // وجهة دقيقة لمستخدم settings.users.read — لا مركز /org-admin العام
+      // الذي قد يعرض عناصر تخص roles أيضًا لمن لا يملك مفتاحها.
+      href: '/org-admin/users',
       color: 'text-green-600',
       bgColor: 'bg-green-50',
       options: [
         tr('إدارة المستخدمين', 'User management'),
-        tr('الأدوار والصلاحيات', 'Roles and permissions'),
         tr('الدعوات', 'Invitations'),
       ],
-      // بطاقة جامعة (مستخدمون + أدوار)؛ أي من المفتاحين يكفي.
-      visible: canReadUsers || canReadRoles,
+      // يطابق متطلب /settings/users في route-permissions.ts
+      visible: canReadUsers,
     },
     {
       title: tr('الأمان والوصول', 'Security & Access'),

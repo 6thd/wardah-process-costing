@@ -143,4 +143,84 @@ describe('ModuleGuard — per-route permission contract (P1: module access is no
     expect(hasPermission).toHaveBeenCalledWith('sales', 'approve');
     expect(screen.queryByText('guarded-content')).not.toBeInTheDocument();
   });
+
+  describe('settings — overview entry is anyOf(organization/users/roles), not organization.read alone', () => {
+    // الخلل المُبلَّغ: '/' كانت تطلب settings.organization.read فقط، فمستخدم
+    // users/roles-only يُرفَض عند ModuleGuard قبل الوصول لبطاقته الخاصة في
+    // SettingsOverview — رغم أن الشاشة نفسها تعرض بطاقته حين يصل إليها.
+    it('a settings.users.read-only grant now reaches /settings', () => {
+      mockPermissions(['settings.users.read']);
+
+      renderAt('/settings', 'settings');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+
+    it('a settings.roles.read-only grant now reaches /settings', () => {
+      mockPermissions(['settings.roles.read']);
+
+      renderAt('/settings', 'settings');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+
+    it('zero settings permissions still fails closed at /settings', () => {
+      mockPermissions([]);
+
+      renderAt('/settings', 'settings');
+      expect(screen.queryByText('guarded-content')).not.toBeInTheDocument();
+      expect(screen.getByText('auth.accessDenied')).toBeInTheDocument();
+    });
+
+    it('/settings/company still requires organization.read specifically — users-only does not reach it', () => {
+      mockPermissions(['settings.users.read']);
+
+      renderAt('/settings/company', 'settings');
+      expect(screen.queryByText('guarded-content')).not.toBeInTheDocument();
+      expect(screen.getByText('auth.accessDenied')).toBeInTheDocument();
+    });
+  });
+
+  describe('inventory — overview entry includes adjustments.read', () => {
+    // الخلل المُبلَّغ: adjustments.read غائب عن anyOf الدخول رغم أن
+    // InventoryOverview تعرض بطاقة/رابط التسويات بمفتاحه المستقل.
+    it('an adjustments-only grant now reaches /inventory', () => {
+      mockPermissions(['inventory.adjustments.read']);
+
+      renderAt('/inventory', 'inventory');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+  });
+
+  describe('reports — overview entry includes ai_insights and purchasing fallback keys', () => {
+    // الخلل المُبلَّغ: reports.ai_insights.use وpurchasing.purchase_orders.read/
+    // purchasing.suppliers.read غائبة عن anyOf الدخول رغم أن ReportsOverview
+    // تعرض بطاقات مربوطة بها بمعزل عن مفاتيح reports.* الأربعة الأساسية.
+    it('an ai_insights-only grant now reaches /reports', () => {
+      mockPermissions(['reports.ai_insights.use']);
+
+      renderAt('/reports', 'reports');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+
+    it('a purchasing.suppliers.read-only grant now reaches /reports', () => {
+      mockPermissions(['purchasing.suppliers.read']);
+
+      renderAt('/reports', 'reports');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+
+    it('an ai_insights-only grant still does NOT reach /reports/advanced (narrower, unchanged contract)', () => {
+      mockPermissions(['reports.ai_insights.use']);
+
+      renderAt('/reports/advanced', 'reports');
+      expect(screen.queryByText('guarded-content')).not.toBeInTheDocument();
+      expect(screen.getByText('auth.accessDenied')).toBeInTheDocument();
+    });
+
+    it('an ai_insights-only grant reaches /reports/gemini, aligned with /reports/gemini/legacy', () => {
+      mockPermissions(['reports.ai_insights.use']);
+
+      renderAt('/reports/gemini', 'reports');
+      expect(screen.getByText('guarded-content')).toBeInTheDocument();
+    });
+  });
 });

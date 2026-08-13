@@ -145,6 +145,23 @@ export function CustomerReceipts() {
     return methods[method] || method
   }
 
+  // بوابة الاستدعاء: النافذة تبقى مفتوحة إن سُحبت الصلاحية بعد ظهورها (قبل
+  // نقرة التأكيد)؛ الدالتان الخام لا تُستدعيان مباشرة — إعادة الفحص هنا هي
+  // خط الدفاع الفعلي عند التأكيد، لا مجرد إخفاء الزر الذي فتح النافذة.
+  const guardedResetVoucher: typeof resetCustomerReceiptToDraft = async (voucherId, reason) => {
+    if (!canUnpostVoucher) {
+      return { success: false, error: 'لا تملك صلاحية فك ترحيل سندات القبض' }
+    }
+    return resetCustomerReceiptToDraft(voucherId, reason)
+  }
+
+  const guardedCancelVoucher: typeof cancelCustomerReceipt = async (voucherId, reason) => {
+    if (!canCancelVoucher) {
+      return { success: false, error: 'لا تملك صلاحية إلغاء سندات القبض' }
+    }
+    return cancelCustomerReceipt(voucherId, reason)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -300,8 +317,8 @@ export function CustomerReceipts() {
       <VoucherReasonActionDialog
         action={pendingAction}
         resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة الفواتير كما كانت."
-        resetVoucher={resetCustomerReceiptToDraft}
-        cancelVoucher={cancelCustomerReceipt}
+        resetVoucher={guardedResetVoucher}
+        cancelVoucher={guardedCancelVoucher}
         onClose={() => setPendingAction(null)}
         onChanged={loadReceipts}
       />

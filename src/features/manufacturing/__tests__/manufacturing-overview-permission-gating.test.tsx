@@ -82,4 +82,16 @@ describe('ManufacturingOverview — per-section permission-aware loading', () =>
     expect(screen.queryByText('manufacturing.overviewPage.cards.bom.title')).not.toBeInTheDocument();
     expect(screen.queryByText('manufacturing.overviewPage.cards.orders.title')).not.toBeInTheDocument();
   });
+
+  it('manufacturing.stages.read alone shows the stages card — a stages-only user is not left with an empty grid', async () => {
+    // خلل جولة سابقة: manufacturing.stages.read جزء من anyOf دخول الشاشة عبر
+    // ModuleGuard لكن لا بطاقة له، فيدخل مستخدم يملكه وحده ولا يرى شيئًا ذا صلة.
+    setPermissions(['manufacturing.stages.read']);
+    renderOverview();
+
+    await waitFor(() => expect(screen.getByText('manufacturing.overviewPage.cards.stages.title')).toBeInTheDocument());
+    expect(manufacturingGetAll).not.toHaveBeenCalled();
+    expect(screen.queryByText('manufacturing.overviewPage.cards.bom.title')).not.toBeInTheDocument();
+    expect(screen.queryByText('manufacturing.overviewPage.cards.orders.title')).not.toBeInTheDocument();
+  });
 });

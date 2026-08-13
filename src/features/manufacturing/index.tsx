@@ -60,6 +60,7 @@ import { StageWipLogList } from './stage-wip-log-list'
 import { StandardCostsList } from './standard-costs-list'
 import { ManufacturingOrderForm, ManufacturingQuickStats } from './components'
 import { supabase, getEffectiveTenantId, type ManufacturingOrder } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 import { ManufacturingOverview } from './ManufacturingOverview'
 // New modules
 import { RoutingManagement } from './routing/RoutingManagement'
@@ -232,6 +233,10 @@ function StandardCostsPage() {
 function ManufacturingOrdersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateOrder = hasPermissionKey('manufacturing.orders.create')
+  // تغيير الحالة تعديل على أمر قائم — لا فعل "اعتماد" منفصل في هذا العنصر.
+  const canUpdateOrder = hasPermissionKey('manufacturing.orders.update')
   const [showAddForm, setShowAddForm] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<ManufacturingOrder | null>(null)
   const [orderDetailsOpen, setOrderDetailsOpen] = useState(false)
@@ -266,6 +271,11 @@ function ManufacturingOrdersManagement() {
   const handleCreateOrder = async (event: React.FormEvent) => {
     event.preventDefault()
 
+    if (!canCreateOrder) {
+      toast.error(t('manufacturing.ordersPage.noCreatePermission', { defaultValue: 'لا تملك صلاحية إنشاء أوامر تصنيع' }))
+      return
+    }
+
     setCreatingOrder(true)
     const success = await createManufacturingOrder(orderForm, t)
     
@@ -297,6 +307,10 @@ function ManufacturingOrdersManagement() {
   })
 
   const handleStatusChange = async (orderId: string, newStatus: ManufacturingOrder['status']) => {
+    if (!canUpdateOrder) {
+      toast.error(t('manufacturing.ordersPage.noUpdatePermission', { defaultValue: 'لا تملك صلاحية تعديل حالة أوامر التصنيع' }))
+      return
+    }
     try {
       const currentOrder = orders.find(o => o.id === orderId)
       if (!currentOrder) {
@@ -385,10 +399,12 @@ function ManufacturingOrdersManagement() {
           <h1 className="text-2xl font-bold">{t('manufacturing.ordersPage.title')}</h1>
           <p className="text-muted-foreground">{t('manufacturing.ordersPage.subtitle')}</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          <Plus className="h-4 w-4 mr-2" />
-          {showAddForm ? t('common.cancel') : t('manufacturing.ordersPage.newOrder')}
-        </Button>
+        {canCreateOrder && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            <Plus className="h-4 w-4 mr-2" />
+            {showAddForm ? t('common.cancel') : t('manufacturing.ordersPage.newOrder')}
+          </Button>
+        )}
       </div>
 
       {/* Quick Stats */}
@@ -461,6 +477,7 @@ function ManufacturingOrdersManagement() {
                         <Badge variant={getStatusBadgeVariant(order.status)}>
                           {getStatusLabel(order.status, isRTL)}
                         </Badge>
+                        {canUpdateOrder && (
                         <Select
                           value={order.status}
                           onValueChange={(value) =>
@@ -483,10 +500,10 @@ function ManufacturingOrdersManagement() {
                                 order.status as ManufacturingOrderStatus,
                                 status as ManufacturingOrderStatus
                               ) || status === order.status
-                              
+
                               return (
-                                <SelectItem 
-                                  key={`${order.id}-${status}`} 
+                                <SelectItem
+                                  key={`${order.id}-${status}`}
                                   value={status}
                                   disabled={!isValid && status !== order.status}
                                 >
@@ -503,6 +520,7 @@ function ManufacturingOrdersManagement() {
                             })}
                           </SelectContent>
                         </Select>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{formatDate((order as ManufacturingOrderWithItem).start_date)}</TableCell>
@@ -641,6 +659,9 @@ function ManufacturingOrdersManagement() {
 function WorkCentersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateWorkCenter = hasPermissionKey('manufacturing.work_centers.create')
+  const canUpdateWorkCenter = hasPermissionKey('manufacturing.work_centers.update')
   const queryClient = useQueryClient()
   const { data: workCenters = [], isLoading } = useWorkCenters()
   const createWorkCenter = useCreateWorkCenter()
@@ -668,6 +689,11 @@ function WorkCentersManagement() {
 
   const handleCreate = async (event: React.FormEvent) => {
     event.preventDefault()
+
+    if (!canCreateWorkCenter) {
+      toast.error(t('manufacturing.workCenters.messages.noCreatePermission', { defaultValue: 'لا تملك صلاحية إنشاء مراكز عمل' }))
+      return
+    }
 
     if (!formData.code || !formData.name) {
       toast.error(t('manufacturing.workCenters.messages.validation'))
@@ -706,6 +732,10 @@ function WorkCentersManagement() {
   }
 
   const toggleActive = async (workCenter: WorkCenter) => {
+    if (!canUpdateWorkCenter) {
+      toast.error(t('manufacturing.workCenters.messages.noUpdatePermission', { defaultValue: 'لا تملك صلاحية تعديل مراكز العمل' }))
+      return
+    }
     try {
       await updateWorkCenter.mutateAsync({
         id: workCenter.id,
@@ -807,19 +837,21 @@ function WorkCentersManagement() {
                           ? t('manufacturing.workCenters.list.statusActive')
                           : t('manufacturing.workCenters.list.statusInactive')}
                       </span>
-                      <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
-                        <span>
-                          {wc.is_active
-                            ? t('manufacturing.workCenters.list.toggleDisable')
-                            : t('manufacturing.workCenters.list.toggleEnable')}
-                        </span>
-                        <input
-                          type="checkbox"
-                          className="h-4 w-4"
-                          checked={wc.is_active}
-                          onChange={() => toggleActive(wc)}
-                        />
-                      </label>
+                      {canUpdateWorkCenter && (
+                        <label className="inline-flex cursor-pointer items-center gap-2 text-sm">
+                          <span>
+                            {wc.is_active
+                              ? t('manufacturing.workCenters.list.toggleDisable')
+                              : t('manufacturing.workCenters.list.toggleEnable')}
+                          </span>
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={wc.is_active}
+                            onChange={() => toggleActive(wc)}
+                          />
+                        </label>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -829,6 +861,7 @@ function WorkCentersManagement() {
           </CardContent>
         </Card>
 
+        {canCreateWorkCenter && (
         <Card>
           <CardHeader>
             <h3 className="text-xl font-semibold">{t('manufacturing.workCenters.form.title')}</h3>
@@ -881,6 +914,7 @@ function WorkCentersManagement() {
             </form>
           </CardContent>
         </Card>
+        )}
       </div>
     </div>
   )

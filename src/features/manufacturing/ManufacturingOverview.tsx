@@ -28,6 +28,9 @@ export function ManufacturingOverview() {
   const canReadBoms = hasPermissionKey('manufacturing.boms.read')
   const canReadWorkCenters = hasPermissionKey('manufacturing.work_centers.read')
   const canReadStageCosts = hasPermissionKey('manufacturing.stage_costs.read')
+  // manufacturing.stages.read جزء من anyOf دخول هذه الشاشة، فيحتاج بطاقته
+  // الخاصة — وإلا يدخل مستخدم يملكه وحده ولا يرى أي شيء ذا صلة.
+  const canReadStages = hasPermissionKey('manufacturing.stages.read')
   // بطاقة الجودة تعتمد حاليًا على manufacturing.orders.read في العقد (صفحة
   // "قيد الإنشاء" بلا مورد مخصص بعد).
   const { orders, loading } = useManufacturingOrders({ enabled: canReadOrders })
@@ -53,6 +56,7 @@ export function ManufacturingOverview() {
         canReadBoms={canReadBoms}
         canReadWorkCenters={canReadWorkCenters}
         canReadStageCosts={canReadStageCosts}
+        canReadStages={canReadStages}
       />
 
       {/* Recent Manufacturing Orders — مشتقة من orders */}

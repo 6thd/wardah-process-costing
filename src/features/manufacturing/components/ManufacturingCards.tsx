@@ -13,7 +13,8 @@ import {
   Settings,
   Package,
   CheckCircle,
-  Users
+  Users,
+  Layers
 } from 'lucide-react'
 import type { ManufacturingOrder } from '@/lib/supabase'
 import { type ManufacturingOrderStatus, isActiveOrder } from '@/utils/manufacturing-order-status'
@@ -27,6 +28,7 @@ interface ManufacturingCardsProps {
   canReadBoms: boolean
   canReadWorkCenters: boolean
   canReadStageCosts: boolean
+  canReadStages: boolean
 }
 
 export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
@@ -37,6 +39,7 @@ export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
   canReadBoms,
   canReadWorkCenters,
   canReadStageCosts,
+  canReadStages,
 }) => {
   const activeOrders = orders.filter(order => isActiveOrder(order.status as ManufacturingOrderStatus))
 
@@ -105,6 +108,20 @@ export const ManufacturingCards: React.FC<ManufacturingCardsProps> = ({
           </div>
           <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
             {t('manufacturing.overviewPage.cards.bom.description')}
+          </p>
+        </Link>
+      )}
+
+      {canReadStages && (
+        <Link to="/manufacturing/stages" className="wardah-glass-card wardah-glass-card-hover p-6 transition-colors">
+          <div className={cn("flex items-center gap-3 mb-3", isRTL ? "flex-row-reverse" : "")}>
+            <Layers className="h-6 w-6 text-primary" />
+            <h3 className={cn("font-semibold wardah-text-gradient-google", isRTL ? "text-right" : "text-left")}>
+              {t('manufacturing.overviewPage.cards.stages.title')}
+            </h3>
+          </div>
+          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+            {t('manufacturing.overviewPage.cards.stages.description')}
           </p>
         </Link>
       )}

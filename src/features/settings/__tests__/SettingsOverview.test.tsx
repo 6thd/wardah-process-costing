@@ -79,29 +79,29 @@ describe('Settings overview', () => {
       expect(screen.getByRole('heading', { name: 'Company Profile' })).toBeInTheDocument()
       expect(screen.getByRole('heading', { name: 'System Settings' })).toBeInTheDocument()
       expect(screen.getByRole('heading', { name: 'Data Export' })).toBeInTheDocument()
-      expect(screen.queryByRole('heading', { name: 'Organization Management' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'User Management' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Security & Access' })).not.toBeInTheDocument()
     })
 
-    it('settings.users.read alone shows Organization Management but not Security & Access or organization.read cards', async () => {
+    it('settings.users.read alone shows User Management but not Security & Access or organization.read cards', async () => {
       await act(async () => { await i18n.changeLanguage('en') })
       setPermissions(['settings.users.read'])
 
       renderSettings()
 
-      expect(screen.getByRole('heading', { name: 'Organization Management' })).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'User Management' })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Security & Access' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Company Profile' })).not.toBeInTheDocument()
     })
 
-    it('settings.roles.read alone shows both org-admin cards but not organization.read cards', async () => {
+    it('settings.roles.read alone shows only Security & Access, not User Management or organization.read cards', async () => {
       await act(async () => { await i18n.changeLanguage('en') })
       setPermissions(['settings.roles.read'])
 
       renderSettings()
 
-      expect(screen.getByRole('heading', { name: 'Organization Management' })).toBeInTheDocument()
       expect(screen.getByRole('heading', { name: 'Security & Access' })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'User Management' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Company Profile' })).not.toBeInTheDocument()
     })
 
@@ -113,7 +113,7 @@ describe('Settings overview', () => {
 
       expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Company Profile' })).not.toBeInTheDocument()
-      expect(screen.queryByRole('heading', { name: 'Organization Management' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'User Management' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Security & Access' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'System Settings' })).not.toBeInTheDocument()
       expect(screen.queryByRole('heading', { name: 'Data Export' })).not.toBeInTheDocument()

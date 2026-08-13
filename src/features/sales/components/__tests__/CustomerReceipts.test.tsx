@@ -311,4 +311,47 @@ describe('CustomerReceipts', () => {
       expect(mocksExtra.updateCustomerReceiptDraft).not.toHaveBeenCalled()
     })
   })
+
+  describe('revoking cancel/unpost while the reason dialog is already open blocks the actual confirm', () => {
+    // VoucherReasonActionDialog يبقى مفتوحًا إن سُحبت الصلاحية بعد ظهوره (قبل
+    // نقرة التأكيد) — الدالتان الخام (cancelCustomerReceipt/resetCustomerReceiptToDraft)
+    // لا تُستدعيان مباشرة بعد الآن؛ guardedCancelVoucher/guardedResetVoucher
+    // تعيد الفحص عند التأكيد نفسه، لا مجرد عند فتح النافذة.
+    it('revoking accounting.vouchers.cancel mid-dialog blocks the actual cancel', async () => {
+      mocks.permissionKeys.add('accounting.vouchers.cancel')
+      const { rerender } = renderReceipts()
+      await screen.findByText('CR-202607-00001')
+
+      fireEvent.click(screen.getByRole('button', { name: 'إلغاء سند CR-202607-00001' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText('السبب *'), { target: { value: 'سبب اختباري كافٍ' } })
+
+      mocks.permissionKeys.delete('accounting.vouchers.cancel')
+      rerenderReceipts(rerender)
+
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'تأكيد الإلغاء' }))
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('لا تملك صلاحية إلغاء سندات القبض'))
+      expect(mocks.cancelCustomerReceipt).not.toHaveBeenCalled()
+    })
+
+    it('revoking accounting.vouchers.unpost mid-dialog blocks the actual reset-to-draft', async () => {
+      mocks.getAllCustomerReceipts.mockResolvedValue({ success: true, data: [postedReceipt] })
+      mocks.permissionKeys.add('accounting.vouchers.unpost')
+      const { rerender } = renderReceipts()
+      await screen.findByText('CR-202607-00002')
+
+      fireEvent.click(screen.getByRole('button', { name: 'إعادة سند CR-202607-00002 إلى مسودة' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText('السبب *'), { target: { value: 'سبب اختباري كافٍ' } })
+
+      mocks.permissionKeys.delete('accounting.vouchers.unpost')
+      rerenderReceipts(rerender)
+
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'إعادة إلى مسودة' }))
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('لا تملك صلاحية فك ترحيل سندات القبض'))
+      expect(mocks.resetCustomerReceiptToDraft).not.toHaveBeenCalled()
+    })
+  })
 })

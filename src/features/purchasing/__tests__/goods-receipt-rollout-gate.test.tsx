@@ -51,6 +51,12 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }))
 
+// هذا الملف يختبر بوابة العلم لا بوابة الصلاحيات — منح كل شيء يبقيه مركّزًا
+// على نيته الأصلية بدل التحول إلى اختبار حراسة (تُغطَّى في purchasing-permission-gating.test.tsx).
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({ hasPermissionKey: () => true }),
+}))
+
 import { PurchasingModule } from '../index'
 
 const renderReceiptsScreen = () =>

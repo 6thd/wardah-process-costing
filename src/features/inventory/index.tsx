@@ -231,6 +231,8 @@ function ItemsManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateItem = hasPermissionKey('inventory.items.create')
   const [items, setItems] = useState<Item[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -263,8 +265,40 @@ function ItemsManagement() {
 
   useEffect(() => {
     loadData()
-    loadItemWarehouses()
   }, [])
+
+  // بيانات مرجعية لنموذج الإضافة فقط — لا تُحمَّل لقارئ لا يملك
+  // inventory.items.create، حتى لو ملك inventory.items.read. مضمَّنة هنا
+  // مباشرة (لا دالة مستخرَجة) لتبقى canCreateItem وحدها الاعتماد الحقيقي.
+  useEffect(() => {
+    if (!canCreateItem) {
+      setItemWarehouses([])
+      setLoadingItemWarehouses(false)
+      return
+    }
+    let cancelled = false
+    setLoadingItemWarehouses(true)
+    ;(async () => {
+      try {
+        const { data, error } = await getSupabase()
+          .from('warehouses')
+          .select('*')
+          .eq('is_active', true)
+          .order('name')
+        if (cancelled) return
+        if (error) throw error
+        setItemWarehouses(data || [])
+        if (data && data.length > 0) {
+          setNewItem(prev => (prev.default_warehouse_id ? prev : { ...prev, default_warehouse_id: data[0].id }))
+        }
+      } catch (error) {
+        console.error('Error loading warehouses:', error)
+      } finally {
+        if (!cancelled) setLoadingItemWarehouses(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [canCreateItem])
 
   const loadData = async () => {
     try {
@@ -279,34 +313,6 @@ function ItemsManagement() {
       toast.error('خطأ في تحميل البيانات')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadItemWarehouses = async () => {
-    try {
-      setLoadingItemWarehouses(true)
-      const supabase = getSupabase()
-      const { data, error } = await supabase
-        .from('warehouses')
-        .select('*')
-        .eq('is_active', true)
-        .order('name')
-
-      if (error) throw error
-      
-      setItemWarehouses(data || [])
-      
-      // Auto-select first warehouse for new items
-      if (data && data.length > 0 && !newItem.default_warehouse_id) {
-        setNewItem(prev => ({
-          ...prev,
-          default_warehouse_id: data[0].id
-        }))
-      }
-    } catch (error) {
-      console.error('Error loading warehouses:', error)
-    } finally {
-      setLoadingItemWarehouses(false)
     }
   }
 
@@ -362,6 +368,10 @@ function ItemsManagement() {
   }
 
   const handleAddItem = async () => {
+    if (!canCreateItem) {
+      toast.error('لا تملك صلاحية إضافة أصناف')
+      return
+    }
     try {
       // Validate warehouse selection
       if (!newItem.default_warehouse_id) {
@@ -420,9 +430,11 @@ function ItemsManagement() {
               <Link to="/inventory/uom-issues">🔧 إصلاح وحدات الأصناف</Link>
             </Button>
           )}
-          <Button onClick={() => setShowAddForm(!showAddForm)}>
-            {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
-          </Button>
+          {canCreateItem && (
+            <Button onClick={() => setShowAddForm(!showAddForm)}>
+              {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
+            </Button>
+          )}
         </div>
       </div>
 

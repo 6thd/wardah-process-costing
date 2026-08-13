@@ -86,8 +86,11 @@ const PURCHASING_ROUTES: RoutePattern[] = [
 // inventory — catalog: items, products, stock_moves, warehouses, adjustments
 // ============================================================
 
+// adjustments.read كان غائبًا هنا رغم أن InventoryOverview تعرض بطاقة/رابط
+// التسويات بمفتاحها بمعزل عن items/stock_moves/warehouses؛ مستخدم يملك
+// adjustments.read وحده كان يُرفَض عند ModuleGuard قبل الوصول لتلك البطاقة أصلًا.
 const INVENTORY_OVERVIEW: RouteRequirement = {
-  anyOf: ['inventory.items.read', 'inventory.stock_moves.read', 'inventory.warehouses.read'],
+  anyOf: ['inventory.items.read', 'inventory.stock_moves.read', 'inventory.warehouses.read', 'inventory.adjustments.read'],
 };
 
 const INVENTORY_ROUTES: RoutePattern[] = [
@@ -216,7 +219,21 @@ const GENERAL_LEDGER_ROUTES: RoutePattern[] = [
 // (لا يوجد reports.purchasing.* — انظر التقرير المرفق مع التسليم)
 // ============================================================
 
+// نظرة التقارير العامة تجمع بطاقات مربوطة أيضًا بـ reports.ai_insights.use
+// وبمفتاحَي المشتريات التشغيلية (بطاقة "تقارير المشتريات" في ReportsOverview) —
+// كانا غائبين هنا، فمستخدم يملك أيًّا منهما وحده كان يُرفَض عند ModuleGuard
+// قبل الوصول لبطاقته أصلًا (نفس عائلة خلل settings.organization.read وحده).
 const REPORTS_OVERVIEW: RouteRequirement = {
+  anyOf: [
+    'reports.financial.read', 'reports.inventory.read', 'reports.manufacturing.read', 'reports.sales.read',
+    'reports.ai_insights.use',
+    'purchasing.purchase_orders.read', 'purchasing.suppliers.read',
+  ],
+};
+
+// "التقارير المتقدمة" في ReportsOverview مربوطة بهذه الأربعة تحديدًا (لا
+// ai_insights ولا purchasing) — عقدها المستقل بدل REPORTS_OVERVIEW الموسَّعة.
+const REPORTS_ADVANCED: RouteRequirement = {
   anyOf: ['reports.financial.read', 'reports.inventory.read', 'reports.manufacturing.read', 'reports.sales.read'],
 };
 
@@ -232,10 +249,11 @@ const REPORTS_ROUTES: RoutePattern[] = [
   // المشتريات التشغيلية نفسها بدل فتحها لأي صلاحية تقارير عامة.
   { pattern: '/purchasing', requirement: { anyOf: ['purchasing.purchase_orders.read', 'purchasing.suppliers.read'] } },
   { pattern: '/analytics', requirement: { key: 'reports.ai_insights.use' } },
-  { pattern: '/advanced', requirement: REPORTS_OVERVIEW },
+  { pattern: '/advanced', requirement: REPORTS_ADVANCED },
   { pattern: '/insights', requirement: { key: 'reports.ai_insights.use' } },
   { pattern: '/gemini/legacy', requirement: { key: 'reports.ai_insights.use' } },
-  { pattern: '/gemini', requirement: REPORTS_OVERVIEW },
+  // نفس مفتاح /gemini/legacy — صفحة مركز Gemini/AI لا نظرة تقارير عامة.
+  { pattern: '/gemini', requirement: { key: 'reports.ai_insights.use' } },
 ];
 
 // ============================================================
@@ -244,8 +262,17 @@ const REPORTS_ROUTES: RoutePattern[] = [
 
 const SETTINGS_ORGANIZATION: RouteRequirement = { key: 'settings.organization.read' };
 
+// نظرة الإعدادات العامة تجمع بطاقات مربوطة بثلاثة مفاتيح مختلفة (organization/
+// users/roles)، وكل بطاقة تُخفى داخل SettingsOverview بمفتاحها الفعلي — فامتلاك
+// أي منها كافٍ لدخول الشاشة نفسها، لا organization.read وحده. مطابق لنمط anyOf
+// المستخدم في نظرة كل موديول آخر (sales/purchasing/inventory/...).
+const SETTINGS_OVERVIEW: RouteRequirement = {
+  anyOf: ['settings.organization.read', 'settings.users.read', 'settings.roles.read'],
+};
+
 const SETTINGS_ROUTES: RoutePattern[] = [
-  { pattern: '/', requirement: SETTINGS_ORGANIZATION },
+  { pattern: '/', requirement: SETTINGS_OVERVIEW },
+  { pattern: '/overview', requirement: SETTINGS_OVERVIEW },
   { pattern: '/company', requirement: SETTINGS_ORGANIZATION },
   // إعادة توجيه صرفة إلى /org-admin/users، الذي يفرض حراسته الخاصة — لكن
   // الدخول هنا يُفحص بمفتاح users نفسه لا organization: مستخدم يملك

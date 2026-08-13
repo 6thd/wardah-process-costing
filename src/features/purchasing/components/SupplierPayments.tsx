@@ -53,12 +53,18 @@ import { usePermissions } from '@/hooks/usePermissions'
 
 const CANCEL_PERMISSION = 'accounting.vouchers.cancel'
 const UNPOST_PERMISSION = 'accounting.vouchers.unpost'
+const CREATE_PERMISSION = 'purchasing.payments.create'
+const APPROVE_PERMISSION = 'purchasing.payments.approve'
+const UPDATE_PERMISSION = 'purchasing.payments.update'
 
 export function SupplierPayments() {
   const { t, i18n } = useTranslation()
   const { hasPermissionKey } = usePermissions()
   const canCancelVoucher = hasPermissionKey(CANCEL_PERMISSION)
   const canUnpostVoucher = hasPermissionKey(UNPOST_PERMISSION)
+  const canCreatePayment = hasPermissionKey(CREATE_PERMISSION)
+  const canApprovePayment = hasPermissionKey(APPROVE_PERMISSION)
+  const canUpdatePayment = hasPermissionKey(UPDATE_PERMISSION)
   const isRTL = i18n.language === 'ar'
   const [payments, setPayments] = useState<SupplierPayment[]>([])
   const [loading, setLoading] = useState(true)
@@ -88,6 +94,10 @@ export function SupplierPayments() {
   }
 
   const handlePost = async (paymentId: string) => {
+    if (!canApprovePayment) {
+      toast.error('لا تملك صلاحية إقرار سندات الصرف')
+      return
+    }
     try {
       const result = await postSupplierPayment(paymentId)
       if (result.success) {
@@ -125,6 +135,23 @@ export function SupplierPayments() {
     return methods[method] || method
   }
 
+  // بوابة الاستدعاء: النافذة تبقى مفتوحة إن سُحبت الصلاحية بعد ظهورها (قبل
+  // نقرة التأكيد)؛ الدالتان الخام لا تُستدعيان مباشرة — إعادة الفحص هنا هي
+  // خط الدفاع الفعلي عند التأكيد، لا مجرد إخفاء الزر الذي فتح النافذة.
+  const guardedResetVoucher: typeof resetSupplierPaymentToDraft = async (voucherId, reason) => {
+    if (!canUnpostVoucher) {
+      return { success: false, error: 'لا تملك صلاحية فك ترحيل سندات الصرف' }
+    }
+    return resetSupplierPaymentToDraft(voucherId, reason)
+  }
+
+  const guardedCancelVoucher: typeof cancelSupplierPayment = async (voucherId, reason) => {
+    if (!canCancelVoucher) {
+      return { success: false, error: 'لا تملك صلاحية إلغاء سندات الصرف' }
+    }
+    return cancelSupplierPayment(voucherId, reason)
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -132,23 +159,25 @@ export function SupplierPayments() {
           <h1 className="text-2xl font-bold">سندات الصرف</h1>
           <p className="text-muted-foreground">إدارة سندات الصرف للموردين</p>
         </div>
-        <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-          <DialogTrigger asChild>
-            <Button>إضافة سند صرف</Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>سند صرف جديد</DialogTitle>
-              <DialogDescription>إنشاء سند صرف جديد لمورد</DialogDescription>
-            </DialogHeader>
-            <CreatePaymentForm 
-              onSuccess={() => {
-                setShowCreateDialog(false)
-                loadPayments()
-              }}
-            />
-          </DialogContent>
-        </Dialog>
+        {canCreatePayment && (
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+            <DialogTrigger asChild>
+              <Button>إضافة سند صرف</Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>سند صرف جديد</DialogTitle>
+                <DialogDescription>إنشاء سند صرف جديد لمورد</DialogDescription>
+              </DialogHeader>
+              <CreatePaymentForm
+                onSuccess={() => {
+                  setShowCreateDialog(false)
+                  loadPayments()
+                }}
+              />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Stats */}
@@ -236,12 +265,16 @@ export function SupplierPayments() {
                         <div className="flex flex-wrap gap-2">
                           {payment.status === 'draft' && (
                             <>
-                              <Button size="sm" variant="outline" onClick={() => handlePost(payment.id!)}>
-                                إقرار
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => setEditingPayment(payment)}>
-                                تعديل
-                              </Button>
+                              {canApprovePayment && (
+                                <Button size="sm" variant="outline" onClick={() => handlePost(payment.id!)}>
+                                  إقرار
+                                </Button>
+                              )}
+                              {canUpdatePayment && (
+                                <Button size="sm" variant="outline" onClick={() => setEditingPayment(payment)}>
+                                  تعديل
+                                </Button>
+                              )}
                               {canCancelVoucher && (
                                 <Button
                                   size="sm"
@@ -318,8 +351,8 @@ export function SupplierPayments() {
       <VoucherReasonActionDialog
         action={pendingAction}
         resetDescription="يُفكّ ترحيل السند ويعود قيده إلى مسودة مع الاحتفاظ برقم القيد وسطوره، وتُعاد أرصدة فواتير المورد كما كانت."
-        resetVoucher={resetSupplierPaymentToDraft}
-        cancelVoucher={cancelSupplierPayment}
+        resetVoucher={guardedResetVoucher}
+        cancelVoucher={guardedCancelVoucher}
         onClose={() => setPendingAction(null)}
         onChanged={loadPayments}
       />
@@ -332,6 +365,16 @@ function EditPaymentAllocationsForm({
   onSuccess,
   onCancel,
 }: Readonly<{ payment: SupplierPayment; onSuccess: () => void; onCancel: () => void }>) {
+  const { hasPermissionKey } = usePermissions()
+  const canUpdatePayment = hasPermissionKey(UPDATE_PERMISSION)
+
+  const guardedUpdateDraft: typeof updateSupplierPaymentDraft = async (voucherId, changes) => {
+    if (!canUpdatePayment) {
+      return { success: false, error: 'لا تملك صلاحية تعديل سندات الصرف' }
+    }
+    return updateSupplierPaymentDraft(voucherId, changes)
+  }
+
   return (
     <VoucherAllocationsForm
       voucherId={payment.id}
@@ -340,7 +383,7 @@ function EditPaymentAllocationsForm({
       currentLines={payment.lines}
       emptyMessage="لا توجد فواتير قابلة للسداد لهذا المورد"
       loadInvoices={getSupplierOutstandingInvoices}
-      updateDraft={updateSupplierPaymentDraft}
+      updateDraft={guardedUpdateDraft}
       onSuccess={onSuccess}
       onCancel={onCancel}
     />
