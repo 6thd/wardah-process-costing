@@ -21,6 +21,7 @@ import type { Customer } from '@/lib/supabase'
 import { SalesInvoiceForm } from '@/components/forms/SalesInvoiceForm'
 import { DeliveryNoteForm } from '@/components/forms/DeliveryNoteForm'
 import { CustomerReceipts } from './components/CustomerReceipts'
+import { usePermissions } from '@/hooks/usePermissions'
 
 // Shared status badge function
 function getStatusBadge(status: string) {
@@ -57,6 +58,15 @@ function getPaymentStatusText(status: string): string {
 function SalesOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول الصفحة عند ModuleGuard هو anyOf بين الثلاثة أدناه — لكن ذلك
+  // لا يعني أن كل قسم يُحمَّل أو يُعرض لكل من اجتاز الدخول. كل قسم يُحمَّل
+  // ويُعرض فقط إذا امتلك المستخدم مفتاح قراءته الفعلي، حتى يستفيد المستخدم
+  // محدود الصلاحية من الأقسام المسموحة له فقط دون تحميل ما لا يملك مفتاحه.
+  const canReadCustomers = hasPermissionKey('sales.customers.read')
+  const canReadOrders = hasPermissionKey('sales.sales_orders.read')
+  const canReadInvoices = hasPermissionKey('sales.sales_invoices.read')
+  const canReadSalesActivity = canReadOrders || canReadInvoices
   const [customers, setCustomers] = useState<Customer[]>([])
   const [orders, setOrders] = useState<any[]>([])
 
@@ -70,19 +80,25 @@ function SalesOverview() {
     }
   }
 
-  // Helper function to load orders with fallback
+  // Helper function to load orders/invoices — كل مصدر يُستدعى فقط إذا ملك
+  // المستخدم مفتاح قراءته؛ لا يُجرَّب مصدر الفواتير كـfallback صامت لمستخدم
+  // يملك sales.sales_orders.read فقط دون sales.sales_invoices.read.
   const loadOrdersWithFallback = async () => {
-    try {
-      const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
-      const invoicesResult = await getAllSalesInvoices()
-      if (invoicesResult.success && invoicesResult.data) {
-        setOrders(invoicesResult.data || [])
-        return
+    if (canReadInvoices) {
+      try {
+        const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
+        const invoicesResult = await getAllSalesInvoices()
+        if (invoicesResult.success && invoicesResult.data) {
+          setOrders(invoicesResult.data || [])
+          return
+        }
+      } catch (invoiceError: any) {
+        console.warn('Error loading sales invoices, trying fallback:', invoiceError)
       }
-    } catch (invoiceError: any) {
-      console.warn('Error loading sales invoices, trying fallback:', invoiceError)
     }
-    
+
+    if (!canReadOrders) return
+
     // Fallback: try old service
     try {
       const ordersData = await salesOrdersService.getAll()
@@ -101,17 +117,18 @@ function SalesOverview() {
   useEffect(() => {
     const loadData = async () => {
       try {
-        await Promise.all([
-          loadCustomers(),
-          loadOrdersWithFallback()
-        ])
+        const tasks: Array<Promise<void>> = []
+        if (canReadCustomers) tasks.push(loadCustomers())
+        if (canReadSalesActivity) tasks.push(loadOrdersWithFallback())
+        await Promise.all(tasks)
       } catch (error: any) {
         console.error('Error loading sales data:', error)
         toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
       }
     }
     loadData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadCustomers, canReadSalesActivity])
 
   const totalSalesValue = orders.reduce((sum, order) => sum + order.total_amount, 0)
   const pendingOrders = orders.filter(order => order.status === 'draft' || order.status === 'sent')
@@ -120,45 +137,55 @@ function SalesOverview() {
     <div className="space-y-6">
       <PageHeader title={t('sales.title')} description="إدارة المبيعات والعملاء" hideOnPrint={false} />
 
-      {/* Key Metrics */}
+      {/* Key Metrics — كل بطاقة تُعرض فقط لمن يملك مفتاح قراءة موردها */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{customers.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي العملاء</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalSalesValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة المبيعات (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
-          <div className="text-sm text-muted-foreground">فواتير معلقة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الفواتير</div>
-        </div>
+        {canReadCustomers && (
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{customers.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي العملاء</div>
+          </div>
+        )}
+        {canReadSalesActivity && (
+          <>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-green-600">{totalSalesValue.toFixed(2)}</div>
+              <div className="text-sm text-muted-foreground">قيمة المبيعات (ريال)</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
+              <div className="text-sm text-muted-foreground">فواتير معلقة</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
+              <div className="text-sm text-muted-foreground">إجمالي الفواتير</div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions — روابط لشاشات أخرى تُعرض فقط لمن يملك صلاحية دخولها */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link to="/sales/customers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('sales.customers')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة العملاء
-          </p>
-        </Link>
+        {canReadCustomers && (
+          <Link to="/sales/customers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('sales.customers')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة العملاء
+            </p>
+          </Link>
+        )}
 
-        <Link to="/sales/orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('sales.invoices')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            فواتير المبيعات
-          </p>
-        </Link>
+        {canReadOrders && (
+          <Link to="/sales/orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('sales.invoices')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              فواتير المبيعات
+            </p>
+          </Link>
+        )}
 
         <div className="bg-card rounded-lg border p-6">
           <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
@@ -176,6 +203,11 @@ function SalesOverview() {
 function CustomersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // قراءة الشاشة (sales.customers.read) تحكم دخول المسار عبر ModuleGuard؛
+  // الإضافة فعل منفصل يحتاج مفتاحه الخاص، ولا يُستنتَج من مجرد القدرة على
+  // فتح الشاشة.
+  const canCreateCustomer = hasPermissionKey('sales.customers.create')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -211,6 +243,9 @@ function CustomersManagement() {
   )
 
   const handleAddCustomer = async () => {
+    // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create() لا
+    // تُستدعى بلا sales.customers.create مهما كان مصدر الاستدعاء.
+    if (!canCreateCustomer) return
     try {
       await customersService.create(newCustomer)
       toast.success('تم إضافة العميل بنجاح')
@@ -244,9 +279,11 @@ function CustomersManagement() {
           <h1 className="text-2xl font-bold">{t('sales.customers')}</h1>
           <p className="text-muted-foreground">إدارة العملاء</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : t('common.add')}
-        </Button>
+        {canCreateCustomer && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : t('common.add')}
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -258,8 +295,9 @@ function CustomersManagement() {
         />
       </div>
 
-      {/* Add Customer Form */}
-      {showAddForm && (
+      {/* Add Customer Form — مزدوج الحراسة: showAddForm لا يمكن أن يصبح true
+          بلا الزر أعلاه، وcanCreateCustomer دفاع إضافي إن تغيّر ذلك مستقبلًا. */}
+      {showAddForm && canCreateCustomer && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة عميل جديد</h3>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -13,13 +13,12 @@ describe('resolveRoutePermission — fail-closed contract', () => {
     expect(resolveRoutePermission('not_a_real_module', '/anything')).toBeUndefined();
   });
 
-  it('falls back to the module wildcard for a path with no specific pattern', () => {
-    // /sales لا يملك نمطًا فرديًا باسم "/unknown-subpage" — لكن sales عرّفت "*"
-    // صراحة، فتُستخدم متطلبات نظرة الموديول العامة (overview) لا "قبول أي شيء".
-    const wildcard = resolveRoutePermission('sales', '/unknown-subpage');
-    expect(wildcard).toEqual({
-      anyOf: ['sales.customers.read', 'sales.sales_orders.read', 'sales.sales_invoices.read'],
-    });
+  it('a path with no specific pattern inside a KNOWN module is undefined, not the overview requirement', () => {
+    // مراجعة مستقلة: wildcard كان يعيد متطلب overview لأي مسار غير مسجَّل داخل
+    // موديول معروف — هذا ليس fail-closed، بل "أي مسار غير معروف يمر بصلاحية
+    // النظرة العامة". المسار الوحيد المسموح هو ما سُجِّل صراحة.
+    expect(resolveRoutePermission('sales', '/unknown-subpage')).toBeUndefined();
+    expect(resolveRoutePermission('sales', '/definitely/not/a/real/route')).toBeUndefined();
   });
 
   describe('sales', () => {
@@ -87,6 +86,30 @@ describe('resolveRoutePermission — fail-closed contract', () => {
       expect(resolveRoutePermission('hr', '/employees/emp-42')).toEqual({ key: 'hr.employees.read' });
     });
   });
+
+  describe('settings — users/permissions are not organization', () => {
+    it('/settings/users requires settings.users.read specifically', () => {
+      expect(resolveRoutePermission('settings', '/users')).toEqual({ key: 'settings.users.read' });
+    });
+
+    it('/settings/permissions requires settings.roles.read specifically', () => {
+      expect(resolveRoutePermission('settings', '/permissions')).toEqual({ key: 'settings.roles.read' });
+    });
+
+    it('organization.read is not among the keys that satisfy /settings/users or /settings/permissions', () => {
+      const usersReq = resolveRoutePermission('settings', '/users');
+      const permissionsReq = resolveRoutePermission('settings', '/permissions');
+      const hasOrgOnly = (k: string) => k === 'settings.organization.read';
+
+      expect(usersReq && satisfiesRouteRequirement(usersReq, hasOrgOnly)).toBe(false);
+      expect(permissionsReq && satisfiesRouteRequirement(permissionsReq, hasOrgOnly)).toBe(false);
+    });
+
+    it('/settings/company and /settings/system stay on the organization key', () => {
+      expect(resolveRoutePermission('settings', '/company')).toEqual({ key: 'settings.organization.read' });
+      expect(resolveRoutePermission('settings', '/system')).toEqual({ key: 'settings.organization.read' });
+    });
+  });
 });
 
 describe('satisfiesRouteRequirement', () => {
@@ -102,5 +125,17 @@ describe('satisfiesRouteRequirement', () => {
       satisfiesRouteRequirement({ anyOf: ['sales.customers.read', 'sales.sales_orders.read'] }, hasKey)
     ).toBe(true);
     expect(satisfiesRouteRequirement({ anyOf: ['sales.customers.read', 'sales.receipts.read'] }, hasKey)).toBe(false);
+  });
+
+  it('an allOf requirement needs every listed key, not just one', () => {
+    const hasBoth = (k: string) => ['accounting.entries.read', 'accounting.accounts.read'].includes(k);
+    const hasOnlyOne = (k: string) => k === 'accounting.entries.read';
+
+    expect(
+      satisfiesRouteRequirement({ allOf: ['accounting.entries.read', 'accounting.accounts.read'] }, hasBoth)
+    ).toBe(true);
+    expect(
+      satisfiesRouteRequirement({ allOf: ['accounting.entries.read', 'accounting.accounts.read'] }, hasOnlyOne)
+    ).toBe(false);
   });
 });

@@ -8,17 +8,23 @@
 //
 // مسار غير مذكور هنا (أو موديول لا سجلّ له) يفشل مغلقًا: resolveRoutePermission
 // تُعيد undefined، وModuleGuard يرفض الوصول — لا يوجد fallback إلى "أي صلاحية
-// في الموديول تكفي".
+// في الموديول تكفي". هذا يشمل عمدًا أي مسار داخل موديول معروف لا يطابق نمطًا
+// مسجَّلًا: لا يوجد نمط `*` عام يعيد متطلب النظرة العامة لأي شيء غير مسجَّل —
+// كان هذا موجودًا سابقًا واكتُشف أنه ليس fail-closed فعليًا (أي مسار مجهول كان
+// يمر بصلاحية overview). الروابط المعروفة التي مجرد تعيد التوجيه (كـ
+// /settings/integrations) لها سجلّ صريح خاص بها بدل الاعتماد على wildcard.
 //
 // صلاحيات الأفعال الدقيقة (create/update/cancel/unpost) تبقى منفصلة عن هذا
 // العقد؛ هذا العقد يحكم فقط الوصول إلى الشاشة (route entry + تحميل بياناتها
 // الأولي)، والمكوّنات تواصل فحص أفعالها الخاصة بنفسها (مثال: أزرار الإلغاء/فك
 // الترحيل في CustomerReceipts وSupplierPayments تفحص accounting.vouchers.*
-// بمعزل عن هذا العقد).
+// بمعزل عن هذا العقد؛ وCustomersManagement تفحص sales.customers.create بمعزل
+// عن sales.customers.read الذي يحكم دخول الشاشة).
 
 export type RouteRequirement =
   | { readonly key: string }
-  | { readonly anyOf: readonly string[] };
+  | { readonly anyOf: readonly string[] }
+  | { readonly allOf: readonly string[] };
 
 interface RoutePattern {
   /** نمط نسبي لجذر الموديول: "/", "/customers", "/bom/:bomId/edit". */
@@ -49,7 +55,6 @@ const SALES_ROUTES: RoutePattern[] = [
   // /collections و/receipts يعرضان نفس مكوّن CustomerReceipts.
   { pattern: '/collections', requirement: { key: 'sales.receipts.read' } },
   { pattern: '/receipts', requirement: { key: 'sales.receipts.read' } },
-  { pattern: '*', requirement: SALES_OVERVIEW },
 ];
 
 // ============================================================
@@ -75,7 +80,6 @@ const PURCHASING_ROUTES: RoutePattern[] = [
   { pattern: '/receipts', requirement: { key: 'purchasing.purchase_orders.read' } },
   { pattern: '/invoices', requirement: { key: 'purchasing.purchase_invoices.read' } },
   { pattern: '/payments', requirement: { key: 'purchasing.payments.read' } },
-  { pattern: '*', requirement: PURCHASING_OVERVIEW },
 ];
 
 // ============================================================
@@ -102,7 +106,6 @@ const INVENTORY_ROUTES: RoutePattern[] = [
   { pattern: '/warehouses', requirement: { key: 'inventory.warehouses.read' } },
   { pattern: '/bins', requirement: { key: 'inventory.warehouses.read' } },
   { pattern: '/transfers', requirement: { key: 'inventory.stock_moves.read' } },
-  { pattern: '*', requirement: INVENTORY_OVERVIEW },
 ];
 
 // ============================================================
@@ -144,7 +147,6 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   { pattern: '/bom/:bomId/edit', requirement: { key: 'manufacturing.boms.update' } },
   // صفحة "قيد الإنشاء" بلا بيانات فعلية بعد — افتراضي بأقرب مورد.
   { pattern: '/quality', requirement: { key: 'manufacturing.orders.read' } },
-  { pattern: '*', requirement: MANUFACTURING_OVERVIEW },
 ];
 
 // ============================================================
@@ -168,7 +170,6 @@ const HR_ROUTES: RoutePattern[] = [
   { pattern: '/reports', requirement: HR_OVERVIEW },
   // إعدادات الموارد البشرية (أنواع الإجازات...) — لا مورد مخصص.
   { pattern: '/settings', requirement: { key: 'hr.employees.read' } },
-  { pattern: '*', requirement: HR_OVERVIEW },
 ];
 
 // ============================================================
@@ -198,7 +199,6 @@ const ACCOUNTING_ROUTES: RoutePattern[] = [
   // صفحة روابط ثابتة فقط، بلا بيانات خاصة بها.
   { pattern: '/posting', requirement: ACCOUNTING_OVERVIEW },
   { pattern: '/reconciliation', requirement: { key: 'accounting.entries.read' } },
-  { pattern: '*', requirement: ACCOUNTING_OVERVIEW },
 ];
 
 // ============================================================
@@ -209,7 +209,6 @@ const GENERAL_LEDGER_ROUTES: RoutePattern[] = [
   { pattern: '/', requirement: { key: 'general_ledger.chart_of_accounts.view' } },
   { pattern: '/accounts', requirement: { key: 'general_ledger.chart_of_accounts.view' } },
   { pattern: '/account-statement', requirement: { key: 'general_ledger.account_statement.view' } },
-  { pattern: '*', requirement: { key: 'general_ledger.chart_of_accounts.view' } },
 ];
 
 // ============================================================
@@ -237,7 +236,6 @@ const REPORTS_ROUTES: RoutePattern[] = [
   { pattern: '/insights', requirement: { key: 'reports.ai_insights.use' } },
   { pattern: '/gemini/legacy', requirement: { key: 'reports.ai_insights.use' } },
   { pattern: '/gemini', requirement: REPORTS_OVERVIEW },
-  { pattern: '*', requirement: REPORTS_OVERVIEW },
 ];
 
 // ============================================================
@@ -249,13 +247,16 @@ const SETTINGS_ORGANIZATION: RouteRequirement = { key: 'settings.organization.re
 const SETTINGS_ROUTES: RoutePattern[] = [
   { pattern: '/', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/company', requirement: SETTINGS_ORGANIZATION },
-  // إعادة توجيه صرفة إلى /org-admin/*، الذي يفرض حراسته الخاصة.
-  { pattern: '/users', requirement: SETTINGS_ORGANIZATION },
-  { pattern: '/permissions', requirement: SETTINGS_ORGANIZATION },
+  // إعادة توجيه صرفة إلى /org-admin/users، الذي يفرض حراسته الخاصة — لكن
+  // الدخول هنا يُفحص بمفتاح users نفسه لا organization: مستخدم يملك
+  // settings.users.read فقط يجب أن يصل، ومستخدم يملك organization.read فقط
+  // (بلا users.read) يجب ألا يُستخدم بديلًا عنه.
+  { pattern: '/users', requirement: { key: 'settings.users.read' } },
+  // إعادة توجيه صرفة إلى /org-admin/roles — نفس المنطق بمفتاح roles.
+  { pattern: '/permissions', requirement: { key: 'settings.roles.read' } },
   { pattern: '/system', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/integrations', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/backup', requirement: SETTINGS_ORGANIZATION },
-  { pattern: '*', requirement: SETTINGS_ORGANIZATION },
 ];
 
 // ============================================================
@@ -274,8 +275,10 @@ const MODULE_ROUTE_PERMISSIONS: Record<string, readonly RoutePattern[]> = {
 
 /**
  * يبحث عن متطلب الصلاحية لمسار فرعي (نسبي لجذر الموديول) داخل موديول معيّن.
- * يعيد undefined لموديول بلا عقد، أو مسار لا يطابق أي نمط معروف ولا `*` —
- * الاستدعاء المسؤول (ModuleGuard) يرفض الوصول في هذه الحالة (fail-closed).
+ * يعيد undefined لموديول بلا عقد، أو مسار لا يطابق أي نمط مسجَّل بالضبط —
+ * لا يوجد نمط عام (`*`) يلتقط الباقي. الاستدعاء المسؤول (ModuleGuard) يرفض
+ * الوصول عند undefined (fail-closed)، بلا أي fallback إلى صلاحية النظرة
+ * العامة أو غيرها.
  */
 export function resolveRoutePermission(moduleCode: string, subPath: string): RouteRequirement | undefined {
   const patterns = MODULE_ROUTE_PERMISSIONS[moduleCode];
@@ -284,7 +287,6 @@ export function resolveRoutePermission(moduleCode: string, subPath: string): Rou
   const pathSegs = seg(subPath);
 
   for (const { pattern, requirement } of patterns) {
-    if (pattern === '*') continue;
     const patternSegs = seg(pattern);
     if (patternSegs.length !== pathSegs.length) continue;
     if (patternSegs.every((s, i) => s.startsWith(':') || s === pathSegs[i])) {
@@ -292,10 +294,12 @@ export function resolveRoutePermission(moduleCode: string, subPath: string): Rou
     }
   }
 
-  return patterns.find(p => p.pattern === '*')?.requirement;
+  return undefined;
 }
 
 /** يفحص إن كانت مجموعة مفاتيح المستخدم (عبر hasKey) تحقق متطلب مسار معيّن. */
 export function satisfiesRouteRequirement(requirement: RouteRequirement, hasKey: (key: string) => boolean): boolean {
-  return 'key' in requirement ? hasKey(requirement.key) : requirement.anyOf.some(hasKey);
+  if ('key' in requirement) return hasKey(requirement.key);
+  if ('allOf' in requirement) return requirement.allOf.every(hasKey);
+  return requirement.anyOf.some(hasKey);
 }
