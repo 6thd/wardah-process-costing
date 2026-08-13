@@ -51,7 +51,7 @@ function snapshot(overrides: Record<string, unknown> = {}) {
       org_id: 'org-a',
       is_super_admin: false,
       is_org_admin: false,
-      permission_keys: ['sales.orders.read'],
+      permission_keys: ['sales.sales_orders.read'],
       sensitive_permission_keys: [],
       generated_at: new Date().toISOString(),
       ...overrides,
@@ -134,7 +134,7 @@ describe('ModuleGuard — real usePermissions during an org switch', () => {
     expect(screen.queryByText('auth.accessDenied')).not.toBeInTheDocument();
 
     act(() => {
-      second.resolve(snapshot({ org_id: 'org-b', permission_keys: ['sales.orders.read'] }));
+      second.resolve(snapshot({ org_id: 'org-b', permission_keys: ['sales.sales_orders.read'] }));
     });
     await waitFor(() => expect(screen.getByText('sales-content')).toBeInTheDocument());
     expect(screen.queryByText('auth.accessDenied')).not.toBeInTheDocument();

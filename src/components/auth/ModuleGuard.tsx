@@ -5,6 +5,8 @@
 import { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '@/hooks/usePermissions';
+import { getModuleConfig } from '@/config/module-permissions';
+import { resolveRoutePermission, satisfiesRouteRequirement } from '@/config/route-permissions';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
@@ -109,7 +111,7 @@ export function ModuleGuard({
   const location = useLocation();
   const {
     hasPermission,
-    hasModuleAccess,
+    hasPermissionKey,
     isOrgAdmin,
     isSuperAdmin,
     loading,
@@ -135,14 +137,23 @@ export function ModuleGuard({
 
   // التحقق من صلاحية الموديول
   if (hasAccess && moduleCode) {
-    // Module routes authorize against the backend snapshot's exact keys as a
-    // group. The catalogue does not use one universal entry action (`read` is
-    // common, General Ledger uses `view`), so imposing `view` here rejects
-    // valid users. Callers that protect one concrete operation may still pass
-    // an explicit action and retain the narrower check.
-    hasAccess = action
-      ? hasPermission(moduleCode, action)
-      : hasModuleAccess(moduleCode);
+    if (action) {
+      // فحص فعل محدد صراحة: أضيق من أي مسار في العقد، ويتجاوزه.
+      hasAccess = hasPermission(moduleCode, action);
+    } else {
+      // امتلاك أي صلاحية داخل الموديول لا يكفي بعد الآن: كل subroute مربوط
+      // بمفتاح `read`/`view` محدد أو anyOf صريح في route-permissions.ts.
+      // مسار غير مربوط في العقد يفشل مغلقًا (requirement === undefined).
+      const basePath = getModuleConfig(moduleCode)?.path ?? `/${moduleCode}`;
+      const subPath =
+        location.pathname === basePath
+          ? '/'
+          : location.pathname.startsWith(`${basePath}/`)
+            ? location.pathname.slice(basePath.length)
+            : location.pathname;
+      const requirement = resolveRoutePermission(moduleCode, subPath);
+      hasAccess = requirement != null && satisfiesRouteRequirement(requirement, hasPermissionKey);
+    }
   }
 
   // إذا لم يكن لديه صلاحية
