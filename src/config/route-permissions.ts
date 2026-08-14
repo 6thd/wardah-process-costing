@@ -176,12 +176,23 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   // work_orders and material_consumption through views combining work-center
   // OEE, labor-cost variance (stage_costs domain) and BOM material
   // consumption — a genuine cross-cutting analytical view, not a single
-  // resource. No manufacturing.efficiency.* key exists, so this lists every
-  // real underlying resource with anyOf rather than approximating with one.
+  // resource. No manufacturing.efficiency.* key exists.
+  //
+  // This was previously anyOf: holding just one of the three keys let a user
+  // reach the whole dashboard, which unconditionally invokes every
+  // dashboard, work-center, labor, variance, OEE, and material hook
+  // regardless of which single key was actually held — a real one-key-opens-
+  // everything gap, not just an approximation. EfficiencyDashboard does not
+  // (yet) gate its individual queries/sections per resource, so allOf is the
+  // bounded fix: route entry now requires every one of the three real
+  // resources the page actually queries. Loosening this back to anyOf is not
+  // safe without first adding complete per-query/per-section permission
+  // gating inside EfficiencyDashboard itself, with cache-revocation tests to
+  // match — out of scope here.
   {
     pattern: '/efficiency',
     requirement: {
-      anyOf: ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'],
+      allOf: ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'],
     },
   },
   { pattern: '/process-costing', requirement: { key: 'manufacturing.stage_costs.read' } },
@@ -236,14 +247,17 @@ const HR_ROUTES: RoutePattern[] = [
   { pattern: '/reports', requirement: HR_OVERVIEW },
   // hr_policies (general leave/attendance/overtime policy config) and
   // payroll_account_mappings together have no single dedicated resource —
-  // the page spans policy config and payroll GL wiring. employees.read is
-  // the broadest of the four HR catalog keys and the same key used for
-  // hr.leaves/hr.attendance's owning module, so it is used here as the
-  // general "can see HR configuration" gate rather than inventing an
-  // unrelated key. SettingsPage's policies/mappings queries now also check
-  // this same key themselves (`canReadHrSettings`), not just route entry;
-  // both write surfaces stay hard fail-closed pending dedicated keys.
-  { pattern: '/settings', requirement: { key: 'hr.employees.read' } },
+  // the page spans policy config and payroll GL wiring. Round 7 reused
+  // hr.employees.read as a "broadest HR key" visibility proxy, but
+  // employees.read is not a genuine parent resource for HR policies or
+  // payroll GL mappings — holding it does not establish authorization for
+  // either. /settings is intentionally unregistered here: resolveRoutePermission
+  // returns undefined and ModuleGuard fails closed for everyone, including
+  // org/super admins, until a real hr.settings.* (or equivalent) catalog
+  // resource exists. SettingsPage's own canReadHrSettings gate mirrors this —
+  // it no longer falls back to hr.employees.read either (see SettingsPage.tsx).
+  // Do not substitute hr.payroll.read, hr.attendance.read, or another nearby
+  // key here: none of them is the actual underlying resource either.
 ];
 
 // ============================================================

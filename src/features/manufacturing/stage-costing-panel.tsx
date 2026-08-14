@@ -92,12 +92,17 @@ export default function StageCostingPanel() {
   const canReadWorkCenters = hasPermissionKey(STAGE_COSTING_PERMISSIONS.WORK_CENTERS_READ)
   const canReadStageCosts = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_READ)
   // apply-labor-time / apply-overhead always INSERT a new cost-input row
-  // (labor_time_logs / moh_applied); calculate-stage-cost UPSERTs stage_costs
-  // itself, so either create or update satisfies it.
+  // (labor_time_logs / moh_applied), so create alone authorizes them.
+  // calculate-stage-cost UPSERTs stage_costs itself — the actual statement
+  // executed (INSERT or UPDATE) depends on whether a row already exists for
+  // this MO/stage, which the client cannot safely predict. Requiring only
+  // one of create/update would be a bypass: create-only could UPDATE an
+  // existing conflicting row, and update-only could INSERT a new one. Both
+  // exact keys are required.
   const canApplyLaborTime = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
   const canApplyOverhead = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
   const canCalculateStageCost =
-    hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE) ||
+    hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE) &&
     hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_UPDATE)
 
   // Use our new React Query hooks — each disabled independently when the

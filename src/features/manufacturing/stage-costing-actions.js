@@ -6,7 +6,7 @@
 import uiEvents from '../../ui/events.js'
 import { toast } from 'sonner'
 import { processCostingService } from '@/services/process-costing-service'
-import { hasLiveStageCostingPermission, STAGE_COSTING_PERMISSIONS } from './stage-costing-permissions'
+import { hasLiveStageCostingPermission, hasLiveStageCostingPermissionAll, STAGE_COSTING_PERMISSIONS } from './stage-costing-permissions'
 
 // Import domain modules - DISABLED (not implemented)
 // const Manufacturing = await import('../../domain/manufacturing.js')
@@ -278,9 +278,12 @@ export function registerStageCostingActions() {
 
     // Live write recheck. upsertStageCost() writes to stage_costs via an
     // actual UPSERT (insert-or-update depending on whether a row already
-    // exists for this MO/stage), so either create or update satisfies it —
-    // unlike apply-labor-time/apply-overhead, which always INSERT.
-    const authorized = await hasLiveStageCostingPermission([
+    // exists for this MO/stage), so create-only or update-only alone is an
+    // authorization bypass: create-only could UPDATE an existing conflicting
+    // row, and update-only could INSERT a brand-new one. Both keys are
+    // required — unlike apply-labor-time/apply-overhead, which always INSERT
+    // and only need create.
+    const authorized = await hasLiveStageCostingPermissionAll([
       STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE,
       STAGE_COSTING_PERMISSIONS.STAGE_COSTS_UPDATE
     ])

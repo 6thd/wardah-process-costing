@@ -9,11 +9,11 @@
 // cache the React tree reads from can be stale relative to a revocation that
 // just happened in another tab or another admin action.
 //
-// hasLiveStageCostingPermission() exists to close that gap: it asks the
-// backend's has_permission() RPC directly (via checkPermission(), which never
-// reads the client-side cache) immediately before a write actually executes,
-// so a mid-session revocation is honored on the very next click even though
-// nothing forced the panel to re-render.
+// hasLiveStageCostingPermission()/hasLiveStageCostingPermissionAll() exist to
+// close that gap: they ask the backend's has_permission() RPC directly (via
+// checkPermission(), which never reads the client-side cache) immediately
+// before a write actually executes, so a mid-session revocation is honored
+// on the very next click even though nothing forced the panel to re-render.
 
 import { getSupabase, getEffectiveTenantId } from '@/lib/supabase'
 import { checkPermission } from '@/hooks/usePermissions'
@@ -27,14 +27,9 @@ export const STAGE_COSTING_PERMISSIONS = {
   STAGE_COSTS_UPDATE: 'manufacturing.stage_costs.update',
 } as const
 
-/**
- * Live (uncached) permission check against the backend. Returns true if the
- * currently signed-in user holds ANY of the given keys for their current
- * organization. Fails closed (false) on any missing session, org, or error —
- * an unreadable answer must never be treated as a grant.
- */
-export async function hasLiveStageCostingPermission(
-  keys: string | readonly string[]
+async function liveStageCostingCheck(
+  keys: string | readonly string[],
+  combine: (results: boolean[]) => boolean
 ): Promise<boolean> {
   const list = Array.isArray(keys) ? keys : [keys as string]
   if (list.length === 0) return false
@@ -52,9 +47,51 @@ export async function hasLiveStageCostingPermission(
     const results = await Promise.all(
       list.map((key) => checkPermission(userData.user.id, orgId, key))
     )
-    return results.some(Boolean)
+    return combine(results)
   } catch (error) {
-    console.error('hasLiveStageCostingPermission failed closed:', error)
+    console.error('live stage costing permission check failed closed:', error)
     return false
   }
+}
+
+/**
+ * Live (uncached) permission check against the backend. Returns true if the
+ * currently signed-in user holds ANY of the given keys for their current
+ * organization. Fails closed (false) on any missing session, org, or error —
+ * an unreadable answer must never be treated as a grant.
+ *
+ * Use this only for actions where a single one of the listed keys genuinely
+ * authorizes the write on its own (e.g. an INSERT-only action gated on a
+ * single create key passed as a one-element list). For a write that can take
+ * more than one effective action depending on server-side state (an UPSERT
+ * that may insert OR update), use hasLiveStageCostingPermissionAll instead —
+ * see its doc comment for why "any" is unsafe there.
+ */
+export async function hasLiveStageCostingPermission(
+  keys: string | readonly string[]
+): Promise<boolean> {
+  return liveStageCostingCheck(keys, (results) => results.some(Boolean))
+}
+
+/**
+ * Live (uncached) permission check against the backend. Returns true only if
+ * the currently signed-in user holds EVERY one of the given keys for their
+ * current organization. Fails closed (false) on any missing session, org, or
+ * error.
+ *
+ * Required for an UPSERT-style write (e.g. calculate-stage-cost's
+ * upsertStageCost()) where the actual statement executed — INSERT or UPDATE
+ * — depends on server-side state the client cannot safely predict:
+ *   - Holding only the create key would let a user UPDATE an existing
+ *     conflicting row via the "insert" action.
+ *   - Holding only the update key would let a user INSERT a new row via the
+ *     "update" action.
+ * Requiring every key closes both directions without a client-side
+ * existence check (which would itself be a TOCTOU race against the actual
+ * UPSERT).
+ */
+export async function hasLiveStageCostingPermissionAll(
+  keys: readonly string[]
+): Promise<boolean> {
+  return liveStageCostingCheck(keys, (results) => results.every(Boolean))
 }

@@ -1,12 +1,16 @@
 // src/features/hr/pages/__tests__/SettingsPage.permission-gating.test.tsx
 //
 // HR SettingsPage (policies + payroll GL account mappings) had ZERO
-// permission checks. There is no hr.settings.* key in the live catalog —
-// route entry currently reuses hr.employees.read purely as a visibility
-// proxy — and both writes (hr_policies upsert, hr_payroll_account_mappings
-// upsert) directly affect payroll/settlement postings. This proves both
-// fail closed for every user, including one with every other HR permission
-// granted.
+// permission checks, then Round 7 gated both reads behind hr.employees.read
+// as a "broadest HR key" visibility proxy. Round 8 removes that fallback
+// entirely: hr.employees.read is not a genuine parent resource for
+// hr_policies or payroll_account_mappings, and route-permissions.ts no
+// longer registers /hr/settings at all (fails closed for everyone). Neither
+// read may fire merely because hr.employees.read is granted — not even with
+// every other HR permission granted alongside it. This also proves the
+// separately re-gated accounting.accounts.read query (the GL posting-accounts
+// reference list) disappears in the same render as revocation, independent
+// of whatever TanStack Query's cache still holds.
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -64,7 +68,7 @@ describe('HR SettingsPage — no hr.settings.* key exists; policy save and GL ma
     hasPermissionKeyMock.mockReturnValue(true);
     renderPage();
 
-    await waitFor(() => expect(getHrPolicies).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
     expect(screen.queryByText('settings.saveSettings')).not.toBeInTheDocument();
     expect(updateHrPolicies).not.toHaveBeenCalled();
   });
@@ -73,21 +77,18 @@ describe('HR SettingsPage — no hr.settings.* key exists; policy save and GL ma
     hasPermissionKeyMock.mockReturnValue(true);
     renderPage();
 
-    await waitFor(() => expect(getPayrollAccountMappings).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
     expect(screen.queryByText('settings.addMapping')).not.toBeInTheDocument();
     expect(upsertPayrollAccountMapping).not.toHaveBeenCalled();
   });
 
-  it('without accounting.accounts.read, the GL posting-accounts reference query never fires', async () => {
-    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
-    renderPage();
-
-    await waitFor(() => expect(getPayrollAccountMappings).toHaveBeenCalled());
-    expect(listPostingAccounts).not.toHaveBeenCalled();
+  it('Round 8: /hr/settings resolves to undefined — no hr.employees.read (or any other) route fallback', async () => {
+    const { resolveRoutePermission } = await import('@/config/route-permissions');
+    expect(resolveRoutePermission('hr', '/settings')).toBeUndefined();
   });
 
-  it('Round 7: without hr.employees.read, neither the policies nor the payroll-account-mappings query fires', async () => {
-    hasPermissionKeyMock.mockReturnValue(false);
+  it('Round 8: employee-read-only cannot open it — neither read fires with only hr.employees.read granted', async () => {
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
     renderPage();
 
     await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
@@ -95,11 +96,67 @@ describe('HR SettingsPage — no hr.settings.* key exists; policy save and GL ma
     expect(getPayrollAccountMappings).not.toHaveBeenCalled();
   });
 
-  it('Round 7: mappings visible under a granted hr.employees.read disappear once revoked, even though the query cache still holds them', async () => {
-    getPayrollAccountMappings.mockResolvedValue([
-      { id: 'map-1', account_type: 'basic_salary', gl_account_id: 'acc-1' },
-    ]);
+  it('Round 8: direct component mounting with employee-read-only does not call either service, even alongside every other HR key', async () => {
+    hasPermissionKeyMock.mockImplementation(
+      (key: string) => key === 'hr.employees.read' || key === 'hr.attendance.read' || key === 'hr.payroll.read' || key === 'hr.leaves.read'
+    );
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
+    expect(getHrPolicies).not.toHaveBeenCalled();
+    expect(getPayrollAccountMappings).not.toHaveBeenCalled();
+  });
+
+  it('Round 8: no HR Settings write control becomes available for employee-read-only either', async () => {
     hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
+    expect(screen.queryByText('settings.saveSettings')).not.toBeInTheDocument();
+    expect(screen.queryByText('settings.addMapping')).not.toBeInTheDocument();
+  });
+
+  it('without hr.employees.read (or anything else), neither the policies nor the payroll-account-mappings query fires', async () => {
+    hasPermissionKeyMock.mockReturnValue(false);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
+    expect(getHrPolicies).not.toHaveBeenCalled();
+    expect(getPayrollAccountMappings).not.toHaveBeenCalled();
+  });
+});
+
+describe('HR SettingsPage — accounting.accounts.read gates the GL posting-accounts reference list', () => {
+  it('without accounting.accounts.read, the GL posting-accounts reference query never fires', async () => {
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
+    expect(listPostingAccounts).not.toHaveBeenCalled();
+  });
+
+  it('with accounting.accounts.read, the GL posting-accounts reference query fires', async () => {
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'accounting.accounts.read');
+    renderPage();
+
+    await waitFor(() => expect(listPostingAccounts).toHaveBeenCalledTimes(1));
+  });
+
+  it('Round 8: an account visible under a granted permission disappears the same render as revocation, even though the query cache still holds it', async () => {
+    // hr.settings.read is not a real live catalog key yet (see SettingsPage.tsx
+    // comment) — granting it here simulates the future state once a
+    // dedicated migration adds it, which is the only way this screen's
+    // mappings table (and thus the accounts.find() lookup it drives) is
+    // reachable at all. accounting.accounts.read is the permission under
+    // test: it alone must control whether the account code/name resolves.
+    hasPermissionKeyMock.mockImplementation(
+      (key: string) => key === 'hr.settings.read' || key === 'accounting.accounts.read'
+    );
+    listPostingAccounts.mockResolvedValue([{ id: 'acc-secret', code: 'WH-SECRET', name: 'Revoked Account' }]);
+    getPayrollAccountMappings.mockResolvedValue([
+      { id: 'map-1', account_type: 'basic_salary', gl_account_id: 'acc-secret' },
+    ]);
+
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
     const { rerender } = render(
       <QueryClientProvider client={queryClient}>
@@ -107,22 +164,42 @@ describe('HR SettingsPage — no hr.settings.* key exists; policy save and GL ma
       </QueryClientProvider>
     );
 
-    await waitFor(() => expect(getPayrollAccountMappings).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(listPostingAccounts).toHaveBeenCalledTimes(1));
     await userEvent.click(screen.getByText('settings.accounts'));
-    // "settings.linked" is the badge rendered only for an actual mapping
-    // table row (unlike "settings.accountTypes.basic_salary", which also
-    // appears in the always-rendered "required mappings" coverage checklist
-    // below the table, independent of any permission).
-    await waitFor(() => expect(screen.getByText('settings.linked')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/WH-SECRET/)).toBeInTheDocument());
 
-    hasPermissionKeyMock.mockReturnValue(false);
+    // Revoke ONLY accounting.accounts.read — hr.settings.read stays granted,
+    // so the mapping row itself stays listed; only the resolved account
+    // code/name must disappear (falling back to the raw gl_account_id). The
+    // query cache still holds the account row (TanStack Query only pauses
+    // future fetches when `enabled` flips to false — it does not erase what
+    // an earlier authorized fetch already stored).
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.settings.read');
     rerender(
       <QueryClientProvider client={queryClient}>
         <SettingsPage />
       </QueryClientProvider>
     );
 
-    await waitFor(() => expect(screen.queryByText('settings.linked')).not.toBeInTheDocument());
-    expect(queryClient.getQueryData(['hr', 'payroll-account-mappings'])).toBeDefined();
+    await waitFor(() => expect(screen.queryByText(/WH-SECRET/)).not.toBeInTheDocument());
+    expect(screen.getByText('acc-secret')).toBeInTheDocument();
+    expect(queryClient.getQueryData(['hr', 'posting-accounts'])).toBeDefined();
+
+    // An in-flight/stale response landing after revocation must not
+    // repopulate the screen either.
+    listPostingAccounts.mockResolvedValue([{ id: 'acc-secret', code: 'WH-SECRET', name: 'Revoked Account' }]);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText(/WH-SECRET/)).not.toBeInTheDocument();
+  });
+
+  it('Round 7: mappings visible under a granted accounting.accounts.read + hr context still respect their own gate independently', async () => {
+    getPayrollAccountMappings.mockResolvedValue([]);
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'accounting.accounts.read');
+    renderPage();
+
+    await waitFor(() => expect(listPostingAccounts).toHaveBeenCalledTimes(1));
+    // hr.settings.read was never granted in this scenario, so mappings
+    // (a hr-gated read, independent of accounting.accounts.read) never fires.
+    expect(getPayrollAccountMappings).not.toHaveBeenCalled();
   });
 });

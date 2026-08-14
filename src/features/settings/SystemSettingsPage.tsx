@@ -48,6 +48,26 @@ export function SystemSettingsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // Re-gated at render time, not just via the `enabled`-style ternary inside
+  // the load effect below: that ternary only decides whether a NEW warehouse
+  // request is sent, it does not retroactively hide a row already sitting in
+  // `warehouses` state from an earlier authorized load. Without this, a
+  // revoked warehouse stays on screen until the in-flight
+  // getSystemSettings()/warehouses Promise.all settles — which can be
+  // arbitrarily delayed — instead of disappearing in the same render as the
+  // revocation.
+  const visibleWarehouses = canReadWarehouses ? warehouses : []
+
+  // Clears the underlying state itself (not just the rendered view) the
+  // moment the permission flips false, independent of whatever the load
+  // effect below is doing — it does not wait for getSystemSettings() to
+  // resolve.
+  useEffect(() => {
+    if (!canReadWarehouses) {
+      setWarehouses([])
+    }
+  }, [canReadWarehouses])
+
   useEffect(() => {
     if (!canReadSystemSettings) {
       // Revoked (or never granted): no request, and any previously loaded
@@ -208,7 +228,7 @@ export function SystemSettingsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="none">— {tr('بلا', 'None')} —</SelectItem>
-                  {warehouses.map((warehouse) => (
+                  {visibleWarehouses.map((warehouse) => (
                     <SelectItem key={warehouse.id} value={warehouse.id}>
                       {warehouse.code} - {warehouse.name}
                     </SelectItem>

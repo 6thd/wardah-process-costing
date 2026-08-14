@@ -94,6 +94,22 @@ describe('resolveRoutePermission — fail-closed contract', () => {
     it('/hr/employees/:id matches the param segment', () => {
       expect(resolveRoutePermission('hr', '/employees/emp-42')).toEqual({ key: 'hr.employees.read' });
     });
+
+    it('Round 8: /hr/settings is unregistered — no hr.employees.read fallback', () => {
+      // hr.employees.read is not a genuine parent resource for hr_policies
+      // or payroll_account_mappings; reusing it as a "broadest HR key"
+      // visibility proxy did not establish real authorization for either.
+      // /hr/settings now resolves to undefined so ModuleGuard fails closed
+      // for everyone, including a user holding every other HR key.
+      expect(resolveRoutePermission('hr', '/settings')).toBeUndefined();
+    });
+
+    it('an employees-read-only grant does not resolve /hr/settings to anything', () => {
+      const employeesOnly = (k: string) => k === 'hr.employees.read';
+      const requirement = resolveRoutePermission('hr', '/settings');
+      expect(requirement).toBeUndefined();
+      expect(requirement == null || satisfiesRouteRequirement(requirement, employeesOnly)).toBe(true);
+    });
   });
 
   describe('settings — users/permissions are not organization', () => {
@@ -210,17 +226,43 @@ describe('Round 7 P1: routing and categories fail closed — no defensible catal
   });
 });
 
-describe('Round 7 P1: /manufacturing/efficiency reflects every real underlying resource', () => {
-  it('resolves to anyOf across work_centers, stage_costs and orders — not a single approximated key', () => {
-    expect(resolveRoutePermission('manufacturing', '/efficiency')).toEqual({
-      anyOf: ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'],
-    });
+describe('Round 8: /manufacturing/efficiency requires ALL three real underlying resources, not any one', () => {
+  // Round 7's anyOf let a single key (e.g. stage_costs.read alone) open the
+  // whole dashboard, even though EfficiencyDashboard unconditionally invokes
+  // every dashboard, work-center, labor, variance, OEE, and material hook —
+  // resources that key does not actually grant. allOf closes that gap at
+  // the bounded route-entry level.
+  const ALL_THREE = ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'];
+
+  it('resolves to allOf across work_centers, stage_costs and orders — not anyOf', () => {
+    expect(resolveRoutePermission('manufacturing', '/efficiency')).toEqual({ allOf: ALL_THREE });
   });
 
-  it('a stage_costs-only grant (no work_centers.read) still satisfies /efficiency', () => {
+  it('every single key alone is denied', () => {
     const requirement = resolveRoutePermission('manufacturing', '/efficiency');
-    const stageCostsOnly = (k: string) => k === 'manufacturing.stage_costs.read';
-    expect(requirement && satisfiesRouteRequirement(requirement, stageCostsOnly)).toBe(true);
+    for (const onlyKey of ALL_THREE) {
+      const hasOnlyThisKey = (k: string) => k === onlyKey;
+      expect(requirement && satisfiesRouteRequirement(requirement, hasOnlyThisKey)).toBe(false);
+    }
+  });
+
+  it('every two-key combination is denied', () => {
+    const requirement = resolveRoutePermission('manufacturing', '/efficiency');
+    const pairs = [
+      [ALL_THREE[0], ALL_THREE[1]],
+      [ALL_THREE[0], ALL_THREE[2]],
+      [ALL_THREE[1], ALL_THREE[2]],
+    ];
+    for (const pair of pairs) {
+      const hasOnlyThesePair = (k: string) => pair.includes(k);
+      expect(requirement && satisfiesRouteRequirement(requirement, hasOnlyThesePair)).toBe(false);
+    }
+  });
+
+  it('all three keys together are allowed', () => {
+    const requirement = resolveRoutePermission('manufacturing', '/efficiency');
+    const hasAllThree = (k: string) => ALL_THREE.includes(k);
+    expect(requirement && satisfiesRouteRequirement(requirement, hasAllThree)).toBe(true);
   });
 });
 

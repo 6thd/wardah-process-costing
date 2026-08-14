@@ -466,8 +466,10 @@ export function Sidebar() {
         { key: 'payroll', href: '/hr/payroll', labelKey: 'navigation.payroll' },
         { key: 'leaves', href: '/hr/leaves', labelKey: 'navigation.leaves' },
         { key: 'settlements', href: '/hr/settlements', labelKey: 'navigation.settlements' },
-        { key: 'reports', href: '/hr/reports', labelKey: 'navigation.reports' },
-        { key: 'settings', href: '/hr/settings', labelKey: 'navigation.settings' }
+        { key: 'reports', href: '/hr/reports', labelKey: 'navigation.reports' }
+        // 'settings' (/hr/settings) removed: route-permissions.ts no longer
+        // registers it (fails closed for everyone — see the comment there),
+        // so a sidebar link that only leads to a denied route is dead UI.
       ]
     },
     {

@@ -43,8 +43,10 @@ vi.mock('@/services/process-costing-service', () => ({
 }))
 
 const hasLiveStageCostingPermission = vi.fn()
+const hasLiveStageCostingPermissionAll = vi.fn()
 vi.mock('../stage-costing-permissions', () => ({
   hasLiveStageCostingPermission: (...args: unknown[]) => hasLiveStageCostingPermission(...args),
+  hasLiveStageCostingPermissionAll: (...args: unknown[]) => hasLiveStageCostingPermissionAll(...args),
   STAGE_COSTING_PERMISSIONS: {
     ORDERS_READ: 'manufacturing.orders.read',
     STAGES_READ: 'manufacturing.stages.read',
@@ -91,6 +93,7 @@ beforeEach(async () => {
   registeredActions.clear()
   vi.clearAllMocks()
   hasLiveStageCostingPermission.mockReset()
+  hasLiveStageCostingPermissionAll.mockReset()
 
   originalFormData = globalThis.FormData
   ;(globalThis as unknown as { FormData: unknown }).FormData = FakeFormData
@@ -218,12 +221,15 @@ describe('apply-overhead — live permission recheck', () => {
   })
 })
 
-describe('calculate-stage-cost — live permission recheck', () => {
-  it('negative: upsertStageCost is never called when unauthorized', async () => {
-    hasLiveStageCostingPermission.mockResolvedValue(false)
-    const { processCostingService } = await import('@/services/process-costing-service')
-
-    const ctx = contextWithForm({
+describe('calculate-stage-cost — live permission recheck requires BOTH create AND update', () => {
+  // upsertStageCost() is a genuine UPSERT: the actual statement executed
+  // (INSERT or UPDATE) depends on whether a row already exists for this
+  // MO/stage. Holding only one of the two keys is an authorization bypass —
+  // create-only could UPDATE an existing conflicting row, update-only could
+  // INSERT a brand-new one — so the live recheck must require every key
+  // (hasLiveStageCostingPermissionAll), not any one of them.
+  const calcCtx = () =>
+    contextWithForm({
       manufacturingOrderId: 'mo-1',
       workCenterId: 'wc-1',
       goodQuantity: '100',
@@ -233,18 +239,23 @@ describe('calculate-stage-cost — live permission recheck', () => {
       reworkQuantity: '0',
     })
 
-    const handler = registeredActions.get('calculate-stage-cost')!
-    await handler(ctx)
+  it('negative: upsertStageCost is never called when the all-of live check denies it', async () => {
+    hasLiveStageCostingPermissionAll.mockResolvedValue(false)
+    const { processCostingService } = await import('@/services/process-costing-service')
 
-    expect(hasLiveStageCostingPermission).toHaveBeenCalledWith([
+    const handler = registeredActions.get('calculate-stage-cost')!
+    await handler(calcCtx())
+
+    expect(hasLiveStageCostingPermissionAll).toHaveBeenCalledWith([
       'manufacturing.stage_costs.create',
       'manufacturing.stage_costs.update',
     ])
+    expect(hasLiveStageCostingPermission).not.toHaveBeenCalled()
     expect(processCostingService.upsertStageCost).not.toHaveBeenCalled()
   })
 
-  it('positive: upsertStageCost is called when authorized via either create or update', async () => {
-    hasLiveStageCostingPermission.mockResolvedValue(true)
+  it('positive: upsertStageCost is called exactly once when authorized via both create and update', async () => {
+    hasLiveStageCostingPermissionAll.mockResolvedValue(true)
     const { processCostingService } = await import('@/services/process-costing-service')
     ;(processCostingService.upsertStageCost as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
@@ -258,18 +269,8 @@ describe('calculate-stage-cost — live permission recheck', () => {
       },
     })
 
-    const ctx = contextWithForm({
-      manufacturingOrderId: 'mo-1',
-      workCenterId: 'wc-1',
-      goodQuantity: '100',
-      stageId: 'stage-1',
-      directMaterialCost: '50',
-      scrapQuantity: '0',
-      reworkQuantity: '0',
-    })
-
     const handler = registeredActions.get('calculate-stage-cost')!
-    await handler(ctx)
+    await handler(calcCtx())
 
     expect(processCostingService.upsertStageCost).toHaveBeenCalledTimes(1)
   })

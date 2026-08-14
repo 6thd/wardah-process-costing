@@ -34,19 +34,22 @@ export const SettingsPage: React.FC = () => {
   const { t } = useHrTranslation();
   const queryClient = useQueryClient();
   const { hasPermissionKey } = usePermissions();
-  // لا مورد "hr.settings" مخصص في الكتالوج الحي — دخول /hr/settings مُحكَم
-  // فقط بـ hr.employees.read كبديل رؤية (route-permissions.ts)، وهذا لا
-  // يفوّض الكتابة. كلا السطحين (سياسات hr_policies، وربط حسابات GL
-  // للرواتب) يؤثران مباشرة في احتساب وترحيل الرواتب والتسويات — يُغلَقان
-  // افتراضيًا (fail-closed) ولا يُربطان بـ hr.employees.update أو
-  // hr.payroll.update ضمنيًا، ويُبلَّغان كفجوة كتالوج/منتج تحتاج مفتاحًا
-  // مخصصًا قبل إعادة التفعيل.
+  // لا مورد "hr.settings" مخصص في الكتالوج الحي، و/hr/settings لم تعد مسجَّلة
+  // في route-permissions.ts إطلاقًا (تفشل مغلقة لدخول المسار نفسه). Round 7
+  // كانت تستخدم hr.employees.read كـ"أوسع مفتاح HR" بديل رؤية — لكن
+  // employees.read ليس موردًا أصليًا لسياسات hr_policies أو ربط حسابات GL
+  // للرواتب، وامتلاكه لا يفوّض قراءتهما. hr.settings.read هنا هو اسم المورد
+  // الحقيقي الذي تحتاجه هذه الشاشة تحديدًا — وليس بديلاً تقريبيًا كـ
+  // hr.payroll.read أو hr.attendance.read — لكنه غير موجود بعد في الكتالوج
+  // الحي، فيفشل مغلقًا لكل مستخدم اليوم دون استثناء (بما فيهم مالكو
+  // hr.employees.read وorg admins)، تمامًا كما لو كان hardcoded إلى false.
+  // الفرق الوحيد: عند إضافته لاحقًا عبر migration مستقلة (كما توثّق
+  // RBAC_CONSUMER_175_RUNBOOK نمط "امنح دورًا ثم فعِّل")، تُفعَّل القراءتان هنا
+  // تلقائيًا دون تعديل كود إضافي لهذا الحارس بعينه. الكتابة تبقى منفصلة
+  // ومغلقة صراحة أدناه بلا أي مفتاح مرتبط بها بعد.
   const canSavePolicies = false;
   const canSaveMappings = false;
-  // Same fallback view key route-permissions.ts already requires to reach
-  // /hr/settings at all (see comment above) — reused here so the two reads
-  // below stop firing unconditionally regardless of route entry.
-  const canReadHrSettings = hasPermissionKey('hr.employees.read');
+  const canReadHrSettings = hasPermissionKey('hr.settings.read');
   const canReadAccounts = hasPermissionKey('accounting.accounts.read');
   const [activeTab, setActiveTab] = React.useState('policies');
   const [showAccountDialog, setShowAccountDialog] = React.useState(false);
@@ -65,16 +68,19 @@ export const SettingsPage: React.FC = () => {
     queryFn: getPayrollAccountMappings,
     enabled: canReadHrSettings,
   });
-  const { data: accounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts, enabled: canReadAccounts });
+  const { data: rawAccounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts, enabled: canReadAccounts });
 
   // Re-gated at read time, not just via `enabled` above: TanStack Query
   // keeps a query's last successful result cached after `enabled` flips to
   // false (it only pauses future fetches), and a request already in flight
   // when the permission is revoked still resolves into that cache. Checking
-  // canReadHrSettings here means a revoked user never sees policies/mappings
-  // from before the revocation, regardless of what the cache still holds.
+  // the permission flag directly here means a revoked user never sees
+  // policies/mappings/accounts from before the revocation, regardless of
+  // what the cache still holds — the rendered data disappears in the same
+  // render as the revocation, not whenever the next request happens to settle.
   const policies = canReadHrSettings ? rawPolicies : undefined;
   const mappings = canReadHrSettings ? rawMappings : [];
+  const accounts = canReadAccounts ? rawAccounts : [];
 
   const currentPolicies = { ...policies, ...editedPolicies };
   const updatePolicy = <K extends keyof HrPolicies>(key: K, value: HrPolicies[K]) => setEditedPolicies((current) => ({ ...current, [key]: value }));
