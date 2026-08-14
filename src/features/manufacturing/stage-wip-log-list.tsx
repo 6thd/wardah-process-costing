@@ -37,6 +37,7 @@ import { stageWipLogService } from '@/services/supabase-service'
 import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { WipLogFormDialog, type WipLogFormValues } from './components/WipLogFormDialog'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface ManufacturingOrder {
   id: string
@@ -77,6 +78,10 @@ interface WipLog {
 
 export function StageWipLogList() {
   const queryClient = useQueryClient()
+  const { hasPermissionKey } = usePermissions()
+  const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
+  const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
+  const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
 
   const [filters, setFilters] = useState({
     moId: 'all',
@@ -119,6 +124,7 @@ export function StageWipLogList() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canDelete) throw new Error('لا تملك صلاحية حذف سجلات WIP')
       await stageWipLogService.delete(id)
     },
     onSuccess: () => {
@@ -132,6 +138,10 @@ export function StageWipLogList() {
   })
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف سجلات WIP')
+      return
+    }
     if (confirm('هل أنت متأكد من حذف هذا السجل؟')) {
       deleteMutation.mutate(id)
     }
@@ -168,16 +178,18 @@ export function StageWipLogList() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 تحديث
               </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditingLog(null)
-                  setFormOpen(true)
-                }}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                إضافة سجل
-              </Button>
+              {canCreate && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingLog(null)
+                    setFormOpen(true)
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  إضافة سجل
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -345,42 +357,48 @@ export function StageWipLogList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={log.is_closed}
-                                onClick={() => {
-                                  setEditingLog({
-                                    id: log.id,
-                                    mo_id: log.mo_id ?? '',
-                                    stage_id: log.stage_id ?? '',
-                                    period_start: log.period_start?.split('T')[0] ?? '',
-                                    period_end: log.period_end?.split('T')[0] ?? '',
-                                    units_beginning_wip: log.units_beginning_wip ?? 0,
-                                    units_started: log.units_started ?? 0,
-                                    units_completed: log.units_completed ?? 0,
-                                    units_ending_wip: log.units_ending_wip ?? 0,
-                                    material_completion_pct: log.material_completion_pct ?? 100,
-                                    conversion_completion_pct: log.conversion_completion_pct ?? 50,
-                                    cost_beginning_wip: log.cost_beginning_wip ?? 0,
-                                    cost_material: log.cost_material ?? 0,
-                                    cost_labor: log.cost_labor ?? 0,
-                                    cost_overhead: log.cost_overhead ?? 0,
-                                    notes: log.notes ?? '',
-                                  })
-                                  setFormOpen(true)
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(log.id)}
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              {canUpdate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`تعديل سجل WIP ${log.id}`}
+                                  disabled={log.is_closed}
+                                  onClick={() => {
+                                    setEditingLog({
+                                      id: log.id,
+                                      mo_id: log.mo_id ?? '',
+                                      stage_id: log.stage_id ?? '',
+                                      period_start: log.period_start?.split('T')[0] ?? '',
+                                      period_end: log.period_end?.split('T')[0] ?? '',
+                                      units_beginning_wip: log.units_beginning_wip ?? 0,
+                                      units_started: log.units_started ?? 0,
+                                      units_completed: log.units_completed ?? 0,
+                                      units_ending_wip: log.units_ending_wip ?? 0,
+                                      material_completion_pct: log.material_completion_pct ?? 100,
+                                      conversion_completion_pct: log.conversion_completion_pct ?? 50,
+                                      cost_beginning_wip: log.cost_beginning_wip ?? 0,
+                                      cost_material: log.cost_material ?? 0,
+                                      cost_labor: log.cost_labor ?? 0,
+                                      cost_overhead: log.cost_overhead ?? 0,
+                                      notes: log.notes ?? '',
+                                    })
+                                    setFormOpen(true)
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`حذف سجل WIP ${log.id}`}
+                                  onClick={() => handleDelete(log.id)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -397,6 +415,7 @@ export function StageWipLogList() {
       <WipLogFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
+        canSubmit={editingLog ? canUpdate : canCreate}
         editing={editingLog}
         manufacturingOrders={manufacturingOrders.map((mo) => ({
           id: mo.id,

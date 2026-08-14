@@ -22,6 +22,7 @@ import { useRouting, useCreateRouting, useUpdateRouting } from '@/hooks/manufact
 import { getEffectiveTenantId } from '@/lib/supabase'
 import { RoutingFormData } from '@/services/manufacturing/routingService'
 import { toast } from 'sonner'
+import { usePermissions } from '@/hooks/usePermissions'
 
 // eslint-disable-next-line complexity
 export function RoutingForm() {
@@ -30,6 +31,11 @@ export function RoutingForm() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const isEditMode = !!id
+  const { hasPermissionKey } = usePermissions()
+  // نفس تعيين stages المستخدَم في route-permissions.ts لمساري /routing/new
+  // و/routing/:id — لا مورد "routing" مخصص في الكتالوج الحي.
+  const canCreate = hasPermissionKey('manufacturing.stages.create')
+  const canUpdate = hasPermissionKey('manufacturing.stages.update')
 
   const [orgId, setOrgId] = useState<string>('')
   const [formData, setFormData] = useState<RoutingFormData>({
@@ -74,6 +80,11 @@ export function RoutingForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    if (isEditMode ? !canUpdate : !canCreate) {
+      toast.error(isEditMode ? 'لا تملك صلاحية تعديل مسارات التصنيع' : 'لا تملك صلاحية إنشاء مسارات تصنيع')
+      return
+    }
 
     if (!formData.routing_code || !formData.routing_name) {
       toast.error(t('routingForm.validationError'))

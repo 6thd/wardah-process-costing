@@ -258,7 +258,7 @@ function ManufacturingOrdersManagement() {
   })
 
   const { orders, loading, loadOrders } = useManufacturingOrders()
-  const { products, loading: productsLoading } = useManufacturingProducts()
+  const { products, loading: productsLoading } = useManufacturingProducts({ enabled: canCreateOrder })
 
   useEffect(() => {
     setOrderForm((prev) => ({
@@ -869,37 +869,42 @@ function WorkCentersManagement() {
           <CardContent>
             <form onSubmit={handleCreate} className="space-y-4">
               <div>
-                <Label className="mb-1 block">{t('manufacturing.workCenters.form.code')} *</Label>
+                <Label htmlFor="wc-code" className="mb-1 block">{t('manufacturing.workCenters.form.code')} *</Label>
                 <Input
+                  id="wc-code"
                   value={formData.code}
                   onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
                 />
               </div>
               <div>
-                <Label className="mb-1 block">{t('manufacturing.workCenters.form.nameAr')}</Label>
+                <Label htmlFor="wc-name-ar" className="mb-1 block">{t('manufacturing.workCenters.form.nameAr')}</Label>
                 <Input
+                  id="wc-name-ar"
                   value={formData.name_ar}
                   onChange={(e) => setFormData((prev) => ({ ...prev, name_ar: e.target.value }))}
                 />
               </div>
               <div>
-                <Label className="mb-1 block">{t('manufacturing.workCenters.form.nameEn')}</Label>
+                <Label htmlFor="wc-name-en" className="mb-1 block">{t('manufacturing.workCenters.form.nameEn')}</Label>
                 <Input
+                  id="wc-name-en"
                   value={formData.name}
                   onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                 />
               </div>
               <div>
-                <Label className="mb-1 block">{t('manufacturing.workCenters.form.description')}</Label>
+                <Label htmlFor="wc-description" className="mb-1 block">{t('manufacturing.workCenters.form.description')}</Label>
                 <Textarea
+                  id="wc-description"
                   value={formData.description}
                   onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                   rows={3}
                 />
               </div>
               <div>
-                <Label className="mb-1 block">{t('manufacturing.workCenters.form.hourlyRate')}</Label>
+                <Label htmlFor="wc-hourly-rate" className="mb-1 block">{t('manufacturing.workCenters.form.hourlyRate')}</Label>
                 <Input
+                  id="wc-hourly-rate"
                   type="number"
                   step="0.01"
                   value={formData.hourly_rate}

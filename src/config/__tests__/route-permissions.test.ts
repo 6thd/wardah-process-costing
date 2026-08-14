@@ -79,6 +79,15 @@ describe('resolveRoutePermission — fail-closed contract', () => {
     it('/manufacturing/bom/:bomId/edit matches the param segment and requires update', () => {
       expect(resolveRoutePermission('manufacturing', '/bom/abc-123/edit')).toEqual({ key: 'manufacturing.boms.update' });
     });
+
+    it('a bare /manufacturing/bom/:id (no /edit) has no registered contract — fails closed, not silently aliased to update', () => {
+      // BOMManagement كانت تُنقّل صفوف الجدول إلى هذا المسار غير المسجَّل، فتُغرَق
+      // في إعادة توجيه صامتة لصفحة النظرة العامة عبر <Route path="*">. القرار
+      // المُتَّخذ: إزالة التنقّل المكسور بدل تسجيل مسار عرض جديد، فيبقى هذا
+      // المسار بلا عقد صراحةً — أي تسجيل مستقبلي له يجب أن يفشل هذا الاختبار
+      // عمدًا فيُراجَع القرار، لا أن ينزلق ضمنيًا إلى صلاحية manufacturing.boms.update.
+      expect(resolveRoutePermission('manufacturing', '/bom/abc-123')).toBeUndefined();
+    });
   });
 
   describe('hr', () => {

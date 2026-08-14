@@ -56,12 +56,21 @@ vi.mock('@/hooks/useWorkCenters', () => ({
   useCreateWorkCenter: () => ({ mutateAsync: (...args: unknown[]) => createWorkCenterMutate(...args) }),
 }));
 
+const workCenterUpdateSpy = vi.fn();
+const workCenterEqSpy = vi.fn();
+
 vi.mock('@/lib/supabase', () => ({
   supabase: {
-    from: () => ({
-      update: () => ({
-        eq: () => Promise.resolve({ error: null }),
-      }),
+    from: (table: string) => ({
+      update: (payload: unknown) => {
+        workCenterUpdateSpy(table, payload);
+        return {
+          eq: (column: string, id: string) => {
+            workCenterEqSpy(column, id);
+            return Promise.resolve({ error: null });
+          },
+        };
+      },
     }),
   },
   getEffectiveTenantId: () => Promise.resolve('org-1'),
@@ -179,21 +188,73 @@ describe('WorkCentersManagement — screen read vs. manufacturing.work_centers.c
     expect(screen.queryByRole('button', { name: /manufacturing.workCenters.form.submit/ })).not.toBeInTheDocument();
   });
 
-  it('hides the active/inactive toggle without the update key', async () => {
+  it('hides the active/inactive toggle without the update key, and the update gateway is never called', async () => {
     setPermissions(['manufacturing.work_centers.read']);
     renderAt('/manufacturing/workcenters');
 
     await waitFor(() => expect(screen.getByText(/WC1/)).toBeInTheDocument());
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+    expect(workCenterUpdateSpy).not.toHaveBeenCalled();
   });
 
-  it('an update grant shows and allows the active/inactive toggle', async () => {
+  it('an update grant shows the toggle, and clicking it calls the update gateway exactly once with the work-center id and flipped is_active', async () => {
     setPermissions(['manufacturing.work_centers.read', 'manufacturing.work_centers.update']);
     renderAt('/manufacturing/workcenters');
 
     await waitFor(() => expect(screen.getByText(/WC1/)).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('checkbox'));
+    const toggle = screen.getByRole('checkbox');
+    expect(toggle).toBeChecked(); // wc-1 seeds is_active: true
 
-    await waitFor(() => expect(createWorkCenterMutate).not.toHaveBeenCalled());
+    await userEvent.click(toggle);
+
+    await waitFor(() => expect(workCenterUpdateSpy).toHaveBeenCalledTimes(1));
+    expect(workCenterUpdateSpy).toHaveBeenCalledWith('work_centers', { is_active: false });
+    expect(workCenterEqSpy).toHaveBeenCalledWith('id', 'wc-1');
+    expect(createWorkCenterMutate).not.toHaveBeenCalled();
+  });
+
+  it('a create grant exposes the form, and a real valid submit calls the create gateway with the expected payload', async () => {
+    setPermissions(['manufacturing.work_centers.read', 'manufacturing.work_centers.create']);
+    renderAt('/manufacturing/workcenters');
+
+    await waitFor(() => expect(screen.getByText(/WC1/)).toBeInTheDocument());
+
+    await userEvent.type(screen.getByLabelText(/manufacturing.workCenters.form.code/), 'WC2');
+    await userEvent.type(screen.getByLabelText(/manufacturing.workCenters.form.nameEn/), 'Packaging');
+
+    await userEvent.click(screen.getByRole('button', { name: /manufacturing.workCenters.form.submit/ }));
+
+    await waitFor(() => expect(createWorkCenterMutate).toHaveBeenCalledTimes(1));
+    expect(createWorkCenterMutate).toHaveBeenCalledWith({
+      org_id: 'org-1',
+      code: 'WC2',
+      name: 'Packaging',
+      name_ar: 'Packaging',
+      description: null,
+      hourly_rate: 0,
+      is_active: true,
+    });
+    expect(workCenterUpdateSpy).not.toHaveBeenCalled();
+  });
+
+  it('revoking create mid-session (form already open, fields already filled) removes the form and the create gateway is never called', async () => {
+    setPermissions(['manufacturing.work_centers.read', 'manufacturing.work_centers.create']);
+    const { rerender, queryClient } = renderAt('/manufacturing/workcenters');
+
+    await waitFor(() => expect(screen.getByText(/WC1/)).toBeInTheDocument());
+    const codeInput = screen.getByLabelText(/manufacturing.workCenters.form.code/);
+    await userEvent.type(codeInput, 'WC2');
+    await userEvent.type(screen.getByLabelText(/manufacturing.workCenters.form.nameEn/), 'Packaging');
+
+    setPermissions(['manufacturing.work_centers.read']);
+    rerenderAt(rerender, queryClient, '/manufacturing/workcenters');
+
+    // canCreateWorkCenter يغلّف بطاقة النموذج كاملة (لا حالة "مفتوح" منفصلة
+    // كما في نموذج أوامر التصنيع) — سحب الصلاحية يُسقِط البطاقة بحقولها
+    // المعبَّأة معًا، فلا يبقى زر يمكن نقره لإتمام محاولة إنشاء كانت جارية.
+    // handleCreate نفسها تبدأ أيضًا بفحص canCreateWorkCenter دفاعًا في العمق.
+    expect(screen.queryByRole('button', { name: /manufacturing.workCenters.form.submit/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/manufacturing.workCenters.form.code/)).not.toBeInTheDocument();
+    expect(createWorkCenterMutate).not.toHaveBeenCalled();
   });
 });

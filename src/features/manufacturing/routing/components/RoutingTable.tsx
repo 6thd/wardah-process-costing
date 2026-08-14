@@ -27,6 +27,11 @@ interface RoutingTableProps {
   onApprove: (id: string) => void
   onView?: (id: string) => void
   getStatusBadge: (status: string, isActive: boolean) => React.ReactNode
+  canUpdate: boolean
+  canDelete: boolean
+  canCopy: boolean
+  /** لا مفتاح صلاحية مطابق لاعتماد التوجيه في الكتالوج الحي — مُغلَق دائمًا. */
+  canApprove: boolean
 }
 
 export const RoutingTable: React.FC<RoutingTableProps> = ({
@@ -37,7 +42,11 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
   onCopy,
   onApprove,
   onView,
-  getStatusBadge
+  getStatusBadge,
+  canUpdate,
+  canDelete,
+  canCopy,
+  canApprove
 }) => {
   const { t } = useTranslation()
   return (
@@ -72,18 +81,20 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-center gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onEdit(routing.id)
-                  }}
-                >
-                  <Edit className="w-4 h-4" />
-                </Button>
-                
-                {routing.status === 'DRAFT' && (
+                {canUpdate && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onEdit(routing.id)
+                    }}
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                )}
+
+                {canApprove && routing.status === 'DRAFT' && (
                   <Button
                     size="sm"
                     variant="ghost"
@@ -96,19 +107,21 @@ export const RoutingTable: React.FC<RoutingTableProps> = ({
                     <CheckCircle className="w-4 h-4" />
                   </Button>
                 )}
-                
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCopy(routing.id, routing.routing_code)
-                  }}
-                >
-                  <Copy className="w-4 h-4" />
-                </Button>
-                
-                {routing.status === 'DRAFT' && (
+
+                {canCopy && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onCopy(routing.id, routing.routing_code)
+                    }}
+                  >
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                )}
+
+                {canDelete && routing.status === 'DRAFT' && (
                   <Button
                     size="sm"
                     variant="ghost"

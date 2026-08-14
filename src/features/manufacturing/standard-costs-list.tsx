@@ -45,6 +45,7 @@ import {
 import { standardCostsService } from '@/services/supabase-service'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { supabase } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface Product {
   id: string
@@ -88,7 +89,11 @@ interface StandardCostFilters {
 
 export function StandardCostsList() {
   const queryClient = useQueryClient()
-  
+  const { hasPermissionKey } = usePermissions()
+  const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
+  const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
+  const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
+
   const [filters, setFilters] = useState({
     productId: 'all',
     stageId: 'all',
@@ -151,8 +156,10 @@ export function StandardCostsList() {
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<StandardCostFormData>) => {
       if (editingCost) {
+        if (!canUpdate) throw new Error('لا تملك صلاحية تعديل التكاليف القياسية')
         return standardCostsService.update(editingCost.id, data)
       } else {
+        if (!canCreate) throw new Error('لا تملك صلاحية إنشاء تكاليف قياسية')
         return standardCostsService.create(data)
       }
     },
@@ -171,6 +178,7 @@ export function StandardCostsList() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canDelete) throw new Error('لا تملك صلاحية حذف التكاليف القياسية')
       // Use update to soft delete by setting is_active to false
       await standardCostsService.update(id, { is_active: false })
     },
@@ -189,6 +197,10 @@ export function StandardCostsList() {
   }
 
   const handleEdit = (cost: StandardCost) => {
+    if (!canUpdate) {
+      toast.error('لا تملك صلاحية تعديل التكاليف القياسية')
+      return
+    }
     setEditingCost(cost)
     setFormData({
       product_id: cost.product_id || '',
@@ -205,6 +217,10 @@ export function StandardCostsList() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف التكاليف القياسية')
+      return
+    }
     if (confirm('هل أنت متأكد من حذف هذه التكلفة القياسية؟')) {
       deleteMutation.mutate(id)
     }
@@ -212,7 +228,12 @@ export function StandardCostsList() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
+    if (editingCost ? !canUpdate : !canCreate) {
+      toast.error(editingCost ? 'لا تملك صلاحية تعديل التكاليف القياسية' : 'لا تملك صلاحية إنشاء تكاليف قياسية')
+      return
+    }
+
     if (!formData.product_id || !formData.stage_id) {
       toast.error('يجب اختيار المنتج والمرحلة')
       return
@@ -268,18 +289,20 @@ export function StandardCostsList() {
                 تحديث
               </Button>
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      resetForm()
-                      setIsDialogOpen(true)
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    إضافة تكلفة قياسية
-                  </Button>
-                </DialogTrigger>
+                {canCreate && (
+                  <DialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        resetForm()
+                        setIsDialogOpen(true)
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      إضافة تكلفة قياسية
+                    </Button>
+                  </DialogTrigger>
+                )}
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>
@@ -606,21 +629,27 @@ export function StandardCostsList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(cost)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(cost.id)}
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              {canUpdate && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`تعديل تكلفة قياسية ${cost.id}`}
+                                  onClick={() => handleEdit(cost)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`حذف تكلفة قياسية ${cost.id}`}
+                                  onClick={() => handleDelete(cost.id)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>

@@ -79,10 +79,16 @@ interface WipLogFormDialogProps {
   readonly editing?: (Partial<WipLogFormValues> & { id: string }) | null
   readonly manufacturingOrders: Option[]
   readonly stages: Option[]
+  /**
+   * صلاحية الحفظ الفعلية (create أو update حسب وضع الحوار) — تُمرَّر من
+   * المستدعي وتُعاد قراءتها هنا مباشرة قبل نداء الخدمة، لا فقط لإخفاء زر
+   * الحفظ، لتغطية سحب الصلاحية أثناء بقاء الحوار مفتوحًا.
+   */
+  readonly canSubmit: boolean
 }
 
 export function WipLogFormDialog({
-  open, onOpenChange, editing, manufacturingOrders, stages,
+  open, onOpenChange, editing, manufacturingOrders, stages, canSubmit,
 }: WipLogFormDialogProps) {
   const queryClient = useQueryClient()
   const [values, setValues] = useState<WipLogFormValues>(EMPTY)
@@ -95,6 +101,9 @@ export function WipLogFormDialog({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      if (!canSubmit) {
+        throw new Error(editing ? 'لا تملك صلاحية تعديل سجلات WIP' : 'لا تملك صلاحية إنشاء سجلات WIP')
+      }
       if (!values.mo_id || !values.stage_id) {
         throw new Error('اختر أمر التصنيع والمرحلة')
       }
@@ -233,9 +242,11 @@ export function WipLogFormDialog({
 
         <DialogFooter className="gap-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>إلغاء</Button>
-          <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? 'جارٍ الحفظ…' : (editing ? 'تحديث' : 'حفظ')}
-          </Button>
+          {canSubmit && (
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+              {saveMutation.isPending ? 'جارٍ الحفظ…' : (editing ? 'تحديث' : 'حفظ')}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

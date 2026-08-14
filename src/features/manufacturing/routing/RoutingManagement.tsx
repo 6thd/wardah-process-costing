@@ -30,12 +30,25 @@ import { RoutingTable } from './components/RoutingTable'
 import { RoutingStats } from './components/RoutingStats'
 import { RoutingEmptyState } from './components/RoutingEmptyState'
 import { RoutingForm } from './RoutingForm'
+import { usePermissions } from '@/hooks/usePermissions'
 
 function RoutingList() {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAuthStore()
+  const { hasPermissionKey } = usePermissions()
+  // التوجيه (routing) يعرّف تسلسل عمليات المراحل — لا مورد "routing" مخصص في
+  // الكتالوج الحي، فيُحكَم بأقرب مورد "stages" (نفس تعيين route-permissions.ts
+  // لمسارَي /routing و/routing/new). النسخ (Copy) إدراج صف جديد فعليًا فيُحكَم
+  // بمفتاح الإنشاء نفسه. "اعتماد" التوجيه لا مفتاح مطابق له إطلاقًا في الكتالوج
+  // الحي (لا manufacturing.stages.approve ولا مورد مكافئ) — يُغلَق افتراضيًا
+  // (fail-closed) بدل ربطه بمفتاح غير ذي صلة، ويُبلَّغ كفجوة كتالوج/منتج.
+  const canCreate = hasPermissionKey('manufacturing.stages.create')
+  const canUpdate = hasPermissionKey('manufacturing.stages.update')
+  const canDelete = hasPermissionKey('manufacturing.stages.delete')
+  const canCopy = canCreate
+  const canApprove = false
   const [orgId, setOrgId] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'APPROVED' | 'OBSOLETE'>('ALL')
@@ -71,6 +84,7 @@ function RoutingList() {
   }) ?? []
 
   const handleEdit = (id: string) => {
+    if (!canUpdate) return
     navigate(`/manufacturing/routing/${id}`)
   }
 
@@ -79,18 +93,23 @@ function RoutingList() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) return
     if (confirm(t('routingMgmt.deleteConfirm'))) {
       deleteRouting.mutate(id)
     }
   }
 
   const handleApprove = async (id: string) => {
+    // لا مفتاح صلاحية مطابق لاعتماد التوجيه في الكتالوج الحي — مُغلَق دائمًا
+    // (fail-closed)، انظر التعليق أعلى canApprove.
+    if (!canApprove) return
     if (user?.id) {
       approveRouting.mutate({ id, userId: user.id })
     }
   }
 
   const handleCopy = async (id: string, code: string) => {
+    if (!canCopy) return
     const newCode = `${code}-COPY-${Date.now().toString().slice(-4)}`
     copyRouting.mutate({ id, newCode })
   }
@@ -129,10 +148,12 @@ function RoutingList() {
             <RefreshCw className="w-4 h-4 mr-2" />
             {t('routingMgmt.refresh')}
           </Button>
-          <Button onClick={() => navigate('/manufacturing/routing/new')}>
-            <Plus className="w-4 h-4 mr-2" />
-            {t('routingMgmt.newRouting')}
-          </Button>
+          {canCreate && (
+            <Button onClick={() => navigate('/manufacturing/routing/new')}>
+              <Plus className="w-4 h-4 mr-2" />
+              {t('routingMgmt.newRouting')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -182,6 +203,7 @@ function RoutingList() {
           {!isLoading && (!filteredRoutings || filteredRoutings.length === 0) && (
             <RoutingEmptyState
               onCreateNew={() => navigate('/manufacturing/routing/new')}
+              canCreate={canCreate}
             />
           )}
           {!isLoading && filteredRoutings && filteredRoutings.length > 0 && (
@@ -194,6 +216,10 @@ function RoutingList() {
               onApprove={handleApprove}
               onView={handleView}
               getStatusBadge={getStatusBadge}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
+              canCopy={canCopy}
+              canApprove={canApprove}
             />
           )}
         </CardContent>

@@ -41,11 +41,18 @@ import { WorkOrderCard } from './components/WorkOrderCard'
 import { WorkCenterSummary } from './components/WorkCenterSummary'
 import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
 
+// لا مفتاح صلاحية مطابق لعمليات أوامر العمل (work_orders: بدء/إيقاف مؤقت/
+// استئناف/إنهاء) في الكتالوج الحي — لا manufacturing.work_orders.* ولا مورد
+// مكافئ (الجدول work_orders مستقل عن orders وwork_centers دلاليًا). يُغلَق كل
+// فعل حي هنا افتراضيًا (fail-closed) بدل ربطه بمفتاح غير ذي صلة، ويُبلَّغ هذا
+// كفجوة كتالوج/منتج تحتاج قرارًا منتجيًا (مورد صلاحية جديد) قبل إعادة التفعيل.
+const CAN_ACT_ON_WORK_ORDERS = false
+
 // eslint-disable-next-line complexity
 export function WorkCenterDashboard() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  
+
   const [selectedWorkCenter, setSelectedWorkCenter] = useState<string>('')
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
@@ -91,6 +98,7 @@ export function WorkCenterDashboard() {
   const resumeWorkOrder = useResumeWorkOrder()
 
   const handleStartSetup = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     startOperation.mutate({
       workOrderId: workOrder.id,
       isSetup: true
@@ -98,6 +106,7 @@ export function WorkCenterDashboard() {
   }
 
   const handleStartProduction = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     startOperation.mutate({
       workOrderId: workOrder.id,
       isSetup: false
@@ -105,14 +114,17 @@ export function WorkCenterDashboard() {
   }
 
   const handlePause = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     pauseWorkOrder.mutate({ workOrderId: workOrder.id })
   }
 
   const handleResume = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     resumeWorkOrder.mutate({ workOrderId: workOrder.id })
   }
 
   const openCompleteDialog = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     setSelectedWorkOrder(workOrder)
     setQuantityProduced(workOrder.planned_quantity - workOrder.completed_quantity - workOrder.scrapped_quantity)
     setQuantityScrapped(0)
@@ -121,6 +133,7 @@ export function WorkCenterDashboard() {
   }
 
   const handleComplete = () => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     if (selectedWorkOrder) {
       completeOperation.mutate({
         workOrderId: selectedWorkOrder.id,
@@ -247,6 +260,7 @@ export function WorkCenterDashboard() {
                       pause: pauseWorkOrder.isPending,
                       resume: resumeWorkOrder.isPending
                     }}
+                    canAct={CAN_ACT_ON_WORK_ORDERS}
                   />
                 ))}
               </div>
@@ -310,17 +324,19 @@ export function WorkCenterDashboard() {
             <Button variant="outline" onClick={() => setShowCompleteDialog(false)}>
               {t('wcDashboard.cancel')}
             </Button>
-            <Button 
-              onClick={handleComplete}
-              disabled={completeOperation.isPending || quantityProduced <= 0}
-            >
-              {completeOperation.isPending ? (
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="w-4 h-4 mr-2" />
-              )}
-              {t('wcDashboard.confirm')}
-            </Button>
+            {CAN_ACT_ON_WORK_ORDERS && (
+              <Button
+                onClick={handleComplete}
+                disabled={completeOperation.isPending || quantityProduced <= 0}
+              >
+                {completeOperation.isPending ? (
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                )}
+                {t('wcDashboard.confirm')}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
