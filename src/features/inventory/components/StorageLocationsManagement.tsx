@@ -37,8 +37,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { warehouseService, type StorageLocation, type Warehouse } from '@/services/warehouse-service';
+import { usePermissions } from '@/hooks/usePermissions';
 
 export default function StorageLocationsManagement() {
+  const { hasPermissionKey } = usePermissions();
+  // لا مورد "locations" مخصص في الكتالوج الحي (لا inventory.locations.* ولا
+  // مورد مكافئ) — تُغلَق كل أفعال الكتابة هنا افتراضيًا (fail-closed) بدل
+  // ربطها بمفتاح غير ذي صلة، اتساقًا مع معالجة RoutingForm لاعتماد المسارات.
+  // العرض للقراءة فقط يبقى متاحًا. تُبلَّغ هذه كفجوة كتالوج/منتج.
+  const canCreate = false;
+  const canUpdate = false;
+  const canDelete = false;
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read');
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
@@ -57,8 +67,13 @@ export default function StorageLocationsManagement() {
   });
 
   useEffect(() => {
-    loadWarehouses();
-  }, []);
+    if (canReadWarehouses) {
+      loadWarehouses();
+    } else {
+      setWarehouses([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadWarehouses]);
 
   useEffect(() => {
     if (selectedWarehouse) {
@@ -93,6 +108,10 @@ export default function StorageLocationsManagement() {
   };
 
   const handleOpenDialog = (location?: StorageLocation) => {
+    if ((location && !canUpdate) || (!location && !canCreate)) {
+      toast.error('لا تملك صلاحية هذا الإجراء على مواقع التخزين');
+      return;
+    }
     if (location) {
       setEditingLocation(location);
       setFormData(location);
@@ -129,6 +148,10 @@ export default function StorageLocationsManagement() {
   };
 
   const handleSave = async () => {
+    if (editingLocation ? !canUpdate : !canCreate) {
+      toast.error('لا تملك صلاحية هذا الإجراء على مواقع التخزين');
+      return;
+    }
     try {
       if (!formData.code || !formData.name || !selectedWarehouse) {
         toast.error('الرجاء إدخال الكود والاسم واختيار المخزن');
@@ -159,6 +182,10 @@ export default function StorageLocationsManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف مواقع التخزين');
+      return;
+    }
     if (!confirm('هل أنت متأكد من حذف هذا الموقع؟')) {
       return;
     }
@@ -206,10 +233,12 @@ export default function StorageLocationsManagement() {
             إدارة المناطق والأرفف داخل كل مخزن (المستوى الثاني)
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
-          <Plus className="mr-2 h-4 w-4" />
-          موقع جديد
-        </Button>
+        {canCreate && (
+          <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
+            <Plus className="mr-2 h-4 w-4" />
+            موقع جديد
+          </Button>
+        )}
       </div>
 
       {/* Info Box */}
@@ -323,10 +352,12 @@ export default function StorageLocationsManagement() {
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">لا توجد مواقع تخزين في هذا المخزن</p>
-                    <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      إضافة أول موقع
-                    </Button>
+                    {canCreate && (
+                      <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        إضافة أول موقع
+                      </Button>
+                    )}
                   </div>
                 );
               }
@@ -402,20 +433,24 @@ export default function StorageLocationsManagement() {
                         </TableCell>
                         <TableCell className="text-start">
                           <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpenDialog(location)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(location.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canUpdate && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleOpenDialog(location)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(location.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

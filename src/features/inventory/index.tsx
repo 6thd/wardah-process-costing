@@ -897,6 +897,21 @@ function ItemsManagement() {
 function StockAdjustments() {
   const { t } = useTranslation()
   const { currentOrgId } = useAuth()
+  const { hasPermissionKey } = usePermissions()
+  const canReadAdjustments = hasPermissionKey('inventory.adjustments.read')
+  const canCreateAdjustment = hasPermissionKey('inventory.adjustments.create')
+  // تعديل مسودة قائمة، وإلغاؤها تغيير حالة على صف قائم لا حذف صف — كلاهما
+  // update دلاليًا، لا delete (لا استدعاء حذف فعليًا على stock_adjustments هنا).
+  const canUpdateAdjustment = hasPermissionKey('inventory.adjustments.update')
+  const canApproveAdjustment = hasPermissionKey('inventory.adjustments.approve')
+  // بيانات مرجعية من موارد مختلفة تمامًا عن adjustments — منتجات ومخازن
+  // (مورد inventory الفعلي) وحسابات GL (مورد accounting.accounts) — كل منها
+  // يحتاج مفتاح قراءته الحقيقي، لا inventory.adjustments.read وحدها.
+  const canReadProducts = hasPermissionKey('inventory.products.read')
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
+  const canReadGLAccounts = hasPermissionKey('accounting.accounts.read')
+  // النموذج (إنشاء/تعديل) يحتاج الثلاثة معًا ليكون قابلاً للاستخدام فعليًا
+  const canOpenAdjustmentForm = canReadProducts && canReadWarehouses && canReadGLAccounts
   const productUomStatus = useProductUomStatus()
   const productNeedsUomSetup = productUomStatus.needsSetup
   const [adjustments, setAdjustments] = useState<any[]>([])
@@ -945,17 +960,33 @@ function StockAdjustments() {
       setLoadingAccounts(false)
       return
     }
-    loadAdjustments()
-    loadProducts()
-    loadWarehouses()
-    loadGLAccounts()
-  }, [currentOrgId])
+    if (canReadAdjustments) {
+      loadAdjustments()
+    } else {
+      setLoading(false)
+    }
+    if (canReadProducts) {
+      loadProducts()
+    }
+    if (canReadWarehouses) {
+      loadWarehouses()
+    } else {
+      setLoadingWarehouses(false)
+    }
+    if (canReadGLAccounts) {
+      loadGLAccounts()
+    } else {
+      setLoadingAccounts(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrgId, canReadAdjustments, canReadProducts, canReadWarehouses, canReadGLAccounts])
 
   // Reload when filters change
   useEffect(() => {
-    if (!loading) {
+    if (!loading && canReadAdjustments) {
       loadAdjustments()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStatus, filterType])
 
   // Close dropdown when clicking outside
@@ -1194,6 +1225,11 @@ function StockAdjustments() {
   }
 
   const handleSaveAdjustment = async () => {
+    const isEditingGuard = selectedAdjustment?.isEditing
+    if (isEditingGuard ? !canUpdateAdjustment : !canCreateAdjustment) {
+      toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
+      return
+    }
     // Use imported validation from helpers
     const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
     if (!validation.valid) {
@@ -1341,6 +1377,10 @@ function StockAdjustments() {
   }
 
   const handleSubmitAdjustment = async (adjustmentId: string) => {
+    if (!canApproveAdjustment) {
+      toast.error('لا تملك صلاحية ترحيل تسويات المخزون')
+      return
+    }
     try {
       const supabase = getSupabase()
       const { data: { user } } = await supabase.auth.getUser()
@@ -1591,10 +1631,12 @@ function StockAdjustments() {
         description="تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية"
         hideOnPrint={false}
         actions={
-          <Button onClick={() => setShowNewForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" />
-            تسوية جديدة
-          </Button>
+          canCreateAdjustment && canOpenAdjustmentForm && (
+            <Button onClick={() => setShowNewForm(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              تسوية جديدة
+            </Button>
+          )
         }
       />
 
@@ -2200,7 +2242,9 @@ function StockAdjustments() {
             {/* Action Buttons */}
             {selectedAdjustment.status === 'DRAFT' && (
               <div className="flex justify-end gap-2">
+                {canUpdateAdjustment && canOpenAdjustmentForm && (
                 <Button variant="outline" onClick={async () => {
+                  if (!canUpdateAdjustment) return
                   try {
                     // Load adjustment items
                     const supabase = getSupabase()
@@ -2244,14 +2288,20 @@ function StockAdjustments() {
                 }}>
                   ✏️ تعديل
                 </Button>
+                )}
+                {canApproveAdjustment && (
                 <Button onClick={async () => {
+                  if (!canApproveAdjustment) return
                   if (confirm('هل أنت متأكد من ترحيل هذه التسوية؟ سيتم تحديث أرصدة المخزون وإنشاء القيود المحاسبية.')) {
                     await handleSubmitAdjustment(selectedAdjustment.id)
                   }
                 }}>
                   ✅ ترحيل
                 </Button>
+                )}
+                {canUpdateAdjustment && (
                 <Button variant="destructive" onClick={async () => {
+                  if (!canUpdateAdjustment) return
                   if (confirm('هل أنت متأكد من إلغاء هذه التسوية؟')) {
                     try {
                       const supabase = getSupabase()
@@ -2259,9 +2309,9 @@ function StockAdjustments() {
                         .from('stock_adjustments')
                         .update({ status: 'CANCELLED' })
                         .eq('id', selectedAdjustment.id)
-                      
+
                       if (error) throw error
-                      
+
                       toast.success('تم إلغاء التسوية بنجاح')
                       setViewMode(false)
                       setSelectedAdjustment(null)
@@ -2273,6 +2323,7 @@ function StockAdjustments() {
                 }}>
                   🗑️ إلغاء
                 </Button>
+                )}
               </div>
             )}
           </div>
@@ -2433,10 +2484,17 @@ function StorageLocations() {
 
 function StockMovements() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('inventory.stock_moves.read')
   const [movements, setMovements] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!canRead) {
+      setMovements([])
+      setLoading(false)
+      return
+    }
     const loadMovements = async () => {
       try {
         const data = await stockMovementsService.getAll()
@@ -2449,7 +2507,7 @@ function StockMovements() {
       }
     }
     loadMovements()
-  }, [])
+  }, [canRead])
 
   if (loading) {
     return (
@@ -2569,6 +2627,11 @@ function StockMovements() {
 function CategoriesManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  // لا مورد "categories" مخصص في الكتالوج الحي (لا inventory.categories.*
+  // ولا مورد مكافئ) — يُغلَق فعل الإنشاء هنا افتراضيًا (fail-closed) بدل
+  // تركه بلا أي فحص صلاحية، اتساقًا مع RoutingForm/StorageLocationsManagement.
+  // العرض للقراءة فقط يبقى متاحًا. لا يوجد تعديل/حذف في هذه الشاشة أصلًا.
+  const canCreate = false
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -2594,6 +2657,10 @@ function CategoriesManagement() {
   }
 
   const handleAddCategory = async () => {
+    if (!canCreate) {
+      toast.error('لا تملك صلاحية إضافة فئات')
+      return
+    }
     try {
       if (!newCategory.name) {
         toast.error('الرجاء إدخال اسم الفئة')
@@ -2628,13 +2695,15 @@ function CategoriesManagement() {
           <h1 className="text-2xl font-bold">فئات المنتجات</h1>
           <p className="text-muted-foreground">إدارة تصنيفات المخزون</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : '+ إضافة فئة'}
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : '+ إضافة فئة'}
+          </Button>
+        )}
       </div>
 
       {/* Add Category Form */}
-      {showAddForm && (
+      {showAddForm && canCreate && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة فئة جديدة</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

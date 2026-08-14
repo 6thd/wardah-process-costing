@@ -37,6 +37,7 @@ import { useWorkOrders, useStartOperation, useCompleteOperation, usePauseWorkOrd
 import { WorkOrder } from '@/services/manufacturing/mesService'
 import { useQuery } from '@tanstack/react-query'
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 import { WorkOrderCard } from './components/WorkOrderCard'
 import { WorkCenterSummary } from './components/WorkCenterSummary'
 import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
@@ -47,6 +48,12 @@ import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
 // فعل حي هنا افتراضيًا (fail-closed) بدل ربطه بمفتاح غير ذي صلة، ويُبلَّغ هذا
 // كفجوة كتالوج/منتج تحتاج قرارًا منتجيًا (مورد صلاحية جديد) قبل إعادة التفعيل.
 const CAN_ACT_ON_WORK_ORDERS = false
+
+// نفس الفجوة تنطبق على القراءة: لا manufacturing.work_orders.read في الكتالوج
+// الحي، فلا تُستدعى استعلامات أوامر العمل أو ملخصها إطلاقًا (لا صفوف ولا
+// عدادات مشتقة) لأي مستخدم — مستقل تمامًا عن manufacturing.work_centers.read
+// التي تبقى تحكم بيانات مراكز العمل المرجعية وحدها.
+const CAN_READ_WORK_ORDERS = false
 
 // eslint-disable-next-line complexity
 export function WorkCenterDashboard() {
@@ -60,7 +67,11 @@ export function WorkCenterDashboard() {
   const [quantityScrapped, setQuantityScrapped] = useState<number>(0)
   const [notes, setNotes] = useState('')
 
-  // Fetch work centers
+  const { hasPermissionKey } = usePermissions()
+  const canReadWorkCenters = hasPermissionKey('manufacturing.work_centers.read')
+
+  // Fetch work centers — بيانات مرجعية مستقلة، مُحكَمة بمفتاحها الحقيقي
+  // manufacturing.work_centers.read فقط، بصرف النظر عن fail-closed أوامر العمل.
   const { data: workCenters } = useQuery({
     queryKey: ['work-centers'],
     queryFn: async () => {
@@ -72,7 +83,8 @@ export function WorkCenterDashboard() {
         .eq('is_active', true)
       if (error) throw error
       return data
-    }
+    },
+    enabled: canReadWorkCenters
   })
 
   // Set default work center
@@ -82,14 +94,16 @@ export function WorkCenterDashboard() {
     }
   }, [workCenters, selectedWorkCenter])
 
-  // Fetch work orders for selected work center
+  // Fetch work orders for selected work center — لا manufacturing.work_orders.read
+  // في الكتالوج الحي، فيُغلَق الاستعلام افتراضيًا (fail-closed) بصرف النظر عن
+  // أي صلاحية ممنوحة، اتساقًا مع أفعال بدء/إيقاف/استئناف/إنهاء أوامر العمل.
   const { data: workOrders, isLoading, refetch } = useWorkOrders({
     workCenterId: selectedWorkCenter,
     status: ['PENDING', 'READY', 'IN_SETUP', 'IN_PROGRESS', 'ON_HOLD']
-  })
+  }, { enabled: CAN_READ_WORK_ORDERS })
 
-  // Work center summary
-  const { data: summary } = useWorkCenterSummary(selectedWorkCenter)
+  // Work center summary — مشتق من أوامر العمل نفسها، فيُغلَق بنفس البوابة.
+  const { data: summary } = useWorkCenterSummary(selectedWorkCenter, { enabled: CAN_READ_WORK_ORDERS })
 
   // Mutations
   const startOperation = useStartOperation()

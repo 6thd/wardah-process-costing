@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { listAttendanceForPeriod } from '@/services/hr/attendance-service';
 import { ATTENDANCE_COLORS } from '../types';
 import {
@@ -40,6 +41,8 @@ import '../translations/ui';
 
 export const AttendancePage: React.FC = () => {
   const { toast } = useToast();
+  const { hasPermissionKey } = usePermissions();
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
   const { t, i18n } = useHrTranslation();
   const isArabic = i18n.resolvedLanguage?.startsWith('ar') ?? true;
   const locale = isArabic ? 'ar-SA' : 'en-US';
@@ -58,6 +61,7 @@ export const AttendancePage: React.FC = () => {
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
     staleTime: 60_000,
+    enabled: canReadEmployees,
   });
 
   const { data: monthlyAttendance = [], isLoading: monthlyAttendanceLoading } = useQuery({

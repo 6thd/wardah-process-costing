@@ -19,6 +19,7 @@ import {
   type PayrollAccountMapping,
   type PayrollAccountType,
 } from '@/services/hr/payroll-account-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useHrTranslation } from '../i18n';
 import '../translations/pages';
 
@@ -32,6 +33,17 @@ const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frida
 export const SettingsPage: React.FC = () => {
   const { t } = useHrTranslation();
   const queryClient = useQueryClient();
+  const { hasPermissionKey } = usePermissions();
+  // لا مورد "hr.settings" مخصص في الكتالوج الحي — دخول /hr/settings مُحكَم
+  // فقط بـ hr.employees.read كبديل رؤية (route-permissions.ts)، وهذا لا
+  // يفوّض الكتابة. كلا السطحين (سياسات hr_policies، وربط حسابات GL
+  // للرواتب) يؤثران مباشرة في احتساب وترحيل الرواتب والتسويات — يُغلَقان
+  // افتراضيًا (fail-closed) ولا يُربطان بـ hr.employees.update أو
+  // hr.payroll.update ضمنيًا، ويُبلَّغان كفجوة كتالوج/منتج تحتاج مفتاحًا
+  // مخصصًا قبل إعادة التفعيل.
+  const canSavePolicies = false;
+  const canSaveMappings = false;
+  const canReadAccounts = hasPermissionKey('accounting.accounts.read');
   const [activeTab, setActiveTab] = React.useState('policies');
   const [showAccountDialog, setShowAccountDialog] = React.useState(false);
   const [selectedMapping, setSelectedMapping] = React.useState<PayrollAccountMapping | null>(null);
@@ -41,13 +53,16 @@ export const SettingsPage: React.FC = () => {
 
   const { data: policies } = useQuery({ queryKey: ['hr', 'policies'], queryFn: getHrPolicies });
   const { data: mappings = [], isLoading: mappingsLoading } = useQuery({ queryKey: ['hr', 'payroll-account-mappings'], queryFn: getPayrollAccountMappings });
-  const { data: accounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts });
+  const { data: accounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts, enabled: canReadAccounts });
 
   const currentPolicies = { ...policies, ...editedPolicies };
   const updatePolicy = <K extends keyof HrPolicies>(key: K, value: HrPolicies[K]) => setEditedPolicies((current) => ({ ...current, [key]: value }));
 
   const policyMutation = useMutation({
-    mutationFn: () => updateHrPolicies(editedPolicies),
+    mutationFn: () => {
+      if (!canSavePolicies) throw new Error(t('settings.policiesFailed'));
+      return updateHrPolicies(editedPolicies);
+    },
     onSuccess: () => {
       toast.success(t('settings.policiesSaved'));
       setEditedPolicies({});
@@ -58,6 +73,7 @@ export const SettingsPage: React.FC = () => {
 
   const mappingMutation = useMutation({
     mutationFn: () => {
+      if (!canSaveMappings) throw new Error(t('settings.mappingFailed'));
       if (!accountType || !glAccountId) throw new Error(t('settings.selectAccount'));
       return upsertPayrollAccountMapping(accountType, glAccountId);
     },
@@ -77,12 +93,14 @@ export const SettingsPage: React.FC = () => {
   };
 
   const saveButton = (labelKey: string) => (
-    <div className="flex justify-end">
-      <Button onClick={() => policyMutation.mutate()} disabled={policyMutation.isPending || Object.keys(editedPolicies).length === 0}>
-        {policyMutation.isPending ? <RefreshCw className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
-        {t(labelKey)}
-      </Button>
-    </div>
+    canSavePolicies ? (
+      <div className="flex justify-end">
+        <Button onClick={() => policyMutation.mutate()} disabled={policyMutation.isPending || Object.keys(editedPolicies).length === 0}>
+          {policyMutation.isPending ? <RefreshCw className="h-4 w-4 me-2 animate-spin" /> : <Save className="h-4 w-4 me-2" />}
+          {t(labelKey)}
+        </Button>
+      </div>
+    ) : null
   );
 
   return <div className="space-y-6">
@@ -121,13 +139,13 @@ export const SettingsPage: React.FC = () => {
       </TabsContent>
 
       <TabsContent value="accounts" className="mt-4">
-        <Card><CardHeader className="flex flex-row items-center justify-between"><div><CardTitle>{t('settings.accountsTitle')}</CardTitle><CardDescription>{t('settings.accountsDescription')}</CardDescription></div><Button variant="outline" onClick={() => openMappingDialog()}><Plus className="h-4 w-4 me-2" />{t('settings.addMapping')}</Button></CardHeader><CardContent>
-          {mappingsLoading ? <div className="py-8 text-center">{t('common.loading')}</div> : mappings.length === 0 ? <div className="py-8 text-center"><AlertCircle className="mx-auto mb-3 h-12 w-12" /><p>{t('settings.noMappings')}</p><p className="text-sm text-muted-foreground">{t('settings.noMappingsDescription')}</p></div> : <Table><TableHeader><TableRow><TableHead>{t('settings.accountType')}</TableHead><TableHead>{t('settings.linkedAccount')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead>{t('common.actions')}</TableHead></TableRow></TableHeader><TableBody>{mappings.map((mapping) => { const account = accounts.find((item) => item.id === mapping.gl_account_id); return <TableRow key={mapping.id}><TableCell>{t(`settings.accountTypes.${mapping.account_type}`)}</TableCell><TableCell>{account ? `${account.code} - ${account.name}` : mapping.gl_account_id}</TableCell><TableCell><Badge><CheckCircle2 className="h-3 w-3 me-1" />{t('settings.linked')}</Badge></TableCell><TableCell><Button size="sm" variant="ghost" onClick={() => openMappingDialog(mapping)}>{t('common.edit')}</Button></TableCell></TableRow>; })}</TableBody></Table>}
+        <Card><CardHeader className="flex flex-row items-center justify-between"><div><CardTitle>{t('settings.accountsTitle')}</CardTitle><CardDescription>{t('settings.accountsDescription')}</CardDescription></div>{canSaveMappings && <Button variant="outline" onClick={() => openMappingDialog()}><Plus className="h-4 w-4 me-2" />{t('settings.addMapping')}</Button>}</CardHeader><CardContent>
+          {mappingsLoading ? <div className="py-8 text-center">{t('common.loading')}</div> : mappings.length === 0 ? <div className="py-8 text-center"><AlertCircle className="mx-auto mb-3 h-12 w-12" /><p>{t('settings.noMappings')}</p><p className="text-sm text-muted-foreground">{t('settings.noMappingsDescription')}</p></div> : <Table><TableHeader><TableRow><TableHead>{t('settings.accountType')}</TableHead><TableHead>{t('settings.linkedAccount')}</TableHead><TableHead>{t('common.status')}</TableHead><TableHead>{t('common.actions')}</TableHead></TableRow></TableHeader><TableBody>{mappings.map((mapping) => { const account = accounts.find((item) => item.id === mapping.gl_account_id); return <TableRow key={mapping.id}><TableCell>{t(`settings.accountTypes.${mapping.account_type}`)}</TableCell><TableCell>{account ? `${account.code} - ${account.name}` : mapping.gl_account_id}</TableCell><TableCell><Badge><CheckCircle2 className="h-3 w-3 me-1" />{t('settings.linked')}</Badge></TableCell><TableCell>{canSaveMappings && <Button size="sm" variant="ghost" onClick={() => openMappingDialog(mapping)}>{t('common.edit')}</Button>}</TableCell></TableRow>; })}</TableBody></Table>}
           <div className="mt-6 rounded-lg border p-4"><h4 className="font-medium mb-3">{t('settings.requiredMappings')}</h4><div className="grid gap-2 md:grid-cols-2">{ACCOUNT_TYPES.map((type) => { const mapped = mappings.some((mapping) => mapping.account_type === type); return <div key={type} className="flex items-center justify-between rounded-lg border p-3"><span>{t(`settings.accountTypes.${type}`)}</span>{mapped ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-amber-600" />}</div>; })}</div></div>
         </CardContent></Card>
       </TabsContent>
     </Tabs>
 
-    <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{t(selectedMapping ? 'settings.mappingTitleEdit' : 'settings.mappingTitleAdd')}</DialogTitle><DialogDescription>{t('settings.mappingDescription')}</DialogDescription></DialogHeader><div className="space-y-4"><div><Label>{t('settings.accountType')}</Label><Select value={accountType} onValueChange={(value) => setAccountType(value as PayrollAccountType)}><SelectTrigger><SelectValue placeholder={t('settings.selectAccountType')} /></SelectTrigger><SelectContent>{ACCOUNT_TYPES.map((type) => <SelectItem key={type} value={type}>{t(`settings.accountTypes.${type}`)}</SelectItem>)}</SelectContent></Select></div><div><Label>{t('settings.glAccount')}</Label><Select value={glAccountId} onValueChange={setGlAccountId}><SelectTrigger><SelectValue placeholder={t('settings.selectAccount')} /></SelectTrigger><SelectContent>{accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.code} - {account.name}</SelectItem>)}</SelectContent></Select></div></div><DialogFooter><Button variant="outline" onClick={() => setShowAccountDialog(false)}>{t('common.cancel')}</Button><Button onClick={() => mappingMutation.mutate()} disabled={!accountType || !glAccountId || mappingMutation.isPending}><Save className="h-4 w-4 me-2" />{t('common.save')}</Button></DialogFooter></DialogContent></Dialog>
+    <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>{t(selectedMapping ? 'settings.mappingTitleEdit' : 'settings.mappingTitleAdd')}</DialogTitle><DialogDescription>{t('settings.mappingDescription')}</DialogDescription></DialogHeader><div className="space-y-4"><div><Label>{t('settings.accountType')}</Label><Select value={accountType} onValueChange={(value) => setAccountType(value as PayrollAccountType)}><SelectTrigger><SelectValue placeholder={t('settings.selectAccountType')} /></SelectTrigger><SelectContent>{ACCOUNT_TYPES.map((type) => <SelectItem key={type} value={type}>{t(`settings.accountTypes.${type}`)}</SelectItem>)}</SelectContent></Select></div><div><Label>{t('settings.glAccount')}</Label><Select value={glAccountId} onValueChange={setGlAccountId}><SelectTrigger><SelectValue placeholder={t('settings.selectAccount')} /></SelectTrigger><SelectContent>{accounts.map((account) => <SelectItem key={account.id} value={account.id}>{account.code} - {account.name}</SelectItem>)}</SelectContent></Select></div></div><DialogFooter><Button variant="outline" onClick={() => setShowAccountDialog(false)}>{t('common.cancel')}</Button>{canSaveMappings && <Button onClick={() => mappingMutation.mutate()} disabled={!accountType || !glAccountId || mappingMutation.isPending}><Save className="h-4 w-4 me-2" />{t('common.save')}</Button>}</DialogFooter></DialogContent></Dialog>
   </div>;
 };

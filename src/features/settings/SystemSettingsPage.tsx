@@ -15,6 +15,7 @@ import {
   DEFAULT_SYSTEM_SETTINGS,
   type SystemSettingsValues,
 } from '@/services/org-settings-service'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface WarehouseOption {
   id: string
@@ -26,6 +27,15 @@ export function SystemSettingsPage() {
   const { i18n } = useTranslation()
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const tr = (ar: string, en: string) => isRTL ? ar : en
+  const { hasPermissionKey } = usePermissions()
+  // لا مورد "settings.system" مخصص في الكتالوج الحي — /settings/system
+  // مُحكَم عند دخول المسار بـ settings.organization.read فقط (بديل رؤية لا
+  // تفويض كتابة حقيقي، انظر route-permissions.ts)، والصف المكتوب فعليًا
+  // (org_settings بمفتاح 'system') مورد مختلف تمامًا عن organizations. تُغلَق
+  // الكتابة هنا افتراضيًا (fail-closed) بدل ربطها بـ settings.organization.update
+  // خطأً، وتُبلَّغ كفجوة كتالوج/منتج تحتاج مفتاحًا مخصصًا قبل إعادة التفعيل.
+  const canSave = false
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
   const [values, setValues] = useState<SystemSettingsValues>(DEFAULT_SYSTEM_SETTINGS)
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([])
   const [loading, setLoading] = useState(true)
@@ -38,7 +48,9 @@ export function SystemSettingsPage() {
       try {
         const [settings, warehouseResult] = await Promise.all([
           getSystemSettings(),
-          supabase.from('warehouses').select('id, code, name').eq('is_active', true).order('name'),
+          canReadWarehouses
+            ? supabase.from('warehouses').select('id, code, name').eq('is_active', true).order('name')
+            : Promise.resolve({ data: [] as WarehouseOption[] }),
         ])
 
         if (cancelled) return
@@ -71,9 +83,14 @@ export function SystemSettingsPage() {
       cancelled = true
     }
     // `i18n` مرجع مستقر، فوجوده هنا يُرضي exhaustive-deps دون أن يُعيد التحميل.
-  }, [i18n])
+    // canReadWarehouses يُعيد التحميل فعليًا عند سحب/منح inventory.warehouses.read.
+  }, [i18n, canReadWarehouses])
 
   const handleSave = async () => {
+    if (!canSave) {
+      toast.error(tr('لا تملك صلاحية حفظ إعدادات النظام', 'You do not have permission to save system settings'))
+      return
+    }
     setSaving(true)
     try {
       await saveSystemSettings(values)
@@ -183,11 +200,13 @@ export function SystemSettingsPage() {
             </div>
           </div>
 
-          <div className={`mt-6 flex ${isRTL ? 'justify-start' : 'justify-end'}`}>
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? tr('جارٍ الحفظ…', 'Saving…') : tr('حفظ الإعدادات', 'Save Settings')}
-            </Button>
-          </div>
+          {canSave && (
+            <div className={`mt-6 flex ${isRTL ? 'justify-start' : 'justify-end'}`}>
+              <Button onClick={handleSave} disabled={saving}>
+                {saving ? tr('جارٍ الحفظ…', 'Saving…') : tr('حفظ الإعدادات', 'Save Settings')}
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

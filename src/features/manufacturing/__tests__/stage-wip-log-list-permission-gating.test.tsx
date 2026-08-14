@@ -4,6 +4,13 @@
 // تحت manufacturing.stage_costs.read وحدها. هذا الاختبار يثبت الفصل الفعلي
 // على مفاتيح stage_costs.create/.update/.delete، بما فيه إعادة الفحص داخل
 // WipLogFormDialog نفسها (canSubmit) عند سحب الصلاحية والحوار ما يزال مفتوحًا.
+//
+// Round 6 finding: هذه الشاشة كانت تحمّل أوامر التصنيع ومراحل التصنيع (موردان
+// مختلفان تمامًا) لأي حامل لـ stage_costs.read وحدها، ولا تحمي حتى سجلات WIP
+// نفسها بقراءة مشروطة. هذا الملف يمرّ عبر hooks/services الحقيقية (لا mocks
+// تلقائية التوفير) ليثبت أن كل استعلام يطلب مفتاح قراءة مورده الفعلي، وأن
+// الكاش السابق يختفي فور سحب الصلاحية، وأن نموذج الإضافة/التعديل لا يُعرض إلا
+// حين تتوفر صلاحية الفعل وصلاحيتا قراءة المرجعين معًا.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -24,6 +31,8 @@ const wipGetAll = vi.fn();
 const wipDelete = vi.fn().mockResolvedValue(undefined);
 const wipCreate = vi.fn().mockResolvedValue({ id: 'new-wip' });
 const wipUpdate = vi.fn().mockResolvedValue({ id: 'wip-1' });
+const manufacturingGetAll = vi.fn().mockResolvedValue([{ id: 'mo-1', order_number: 'MO-1' }]);
+const stagesGetAll = vi.fn().mockResolvedValue([{ id: 'stage-1', code: 'MIX', name: 'Mixing', is_active: true, order_sequence: 1 }]);
 
 vi.mock('@/services/supabase-service', () => ({
   stageWipLogService: {
@@ -32,14 +41,12 @@ vi.mock('@/services/supabase-service', () => ({
     create: (...args: unknown[]) => wipCreate(...args),
     update: (...args: unknown[]) => wipUpdate(...args),
   },
-}));
-
-vi.mock('@/hooks/useManufacturingOrders', () => ({
-  useManufacturingOrders: () => ({ data: [{ id: 'mo-1', order_number: 'MO-1' }] }),
-}));
-
-vi.mock('@/hooks/useManufacturingStages', () => ({
-  useManufacturingStages: () => ({ data: [{ id: 'stage-1', code: 'MIX', name: 'Mixing', is_active: true, order_sequence: 1 }] }),
+  manufacturingService: {
+    getAll: (...args: unknown[]) => manufacturingGetAll(...args),
+  },
+  manufacturingStagesService: {
+    getAll: (...args: unknown[]) => stagesGetAll(...args),
+  },
 }));
 
 import { StageWipLogList } from '../stage-wip-log-list';
@@ -63,11 +70,14 @@ function setPermissions(keys: readonly string[]) {
 
 function renderList() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <StageWipLogList />
-    </QueryClientProvider>
-  );
+  return {
+    queryClient,
+    ...render(
+      <QueryClientProvider client={queryClient}>
+        <StageWipLogList />
+      </QueryClientProvider>
+    ),
+  };
 }
 
 beforeEach(() => {
@@ -78,7 +88,7 @@ beforeEach(() => {
 
 describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete', () => {
   it('hides the add trigger and row edit/delete controls without the exact keys', async () => {
-    setPermissions(['manufacturing.stage_costs.read']);
+    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.orders.read', 'manufacturing.stages.read']);
     renderList();
 
     await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
@@ -92,14 +102,28 @@ describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete',
     setPermissions(['manufacturing.stage_costs.read', 'manufacturing.stage_costs.delete']);
     renderList();
 
-    await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
-    await userEvent.click(screen.getByRole('button', { name: 'حذف سجل WIP wip-1' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'حذف سجل WIP wip-1' }));
 
     await waitFor(() => expect(wipDelete).toHaveBeenCalledWith('wip-1'));
   });
 
-  it('a create grant opens the dialog; a real submit calls the create gateway', async () => {
+  it('a create grant alone (no orders/stages read) still hides the add trigger — fail-closed reference-data gap', async () => {
     setPermissions(['manufacturing.stage_costs.read', 'manufacturing.stage_costs.create']);
+    renderList();
+
+    await waitFor(() => expect(screen.queryByText('جاري تحميل البيانات...')).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'إضافة سجل' })).not.toBeInTheDocument();
+    expect(manufacturingGetAll).not.toHaveBeenCalled();
+    expect(stagesGetAll).not.toHaveBeenCalled();
+  });
+
+  it('create + orders.read + stages.read opens the dialog; a real submit calls the create gateway', async () => {
+    setPermissions([
+      'manufacturing.stage_costs.read',
+      'manufacturing.stage_costs.create',
+      'manufacturing.orders.read',
+      'manufacturing.stages.read',
+    ]);
     renderList();
 
     await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
@@ -118,15 +142,19 @@ describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete',
   });
 
   it('revoking create mid-session (dialog already open) hides the save button and the mutation guard blocks the write', async () => {
-    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.stage_costs.create']);
-    const { rerender } = renderList();
+    setPermissions([
+      'manufacturing.stage_costs.read',
+      'manufacturing.stage_costs.create',
+      'manufacturing.orders.read',
+      'manufacturing.stages.read',
+    ]);
+    const { rerender, queryClient } = renderList();
 
     await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: 'إضافة سجل' }));
     expect(screen.getByRole('button', { name: 'حفظ' })).toBeInTheDocument();
 
-    setPermissions(['manufacturing.stage_costs.read']);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.orders.read', 'manufacturing.stages.read']);
     rerender(
       <QueryClientProvider client={queryClient}>
         <StageWipLogList />
@@ -136,5 +164,40 @@ describe('StageWipLogList — manufacturing.stage_costs.create/.update/.delete',
     // canSubmit يغلّف زر الحفظ نفسه داخل WipLogFormDialog — لا يبقى زر لنقره
     expect(screen.queryByRole('button', { name: 'حفظ' })).not.toBeInTheDocument();
     expect(wipCreate).not.toHaveBeenCalled();
+  });
+
+  it('a read-only user (stage_costs.read only) never triggers orders/stages requests', async () => {
+    setPermissions(['manufacturing.stage_costs.read']);
+    renderList();
+
+    await waitFor(() => expect(wipGetAll).toHaveBeenCalled());
+    expect(manufacturingGetAll).not.toHaveBeenCalled();
+    expect(stagesGetAll).not.toHaveBeenCalled();
+  });
+
+  it('without manufacturing.stage_costs.read, the WIP log query never fires and no rows render', async () => {
+    setPermissions([]);
+    renderList();
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(wipGetAll).not.toHaveBeenCalled();
+    expect(screen.queryByText('MO-1')).not.toBeInTheDocument();
+  });
+
+  it('revoking orders.read mid-session clears the previously-loaded MO filter options from the cache view', async () => {
+    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.orders.read', 'manufacturing.stages.read']);
+    const { rerender, queryClient } = renderList();
+
+    await waitFor(() => expect(screen.getByText('MO-1')).toBeInTheDocument());
+
+    setPermissions(['manufacturing.stage_costs.read', 'manufacturing.stages.read']);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <StageWipLogList />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.queryByText('MO-1')).not.toBeInTheDocument());
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

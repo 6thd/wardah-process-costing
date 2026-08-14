@@ -32,6 +32,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { getEmployees, getPayrollRuns } from '@/services/hr/hr-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useHrTranslation } from '../i18n';
 import '../translations/reports';
 
@@ -105,15 +106,23 @@ export const ReportsPage: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const isRtl = i18n.dir() === 'rtl';
   const numberLocale = isRtl ? 'ar-SA' : 'en-US';
+  const { hasPermissionKey } = usePermissions();
+  // دخول الشاشة نفسه anyOf بين مفاتيح hr الأربعة (route-permissions.ts)، فمن
+  // يدخل بمفتاح آخر (كـ hr.leaves.read وحده) لا يجب أن يرى تجميعات الموظفين
+  // أو الرواتب — كل استعلام يُحكَم بمفتاح قراءة مورده الفعلي هنا أيضًا.
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
+  const canReadPayroll = hasPermissionKey('hr.payroll.read');
 
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
+    enabled: canReadEmployees,
   });
 
   const { data: payrollRuns = [] } = useQuery({
     queryKey: ['hr', 'payroll-runs'],
     queryFn: () => getPayrollRuns(12),
+    enabled: canReadPayroll,
   });
 
   const quickStats = React.useMemo(() => {

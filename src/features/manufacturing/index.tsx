@@ -268,6 +268,17 @@ function ManufacturingOrdersManagement() {
     }))
   }, [dateRange])
 
+  // سحب manufacturing.orders.create أثناء بقاء النموذج مفتوحًا كان يُخفي زر
+  // الفتح/الإلغاء فقط (canCreateOrder) بينما showAddForm يبقى true — فيظل
+  // النموذج ظاهرًا بمنتجات مُفرَّغة (useManufacturingProducts معطَّلة الآن)
+  // بلا أي زر لإغلاقه، ويُعتمَد فقط على فحص handleCreateOrder عند الإرسال.
+  // يُغلَق النموذج فورًا هنا بصرف النظر عن حالة showAddForm.
+  useEffect(() => {
+    if (!canCreateOrder) {
+      setShowAddForm(false)
+    }
+  }, [canCreateOrder])
+
   const handleCreateOrder = async (event: React.FormEvent) => {
     event.preventDefault()
 
@@ -410,7 +421,7 @@ function ManufacturingOrdersManagement() {
       {/* Quick Stats */}
       <ManufacturingQuickStats orders={orders} />
 
-      {showAddForm && (
+      {showAddForm && canCreateOrder && (
         <ManufacturingOrderForm
           form={orderForm}
           setForm={setOrderForm}

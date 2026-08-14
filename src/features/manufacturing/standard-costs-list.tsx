@@ -90,9 +90,20 @@ interface StandardCostFilters {
 export function StandardCostsList() {
   const queryClient = useQueryClient()
   const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('manufacturing.stage_costs.read')
   const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
   const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
   const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
+  // بيانات مرجعية من موردَين مختلفَين عن stage_costs — مراحل التصنيع (مورد
+  // manufacturing.stages) والمنتجات (مورد inventory.products) — كل منهما
+  // يحتاج مفتاح قراءته الفعلي الخاص، لا stage_costs.read وحدها.
+  const canReadStages = hasPermissionKey('manufacturing.stages.read')
+  const canReadProducts = hasPermissionKey('inventory.products.read')
+  // نموذج الإضافة/التعديل يحتاج القائمتين المرجعيتين ليكون قابلاً للاستخدام
+  // فعليًا — عُرضه بلا صلاحية قراءتهما يعني حقول اختيار فارغة توهم بإمكانية
+  // إرسال بيانات غير صحيحة، فيُغلق دخول النموذج كليًا حتى تتوفر الثلاثة معًا.
+  const canOpenCreateForm = canCreate && canReadStages && canReadProducts
+  const canOpenEditForm = canUpdate && canReadStages && canReadProducts
 
   const [filters, setFilters] = useState({
     productId: 'all',
@@ -114,12 +125,17 @@ export function StandardCostsList() {
     notes: ''
   })
 
-  // Load related data
-  const { data: stages = [] } = useManufacturingStages()
+  // Load related data — كل استعلام مشروط بمفتاح قراءة موارده الفعلي
+  const { data: stagesData = [] } = useManufacturingStages({ enabled: canReadStages })
+  const stages = canReadStages ? stagesData : []
   const [products, setProducts] = useState<Product[]>([])
 
-  // Load products
+  // Load products — مشروط بـ inventory.products.read، لا يُستدعى إطلاقًا بدونه
   React.useEffect(() => {
+    if (!canReadProducts) {
+      setProducts([])
+      return
+    }
     const loadProducts = async () => {
       try {
         const { data, error } = await supabase
@@ -136,30 +152,32 @@ export function StandardCostsList() {
       }
     }
     loadProducts()
-  }, [])
+  }, [canReadProducts])
 
-  // Load standard costs
-  const { data: standardCosts = [], isLoading, isError, refetch } = useQuery<StandardCost[]>({
+  // Load standard costs — مشروط بمفتاح قراءتها الفعلي، لا enabled:true دومًا
+  const { data: standardCostsData = [], isLoading, isError, refetch } = useQuery<StandardCost[]>({
     queryKey: ['standard-costs', filters],
     queryFn: async () => {
       const filtersToUse: StandardCostFilters = {}
       if (filters.productId && filters.productId !== 'all') filtersToUse.productId = filters.productId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
       if (filters.isActive !== undefined) filtersToUse.isActive = filters.isActive
-      
+
       return standardCostsService.getAll(filtersToUse) as Promise<StandardCost[]>
     },
-    enabled: true
+    enabled: canRead
   })
+  // canRead يحجب أيضًا أي بيانات كاش سابقة عند سحب الصلاحية أثناء الجلسة
+  const standardCosts = canRead ? standardCostsData : []
 
   // Create/Update mutation
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<StandardCostFormData>) => {
       if (editingCost) {
-        if (!canUpdate) throw new Error('لا تملك صلاحية تعديل التكاليف القياسية')
+        if (!canOpenEditForm) throw new Error('لا تملك صلاحية تعديل التكاليف القياسية')
         return standardCostsService.update(editingCost.id, data)
       } else {
-        if (!canCreate) throw new Error('لا تملك صلاحية إنشاء تكاليف قياسية')
+        if (!canOpenCreateForm) throw new Error('لا تملك صلاحية إنشاء تكاليف قياسية')
         return standardCostsService.create(data)
       }
     },
@@ -197,7 +215,7 @@ export function StandardCostsList() {
   }
 
   const handleEdit = (cost: StandardCost) => {
-    if (!canUpdate) {
+    if (!canOpenEditForm) {
       toast.error('لا تملك صلاحية تعديل التكاليف القياسية')
       return
     }
@@ -229,7 +247,7 @@ export function StandardCostsList() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
-    if (editingCost ? !canUpdate : !canCreate) {
+    if (editingCost ? !canOpenEditForm : !canOpenCreateForm) {
       toast.error(editingCost ? 'لا تملك صلاحية تعديل التكاليف القياسية' : 'لا تملك صلاحية إنشاء تكاليف قياسية')
       return
     }
@@ -289,7 +307,7 @@ export function StandardCostsList() {
                 تحديث
               </Button>
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                {canCreate && (
+                {canOpenCreateForm && (
                   <DialogTrigger asChild>
                     <Button
                       size="sm"
@@ -629,7 +647,7 @@ export function StandardCostsList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              {canUpdate && (
+                              {canOpenEditForm && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

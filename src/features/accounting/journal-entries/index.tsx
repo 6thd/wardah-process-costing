@@ -26,11 +26,22 @@ import { calculateTotals, validateEntry, normalizeLines } from './utils/journalH
 import { createJournalEntry, updateJournalEntry, postJournalEntry, deleteJournalEntry } from './services/journalEntryService';
 import { JournalService } from '@/services/accounting/journal-service';
 import { isValidDecimalInput } from '@/utils/numberValidation';
+import { usePermissions } from '@/hooks/usePermissions';
 import type { JournalEntry, JournalLine } from './types';
 
 const JournalEntries = () => {
   const { t, i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
+  const { hasPermissionKey } = usePermissions();
+  const canCreate = hasPermissionKey('accounting.journals.create');
+  const canUpdate = hasPermissionKey('accounting.journals.update');
+  const canDelete = hasPermissionKey('accounting.journals.delete');
+  // لا مفتاح "post" أو "reverse" منفصل في الكتالوج الحي — accounting.journals
+  // .approve هو المفتاح الإشرافي الوحيد فوق CRUD، فيُستخدم للترحيل (post)
+  // وعكس القيد المرحَّل (reverse) ودورة الاعتماد متعددة المستويات
+  // (ApprovalWorkflow) معًا؛ الثلاثة أفعال إشرافية تتجاوز CRUD العادي ولا
+  // مفتاح أدق منها متاح في الكتالوج الحي.
+  const canApprove = hasPermissionKey('accounting.journals.approve');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -86,6 +97,10 @@ const JournalEntries = () => {
   };
 
   const handleSubmit = async () => {
+    if (editingEntry ? !canUpdate : !canCreate) {
+      toast.error(editingEntry ? t('accounting.journalEntries.noUpdatePermission', { defaultValue: 'لا تملك صلاحية تعديل القيود' }) : t('accounting.journalEntries.noCreatePermission', { defaultValue: 'لا تملك صلاحية إنشاء قيود' }));
+      return;
+    }
     try {
       setFormLoading(true);
       const { totalDebit, totalCredit } = calculateTotals(formData.lines);
@@ -133,6 +148,10 @@ const JournalEntries = () => {
   };
 
   const handlePost = async (entry: JournalEntry) => {
+    if (!canApprove) {
+      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية ترحيل القيود' }));
+      return;
+    }
     if (!globalThis.window?.confirm(t('accounting.journalEntries.confirmPost', { entryNumber: entry.entry_number }))) {
       return;
     }
@@ -143,6 +162,10 @@ const JournalEntries = () => {
   };
 
   const handleDelete = async (entry: JournalEntry) => {
+    if (!canDelete) {
+      toast.error(t('accounting.journalEntries.noDeletePermission', { defaultValue: 'لا تملك صلاحية حذف القيود' }));
+      return;
+    }
     if (entry.status === 'posted') {
       toast.error(t('accounting.journalEntries.cannotDeletePosted'));
       return;
@@ -157,6 +180,10 @@ const JournalEntries = () => {
   };
 
   const handleEdit = async (entry: JournalEntry) => {
+    if (!canUpdate) {
+      toast.error(t('accounting.journalEntries.noUpdatePermission', { defaultValue: 'لا تملك صلاحية تعديل القيود' }));
+      return;
+    }
     if (entry.status === 'posted') {
       toast.warning(t('accounting.journalEntries.cannotEditPosted'));
       return;
@@ -246,16 +273,18 @@ const JournalEntries = () => {
                 {t('accounting.journalEntries.subtitle')}
               </CardDescription>
             </div>
-            <Dialog open={isDialogOpen} onOpenChange={(open) => {
+            <Dialog open={isDialogOpen && (editingEntry ? canUpdate : canCreate)} onOpenChange={(open) => {
               setIsDialogOpen(open);
               if (!open) resetForm();
             }}>
-              <DialogTrigger asChild>
-                <Button>
-                  <Plus className="h-4 w-4 ml-2" />
-                  {t('accounting.journalEntries.newEntry')}
-                </Button>
-              </DialogTrigger>
+              {canCreate && (
+                <DialogTrigger asChild>
+                  <Button>
+                    <Plus className="h-4 w-4 ml-2" />
+                    {t('accounting.journalEntries.newEntry')}
+                  </Button>
+                </DialogTrigger>
+              )}
               <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>
@@ -597,10 +626,12 @@ const JournalEntries = () => {
             <Button variant="outline" onClick={() => { setSearchTerm(''); setStatusFilter('all'); setDateFilter(''); fetchEntries(); }}>
               {t('common.reset')}
             </Button>
-            <Button variant="outline" onClick={() => setBatchPostDialogOpen(true)}>
-              <Layers className="h-4 w-4 mr-2" />
-              {t('accounting.journalEntries.batchPost')}
-            </Button>
+            {canApprove && (
+              <Button variant="outline" onClick={() => setBatchPostDialogOpen(true)}>
+                <Layers className="h-4 w-4 mr-2" />
+                {t('accounting.journalEntries.batchPost')}
+              </Button>
+            )}
           </div>
 
           <div className="rounded-md border">
@@ -658,30 +689,36 @@ const JournalEntries = () => {
                         <div className="flex justify-center gap-2">
                           {entry.status === 'draft' && (
                             <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleEdit(entry)}
-                                title={t('common.edit')}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handlePost(entry)}
-                                title={t('accounting.journalEntries.post')}
-                              >
-                                <CheckCircle className="h-4 w-4 text-green-600" />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => handleDelete(entry)}
-                                title={t('common.delete')}
-                              >
-                                <Trash2 className="h-4 w-4 text-red-600" />
-                              </Button>
+                              {canUpdate && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleEdit(entry)}
+                                  title={t('common.edit')}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canApprove && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handlePost(entry)}
+                                  title={t('accounting.journalEntries.post')}
+                                >
+                                  <CheckCircle className="h-4 w-4 text-green-600" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => handleDelete(entry)}
+                                  title={t('common.delete')}
+                                >
+                                  <Trash2 className="h-4 w-4 text-red-600" />
+                                </Button>
+                              )}
                             </>
                           )}
                           {entry.status === 'posted' && (
@@ -700,11 +737,15 @@ const JournalEntries = () => {
                               >
                                 <FileText className="h-4 w-4 text-blue-600" />
                               </Button>
-                              {!entry.reversed_by_entry_id && (
+                              {!entry.reversed_by_entry_id && canApprove && (
                                 <Button
                                   size="sm"
                                   variant="ghost"
                                   onClick={async () => {
+                                    if (!canApprove) {
+                                      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية عكس القيود' }));
+                                      return;
+                                    }
                                     if (confirm(t('accounting.journalEntries.confirmReverse'))) {
                                       try {
                                         const result = await JournalService.reverseEntry(entry.id);
@@ -737,7 +778,7 @@ const JournalEntries = () => {
 
       {/* Batch Post Dialog */}
       <BatchPostDialog
-        isOpen={batchPostDialogOpen}
+        isOpen={batchPostDialogOpen && canApprove}
         onClose={() => setBatchPostDialogOpen(false)}
         entries={entries}
         onSuccess={fetchEntries}
@@ -832,7 +873,7 @@ const JournalEntries = () => {
                 <ApprovalWorkflow
                   entryId={viewingEntry.id}
                   entryNumber={viewingEntry.entry_number}
-                  canApprove={true}
+                  canApprove={canApprove}
                 />
               </TabsContent>
 

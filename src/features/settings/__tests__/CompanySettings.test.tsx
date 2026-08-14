@@ -12,6 +12,19 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('@/lib/organization', () => mocks);
 
+// هذا الملف يغطي التوطين وحفظ الحقول المتغيرة لا RBAC — يُمنح
+// settings.organization.update افتراضيًا كي يبقى يختبر ما كان يختبره أصلًا
+// بعد إضافة الحراسة الفعلية (Round 6) على CompanySettings.
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermission: () => true,
+    hasPermissionKey: () => true,
+    isOrgAdmin: false,
+    isSuperAdmin: false,
+    loading: false,
+  }),
+}));
+
 const organization = {
   id: 'org-1',
   code: 'ORG1',

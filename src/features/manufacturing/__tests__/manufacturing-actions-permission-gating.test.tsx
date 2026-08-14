@@ -9,7 +9,6 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { toast } from 'sonner';
 
 const hasPermissionKeyMock = vi.fn((_key: string) => false);
 
@@ -143,20 +142,21 @@ describe('ManufacturingOrdersManagement — screen read vs. manufacturing.orders
     expect(screen.queryByRole('button', { name: /manufacturing.ordersPage.newOrder/ })).not.toBeInTheDocument();
   });
 
-  it('revoking create mid-session (form already open) blocks the actual submit', async () => {
+  it('revoking create mid-session (form already open) closes the form itself — no submit button survives to click', async () => {
     setPermissions(['manufacturing.orders.read', 'manufacturing.orders.create']);
     const { rerender, queryClient } = renderAt('/manufacturing/orders');
 
     await userEvent.click(await screen.findByRole('button', { name: /manufacturing.ordersPage.newOrder/ }));
-    const submitButton = await screen.findByRole('button', { name: 'manufacturing.ordersPage.form.submit' });
+    await screen.findByRole('button', { name: 'manufacturing.ordersPage.form.submit' });
 
     setPermissions(['manufacturing.orders.read']);
     rerenderAt(rerender, queryClient, '/manufacturing/orders');
 
-    await userEvent.click(screen.getByRole('button', { name: 'manufacturing.ordersPage.form.submit' }));
-    expect(submitButton).toBeInTheDocument();
-
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    // النموذج كله يُغلَق فور سحب الصلاحية — لا زر إرسال متبقٍ يمكن نقره،
+    // بدل الاعتماد فقط على فحص handleCreateOrder عند الإرسال.
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'manufacturing.ordersPage.form.submit' })).not.toBeInTheDocument();
+    });
     expect(createManufacturingOrder).not.toHaveBeenCalled();
   });
 

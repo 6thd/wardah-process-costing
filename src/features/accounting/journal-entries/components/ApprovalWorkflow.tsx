@@ -48,12 +48,17 @@ export function ApprovalWorkflow({ entryId, entryNumber, canApprove = false }: A
   };
 
   const handleApprove = async (level: number) => {
+    if (!canApprove) return;
     setApprovingLevel(level);
     setApproveDialogOpen(true);
   };
 
   const confirmApprove = async () => {
     if (!approvingLevel) return;
+    if (!canApprove) {
+      toast.error(t('approvalWf.approvalFailed'));
+      return;
+    }
 
     setLoading(true);
     try {

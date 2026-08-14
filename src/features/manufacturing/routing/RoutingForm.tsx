@@ -10,13 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Badge } from '@/components/ui/badge'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useRouting, useCreateRouting, useUpdateRouting } from '@/hooks/manufacturing/useRouting'
 import { getEffectiveTenantId } from '@/lib/supabase'
@@ -91,12 +85,19 @@ export function RoutingForm() {
       return
     }
 
+    // "status" لا يُعرَض ولا يُعدَّل عبر هذا النموذج العام — الاعتماد
+    // (APPROVED) لا مفتاح صلاحية مطابق له في الكتالوج الحي فيُغلَق دائمًا
+    // (fail-closed، انظر RoutingManagement)، وOBSOLETE ليس فعل تحرير عادي.
+    // الإنشاء يُجبَر دائمًا على DRAFT، والتعديل لا يرسل الحقل إطلاقًا حتى
+    // تحتفظ قاعدة البيانات بالحالة الحالية للصف كما هي.
+    const { status: _status, ...statusFreePayload } = formData
+
     try {
       if (isEditMode && id) {
-        await updateRouting.mutateAsync({ id, data: formData })
+        await updateRouting.mutateAsync({ id, data: statusFreePayload })
         toast.success(t('routingForm.updateSuccess'))
       } else {
-        await createRouting.mutateAsync(formData)
+        await createRouting.mutateAsync({ ...statusFreePayload, status: 'DRAFT' })
         toast.success(t('routingForm.createSuccess'))
       }
       navigate('/manufacturing/routing')
@@ -181,25 +182,17 @@ export function RoutingForm() {
               </div>
 
               <div>
-                <Label htmlFor="status">{t('routingForm.status')}</Label>
-                <Select
-                  value={formData.status}
-                  onValueChange={(value) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      status: value as 'DRAFT' | 'APPROVED' | 'OBSOLETE',
-                    }))
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="DRAFT">{t('routingForm.statusDraft')}</SelectItem>
-                    <SelectItem value="APPROVED">{t('routingForm.statusApproved')}</SelectItem>
-                    <SelectItem value="OBSOLETE">{t('routingForm.statusObsolete')}</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="status-display">{t('routingForm.status')}</Label>
+                {/* للعرض فقط — لا مفتاح صلاحية للاعتماد في الكتالوج الحي، فتغيير
+                    الحالة غير متاح عبر هذا النموذج العام (انظر التعليق في
+                    handleSubmit). */}
+                <div id="status-display">
+                  <Badge variant="outline">
+                    {formData.status === 'APPROVED' && t('routingForm.statusApproved')}
+                    {formData.status === 'OBSOLETE' && t('routingForm.statusObsolete')}
+                    {formData.status !== 'APPROVED' && formData.status !== 'OBSOLETE' && t('routingForm.statusDraft')}
+                  </Badge>
+                </div>
               </div>
 
               <div>

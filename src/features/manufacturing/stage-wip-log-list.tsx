@@ -79,9 +79,21 @@ interface WipLog {
 export function StageWipLogList() {
   const queryClient = useQueryClient()
   const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('manufacturing.stage_costs.read')
   const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
   const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
   const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
+  // بيانات مرجعية من موردَين مختلفَين تمامًا عن stage_costs — أوامر التصنيع
+  // ومراحل التصنيع — كل منهما يحتاج مفتاح قراءته الفعلي الخاص، لا
+  // stage_costs.read وحدها (كانت المشكلة أن هذه الشاشة تحمّلهما لأي حامل
+  // لـstage_costs.read بصرف النظر عن صلاحيته الفعلية على orders/stages).
+  const canReadOrders = hasPermissionKey('manufacturing.orders.read')
+  const canReadStages = hasPermissionKey('manufacturing.stages.read')
+  // نموذج الإضافة/التعديل يحتاج القائمتين المرجعيتين ليكون قابلاً للاستخدام
+  // فعليًا — عُرضه بلا صلاحية قراءتهما يعني حقول اختيار فارغة توهم بإمكانية
+  // إرسال بيانات غير صحيحة، فيُغلق دخول النموذج كليًا حتى تتوفر الثلاثة معًا.
+  const canOpenCreateForm = canCreate && canReadOrders && canReadStages
+  const canOpenEditForm = canUpdate && canReadOrders && canReadStages
 
   const [filters, setFilters] = useState({
     moId: 'all',
@@ -92,34 +104,35 @@ export function StageWipLogList() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingLog, setEditingLog] = useState<(Partial<WipLogFormValues> & { id: string }) | null>(null)
 
-  // Load related data
-  const { data: manufacturingOrdersData } = useManufacturingOrders()
-  const { data: stagesData } = useManufacturingStages()
-  
-  // Type assertions - needed because hooks return unknown types
-  const manufacturingOrders: ManufacturingOrder[] = Array.isArray(manufacturingOrdersData) 
+  // Load related data — كل استعلام مشروط بمفتاح قراءة موارده الفعلي
+  const { data: manufacturingOrdersData } = useManufacturingOrders({ enabled: canReadOrders })
+  const { data: stagesData } = useManufacturingStages({ enabled: canReadStages })
+
+  // canReadX يحجب حتى بيانات كاش سابقة إن سُحبت الصلاحية أثناء الجلسة —
+  // enabled:false وحده لا يمسح الكاش الموجود مسبقًا.
+  const manufacturingOrders: ManufacturingOrder[] = canReadOrders && Array.isArray(manufacturingOrdersData)
     ? (manufacturingOrdersData as unknown as ManufacturingOrder[])
     : []
-  const stages: ManufacturingStage[] = Array.isArray(stagesData)
+  const stages: ManufacturingStage[] = canReadStages && Array.isArray(stagesData)
     ? (stagesData as unknown as ManufacturingStage[])
     : []
 
-  // Load WIP logs
+  // Load WIP logs — مشروط بمفتاح قراءتها الفعلي، لا enabled:true دومًا
   const { data: wipLogsData, isLoading, isError, refetch } = useQuery<WipLog[]>({
     queryKey: ['stage-wip-log', filters],
     queryFn: async (): Promise<WipLog[]> => {
       const filtersToUse: Record<string, string> = {}
       if (filters.moId && filters.moId !== 'all') filtersToUse.moId = filters.moId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
-      
+
       const result = await stageWipLogService.getAll(filtersToUse);
       return Array.isArray(result) ? result : [];
     },
-    enabled: true
+    enabled: canRead
   })
-  
-  // Use wipLogsData directly as it's already typed as WipLog[] | undefined
-  const wipLogs = wipLogsData ?? []
+
+  // canRead يحجب أيضًا أي بيانات كاش سابقة عند سحب الصلاحية أثناء الجلسة
+  const wipLogs = canRead ? (wipLogsData ?? []) : []
 
   // Delete mutation
   const deleteMutation = useMutation({
@@ -178,7 +191,7 @@ export function StageWipLogList() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 تحديث
               </Button>
-              {canCreate && (
+              {canOpenCreateForm && (
                 <Button
                   size="sm"
                   onClick={() => {
@@ -357,7 +370,7 @@ export function StageWipLogList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              {canUpdate && (
+                              {canOpenEditForm && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
@@ -415,7 +428,7 @@ export function StageWipLogList() {
       <WipLogFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
-        canSubmit={editingLog ? canUpdate : canCreate}
+        canSubmit={editingLog ? canOpenEditForm : canOpenCreateForm}
         editing={editingLog}
         manufacturingOrders={manufacturingOrders.map((mo) => ({
           id: mo.id,

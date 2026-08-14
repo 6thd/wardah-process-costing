@@ -37,8 +37,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { warehouseService, type StorageBin, type Warehouse, type StorageLocation } from '@/services/warehouse-service';
+import { usePermissions } from '@/hooks/usePermissions';
 
 export default function StorageBinsManagement() {
+  const { hasPermissionKey } = usePermissions();
+  // لا مورد "bins" مخصص في الكتالوج الحي (لا inventory.bins.* ولا مورد
+  // مكافئ) — تُغلَق كل أفعال الكتابة هنا افتراضيًا (fail-closed) بدل ربطها
+  // بمفتاح غير ذي صلة، اتساقًا مع StorageLocationsManagement. غير مطروحة
+  // فعليًا اليوم عبر الموجّه (StorageBinsPage يعرض لوحة "قيد التطوير")، لكن
+  // تُصان بنفس الحارس دفاعًا في العمق إن أُعيد ربطها لاحقًا.
+  const canCreate = false;
+  const canUpdate = false;
+  const canDelete = false;
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read');
   const [bins, setBins] = useState<StorageBin[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [locations, setLocations] = useState<StorageLocation[]>([]);
@@ -61,8 +72,13 @@ export default function StorageBinsManagement() {
   });
 
   useEffect(() => {
-    loadWarehouses();
-  }, []);
+    if (canReadWarehouses) {
+      loadWarehouses();
+    } else {
+      setWarehouses([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadWarehouses]);
 
   useEffect(() => {
     if (selectedWarehouse) {
@@ -115,6 +131,10 @@ export default function StorageBinsManagement() {
   };
 
   const handleOpenDialog = (bin?: StorageBin) => {
+    if ((bin && !canUpdate) || (!bin && !canCreate)) {
+      toast.error('لا تملك صلاحية هذا الإجراء على صناديق التخزين');
+      return;
+    }
     if (bin) {
       setEditingBin(bin);
       setFormData(bin);
@@ -156,6 +176,10 @@ export default function StorageBinsManagement() {
   };
 
   const handleSave = async () => {
+    if (editingBin ? !canUpdate : !canCreate) {
+      toast.error('لا تملك صلاحية هذا الإجراء على صناديق التخزين');
+      return;
+    }
     try {
       if (!formData.bin_code || !selectedWarehouse) {
         toast.error('الرجاء إدخال كود الصندوق واختيار المخزن');
@@ -187,6 +211,10 @@ export default function StorageBinsManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف صناديق التخزين');
+      return;
+    }
     if (!confirm('هل أنت متأكد من حذف هذا الصندوق؟')) {
       return;
     }
@@ -238,10 +266,12 @@ export default function StorageBinsManagement() {
             إدارة الصناديق والمواقع الدقيقة داخل المخزن (المستوى الثالث)
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
-          <Plus className="mr-2 h-4 w-4" />
-          صندوق جديد
-        </Button>
+        {canCreate && (
+          <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
+            <Plus className="mr-2 h-4 w-4" />
+            صندوق جديد
+          </Button>
+        )}
       </div>
 
       {/* Info Box */}
@@ -394,10 +424,12 @@ export default function StorageBinsManagement() {
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <Package className="h-12 w-12 text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">لا توجد صناديق تخزين</p>
-                    <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      إضافة أول صندوق
-                    </Button>
+                    {canCreate && (
+                      <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        إضافة أول صندوق
+                      </Button>
+                    )}
                   </div>
                 );
               }
@@ -472,20 +504,24 @@ export default function StorageBinsManagement() {
                       </TableCell>
                       <TableCell className="text-start">
                         <div className="flex items-center gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenDialog(bin)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(bin.id)}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {canUpdate && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenDialog(bin)}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(bin.id)}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

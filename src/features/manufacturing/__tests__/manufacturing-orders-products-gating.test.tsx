@@ -163,7 +163,24 @@ describe('ManufacturingOrdersManagement — products reference-data load vs. man
     expect(await screen.findByRole('option', { name: /W-1 - Widget/ })).toBeInTheDocument();
   });
 
-  it('revoking create mid-session clears the shown product options and issues no new product request', async () => {
+  it('revoking create mid-session while the create form is open closes the form itself, not just its product options', async () => {
+    setPermissions(['manufacturing.orders.read', 'manufacturing.orders.create']);
+    const { rerender, queryClient } = renderAt('/manufacturing/orders');
+
+    await userEvent.click(await screen.findByRole('button', { name: /manufacturing.ordersPage.newOrder/ }));
+    expect(screen.getByText('manufacturing.ordersPage.form.sectionTitle')).toBeInTheDocument();
+
+    setPermissions(['manufacturing.orders.read']);
+    rerenderAt(rerender, queryClient, '/manufacturing/orders');
+
+    await waitFor(() => {
+      expect(screen.queryByText('manufacturing.ordersPage.form.sectionTitle')).not.toBeInTheDocument();
+    });
+    // لا زر "إلغاء" متبقٍ أيضًا — الزر نفسه يختفي بلا صلاحية الإنشاء
+    expect(screen.queryByRole('button', { name: /manufacturing.ordersPage.newOrder|common.cancel/ })).not.toBeInTheDocument();
+  });
+
+  it('revoking create mid-session clears the shown product options (form closes) and issues no new product request', async () => {
     setPermissions(['manufacturing.orders.read', 'manufacturing.orders.create']);
     const { rerender, queryClient } = renderAt('/manufacturing/orders');
 
@@ -178,9 +195,9 @@ describe('ManufacturingOrdersManagement — products reference-data load vs. man
     setPermissions(['manufacturing.orders.read']);
     rerenderAt(rerender, queryClient, '/manufacturing/orders');
 
-    const comboboxesAfter = await screen.findAllByRole('combobox');
-    fireEvent.click(comboboxesAfter[0]);
-    expect(screen.queryByRole('option', { name: /W-1 - Widget/ })).not.toBeInTheDocument();
+    // النموذج كله يُغلَق الآن بدل ترك حقول اختيار فارغة مفتوحة (انظر الاختبار
+    // السابق) — لا combobox متبقٍ يمكن أن يعرض خيارات منتجات من كاش سابق.
+    await waitFor(() => expect(screen.queryAllByRole('combobox')).toHaveLength(0));
 
     const productCallsAfterRevoke = fromSpy.mock.calls.filter(([table]) => table === 'products').length;
     expect(productCallsAfterRevoke).toBe(productCallsBeforeRevoke);
