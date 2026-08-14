@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-09  
+**آخر تحديث موثق:** 2026-08-14  
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,13 +27,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد تطبيق Migration 173 في 2026-08-09 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
+الحالة الحية الموثقة بعد تطبيق Migration 175 في 2026-08-11 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–173 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
-- Production: مطبقة حتى 173 (`173_has_permission_active_role_check`, version `20260809051430`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 فوق cutoff 152.
-- Repository: أعلى migration مرقمة هي 173 (`173_has_permission_active_role_check.sql`).
-- Fresh DB: 153–173 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
-- تدقيق السجل الحي في 2026-08-09: `live_cutoff = 173`، `repo_max = 173`، `repository_ahead_by = 0`، ولا ملفات معلّقة.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–175 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
+- Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه postflight الخاصة بـ175.
+- Repository: أعلى migration مرقمة هي 175 (`175_rbac_consumer_migration_rpcs.sql`).
+- Fresh DB: 153–175 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
+- تدقيق السجل الحي في 2026-08-14: `live_cutoff = 175`، `repo_max = 175`، `repository_ahead_by = 0`، ولا ملفات معلّقة.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -171,7 +171,7 @@ PR #32 أضاف أو حسّن:
 لذلك **عدّ صفوف `role_permissions` لا يقيس الصلاحية الفعلية**؛ الفحص الصحيح هو استدعاء
 دالة الصلاحية لكل مستخدم نشط.
 
-**Migration 174 (في المستودع، غير مطبّقة على Production بعد)** تحسم Issue #93: مصنّف مركزي
+**Migration 174 (مطبّقة على Production، تحقق `20260809112236`، سبقت 175 مباشرة)** تحسم Issue #93: مصنّف مركزي
 واحد `wardah_is_sensitive_permission(text)` — `IMMUTABLE STRICT`، مفتاحان فقط
 (`accounting.vouchers.unpost` و`accounting.vouchers.cancel`) — تستدعيه الدالتان معًا فلا
 تتباعدان. Super Admin يحتفظ بالتجاوز الكامل؛ Org Admin يحتفظ به لكل المفاتيح العادية
@@ -181,11 +181,15 @@ PR #32 أضاف أو حسّن:
 في المستودع، ولم يُضَف افتراضيًا. التفاصيل وترتيب النشر الإلزامي في
 `docs/db/SENSITIVE_PERMISSIONS_174_RUNBOOK.md`.
 
-**الـLockout ليس احتمالًا نظريًا هنا:** Super Admins = 0، وتعيينات الأدوار = 0، والمفتاحان
-ممنوحان لصفر دور — ودور `Full Access` لا يحتويهما (166 من 169). فإنشاء دور
+**الـLockout لم يكن احتمالًا نظريًا وقت صياغة 174:** وفق جرد 2026-08-09 (قبل كتابة أي
+كود)، كان Super Admins = 0، وتعيينات الأدوار = 0، والمفتاحان ممنوحان لصفر دور — ودور
+`Full Access` لا يحتويهما (166 من 169). لذلك يشترط الـrunbook (§6) إنشاء دور
 `Financial Controller` ومنحه المفتاحين وتعيينه للمسؤول الحالي وإثبات
-`via_explicit_grant = true` خطوات **تسبق** تطبيق 174، لا تتبعه. وهي بيانات org-scoped
-فمكانها معاملة تشغيلية موثقة، لا migration ولا Baseline.
+`via_explicit_grant = true` كخطوات تشغيلية **يجب أن تسبق** تطبيق 174، لا تتبعه؛ الـmigration
+نفسها لا تتحقق منها برمجيًا (تتحقق فقط من وجود المفتاحين في `permissions`، لا من وجود
+منح صريح). وهي بيانات org-scoped فمكانها معاملة تشغيلية موثقة، لا migration ولا Baseline.
+يبقى هذا الإجراء المرجع الموثق لأي إعادة تطبيق أو تدقيق مستقبلي — لا إثبات بحد ذاته أن
+الخطوات نُفذت بالفعل على Production.
 
 ## i18n
 

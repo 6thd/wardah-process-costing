@@ -2,7 +2,16 @@
 
 **Migration:** `174_sensitive_permission_class_and_rbac_rpcs.sql`
 **Part of:** Issue #93 — the org-admin override branch never read `p_permission_key`, so every active org admin passed every key. **This migration does not close the issue on its own:** it is the database half. Closing #93 additionally requires the UI moved onto `rpc_permission_snapshot` and the atomic RBAC RPCs, and Migration 175 to close the direct-write surface (§4.1).
-**State:** Repository implementation, **not yet applied to Production**. The operational transaction in §6 must run and be verified *before* this migration is applied, or the organization is locked out of unpost/cancel entirely. Do not apply out of order.
+**State:** Applied to Production. Ledger version `20260809112236`
+(`174_sensitive_permission_class_and_rbac_rpcs`), immediately followed by
+Migration 175 (ledger version `20260811132302`) in the live sequence — no
+gap between them. This does not state who applied it or the exact
+application mechanism; the ledger is the only authority for that. The
+operational transaction in §6 was the mandatory precondition for applying
+this migration — the migration's own preflight checks only that the two
+sensitive permission keys exist, not that any explicit grant was made — and
+it remains the reference procedure for any future re-application (e.g.
+disaster recovery) or audit. Do not apply out of order.
 
 ## 1. The verified problem
 
@@ -69,7 +78,7 @@ Both permission functions call this one classifier, so the two cannot drift — 
 - **No `auth.uid()` guard added to `wardah_has_exact_permission`.** It is internal (`EXECUTE` is `postgres` only), its four callers pass an actor resolved inside the RPC, and adding the guard risks breaking them for no reachable gain. The postflight re-asserts the execute boundary instead.
 - **Direct `INSERT`/`UPDATE`/`DELETE` on `roles`, `role_permissions`, `user_roles` is not revoked from `authenticated`.** The live role-management UI still writes those tables directly; revoking here would break it in the window between applying 174 and deploying the dependent UI.
 
-  This mirrors the sequence this repository already established with 163/167 → 169: ship the atomic RPCs, move the UI onto them, then close the direct-write surface in its own migration. **That closure is Migration 175 and is required to finish Issue #93** — until it lands, the RPCs are the sanctioned path but not yet the only one.
+  This mirrors the sequence this repository already established with 163/167 → 169: ship the atomic RPCs, move the UI onto them, then close the direct-write surface in its own migration. Migration 175 is applied to Production (ledger version `20260811132302`) and is required to finish Issue #93; per `docs/db/RBAC_CONSUMER_175_RUNBOOK.md`, the direct-write revocation itself is deferred further, to Migration 176, until the dependent consumer UI is live and browser smoke has passed — until then the RPCs are the sanctioned path but not yet the only one.
 
 ## 5. Acceptance gate
 
@@ -113,6 +122,11 @@ The same gate then ran in CI on `postgres:17` and passed end to end — `Sensiti
 **Generated types.** `Regenerate UoM Database Types` rebuilds a Fresh DB from the repository migrations and runs `supabase gen types` against **that** database (`localhost/wardah_fresh`), never against Production. It therefore commits the four new RPCs and the classifier into `src/types/database.generated.ts` as soon as 174 is in the repository — which is expected and is **not** evidence that 174 has been applied to Production. The ledger remains the only authority for that.
 
 ## 6. Mandatory Production order
+
+*This migration is applied (§ State above). The steps below document the
+procedure this migration's design requires before application; they are
+preserved as the reference for any future re-application (e.g. disaster
+recovery) or audit, not as a pending to-do.*
 
 **Steps 1–4 are not preparation for the fix; they are part of it.** With zero super admins, zero role assignments, and both sensitive keys granted to zero roles, applying 174 first would leave **nobody** able to unpost or cancel. Note that assigning the existing `Full Access` role does **not** help — it holds 166 of 169 keys and these two are among the three it lacks.
 
