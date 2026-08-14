@@ -2627,13 +2627,20 @@ function StockMovements() {
 function CategoriesManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  // لا مورد "categories" مخصص في الكتالوج الحي (لا inventory.categories.*
-  // ولا مورد مكافئ) — يُغلَق فعل الإنشاء هنا افتراضيًا (fail-closed) بدل
-  // تركه بلا أي فحص صلاحية، اتساقًا مع RoutingForm/StorageLocationsManagement.
-  // العرض للقراءة فقط يبقى متاحًا. لا يوجد تعديل/حذف في هذه الشاشة أصلًا.
+  // Round 7 P1: no "categories" catalog resource exists (no
+  // inventory.categories.* key, no equivalent) — categoriesService.ts reads/
+  // writes a standalone `categories` table unrelated to items/products
+  // beyond both living under Inventory (route-permissions.ts's /categories
+  // entry is unregistered for the same reason and fails closed at
+  // ModuleGuard). Round 6 fail-closed only the create action here and left
+  // the list read unconditional ("read-only, no dedicated resource"); Round
+  // 7 overturns that — "no request when no accepted read permission exists"
+  // applies to categories data too, so the read is now hard fail-closed
+  // alongside create, consistent with RoutingManagement/RoutingForm.
+  const canRead = false
   const canCreate = false
   const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newCategory, setNewCategory] = useState({
     name: '',
@@ -2641,6 +2648,7 @@ function CategoriesManagement() {
   })
 
   useEffect(() => {
+    if (!canRead) return
     loadCategories()
   }, [])
 

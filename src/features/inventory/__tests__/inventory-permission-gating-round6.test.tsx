@@ -201,21 +201,31 @@ describe('StorageLocationsManagement — no dedicated catalog resource, fail-clo
   });
 });
 
-describe('CategoriesManagement — no dedicated catalog resource, fail-closed create', () => {
+describe('Round 7 P1: CategoriesManagement — no dedicated catalog resource, read and create both hard fail-closed', () => {
+  // Round 6 accepted an unconditional read here ("read-only, no dedicated
+  // resource" — categoriesGetAll fired regardless of permission, and
+  // /inventory/categories itself was still gated on inventory.items.read at
+  // the route). Round 7 removes that route mapping entirely (categories is
+  // unrelated to items — see route-permissions.ts) and explicitly requires
+  // "no request when no accepted read permission exists" for categories
+  // data. No inventory.categories.* key exists in the live catalog, so the
+  // read itself, not just create, is now hard fail-closed.
+  it('the categories read never fires, and no rows render, even with every permission granted', async () => {
+    hasPermissionKeyMock.mockReturnValue(true);
+    renderAt('/inventory/categories');
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(categoriesGetAll).not.toHaveBeenCalled();
+    expect(screen.queryByText('مواد خام')).not.toBeInTheDocument();
+  });
+
   it('every permission granted still hides the add-category trigger and blocks the handler', async () => {
     hasPermissionKeyMock.mockReturnValue(true);
     renderAt('/inventory/categories');
 
-    await waitFor(() => expect(categoriesGetAll).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 30));
     expect(screen.queryByRole('button', { name: /إضافة فئة/ })).not.toBeInTheDocument();
     expect(categoriesCreate).not.toHaveBeenCalled();
-  });
-
-  it('read-only list still renders existing categories', async () => {
-    setPermissions([]);
-    renderAt('/inventory/categories');
-
-    await waitFor(() => expect(screen.getByText('مواد خام')).toBeInTheDocument());
   });
 });
 
