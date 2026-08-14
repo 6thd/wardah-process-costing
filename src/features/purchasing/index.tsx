@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -512,25 +512,43 @@ function GoodsReceiptManagement() {
   // شراء قائمًا، فأقرب مفتاح هو تعديل أوامر الشراء (نفس منطق route-permissions.ts
   // لقراءة هذا المسار على purchasing.purchase_orders.read).
   const canCreateReceipt = hasPermissionKey('purchasing.purchase_orders.update')
+  // Same read key route-permissions.ts already requires to reach
+  // /purchasing/receipts at all — reused here so the receipts list query
+  // below stops firing unconditionally regardless of route entry.
+  const canReadReceipts = hasPermissionKey('purchasing.purchase_orders.read')
   const [showGRForm, setShowGRForm] = useState(false)
   const [receipts, setReceipts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  // Bumped on every revocation/permission change so a response for an
+  // in-flight request issued before the change is recognized as stale when
+  // it lands, and never repopulates `receipts`.
+  const requestGenerationRef = useRef(0)
 
   useEffect(() => {
+    if (!canReadReceipts) {
+      requestGenerationRef.current += 1
+      setReceipts([])
+      setLoading(false)
+      return
+    }
     loadReceipts()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadReceipts])
 
   const loadReceipts = async () => {
+    const requestId = ++requestGenerationRef.current
     setLoading(true)
     try {
       const res = await getAllGoodsReceipts()
+      if (requestGenerationRef.current !== requestId) return
       if (!res.success) throw res.error
       setReceipts(res.data || [])
     } catch (error) {
+      if (requestGenerationRef.current !== requestId) return
       console.error('Error loading goods receipts:', error)
       toast.error('خطأ في تحميل سندات الاستلام')
     } finally {
-      setLoading(false)
+      if (requestGenerationRef.current === requestId) setLoading(false)
     }
   }
 

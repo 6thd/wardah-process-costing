@@ -35,6 +35,13 @@ export function SystemSettingsPage() {
   // الكتابة هنا افتراضيًا (fail-closed) بدل ربطها بـ settings.organization.update
   // خطأً، وتُبلَّغ كفجوة كتالوج/منتج تحتاج مفتاحًا مخصصًا قبل إعادة التفعيل.
   const canSave = false
+  // org_settings (key 'system') has no dedicated catalog resource either —
+  // same gap documented above for canSave. settings.organization.read is
+  // the same fallback view key route-permissions.ts already requires to
+  // reach this route at all; reusing it here (rather than firing the read
+  // unconditionally) closes the fail-open gap at the query itself, not just
+  // at route entry.
+  const canReadSystemSettings = hasPermissionKey('settings.organization.read')
   const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
   const [values, setValues] = useState<SystemSettingsValues>(DEFAULT_SYSTEM_SETTINGS)
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([])
@@ -42,6 +49,15 @@ export function SystemSettingsPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    if (!canReadSystemSettings) {
+      // Revoked (or never granted): no request, and any previously loaded
+      // values are dropped rather than left on screen.
+      setValues(DEFAULT_SYSTEM_SETTINGS)
+      setWarehouses([])
+      setLoading(false)
+      return
+    }
+
     let cancelled = false
 
     const load = async () => {
@@ -53,6 +69,10 @@ export function SystemSettingsPage() {
             : Promise.resolve({ data: [] as WarehouseOption[] }),
         ])
 
+        // Superseded by a re-render whose effect already tore this one
+        // down — most importantly a revocation of settings.organization.read
+        // that happened while this request was in flight. Applying a
+        // response that lands after that must not repopulate the screen.
         if (cancelled) return
         setValues(settings)
         applyRuntimeLocaleSettings(settings)
@@ -82,9 +102,17 @@ export function SystemSettingsPage() {
     return () => {
       cancelled = true
     }
-    // `i18n` مرجع مستقر، فوجوده هنا يُرضي exhaustive-deps دون أن يُعيد التحميل.
-    // canReadWarehouses يُعيد التحميل فعليًا عند سحب/منح inventory.warehouses.read.
-  }, [i18n, canReadWarehouses])
+    // `i18n` عمدًا خارج المصفوفة: catch أعلاه يقرأ `i18n.dir()` عند وقوع
+    // الخطأ فعليًا لا عند كل تصيير، فلا حاجة لإعادة تشغيل الأثر عند تغيّره —
+    // وإدراجه هنا كان يفترض استقرار مرجعه، وهو افتراض ينكسر مع أي مستهلك
+    // (اختبار أو غيره) يُعيد بناء كائن i18n في كل استدعاء لـ useTranslation()،
+    // فيُشغِّل الأثر عند كل تصيير: الفرع أعلاه لغياب الصلاحية يستدعي
+    // setWarehouses([]) بمرجع مصفوفة جديد في كل مرة (لا يوقفه Object.is
+    // bailout كما يحدث مع setValues(DEFAULT_SYSTEM_SETTINGS))، فيُصيِّر من
+    // جديد، فيُعاد بناء i18n، فيُعاد تشغيل الأثر — حلقة تصيير لا نهائية.
+    // canReadWarehouses/canReadSystemSettings يُعيدان التحميل فعليًا عند سحب/منح صلاحياتهما.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadWarehouses, canReadSystemSettings])
 
   const handleSave = async () => {
     if (!canSave) {

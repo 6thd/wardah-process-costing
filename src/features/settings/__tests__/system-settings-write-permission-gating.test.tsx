@@ -78,7 +78,10 @@ describe('SystemSettingsPage — no settings.system.* key exists; save fails clo
   });
 
   it('without inventory.warehouses.read, the warehouse reference query never fires', async () => {
-    setPermissions([]);
+    // settings.organization.read still granted: this test isolates the
+    // warehouses sub-query specifically, not the page's own read gate
+    // (covered separately below).
+    setPermissions(['settings.organization.read']);
     render(<SystemSettingsPage />);
 
     await waitFor(() => expect(sysMocks.getSystemSettings).toHaveBeenCalled());
@@ -86,9 +89,18 @@ describe('SystemSettingsPage — no settings.system.* key exists; save fails clo
   });
 
   it('with inventory.warehouses.read, the warehouse reference query fires', async () => {
-    setPermissions(['inventory.warehouses.read']);
+    setPermissions(['settings.organization.read', 'inventory.warehouses.read']);
     render(<SystemSettingsPage />);
 
     await waitFor(() => expect(warehousesSelect).toHaveBeenCalled());
+  });
+
+  it('Round 7: without settings.organization.read, getSystemSettings itself never fires — it used to load unconditionally regardless of any permission', async () => {
+    setPermissions([]);
+    render(<SystemSettingsPage />);
+
+    await waitFor(() => expect(screen.getByLabelText(/Display Currency/)).toBeInTheDocument());
+    expect(sysMocks.getSystemSettings).not.toHaveBeenCalled();
+    expect(warehousesSelect).not.toHaveBeenCalled();
   });
 });

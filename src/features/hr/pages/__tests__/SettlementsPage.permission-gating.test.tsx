@@ -68,12 +68,13 @@ function setPermissions(keys: readonly string[]) {
 }
 
 function renderPage() {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+  const utils = render(
     <QueryClientProvider client={queryClient}>
       <SettlementsPage />
     </QueryClientProvider>
   );
+  return { ...utils, queryClient };
 }
 
 beforeEach(() => {
@@ -121,10 +122,61 @@ describe('SettlementsPage — no hr.settlements.* key exists; every action fails
   });
 
   it('without hr.employees.read, the employees reference query never fires', async () => {
-    setPermissions([]);
+    setPermissions(['hr.payroll.read']);
     renderPage();
 
     await waitFor(() => expect(listSettlements).toHaveBeenCalled());
     expect(getEmployees).not.toHaveBeenCalled();
+  });
+
+  it('Round 7: without hr.payroll.read, the settlements list itself never fires — it used to load unconditionally regardless of any permission', async () => {
+    setPermissions([]);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settlements.title')).toBeInTheDocument());
+    expect(listSettlements).not.toHaveBeenCalled();
+  });
+
+  it('Round 7: a settlement visible under a granted hr.payroll.read disappears once the permission is revoked, even though the query cache still holds it', async () => {
+    listSettlements.mockResolvedValue([SETTLEMENT]);
+    setPermissions(['hr.payroll.read']);
+    const { rerender, queryClient } = renderPage();
+
+    await waitFor(() => expect(screen.getByText('Ahmed')).toBeInTheDocument());
+
+    setPermissions([]);
+    // Reusing the SAME queryClient: this proves the fix isn't "the cache
+    // happened to be empty" but the component's own re-gate at render time
+    // — TanStack Query still holds the 'hr','settlements' row right up to
+    // this assertion.
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SettlementsPage />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.getByText('settlements.title')).toBeInTheDocument());
+    expect(screen.queryByText('Ahmed')).not.toBeInTheDocument();
+    expect(queryClient.getQueryData(['hr', 'settlements'])).toBeDefined();
+  });
+
+  it('Round 7: a settlements request already in flight when permission is revoked must not populate the list once it resolves', async () => {
+    let resolveSettlements!: (value: typeof SETTLEMENT[]) => void;
+    listSettlements.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSettlements = resolve;
+      })
+    );
+    setPermissions(['hr.payroll.read']);
+    renderPage();
+
+    await waitFor(() => expect(listSettlements).toHaveBeenCalledTimes(1));
+
+    setPermissions([]);
+
+    resolveSettlements([SETTLEMENT]);
+
+    await waitFor(() => expect(screen.getByText('settlements.title')).toBeInTheDocument());
+    expect(screen.queryByText('Ahmed')).not.toBeInTheDocument();
   });
 });

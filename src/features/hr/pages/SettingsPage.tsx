@@ -43,6 +43,10 @@ export const SettingsPage: React.FC = () => {
   // مخصصًا قبل إعادة التفعيل.
   const canSavePolicies = false;
   const canSaveMappings = false;
+  // Same fallback view key route-permissions.ts already requires to reach
+  // /hr/settings at all (see comment above) — reused here so the two reads
+  // below stop firing unconditionally regardless of route entry.
+  const canReadHrSettings = hasPermissionKey('hr.employees.read');
   const canReadAccounts = hasPermissionKey('accounting.accounts.read');
   const [activeTab, setActiveTab] = React.useState('policies');
   const [showAccountDialog, setShowAccountDialog] = React.useState(false);
@@ -51,9 +55,26 @@ export const SettingsPage: React.FC = () => {
   const [glAccountId, setGlAccountId] = React.useState('');
   const [editedPolicies, setEditedPolicies] = React.useState<Partial<HrPolicies>>({});
 
-  const { data: policies } = useQuery({ queryKey: ['hr', 'policies'], queryFn: getHrPolicies });
-  const { data: mappings = [], isLoading: mappingsLoading } = useQuery({ queryKey: ['hr', 'payroll-account-mappings'], queryFn: getPayrollAccountMappings });
+  const { data: rawPolicies } = useQuery({
+    queryKey: ['hr', 'policies'],
+    queryFn: getHrPolicies,
+    enabled: canReadHrSettings,
+  });
+  const { data: rawMappings = [], isLoading: mappingsLoading } = useQuery({
+    queryKey: ['hr', 'payroll-account-mappings'],
+    queryFn: getPayrollAccountMappings,
+    enabled: canReadHrSettings,
+  });
   const { data: accounts = [] } = useQuery({ queryKey: ['hr', 'posting-accounts'], queryFn: listPostingAccounts, enabled: canReadAccounts });
+
+  // Re-gated at read time, not just via `enabled` above: TanStack Query
+  // keeps a query's last successful result cached after `enabled` flips to
+  // false (it only pauses future fetches), and a request already in flight
+  // when the permission is revoked still resolves into that cache. Checking
+  // canReadHrSettings here means a revoked user never sees policies/mappings
+  // from before the revocation, regardless of what the cache still holds.
+  const policies = canReadHrSettings ? rawPolicies : undefined;
+  const mappings = canReadHrSettings ? rawMappings : [];
 
   const currentPolicies = { ...policies, ...editedPolicies };
   const updatePolicy = <K extends keyof HrPolicies>(key: K, value: HrPolicies[K]) => setEditedPolicies((current) => ({ ...current, [key]: value }));

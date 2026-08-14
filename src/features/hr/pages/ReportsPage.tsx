@@ -113,17 +113,31 @@ export const ReportsPage: React.FC = () => {
   const canReadEmployees = hasPermissionKey('hr.employees.read');
   const canReadPayroll = hasPermissionKey('hr.payroll.read');
 
-  const { data: employees = [] } = useQuery({
+  const { data: rawEmployees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
     enabled: canReadEmployees,
   });
 
-  const { data: payrollRuns = [] } = useQuery({
+  const { data: rawPayrollRuns = [] } = useQuery({
     queryKey: ['hr', 'payroll-runs'],
     queryFn: () => getPayrollRuns(12),
     enabled: canReadPayroll,
   });
+
+  // Re-gated here, not just via `enabled` above: TanStack Query keeps a
+  // query's last successful result cached after `enabled` flips to false,
+  // and a request already in flight when permission is revoked still
+  // resolves into that cache. A revoked user must not keep seeing rows
+  // loaded before the revocation just because the cache still holds them.
+  const employees = React.useMemo(
+    () => (canReadEmployees ? rawEmployees : []),
+    [canReadEmployees, rawEmployees],
+  );
+  const payrollRuns = React.useMemo(
+    () => (canReadPayroll ? rawPayrollRuns : []),
+    [canReadPayroll, rawPayrollRuns],
+  );
 
   const quickStats = React.useMemo(() => {
     const activeCount = employees.filter((employee: any) => employee.status === 'active').length;

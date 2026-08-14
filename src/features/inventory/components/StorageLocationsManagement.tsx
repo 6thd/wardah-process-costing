@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, MapPin, Thermometer, Building2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,44 +66,76 @@ export default function StorageLocationsManagement() {
     is_receivable: true,
   });
 
+  // loadWarehouses() and loadLocations() each check their OWN generation
+  // counter after their await resolves, not just canReadWarehouses at call
+  // time — a promise captures whatever canReadWarehouses was true WHEN it
+  // was issued, and stays true in that closure even if the grant is revoked
+  // before the response lands. Every revocation (and every new warehouse
+  // selection) bumps the relevant counter(s), so a request whose answer
+  // arrives after either event is recognized as stale and its data is never
+  // applied — closing both "in-flight revocation" and "superseded
+  // selection" races. Two independent counters, not one shared one: the
+  // locations effect runs on every mount/permission-change too (with
+  // selectedWarehouse still empty, before loadWarehouses' response has
+  // picked one), and bumping a single shared counter there would spuriously
+  // invalidate a warehouses request already in flight.
+  const warehousesGenerationRef = useRef(0);
+  const locationsGenerationRef = useRef(0);
+
   useEffect(() => {
     if (canReadWarehouses) {
       loadWarehouses();
     } else {
+      warehousesGenerationRef.current += 1;
+      locationsGenerationRef.current += 1;
       setWarehouses([]);
+      setSelectedWarehouse('');
+      setLocations([]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canReadWarehouses]);
 
   useEffect(() => {
-    if (selectedWarehouse) {
+    if (selectedWarehouse && canReadWarehouses) {
       loadLocations(selectedWarehouse);
+    } else {
+      locationsGenerationRef.current += 1;
+      setLocations([]);
     }
-  }, [selectedWarehouse]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWarehouse, canReadWarehouses]);
 
   const loadWarehouses = async () => {
+    const requestId = ++warehousesGenerationRef.current;
     try {
       const data = await warehouseService.getWarehouses();
+      if (warehousesGenerationRef.current !== requestId) return;
       setWarehouses(data || []);
       if (data && data.length > 0) {
         setSelectedWarehouse(data[0].id);
       }
     } catch (error) {
+      if (warehousesGenerationRef.current !== requestId) return;
       console.error('Error loading warehouses:', error);
       toast.error('فشل تحميل المخازن');
     }
   };
 
   const loadLocations = async (warehouseId: string) => {
+    const requestId = ++locationsGenerationRef.current;
     try {
       setLoading(true);
       const data = await warehouseService.getStorageLocations(warehouseId);
+      // Superseded by a newer request, a warehouse re-selection, or a
+      // revocation that already cleared state — do not repopulate it.
+      if (locationsGenerationRef.current !== requestId) return;
       setLocations(data || []);
     } catch (error) {
+      if (locationsGenerationRef.current !== requestId) return;
       console.error('Error loading locations:', error);
       toast.error('فشل تحميل مواقع التخزين');
     } finally {
-      setLoading(false);
+      if (locationsGenerationRef.current === requestId) setLoading(false);
     }
   };
 

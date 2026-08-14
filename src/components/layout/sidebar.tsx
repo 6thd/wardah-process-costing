@@ -365,7 +365,10 @@ export function Sidebar() {
         { key: 'overview', href: '/manufacturing/overview', labelKey: 'navigation.overview' },
         { key: 'orders', href: '/manufacturing/orders', labelKey: 'navigation.orders' },
         { key: 'mes', href: '/manufacturing/mes', labelKey: 'navigation.mes' },
-        { key: 'routing', href: '/manufacturing/routing', labelKey: 'navigation.routing' },
+        // 'routing' intentionally removed: /manufacturing/routing now fails
+        // closed for everyone (route-permissions.ts — no manufacturing.routing.*
+        // catalog resource exists), so a nav entry pointing at it would only
+        // ever land on AccessDeniedPage.
         { key: 'capacity', href: '/manufacturing/capacity', labelKey: 'navigation.capacity' },
         { key: 'efficiency', href: '/manufacturing/efficiency', labelKey: 'navigation.efficiency' },
         { key: 'process-costing', href: '/manufacturing/process-costing', labelKey: 'navigation.process-costing' },

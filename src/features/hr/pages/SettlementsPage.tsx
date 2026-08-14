@@ -79,6 +79,10 @@ export const SettlementsPage: React.FC = () => {
   const canReview = false;
   const canPost = false;
   const canCancel = false;
+  // Same fallback view key route-permissions.ts already requires to reach
+  // /hr/settlements at all — reused here so the settlements list query below
+  // stops firing unconditionally regardless of route entry.
+  const canReadSettlements = hasPermissionKey('hr.payroll.read');
   const canReadEmployees = hasPermissionKey('hr.employees.read');
 
   const [activeTab, setActiveTab] = React.useState('draft');
@@ -89,10 +93,20 @@ export const SettlementsPage: React.FC = () => {
   const [previewResult, setPreviewResult] = React.useState<EosResult | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
 
-  const { data: settlements = [], isLoading } = useQuery({
+  const { data: rawSettlements = [], isLoading } = useQuery({
     queryKey: ['hr', 'settlements'],
     queryFn: () => listSettlements(200),
+    enabled: canReadSettlements,
   });
+  // Re-checked at read time rather than trusting `enabled` alone: TanStack
+  // Query keeps a query's last successful result cached after `enabled`
+  // flips to false, and a request already in flight when permission is
+  // revoked still resolves into that cache. A revoked user must not keep
+  // seeing rows loaded before the revocation.
+  const settlements = React.useMemo(
+    () => (canReadSettlements ? rawSettlements : []),
+    [canReadSettlements, rawSettlements],
+  );
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,

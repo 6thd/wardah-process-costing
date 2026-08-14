@@ -181,6 +181,49 @@ describe('reports — overview entry includes ai_insights and purchasing fallbac
   });
 });
 
+describe('Round 7 P1: routing and categories fail closed — no defensible catalog resource', () => {
+  it('/manufacturing/routing, /routing/new and /routing/:id are unregistered — no manufacturing.stages.* fallback', () => {
+    // routingService.ts reads/writes `routings`, `routing_operations` and
+    // `operation_resources` — tables unrelated to manufacturing_stages. No
+    // manufacturing.routing.* key exists in the live catalog, so all three
+    // routing sub-paths must resolve to undefined and fail closed via
+    // ModuleGuard, for every user including org/super admins.
+    expect(resolveRoutePermission('manufacturing', '/routing')).toBeUndefined();
+    expect(resolveRoutePermission('manufacturing', '/routing/new')).toBeUndefined();
+    expect(resolveRoutePermission('manufacturing', '/routing/some-id')).toBeUndefined();
+  });
+
+  it('a manufacturing.stages.read-only grant does not resolve /routing to anything', () => {
+    const stagesOnly = (k: string) => k === 'manufacturing.stages.read';
+    const requirement = resolveRoutePermission('manufacturing', '/routing');
+    expect(requirement).toBeUndefined();
+    // satisfiesRouteRequirement is not even reachable without a requirement
+    // object — ModuleGuard's `requirement != null && satisfies(...)` check
+    // short-circuits to false before ever consulting hasKey.
+    expect(requirement == null || satisfiesRouteRequirement(requirement, stagesOnly)).toBe(true);
+  });
+
+  it('/inventory/categories is unregistered — no inventory.items.* fallback', () => {
+    // categoriesService.ts reads/writes a standalone `categories` table
+    // unrelated to items/products. No inventory.categories.* key exists.
+    expect(resolveRoutePermission('inventory', '/categories')).toBeUndefined();
+  });
+});
+
+describe('Round 7 P1: /manufacturing/efficiency reflects every real underlying resource', () => {
+  it('resolves to anyOf across work_centers, stage_costs and orders — not a single approximated key', () => {
+    expect(resolveRoutePermission('manufacturing', '/efficiency')).toEqual({
+      anyOf: ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'],
+    });
+  });
+
+  it('a stage_costs-only grant (no work_centers.read) still satisfies /efficiency', () => {
+    const requirement = resolveRoutePermission('manufacturing', '/efficiency');
+    const stageCostsOnly = (k: string) => k === 'manufacturing.stage_costs.read';
+    expect(requirement && satisfiesRouteRequirement(requirement, stageCostsOnly)).toBe(true);
+  });
+});
+
 describe('satisfiesRouteRequirement', () => {
   it('a single-key requirement needs that exact key', () => {
     const hasKey = (k: string) => k === 'sales.customers.read';

@@ -4,16 +4,16 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { toast } from 'sonner'
-import { 
-  Calculator, 
-  Clock, 
-  DollarSign, 
-  RefreshCw, 
+import {
+  Calculator,
+  Clock,
+  DollarSign,
+  RefreshCw,
   BarChart3,
   Users,
   Settings,
   TrendingUp,
-  Check, 
+  Lock,
 } from 'lucide-react'
 
 // Import and register actions
@@ -25,6 +25,8 @@ import { useWorkCenters } from '@/hooks/useWorkCenters'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { useStageCosts, StageCost } from '@/hooks/useStageCosts'
 import { useRealtimeSubscription } from '@/hooks/useRealtimeSubscription'
+import { usePermissions } from '@/hooks/usePermissions'
+import { STAGE_COSTING_PERMISSIONS } from './stage-costing-permissions'
 
 interface StageCostingFormData {
   manufacturingOrderId: string
@@ -76,22 +78,57 @@ export default function StageCostingPanel() {
   const [lastResult, setLastResult] = useState<StageCostResult | null>(null)
   const [selectedMO, setSelectedMO] = useState<any>(null)
 
-  // Use our new React Query hooks
-  const { data: manufacturingOrdersData, isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders()
-  const { data: workCentersData, isLoading: isWCLoading, isError: isWCError } = useWorkCenters()
-  const { data: stagesData, isLoading: isStagesLoading, isError: isStagesError } = useManufacturingStages()
-  const { data: stageCostsData, isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId)
-  
-  // Type assertions for data - needed because hooks return unknown types
-  const manufacturingOrders = Array.isArray(manufacturingOrdersData) ? manufacturingOrdersData as Array<Record<string, unknown>> : []
-  const workCenters = Array.isArray(workCentersData) ? (workCentersData as unknown as Array<Record<string, unknown>>) : []
-  const stages = Array.isArray(stagesData) ? stagesData as Array<Record<string, unknown>> : []
-  const stageCosts = Array.isArray(stageCostsData) ? stageCostsData as StageCost[] : []
+  // Every reference-data query and every live write on this screen is gated
+  // by its own exact catalog key. manufacturing.stage_costs.read (checked by
+  // ModuleGuard to reach this route at all) used to be treated as sufficient
+  // for all four queries and all three writes below — a user holding only
+  // that one key could read manufacturing orders, stages and work centers
+  // they have no grant for, and reach live write actions registered
+  // globally by stage-costing-actions.js under manufacturing.stage_costs.read
+  // as well. Each resource now checks its own key.
+  const { hasPermissionKey } = usePermissions()
+  const canReadOrders = hasPermissionKey(STAGE_COSTING_PERMISSIONS.ORDERS_READ)
+  const canReadStages = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGES_READ)
+  const canReadWorkCenters = hasPermissionKey(STAGE_COSTING_PERMISSIONS.WORK_CENTERS_READ)
+  const canReadStageCosts = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_READ)
+  // apply-labor-time / apply-overhead always INSERT a new cost-input row
+  // (labor_time_logs / moh_applied); calculate-stage-cost UPSERTs stage_costs
+  // itself, so either create or update satisfies it.
+  const canApplyLaborTime = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
+  const canApplyOverhead = hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
+  const canCalculateStageCost =
+    hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE) ||
+    hasPermissionKey(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_UPDATE)
 
-  // Setup realtime subscriptions
-  useRealtimeSubscription('manufacturing_orders', 'manufacturing-orders')
-  useRealtimeSubscription('work_centers', 'work-centers')
-  useRealtimeSubscription('stage_costs', ['stage-costs', formData.manufacturingOrderId])
+  // Use our new React Query hooks — each disabled independently when the
+  // matching read key is absent, so no request for that resource is even
+  // sent (not merely hidden from the rendered result).
+  const { data: manufacturingOrdersData, isLoading: isMOLoading, isError: isMOError } = useManufacturingOrders({ enabled: canReadOrders })
+  const { data: workCentersData, isLoading: isWCLoading, isError: isWCError } = useWorkCenters({ enabled: canReadWorkCenters })
+  const { data: stagesData, isLoading: isStagesLoading, isError: isStagesError } = useManufacturingStages({ enabled: canReadStages })
+  const { data: stageCostsData, isLoading: isSCLoading, isError: isSCError } = useStageCosts(formData.manufacturingOrderId, { enabled: canReadStageCosts })
+
+  // Type assertions for data - needed because hooks return unknown types.
+  // Re-gated here (not just via `enabled` above) because TanStack Query
+  // keeps a query's last-known cache around after `enabled` flips to false —
+  // it pauses fetching, it does not erase what a prior authorized fetch (or
+  // one already in flight when permission was revoked) already stored. A
+  // user whose grant is revoked mid-session must not keep seeing rows from
+  // before the revocation just because the cache still holds them, so the
+  // rendered arrays check the live permission flag directly rather than
+  // trusting cache presence alone.
+  const manufacturingOrders = canReadOrders && Array.isArray(manufacturingOrdersData) ? manufacturingOrdersData as Array<Record<string, unknown>> : []
+  const workCenters = canReadWorkCenters && Array.isArray(workCentersData) ? (workCentersData as unknown as Array<Record<string, unknown>>) : []
+  const stages = canReadStages && Array.isArray(stagesData) ? stagesData as Array<Record<string, unknown>> : []
+  const stageCosts = canReadStageCosts && Array.isArray(stageCostsData) ? stageCostsData as StageCost[] : []
+
+  // Setup realtime subscriptions — disabled (and torn down if already open)
+  // for any resource the user cannot read, so a revoked grant also stops
+  // silent background invalidation from a channel the UI has no business
+  // listening to.
+  useRealtimeSubscription('manufacturing_orders', 'manufacturing-orders', { enabled: canReadOrders })
+  useRealtimeSubscription('work_centers', 'work-centers', { enabled: canReadWorkCenters })
+  useRealtimeSubscription('stage_costs', ['stage-costs', formData.manufacturingOrderId], { enabled: canReadStageCosts })
 
   // Load MO details when MO changes
   useEffect(() => {
@@ -175,22 +212,23 @@ export default function StageCostingPanel() {
               <h2 className="text-xl font-bold wardah-text-gradient-google">احتساب تكلفة المراحل (Process Costing)</h2>
             </div>
             <div className="flex gap-2">
-              <Button 
+              <Button
                 type="button"
-                variant="outline" 
+                variant="outline"
                 size="sm"
                 data-action="refresh-stage-costs"
                 onClick={loadStageCosts}
-                disabled={isSCLoading}
+                disabled={isSCLoading || !canReadStageCosts}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isSCLoading ? 'animate-spin' : ''}`} />
                 تحديث
               </Button>
-              <Button 
+              <Button
                 type="button"
-                variant="outline" 
+                variant="outline"
                 size="sm"
                 data-action="view-stage-report"
+                disabled={!canReadStageCosts}
               >
                 <BarChart3 className="h-4 w-4 mr-2" />
                 تقرير المراحل
@@ -215,13 +253,13 @@ export default function StageCostingPanel() {
           <div className="grid md:grid-cols-4 gap-4 mb-6">
             <div>
               <label htmlFor="manufacturingOrderId" className="block text-sm font-medium mb-2">أمر التصنيع</label>
-              <select 
+              <select
                 id="manufacturingOrderId"
                 name="manufacturingOrderId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.manufacturingOrderId}
                 onChange={(e) => handleInputChange('manufacturingOrderId', e.target.value)}
-                disabled={isMOLoading}
+                disabled={isMOLoading || !canReadOrders}
               >
                 <option value="">اختر أمر التصنيع</option>
                 {manufacturingOrders.map((order: any) => (
@@ -230,17 +268,22 @@ export default function StageCostingPanel() {
                   </option>
                 ))}
               </select>
+              {!canReadOrders && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض أوامر التصنيع
+                </p>
+              )}
             </div>
-            
+
             <div>
               <label htmlFor="stageId" className="block text-sm font-medium mb-2">المرحلة</label>
-              <select 
+              <select
                 id="stageId"
                 name="stageId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.stageId}
                 onChange={(e) => handleInputChange('stageId', e.target.value)}
-                disabled={isStagesLoading}
+                disabled={isStagesLoading || !canReadStages}
               >
                 <option value="">اختر المرحلة</option>
                 {stages
@@ -252,17 +295,22 @@ export default function StageCostingPanel() {
                     </option>
                   ))}
               </select>
+              {!canReadStages && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراحل التصنيع
+                </p>
+              )}
             </div>
-            
+
             <div>
               <label htmlFor="workCenterId" className="block text-sm font-medium mb-2">مركز العمل</label>
-              <select 
+              <select
                 id="workCenterId"
                 name="workCenterId"
                 className="w-full px-3 py-2 border rounded-md wardah-glass-card"
                 value={formData.workCenterId}
                 onChange={(e) => handleInputChange('workCenterId', e.target.value)}
-                disabled={isWCLoading}
+                disabled={isWCLoading || !canReadWorkCenters}
               >
                 <option value="">اختر مركز العمل</option>
                 {workCenters.map((wc: any) => (
@@ -271,6 +319,11 @@ export default function StageCostingPanel() {
                   </option>
                 ))}
               </select>
+              {!canReadWorkCenters && (
+                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراكز العمل
+                </p>
+              )}
             </div>
             
             <div>
@@ -451,30 +504,33 @@ export default function StageCostingPanel() {
         
           {/* Action Buttons */}
           <div className="flex flex-wrap gap-3 mb-6">
-            <Button 
+            <Button
               type="button"
               data-action="apply-labor-time"
-              disabled={!formData.laborHours || !formData.laborRate}
+              disabled={!formData.laborHours || !formData.laborRate || !canApplyLaborTime}
+              title={canApplyLaborTime ? undefined : 'لا تملك صلاحية تسجيل وقت العمل'}
               className="bg-purple-600 hover:bg-purple-700 wardah-glass-card"
             >
               <Clock className="h-4 w-4 mr-2" />
               تسجيل وقت العمل
             </Button>
-            
-            <Button 
+
+            <Button
               type="button"
               data-action="apply-overhead"
-              disabled={!formData.overheadRate}
+              disabled={!formData.overheadRate || !canApplyOverhead}
+              title={canApplyOverhead ? undefined : 'لا تملك صلاحية تطبيق التكاليف غير المباشرة'}
               className="bg-orange-600 hover:bg-orange-700 wardah-glass-card"
             >
               <Settings className="h-4 w-4 mr-2" />
               تطبيق التكاليف غير المباشرة
             </Button>
-            
-            <Button 
+
+            <Button
               type="button"
               data-action="calculate-stage-cost"
-              disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity}
+              disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity || !canCalculateStageCost}
+              title={canCalculateStageCost ? undefined : 'لا تملك صلاحية احتساب تكلفة المرحلة'}
               className="bg-blue-600 hover:bg-blue-700 wardah-glass-card"
             >
               <Calculator className="h-4 w-4 mr-2" />
@@ -540,18 +596,26 @@ export default function StageCostingPanel() {
               </div>
             </div>
             
-            {/* Post to GL Button */}
-            <div className="flex justify-center">
-              <Button 
+            {/*
+              "Post to GL" has no real implementation — the action handler it
+              used to call (post-stage-to-gl) only ever returned a fabricated
+              success response and never wrote a GL entry. Rather than gate a
+              write that doesn't exist behind a permission check (which would
+              misrepresent it as a protected real GL write), the control is
+              shown disabled and labeled unavailable.
+            */}
+            <div className="flex flex-col items-center gap-1">
+              <Button
                 type="button"
-                data-action="post-stage-to-gl"
-                className="bg-green-600 hover:bg-green-700 wardah-glass-card"
+                disabled
+                title="ترحيل المرحلة للدفتر العام غير متاح حاليًا"
+                className="wardah-glass-card"
               >
-                <Check className="h-4 w-4 mr-2" />
-                ترحيل للدفتر العام
+                <Lock className="h-4 w-4 mr-2" />
+                ترحيل للدفتر العام (غير متاح حاليًا)
               </Button>
             </div>
-            
+
             <div className="text-xs text-muted-foreground text-center">
               تم الحساب في: {new Date(lastResult.calculatedAt).toLocaleString('en-US')}
             </div>

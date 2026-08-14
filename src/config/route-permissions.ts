@@ -75,8 +75,13 @@ const PURCHASING_ROUTES: RoutePattern[] = [
   { pattern: '/overview', requirement: PURCHASING_OVERVIEW },
   { pattern: '/suppliers', requirement: { key: 'purchasing.suppliers.read' } },
   { pattern: '/orders', requirement: { key: 'purchasing.purchase_orders.read' } },
-  // لا يوجد مفتاح مخصص لاستلام البضاعة في الكتالوج الحي؛ أقرب مورد هو أوامر
-  // الشراء التي يُستلَم عليها.
+  // goods_receipts (GoodsReceiptManagement) has no dedicated catalog
+  // resource, but every receipt is created against an existing purchase
+  // order and cannot exist without one (see Migration 148's partial-receipt
+  // gate, docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md) — purchase_orders is
+  // the actual underlying resource a receipt operates on, not a nearest
+  // guess. GoodsReceiptManagement's list query now also checks this same
+  // key itself (`canReadReceipts`), not just route entry.
   { pattern: '/receipts', requirement: { key: 'purchasing.purchase_orders.read' } },
   { pattern: '/invoices', requirement: { key: 'purchasing.purchase_invoices.read' } },
   { pattern: '/payments', requirement: { key: 'purchasing.payments.read' } },
@@ -97,16 +102,38 @@ const INVENTORY_ROUTES: RoutePattern[] = [
   { pattern: '/', requirement: INVENTORY_OVERVIEW },
   { pattern: '/overview', requirement: INVENTORY_OVERVIEW },
   { pattern: '/items', requirement: { key: 'inventory.items.read' } },
-  // إصلاح مشاكل UoM للأصناف — بيانات أصناف، لا مورد مخصص في الكتالوج.
+  // UoM backfill/repair operates directly on product records
+  // (ProductUomSettings mutates each product's UoM config) — items.read is
+  // the actual underlying resource, not an approximation.
   { pattern: '/uom-issues', requirement: { key: 'inventory.items.read' } },
-  // فئات الأصناف — لا مورد مخصص في الكتالوج.
-  { pattern: '/categories', requirement: { key: 'inventory.items.read' } },
+  // CategoriesManagement (categoriesService) reads/writes a standalone
+  // `categories` table — unrelated to `items`/`products` beyond both
+  // living under Inventory. items.read was a "nearest resource" guess, not
+  // "the actual underlying resource it queries". No inventory.categories.*
+  // key exists in the live catalog, so this pattern is intentionally absent:
+  // resolveRoutePermission returns undefined and ModuleGuard fails closed —
+  // no read, no write, no route entry, for anyone, until a real
+  // categories.* resource is added to the catalog.
   { pattern: '/movements', requirement: { key: 'inventory.stock_moves.read' } },
   { pattern: '/adjustments', requirement: { key: 'inventory.adjustments.read' } },
   { pattern: '/valuation', requirement: { anyOf: ['inventory.items.read', 'inventory.stock_moves.read'] } },
-  // مواقع التخزين وصناديقها — مورد فرعي من المخازن، لا مفتاح مخصص لهما.
+  // storage_locations and storage_bins (warehouse-service.ts) are genuine
+  // sub-resources of a warehouse — every row carries a warehouse_id and is
+  // meaningless without one (StorageLocationsManagement loads locations only
+  // after a warehouse is selected; CLAUDE.md's inventory architecture
+  // documents bins as the per-warehouse balance/valuation unit). This is
+  // "the actual underlying resource" read through its parent, not a
+  // nearest-resource guess — there is no separate storage_locations/bins
+  // table unrelated to warehouses the way categories is unrelated to items.
+  // No inventory.locations.*/inventory.bins.* key exists, so warehouses.read
+  // is the correct (and only defensible) gate until one is added.
   { pattern: '/locations', requirement: { key: 'inventory.warehouses.read' } },
   { pattern: '/warehouses', requirement: { key: 'inventory.warehouses.read' } },
+  // The component actually mounted at /bins (StorageBinsPage) is a static
+  // "under development" placeholder — it queries nothing. warehouses.read
+  // gates entry to an inert page for consistency with /locations above; no
+  // data is exposed either way. Update this comment when a real bins
+  // component replaces the placeholder.
   { pattern: '/bins', requirement: { key: 'inventory.warehouses.read' } },
   { pattern: '/transfers', requirement: { key: 'inventory.stock_moves.read' } },
 ];
@@ -130,13 +157,33 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   { pattern: '/overview', requirement: MANUFACTURING_OVERVIEW },
   { pattern: '/orders', requirement: { key: 'manufacturing.orders.read' } },
   { pattern: '/mes', requirement: { key: 'manufacturing.work_centers.read' } },
-  // التوجيه (routing) يعرّف تسلسل عمليات المراحل — أقرب مورد هو stages.
-  { pattern: '/routing', requirement: { key: 'manufacturing.stages.read' } },
-  { pattern: '/routing/new', requirement: { key: 'manufacturing.stages.create' } },
-  { pattern: '/routing/:id', requirement: { key: 'manufacturing.stages.update' } },
+  // Routing (routingService.ts) reads/writes `routings`, `routing_operations`
+  // and `operation_resources` — tables with no relationship to
+  // manufacturing_stages beyond both living under Manufacturing. The
+  // previous entries here mapped /routing* to manufacturing.stages.*, which
+  // is not "the actual underlying resource it queries" — routing operations
+  // (setup/run times, labor & overhead rates per operation, outsourcing)
+  // are a distinct engineering-data resource stage_costs/stages was never
+  // meant to gate. No manufacturing.routing.* key exists in the live
+  // catalog, so /routing, /routing/new and /routing/:id are intentionally
+  // absent here: resolveRoutePermission returns undefined for all three,
+  // and ModuleGuard fails closed — no read, no write, no route entry, for
+  // anyone, until a real routing.* resource is added to the catalog. Do not
+  // reintroduce a manufacturing.stages.* (or any other) mapping here without
+  // that catalog resource actually existing.
   { pattern: '/capacity', requirement: { key: 'manufacturing.work_centers.read' } },
-  // لوحة الكفاءة تقيس أداء مراكز العمل — لا مورد "efficiency" مخصص.
-  { pattern: '/efficiency', requirement: { key: 'manufacturing.work_centers.read' } },
+  // EfficiencyDashboard (efficiencyService) reads across manufacturing_orders,
+  // work_orders and material_consumption through views combining work-center
+  // OEE, labor-cost variance (stage_costs domain) and BOM material
+  // consumption — a genuine cross-cutting analytical view, not a single
+  // resource. No manufacturing.efficiency.* key exists, so this lists every
+  // real underlying resource with anyOf rather than approximating with one.
+  {
+    pattern: '/efficiency',
+    requirement: {
+      anyOf: ['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read'],
+    },
+  },
   { pattern: '/process-costing', requirement: { key: 'manufacturing.stage_costs.read' } },
   { pattern: '/equivalent-units', requirement: { key: 'manufacturing.stage_costs.read' } },
   { pattern: '/cost-of-production', requirement: { key: 'manufacturing.stage_costs.read' } },
@@ -168,10 +215,26 @@ const HR_ROUTES: RoutePattern[] = [
   { pattern: '/attendance', requirement: { key: 'hr.attendance.read' } },
   { pattern: '/payroll', requirement: { key: 'hr.payroll.read' } },
   { pattern: '/leaves', requirement: { key: 'hr.leaves.read' } },
-  // التسويات = تصفية رواتب نهائية — لا مورد "settlements" مخصص.
+  // hr_settlements has no dedicated catalog resource, but an end-of-service
+  // settlement is a final payroll calculation (basic salary, allowances,
+  // deductions, GOSI, EOS pay — see ACCOUNT_TYPES in SettingsPage.tsx) that
+  // both reads and eventually posts payroll amounts; payroll.read is the
+  // actual underlying resource domain, not a nearest-resource guess.
+  // SettlementsPage's list query now also checks this same key itself
+  // (`canReadSettlements`), not just route entry; every write action
+  // (create/review/post/cancel) stays hard fail-closed pending a dedicated
+  // hr.settlements.* key.
   { pattern: '/settlements', requirement: { key: 'hr.payroll.read' } },
   { pattern: '/reports', requirement: HR_OVERVIEW },
-  // إعدادات الموارد البشرية (أنواع الإجازات...) — لا مورد مخصص.
+  // hr_policies (general leave/attendance/overtime policy config) and
+  // payroll_account_mappings together have no single dedicated resource —
+  // the page spans policy config and payroll GL wiring. employees.read is
+  // the broadest of the four HR catalog keys and the same key used for
+  // hr.leaves/hr.attendance's owning module, so it is used here as the
+  // general "can see HR configuration" gate rather than inventing an
+  // unrelated key. SettingsPage's policies/mappings queries now also check
+  // this same key themselves (`canReadHrSettings`), not just route entry;
+  // both write surfaces stay hard fail-closed pending dedicated keys.
   { pattern: '/settings', requirement: { key: 'hr.employees.read' } },
 ];
 
@@ -281,6 +344,14 @@ const SETTINGS_ROUTES: RoutePattern[] = [
   { pattern: '/users', requirement: { key: 'settings.users.read' } },
   // إعادة توجيه صرفة إلى /org-admin/roles — نفس المنطق بمفتاح roles.
   { pattern: '/permissions', requirement: { key: 'settings.roles.read' } },
+  // org_settings (key='system') is a per-organization settings row
+  // (foreign-keyed to org_id, distinct from the `organizations` row itself
+  // per SystemSettingsPage.tsx's own comment) — organization.read is used
+  // as its parent resource, the same relationship as storage_locations to
+  // warehouses above, not a nearest-resource guess. SystemSettingsPage's
+  // getSystemSettings() read now also checks this same key itself
+  // (`canReadSystemSettings`), not just route entry; saving stays hard
+  // fail-closed pending a dedicated settings.system.* key.
   { pattern: '/system', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/integrations', requirement: SETTINGS_ORGANIZATION },
   { pattern: '/backup', requirement: SETTINGS_ORGANIZATION },

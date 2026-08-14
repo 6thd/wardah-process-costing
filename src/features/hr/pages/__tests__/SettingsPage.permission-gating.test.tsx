@@ -9,6 +9,7 @@
 // granted.
 
 import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -78,9 +79,50 @@ describe('HR SettingsPage — no hr.settings.* key exists; policy save and GL ma
   });
 
   it('without accounting.accounts.read, the GL posting-accounts reference query never fires', async () => {
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
     renderPage();
 
     await waitFor(() => expect(getPayrollAccountMappings).toHaveBeenCalled());
     expect(listPostingAccounts).not.toHaveBeenCalled();
+  });
+
+  it('Round 7: without hr.employees.read, neither the policies nor the payroll-account-mappings query fires', async () => {
+    hasPermissionKeyMock.mockReturnValue(false);
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText('settings.title')).toBeInTheDocument());
+    expect(getHrPolicies).not.toHaveBeenCalled();
+    expect(getPayrollAccountMappings).not.toHaveBeenCalled();
+  });
+
+  it('Round 7: mappings visible under a granted hr.employees.read disappear once revoked, even though the query cache still holds them', async () => {
+    getPayrollAccountMappings.mockResolvedValue([
+      { id: 'map-1', account_type: 'basic_salary', gl_account_id: 'acc-1' },
+    ]);
+    hasPermissionKeyMock.mockImplementation((key: string) => key === 'hr.employees.read');
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
+    const { rerender } = render(
+      <QueryClientProvider client={queryClient}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(getPayrollAccountMappings).toHaveBeenCalledTimes(1));
+    await userEvent.click(screen.getByText('settings.accounts'));
+    // "settings.linked" is the badge rendered only for an actual mapping
+    // table row (unlike "settings.accountTypes.basic_salary", which also
+    // appears in the always-rendered "required mappings" coverage checklist
+    // below the table, independent of any permission).
+    await waitFor(() => expect(screen.getByText('settings.linked')).toBeInTheDocument());
+
+    hasPermissionKeyMock.mockReturnValue(false);
+    rerender(
+      <QueryClientProvider client={queryClient}>
+        <SettingsPage />
+      </QueryClientProvider>
+    );
+
+    await waitFor(() => expect(screen.queryByText('settings.linked')).not.toBeInTheDocument());
+    expect(queryClient.getQueryData(['hr', 'payroll-account-mappings'])).toBeDefined();
   });
 });
