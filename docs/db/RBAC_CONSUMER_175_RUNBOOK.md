@@ -7,12 +7,20 @@ of every production TS/TSX file writing to `roles`, `role_permissions` or
 `user_roles` found the client did not fully move onto it (§1). This migration
 adds the RPC surface the client needs and closes three database races discovered
 during review.
-**State:** Repository implementation, **not yet applied to Production**.
+**State:** Applied to Production. Ledger version `20260811132302`, name
+`175_rbac_consumer_migration_rpcs`, confirmed by read-only postflight
+verification (§4, Step 2) against `supabase_migrations.schema_migrations`.
+The ledger timestamp is consistent with an application shortly after the
+PR #115 merge (`9c11d4dcd12212049bd31ece0074daa51992ffd5`, 2026-08-11). The
+repository source file (`sql/migrations/175_rbac_consumer_migration_rpcs.sql`,
+SHA-256 `c8a8ac82b462a894dbc2f9b4a94ba10b443d34cd803f66aa038842604a8c6cd7`) is
+byte-identical between `main` and that merge commit.
 No privilege revocation and no table grant change. Assignment behavior is,
 however, deliberately narrowed at the database boundary: INSERT requires an
 active membership and every direct UPDATE is rejected in favor of
-`rpc_replace_user_roles`. Apply DB-first only after the read-only data
-preflight in §4 succeeds.
+`rpc_replace_user_roles`. The steps below (§4) record the DB-first order that
+was followed and remain the reference procedure for any future re-application
+or audit.
 
 ## 1. The verified gap
 
