@@ -16,7 +16,6 @@ import { useRouting, useCreateRouting, useUpdateRouting } from '@/hooks/manufact
 import { getEffectiveTenantId } from '@/lib/supabase'
 import { RoutingFormData } from '@/services/manufacturing/routingService'
 import { toast } from 'sonner'
-import { usePermissions } from '@/hooks/usePermissions'
 
 // eslint-disable-next-line complexity
 export function RoutingForm() {
@@ -25,11 +24,15 @@ export function RoutingForm() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const isEditMode = !!id
-  const { hasPermissionKey } = usePermissions()
-  // نفس تعيين stages المستخدَم في route-permissions.ts لمساري /routing/new
-  // و/routing/:id — لا مورد "routing" مخصص في الكتالوج الحي.
-  const canCreate = hasPermissionKey('manufacturing.stages.create')
-  const canUpdate = hasPermissionKey('manufacturing.stages.update')
+  // Round 7 P1: same gap as RoutingManagement.tsx — manufacturing.stages.create
+  // /.update is not routing's resource (routingService.ts reads/writes
+  // `routings`, unrelated to manufacturing_stages), and no
+  // manufacturing.routing.* key exists in the live catalog. Create and update
+  // are hard fail-closed pending a real catalog resource, matching
+  // route-permissions.ts's unregistered /routing/new and /routing/:id.
+  const canCreate = false
+  const canUpdate = false
+  const canRead = false
 
   const [orgId, setOrgId] = useState<string>('')
   const [formData, setFormData] = useState<RoutingFormData>({
@@ -43,7 +46,7 @@ export function RoutingForm() {
     effective_date: new Date().toISOString().split('T')[0],
   })
 
-  const { data: routing, isLoading } = useRouting(id || '')
+  const { data: routing, isLoading } = useRouting(id || '', { enabled: canRead })
   const createRouting = useCreateRouting(orgId || undefined)
   const updateRouting = useUpdateRouting()
 

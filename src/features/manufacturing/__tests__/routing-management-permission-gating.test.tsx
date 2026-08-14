@@ -1,10 +1,17 @@
 // src/features/manufacturing/__tests__/routing-management-permission-gating.test.tsx
 //
-// حماية دخول /manufacturing/routing/new أو /routing/:id لا تحمي أفعال
-// الاعتماد/النسخ/الحذف المنفَّذة مباشرة من القائمة للقراءة فقط. هذا الاختبار
-// يثبت الفصل الفعلي: التوجيه (routing) يُحكَم بمفتاح stages (لا مورد مخصص في
-// الكتالوج الحي)، والاعتماد لا مفتاح مطابق له إطلاقًا فيُغلَق دائمًا
-// (fail-closed) بصرف النظر عن أي صلاحية.
+// Round 6 accepted manufacturing.stages.create/.update/.delete as a "nearest
+// resource" stand-in for routing writes, and its own test file title said so
+// explicitly. Round 7 overturns that: routingService.ts reads/writes
+// `routings`, `routing_operations` and `operation_resources` — tables with
+// no relationship to manufacturing_stages beyond both living under
+// Manufacturing. No manufacturing.routing.* key exists in the live catalog,
+// so a manufacturing.stages.* grant must not create, update, delete, copy or
+// even read a single routing row. This mirrors route-permissions.ts's
+// /routing, /routing/new and /routing/:id entries, which are unregistered
+// for the same reason and fail closed at ModuleGuard — this file proves the
+// component itself is fail-closed too, in case anything ever reaches it
+// without going through ModuleGuard.
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -37,6 +44,7 @@ vi.mock('@/lib/supabase', () => ({
 const deleteRoutingMutate = vi.fn();
 const approveRoutingMutate = vi.fn();
 const copyRoutingMutate = vi.fn();
+const useRoutingsMock = vi.fn();
 
 const ROUTING = {
   id: 'routing-1',
@@ -50,7 +58,7 @@ const ROUTING = {
 };
 
 vi.mock('@/hooks/manufacturing/useRouting', () => ({
-  useRoutings: () => ({ data: [ROUTING], isLoading: false, refetch: vi.fn() }),
+  useRoutings: (...args: unknown[]) => useRoutingsMock(...args),
   useDeleteRouting: () => ({ mutate: (...args: unknown[]) => deleteRoutingMutate(...args) }),
   useApproveRouting: () => ({ mutate: (...args: unknown[]) => approveRoutingMutate(...args) }),
   useCopyRouting: () => ({ mutate: (...args: unknown[]) => copyRoutingMutate(...args) }),
@@ -73,48 +81,57 @@ function renderList() {
 beforeEach(() => {
   vi.clearAllMocks();
   hasPermissionKeyMock.mockReturnValue(false);
+  useRoutingsMock.mockReturnValue({ data: [ROUTING], isLoading: false, refetch: vi.fn() });
 });
 
-describe('RoutingManagement list — manufacturing.stages.create/.update/.delete (nearest resource) + fail-closed approve', () => {
-  it('hides every row action and the header create trigger without any stages.* action key', async () => {
-    setPermissions(['manufacturing.stages.read']);
+describe('Round 7 P1: RoutingManagement — no manufacturing.routing.* key exists; read and every write fail closed regardless of stages.* grants', () => {
+  it('calls useRoutings with enabled:false even when the caller holds every stages.* key — the list read itself has no defensible key', async () => {
+    setPermissions([
+      'manufacturing.stages.read',
+      'manufacturing.stages.create',
+      'manufacturing.stages.update',
+      'manufacturing.stages.delete',
+    ]);
+    renderList();
+
+    await waitFor(() => expect(useRoutingsMock).toHaveBeenCalled());
+    const [, options] = useRoutingsMock.mock.calls[0];
+    expect(options).toMatchObject({ enabled: false });
+  });
+
+  it('hides the create trigger, delete, and copy actions even with every stages.* key granted', async () => {
+    setPermissions([
+      'manufacturing.stages.read',
+      'manufacturing.stages.create',
+      'manufacturing.stages.update',
+      'manufacturing.stages.delete',
+    ]);
     renderList();
 
     await waitFor(() => expect(screen.getByText('RT-001')).toBeInTheDocument());
     expect(screen.queryByRole('button', { name: 'routingMgmt.newRouting' })).not.toBeInTheDocument();
-    expect(screen.queryAllByRole('button')).toHaveLength(1); // فقط زر "تحديث" (refresh) غير المرتبط بصلاحية أفعال
+    // Only the "refresh" button remains — no create/edit/delete/copy/approve action is reachable.
+    expect(screen.queryAllByRole('button')).toHaveLength(1);
   });
 
-  it('a delete grant shows delete on a DRAFT row and calls the delete gateway', async () => {
+  it('a stages.delete grant does not call the delete gateway — delete is hard fail-closed, not gated on the nearest key', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     setPermissions(['manufacturing.stages.read', 'manufacturing.stages.delete']);
     renderList();
 
     await waitFor(() => expect(screen.getByText('RT-001')).toBeInTheDocument());
-    const buttons = screen.getAllByRole('button');
-    const deleteBtn = buttons.find((b) => b.className.includes('text-red-600'));
-    expect(deleteBtn).toBeTruthy();
-    await userEvent.click(deleteBtn!);
-
-    expect(deleteRoutingMutate).toHaveBeenCalledWith('routing-1');
+    const deleteBtn = screen.queryAllByRole('button').find((b) => b.className.includes('text-red-600'));
+    expect(deleteBtn).toBeUndefined();
+    expect(deleteRoutingMutate).not.toHaveBeenCalled();
   });
 
-  it('a create grant shows copy (copy = insert, gated by stages.create) and calls the copy gateway', async () => {
+  it('a stages.create grant does not offer copy and does not call the copy gateway', async () => {
     setPermissions(['manufacturing.stages.read', 'manufacturing.stages.create']);
     renderList();
 
     await waitFor(() => expect(screen.getByText('RT-001')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'routingMgmt.newRouting' })).toBeInTheDocument();
-
-    // زر النسخ ليس له نص مميّز؛ نحدده بأنه الزر الإضافي غير "تحديث"/"مسار جديد"
-    const buttons = screen.getAllByRole('button');
-    const copyBtn = buttons.find(
-      (b) => !b.textContent?.includes('routingMgmt.refresh') && !b.textContent?.includes('routingMgmt.newRouting')
-    );
-    expect(copyBtn).toBeTruthy();
-    await userEvent.click(copyBtn!);
-
-    expect(copyRoutingMutate).toHaveBeenCalledWith(expect.objectContaining({ id: 'routing-1' }));
+    expect(screen.queryByRole('button', { name: 'routingMgmt.newRouting' })).not.toBeInTheDocument();
+    expect(copyRoutingMutate).not.toHaveBeenCalled();
   });
 
   it('approve is never offered regardless of permission — no manufacturing.stages.approve exists in the live catalog', async () => {
@@ -123,7 +140,7 @@ describe('RoutingManagement list — manufacturing.stages.create/.update/.delete
       'manufacturing.stages.create',
       'manufacturing.stages.update',
       'manufacturing.stages.delete',
-      // حتى لو مُنح خطأً مفتاح لا وجود له في الكتالوج الحي، الاعتماد يبقى مغلقًا
+      // Even a stray grant for a key that has no equivalent in the live catalog must not open the gate.
       'manufacturing.stages.approve',
     ]);
     renderList();

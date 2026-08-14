@@ -31,8 +31,10 @@ export function ManufacturingOverview() {
   // manufacturing.stages.read جزء من anyOf دخول هذه الشاشة، فيحتاج بطاقته
   // الخاصة — وإلا يدخل مستخدم يملكه وحده ولا يرى أي شيء ذا صلة.
   const canReadStages = hasPermissionKey('manufacturing.stages.read')
-  // بطاقة الجودة تعتمد حاليًا على manufacturing.orders.read في العقد (صفحة
-  // "قيد الإنشاء" بلا مورد مخصص بعد).
+  // The quality card gates on manufacturing.orders.read: QualityControlManagement
+  // (mounted at /quality) is a static "coming soon" EmptyState with no queries
+  // of its own, so there is no real underlying resource to approximate — see
+  // route-permissions.ts's /quality entry for the full reasoning.
   const { orders, loading } = useManufacturingOrders({ enabled: canReadOrders })
 
   return (

@@ -139,8 +139,10 @@ function PurchasingOverview() {
           </Link>
         )}
 
-        {/* الاستلام يعتمد حاليًا على purchasing.purchase_orders.read في العقد
-            (لا مورد مخصص للاستلام) — نفس مفتاح بطاقة أوامر الشراء أعلاه. */}
+        {/* Receipts have no dedicated catalog resource; purchase_orders.read
+            gates this card as their genuine parent resource (see the same
+            key used for the orders card above and route-permissions.ts's
+            /receipts entry), not a nearest-resource guess. */}
         {canReadOrders && (
           <Link to="receipts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
             <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
@@ -508,9 +510,12 @@ function GoodsReceiptManagement() {
   // fail-closed: أثناء التحميل أو عند غياب المؤسسة يبقى المسار التقليدي هو العامل.
   const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
   const { hasPermissionKey } = usePermissions()
-  // لا مورد "goods_receipts" مخصص في الكتالوج الحي — الاستلام يُقدِّم أمر
-  // شراء قائمًا، فأقرب مفتاح هو تعديل أوامر الشراء (نفس منطق route-permissions.ts
-  // لقراءة هذا المسار على purchasing.purchase_orders.read).
+  // No dedicated "goods_receipts" catalog resource exists, but a receipt
+  // cannot be created without an existing purchase order to receive against
+  // (Migration 148's partial-receipt gate) — purchase_orders.update is the
+  // actual underlying resource this write operates on, the same genuine
+  // parent/sub-resource relationship route-permissions.ts documents for
+  // reading this route on purchasing.purchase_orders.read.
   const canCreateReceipt = hasPermissionKey('purchasing.purchase_orders.update')
   // Same read key route-permissions.ts already requires to reach
   // /purchasing/receipts at all — reused here so the receipts list query

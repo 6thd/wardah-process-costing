@@ -1,17 +1,17 @@
 // src/features/manufacturing/__tests__/routing-form-status-gating.test.tsx
 //
-// Round 6 P1: RoutingManagement correctly fails closed on approve (no
-// manufacturing.stages.approve key exists in the live catalog), but
-// RoutingForm still exposed an editable "status" selector and submitted it
-// using only manufacturing.stages.create/.update. A user holding nothing
-// but the create/update grant could set status=APPROVED (or OBSOLETE)
-// directly through the form — a full bypass of the fail-closed approve gate.
-//
-// This file proves: (1) a new routing is always created as DRAFT regardless
-// of any tampering with form state, and (2) editing an existing routing can
-// never change its status through the general update form — the submitted
-// payload must never contain a status field, so the database preserves
-// whatever status the row already had.
+// Round 6 P1 proved status couldn't be tampered through the create/update
+// form even when manufacturing.stages.create/.update were the write gate.
+// Round 7 P1 overturns the gate itself: routingService.ts reads/writes
+// `routings`, `routing_operations` and `operation_resources` — tables with
+// no relationship to manufacturing_stages beyond both living under
+// Manufacturing. No manufacturing.routing.* key exists in the live catalog,
+// so create and update must both be hard fail-closed regardless of any
+// stages.* grant (mirrors route-permissions.ts's unregistered /routing/new
+// and /routing/:id, and RoutingManagement.tsx's read/write gating). This
+// file proves: (1) the create/update mutation gateway is never invoked no
+// matter what stages.* keys are held, and (2) the edit-mode single-routing
+// read is never fetched either — no accepted read permission exists.
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -31,10 +31,12 @@ vi.mock('@/lib/supabase', () => ({
   getEffectiveTenantId: () => Promise.resolve('org-1'),
 }));
 
-vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
+const { toastError } = vi.hoisted(() => ({ toastError: vi.fn() }));
+vi.mock('sonner', () => ({ toast: { error: toastError, success: vi.fn() } }));
 
 const createRoutingMutateAsync = vi.fn().mockResolvedValue({ id: 'routing-new', routing_code: 'RT-NEW' });
 const updateRoutingMutateAsync = vi.fn().mockResolvedValue({ id: 'routing-1' });
+const useRoutingMock = vi.fn();
 
 const EXISTING_ROUTING = {
   id: 'routing-1',
@@ -48,10 +50,7 @@ const EXISTING_ROUTING = {
 };
 
 vi.mock('@/hooks/manufacturing/useRouting', () => ({
-  useRouting: (id: string) => ({
-    data: id === EXISTING_ROUTING.id ? EXISTING_ROUTING : undefined,
-    isLoading: false,
-  }),
+  useRouting: (...args: unknown[]) => useRoutingMock(...args),
   useCreateRouting: () => ({
     mutateAsync: createRoutingMutateAsync,
     isPending: false,
@@ -91,21 +90,21 @@ function renderEdit() {
 beforeEach(() => {
   vi.clearAllMocks();
   hasPermissionKeyMock.mockReturnValue(false);
+  useRoutingMock.mockReturnValue({ data: undefined, isLoading: false });
 });
 
-describe('RoutingForm — status cannot be set/changed through create/update grants alone', () => {
+describe('Round 7 P1: RoutingForm — create/update hard fail-closed; no manufacturing.routing.* key exists', () => {
   it('never renders an editable status control on the create form', async () => {
     setPermissions(['manufacturing.stages.create']);
     renderNew();
 
     await waitFor(() => expect(screen.getByLabelText('routingForm.code *')).toBeInTheDocument());
-    // No combobox/select for status must be reachable/settable by the user.
     expect(screen.queryByRole('combobox', { name: /status/i })).not.toBeInTheDocument();
     expect(screen.queryByText('routingForm.statusApproved')).not.toBeInTheDocument();
     expect(screen.queryByText('routingForm.statusObsolete')).not.toBeInTheDocument();
   });
 
-  it('creating a routing with only manufacturing.stages.create always submits status=DRAFT', async () => {
+  it('submitting the create form with manufacturing.stages.create granted never calls the create gateway', async () => {
     setPermissions(['manufacturing.stages.create']);
     renderNew();
 
@@ -114,31 +113,32 @@ describe('RoutingForm — status cannot be set/changed through create/update gra
     await userEvent.type(screen.getByLabelText('routingForm.nameEn *'), 'New Routing');
     await userEvent.click(screen.getByRole('button', { name: /routingForm.save/ }));
 
-    await waitFor(() => expect(createRoutingMutateAsync).toHaveBeenCalled());
-    const submitted = createRoutingMutateAsync.mock.calls[0][0];
-    expect(submitted.status).toBe('DRAFT');
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(createRoutingMutateAsync).not.toHaveBeenCalled();
   });
 
-  it('never renders an editable status control on the edit form', async () => {
+  it('submitting the edit form with manufacturing.stages.update granted never calls the update gateway', async () => {
     setPermissions(['manufacturing.stages.update']);
-    renderEdit();
-
-    await waitFor(() => expect(screen.getByDisplayValue('RT-001')).toBeInTheDocument());
-    expect(screen.queryByRole('combobox', { name: /status/i })).not.toBeInTheDocument();
-    expect(screen.queryByText('routingForm.statusApproved')).not.toBeInTheDocument();
-    expect(screen.queryByText('routingForm.statusObsolete')).not.toBeInTheDocument();
-  });
-
-  it('editing a routing with only manufacturing.stages.update never includes status in the update payload', async () => {
-    setPermissions(['manufacturing.stages.update']);
+    useRoutingMock.mockReturnValue({ data: EXISTING_ROUTING, isLoading: false });
     renderEdit();
 
     await waitFor(() => expect(screen.getByDisplayValue('RT-001')).toBeInTheDocument());
     await userEvent.click(screen.getByRole('button', { name: /routingForm.save/ }));
 
-    await waitFor(() => expect(updateRoutingMutateAsync).toHaveBeenCalled());
-    const submitted = updateRoutingMutateAsync.mock.calls[0][0];
-    expect(submitted.id).toBe('routing-1');
-    expect(submitted.data).not.toHaveProperty('status');
+    await waitFor(() => expect(toastError).toHaveBeenCalled());
+    expect(updateRoutingMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('the edit-mode single-routing read is disabled — no accepted read permission exists for any stages.* grant', async () => {
+    setPermissions([
+      'manufacturing.stages.read',
+      'manufacturing.stages.create',
+      'manufacturing.stages.update',
+    ]);
+    renderEdit();
+
+    await waitFor(() => expect(useRoutingMock).toHaveBeenCalled());
+    const [, options] = useRoutingMock.mock.calls[0];
+    expect(options).toMatchObject({ enabled: false });
   });
 });

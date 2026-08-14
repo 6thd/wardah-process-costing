@@ -30,24 +30,29 @@ import { RoutingTable } from './components/RoutingTable'
 import { RoutingStats } from './components/RoutingStats'
 import { RoutingEmptyState } from './components/RoutingEmptyState'
 import { RoutingForm } from './RoutingForm'
-import { usePermissions } from '@/hooks/usePermissions'
 
 function RoutingList() {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAuthStore()
-  const { hasPermissionKey } = usePermissions()
-  // التوجيه (routing) يعرّف تسلسل عمليات المراحل — لا مورد "routing" مخصص في
-  // الكتالوج الحي، فيُحكَم بأقرب مورد "stages" (نفس تعيين route-permissions.ts
-  // لمسارَي /routing و/routing/new). النسخ (Copy) إدراج صف جديد فعليًا فيُحكَم
-  // بمفتاح الإنشاء نفسه. "اعتماد" التوجيه لا مفتاح مطابق له إطلاقًا في الكتالوج
-  // الحي (لا manufacturing.stages.approve ولا مورد مكافئ) — يُغلَق افتراضيًا
-  // (fail-closed) بدل ربطه بمفتاح غير ذي صلة، ويُبلَّغ كفجوة كتالوج/منتج.
-  const canCreate = hasPermissionKey('manufacturing.stages.create')
-  const canUpdate = hasPermissionKey('manufacturing.stages.update')
-  const canDelete = hasPermissionKey('manufacturing.stages.delete')
-  const canCopy = canCreate
+  // Round 7 P1: routingService.ts reads/writes `routings`, `routing_operations`
+  // and `operation_resources` — tables with no relationship to
+  // manufacturing_stages beyond both living under Manufacturing.
+  // manufacturing.stages.create/.update/.delete were previously accepted here
+  // as a "nearest resource" stand-in (Round 6); that mapping is not "the
+  // actual underlying resource it queries" and is now overturned. No
+  // manufacturing.routing.* key exists in the live catalog, so every write —
+  // and the list read itself — is hard fail-closed pending a real routing.*
+  // catalog resource, matching route-permissions.ts's unregistered /routing,
+  // /routing/new and /routing/:id (undefined requirement, fail-closed at
+  // ModuleGuard). Do not reintroduce a manufacturing.stages.* (or any other)
+  // mapping here without that catalog resource actually existing.
+  const canRead = false
+  const canCreate = false
+  const canUpdate = false
+  const canDelete = false
+  const canCopy = false
   const canApprove = false
   const [orgId, setOrgId] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
@@ -61,7 +66,7 @@ function RoutingList() {
     loadOrgId()
   }, [])
 
-  const { data: routings, isLoading, refetch } = useRoutings(orgId || undefined)
+  const { data: routings, isLoading, refetch } = useRoutings(orgId || undefined, { enabled: canRead })
   const deleteRouting = useDeleteRouting(orgId || undefined)
   const approveRouting = useApproveRouting()
   const copyRouting = useCopyRouting(orgId || undefined)

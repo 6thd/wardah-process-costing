@@ -195,7 +195,15 @@ const MANUFACTURING_ROUTES: RoutePattern[] = [
   { pattern: '/bom', requirement: { key: 'manufacturing.boms.read' } },
   { pattern: '/bom/new', requirement: { key: 'manufacturing.boms.create' } },
   { pattern: '/bom/:bomId/edit', requirement: { key: 'manufacturing.boms.update' } },
-  // صفحة "قيد الإنشاء" بلا بيانات فعلية بعد — افتراضي بأقرب مورد.
+  // QualityControlManagement (the component actually mounted at /quality)
+  // is a static "coming soon" EmptyState — it queries nothing, the same
+  // class of route as /inventory/bins above. There is no quality.* catalog
+  // resource because there is no quality data yet to protect; this is not a
+  // "nearest resource" approximation for a real query, since no query
+  // exists. manufacturing.orders.read gates entry to this inert page for
+  // consistency with the rest of the module; update this comment (and the
+  // key, if warranted) when a real quality-control component with actual
+  // queries replaces the placeholder.
   { pattern: '/quality', requirement: { key: 'manufacturing.orders.read' } },
 ];
 

@@ -25,21 +25,22 @@ export const routingKeys = {
 /**
  * Hook للحصول على جميع مسارات التصنيع
  */
-export function useRoutings(orgId?: string) {
+export function useRoutings(orgId?: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: routingKeys.list(orgId),
     queryFn: () => routingService.getRoutings(orgId),
+    enabled: options?.enabled ?? true,
   })
 }
 
 /**
  * Hook للحصول على مسار تصنيع بالمعرف
  */
-export function useRouting(id: string) {
+export function useRouting(id: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: routingKeys.detail(id),
     queryFn: () => routingService.getRoutingById(id),
-    enabled: !!id,
+    enabled: !!id && (options?.enabled ?? true),
   })
 }
 
