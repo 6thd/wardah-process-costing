@@ -1,7 +1,7 @@
 # Migrations 170–173 — Tenant Isolation & `has_permission()` Hardening Chain
 
 **Scope:** The four migrations that took Production from cutoff 169 to 173, and the final, verified state of the authorization surface they leave behind.
-**State:** All four applied to Production (`Manufacturing Process`, `uutfztmqvajmsxnrqeiv`) and verified. 173 is the current ledger head.
+**State:** All four applied to Production (`Manufacturing Process`, `uutfztmqvajmsxnrqeiv`) and verified. 173 was the ledger head at the time of this chain's own verification (§4); Production has since advanced through Migration 174 (`20260809112236`) to Migration 175 (`20260811132302`) — see `CLAUDE.md`'s `DATABASE_STATE` block for the current head.
 **Purpose of this document:** the four per-migration runbooks each describe one change in isolation. Three of them replace the *same function*, so the only way to read the current contract is to read them together. This document is that composite view, plus the live evidence that the composite actually holds.
 
 ## 1. The chain

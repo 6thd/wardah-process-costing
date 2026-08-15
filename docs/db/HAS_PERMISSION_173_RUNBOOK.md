@@ -2,7 +2,7 @@
 
 **Migration:** `173_has_permission_active_role_check.sql`
 **Scope:** Close a second gap in `has_permission()`'s ordinary-role branch — disabling a role never revoked the access it granted.
-**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-09, ledger version `20260809051430`, name `173_has_permission_active_role_check`. This is the current head of the Production ledger. All nine postflight boolean columns in §5 returned `true` against the live database, and `has_function_privilege('authenticated', …)` returned `true` — full evidence in `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §4.
+**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-09, ledger version `20260809051430`, name `173_has_permission_active_role_check`. This was the head of the Production ledger at the time of its own postflight; Production has since advanced through Migration 174 (`20260809112236`) to Migration 175 (`20260811132302`) — see `CLAUDE.md`'s `DATABASE_STATE` block for the current head. All nine postflight boolean columns in §5 returned `true` against the live database, and `has_function_privilege('authenticated', …)` returned `true` — full evidence in `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §4.
 
 ## 1. Purpose
 
