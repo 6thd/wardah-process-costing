@@ -78,6 +78,7 @@ jobs:
         shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
           set -u
           mkdir -p sonar-diagnostics
@@ -119,11 +120,18 @@ jobs:
               --output sonar-diagnostics/quality-gate.json || true
           fi
 
-          if [ -n "$project_key" ] && [ -n "${PR_NUMBER:-}" ]; then
+          if [ -n "$project_key" ]; then
+            scope_args=()
+            if [ -n "${PR_NUMBER:-}" ]; then
+              scope_args+=(--data-urlencode "pullRequest=$PR_NUMBER")
+            else
+              scope_args+=(--data-urlencode "branch=$BRANCH_NAME")
+            fi
+
             curl --fail --silent --show-error --get \
               --user "$SONAR_TOKEN:" \
               --data-urlencode "componentKeys=$project_key" \
-              --data-urlencode "pullRequest=$PR_NUMBER" \
+              "${scope_args[@]}" \
               --data-urlencode "statuses=OPEN,CONFIRMED" \
               --data-urlencode "types=BUG" \
               --data-urlencode "ps=500" \
@@ -133,7 +141,7 @@ jobs:
             curl --fail --silent --show-error --get \
               --user "$SONAR_TOKEN:" \
               --data-urlencode "component=$project_key" \
-              --data-urlencode "pullRequest=$PR_NUMBER" \
+              "${scope_args[@]}" \
               --data-urlencode "metricKeys=new_coverage,new_duplicated_lines_density,new_reliability_rating,new_bugs,new_lines,lines_to_cover,uncovered_lines,duplicated_lines,duplicated_blocks" \
               --data-urlencode "qualifiers=FIL" \
               --data-urlencode "strategy=leaves" \
