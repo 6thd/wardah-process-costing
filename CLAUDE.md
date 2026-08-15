@@ -30,7 +30,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 الحالة الحية الموثقة بعد تطبيق Migration 175 في 2026-08-11 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
 - Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–175 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
-- Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه postflight الخاصة بـ175.
+- Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه preflight الخاصة بـ175.
 - Repository: أعلى migration مرقمة هي 175 (`175_rbac_consumer_migration_rpcs.sql`).
 - Fresh DB: 153–175 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
 - تدقيق السجل الحي في 2026-08-14: `live_cutoff = 175`، `repo_max = 175`، `repository_ahead_by = 0`، ولا ملفات معلّقة.
