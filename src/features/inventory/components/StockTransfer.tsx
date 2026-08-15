@@ -14,6 +14,7 @@ import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
 import { getSupabase } from '@/lib/supabase'
 import { itemsService } from '@/services/supabase-service'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface StockTransferItem {
   id: string
@@ -35,6 +36,16 @@ interface StockTransfer {
 }
 
 export default function StockTransferManagement() {
+  const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('inventory.stock_moves.read')
+  // التحويل يكتب stock_ledger_entries تمامًا كما تفعل تسويات المخزون —
+  // إنشاء المسودة يقابل .create، وتأكيد التحويل (الفعل المؤثر على الرصيد
+  // والدفتر) يقابل .approve، اتساقًا مع StockAdjustments.
+  const canCreate = hasPermissionKey('inventory.stock_moves.create')
+  const canApprove = hasPermissionKey('inventory.stock_moves.approve')
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
+  const canReadProducts = hasPermissionKey('inventory.items.read')
+  const canOpenTransferForm = canCreate && canReadWarehouses && canReadProducts
   const [transfers, setTransfers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showNewForm, setShowNewForm] = useState(false)
@@ -64,10 +75,26 @@ export default function StockTransferManagement() {
   const [selectedProduct, setSelectedProduct] = useState<any>(null)
 
   useEffect(() => {
-    loadTransfers()
-    loadWarehouses()
-    loadProducts()
-  }, [])
+    if (canRead) {
+      loadTransfers()
+    } else {
+      setTransfers([])
+      setLoading(false)
+    }
+    if (canReadWarehouses) {
+      loadWarehouses()
+    } else {
+      setWarehouses([])
+      setLoadingWarehouses(false)
+    }
+    if (canReadProducts) {
+      loadProducts()
+    } else {
+      setProducts([])
+      setLoadingProducts(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canRead, canReadWarehouses, canReadProducts])
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -276,6 +303,10 @@ export default function StockTransferManagement() {
   }
 
   const handleSaveDraft = async () => {
+    if (!canCreate) {
+      toast.error('لا تملك صلاحية إنشاء تحويلات مخزون')
+      return
+    }
     if (!validateTransfer()) return
 
     try {
@@ -346,6 +377,10 @@ export default function StockTransferManagement() {
   }
 
   const handleSubmitTransfer = async (transferId: string) => {
+    if (!canApprove) {
+      toast.error('لا تملك صلاحية تأكيد تحويلات المخزون')
+      return
+    }
     try {
       const supabase = getSupabase()
       const { data: { user } } = await supabase.auth.getUser()
@@ -516,17 +551,19 @@ export default function StockTransferManagement() {
             نقل البضاعة بين المستودعات المختلفة
           </p>
         </div>
-        <Button
-          onClick={() => setShowNewForm(true)}
-          className="gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          تحويل جديد
-        </Button>
+        {canOpenTransferForm && (
+          <Button
+            onClick={() => setShowNewForm(true)}
+            className="gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            تحويل جديد
+          </Button>
+        )}
       </div>
 
       {/* New Transfer Form */}
-      {showNewForm && (
+      {showNewForm && canOpenTransferForm && (
         <Card className="p-6">
           <div className="space-y-6">
             <div className="flex justify-between items-center">
@@ -869,7 +906,7 @@ export default function StockTransferManagement() {
                     <div className="text-sm text-muted-foreground">
                       {transfer.total_items} منتج
                     </div>
-                    {transfer.status === 'DRAFT' && (
+                    {transfer.status === 'DRAFT' && canApprove && (
                       <Button
                         size="sm"
                         className="mt-2 gap-2"

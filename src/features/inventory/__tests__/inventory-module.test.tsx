@@ -26,6 +26,12 @@ vi.mock('sonner', () => ({
   }
 }));
 
+// هذا الملف يختبر أن كل مسار يُركَّب بلا انهيار، لا صلاحيات بعينها — فمنح كل
+// شيء يبقيه مركَّزًا على نيته الأصلية بدل التحول إلى اختبار حراسة.
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({ hasPermissionKey: () => true }),
+}));
+
 vi.mock('@/lib/supabase', () => ({
   getSupabase: vi.fn(() => ({
     auth: {

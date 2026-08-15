@@ -41,7 +41,7 @@ function guardedLazy(
     const Component = mod[exportName];
     return {
       Component: () => (
-        <ModuleGuard moduleCode={moduleCode} action="view">
+        <ModuleGuard moduleCode={moduleCode}>
           <Component />
         </ModuleGuard>
       ),

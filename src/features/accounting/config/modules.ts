@@ -16,6 +16,12 @@ export interface AccountingModule {
   bgColor: string;
   featuresAr: string[];
   featuresEn: string[];
+  /**
+   * أي مفتاح من هذه القائمة كافٍ لإظهار البطاقة — يطابق متطلب المسار الفعلي
+   * لـhref في src/config/route-permissions.ts. بعض البطاقات تقود إلى موديول
+   * آخر (general_ledger، reports)، فمفتاحها من كتالوج ذلك الموديول لا accounting.
+   */
+  requiredKeys: string[];
 }
 
 export const accountingModules: AccountingModule[] = [
@@ -29,7 +35,8 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-blue-600',
     bgColor: 'bg-blue-50',
     featuresAr: ['إضافة قيود جديدة', 'ترحيل مجمع', 'نظام الموافقات', 'المرفقات والتعليقات'],
-    featuresEn: ['Add new entries', 'Batch posting', 'Approval workflow', 'Attachments & comments']
+    featuresEn: ['Add new entries', 'Batch posting', 'Approval workflow', 'Attachments & comments'],
+    requiredKeys: ['accounting.journals.read'],
   },
   {
     titleAr: 'ميزان المراجعة',
@@ -41,7 +48,8 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-green-600',
     bgColor: 'bg-green-50',
     featuresAr: ['أرصدة افتتاحية وختامية', 'حركة الفترة', 'تصدير Excel/PDF', 'فلترة متقدمة'],
-    featuresEn: ['Opening & closing balances', 'Period movement', 'Export Excel/PDF', 'Advanced filtering']
+    featuresEn: ['Opening & closing balances', 'Period movement', 'Export Excel/PDF', 'Advanced filtering'],
+    requiredKeys: ['accounting.entries.read', 'accounting.accounts.read'],
   },
   {
     titleAr: 'كشف حساب',
@@ -53,7 +61,8 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-purple-600',
     bgColor: 'bg-purple-50',
     featuresAr: ['حركات تفصيلية', 'رصيد متحرك', 'تصدير Excel/PDF', 'فلترة حسب الفترة'],
-    featuresEn: ['Detailed transactions', 'Running balance', 'Export Excel/PDF', 'Period filtering']
+    featuresEn: ['Detailed transactions', 'Running balance', 'Export Excel/PDF', 'Period filtering'],
+    requiredKeys: ['accounting.entries.read', 'accounting.accounts.read', 'general_ledger.account_statement.view'],
   },
   {
     titleAr: 'دليل الحسابات',
@@ -65,7 +74,9 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-orange-600',
     bgColor: 'bg-orange-50',
     featuresAr: ['شجرة هرمية', 'إضافة/تعديل/حذف', 'دعم ثنائي اللغة', 'بحث متقدم'],
-    featuresEn: ['Hierarchical tree', 'Add/Edit/Delete', 'Bilingual support', 'Advanced search']
+    featuresEn: ['Hierarchical tree', 'Add/Edit/Delete', 'Bilingual support', 'Advanced search'],
+    // موديول آخر (general_ledger) — مفتاحه لا accounting.
+    requiredKeys: ['general_ledger.chart_of_accounts.view'],
   },
   {
     titleAr: 'الترحيل',
@@ -77,7 +88,9 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-indigo-600',
     bgColor: 'bg-indigo-50',
     featuresAr: ['ترحيل فردي', 'ترحيل مجمع', 'التحقق من التوازن', 'سجل الترحيل'],
-    featuresEn: ['Individual posting', 'Batch posting', 'Balance verification', 'Posting log']
+    featuresEn: ['Individual posting', 'Batch posting', 'Balance verification', 'Posting log'],
+    // صفحة روابط ثابتة بلا بيانات خاصة بها — نفس متطلب نظرة accounting العامة.
+    requiredKeys: ['accounting.journals.read', 'accounting.entries.read', 'accounting.accounts.read', 'accounting.cost_centers.read'],
   },
   {
     titleAr: 'التقارير المالية',
@@ -89,7 +102,9 @@ export const accountingModules: AccountingModule[] = [
     color: 'text-red-600',
     bgColor: 'bg-red-50',
     featuresAr: ['قائمة الدخل', 'الميزانية العمومية', 'التدفقات النقدية', 'تقارير مخصصة'],
-    featuresEn: ['Income Statement', 'Balance Sheet', 'Cash Flow', 'Custom reports']
+    featuresEn: ['Income Statement', 'Balance Sheet', 'Cash Flow', 'Custom reports'],
+    // موديول آخر (reports) — مفتاحه لا accounting.
+    requiredKeys: ['reports.financial.read'],
   }
 ];
 
@@ -104,6 +119,7 @@ export function getLocalizedModule(module: AccountingModule, isRTL: boolean) {
     href: module.href,
     color: module.color,
     bgColor: module.bgColor,
-    features: isRTL ? module.featuresAr : module.featuresEn
+    features: isRTL ? module.featuresAr : module.featuresEn,
+    requiredKeys: module.requiredKeys,
   };
 }

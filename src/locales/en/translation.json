@@ -201,6 +201,10 @@
           "title": "Bill of Materials",
           "description": "All materials required for production"
         },
+        "stages": {
+          "title": "Manufacturing Stages",
+          "description": "Define production stages and their sequence"
+        },
         "quality": {
           "title": "Quality Control",
           "description": "Inspect and ensure product quality"

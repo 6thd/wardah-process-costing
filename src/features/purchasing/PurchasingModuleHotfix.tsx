@@ -16,6 +16,7 @@ import {
   PurchaseOrderDetailsDialog,
   type PurchaseOrderDetails,
 } from './components/PurchaseOrderDetailsDialog'
+import { usePermissions } from '@/hooks/usePermissions'
 
 type PurchaseOrderListItem = PurchaseOrderDetails & {
   expected_delivery?: string | null
@@ -74,6 +75,12 @@ async function loadPurchaseOrderDetails(id: string): Promise<PurchaseOrderDetail
 
 export function PurchaseOrdersDetailsManagement() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  // نفس المفاتيح المستخدَمة في PurchasingModule (index.tsx) الفعلي — هذا
+  // المكوّن هو ما يُطبَّق فعليًا على /purchasing/orders (انظر
+  // PurchasingModuleHotfix أسفل الملف)، فيحتاج نفس الحراسة تمامًا.
+  const canReadOrders = hasPermissionKey('purchasing.purchase_orders.read')
+  const canCreateOrder = hasPermissionKey('purchasing.purchase_orders.create')
   const [orders, setOrders] = useState<PurchaseOrderListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -101,8 +108,13 @@ export function PurchaseOrdersDetailsManagement() {
   }
 
   useEffect(() => {
-    void loadOrders()
-  }, [])
+    if (canReadOrders) {
+      void loadOrders()
+    } else {
+      setOrders([])
+      setLoading(false)
+    }
+  }, [canReadOrders])
 
   const openDetails = async (order: PurchaseOrderListItem) => {
     setDetailsLoadingId(order.id)
@@ -129,11 +141,14 @@ export function PurchaseOrdersDetailsManagement() {
           <h1 className="text-2xl font-bold">{t('purchasing.purchaseOrders')}</h1>
           <p className="text-muted-foreground">أوامر الشراء</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>+ إضافة أمر شراء</Button>
+        {canCreateOrder && (
+          <Button onClick={() => setShowAddForm(true)}>+ إضافة أمر شراء</Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا purchasing.purchase_orders.create. */}
       <PurchaseOrderForm
-        open={showAddForm}
+        open={showAddForm && canCreateOrder}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
           void loadOrders()

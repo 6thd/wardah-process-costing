@@ -16,6 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { listAttendanceForPeriod } from '@/services/hr/attendance-service';
 import { ATTENDANCE_COLORS } from '../types';
 import {
@@ -40,6 +41,8 @@ import '../translations/ui';
 
 export const AttendancePage: React.FC = () => {
   const { toast } = useToast();
+  const { hasPermissionKey } = usePermissions();
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
   const { t, i18n } = useHrTranslation();
   const isArabic = i18n.resolvedLanguage?.startsWith('ar') ?? true;
   const locale = isArabic ? 'ar-SA' : 'en-US';
@@ -54,13 +57,24 @@ export const AttendancePage: React.FC = () => {
   const [checkOutTime, setCheckOutTime] = React.useState('');
   const [notes, setNotes] = React.useState('');
 
-  const { data: employees = [] } = useQuery({
+  const { data: rawEmployees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
     staleTime: 60_000,
+    enabled: canReadEmployees,
   });
+  // Re-gated here, not just via `enabled` above: TanStack Query keeps a
+  // query's last successful result cached after `enabled` flips to false,
+  // and a request already in flight when permission is revoked still
+  // resolves into that cache. A revoked user must not keep seeing employees
+  // (or, transitively, their attendance rows below) loaded before the
+  // revocation just because the cache still holds them.
+  const employees = React.useMemo(
+    () => (canReadEmployees ? rawEmployees : []),
+    [canReadEmployees, rawEmployees],
+  );
 
-  const { data: monthlyAttendance = [], isLoading: monthlyAttendanceLoading } = useQuery({
+  const { data: rawMonthlyAttendance = [], isLoading: monthlyAttendanceLoading } = useQuery({
     queryKey: ['hr', 'attendance-monthly', selectedPeriod.year, selectedPeriod.month],
     queryFn: async () => {
       if (!employees.length) return [];
@@ -72,6 +86,13 @@ export const AttendancePage: React.FC = () => {
     },
     enabled: employees.length > 0,
   });
+  // Same re-gate as `employees` above, and doubly relevant here: attendance
+  // rows are keyed by employee_id, so a stale/cached response would leak
+  // per-employee data even if the employees list itself were hidden.
+  const monthlyAttendance = React.useMemo(
+    () => (canReadEmployees ? rawMonthlyAttendance : []),
+    [canReadEmployees, rawMonthlyAttendance],
+  );
 
   const stats = React.useMemo(() => {
     const today = format(new Date(), 'yyyy-MM-dd');

@@ -15,6 +15,8 @@ const mockDelete = vi.fn();
 const mockSingle = vi.fn();
 const mockMaybeSingle = vi.fn();
 const mockEq = vi.fn();
+const mockIn = vi.fn();
+const mockOrder = vi.fn();
 
 const mockAuthGetUser = vi.fn();
 const mockRpc = vi.fn();
@@ -42,15 +44,13 @@ vi.mock('@/lib/supabase', () => ({
                   maybeSingle: () => mockMaybeSingle(),
                   single: () => mockSingle(),
                 }),
-                in: () => ({ data: [], error: null }),
-                order: () => ({ data: [], error: null }),
+                in: mockIn,
+                order: mockOrder,
                 single: () => mockSingle(),
               };
             },
-            order: () => ({
-              data: [],
-              error: null,
-            }),
+            in: mockIn,
+            order: mockOrder,
           };
         },
         insert: (data: unknown) => {
@@ -102,6 +102,8 @@ describe('Org Admin Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRpc.mockReturnValue({ data: null, error: null });
+    mockIn.mockReturnValue({ data: [], error: null });
+    mockOrder.mockReturnValue({ data: [], error: null });
     mockAuthGetUser.mockResolvedValue({
       data: { user: { id: 'user-1', email: 'admin@example.com' } },
       error: null,
@@ -190,6 +192,79 @@ describe('Org Admin Service', () => {
       const result = await getOrgUsers('org-1');
 
       expect(result).toEqual([]);
+    });
+
+    it('hydrates organization users with profile metadata and email', async () => {
+      const membership = {
+        id: 'membership-1',
+        user_id: 'user-2',
+        org_id: 'org-1',
+        is_active: true,
+        is_org_admin: false,
+        created_at: '2026-08-11T00:00:00Z',
+      };
+      const profile = {
+        user_id: 'user-2',
+        full_name: 'Test User',
+        full_name_ar: 'مستخدم اختبار',
+        phone: null,
+        avatar_url: null,
+        preferred_language: 'ar',
+        last_login_at: null,
+        email: 'test.user@example.com',
+      };
+
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: [], error: null })
+        .mockReturnValueOnce({ data: [profile], error: null });
+
+      const result = await getOrgUsers('org-1');
+
+      expect(mockFrom).toHaveBeenCalledWith('user_profiles');
+      expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('email'));
+      expect(result).toEqual([
+        {
+          ...membership,
+          user_profile: profile,
+          email: 'test.user@example.com',
+          roles: [],
+        },
+      ]);
+    });
+
+    it('keeps memberships usable when profile enrichment fails', async () => {
+      const membership = {
+        id: 'membership-1',
+        user_id: 'user-2',
+        org_id: 'org-1',
+        is_active: true,
+        is_org_admin: false,
+        created_at: '2026-08-11T00:00:00Z',
+      };
+      const profilesError = new Error('profile lookup unavailable');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: [], error: null })
+        .mockReturnValueOnce({ data: null, error: profilesError });
+
+      try {
+        const result = await getOrgUsers('org-1');
+
+        expect(warnSpy).toHaveBeenCalledWith('Could not fetch user profiles:', profilesError);
+        expect(result).toEqual([
+          {
+            ...membership,
+            user_profile: undefined,
+            email: undefined,
+            roles: [],
+          },
+        ]);
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 

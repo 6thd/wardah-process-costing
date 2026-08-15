@@ -36,6 +36,24 @@ function RoutingList() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { user } = useAuthStore()
+  // Round 7 P1: routingService.ts reads/writes `routings`, `routing_operations`
+  // and `operation_resources` — tables with no relationship to
+  // manufacturing_stages beyond both living under Manufacturing.
+  // manufacturing.stages.create/.update/.delete were previously accepted here
+  // as a "nearest resource" stand-in (Round 6); that mapping is not "the
+  // actual underlying resource it queries" and is now overturned. No
+  // manufacturing.routing.* key exists in the live catalog, so every write —
+  // and the list read itself — is hard fail-closed pending a real routing.*
+  // catalog resource, matching route-permissions.ts's unregistered /routing,
+  // /routing/new and /routing/:id (undefined requirement, fail-closed at
+  // ModuleGuard). Do not reintroduce a manufacturing.stages.* (or any other)
+  // mapping here without that catalog resource actually existing.
+  const canRead = false
+  const canCreate = false
+  const canUpdate = false
+  const canDelete = false
+  const canCopy = false
+  const canApprove = false
   const [orgId, setOrgId] = useState<string>('')
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'DRAFT' | 'APPROVED' | 'OBSOLETE'>('ALL')
@@ -48,7 +66,7 @@ function RoutingList() {
     loadOrgId()
   }, [])
 
-  const { data: routings, isLoading, refetch } = useRoutings(orgId || undefined)
+  const { data: routings, isLoading, refetch } = useRoutings(orgId || undefined, { enabled: canRead })
   const deleteRouting = useDeleteRouting(orgId || undefined)
   const approveRouting = useApproveRouting()
   const copyRouting = useCopyRouting(orgId || undefined)
@@ -71,6 +89,7 @@ function RoutingList() {
   }) ?? []
 
   const handleEdit = (id: string) => {
+    if (!canUpdate) return
     navigate(`/manufacturing/routing/${id}`)
   }
 
@@ -79,18 +98,23 @@ function RoutingList() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) return
     if (confirm(t('routingMgmt.deleteConfirm'))) {
       deleteRouting.mutate(id)
     }
   }
 
   const handleApprove = async (id: string) => {
+    // لا مفتاح صلاحية مطابق لاعتماد التوجيه في الكتالوج الحي — مُغلَق دائمًا
+    // (fail-closed)، انظر التعليق أعلى canApprove.
+    if (!canApprove) return
     if (user?.id) {
       approveRouting.mutate({ id, userId: user.id })
     }
   }
 
   const handleCopy = async (id: string, code: string) => {
+    if (!canCopy) return
     const newCode = `${code}-COPY-${Date.now().toString().slice(-4)}`
     copyRouting.mutate({ id, newCode })
   }
@@ -129,10 +153,12 @@ function RoutingList() {
             <RefreshCw className="w-4 h-4 mr-2" />
             {t('routingMgmt.refresh')}
           </Button>
-          <Button onClick={() => navigate('/manufacturing/routing/new')}>
-            <Plus className="w-4 h-4 mr-2" />
-            {t('routingMgmt.newRouting')}
-          </Button>
+          {canCreate && (
+            <Button onClick={() => navigate('/manufacturing/routing/new')}>
+              <Plus className="w-4 h-4 mr-2" />
+              {t('routingMgmt.newRouting')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -182,6 +208,7 @@ function RoutingList() {
           {!isLoading && (!filteredRoutings || filteredRoutings.length === 0) && (
             <RoutingEmptyState
               onCreateNew={() => navigate('/manufacturing/routing/new')}
+              canCreate={canCreate}
             />
           )}
           {!isLoading && filteredRoutings && filteredRoutings.length > 0 && (
@@ -194,6 +221,10 @@ function RoutingList() {
               onApprove={handleApprove}
               onView={handleView}
               getStatusBadge={getStatusBadge}
+              canUpdate={canUpdate}
+              canDelete={canDelete}
+              canCopy={canCopy}
+              canApprove={canApprove}
             />
           )}
         </CardContent>

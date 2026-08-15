@@ -50,6 +50,7 @@ import {
   type LeaveRequestRow,
   type LeaveTypeRow,
 } from '@/services/hr/leave-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { STATUS_BADGES } from '../types';
 import { getHrStatusKey, useHrTranslation } from '../i18n';
 import '../translations/pages';
@@ -66,6 +67,14 @@ export const LeavesPage: React.FC = () => {
   const { t, i18n } = useHrTranslation();
   const isArabic = i18n.resolvedLanguage?.startsWith('ar') ?? true;
   const queryClient = useQueryClient();
+  const { hasPermissionKey } = usePermissions();
+  const canCreate = hasPermissionKey('hr.leaves.create');
+  // الموافقة والرفض قرارا اعتماد واحد (تنتقلان بالطلب من pending إلى
+  // approved/rejected) — hr.leaves.approve الوحيد المطابق للفعل الإشرافي؛
+  // الموافقة أيضًا تكتب حضورًا فعليًا عبر applyApprovedLeaveToAttendance، وهو
+  // أثر جانبي لازم لقرار الاعتماد نفسه لا فعلًا مستقلًا يحتاج hr.attendance.*.
+  const canApprove = hasPermissionKey('hr.leaves.approve');
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
   const [activeTab, setActiveTab] = useState('pending');
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewRequestDialog, setShowNewRequestDialog] = useState(false);
@@ -83,6 +92,7 @@ export const LeavesPage: React.FC = () => {
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
+    enabled: canReadEmployees,
   });
   const { data: leaveTypes = [] } = useQuery({
     queryKey: ['hr', 'leave-types'],
@@ -127,7 +137,10 @@ export const LeavesPage: React.FC = () => {
   }, []);
 
   const approveMutation = useMutation({
-    mutationFn: ({ id, override }: { id: string; override: boolean }) => approveLeaveRequest(id, override),
+    mutationFn: ({ id, override }: { id: string; override: boolean }) => {
+      if (!canApprove) return Promise.reject(new Error(t('leaves.operationFailed')));
+      return approveLeaveRequest(id, override);
+    },
     onSuccess: () => {
       toast.success(t('leaves.approvedSuccess'));
       queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
@@ -137,7 +150,10 @@ export const LeavesPage: React.FC = () => {
     onError: (error: Error) => toast.error(error.message || t('leaves.operationFailed')),
   });
   const rejectMutation = useMutation({
-    mutationFn: ({ id, notes }: { id: string; notes: string }) => rejectLeaveRequest(id, notes),
+    mutationFn: ({ id, notes }: { id: string; notes: string }) => {
+      if (!canApprove) return Promise.reject(new Error(t('leaves.operationFailed')));
+      return rejectLeaveRequest(id, notes);
+    },
     onSuccess: () => {
       toast.success(t('leaves.rejectedSuccess'));
       queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
@@ -146,7 +162,10 @@ export const LeavesPage: React.FC = () => {
     onError: (error: Error) => toast.error(error.message || t('leaves.operationFailed')),
   });
   const createMutation = useMutation({
-    mutationFn: () => createLeaveRequest(newForm),
+    mutationFn: () => {
+      if (!canCreate) return Promise.reject(new Error(t('leaves.operationFailed')));
+      return createLeaveRequest(newForm);
+    },
     onSuccess: () => {
       toast.success(t('leaves.createdSuccess'));
       queryClient.invalidateQueries({ queryKey: ['hr', 'leave-requests'] });
@@ -166,6 +185,10 @@ export const LeavesPage: React.FC = () => {
 
   const confirmApproval = () => {
     if (!selectedRequest) return;
+    if (!canApprove) {
+      toast.error(t('leaves.operationFailed'));
+      return;
+    }
     if (approveAction === 'approve') {
       approveMutation.mutate({ id: selectedRequest.id, override: adminOverride });
     } else {
@@ -202,7 +225,7 @@ export const LeavesPage: React.FC = () => {
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div><CardTitle>{t('leaves.listTitle')}</CardTitle><CardDescription>{t('leaves.listDescription')}</CardDescription></div>
-          <Button onClick={() => setShowNewRequestDialog(true)}><Plus className="h-4 w-4 me-2" />{t('leaves.newRequest')}</Button>
+          {canCreate && <Button onClick={() => setShowNewRequestDialog(true)}><Plus className="h-4 w-4 me-2" />{t('leaves.newRequest')}</Button>}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative max-w-sm">
@@ -230,7 +253,7 @@ export const LeavesPage: React.FC = () => {
                       <TableCell dir="ltr">{request.start_date}</TableCell><TableCell dir="ltr">{request.end_date}</TableCell>
                       <TableCell><Badge variant="outline">{t('leaves.days', { count: request.total_days })}</Badge></TableCell>
                       <TableCell><Badge className={STATUS_BADGES[request.status] || 'bg-slate-100 text-slate-700'}>{t(getHrStatusKey(request.status))}</Badge></TableCell>
-                      <TableCell>{request.status === 'pending' && <div className="flex gap-2"><Button size="sm" variant="outline" aria-label={t('common.approve')} onClick={() => openApprovalDialog(request, 'approve')}><CheckCircle2 className="h-4 w-4" /></Button><Button size="sm" variant="outline" aria-label={t('common.reject')} onClick={() => openApprovalDialog(request, 'reject')}><XCircle className="h-4 w-4" /></Button></div>}</TableCell>
+                      <TableCell>{request.status === 'pending' && canApprove && <div className="flex gap-2"><Button size="sm" variant="outline" aria-label={t('common.approve')} onClick={() => openApprovalDialog(request, 'approve')}><CheckCircle2 className="h-4 w-4" /></Button><Button size="sm" variant="outline" aria-label={t('common.reject')} onClick={() => openApprovalDialog(request, 'reject')}><XCircle className="h-4 w-4" /></Button></div>}</TableCell>
                     </TableRow>;
                   })}</TableBody>
                 </Table>

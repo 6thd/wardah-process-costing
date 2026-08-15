@@ -28,6 +28,7 @@ import { SalesReports as SalesReportsComponent } from './components/SalesReports
 import { InventoryValuationReport } from './components/InventoryValuationReport'
 import { FinancialStatementsReport } from './components/FinancialStatementsReport'
 import { PurchasingAnalyticsReport } from './components/PurchasingAnalyticsReport'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function ReportsModule() {
   return (
@@ -56,7 +57,10 @@ export function ReportsModule() {
 function ReportsOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
 
+  // كل فئة مربوطة بمتطلب مسارها الفعلي في route-permissions.ts — لا تُعرض
+  // لمستخدم اجتاز دخول /reports بمفتاح آخر لا يشمل موردها.
   const reportCategories = [
     {
       title: 'التقارير المالية',
@@ -65,7 +69,8 @@ function ReportsOverview() {
       href: '/reports/financial',
       color: 'text-green-600',
       bgColor: 'bg-green-50',
-      reports: ['قائمة الدخل', 'الميزانية العمومية', 'التدفقات النقدية']
+      reports: ['قائمة الدخل', 'الميزانية العمومية', 'التدفقات النقدية'],
+      requiredKeys: ['reports.financial.read'],
     },
     {
       title: 'تقارير المخزون',
@@ -74,7 +79,8 @@ function ReportsOverview() {
       href: '/reports/inventory',
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
-      reports: ['تقييم المخزون', 'كارت الأصناف', 'الأصناف بطيئة الحركة']
+      reports: ['تقييم المخزون', 'كارت الأصناف', 'الأصناف بطيئة الحركة'],
+      requiredKeys: ['reports.inventory.read'],
     },
     {
       title: 'تقارير التصنيع',
@@ -83,7 +89,8 @@ function ReportsOverview() {
       href: '/reports/manufacturing',
       color: 'text-purple-600',
       bgColor: 'bg-purple-50',
-      reports: ['تكاليف الإنتاج', 'كفاءة العمليات', 'تحليل المراحل']
+      reports: ['تكاليف الإنتاج', 'كفاءة العمليات', 'تحليل المراحل'],
+      requiredKeys: ['reports.manufacturing.read'],
     },
     {
       title: 'لوحة تكاليف المراحل',
@@ -92,7 +99,8 @@ function ReportsOverview() {
       href: '/reports/process-costing-dashboard',
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
-      reports: ['حساب EUP', 'تحليل الهالك', 'مقارنة FIFO', 'تفصيل المراحل', 'تقييم WIP']
+      reports: ['حساب EUP', 'تحليل الهالك', 'مقارنة FIFO', 'تفصيل المراحل', 'تقييم WIP'],
+      requiredKeys: ['reports.manufacturing.read'],
     },
     {
       title: 'تقارير المبيعات',
@@ -101,7 +109,8 @@ function ReportsOverview() {
       href: '/reports/sales',
       color: 'text-green-600',
       bgColor: 'bg-green-50',
-      reports: ['أداء المبيعات', 'تحليل العملاء', 'المنتجات الأكثر مبيعاً']
+      reports: ['أداء المبيعات', 'تحليل العملاء', 'المنتجات الأكثر مبيعاً'],
+      requiredKeys: ['reports.sales.read'],
     },
     {
       title: 'تقارير المشتريات',
@@ -110,7 +119,10 @@ function ReportsOverview() {
       href: '/reports/purchasing',
       color: 'text-orange-600',
       bgColor: 'bg-orange-50',
-      reports: ['أداء الموردين', 'تحليل المشتريات', 'معدلات التسليم']
+      reports: ['أداء الموردين', 'تحليل المشتريات', 'معدلات التسليم'],
+      // لا مفتاح reports.purchasing.* في الكتالوج الحي — نفس اعتماد
+      // route-permissions.ts على صلاحية المشتريات التشغيلية نفسها.
+      requiredKeys: ['purchasing.purchase_orders.read', 'purchasing.suppliers.read'],
     },
     {
       title: 'التحليلات المتقدمة',
@@ -119,7 +131,8 @@ function ReportsOverview() {
       href: '/reports/analytics',
       color: 'text-indigo-600',
       bgColor: 'bg-indigo-50',
-      reports: ['الذكاء الاصطناعي', 'التنبؤات', 'الاتجاهات']
+      reports: ['الذكاء الاصطناعي', 'التنبؤات', 'الاتجاهات'],
+      requiredKeys: ['reports.ai_insights.use'],
     },
     {
       title: 'التقارير المتقدمة',
@@ -128,7 +141,8 @@ function ReportsOverview() {
       href: '/reports/advanced',
       color: 'text-red-600',
       bgColor: 'bg-red-50',
-      reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية']
+      reports: ['تحليل الانحرافات', 'تقرير WIP', 'تحليل الربحية'],
+      requiredKeys: ['reports.financial.read', 'reports.inventory.read', 'reports.manufacturing.read', 'reports.sales.read'],
     },
     {
       title: 'رؤى التقارير الذكية',
@@ -137,10 +151,11 @@ function ReportsOverview() {
       href: '/reports/insights',
       color: 'text-blue-600',
       bgColor: 'bg-blue-50',
-      reports: ['تحليل الأداء', 'التوقعات الذكية', 'التوصيات']
+      reports: ['تحليل الأداء', 'التوقعات الذكية', 'التوصيات'],
+      requiredKeys: ['reports.ai_insights.use'],
     }
-  ]
-  
+  ].filter(category => category.requiredKeys.some(hasPermissionKey))
+
   return (
     <div className="space-y-8">
       <PageHeader title={t('reports.title')} description="تقارير وتحليلات شاملة لعمليات الشركة" hideOnPrint={false} />

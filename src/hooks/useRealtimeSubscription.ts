@@ -5,14 +5,38 @@ import { useEffect, useRef, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
 
-export const useRealtimeSubscription = (tableName: string, queryKey: string | string[]) => {
+export const useRealtimeSubscription = (
+  tableName: string,
+  queryKey: string | string[],
+  options?: { enabled?: boolean }
+) => {
   const queryClient = useQueryClient()
   // Memoize key to prevent unnecessary re-renders
   const key = useMemo(() => Array.isArray(queryKey) ? queryKey : [queryKey], [queryKey])
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const enabled = options?.enabled ?? true
 
   useEffect(() => {
     if (!supabase) return
+
+    // No read permission for this resource: do not open a realtime channel.
+    // Also tears down any channel left over from a permission that was just
+    // revoked, instead of leaving it streaming updates for data the UI no
+    // longer has the right to display.
+    if (!enabled) {
+      if (channelRef.current) {
+        const staleChannel = channelRef.current
+        channelRef.current = null
+        void (async () => {
+          try {
+            await supabase.removeChannel(staleChannel)
+          } catch {
+            // Ignore errors when removing channel (it might already be closed)
+          }
+        })()
+      }
+      return
+    }
 
     // Clean up previous channel if exists
     if (channelRef.current) {
@@ -51,5 +75,5 @@ export const useRealtimeSubscription = (tableName: string, queryKey: string | st
         })()
       }
     }
-  }, [tableName, key, queryClient])
+  }, [tableName, key, queryClient, enabled])
 }

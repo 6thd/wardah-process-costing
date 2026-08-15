@@ -11,6 +11,7 @@ import {
   EXPORTABLE_TABLES,
   type ExportableTable,
 } from '@/services/org-settings-service'
+import { usePermissions } from '@/hooks/usePermissions'
 
 const TABLE_LABELS: Record<ExportableTable, { ar: string; en: string }> = {
   products: { ar: 'المنتجات', en: 'Products' },
@@ -20,6 +21,20 @@ const TABLE_LABELS: Record<ExportableTable, { ar: string; en: string }> = {
   purchase_orders: { ar: 'أوامر الشراء', en: 'Purchase orders' },
   gl_entries: { ar: 'قيود اليومية (الرؤوس)', en: 'Journal entries (headers)' },
   gl_entry_lines: { ar: 'سطور قيود اليومية', en: 'Journal entry lines' },
+}
+
+// لا مورد "settings.backup" في الكتالوج الحي، وربط هذه الشاشة بـ
+// settings.organization.* (كما فعل route-permissions.ts لدخول المسار فقط)
+// خطأ دلالي: الجداول المُصدَّرة هنا لا علاقة لها بصف organizations. كل جدول
+// يُحكَم بمفتاح قراءة موارده الفعلي، لا مفتاح واحد مخترَع.
+const TABLE_PERMISSION_KEY: Record<ExportableTable, string> = {
+  products: 'inventory.products.read',
+  customers: 'sales.customers.read',
+  vendors: 'purchasing.suppliers.read',
+  sales_invoices: 'sales.sales_invoices.read',
+  purchase_orders: 'purchasing.purchase_orders.read',
+  gl_entries: 'accounting.journals.read',
+  gl_entry_lines: 'accounting.journals.read',
 }
 
 function download(filename: string, content: string, mime: string) {
@@ -36,9 +51,16 @@ export function BackupSettingsPage() {
   const isRTL = (i18n.resolvedLanguage ?? i18n.language).toLowerCase().startsWith('ar')
   const tr = (ar: string, en: string) => isRTL ? ar : en
   const tableLabel = (table: ExportableTable) => isRTL ? TABLE_LABELS[table].ar : TABLE_LABELS[table].en
+  const { hasPermissionKey } = usePermissions()
+  const canExportTable = (table: ExportableTable) => hasPermissionKey(TABLE_PERMISSION_KEY[table])
+  const canExportAll = EXPORTABLE_TABLES.every(canExportTable)
   const [busy, setBusy] = useState<string | null>(null)
 
   const exportTable = async (table: ExportableTable, format: 'json' | 'csv') => {
+    if (!canExportTable(table)) {
+      toast.error(tr('لا تملك صلاحية تصدير هذه البيانات', 'You do not have permission to export this data'))
+      return
+    }
     setBusy(`${table}-${format}`)
     try {
       const rows = await fetchExportRows(table)
@@ -69,6 +91,10 @@ export function BackupSettingsPage() {
   }
 
   const exportAll = async () => {
+    if (!canExportAll) {
+      toast.error(tr('لا تملك صلاحية تصدير كل الجداول', 'You do not have permission to export all tables'))
+      return
+    }
     setBusy('all')
     try {
       const dump: Record<string, unknown[]> = {}
@@ -106,17 +132,19 @@ export function BackupSettingsPage() {
           <CardTitle className={isRTL ? 'text-right' : 'text-left'}>
             {tr('الجداول الرئيسية', 'Main Tables')}
           </CardTitle>
-          <Button onClick={exportAll} disabled={busy !== null}>
-            <Download className={cn('h-4 w-4', isRTL ? 'ml-2' : 'mr-2')} />
-            {busy === 'all'
-              ? tr('جارٍ التصدير…', 'Exporting…')
-              : tr('تصدير الكل بصيغة JSON', 'Export all as JSON')}
-          </Button>
+          {canExportAll && (
+            <Button onClick={exportAll} disabled={busy !== null}>
+              <Download className={cn('h-4 w-4', isRTL ? 'ml-2' : 'mr-2')} />
+              {busy === 'all'
+                ? tr('جارٍ التصدير…', 'Exporting…')
+                : tr('تصدير الكل بصيغة JSON', 'Export all as JSON')}
+            </Button>
+          )}
         </CardHeader>
 
         <CardContent>
           <div className="divide-y">
-            {EXPORTABLE_TABLES.map((table) => (
+            {EXPORTABLE_TABLES.filter(canExportTable).map((table) => (
               <div
                 key={table}
                 className={cn('flex items-center justify-between gap-4 py-3', isRTL && 'flex-row-reverse')}

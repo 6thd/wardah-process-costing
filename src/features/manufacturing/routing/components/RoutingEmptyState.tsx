@@ -11,10 +11,12 @@ import { Route, Plus } from 'lucide-react'
 
 interface RoutingEmptyStateProps {
   onCreateNew: () => void
+  canCreate?: boolean
 }
 
 export const RoutingEmptyState: React.FC<RoutingEmptyStateProps> = ({
-  onCreateNew
+  onCreateNew,
+  canCreate = true
 }) => {
   const { t } = useTranslation()
   return (
@@ -24,10 +26,12 @@ export const RoutingEmptyState: React.FC<RoutingEmptyStateProps> = ({
       <p className="mt-1 text-muted-foreground">
         {t('routingMgmt.empty.subtitle')}
       </p>
-      <Button className="mt-4" onClick={onCreateNew}>
-        <Plus className="w-4 h-4 mr-2" />
-        {t('routingMgmt.empty.cta')}
-      </Button>
+      {canCreate && (
+        <Button className="mt-4" onClick={onCreateNew}>
+          <Plus className="w-4 h-4 mr-2" />
+          {t('routingMgmt.empty.cta')}
+        </Button>
+      )}
     </div>
   )
 }

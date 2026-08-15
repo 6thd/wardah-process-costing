@@ -16,10 +16,16 @@ export const MANUFACTURING_ORDERS_QUERY_KEY = ['manufacturing-orders'] as const;
  * بند 11: موحَّد على React Query داخلياً — الواجهة الخارجية
  * { orders, loading, loadOrders } كما كانت تماماً، لا كسر لأي مستهلك.
  * المكاسب: كاش مشترك + إلغاء تكرار الطلبات + refetch تلقائي
+ *
+ * `enabled` (اختياري، افتراضه true): يمنع React Query من الجلب أصلاً. مستهلك
+ * مثل ManufacturingOverview يمرر manufacturing.orders.read الفعلي بدل الاعتماد
+ * على anyOf مستوى المسار — مستخدم اجتاز الدخول بمفتاح آخر (boms/stages/...)
+ * لا يجب أن يُطلِق طلب أوامر التصنيع.
  */
-export function useManufacturingOrders() {
+export function useManufacturingOrders(options?: { enabled?: boolean }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const enabled = options?.enabled ?? true;
 
   const { data, isLoading } = useQuery<ManufacturingOrder[]>({
     queryKey: MANUFACTURING_ORDERS_QUERY_KEY,
@@ -39,6 +45,7 @@ export function useManufacturingOrders() {
       }
     },
     staleTime: 30_000,
+    enabled,
   });
 
   // نفس التوقيع القديم: تُستدعى بعد الإنشاء/تغيير الحالة لإعادة التحميل

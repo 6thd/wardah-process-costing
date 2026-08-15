@@ -5,11 +5,12 @@
 import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getOrgRolesWithStats, 
-  OrgRole, 
-  getRoleTemplates, 
-  RoleTemplate 
+import { usePermissions } from '@/hooks/usePermissions';
+import {
+  getOrgRolesWithStats,
+  OrgRole,
+  getRoleTemplates,
+  RoleTemplate
 } from '@/services/org-admin-service';
 import { createRoleFromTemplate } from '@/services/rbac-service';
 import { getSupabase } from '@/lib/supabase';
@@ -67,6 +68,7 @@ import {
   FileText,
   Copy,
   Sparkles,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -130,12 +132,15 @@ function getCategoryColor(category: string): string {
 export default function OrgAdminRoles() {
   const { currentOrgId } = useAuth();
   const navigate = useNavigate();
+  // Which keys are sensitive is a backend fact (Migration 174's central
+  // classifier), delivered through rpc_permission_snapshot. This page must not
+  // keep its own copy of that call — usePermissions() already owns fetching,
+  // caching, cross-tab revalidation, and de-duplicating that RPC across every
+  // consumer on the page; a second independent implementation here is exactly
+  // the drift this work removes.
+  const { sensitivePermissionKeys: sensitiveKeys, refreshPermissions } = usePermissions();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
-  // Which keys are sensitive is a backend fact (Migration 174's central
-  // classifier), delivered through rpc_permission_snapshot. The client must not
-  // keep its own list — that is exactly the drift this work removes.
-  const [sensitiveKeys, setSensitiveKeys] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState<string | null>(null);
   
@@ -292,41 +297,6 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }, []);
 
-  const refreshSnapshot = useCallback(async () => {
-    if (!currentOrgId) return;
-    const { data, error } = await getSupabase().rpc('rpc_permission_snapshot', {
-      p_org_id: currentOrgId,
-    });
-    if (error) {
-      console.error('permission snapshot failed', error);
-      return;
-    }
-    const snapshot = data as { sensitive_permission_keys?: string[] } | null;
-    const next = snapshot?.sensitive_permission_keys ?? [];
-    // Only update when the value actually changed. Writing a fresh array on
-    // every call re-renders for nothing — and, with a listener that can fire
-    // repeatedly, feeds itself.
-    setSensitiveKeys(prev =>
-      prev.length === next.length && prev.every((k, i) => k === next[i]) ? prev : next
-    );
-  }, [currentOrgId]);
-
-  useEffect(() => { void refreshSnapshot(); }, [refreshSnapshot]);
-
-  // The snapshot can go stale while the tab sits in the background — a grant or
-  // revocation made elsewhere must not leave this page acting on old state.
-  //
-  // visibilitychange, not window 'focus': 'focus' also fires when focus moves
-  // inside the page (a dialog opening and trapping focus, for one), which is
-  // not a staleness signal and would re-query on every interaction.
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') void refreshSnapshot();
-    };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [refreshSnapshot]);
-
   const selectedPermissionKeys = useCallback(
     (ids: string[]) => permissionIdsToKeys(modules, ids),
     [modules]
@@ -368,7 +338,7 @@ export default function OrgAdminRoles() {
 
       setDialogOpen(false);
       loadData();
-      await refreshSnapshot();
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error saving role:', error);
       toast.error(rbacErrorMessage(error));
@@ -390,7 +360,7 @@ export default function OrgAdminRoles() {
 
       setRoles(roles.filter(r => r.id !== roleId));
       toast.success('تم حذف الدور');
-      await refreshSnapshot();
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error deleting role:', error);
       toast.error(rbacErrorMessage(error));
@@ -428,6 +398,8 @@ export default function OrgAdminRoles() {
   const getModuleSelectedCount = useCallback((module: Module) => {
     return module.permissions.filter(p => formData.permission_ids.includes(p.id)).length;
   }, [formData.permission_ids]);
+
+  const selectedSensitiveKeys = sensitiveSelected(formData.permission_ids);
 
   return (
     <div className="min-h-screen bg-background">
@@ -776,34 +748,35 @@ export default function OrgAdminRoles() {
                         className="border border-border rounded-lg overflow-hidden"
                       >
                         {/* Module Header */}
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between p-3 bg-muted/30 cursor-pointer hover:bg-muted/30 transition-colors border-0 bg-transparent text-start"
-                          onClick={() => toggleModule(module.id)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Checkbox
-                              checked={allSelected}
-                              onCheckedChange={(checked) => {
-                                toggleModulePermissions(module, !!checked);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              className="border-input"
-                            />
-                            <span className="font-medium text-foreground">
-                              {module.name_ar || module.name}
+                        <div className="flex items-center gap-3 p-3 bg-muted/30 hover:bg-muted/40 transition-colors">
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={(checked) => {
+                              toggleModulePermissions(module, !!checked);
+                            }}
+                            className="border-input"
+                            aria-label={`تحديد كل صلاحيات ${module.name_ar || module.name}`}
+                          />
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center justify-between border-0 bg-transparent p-0 text-start"
+                            onClick={() => toggleModule(module.id)}
+                          >
+                            <span className="flex items-center gap-3">
+                              <span className="font-medium text-foreground">
+                                {module.name_ar || module.name}
+                              </span>
+                              <Badge variant="outline" className="border-border text-muted-foreground text-xs">
+                                {selectedCount}/{module.permissions.length}
+                              </Badge>
                             </span>
-                            <Badge variant="outline" className="border-border text-muted-foreground text-xs">
-                              {selectedCount}/{module.permissions.length}
-                            </Badge>
-                          </div>
-                          {isExpanded ? (
-                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </button>
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </button>
+                        </div>
 
                         {/* Permissions List */}
                         {isExpanded && (
@@ -812,6 +785,7 @@ export default function OrgAdminRoles() {
                               <button
                                 key={perm.id}
                                 type="button"
+                                aria-pressed={formData.permission_ids.includes(perm.id)}
                                 className={`w-full text-start flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
@@ -839,21 +813,16 @@ export default function OrgAdminRoles() {
                                   e.stopPropagation();
                                 }}
                               >
-                                <Checkbox
-                                  checked={formData.permission_ids.includes(perm.id)}
-                                  onCheckedChange={(checked) => {
-                                    setFormData(prev => {
-                                      if (checked) {
-                                        return { ...prev, permission_ids: [...prev.permission_ids, perm.id] };
-                                      } else {
-                                        return { ...prev, permission_ids: prev.permission_ids.filter(id => id !== perm.id) };
-                                      }
-                                    });
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  className="border-input"
-                                />
+                                <span
+                                  aria-hidden="true"
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+                                    formData.permission_ids.includes(perm.id)
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-input'
+                                  }`}
+                                >
+                                  {formData.permission_ids.includes(perm.id) && <Check className="h-4 w-4" />}
+                                </span>
                                 <span className="text-sm text-muted-foreground">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
@@ -884,18 +853,18 @@ export default function OrgAdminRoles() {
                 role="alert"
                 aria-live="polite"
                 className={
-                  sensitiveSelected(formData.permission_ids).length > 0
+                  selectedSensitiveKeys.length > 0
                     ? 'rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm'
                     : 'sr-only'
                 }
               >
-                {sensitiveSelected(formData.permission_ids).length > 0 && (
+                {selectedSensitiveKeys.length > 0 && (
                   <>
                     <strong className="block mb-1">هذا الدور يمنح صلاحيات حساسة</strong>
                     هذه المفاتيح لا يمنحها دور مسؤول المؤسسة تلقائيًا؛ من يحمل هذا الدور
                     يكتسبها صراحةً، ويُسجَّل ذلك في سجل التدقيق:
                     <ul className="list-disc ps-5 mt-1">
-                      {sensitiveSelected(formData.permission_ids).map(key => (
+                      {selectedSensitiveKeys.map(key => (
                         <li key={key}><code>{key}</code></li>
                       ))}
                     </ul>

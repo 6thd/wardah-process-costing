@@ -32,6 +32,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { getEmployees, getPayrollRuns } from '@/services/hr/hr-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { useHrTranslation } from '../i18n';
 import '../translations/reports';
 
@@ -105,16 +106,38 @@ export const ReportsPage: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const isRtl = i18n.dir() === 'rtl';
   const numberLocale = isRtl ? 'ar-SA' : 'en-US';
+  const { hasPermissionKey } = usePermissions();
+  // دخول الشاشة نفسه anyOf بين مفاتيح hr الأربعة (route-permissions.ts)، فمن
+  // يدخل بمفتاح آخر (كـ hr.leaves.read وحده) لا يجب أن يرى تجميعات الموظفين
+  // أو الرواتب — كل استعلام يُحكَم بمفتاح قراءة مورده الفعلي هنا أيضًا.
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
+  const canReadPayroll = hasPermissionKey('hr.payroll.read');
 
-  const { data: employees = [] } = useQuery({
+  const { data: rawEmployees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
+    enabled: canReadEmployees,
   });
 
-  const { data: payrollRuns = [] } = useQuery({
+  const { data: rawPayrollRuns = [] } = useQuery({
     queryKey: ['hr', 'payroll-runs'],
     queryFn: () => getPayrollRuns(12),
+    enabled: canReadPayroll,
   });
+
+  // Re-gated here, not just via `enabled` above: TanStack Query keeps a
+  // query's last successful result cached after `enabled` flips to false,
+  // and a request already in flight when permission is revoked still
+  // resolves into that cache. A revoked user must not keep seeing rows
+  // loaded before the revocation just because the cache still holds them.
+  const employees = React.useMemo(
+    () => (canReadEmployees ? rawEmployees : []),
+    [canReadEmployees, rawEmployees],
+  );
+  const payrollRuns = React.useMemo(
+    () => (canReadPayroll ? rawPayrollRuns : []),
+    [canReadPayroll, rawPayrollRuns],
+  );
 
   const quickStats = React.useMemo(() => {
     const activeCount = employees.filter((employee: any) => employee.status === 'active').length;

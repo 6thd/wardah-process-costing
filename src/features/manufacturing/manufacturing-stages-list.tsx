@@ -33,9 +33,14 @@ import {
 } from 'lucide-react'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { manufacturingStagesService } from '@/services/supabase-service'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function ManufacturingStagesList() {
   const queryClient = useQueryClient()
+  const { hasPermissionKey } = usePermissions()
+  const canCreate = hasPermissionKey('manufacturing.stages.create')
+  const canUpdate = hasPermissionKey('manufacturing.stages.update')
+  const canDelete = hasPermissionKey('manufacturing.stages.delete')
   const { data: stages = [], isLoading, isError, refetch } = useManufacturingStages()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
   const [editingStage, setEditingStage] = useState<any>(null)
@@ -53,6 +58,10 @@ export function ManufacturingStagesList() {
   }
 
   const handleEdit = (stage: any) => {
+    if (!canUpdate) {
+      toast.error('لا تملك صلاحية تعديل مراحل التصنيع')
+      return
+    }
     setEditingStage(stage)
     setFormData({
       code: stage.code || '',
@@ -66,6 +75,10 @@ export function ManufacturingStagesList() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف مراحل التصنيع')
+      return
+    }
     if (!confirm('هل أنت متأكد من حذف هذه المرحلة؟')) return
 
     try {
@@ -79,6 +92,10 @@ export function ManufacturingStagesList() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (editingStage ? !canUpdate : !canCreate) {
+      toast.error(editingStage ? 'لا تملك صلاحية تعديل مراحل التصنيع' : 'لا تملك صلاحية إنشاء مراحل تصنيع')
+      return
+    }
     try {
       if (editingStage) {
         await manufacturingStagesService.update(editingStage.id, formData)
@@ -104,6 +121,7 @@ export function ManufacturingStagesList() {
   }
 
   const handleNew = () => {
+    if (!canCreate) return
     setEditingStage(null)
     setFormData({
       code: '',
@@ -164,12 +182,14 @@ export function ManufacturingStagesList() {
                 تحديث
               </Button>
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button onClick={handleNew}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    إضافة مرحلة
-                  </Button>
-                </DialogTrigger>
+                {canCreate && (
+                  <DialogTrigger asChild>
+                    <Button onClick={handleNew}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      إضافة مرحلة
+                    </Button>
+                  </DialogTrigger>
+                )}
                 <DialogContent className="sm:max-w-[600px]">
                   <form onSubmit={handleSubmit}>
                     <DialogHeader>
@@ -270,10 +290,12 @@ export function ManufacturingStagesList() {
             <div className="text-center py-8">
               <Factory className="h-12 w-12 mx-auto mb-4 text-gray-400" />
               <p className="text-gray-500 mb-4">لا توجد مراحل تصنيع</p>
-              <Button onClick={handleNew}>
-                <Plus className="h-4 w-4 mr-2" />
-                إضافة مرحلة جديدة
-              </Button>
+              {canCreate && (
+                <Button onClick={handleNew}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  إضافة مرحلة جديدة
+                </Button>
+              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -310,21 +332,27 @@ export function ManufacturingStagesList() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleEdit(stage)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDelete(stage.id)}
-                              className="text-red-500 hover:text-red-700"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {canUpdate && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`تعديل ${stage.code}`}
+                                onClick={() => handleEdit(stage)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                aria-label={`حذف ${stage.code}`}
+                                onClick={() => handleDelete(stage.id)}
+                                className="text-red-500 hover:text-red-700"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

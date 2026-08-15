@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 // P4-D2: xlsx/jspdf تُحمَّلان كسولاً عند التصدير فقط
 import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import { AccountStatement } from '@/features/accounting/account-statement';
+import { usePermissions } from '@/hooks/usePermissions';
 import {
   Plus,
   Pencil,
@@ -134,7 +135,7 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
 }
 
 // New AccountTreeItem Component for Collapsible Tree with Enhanced Design
-const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts }: {
+const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts, canCreate, canEdit, canDelete }: {
   account: any,
   level: number,
   isRTL: boolean,
@@ -144,7 +145,10 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
   onDeleteAccount: (account: any) => void,
   searchTerm: string,
   categoryFilter: string,
-  showInactiveAccounts: boolean
+  showInactiveAccounts: boolean,
+  canCreate: boolean,
+  canEdit: boolean,
+  canDelete: boolean
 }) => {
     const { t } = useTranslation();
     const isExpanded = expandedNodes.has(account.code);
@@ -259,7 +263,7 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                 </div>
 
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
-                    {!account.allow_posting && (
+                    {!account.allow_posting && canCreate && (
                         <Button
                             variant="ghost"
                             size="icon"
@@ -270,24 +274,28 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                             <Plus className="h-4 w-4" />
                         </Button>
                     )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700"
-                        title={t('gl.editAccountBtn')}
-                        onClick={() => onOpenModal('edit', account)}
-                    >
-                        <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 hover:bg-red-100 hover:text-red-700"
-                        title={t('gl.deleteAccountBtn')}
-                        onClick={() => onDeleteAccount(account)}
-                    >
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {canEdit && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700"
+                            title={t('gl.editAccountBtn')}
+                            onClick={() => onOpenModal('edit', account)}
+                        >
+                            <Pencil className="h-4 w-4" />
+                        </Button>
+                    )}
+                    {canDelete && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 hover:bg-red-100 hover:text-red-700"
+                            title={t('gl.deleteAccountBtn')}
+                            onClick={() => onDeleteAccount(account)}
+                        >
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                    )}
                 </div>
             </div>
             {isExpanded && hasChildren && (
@@ -305,6 +313,9 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
                             searchTerm={searchTerm}
                             categoryFilter={categoryFilter}
                             showInactiveAccounts={showInactiveAccounts}
+                            canCreate={canCreate}
+                            canEdit={canEdit}
+                            canDelete={canDelete}
                         />
                     ))}
                 </div>
@@ -316,6 +327,10 @@ const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, o
 function ChartOfAccounts() {
     const { t, i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
+    const { hasPermissionKey } = usePermissions();
+    const canCreateAccount = hasPermissionKey('general_ledger.chart_of_accounts.create');
+    const canEditAccount = hasPermissionKey('general_ledger.chart_of_accounts.edit');
+    const canDeleteAccount = hasPermissionKey('general_ledger.chart_of_accounts.delete');
     const [accounts, setAccounts] = useState<GLAccount[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -383,6 +398,12 @@ function ChartOfAccounts() {
     };
 
     const handleSaveAccount = async (formData: Partial<GLAccount>) => {
+        // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create/update
+        // لا تُستدعيان بلا المفتاح الدقيق للفعل المطلوب فعليًا (create مقابل edit).
+        if (modalType === 'edit' ? !canEditAccount : !canCreateAccount) {
+            toast.error(modalType === 'edit' ? 'لا تملك صلاحية تعديل الحسابات' : 'لا تملك صلاحية إنشاء حسابات');
+            return;
+        }
         try {
             const org_id = await getEffectiveTenantId();
             if (!org_id) throw new Error(t('gl.orgIdNotFound'));
@@ -455,6 +476,10 @@ function ChartOfAccounts() {
     };
 
     const handleDeleteAccount = async (account: GLAccount) => {
+        if (!canDeleteAccount) {
+            toast.error('لا تملك صلاحية حذف الحسابات');
+            return;
+        }
         const accountName = isRTL ? (account.name_ar || account.name) : (account.name_en || account.name);
         const confirmMessage = t('gl.deleteConfirm', { name: accountName });
 
@@ -614,10 +639,12 @@ function ChartOfAccounts() {
                         <FileDown className="me-2 h-4 w-4"/>
                         PDF
                     </Button>
-                    <Button onClick={() => handleOpenModal('add')} size="sm">
-                        <Plus className="me-2 h-4 w-4"/>
-                        {t('gl.addAccount')}
-                    </Button>
+                    {canCreateAccount && (
+                        <Button onClick={() => handleOpenModal('add')} size="sm">
+                            <Plus className="me-2 h-4 w-4"/>
+                            {t('gl.addAccount')}
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -726,6 +753,9 @@ function ChartOfAccounts() {
                             searchTerm={searchTerm}
                             categoryFilter={categoryFilter}
                             showInactiveAccounts={showInactiveAccounts}
+                            canCreate={canCreateAccount}
+                            canEdit={canEditAccount}
+                            canDelete={canDeleteAccount}
                         />
                     ))
                  ) : (
@@ -733,8 +763,10 @@ function ChartOfAccounts() {
                  )}
             </div>
 
+            {/* لا يُفتَح النموذج بلا صلاحية الفعل الفعلي (create مقابل edit) —
+                حتى لو تغيّر modalType داخليًا من قبل بعد سحب صلاحية أثناء الجلسة. */}
             <AccountFormModal
-                isOpen={isModalOpen}
+                isOpen={isModalOpen && (modalType === 'edit' ? canEditAccount : canCreateAccount)}
                 onClose={handleCloseModal}
                 onSave={handleSaveAccount}
                 account={selectedAccount}

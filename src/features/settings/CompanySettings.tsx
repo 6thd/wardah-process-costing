@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { usePermissions } from '@/hooks/usePermissions';
 import { 
   Select,
   SelectContent,
@@ -192,7 +193,12 @@ export function CompanySettings() {
   const language = i18n.resolvedLanguage ?? i18n.language;
   const isRTL = language.toLowerCase().startsWith('ar');
   const tr = (arabic: string, english: string) => (isRTL ? arabic : english);
-  
+  const { hasPermissionKey } = usePermissions();
+  // حفظ الملف الشخصي للشركة ورفع/حذف الشعار كلها كتابة على صف organizations
+  // نفسه — settings.organization.update هو المفتاح الحقيقي المطابق، بصرف
+  // النظر عن أن دخول الشاشة نفسه محكوم بـ settings.organization.read فقط.
+  const canUpdate = hasPermissionKey('settings.organization.update');
+
   // State
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -245,6 +251,10 @@ export function CompanySettings() {
   }, []);
 
   const handleSave = async () => {
+    if (!canUpdate) {
+      toast.error(tr('لا تملك صلاحية تعديل بيانات الشركة', 'You do not have permission to update company data'));
+      return;
+    }
     setIsSaving(true);
     try {
       const updates: UpdateOrganizationInput = {};
@@ -279,6 +289,10 @@ export function CompanySettings() {
   const handleLogoUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    if (!canUpdate) {
+      toast.error(tr('لا تملك صلاحية تعديل بيانات الشركة', 'You do not have permission to update company data'));
+      return;
+    }
 
     setIsUploadingLogo(true);
     try {
@@ -306,7 +320,11 @@ export function CompanySettings() {
 
   const handleDeleteLogo = async () => {
     if (!form.logo_url) return;
-    
+    if (!canUpdate) {
+      toast.error(tr('لا تملك صلاحية تعديل بيانات الشركة', 'You do not have permission to update company data'));
+      return;
+    }
+
     setIsUploadingLogo(true);
     try {
       const result = await deleteOrganizationLogo();
@@ -356,7 +374,8 @@ export function CompanySettings() {
         </div>
         
         {/* Save Button */}
-        <Button 
+        {canUpdate && (
+        <Button
           onClick={handleSave}
           disabled={!hasChanges || isSaving}
           className={cn(
@@ -376,6 +395,7 @@ export function CompanySettings() {
             </>
           )}
         </Button>
+        )}
       </div>
 
       {/* Status Badge */}
@@ -406,6 +426,7 @@ export function CompanySettings() {
                     className="w-full h-full object-contain p-2"
                   />
                   {/* Overlay on hover */}
+                  {canUpdate && (
                   <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
                     <Button
                       size="sm"
@@ -424,15 +445,16 @@ export function CompanySettings() {
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
+                  )}
                 </>
               ) : (
-                <div 
-                  className="text-center cursor-pointer p-4"
+                <div
+                  className={cn("text-center p-4", canUpdate ? "cursor-pointer" : "cursor-not-allowed opacity-60")}
                   role="button"
                   tabIndex={0}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => canUpdate && fileInputRef.current?.click()}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
+                    if (canUpdate && (e.key === 'Enter' || e.key === ' ')) {
                       e.preventDefault();
                       fileInputRef.current?.click();
                     }

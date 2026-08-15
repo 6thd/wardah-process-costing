@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  permissionKeys: new Set<string>(),
+}))
+
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermissionKey: (key: string) => mocks.permissionKeys.has(key),
+  }),
 }))
 
 vi.mock('sonner', () => ({
@@ -25,6 +32,10 @@ vi.mock('sonner', () => ({
   },
 }))
 
+const mocksExtra = vi.hoisted(() => ({
+  updateCustomerReceiptDraft: vi.fn(),
+}))
+
 vi.mock('@/services/payment-vouchers-service', () => ({
   createCustomerReceipt: mocks.createCustomerReceipt,
   getAllCustomerReceipts: mocks.getAllCustomerReceipts,
@@ -33,6 +44,7 @@ vi.mock('@/services/payment-vouchers-service', () => ({
   postCustomerReceipt: mocks.postCustomerReceipt,
   resetCustomerReceiptToDraft: mocks.resetCustomerReceiptToDraft,
   cancelCustomerReceipt: mocks.cancelCustomerReceipt,
+  updateCustomerReceiptDraft: mocksExtra.updateCustomerReceiptDraft,
 }))
 
 vi.mock('@/services/supabase-service', () => ({
@@ -61,6 +73,13 @@ const draftReceipt = {
   ],
 }
 
+const postedReceipt = {
+  ...draftReceipt,
+  id: 'receipt-2',
+  receipt_number: 'CR-202607-00002',
+  status: 'posted',
+}
+
 const paymentAccounts = [
   {
     id: 'cash-1',
@@ -86,6 +105,14 @@ function renderReceipts() {
   )
 }
 
+function rerenderReceipts(rerender: (ui: Parameters<typeof render>[0]) => void) {
+  rerender(
+    <BrowserRouter>
+      <CustomerReceipts />
+    </BrowserRouter>,
+  )
+}
+
 function openSelect(trigger: HTMLElement) {
   fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false })
   fireEvent.click(trigger)
@@ -94,6 +121,13 @@ function openSelect(trigger: HTMLElement) {
 describe('CustomerReceipts', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.permissionKeys.clear()
+    // خط أساس: مستخدم يملك الأفعال الدقيقة الثلاثة، لتبقى الاختبارات القائمة
+    // (المنطق التجاري: الإقرار، الإنشاء) تختبر ما صُمِّمت له بلا تغيير في
+    // نيتها. اختبارات الحراسة أدناه تسحب كل مفتاح على حدة لإثبات الفصل.
+    mocks.permissionKeys.add('sales.receipts.create')
+    mocks.permissionKeys.add('sales.receipts.approve')
+    mocks.permissionKeys.add('sales.receipts.update')
     mocks.getAllCustomerReceipts.mockResolvedValue({ success: true, data: [draftReceipt] })
     mocks.postCustomerReceipt.mockResolvedValue({ success: true })
     mocks.getCustomers.mockResolvedValue([{ id: 'customer-1', name: 'عميل اختبار' }])
@@ -112,6 +146,30 @@ describe('CustomerReceipts', () => {
       ],
     })
     mocks.createCustomerReceipt.mockResolvedValue({ success: true, data: { id: 'receipt-2' } })
+  })
+
+  it('shows sensitive voucher controls only when the exact backend keys are granted', async () => {
+    mocks.getAllCustomerReceipts.mockResolvedValue({
+      success: true,
+      data: [draftReceipt, postedReceipt],
+    })
+
+    const { unmount } = renderReceipts()
+    await screen.findByText('CR-202607-00001')
+    expect(screen.queryByRole('button', { name: /إلغاء سند/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.cancel')
+    const cancelOnly = renderReceipts()
+    expect(await screen.findByRole('button', { name: 'إلغاء سند CR-202607-00001' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /إعادة سند .* إلى مسودة/ })).not.toBeInTheDocument()
+    cancelOnly.unmount()
+
+    mocks.permissionKeys.add('accounting.vouchers.unpost')
+    renderReceipts()
+    expect(await screen.findByRole('button', { name: 'إلغاء سند CR-202607-00001' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'إعادة سند CR-202607-00002 إلى مسودة' })).toBeInTheDocument()
   })
 
   it('uses collection_date in the list and details, then posts the draft receipt', async () => {
@@ -204,4 +262,96 @@ describe('CustomerReceipts', () => {
     }))
     expect(mocks.toastSuccess).toHaveBeenCalledWith('تم إنشاء سند القبض بنجاح')
   }, 15_000)
+
+  describe('screen read vs. sales.receipts.create/.approve/.update', () => {
+    it('hides the add-receipt trigger without sales.receipts.create', async () => {
+      mocks.permissionKeys.delete('sales.receipts.create')
+      renderReceipts()
+
+      await screen.findByText('CR-202607-00001')
+      expect(screen.queryByRole('button', { name: 'إضافة سند قبض' })).not.toBeInTheDocument()
+    })
+
+    it('hides إقرار and never posts without sales.receipts.approve', async () => {
+      mocks.permissionKeys.delete('sales.receipts.approve')
+      renderReceipts()
+
+      await screen.findByText('CR-202607-00001')
+      expect(screen.queryByRole('button', { name: 'إقرار' })).not.toBeInTheDocument()
+      expect(mocks.postCustomerReceipt).not.toHaveBeenCalled()
+    })
+
+    it('hides تعديل without sales.receipts.update', async () => {
+      mocks.permissionKeys.delete('sales.receipts.update')
+      renderReceipts()
+
+      await screen.findByText('CR-202607-00001')
+      expect(screen.queryByRole('button', { name: 'تعديل' })).not.toBeInTheDocument()
+    })
+
+    it('revoking update mid-session (edit dialog already open) blocks the actual save', async () => {
+      // نفس سيناريو CustomersManagement: النموذج المفتوح سلفًا لا يُغلَق قسرًا،
+      // لكن guardedUpdateDraft — بوابة الاستدعاء بين EditReceiptAllocationsForm
+      // وupdateCustomerReceiptDraft — ترفض التنفيذ الفعلي وتُعلم المستخدم.
+      mocksExtra.updateCustomerReceiptDraft.mockResolvedValue({ success: true })
+      const { rerender } = renderReceipts()
+      await screen.findByText('CR-202607-00001')
+
+      fireEvent.click(screen.getByRole('button', { name: 'تعديل' }))
+      const dialog = await screen.findByRole('dialog')
+      await within(dialog).findByText('INV-0001')
+
+      mocks.permissionKeys.delete('sales.receipts.update')
+      rerenderReceipts(rerender)
+
+      const saveButton = within(screen.getByRole('dialog')).getByRole('button', { name: 'حفظ التعديل' })
+      fireEvent.click(saveButton)
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('لا تملك صلاحية تعديل سندات القبض'))
+      expect(mocksExtra.updateCustomerReceiptDraft).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('revoking cancel/unpost while the reason dialog is already open blocks the actual confirm', () => {
+    // VoucherReasonActionDialog يبقى مفتوحًا إن سُحبت الصلاحية بعد ظهوره (قبل
+    // نقرة التأكيد) — الدالتان الخام (cancelCustomerReceipt/resetCustomerReceiptToDraft)
+    // لا تُستدعيان مباشرة بعد الآن؛ guardedCancelVoucher/guardedResetVoucher
+    // تعيد الفحص عند التأكيد نفسه، لا مجرد عند فتح النافذة.
+    it('revoking accounting.vouchers.cancel mid-dialog blocks the actual cancel', async () => {
+      mocks.permissionKeys.add('accounting.vouchers.cancel')
+      const { rerender } = renderReceipts()
+      await screen.findByText('CR-202607-00001')
+
+      fireEvent.click(screen.getByRole('button', { name: 'إلغاء سند CR-202607-00001' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText('السبب *'), { target: { value: 'سبب اختباري كافٍ' } })
+
+      mocks.permissionKeys.delete('accounting.vouchers.cancel')
+      rerenderReceipts(rerender)
+
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'تأكيد الإلغاء' }))
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('لا تملك صلاحية إلغاء سندات القبض'))
+      expect(mocks.cancelCustomerReceipt).not.toHaveBeenCalled()
+    })
+
+    it('revoking accounting.vouchers.unpost mid-dialog blocks the actual reset-to-draft', async () => {
+      mocks.getAllCustomerReceipts.mockResolvedValue({ success: true, data: [postedReceipt] })
+      mocks.permissionKeys.add('accounting.vouchers.unpost')
+      const { rerender } = renderReceipts()
+      await screen.findByText('CR-202607-00002')
+
+      fireEvent.click(screen.getByRole('button', { name: 'إعادة سند CR-202607-00002 إلى مسودة' }))
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.change(within(dialog).getByLabelText('السبب *'), { target: { value: 'سبب اختباري كافٍ' } })
+
+      mocks.permissionKeys.delete('accounting.vouchers.unpost')
+      rerenderReceipts(rerender)
+
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'إعادة إلى مسودة' }))
+
+      await waitFor(() => expect(mocks.toastError).toHaveBeenCalledWith('لا تملك صلاحية فك ترحيل سندات القبض'))
+      expect(mocks.resetCustomerReceiptToDraft).not.toHaveBeenCalled()
+    })
+  })
 })

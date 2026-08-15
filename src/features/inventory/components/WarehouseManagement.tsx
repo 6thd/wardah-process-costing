@@ -39,8 +39,14 @@ import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import AccountPicker from './AccountPicker';
 import { warehouseService, type Warehouse as WarehouseType } from '@/services/warehouse-service';
+import { usePermissions } from '@/hooks/usePermissions';
 
 export default function WarehouseManagement() {
+  const { hasPermissionKey } = usePermissions();
+  const canRead = hasPermissionKey('inventory.warehouses.read');
+  const canCreate = hasPermissionKey('inventory.warehouses.create');
+  const canUpdate = hasPermissionKey('inventory.warehouses.update');
+  const canDelete = hasPermissionKey('inventory.warehouses.delete');
   const [warehouses, setWarehouses] = useState<WarehouseType[]>([]);
   const [loading, setLoading] = useState(false);
   const [showDialog, setShowDialog] = useState(false);
@@ -57,8 +63,13 @@ export default function WarehouseManagement() {
   });
 
   useEffect(() => {
-    loadWarehouses();
-  }, []);
+    if (canRead) {
+      loadWarehouses();
+    } else {
+      setWarehouses([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canRead]);
 
   const loadWarehouses = async () => {
     try {
@@ -74,6 +85,10 @@ export default function WarehouseManagement() {
   };
 
   const handleOpenDialog = (warehouse?: WarehouseType) => {
+    if ((warehouse && !canUpdate) || (!warehouse && !canCreate)) {
+      toast.error(warehouse ? 'لا تملك صلاحية تعديل المخازن' : 'لا تملك صلاحية إنشاء مخازن');
+      return;
+    }
     if (warehouse) {
       setEditingWarehouse(warehouse);
       setFormData(warehouse);
@@ -115,6 +130,10 @@ export default function WarehouseManagement() {
   };
 
   const handleSave = async () => {
+    if (editingWarehouse ? !canUpdate : !canCreate) {
+      toast.error(editingWarehouse ? 'لا تملك صلاحية تعديل المخازن' : 'لا تملك صلاحية إنشاء مخازن');
+      return;
+    }
     try {
       if (!formData.code || !formData.name) {
         toast.error('الرجاء إدخال الكود والاسم');
@@ -144,6 +163,10 @@ export default function WarehouseManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف المخازن');
+      return;
+    }
     if (!confirm('هل أنت متأكد من حذف هذا المخزن؟')) {
       return;
     }
@@ -176,10 +199,12 @@ export default function WarehouseManagement() {
         <div className="flex flex-col items-center justify-center p-8 text-center">
           <Warehouse className="h-12 w-12 text-muted-foreground mb-4" />
           <p className="text-muted-foreground">لا توجد مخازن مسجلة</p>
-          <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
-            <Plus className="mr-2 h-4 w-4" />
-            إضافة أول مخزن
-          </Button>
+          {canCreate && (
+            <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
+              <Plus className="mr-2 h-4 w-4" />
+              إضافة أول مخزن
+            </Button>
+          )}
         </div>
       );
     }
@@ -259,20 +284,24 @@ export default function WarehouseManagement() {
               </TableCell>
               <TableCell className="text-start">
                 <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleOpenDialog(warehouse)}
-                  >
-                    <Edit className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDelete(warehouse.id)}
-                  >
-                    <Trash2 className="h-4 w-4 text-destructive" />
-                  </Button>
+                  {canUpdate && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleOpenDialog(warehouse)}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDelete(warehouse.id)}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
                 </div>
               </TableCell>
             </TableRow>
@@ -304,10 +333,12 @@ export default function WarehouseManagement() {
             إدارة المخازن ومواقع التخزين مع ربطها بشجرة الحسابات
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()}>
-          <Plus className="mr-2 h-4 w-4" />
-          مخزن جديد
-        </Button>
+        {canCreate && (
+          <Button onClick={() => handleOpenDialog()}>
+            <Plus className="mr-2 h-4 w-4" />
+            مخزن جديد
+          </Button>
+        )}
       </div>
 
       {/* Warning for unlinked warehouses */}
@@ -325,23 +356,25 @@ export default function WarehouseManagement() {
                 يوجد <strong>{warehouses.filter(w => !w.inventory_account_id || !w.expense_account_id).length} مخزن</strong> غير مرتبط بشجرة الحسابات. 
                 يجب ربط كل مخزن بحساب المخزون وحساب المصروفات لضمان عمل النظام المحاسبي بشكل صحيح.
               </p>
-              <div className="flex flex-wrap gap-2 mb-2">
-                {warehouses
-                  .filter(w => !w.inventory_account_id || !w.expense_account_id)
-                  .slice(0, 3)
-                  .map((w) => (
-                    <Button
-                      key={w.id}
-                      size="sm"
-                      variant="outline"
-                      className="border-amber-300 hover:bg-amber-100"
-                      onClick={() => handleOpenDialog(w)}
-                    >
-                      <Edit className="h-3 w-3 mr-1" />
-                      {w.code} - {w.name}
-                    </Button>
-                  ))}
-              </div>
+              {canUpdate && (
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {warehouses
+                    .filter(w => !w.inventory_account_id || !w.expense_account_id)
+                    .slice(0, 3)
+                    .map((w) => (
+                      <Button
+                        key={w.id}
+                        size="sm"
+                        variant="outline"
+                        className="border-amber-300 hover:bg-amber-100"
+                        onClick={() => handleOpenDialog(w)}
+                      >
+                        <Edit className="h-3 w-3 mr-1" />
+                        {w.code} - {w.name}
+                      </Button>
+                    ))}
+                </div>
+              )}
               <p className="text-xs text-amber-700 dark:text-amber-400">
                 💡 اضغط على اسم المخزن أعلاه أو زر التعديل ✏️ في الجدول، ثم انتقل لتبويب "الحسابات المحاسبية"
               </p>

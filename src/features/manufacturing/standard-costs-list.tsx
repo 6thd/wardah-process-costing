@@ -45,6 +45,7 @@ import {
 import { standardCostsService } from '@/services/supabase-service'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { supabase } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface Product {
   id: string
@@ -88,7 +89,22 @@ interface StandardCostFilters {
 
 export function StandardCostsList() {
   const queryClient = useQueryClient()
-  
+  const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('manufacturing.stage_costs.read')
+  const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
+  const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
+  const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
+  // بيانات مرجعية من موردَين مختلفَين عن stage_costs — مراحل التصنيع (مورد
+  // manufacturing.stages) والمنتجات (مورد inventory.products) — كل منهما
+  // يحتاج مفتاح قراءته الفعلي الخاص، لا stage_costs.read وحدها.
+  const canReadStages = hasPermissionKey('manufacturing.stages.read')
+  const canReadProducts = hasPermissionKey('inventory.products.read')
+  // نموذج الإضافة/التعديل يحتاج القائمتين المرجعيتين ليكون قابلاً للاستخدام
+  // فعليًا — عُرضه بلا صلاحية قراءتهما يعني حقول اختيار فارغة توهم بإمكانية
+  // إرسال بيانات غير صحيحة، فيُغلق دخول النموذج كليًا حتى تتوفر الثلاثة معًا.
+  const canOpenCreateForm = canCreate && canReadStages && canReadProducts
+  const canOpenEditForm = canUpdate && canReadStages && canReadProducts
+
   const [filters, setFilters] = useState({
     productId: 'all',
     stageId: 'all',
@@ -109,12 +125,17 @@ export function StandardCostsList() {
     notes: ''
   })
 
-  // Load related data
-  const { data: stages = [] } = useManufacturingStages()
+  // Load related data — كل استعلام مشروط بمفتاح قراءة موارده الفعلي
+  const { data: stagesData = [] } = useManufacturingStages({ enabled: canReadStages })
+  const stages = canReadStages ? stagesData : []
   const [products, setProducts] = useState<Product[]>([])
 
-  // Load products
+  // Load products — مشروط بـ inventory.products.read، لا يُستدعى إطلاقًا بدونه
   React.useEffect(() => {
+    if (!canReadProducts) {
+      setProducts([])
+      return
+    }
     const loadProducts = async () => {
       try {
         const { data, error } = await supabase
@@ -131,28 +152,32 @@ export function StandardCostsList() {
       }
     }
     loadProducts()
-  }, [])
+  }, [canReadProducts])
 
-  // Load standard costs
-  const { data: standardCosts = [], isLoading, isError, refetch } = useQuery<StandardCost[]>({
+  // Load standard costs — مشروط بمفتاح قراءتها الفعلي، لا enabled:true دومًا
+  const { data: standardCostsData = [], isLoading, isError, refetch } = useQuery<StandardCost[]>({
     queryKey: ['standard-costs', filters],
     queryFn: async () => {
       const filtersToUse: StandardCostFilters = {}
       if (filters.productId && filters.productId !== 'all') filtersToUse.productId = filters.productId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
       if (filters.isActive !== undefined) filtersToUse.isActive = filters.isActive
-      
+
       return standardCostsService.getAll(filtersToUse) as Promise<StandardCost[]>
     },
-    enabled: true
+    enabled: canRead
   })
+  // canRead يحجب أيضًا أي بيانات كاش سابقة عند سحب الصلاحية أثناء الجلسة
+  const standardCosts = canRead ? standardCostsData : []
 
   // Create/Update mutation
   const saveMutation = useMutation({
     mutationFn: async (data: Partial<StandardCostFormData>) => {
       if (editingCost) {
+        if (!canOpenEditForm) throw new Error('لا تملك صلاحية تعديل التكاليف القياسية')
         return standardCostsService.update(editingCost.id, data)
       } else {
+        if (!canOpenCreateForm) throw new Error('لا تملك صلاحية إنشاء تكاليف قياسية')
         return standardCostsService.create(data)
       }
     },
@@ -171,6 +196,7 @@ export function StandardCostsList() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canDelete) throw new Error('لا تملك صلاحية حذف التكاليف القياسية')
       // Use update to soft delete by setting is_active to false
       await standardCostsService.update(id, { is_active: false })
     },
@@ -189,6 +215,10 @@ export function StandardCostsList() {
   }
 
   const handleEdit = (cost: StandardCost) => {
+    if (!canOpenEditForm) {
+      toast.error('لا تملك صلاحية تعديل التكاليف القياسية')
+      return
+    }
     setEditingCost(cost)
     setFormData({
       product_id: cost.product_id || '',
@@ -205,6 +235,10 @@ export function StandardCostsList() {
   }
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف التكاليف القياسية')
+      return
+    }
     if (confirm('هل أنت متأكد من حذف هذه التكلفة القياسية؟')) {
       deleteMutation.mutate(id)
     }
@@ -212,7 +246,12 @@ export function StandardCostsList() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
+
+    if (editingCost ? !canOpenEditForm : !canOpenCreateForm) {
+      toast.error(editingCost ? 'لا تملك صلاحية تعديل التكاليف القياسية' : 'لا تملك صلاحية إنشاء تكاليف قياسية')
+      return
+    }
+
     if (!formData.product_id || !formData.stage_id) {
       toast.error('يجب اختيار المنتج والمرحلة')
       return
@@ -268,18 +307,20 @@ export function StandardCostsList() {
                 تحديث
               </Button>
               <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      resetForm()
-                      setIsDialogOpen(true)
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    إضافة تكلفة قياسية
-                  </Button>
-                </DialogTrigger>
+                {canOpenCreateForm && (
+                  <DialogTrigger asChild>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        resetForm()
+                        setIsDialogOpen(true)
+                      }}
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      إضافة تكلفة قياسية
+                    </Button>
+                  </DialogTrigger>
+                )}
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>
@@ -606,21 +647,27 @@ export function StandardCostsList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(cost)}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(cost.id)}
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              {canOpenEditForm && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`تعديل تكلفة قياسية ${cost.id}`}
+                                  onClick={() => handleEdit(cost)}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`حذف تكلفة قياسية ${cost.id}`}
+                                  onClick={() => handleDelete(cost.id)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>

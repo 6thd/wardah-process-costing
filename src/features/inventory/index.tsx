@@ -16,6 +16,7 @@ import { toast } from 'sonner'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { useProductUomStatus } from '@/hooks/use-product-uom-status'
 import { useAuth } from '@/contexts/AuthContext'
+import { usePermissions } from '@/hooks/usePermissions'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
 import { UomStatusBadge } from './components/UomStatusBadge'
@@ -53,21 +54,30 @@ export function InventoryModule() {
 function InventoryOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول هذه الشاشة عند ModuleGuard هو anyOf بين items/stock_moves/
+  // warehouses؛ كل قسم هنا يُحمَّل ويُعرض فقط لمن يملك مفتاح قراءته الفعلي.
+  const canReadItems = hasPermissionKey('inventory.items.read')
+  const canReadStockMoves = hasPermissionKey('inventory.stock_moves.read')
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
+  const canReadAdjustments = hasPermissionKey('inventory.adjustments.read')
   const [items, setItems] = useState<Item[]>([])
 
   useEffect(() => {
-    const loadItems = async () => {
-      try {
-        const data = await itemsService.getAll()
-        setItems(data || [])
-      } catch (error) {
+    if (!canReadItems) {
+      setItems([])
+      return
+    }
+    let cancelled = false
+    itemsService.getAll()
+      .then(data => { if (!cancelled) setItems(data || []) })
+      .catch(error => {
         console.error('Error loading items:', error)
         toast.error('خطأ في تحميل الأصناف')
-      } finally {
-      }
-    }
-    loadItems()
-  }, [])
+        if (!cancelled) setItems([])
+      })
+    return () => { cancelled = true }
+  }, [canReadItems])
 
   const totalValue = items.reduce((sum, item) => sum + (item.stock_quantity * item.cost_price), 0)
   const lowStockItems = items.filter(item => item.stock_quantity <= item.minimum_stock)
@@ -80,105 +90,123 @@ function InventoryOverview() {
         hideOnPrint={false}
       />
 
-      {/* Key Metrics */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{items.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الأصناف</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة المخزون (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{lowStockItems.length}</div>
-          <div className="text-sm text-muted-foreground">أصناف قليلة المخزون</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">
-            {items.reduce((sum, item) => sum + item.stock_quantity, 0)}
+      {/* Key Metrics — مشتقة كلها من items، فتُعرض فقط بمفتاح قراءتها */}
+      {canReadItems && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{items.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي الأصناف</div>
           </div>
-          <div className="text-sm text-muted-foreground">إجمالي الكمية</div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-green-600">{totalValue.toFixed(2)}</div>
+            <div className="text-sm text-muted-foreground">قيمة المخزون (ريال)</div>
+          </div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-amber-600">{lowStockItems.length}</div>
+            <div className="text-sm text-muted-foreground">أصناف قليلة المخزون</div>
+          </div>
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-purple-600">
+              {items.reduce((sum, item) => sum + item.stock_quantity, 0)}
+            </div>
+            <div className="text-sm text-muted-foreground">إجمالي الكمية</div>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Quick Actions */}
+      {/* Quick Actions — كل رابط يُعرض فقط بمفتاح دخول مساره في العقد */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.items')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة الأصناف والمواد
-          </p>
-        </Link>
+        {canReadItems && (
+          <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.items')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة الأصناف والمواد
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            فئات المنتجات
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            تصنيف المخزون
-          </p>
-        </Link>
+        {canReadItems && (
+          <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              فئات المنتجات
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              تصنيف المخزون
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/movements" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.stockMoves')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            متابعة حركات المخزون
-          </p>
-        </Link>
+        {canReadStockMoves && (
+          <Link to="/inventory/movements" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.stockMoves')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              متابعة حركات المخزون
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            🏭 المخازن (1)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المخازن الرئيسية
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              🏭 المخازن (1)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المخازن الرئيسية
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            📍 مواقع التخزين (2)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المناطق والأرفف
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              📍 مواقع التخزين (2)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المناطق والأرفف
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            📦 صناديق التخزين (3)
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            المواقع الدقيقة + باركود
-          </p>
-        </Link>
+        {canReadWarehouses && (
+          <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              📦 صناديق التخزين (3)
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              المواقع الدقيقة + باركود
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            🔄 تحويلات البضاعة
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            نقل المخزون بين المستودعات
-          </p>
-        </Link>
+        {canReadStockMoves && (
+          <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              🔄 تحويلات البضاعة
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              نقل المخزون بين المستودعات
+            </p>
+          </Link>
+        )}
 
-        <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('inventory.adjustments')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            تسويات المخزون
-          </p>
-        </Link>
+        {canReadAdjustments && (
+          <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('inventory.adjustments')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              تسويات المخزون
+            </p>
+          </Link>
+        )}
       </div>
 
-      {/* Low Stock Alert */}
-      {lowStockItems.length > 0 && (
+      {/* Low Stock Alert — مشتقة من items أيضًا */}
+      {canReadItems && lowStockItems.length > 0 && (
         <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
           <h3 className="font-semibold text-amber-800 dark:text-amber-200 mb-2">
             تنبيه: أصناف قليلة المخزون ({lowStockItems.length})
@@ -203,6 +231,8 @@ function ItemsManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
   const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateItem = hasPermissionKey('inventory.items.create')
   const [items, setItems] = useState<Item[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(true)
@@ -235,8 +265,40 @@ function ItemsManagement() {
 
   useEffect(() => {
     loadData()
-    loadItemWarehouses()
   }, [])
+
+  // بيانات مرجعية لنموذج الإضافة فقط — لا تُحمَّل لقارئ لا يملك
+  // inventory.items.create، حتى لو ملك inventory.items.read. مضمَّنة هنا
+  // مباشرة (لا دالة مستخرَجة) لتبقى canCreateItem وحدها الاعتماد الحقيقي.
+  useEffect(() => {
+    if (!canCreateItem) {
+      setItemWarehouses([])
+      setLoadingItemWarehouses(false)
+      return
+    }
+    let cancelled = false
+    setLoadingItemWarehouses(true)
+    ;(async () => {
+      try {
+        const { data, error } = await getSupabase()
+          .from('warehouses')
+          .select('*')
+          .eq('is_active', true)
+          .order('name')
+        if (cancelled) return
+        if (error) throw error
+        setItemWarehouses(data || [])
+        if (data && data.length > 0) {
+          setNewItem(prev => (prev.default_warehouse_id ? prev : { ...prev, default_warehouse_id: data[0].id }))
+        }
+      } catch (error) {
+        console.error('Error loading warehouses:', error)
+      } finally {
+        if (!cancelled) setLoadingItemWarehouses(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [canCreateItem])
 
   const loadData = async () => {
     try {
@@ -251,34 +313,6 @@ function ItemsManagement() {
       toast.error('خطأ في تحميل البيانات')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadItemWarehouses = async () => {
-    try {
-      setLoadingItemWarehouses(true)
-      const supabase = getSupabase()
-      const { data, error } = await supabase
-        .from('warehouses')
-        .select('*')
-        .eq('is_active', true)
-        .order('name')
-
-      if (error) throw error
-      
-      setItemWarehouses(data || [])
-      
-      // Auto-select first warehouse for new items
-      if (data && data.length > 0 && !newItem.default_warehouse_id) {
-        setNewItem(prev => ({
-          ...prev,
-          default_warehouse_id: data[0].id
-        }))
-      }
-    } catch (error) {
-      console.error('Error loading warehouses:', error)
-    } finally {
-      setLoadingItemWarehouses(false)
     }
   }
 
@@ -334,6 +368,10 @@ function ItemsManagement() {
   }
 
   const handleAddItem = async () => {
+    if (!canCreateItem) {
+      toast.error('لا تملك صلاحية إضافة أصناف')
+      return
+    }
     try {
       // Validate warehouse selection
       if (!newItem.default_warehouse_id) {
@@ -392,9 +430,11 @@ function ItemsManagement() {
               <Link to="/inventory/uom-issues">🔧 إصلاح وحدات الأصناف</Link>
             </Button>
           )}
-          <Button onClick={() => setShowAddForm(!showAddForm)}>
-            {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
-          </Button>
+          {canCreateItem && (
+            <Button onClick={() => setShowAddForm(!showAddForm)}>
+              {showAddForm ? t('common.cancel') : '+ إضافة صنف جديد'}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -857,6 +897,21 @@ function ItemsManagement() {
 function StockAdjustments() {
   const { t } = useTranslation()
   const { currentOrgId } = useAuth()
+  const { hasPermissionKey } = usePermissions()
+  const canReadAdjustments = hasPermissionKey('inventory.adjustments.read')
+  const canCreateAdjustment = hasPermissionKey('inventory.adjustments.create')
+  // تعديل مسودة قائمة، وإلغاؤها تغيير حالة على صف قائم لا حذف صف — كلاهما
+  // update دلاليًا، لا delete (لا استدعاء حذف فعليًا على stock_adjustments هنا).
+  const canUpdateAdjustment = hasPermissionKey('inventory.adjustments.update')
+  const canApproveAdjustment = hasPermissionKey('inventory.adjustments.approve')
+  // بيانات مرجعية من موارد مختلفة تمامًا عن adjustments — منتجات ومخازن
+  // (مورد inventory الفعلي) وحسابات GL (مورد accounting.accounts) — كل منها
+  // يحتاج مفتاح قراءته الحقيقي، لا inventory.adjustments.read وحدها.
+  const canReadProducts = hasPermissionKey('inventory.products.read')
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read')
+  const canReadGLAccounts = hasPermissionKey('accounting.accounts.read')
+  // النموذج (إنشاء/تعديل) يحتاج الثلاثة معًا ليكون قابلاً للاستخدام فعليًا
+  const canOpenAdjustmentForm = canReadProducts && canReadWarehouses && canReadGLAccounts
   const productUomStatus = useProductUomStatus()
   const productNeedsUomSetup = productUomStatus.needsSetup
   const [adjustments, setAdjustments] = useState<any[]>([])
@@ -905,17 +960,33 @@ function StockAdjustments() {
       setLoadingAccounts(false)
       return
     }
-    loadAdjustments()
-    loadProducts()
-    loadWarehouses()
-    loadGLAccounts()
-  }, [currentOrgId])
+    if (canReadAdjustments) {
+      loadAdjustments()
+    } else {
+      setLoading(false)
+    }
+    if (canReadProducts) {
+      loadProducts()
+    }
+    if (canReadWarehouses) {
+      loadWarehouses()
+    } else {
+      setLoadingWarehouses(false)
+    }
+    if (canReadGLAccounts) {
+      loadGLAccounts()
+    } else {
+      setLoadingAccounts(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentOrgId, canReadAdjustments, canReadProducts, canReadWarehouses, canReadGLAccounts])
 
   // Reload when filters change
   useEffect(() => {
-    if (!loading) {
+    if (!loading && canReadAdjustments) {
       loadAdjustments()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterStatus, filterType])
 
   // Close dropdown when clicking outside
@@ -1154,6 +1225,11 @@ function StockAdjustments() {
   }
 
   const handleSaveAdjustment = async () => {
+    const isEditingGuard = selectedAdjustment?.isEditing
+    if (isEditingGuard ? !canUpdateAdjustment : !canCreateAdjustment) {
+      toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
+      return
+    }
     // Use imported validation from helpers
     const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
     if (!validation.valid) {
@@ -1301,6 +1377,10 @@ function StockAdjustments() {
   }
 
   const handleSubmitAdjustment = async (adjustmentId: string) => {
+    if (!canApproveAdjustment) {
+      toast.error('لا تملك صلاحية ترحيل تسويات المخزون')
+      return
+    }
     try {
       const supabase = getSupabase()
       const { data: { user } } = await supabase.auth.getUser()
@@ -1551,10 +1631,12 @@ function StockAdjustments() {
         description="تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية"
         hideOnPrint={false}
         actions={
-          <Button onClick={() => setShowNewForm(true)} className="gap-2">
-            <Plus className="w-4 h-4" />
-            تسوية جديدة
-          </Button>
+          canCreateAdjustment && canOpenAdjustmentForm && (
+            <Button onClick={() => setShowNewForm(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              تسوية جديدة
+            </Button>
+          )
         }
       />
 
@@ -2160,7 +2242,9 @@ function StockAdjustments() {
             {/* Action Buttons */}
             {selectedAdjustment.status === 'DRAFT' && (
               <div className="flex justify-end gap-2">
+                {canUpdateAdjustment && canOpenAdjustmentForm && (
                 <Button variant="outline" onClick={async () => {
+                  if (!canUpdateAdjustment) return
                   try {
                     // Load adjustment items
                     const supabase = getSupabase()
@@ -2204,14 +2288,20 @@ function StockAdjustments() {
                 }}>
                   ✏️ تعديل
                 </Button>
+                )}
+                {canApproveAdjustment && (
                 <Button onClick={async () => {
+                  if (!canApproveAdjustment) return
                   if (confirm('هل أنت متأكد من ترحيل هذه التسوية؟ سيتم تحديث أرصدة المخزون وإنشاء القيود المحاسبية.')) {
                     await handleSubmitAdjustment(selectedAdjustment.id)
                   }
                 }}>
                   ✅ ترحيل
                 </Button>
+                )}
+                {canUpdateAdjustment && (
                 <Button variant="destructive" onClick={async () => {
+                  if (!canUpdateAdjustment) return
                   if (confirm('هل أنت متأكد من إلغاء هذه التسوية؟')) {
                     try {
                       const supabase = getSupabase()
@@ -2219,9 +2309,9 @@ function StockAdjustments() {
                         .from('stock_adjustments')
                         .update({ status: 'CANCELLED' })
                         .eq('id', selectedAdjustment.id)
-                      
+
                       if (error) throw error
-                      
+
                       toast.success('تم إلغاء التسوية بنجاح')
                       setViewMode(false)
                       setSelectedAdjustment(null)
@@ -2233,6 +2323,7 @@ function StockAdjustments() {
                 }}>
                   🗑️ إلغاء
                 </Button>
+                )}
               </div>
             )}
           </div>
@@ -2393,10 +2484,17 @@ function StorageLocations() {
 
 function StockMovements() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('inventory.stock_moves.read')
   const [movements, setMovements] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (!canRead) {
+      setMovements([])
+      setLoading(false)
+      return
+    }
     const loadMovements = async () => {
       try {
         const data = await stockMovementsService.getAll()
@@ -2409,7 +2507,7 @@ function StockMovements() {
       }
     }
     loadMovements()
-  }, [])
+  }, [canRead])
 
   if (loading) {
     return (
@@ -2529,8 +2627,20 @@ function StockMovements() {
 function CategoriesManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  // Round 7 P1: no "categories" catalog resource exists (no
+  // inventory.categories.* key, no equivalent) — categoriesService.ts reads/
+  // writes a standalone `categories` table unrelated to items/products
+  // beyond both living under Inventory (route-permissions.ts's /categories
+  // entry is unregistered for the same reason and fails closed at
+  // ModuleGuard). Round 6 fail-closed only the create action here and left
+  // the list read unconditional ("read-only, no dedicated resource"); Round
+  // 7 overturns that — "no request when no accepted read permission exists"
+  // applies to categories data too, so the read is now hard fail-closed
+  // alongside create, consistent with RoutingManagement/RoutingForm.
+  const canRead = false
+  const canCreate = false
   const [categories, setCategories] = useState<Category[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [showAddForm, setShowAddForm] = useState(false)
   const [newCategory, setNewCategory] = useState({
     name: '',
@@ -2538,6 +2648,7 @@ function CategoriesManagement() {
   })
 
   useEffect(() => {
+    if (!canRead) return
     loadCategories()
   }, [])
 
@@ -2554,6 +2665,10 @@ function CategoriesManagement() {
   }
 
   const handleAddCategory = async () => {
+    if (!canCreate) {
+      toast.error('لا تملك صلاحية إضافة فئات')
+      return
+    }
     try {
       if (!newCategory.name) {
         toast.error('الرجاء إدخال اسم الفئة')
@@ -2588,13 +2703,15 @@ function CategoriesManagement() {
           <h1 className="text-2xl font-bold">فئات المنتجات</h1>
           <p className="text-muted-foreground">إدارة تصنيفات المخزون</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : '+ إضافة فئة'}
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : '+ إضافة فئة'}
+          </Button>
+        )}
       </div>
 
       {/* Add Category Form */}
-      {showAddForm && (
+      {showAddForm && canCreate && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة فئة جديدة</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

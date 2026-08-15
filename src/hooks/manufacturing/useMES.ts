@@ -33,10 +33,11 @@ export function useWorkOrders(filters?: {
   status?: WorkOrderStatus | WorkOrderStatus[]
   fromDate?: string
   toDate?: string
-}) {
+}, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: mesKeys.workOrderList(filters),
     queryFn: () => mesService.getWorkOrders(filters),
+    enabled: options?.enabled ?? true,
   })
 }
 
@@ -109,11 +110,11 @@ export function useMachineDowntime(workCenterId: string, fromDate?: string, toDa
 /**
  * Hook للحصول على ملخص مركز العمل
  */
-export function useWorkCenterSummary(workCenterId: string) {
+export function useWorkCenterSummary(workCenterId: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: mesKeys.workCenterSummary(workCenterId),
     queryFn: () => mesService.getWorkCenterSummary(workCenterId),
-    enabled: !!workCenterId,
+    enabled: !!workCenterId && (options?.enabled ?? true),
     refetchInterval: 30000, // تحديث كل 30 ثانية
   })
 }

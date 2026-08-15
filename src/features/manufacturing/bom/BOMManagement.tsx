@@ -23,10 +23,19 @@ import { useBOMs, useDeleteBOM, useApproveBOM, useCopyBOM } from '@/hooks/manufa
 import { useAuthStore } from '@/store/auth-store'
 import { BOMHeader } from '@/services/manufacturing/bomService'
 import { getEffectiveTenantId } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function BOMManagement() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
+  const { hasPermissionKey } = usePermissions()
+  const canCreate = hasPermissionKey('manufacturing.boms.create')
+  const canUpdate = hasPermissionKey('manufacturing.boms.update')
+  const canDelete = hasPermissionKey('manufacturing.boms.delete')
+  const canApprove = hasPermissionKey('manufacturing.boms.approve')
+  // نسخ BOM ينشئ صفًا جديدًا (INSERT) — نفس فعل الإنشاء دلاليًا، فيُحكَم
+  // بمفتاح boms.create نفسه لا مفتاح مخترَع.
+  const canCopy = canCreate
   const [orgId, setOrgId] = useState<string>('')
 
   useEffect(() => {
@@ -60,22 +69,26 @@ export function BOMManagement() {
 
   // Handle actions
   const handleEdit = (bomId: string) => {
+    if (!canUpdate) return
     navigate(`/manufacturing/bom/${bomId}/edit`)
   }
 
   const handleDelete = async (bomId: string) => {
+    if (!canDelete) return
     if (confirm('هل أنت متأكد من حذف قائمة المواد هذه؟')) {
       await deleteBOM.mutateAsync(bomId)
     }
   }
 
   const handleApprove = async (bomId: string) => {
+    if (!canApprove) return
     if (confirm('هل تريد اعتماد قائمة المواد هذه؟')) {
       await approveBOM.mutateAsync(bomId)
     }
   }
 
   const handleCopy = async (bomId: string, oldNumber: string) => {
+    if (!canCopy) return
     const newNumber = prompt('أدخل رقم القائمة الجديد:', `${oldNumber}-COPY`)
     if (newNumber) {
       await copyBOM.mutateAsync({
@@ -83,10 +96,6 @@ export function BOMManagement() {
         newBomNumber: newNumber
       })
     }
-  }
-
-  const handleView = (bomId: string) => {
-    navigate(`/manufacturing/bom/${bomId}`)
   }
 
   // Get status badge
@@ -119,10 +128,12 @@ export function BOMManagement() {
             Bill of Materials Management
           </p>
         </div>
-        <Button onClick={() => navigate('/manufacturing/bom/new')}>
-          <Plus className="w-4 h-4 mr-2" />
-          قائمة جديدة
-        </Button>
+        {canCreate && (
+          <Button onClick={() => navigate('/manufacturing/bom/new')}>
+            <Plus className="w-4 h-4 mr-2" />
+            قائمة جديدة
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -227,12 +238,14 @@ export function BOMManagement() {
               return (
                 <div className="text-center py-12">
                   <p className="text-muted-foreground">لا توجد قوائم مواد</p>
-                  <Button
-                    className="mt-4"
-                    onClick={() => navigate('/manufacturing/bom/new')}
-                  >
-                    إنشاء قائمة جديدة
-                  </Button>
+                  {canCreate && (
+                    <Button
+                      className="mt-4"
+                      onClick={() => navigate('/manufacturing/bom/new')}
+                    >
+                      إنشاء قائمة جديدة
+                    </Button>
+                  )}
                 </div>
               )
             }
@@ -255,12 +268,7 @@ export function BOMManagement() {
                   {filteredBOMs?.map((bom: BOMHeader) => (
                     <tr
                       key={bom.id}
-                      className="border-t hover:bg-muted/30 cursor-pointer"
-                      onClick={() => {
-                        if (bom.id) {
-                          handleView(bom.id)
-                        }
-                      }}
+                      className="border-t hover:bg-muted/30"
                     >
                       <td className="p-4 font-medium">{bom.bom_number}</td>
                       <td className="p-4">{bom.item_code || '-'}</td>
@@ -277,40 +285,45 @@ export function BOMManagement() {
                       </td>
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              bom.id && handleEdit(bom.id);
-                            }}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          
-                          {bom.status === 'DRAFT' && (
+                          {canUpdate && (
                             <Button
                               size="sm"
                               variant="ghost"
+                              aria-label={`تعديل ${bom.bom_number}`}
+                              onClick={() => bom.id && handleEdit(bom.id)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                          )}
+
+                          {canApprove && bom.status === 'DRAFT' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`اعتماد ${bom.bom_number}`}
                               onClick={() => bom.id && handleApprove(bom.id)}
                               className="text-green-600"
                             >
                               <CheckCircle className="w-4 h-4" />
                             </Button>
                           )}
-                          
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => bom.id && handleCopy(bom.id, bom.bom_number)}
-                          >
-                            <Copy className="w-4 h-4" />
-                          </Button>
-                          
-                          {bom.status === 'DRAFT' && (
+
+                          {canCopy && (
                             <Button
                               size="sm"
                               variant="ghost"
+                              aria-label={`نسخ ${bom.bom_number}`}
+                              onClick={() => bom.id && handleCopy(bom.id, bom.bom_number)}
+                            >
+                              <Copy className="w-4 h-4" />
+                            </Button>
+                          )}
+
+                          {canDelete && bom.status === 'DRAFT' && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              aria-label={`حذف ${bom.bom_number}`}
                               onClick={() => bom.id && handleDelete(bom.id)}
                               className="text-red-600"
                             >
