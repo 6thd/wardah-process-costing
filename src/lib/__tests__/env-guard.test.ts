@@ -40,6 +40,19 @@ describe('checkRequiredEnv: default parameter never captures the whole import.me
     const src = fs.readFileSync('src/lib/env-guard.ts', 'utf8')
     expect(src).not.toMatch(/=\s*import\.meta\.env\s*\)/)
   })
+
+  // The two tests above only ever call checkRequiredEnv() with an explicit
+  // argument, so defaultEnv() — the actual allowlist that replaced the bare
+  // import.meta.env object — never runs under test. Calling with no
+  // arguments here exercises that real default-parameter path.
+  it('calling with no arguments runs the real defaultEnv() allowlist and returns a well-formed result', () => {
+    const result = checkRequiredEnv()
+    expect(typeof result.ok).toBe('boolean')
+    expect(Array.isArray(result.missing)).toBe(true)
+    for (const key of result.missing) {
+      expect(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']).toContain(key)
+    }
+  })
 })
 
 describe('renderNotConfiguredScreen', () => {

@@ -36,12 +36,12 @@ export function isWithinRoot(root, candidate) {
 
 function collectContainedFiles(root, dir) {
   const files = [];
-  // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
   // `dir` is never external input: the initial call passes `root` itself
   // (realpathSync'd below from a fixed 'dist' segment), and every recursive
   // call passes path.join(dir, entry.name) for a Dirent that is neither a
   // symlink nor rejected by isWithinRoot() against that same canonical
   // `root` — so `dir` can never resolve outside it.
+  // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
   const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
@@ -67,11 +67,11 @@ function collectContainedFiles(root, dir) {
 function scanForForbiddenValues(files, relativeTo) {
   const violations = [];
   for (const file of files) {
-    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
     // `file` is drawn exclusively from collectContainedFiles()'s return
     // value above: every entry already passed isWithinRoot() against the
     // canonical `distRoot`, was reached without following a symlink, and
     // nothing here accepts an external or user-supplied path.
+    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
     const content = fs.readFileSync(file, 'utf8');
     for (const value of FORBIDDEN_VALUES) {
       if (content.includes(value)) {
@@ -87,11 +87,11 @@ function main() {
 
   let distRoot;
   try {
-    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
     // `distDirCandidate` is process.cwd() joined with the fixed literal
     // segment 'dist' — never external input. Canonicalizing it here, once,
     // is what makes every isWithinRoot() check downstream meaningful: it is
     // the one and only trusted root for the whole scan below.
+    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
     distRoot = fs.realpathSync(distDirCandidate);
   } catch (err) {
     if (err.code === 'ENOENT') {
