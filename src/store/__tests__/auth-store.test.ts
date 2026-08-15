@@ -1,16 +1,15 @@
 /**
  * RED→GREEN for removing the client-side demo-login bypass in
  * useAuthStore.login() (src/store/auth-store.ts), tied to the
- * demo-credentials hard-coded-password fix
- * (SonarCloud typescript:S2068, src/config/demo-credentials.ts).
+ * demo-credentials hard-coded-password fix (SonarCloud typescript:S2068).
  *
  * Before the fix, `login()` compared the submitted email/password against
- * DEMO_CREDENTIALS.admin literally and — in a dev build — fabricated an
- * authenticated session locally with no call to Supabase at all. Now that
- * demo-credentials.ts no longer carries any password value, that path
- * must be gone entirely: submitting the historical demo admin credentials
- * must always fall through to the real Supabase call, never to a
- * locally-fabricated session.
+ * a literal demo admin email/password and — in a dev build — fabricated
+ * an authenticated session locally with no call to Supabase at all. The
+ * backing config (src/config/demo-credentials.ts) was removed entirely,
+ * so that path must be gone too: submitting the historical demo admin
+ * credentials must always fall through to the real Supabase call, never
+ * to a locally-fabricated session.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 

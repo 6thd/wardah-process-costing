@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --debug --host",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run check:no-demo-passwords",
+    "check:no-demo-passwords": "node scripts/ci/check-no-demo-passwords-in-build.mjs",
     "preview": "vite preview",
     "type-check": "tsc --noEmit",
     "gen:types": "supabase gen types typescript --project-id uutfztmqvajmsxnrqeiv > src/types/database.generated.ts",
