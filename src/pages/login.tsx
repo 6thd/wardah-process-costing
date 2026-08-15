@@ -208,8 +208,8 @@ export function LoginPage() {
             </Button>
           </form>
           
-          {/* معلومات تجريبية — للتطوير فقط */}
-          {isDevelopment() && (
+          {/* معلومات تجريبية — للتطوير فقط. fail-closed: لا تُعرض بلا كلمة مرور آمنة مُعدَّة فعليًا */}
+          {isDevelopment() && DEMO_CREDENTIALS.admin.password && (
             <div className="mt-6 p-4 bg-muted rounded-lg">
               <p className="text-sm text-muted-foreground text-center mb-2">
                 <strong>بيانات تجريبية:</strong>
