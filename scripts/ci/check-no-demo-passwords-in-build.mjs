@@ -22,6 +22,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
 const FORBIDDEN_VALUES = ['admin123', 'manager123', 'employee123'];
 const ALLOWED_EXTENSIONS = /\.(js|mjs|cjs|html|css|json)$/;
@@ -81,33 +82,44 @@ function scanForForbiddenValues(files, relativeTo) {
   return violations;
 }
 
-const distDirCandidate = path.resolve(process.cwd(), 'dist');
+function main() {
+  const distDirCandidate = path.resolve(process.cwd(), 'dist');
 
-let distRoot;
-try {
-  // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
-  // `distDirCandidate` is process.cwd() joined with the fixed literal
-  // segment 'dist' — never external input. Canonicalizing it here, once,
-  // is what makes every isWithinRoot() check downstream meaningful: it is
-  // the one and only trusted root for the whole scan below.
-  distRoot = fs.realpathSync(distDirCandidate);
-} catch (err) {
-  if (err.code === 'ENOENT') {
-    console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: dist/ does not exist — run `npm run build` first.');
+  let distRoot;
+  try {
+    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
+    // `distDirCandidate` is process.cwd() joined with the fixed literal
+    // segment 'dist' — never external input. Canonicalizing it here, once,
+    // is what makes every isWithinRoot() check downstream meaningful: it is
+    // the one and only trusted root for the whole scan below.
+    distRoot = fs.realpathSync(distDirCandidate);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: dist/ does not exist — run `npm run build` first.');
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const files = collectContainedFiles(distRoot, distRoot);
+  const violations = scanForForbiddenValues(files, process.cwd());
+
+  if (violations.length > 0) {
+    console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: forbidden demo password found in production build:');
+    for (const violation of violations) {
+      console.error(`  ${violation.file}: contains "${violation.value}"`);
+    }
     process.exit(1);
   }
-  throw err;
+
+  console.log(`DEMO_PASSWORD_BUILD_GATE_PASS files=${files.length}`);
 }
 
-const files = collectContainedFiles(distRoot, distRoot);
-const violations = scanForForbiddenValues(files, process.cwd());
-
-if (violations.length > 0) {
-  console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: forbidden demo password found in production build:');
-  for (const violation of violations) {
-    console.error(`  ${violation.file}: contains "${violation.value}"`);
-  }
-  process.exit(1);
+// Only scan when this file is run directly (`node check-no-demo-passwords-in-build.mjs`
+// or `npm run check:no-demo-passwords`), not when isWithinRoot() is imported by
+// its Vitest unit tests — importing must never risk exiting the test process
+// or depend on dist/ existing yet.
+const isMainModule = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMainModule) {
+  main();
 }
-
-console.log(`DEMO_PASSWORD_BUILD_GATE_PASS files=${files.length}`);
