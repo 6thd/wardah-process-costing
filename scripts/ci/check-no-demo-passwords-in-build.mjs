@@ -4,52 +4,60 @@
 // A VITE_* value is inlined into the built browser bundle at compile time,
 // so scanning the actual build output — not just the source — is what
 // proves the fix, independent of how any future consumer sources a value.
-// See src/config/demo-credentials.ts and its RED tests for the fix itself.
+// See src/store/auth-store.ts and its RED tests for the source-level fix,
+// and src/lib/env-guard.ts for the explicit VITE_* allowlist that keeps a
+// leftover VITE_DEMO_*_PASSWORD out of the bundle at the source.
 //
-// The directory walk is intentionally contained: the root is canonicalized
-// once via realpathSync, and every candidate entry is re-resolved and
-// rejected unless it remains strictly inside that canonical root. This
-// closes the symlink-escape and '..'/absolute-path cases a naive recursive
-// walk would otherwise trust — verified below by runSelfTest() against a
-// real temporary directory with an actual escaping symlink, on every run.
+// Containment: dist/ is canonicalized once via realpathSync into `distRoot`
+// below. The recursive walk never follows symlinks — a symlinked entry is
+// skipped outright via Dirent.isSymbolicLink() — and every candidate path
+// is reached only through path.join(dir, entry.name) starting from that
+// canonical root, never through a dereferenced symlink or externally
+// supplied input, so no candidate can leave distRoot. isWithinRoot() below
+// re-asserts that invariant as a second, independently unit-tested guard —
+// see tests/ci/check-no-demo-passwords-in-build.test.ts for pure
+// string-path cases (contained file, `..` escape, sibling directory, and a
+// simulated post-realpath symlink target outside the root).
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 
 const FORBIDDEN_VALUES = ['admin123', 'manager123', 'employee123'];
 const ALLOWED_EXTENSIONS = /\.(js|mjs|cjs|html|css|json)$/;
 
-function isContainedIn(root, candidate) {
+// Pure, no I/O: given two already-resolved absolute paths, decide whether
+// `candidate` is `root` itself or strictly nested inside it.
+export function isWithinRoot(root, candidate) {
   const relative = path.relative(root, candidate);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function collectContainedFiles(root, dir) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files = [];
+  // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
+  // `dir` is never external input: the initial call passes `root` itself
+  // (realpathSync'd below from a fixed 'dist' segment), and every recursive
+  // call passes path.join(dir, entry.name) for a Dirent that is neither a
+  // symlink nor rejected by isWithinRoot() against that same canonical
+  // `root` — so `dir` can never resolve outside it.
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
 
   for (const entry of entries) {
     if (entry.isSymbolicLink()) continue;
 
-    const candidate = path.resolve(dir, entry.name);
-    if (!isContainedIn(root, candidate)) continue;
+    const candidate = path.join(dir, entry.name);
+    if (!isWithinRoot(root, candidate)) continue;
 
     if (entry.isDirectory()) {
-      const resolvedDir = fs.realpathSync(candidate);
-      if (!isContainedIn(root, resolvedDir)) continue;
-      files.push(...collectContainedFiles(root, resolvedDir));
+      files.push(...collectContainedFiles(root, candidate));
       continue;
     }
 
     if (!entry.isFile()) continue;
     if (!ALLOWED_EXTENSIONS.test(entry.name)) continue;
 
-    const resolvedFile = fs.realpathSync(candidate);
-    if (!isContainedIn(root, resolvedFile)) continue;
-
-    files.push(resolvedFile);
+    files.push(candidate);
   }
 
   return files;
@@ -58,6 +66,11 @@ function collectContainedFiles(root, dir) {
 function scanForForbiddenValues(files, relativeTo) {
   const violations = [];
   for (const file of files) {
+    // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
+    // `file` is drawn exclusively from collectContainedFiles()'s return
+    // value above: every entry already passed isWithinRoot() against the
+    // canonical `distRoot`, was reached without following a symlink, and
+    // nothing here accepts an external or user-supplied path.
     const content = fs.readFileSync(file, 'utf8');
     for (const value of FORBIDDEN_VALUES) {
       if (content.includes(value)) {
@@ -68,63 +81,24 @@ function scanForForbiddenValues(files, relativeTo) {
   return violations;
 }
 
-function runSelfTest() {
-  const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'demo-password-gate-self-test-'));
-  try {
-    const trustedRoot = fs.realpathSync(fs.mkdtempSync(path.join(workDir, 'root-')));
-    const outsideDir = path.join(workDir, 'outside');
-    fs.mkdirSync(path.join(trustedRoot, 'assets'), { recursive: true });
-    fs.mkdirSync(outsideDir, { recursive: true });
-
-    fs.writeFileSync(path.join(trustedRoot, 'assets', 'safe.js'), "console.log('nothing forbidden here');");
-    fs.writeFileSync(path.join(outsideDir, 'leak.js'), "console.log('manager123');");
-    fs.symlinkSync(outsideDir, path.join(trustedRoot, 'assets', 'escape-dir'));
-    fs.symlinkSync(
-      path.join(outsideDir, 'leak.js'),
-      path.join(trustedRoot, 'assets', 'escape-file.js')
-    );
-
-    const contained = collectContainedFiles(trustedRoot, trustedRoot);
-    if (contained.length !== 1 || !contained[0].endsWith('safe.js')) {
-      throw new Error(
-        `Demo-password gate self-test: symlink containment failed — expected exactly` +
-        ` [.../safe.js], got ${JSON.stringify(contained.map((f) => path.relative(workDir, f)))}`
-      );
-    }
-
-    const violationsFromEscape = scanForForbiddenValues(contained, trustedRoot);
-    if (violationsFromEscape.length !== 0) {
-      throw new Error(
-        'Demo-password gate self-test: a symlink-escaped file leaked into the scan: ' +
-        JSON.stringify(violationsFromEscape)
-      );
-    }
-
-    fs.writeFileSync(path.join(trustedRoot, 'assets', 'genuine-leak.js'), "console.log('manager123');");
-    const containedAfterLeak = collectContainedFiles(trustedRoot, trustedRoot);
-    const violations = scanForForbiddenValues(containedAfterLeak, trustedRoot);
-    if (violations.length !== 1 || violations[0].value !== 'manager123') {
-      throw new Error(
-        'Demo-password gate self-test: a genuine in-root violation was not detected: ' +
-        JSON.stringify(violations)
-      );
-    }
-  } finally {
-    fs.rmSync(workDir, { recursive: true, force: true });
-  }
-}
-
-runSelfTest();
-
 const distDirCandidate = path.resolve(process.cwd(), 'dist');
 
-if (!fs.existsSync(distDirCandidate)) {
-  console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: dist/ does not exist — run `npm run build` first.');
-  process.exit(1);
+let distRoot;
+try {
+  // nosemgrep: Semgrep_javascript_pathtraversal_rule-non-literal-fs-filename
+  // `distDirCandidate` is process.cwd() joined with the fixed literal
+  // segment 'dist' — never external input. Canonicalizing it here, once,
+  // is what makes every isWithinRoot() check downstream meaningful: it is
+  // the one and only trusted root for the whole scan below.
+  distRoot = fs.realpathSync(distDirCandidate);
+} catch (err) {
+  if (err.code === 'ENOENT') {
+    console.error('DEMO_PASSWORD_BUILD_GATE_FAIL: dist/ does not exist — run `npm run build` first.');
+    process.exit(1);
+  }
+  throw err;
 }
 
-// The one and only trusted root for the real scan below.
-const distRoot = fs.realpathSync(distDirCandidate);
 const files = collectContainedFiles(distRoot, distRoot);
 const violations = scanForForbiddenValues(files, process.cwd());
 
