@@ -24,6 +24,37 @@ describe('checkRequiredEnv', () => {
   })
 })
 
+describe('checkRequiredEnv: default parameter never captures the whole import.meta.env object', () => {
+  // Vite inlines `import.meta.env.SPECIFIC_KEY` as just that one string, but
+  // inlines the bare `import.meta.env` object as *every* VITE_*-prefixed
+  // variable configured at build time. A default parameter of the bare
+  // object therefore bundles any leftover VITE_* var (e.g. a stale
+  // VITE_DEMO_*_PASSWORD still configured in Vercel Preview) even though no
+  // application code references it. Reproduced for real on PR #119: a
+  // Vercel Preview build with VITE_DEMO_MANAGER_PASSWORD=manager123 set
+  // shipped that literal in dist/assets/index-DIgUO1go.js — caught only by
+  // the separate build-output gate (scripts/ci/check-no-demo-passwords-in-build.mjs),
+  // not by anything at the source level. This asserts the source-level fix.
+  it('the default parameter is not the bare import.meta.env object', async () => {
+    const fs = await import('node:fs')
+    const src = fs.readFileSync('src/lib/env-guard.ts', 'utf8')
+    expect(src).not.toMatch(/=\s*import\.meta\.env\s*\)/)
+  })
+
+  // The two tests above only ever call checkRequiredEnv() with an explicit
+  // argument, so defaultEnv() — the actual allowlist that replaced the bare
+  // import.meta.env object — never runs under test. Calling with no
+  // arguments here exercises that real default-parameter path.
+  it('calling with no arguments runs the real defaultEnv() allowlist and returns a well-formed result', () => {
+    const result = checkRequiredEnv()
+    expect(typeof result.ok).toBe('boolean')
+    expect(Array.isArray(result.missing)).toBe(true)
+    for (const key of result.missing) {
+      expect(['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']).toContain(key)
+    }
+  })
+})
+
 describe('renderNotConfiguredScreen', () => {
   it('يعرض شاشة إرشاد RTL بأسماء المفاتيح المفقودة', () => {
     const root = document.createElement('div')
