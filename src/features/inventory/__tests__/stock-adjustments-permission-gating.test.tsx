@@ -87,14 +87,12 @@ const TABLE_RESULTS: Record<string, { data: unknown; error: unknown }> = {
 
 const fromSpy = vi.fn((table: string) => {
   const result = TABLE_RESULTS[table] ?? { data: [], error: null };
-  const builder: Record<string, unknown> = {};
+  const builder = Promise.resolve(result) as Promise<typeof result> & Record<string, unknown>;
   const chain = ['select', 'insert', 'update', 'delete', 'eq', 'order', 'in', 'limit'];
   for (const method of chain) {
     builder[method] = vi.fn(() => builder);
   }
   builder.single = vi.fn(() => Promise.resolve(result.data && Array.isArray(result.data) ? { data: result.data[0], error: result.error } : result));
-  builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-    Promise.resolve(result).then(resolve, reject);
   return builder;
 });
 
