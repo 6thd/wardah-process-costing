@@ -45,7 +45,7 @@ interface StageCostingFormData {
   notes?: string
 }
 
-interface StageCostResult {
+export interface StageCostResult {
   stageId: string
   totalCost: number
   unitCost: number
@@ -54,6 +54,162 @@ interface StageCostResult {
   overheadCost: number
   efficiency: number
   calculatedAt: string
+}
+
+export function moStatusLabel(status) {
+  if (status === 'pending') return 'في الانتظار'
+  if (status === 'in_progress') return 'قيد التنفيذ'
+  if (status === 'completed') return 'مكتمل'
+  return status
+}
+
+export function stageCostStatusLabel(status: StageCost['status']): string {
+  if (status === 'precosted') return 'تكلفة مُقدرة'
+  if (status === 'actual') return 'تكلفة فعلية'
+  if (status === 'completed') return 'مكتملة'
+  return status
+}
+
+interface StageCostResultDisplayProps {
+  readonly result: StageCostResult
+}
+
+export function StageCostResultDisplay({ result }: StageCostResultDisplayProps) {
+  return (
+    <div className="space-y-4" data-result={JSON.stringify(result)}>
+      <div className="grid md:grid-cols-4 gap-4 p-4 wardah-glass-card">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-700 dark:text-green-400">
+            {result.totalCost.toFixed(2)}
+          </div>
+          <div className="text-sm text-green-600 dark:text-green-300">إجمالي التكلفة (ريال)</div>
+        </div>
+
+        <div className="text-center">
+          <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">
+            {result.unitCost.toFixed(2)}
+          </div>
+          <div className="text-sm text-blue-600 dark:text-blue-300">تكلفة الوحدة (ريال)</div>
+        </div>
+
+        <div className="text-center">
+          <div className="text-xl font-bold text-purple-700 dark:text-purple-400">
+            {result.transferredIn.toFixed(2)}
+          </div>
+          <div className="text-sm text-purple-600 dark:text-purple-300">محول من مرحلة سابقة</div>
+        </div>
+
+        <div className="text-center">
+          <Badge variant={result.efficiency >= 95 ? 'default' : 'destructive'}>
+            {result.efficiency.toFixed(1)}% كفاءة
+          </Badge>
+          <div className="text-sm text-muted-foreground dark:text-gray-300">نسبة الجودة</div>
+        </div>
+      </div>
+
+      {/* Cost Breakdown */}
+      <div className="grid md:grid-cols-3 gap-4 p-4 wardah-glass-card">
+        <div className="text-center">
+          <div className="text-lg font-bold text-orange-700 dark:text-orange-400">
+            {result.laborCost.toFixed(2)}
+          </div>
+          <div className="text-sm text-orange-600 dark:text-orange-300">تكلفة العمالة المباشرة</div>
+        </div>
+
+        <div className="text-center">
+          <div className="text-lg font-bold text-indigo-700 dark:text-indigo-400">
+            {result.overheadCost.toFixed(2)}
+          </div>
+          <div className="text-sm text-indigo-600 dark:text-indigo-300">التكاليف غير المباشرة</div>
+        </div>
+
+        <div className="text-center">
+          <div className="text-lg font-bold text-foreground dark:text-muted-foreground">
+            {(result.totalCost - result.transferredIn - result.laborCost - result.overheadCost).toFixed(2)}
+          </div>
+          <div className="text-sm text-muted-foreground dark:text-gray-300">المواد المباشرة</div>
+        </div>
+      </div>
+
+      {/*
+        "Post to GL" has no real implementation — the action handler it
+        used to call (post-stage-to-gl) only ever returned a fabricated
+        success response and never wrote a GL entry. Rather than gate a
+        write that doesn't exist behind a permission check (which would
+        misrepresent it as a protected real GL write), the control is
+        shown disabled and labeled unavailable.
+      */}
+      <div className="flex flex-col items-center gap-1">
+        <Button
+          type="button"
+          disabled
+          title="ترحيل المرحلة للدفتر العام غير متاح حاليًا"
+          className="wardah-glass-card"
+        >
+          <Lock className="h-4 w-4 mr-2" />
+          ترحيل للدفتر العام (غير متاح حاليًا)
+        </Button>
+      </div>
+
+      <div className="text-xs text-muted-foreground text-center">
+        تم الحساب في: {new Date(result.calculatedAt).toLocaleString('en-US')}
+      </div>
+    </div>
+  )
+}
+
+interface StageCostsHistoryTableProps {
+  readonly stageCosts: StageCost[]
+}
+
+export function StageCostsHistoryTable({ stageCosts }: StageCostsHistoryTableProps) {
+  return (
+    <div className="wardah-glass-card p-6">
+      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
+        <TrendingUp className="h-5 w-5" />
+        تاريخ مراحل التكلفة
+      </h3>
+
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b">
+              <th className="text-right p-2">المرحلة</th>
+              <th className="text-right p-2">مركز العمل</th>
+              <th className="text-right p-2">الكمية الجيدة</th>
+              <th className="text-right p-2">التكلفة الإجمالية</th>
+              <th className="text-right p-2">تكلفة الوحدة</th>
+              <th className="text-right p-2">الحالة</th>
+              <th className="text-right p-2">التاريخ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stageCosts.map((stage, index) => (
+              <tr key={stage.id || index} className="border-b hover:bg-muted/50 dark:hover:bg-gray-800">
+                <td className="p-2 font-medium">
+                  {stage.manufacturing_stage?.name_ar ||
+                   stage.manufacturing_stage?.name ||
+                   `Stage ${stage.stage_number || stage.stage_id || 'N/A'}`}
+                </td>
+                <td className="p-2">{stage.work_center?.name || stage.work_center_id}</td>
+                <td className="p-2">{stage.good_quantity}</td>
+                <td className="p-2 font-medium">{stage.total_cost?.toFixed(2)} ريال</td>
+                <td className="p-2">{stage.unit_cost?.toFixed(2)} ريال</td>
+                <td className="p-2">
+                  <Badge variant={stage.status === 'completed' ? 'default' : 'outline'}>
+                    {stageCostStatusLabel(stage.status)}
+                  </Badge>
+                </td>
+                <td className="p-2 text-sm text-muted-foreground">
+                  {new Date(stage.updated_at || stage.created_at).toLocaleDateString('en-US')}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
 }
 
 export default function StageCostingPanel() {
@@ -336,12 +492,7 @@ export default function StageCostingPanel() {
               <div id="mo-status" className="pt-2">
                 {selectedMO && (
                   <Badge variant={selectedMO.status === 'in_progress' ? 'default' : 'outline'}>
-                    {(() => {
-                      if (selectedMO.status === 'pending') return 'في الانتظار';
-                      if (selectedMO.status === 'in_progress') return 'قيد التنفيذ';
-                      if (selectedMO.status === 'completed') return 'مكتمل';
-                      return selectedMO.status;
-                    })()}
+                    {moStatusLabel(selectedMO.status)}
                   </Badge>
                 )}
               </div>
@@ -545,142 +696,11 @@ export default function StageCostingPanel() {
         </form>
 
         {/* Results Display */}
-        {lastResult && (
-          <div className="space-y-4" data-result={JSON.stringify(lastResult)}>
-            <div className="grid md:grid-cols-4 gap-4 p-4 wardah-glass-card">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-700 dark:text-green-400">
-                  {lastResult.totalCost.toFixed(2)}
-                </div>
-                <div className="text-sm text-green-600 dark:text-green-300">إجمالي التكلفة (ريال)</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-700 dark:text-blue-400">
-                  {lastResult.unitCost.toFixed(2)}
-                </div>
-                <div className="text-sm text-blue-600 dark:text-blue-300">تكلفة الوحدة (ريال)</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-xl font-bold text-purple-700 dark:text-purple-400">
-                  {lastResult.transferredIn.toFixed(2)}
-                </div>
-                <div className="text-sm text-purple-600 dark:text-purple-300">محول من مرحلة سابقة</div>
-              </div>
-              
-              <div className="text-center">
-                <Badge variant={lastResult.efficiency >= 95 ? 'default' : 'destructive'}>
-                  {lastResult.efficiency.toFixed(1)}% كفاءة
-                </Badge>
-                <div className="text-sm text-muted-foreground dark:text-gray-300">نسبة الجودة</div>
-              </div>
-            </div>
-            
-            {/* Cost Breakdown */}
-            <div className="grid md:grid-cols-3 gap-4 p-4 wardah-glass-card">
-              <div className="text-center">
-                <div className="text-lg font-bold text-orange-700 dark:text-orange-400">
-                  {lastResult.laborCost.toFixed(2)}
-                </div>
-                <div className="text-sm text-orange-600 dark:text-orange-300">تكلفة العمالة المباشرة</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-lg font-bold text-indigo-700 dark:text-indigo-400">
-                  {lastResult.overheadCost.toFixed(2)}
-                </div>
-                <div className="text-sm text-indigo-600 dark:text-indigo-300">التكاليف غير المباشرة</div>
-              </div>
-              
-              <div className="text-center">
-                <div className="text-lg font-bold text-foreground dark:text-muted-foreground">
-                  {(lastResult.totalCost - lastResult.transferredIn - lastResult.laborCost - lastResult.overheadCost).toFixed(2)}
-                </div>
-                <div className="text-sm text-muted-foreground dark:text-gray-300">المواد المباشرة</div>
-              </div>
-            </div>
-            
-            {/*
-              "Post to GL" has no real implementation — the action handler it
-              used to call (post-stage-to-gl) only ever returned a fabricated
-              success response and never wrote a GL entry. Rather than gate a
-              write that doesn't exist behind a permission check (which would
-              misrepresent it as a protected real GL write), the control is
-              shown disabled and labeled unavailable.
-            */}
-            <div className="flex flex-col items-center gap-1">
-              <Button
-                type="button"
-                disabled
-                title="ترحيل المرحلة للدفتر العام غير متاح حاليًا"
-                className="wardah-glass-card"
-              >
-                <Lock className="h-4 w-4 mr-2" />
-                ترحيل للدفتر العام (غير متاح حاليًا)
-              </Button>
-            </div>
-
-            <div className="text-xs text-muted-foreground text-center">
-              تم الحساب في: {new Date(lastResult.calculatedAt).toLocaleString('en-US')}
-            </div>
-          </div>
-        )}
+        {lastResult && <StageCostResultDisplay result={lastResult} />}
       </div>
-      
+
       {/* Stage Costs History */}
-      {stageCosts.length > 0 && (
-        <div className="wardah-glass-card p-6">
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
-            <TrendingUp className="h-5 w-5" />
-            تاريخ مراحل التكلفة
-          </h3>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-right p-2">المرحلة</th>
-                  <th className="text-right p-2">مركز العمل</th>
-                  <th className="text-right p-2">الكمية الجيدة</th>
-                  <th className="text-right p-2">التكلفة الإجمالية</th>
-                  <th className="text-right p-2">تكلفة الوحدة</th>
-                  <th className="text-right p-2">الحالة</th>
-                  <th className="text-right p-2">التاريخ</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stageCosts.map((stage, index) => (
-                  <tr key={stage.id || index} className="border-b hover:bg-muted/50 dark:hover:bg-gray-800">
-                    <td className="p-2 font-medium">
-                      {stage.manufacturing_stage?.name_ar || 
-                       stage.manufacturing_stage?.name || 
-                       `Stage ${stage.stage_number || stage.stage_id || 'N/A'}`}
-                    </td>
-                    <td className="p-2">{stage.work_center?.name || stage.work_center_id}</td>
-                    <td className="p-2">{stage.good_quantity}</td>
-                    <td className="p-2 font-medium">{stage.total_cost?.toFixed(2)} ريال</td>
-                    <td className="p-2">{stage.unit_cost?.toFixed(2)} ريال</td>
-                    <td className="p-2">
-                      <Badge variant={stage.status === 'completed' ? 'default' : 'outline'}>
-                        {(() => {
-                          if (stage.status === 'precosted') return 'تكلفة مُقدرة';
-                          if (stage.status === 'actual') return 'تكلفة فعلية';
-                          if (stage.status === 'completed') return 'مكتملة';
-                          return stage.status;
-                        })()}
-                      </Badge>
-                    </td>
-                    <td className="p-2 text-sm text-muted-foreground">
-                      {new Date(stage.updated_at || stage.created_at).toLocaleDateString('en-US')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      {stageCosts.length > 0 && <StageCostsHistoryTable stageCosts={stageCosts} />}
     </div>
   )
 }
