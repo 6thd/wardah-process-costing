@@ -94,4 +94,31 @@ describe('ManufacturingOverview — per-section permission-aware loading', () =>
     expect(screen.queryByText('manufacturing.overviewPage.cards.bom.title')).not.toBeInTheDocument();
     expect(screen.queryByText('manufacturing.overviewPage.cards.orders.title')).not.toBeInTheDocument();
   });
+
+  it('preserves every permitted card destination after card decomposition', async () => {
+    setPermissions([
+      'manufacturing.orders.read',
+      'manufacturing.boms.read',
+      'manufacturing.work_centers.read',
+      'manufacturing.stage_costs.read',
+      'manufacturing.stages.read',
+    ]);
+    renderOverview();
+    await waitFor(() => expect(manufacturingGetAll).toHaveBeenCalled());
+
+    const destinations = [
+      ['manufacturing.overviewPage.cards.orders.title', '/manufacturing/orders'],
+      ['manufacturing.overviewPage.cards.processCosting.title', '/manufacturing/process-costing'],
+      ['manufacturing.overviewPage.cards.workCenters.title', '/manufacturing/workcenters'],
+      ['manufacturing.overviewPage.cards.bom.title', '/manufacturing/bom'],
+      ['manufacturing.overviewPage.cards.stages.title', '/manufacturing/stages'],
+      ['manufacturing.overviewPage.cards.quality.title', '/manufacturing/quality'],
+    ] as const;
+
+    for (const [name, href] of destinations) {
+      expect(screen.getByRole('link', { name: new RegExp(name.replaceAll('.', '\\.')) }))
+        .toHaveAttribute('href', href);
+    }
+    expect(screen.getByText('manufacturing.overviewPage.cards.labor.title')).toBeInTheDocument();
+  });
 });
