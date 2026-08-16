@@ -116,8 +116,7 @@ describe('ManufacturingOverview — per-section permission-aware loading', () =>
     ] as const;
 
     for (const [name, href] of destinations) {
-      expect(screen.getByRole('link', { name: new RegExp(name.replaceAll('.', '\\.')) }))
-        .toHaveAttribute('href', href);
+      expect(screen.getByText(name).closest('a')).toHaveAttribute('href', href);
     }
     expect(screen.getByText('manufacturing.overviewPage.cards.labor.title')).toBeInTheDocument();
   });
