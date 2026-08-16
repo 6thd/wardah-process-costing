@@ -1,11 +1,11 @@
 # خطة الوصول لمستوى متقدم — موديول التصنيع وتكاليف المراحل
 
-**الحالة:** مسودة تنفيذية معتمدة على تدقيق المستودع  
+**الحالة:** مسودة تنفيذية معتمدة على تدقيق المستودع\
 **آخر تحديث:** 2026-08-16\
-**النطاق:** Manufacturing + Process Costing + MES المرتبط بالتكلفة  
-**خارج النطاق المباشر:** ZATCA، المبيعات الكاملة، CRM، الأصول الثابتة  
+**النطاق:** Manufacturing + Process Costing + MES المرتبط بالتكلفة\
+**خارج النطاق المباشر:** ZATCA، المبيعات الكاملة، CRM، الأصول الثابتة\
 
-> تمت مراجعة الحالة مقابل `main` عند `3325b18` ودفتر migrations المطبّق على Production حتى `175`.
+> تمت مراجعة الحالة مقابل `main` عند `85139ae` ودفتر migrations المطبّق على Production حتى `175`.
 
 ---
 
@@ -75,7 +75,8 @@
 | تقرير process-costing القديم | `process-costing-report.tsx` — بيانات mock |
 
 ### 1.4 التناقض الوثائقي الواجب إصلاحه مبكرًا
-`docs/architecture/PROCESS_COSTING_LIMITATIONS.md` يعلن EUP/FIFO/Scrap «Compliant / Implemented» على مستوى المحرك، بينما مسار الواجهة الحي ما زال على الصيغة القديمة.  
+`docs/architecture/PROCESS_COSTING_LIMITATIONS.md` يعلن EUP/FIFO/Scrap «Compliant / Implemented» على مستوى المحرك، بينما مسار الواجهة الحي ما زال على الصيغة القديمة.
+
 **قاعدة هذه الخطة:** لا تُعلَن ميزة «مكتملة للمنتج» إلا إذا كان المسار الحي + الاختبار + الـ runbook متسقين.
 
 ---
@@ -202,7 +203,7 @@ flowchart TD
 ### سيناريوهات قبول رقمية (إلزامية في الاختبارات)
 
 **سيناريو WA + WIP (من الوثيقة الحالية):**
-- تكلفة 10,000 · جيدة 800 · WIP ختامي 200 @ 50% CC  
+- تكلفة 10,000 · جيدة 800 · WIP ختامي 200 @ 50% CC
 - المتوقع: EUP = 900 · unit ≈ 11.11 · تكلفة تامة ≈ 8,888 · WIP ≈ 1,111
 
 **سيناريو خردة:**
@@ -234,8 +235,9 @@ flowchart TD
 | **S2-A: Post per stage** | صناعات تريد إثبات مرحلي شهري | أعلى (أحداث STAGE_WIP / ABNORMAL_SCRAP) |
 | **S2-B: Accrue on MO complete only** | تبسيط أول إصدار متقدم | أقل، يعتمد على P3 |
 
-**التوصية الافتراضية لهذه الخطة:**  
-- نفّذ **S2-B أولًا** مع إبقاء زر Post Stage معطّلًا بصراحة أو يكتب إلى مسودة غير مرحّلة.  
+**التوصية الافتراضية لهذه الخطة:**
+
+- نفّذ **S2-B أولًا** مع إبقاء زر Post Stage معطّلًا بصراحة أو يكتب إلى مسودة غير مرحّلة.
 - ثم S2-A إن طلب العملاء إثباتًا مرحليًا.
 
 ### مهام DB (إن S2-A أو أحداث خردة غير طبيعية)
@@ -268,7 +270,7 @@ flowchart TD
    - `labor_time_tracking` (MES)
    - `moh_applied`
 2. قرار عقد:
-   - **إما** view/جسر يغذّي الإكمال من المصدرين،  
+   - **إما** view/جسر يغذّي الإكمال من المصدرين،
    - **أو** migration توحّد الكتابة إلى جدول قانوني واحد.
 3. قواعد التقييم:
    - أجور: ساعات × معدل معتمد (مركز عمل / موظف).
@@ -419,11 +421,11 @@ flowchart TD
 
 ### اختبارات
 1. E2E Playwright يتجاوز smoke الحالي في `e2e/process-costing.spec.ts`:
-   - إنشاء/اختيار MO  
-   - احتساب مرحلة بـ WIP  
-   - تنفيذ MES مختصر (إن P6)  
-   - إكمال أمر  
-   -断言 مخزون/تقرير تكلفة (عبر UI أو API fixture على staging)
+   - إنشاء/اختيار MO
+   - احتساب مرحلة بـ WIP
+   - تنفيذ MES مختصر (إن P6)
+   - إكمال أمر
+   - التحقق من أثر المخزون/تقرير التكلفة (عبر UI أو API fixture على staging)
 2. جناح قبول SQL مماثل لـ UoM/AP acceptance workflows الموجود في CI.
 3. تثبيت أرقام ذهبية (golden cases) للـ WA/FIFO/Scrap في CI.
 
@@ -458,7 +460,8 @@ flowchart TD
 | P8 | متوسطة | P6+P7 | UI/SQL views | — |
 | P9 | إطلاق | P1–P7 كحد أدنى ناضج | CI/Docs/E2E | — |
 
-**المسار الحرج للتميّز التنافسي:** `P1 → P3 → P4 → P9`  
+**المسار الحرج للتميّز التنافسي:** `P1 → P3 → P4 → P9`
+
 **المسار الحرج للتشغيل اليومي في المصنع:** `P6 → P3-1 → P7 → P8`
 
 ---
@@ -504,7 +507,8 @@ flowchart TD
 | E2E staging | سيناريو واحد ذهبي على بيئة أسرار منفصلة |
 | CI workflows | اقتدِ بنمط `UoM` / `AP three-way` acceptance |
 
-**قاعدة إيقاف الدمج (merge blocker):**  
+**قاعدة إيقاف الدمج (merge blocker):**
+
 أي PR يعيد إدخال حساب تكلفة مرحلة في العميل للمسار الافتراضي يُرفض.
 
 ---
@@ -562,10 +566,10 @@ flowchart TD
 - `src/features/manufacturing/index.tsx`
 
 ### Migrations حرجة
-- `66` WIP fields · `67` EUP WA · `68` Scrap · `69` FIFO  
-- `73` MES · `75` integration/efficiency · `80` CoP report  
-- `93`/`95`/`96` atomic MO completion · `109` wip_by_stage  
-- `120` secure `upsert_stage_cost` · `128` EU trigger fix  
+- `66` WIP fields · `67` EUP WA · `68` Scrap · `69` FIFO
+- `73` MES · `75` integration/efficiency · `80` CoP report
+- `93`/`95`/`96` atomic MO completion · `109` wip_by_stage
+- `120` secure `upsert_stage_cost` · `128` EU trigger fix
 
 ### وثائق مرتبطة
 - `docs/architecture/PROCESS_COSTING_LIMITATIONS.md`
