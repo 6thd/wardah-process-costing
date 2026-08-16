@@ -30,6 +30,7 @@ vi.mock('@/hooks/usePermissions', () => ({
   usePermissions: vi.fn(() => ({
     isOrgAdmin: false,
     isSuperAdmin: false,
+    hasModuleAccess: () => false,
     permissions: [],
     loading: false,
     error: null,
@@ -90,6 +91,14 @@ function renderSidebar() {
 
 describe('Sidebar — i18n', () => {
   beforeEach(async () => {
+    ;(usePermissions as any).mockReturnValue({
+      isOrgAdmin: false,
+      isSuperAdmin: false,
+      hasModuleAccess: () => false,
+      permissions: [],
+      loading: false,
+      error: null,
+    })
     await act(async () => {
       await i18n.changeLanguage('ar')
     })
@@ -160,7 +169,12 @@ describe('Sidebar — i18n', () => {
   it('subItem labels are NOT frozen: no Arabic remains in sidebar DOM after switching to English', async () => {
     // كل الصلاحيات مفعّلة ⇒ كل القوائم (بما فيها org-admin/super-admin) تُعرض وتُفحص
     ;(usePermissions as any).mockReturnValue({
-      isOrgAdmin: true, isSuperAdmin: true, permissions: [], loading: false, error: null,
+      isOrgAdmin: true,
+      isSuperAdmin: true,
+      hasModuleAccess: () => true,
+      permissions: [],
+      loading: false,
+      error: null,
     })
 
     const { container } = renderSidebar()
@@ -184,5 +198,38 @@ describe('Sidebar — i18n', () => {
     const enOverview = (enTranslation as any).navigation?.overview
     expect(enOverview).toBeTruthy()
     expect(screen.queryAllByText(enOverview).length).toBeGreaterThan(0)
+  })
+
+  it('hides ordinary modules that the backend snapshot did not grant', () => {
+    ;(usePermissions as any).mockReturnValue({
+      isOrgAdmin: false,
+      isSuperAdmin: false,
+      hasModuleAccess: (moduleCode: string) => moduleCode === 'sales',
+      permissions: [],
+      loading: false,
+      error: null,
+    })
+
+    renderSidebar()
+
+    expect(screen.getByRole('button', { name: i18n.t('navigation.sales') })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /التصنيع|Manufacturing/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: i18n.t('navigation.org-admin') })).not.toBeInTheDocument()
+  })
+
+  it('shows organization administration only for an org or super admin', () => {
+    ;(usePermissions as any).mockReturnValue({
+      isOrgAdmin: true,
+      isSuperAdmin: false,
+      hasModuleAccess: () => true,
+      permissions: [],
+      loading: false,
+      error: null,
+    })
+
+    renderSidebar()
+
+    expect(screen.getByRole('button', { name: i18n.t('navigation.org-admin') })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: i18n.t('navigation.super-admin') })).not.toBeInTheDocument()
   })
 })

@@ -21,6 +21,7 @@ import type { Customer } from '@/lib/supabase'
 import { SalesInvoiceForm } from '@/components/forms/SalesInvoiceForm'
 import { DeliveryNoteForm } from '@/components/forms/DeliveryNoteForm'
 import { CustomerReceipts } from './components/CustomerReceipts'
+import { usePermissions } from '@/hooks/usePermissions'
 
 // Shared status badge function
 function getStatusBadge(status: string) {
@@ -57,108 +58,137 @@ function getPaymentStatusText(status: string): string {
 function SalesOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول الصفحة عند ModuleGuard هو anyOf بين الثلاثة أدناه — لكن ذلك
+  // لا يعني أن كل قسم يُحمَّل أو يُعرض لكل من اجتاز الدخول. كل قسم يُحمَّل
+  // ويُعرض فقط إذا امتلك المستخدم مفتاح قراءته الفعلي، حتى يستفيد المستخدم
+  // محدود الصلاحية من الأقسام المسموحة له فقط دون تحميل ما لا يملك مفتاحه.
+  const canReadCustomers = hasPermissionKey('sales.customers.read')
+  const canReadOrders = hasPermissionKey('sales.sales_orders.read')
+  const canReadInvoices = hasPermissionKey('sales.sales_invoices.read')
+  const canReadSalesActivity = canReadOrders || canReadInvoices
   const [customers, setCustomers] = useState<Customer[]>([])
-  const [orders, setOrders] = useState<any[]>([])
+  const [invoicesData, setInvoicesData] = useState<any[]>([])
+  const [ordersData, setOrdersData] = useState<any[]>([])
 
-  // Helper function to load customers
-  const loadCustomers = async () => {
-    try {
-      const customersData = await customersService.getAll().catch(() => [])
-      setCustomers(customersData || [])
-    } catch (error) {
-      console.warn('Error loading customers:', error)
+  // ثلاث موارد مستقلة تمامًا: حالة، تحميل، ومسح كل واحدة منها معلَّق فقط على
+  // مفتاحها الخاص — لا على boolean مدمَج مثل canReadSalesActivity. التبديل
+  // بين sales.sales_orders.read وsales.sales_invoices.read داخل نفس mount
+  // (بلا unmount) يُعيد تشغيل الـeffect المعني فورًا، ويمسح الـeffect الآخر
+  // بيانات مورده فور فقد مفتاحه بدل تركها ظاهرة (stale).
+  useEffect(() => {
+    if (!canReadCustomers) {
+      setCustomers([])
+      return
     }
-  }
-
-  // Helper function to load orders with fallback
-  const loadOrdersWithFallback = async () => {
-    try {
-      const { getAllSalesInvoices } = await import('@/services/enhanced-sales-service')
-      const invoicesResult = await getAllSalesInvoices()
-      if (invoicesResult.success && invoicesResult.data) {
-        setOrders(invoicesResult.data || [])
-        return
-      }
-    } catch (invoiceError: any) {
-      console.warn('Error loading sales invoices, trying fallback:', invoiceError)
-    }
-    
-    // Fallback: try old service
-    try {
-      const ordersData = await salesOrdersService.getAll()
-      setOrders(ordersData || [])
-    } catch (ordersError: any) {
-      if (ordersError.code === 'PGRST205') {
-        console.warn('sales_orders table not found, using empty array')
-        setOrders([])
-      } else {
-        console.error('Error loading sales data:', ordersError)
-        toast.error(`خطأ في تحميل بيانات المبيعات: ${ordersError.message}`)
-      }
-    }
-  }
+    let cancelled = false
+    customersService.getAll()
+      .then(data => { if (!cancelled) setCustomers(data || []) })
+      .catch(error => {
+        console.warn('Error loading customers:', error)
+        if (!cancelled) setCustomers([])
+      })
+    return () => { cancelled = true }
+  }, [canReadCustomers])
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        await Promise.all([
-          loadCustomers(),
-          loadOrdersWithFallback()
-        ])
-      } catch (error: any) {
-        console.error('Error loading sales data:', error)
-        toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
-      }
+    if (!canReadInvoices) {
+      setInvoicesData([])
+      return
     }
-    loadData()
-  }, [])
+    let cancelled = false
+    getAllSalesInvoices()
+      .then(result => {
+        if (cancelled) return
+        setInvoicesData(result.success && result.data ? result.data : [])
+      })
+      .catch(error => {
+        console.warn('Error loading sales invoices:', error)
+        if (!cancelled) setInvoicesData([])
+      })
+    return () => { cancelled = true }
+  }, [canReadInvoices])
 
-  const totalSalesValue = orders.reduce((sum, order) => sum + order.total_amount, 0)
-  const pendingOrders = orders.filter(order => order.status === 'draft' || order.status === 'sent')
+  useEffect(() => {
+    if (!canReadOrders) {
+      setOrdersData([])
+      return
+    }
+    let cancelled = false
+    salesOrdersService.getAll()
+      .then(data => { if (!cancelled) setOrdersData(data || []) })
+      .catch((error: any) => {
+        if (cancelled) return
+        if (error.code === 'PGRST205') {
+          setOrdersData([])
+        } else {
+          console.error('Error loading sales orders:', error)
+          toast.error(`خطأ في تحميل بيانات المبيعات: ${error.message}`)
+        }
+      })
+    return () => { cancelled = true }
+  }, [canReadOrders])
+
+  // الفواتير تُفضَّل حين تتوفر صلاحيتها؛ أوامر المبيعات القديمة (fallback
+  // القديم) لا تُعرض إلا حين تغيب صلاحية الفواتير — نفس أولوية المصدر
+  // الأصلية، لكن مبنية الآن على الصلاحية الفعلية لا على نجاح/فشل الطلب.
+  const salesActivity = canReadInvoices ? invoicesData : ordersData
+  const totalSalesValue = salesActivity.reduce((sum, order) => sum + order.total_amount, 0)
+  const pendingOrders = salesActivity.filter(order => order.status === 'draft' || order.status === 'sent')
 
   return (
     <div className="space-y-6">
       <PageHeader title={t('sales.title')} description="إدارة المبيعات والعملاء" hideOnPrint={false} />
 
-      {/* Key Metrics */}
+      {/* Key Metrics — كل بطاقة تُعرض فقط لمن يملك مفتاح قراءة موردها */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{customers.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي العملاء</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalSalesValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة المبيعات (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
-          <div className="text-sm text-muted-foreground">فواتير معلقة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الفواتير</div>
-        </div>
+        {canReadCustomers && (
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{customers.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي العملاء</div>
+          </div>
+        )}
+        {canReadSalesActivity && (
+          <>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-green-600">{totalSalesValue.toFixed(2)}</div>
+              <div className="text-sm text-muted-foreground">قيمة المبيعات (ريال)</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
+              <div className="text-sm text-muted-foreground">فواتير معلقة</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-purple-600">{salesActivity.length}</div>
+              <div className="text-sm text-muted-foreground">إجمالي الفواتير</div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions — روابط لشاشات أخرى تُعرض فقط لمن يملك صلاحية دخولها */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link to="/sales/customers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('sales.customers')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة العملاء
-          </p>
-        </Link>
+        {canReadCustomers && (
+          <Link to="/sales/customers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('sales.customers')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة العملاء
+            </p>
+          </Link>
+        )}
 
-        <Link to="/sales/orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('sales.invoices')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            فواتير المبيعات
-          </p>
-        </Link>
+        {canReadOrders && (
+          <Link to="/sales/orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('sales.invoices')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              فواتير المبيعات
+            </p>
+          </Link>
+        )}
 
         <div className="bg-card rounded-lg border p-6">
           <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
@@ -176,6 +206,11 @@ function SalesOverview() {
 function CustomersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // قراءة الشاشة (sales.customers.read) تحكم دخول المسار عبر ModuleGuard؛
+  // الإضافة فعل منفصل يحتاج مفتاحه الخاص، ولا يُستنتَج من مجرد القدرة على
+  // فتح الشاشة.
+  const canCreateCustomer = hasPermissionKey('sales.customers.create')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -211,6 +246,13 @@ function CustomersManagement() {
   )
 
   const handleAddCustomer = async () => {
+    // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create() لا
+    // تُستدعى بلا sales.customers.create مهما كان مصدر الاستدعاء — بما فيه
+    // نموذج تُرك مفتوحًا من قبل سُحبت الصلاحية أثناء تعبئته.
+    if (!canCreateCustomer) {
+      toast.error('لم تعد تملك صلاحية إضافة عملاء')
+      return
+    }
     try {
       await customersService.create(newCustomer)
       toast.success('تم إضافة العميل بنجاح')
@@ -244,9 +286,11 @@ function CustomersManagement() {
           <h1 className="text-2xl font-bold">{t('sales.customers')}</h1>
           <p className="text-muted-foreground">إدارة العملاء</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : t('common.add')}
-        </Button>
+        {canCreateCustomer && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : t('common.add')}
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -258,7 +302,10 @@ function CustomersManagement() {
         />
       </div>
 
-      {/* Add Customer Form */}
+      {/* Add Customer Form — الزر أعلاه هو ما يفتحها، فلا تُفتَح بلا صلاحية.
+          لا تُغلَق قسرًا إن سُحبت الصلاحية أثناء التعبئة (لا تُفقَد بيانات
+          مسودة المستخدم بلا تفسير) — handleAddCustomer نفسها آخر خط دفاع
+          للحفظ الفعلي، ويرفض التنفيذ ويُعلم المستخدم إن حدث ذلك. */}
       {showAddForm && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة عميل جديد</h3>
@@ -474,6 +521,8 @@ function SalesOrdersManagement() {
 
 function SalesInvoicesManagement() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateInvoice = hasPermissionKey('sales.sales_invoices.create')
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -532,13 +581,17 @@ function SalesInvoicesManagement() {
           <h1 className="text-2xl font-bold">{t('sales.invoices')}</h1>
           <p className="text-muted-foreground">فواتير المبيعات</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          + إضافة فاتورة مبيعات
-        </Button>
+        {canCreateInvoice && (
+          <Button onClick={() => setShowAddForm(true)}>
+            + إضافة فاتورة مبيعات
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا sales.sales_invoices.create،
+          حتى لو بقيت showAddForm=true من قبل سُحبت الصلاحية. */}
       <SalesInvoiceForm
-        open={showAddForm}
+        open={showAddForm && canCreateInvoice}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
           loadInvoices()
@@ -649,6 +702,8 @@ export function SalesModule() {
 function DeliveryManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateDelivery = hasPermissionKey('sales.delivery_notes.create')
   const [deliveries, setDeliveries] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -725,13 +780,16 @@ function DeliveryManagement() {
           <h1 className="text-2xl font-bold">{t('sales.delivery')}</h1>
           <p className="text-muted-foreground">مذكرات التسليم</p>
         </div>
-        <Button onClick={() => setShowDeliveryForm(true)}>
-          + إضافة مذكرة تسليم
-        </Button>
+        {canCreateDelivery && (
+          <Button onClick={() => setShowDeliveryForm(true)}>
+            + إضافة مذكرة تسليم
+          </Button>
+        )}
       </div>
-      
-      <DeliveryNoteForm 
-        open={showDeliveryForm}
+
+      {/* لا يُمرَّر open=true إلى النموذج بلا sales.delivery_notes.create. */}
+      <DeliveryNoteForm
+        open={showDeliveryForm && canCreateDelivery}
         onOpenChange={setShowDeliveryForm}
         onSuccess={async () => {
           toast.success('تم إنشاء مذكرة التسليم بنجاح')

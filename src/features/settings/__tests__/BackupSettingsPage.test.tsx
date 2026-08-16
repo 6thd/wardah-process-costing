@@ -17,6 +17,19 @@ vi.mock('@/services/org-settings-service', () => ({
   toCSV: mocks.toCSV,
 }))
 
+// هذا الملف يغطي نطاق التصدير والتوطين لا RBAC — يُمنح كل مفاتيح القراءة
+// المصدَّرة افتراضيًا كي يبقى يختبر ما كان يختبره أصلًا بعد إضافة الحراسة
+// الفعلية (Round 6) على BackupSettingsPage.
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermission: () => true,
+    hasPermissionKey: () => true,
+    isOrgAdmin: false,
+    isSuperAdmin: false,
+    loading: false,
+  }),
+}))
+
 vi.mock('sonner', () => ({
   toast: {
     success: mocks.success,

@@ -15,6 +15,8 @@ const mockDelete = vi.fn();
 const mockSingle = vi.fn();
 const mockMaybeSingle = vi.fn();
 const mockEq = vi.fn();
+const mockIn = vi.fn();
+const mockOrder = vi.fn();
 
 const mockAuthGetUser = vi.fn();
 const mockRpc = vi.fn();
@@ -42,15 +44,13 @@ vi.mock('@/lib/supabase', () => ({
                   maybeSingle: () => mockMaybeSingle(),
                   single: () => mockSingle(),
                 }),
-                in: () => ({ data: [], error: null }),
-                order: () => ({ data: [], error: null }),
+                in: mockIn,
+                order: mockOrder,
                 single: () => mockSingle(),
               };
             },
-            order: () => ({
-              data: [],
-              error: null,
-            }),
+            in: mockIn,
+            order: mockOrder,
           };
         },
         insert: (data: unknown) => {
@@ -91,6 +91,7 @@ import {
   setUserAsOrgAdmin,
   toggleUserStatus,
   removeUserFromOrg,
+  updateUserRoles,
   type OrgUser,
   type OrgRole,
   type Invitation,
@@ -101,6 +102,8 @@ describe('Org Admin Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRpc.mockReturnValue({ data: null, error: null });
+    mockIn.mockReturnValue({ data: [], error: null });
+    mockOrder.mockReturnValue({ data: [], error: null });
     mockAuthGetUser.mockResolvedValue({
       data: { user: { id: 'user-1', email: 'admin@example.com' } },
       error: null,
@@ -190,6 +193,79 @@ describe('Org Admin Service', () => {
 
       expect(result).toEqual([]);
     });
+
+    it('hydrates organization users with profile metadata and email', async () => {
+      const membership = {
+        id: 'membership-1',
+        user_id: 'user-2',
+        org_id: 'org-1',
+        is_active: true,
+        is_org_admin: false,
+        created_at: '2026-08-11T00:00:00Z',
+      };
+      const profile = {
+        user_id: 'user-2',
+        full_name: 'Test User',
+        full_name_ar: 'مستخدم اختبار',
+        phone: null,
+        avatar_url: null,
+        preferred_language: 'ar',
+        last_login_at: null,
+        email: 'test.user@example.com',
+      };
+
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: [], error: null })
+        .mockReturnValueOnce({ data: [profile], error: null });
+
+      const result = await getOrgUsers('org-1');
+
+      expect(mockFrom).toHaveBeenCalledWith('user_profiles');
+      expect(mockSelect).toHaveBeenCalledWith(expect.stringContaining('email'));
+      expect(result).toEqual([
+        {
+          ...membership,
+          user_profile: profile,
+          email: 'test.user@example.com',
+          roles: [],
+        },
+      ]);
+    });
+
+    it('keeps memberships usable when profile enrichment fails', async () => {
+      const membership = {
+        id: 'membership-1',
+        user_id: 'user-2',
+        org_id: 'org-1',
+        is_active: true,
+        is_org_admin: false,
+        created_at: '2026-08-11T00:00:00Z',
+      };
+      const profilesError = new Error('profile lookup unavailable');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+      mockOrder.mockReturnValueOnce({ data: [membership], error: null });
+      mockIn
+        .mockReturnValueOnce({ data: [], error: null })
+        .mockReturnValueOnce({ data: null, error: profilesError });
+
+      try {
+        const result = await getOrgUsers('org-1');
+
+        expect(warnSpy).toHaveBeenCalledWith('Could not fetch user profiles:', profilesError);
+        expect(result).toEqual([
+          {
+            ...membership,
+            user_profile: undefined,
+            email: undefined,
+            roles: [],
+          },
+        ]);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
   });
 
   describe('setUserAsOrgAdmin', () => {
@@ -256,25 +332,69 @@ describe('Org Admin Service', () => {
   });
 
   describe('removeUserFromOrg', () => {
-    it('should remove user and their roles', async () => {
-      await removeUserFromOrg('user-1', 'org-1');
+    it('removes membership and roles through the atomic Migration 175 RPC', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: { user_id: 'user-1', org_id: 'org-1', removed_role_count: 2 },
+        error: null,
+      });
 
-      expect(mockFrom).toHaveBeenCalledWith('user_roles');
-      expect(mockFrom).toHaveBeenCalledWith('user_organizations');
-      expect(mockDelete).toHaveBeenCalled();
+      const result = await removeUserFromOrg('user-1', 'org-1');
+
+      expect(mockRpc).toHaveBeenCalledWith('rpc_remove_org_member', {
+        p_payload: { org_id: 'org-1', user_id: 'user-1' },
+      });
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
+      expect(mockFrom).not.toHaveBeenCalledWith('user_organizations');
+      expect(mockDelete).not.toHaveBeenCalled();
+      expect(result.success).toBe(true);
     });
 
-    it('should handle deletion error', async () => {
-      mockDelete.mockImplementationOnce(() => ({
-        eq: () => ({
-          eq: () => ({ error: new Error('Delete failed') }),
-        }),
-      }));
+    it('surfaces a server-side removal guard', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: null,
+        error: { message: 'RBAC_175_LAST_ORG_ADMIN' },
+      });
 
-      await removeUserFromOrg('user-1', 'org-1');
+      const result = await removeUserFromOrg('user-1', 'org-1');
 
-      // Should handle error gracefully
-      expect(mockFrom).toHaveBeenCalled();
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('RBAC_175_LAST_ORG_ADMIN');
+      expect(mockFrom).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateUserRoles', () => {
+    it('replaces the complete role set through rpc_replace_user_roles', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: { role_count: 2, sensitive_keys_granted: [] },
+        error: null,
+      });
+
+      const result = await updateUserRoles('user-1', 'org-1', ['role-1', 'role-2']);
+
+      expect(mockRpc).toHaveBeenCalledWith('rpc_replace_user_roles', {
+        p_payload: {
+          org_id: 'org-1',
+          user_id: 'user-1',
+          role_ids: ['role-1', 'role-2'],
+          expires_at: null,
+        },
+      });
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
+      expect(result.success).toBe(true);
+    });
+
+    it('does not report success when the replacement RPC rejects the request', async () => {
+      mockRpc.mockReturnValueOnce({
+        data: null,
+        error: { message: 'RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER' },
+      });
+
+      const result = await updateUserRoles('user-1', 'org-1', ['role-1']);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('RBAC_174_TARGET_NOT_ACTIVE_ORG_MEMBER');
+      expect(mockFrom).not.toHaveBeenCalledWith('user_roles');
     });
   });
 

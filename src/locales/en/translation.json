@@ -55,7 +55,7 @@
     "system": "System Settings",
     "integrations": "Integrations",
     "backup": "Backup",
-    "gemini-dashboard": "Gemini Dashboard",
+    "reports-insights": "Reports Insights",
     "journal-entries": "Journal Entries",
     "org-admin": "Organization Admin",
     "orgAdminDashboard": "Dashboard",
@@ -200,6 +200,10 @@
         "bom": {
           "title": "Bill of Materials",
           "description": "All materials required for production"
+        },
+        "stages": {
+          "title": "Manufacturing Stages",
+          "description": "Define production stages and their sequence"
         },
         "quality": {
           "title": "Quality Control",
@@ -850,9 +854,9 @@
     "sessionExpired": "Session expired",
     "loading": "Loading..."
   },
-  "geminiDashboard": {
-    "title": "Revolutionary AI-Powered Financial Dashboard with Google Gemini",
-    "loadingMessage": "Loading Google Gemini AI-powered dashboard...",
+  "reportsInsights": {
+    "title": "AI-Powered Financial Insights Dashboard",
+    "loadingMessage": "Loading AI-powered dashboard...",
     "loadingOptimizedMessage": "Loading optimized dashboard version...",
     "loadingStatus": "Loading Status",
     "loadingHtml": "Loading dashboard content",
@@ -861,8 +865,8 @@
     "timeoutError": "Dashboard loading timeout. Please try again.",
     "syncSuccess": "Data synced successfully",
     "syncFailed": "Failed to sync data",
-    "enhancedTitle": "Gemini AI Financial Dashboard",
-    "enhancedDescription": "Advanced financial analysis with Google Gemini AI - Real data from Wardah ERP",
+    "enhancedTitle": "AI Financial Insights Dashboard",
+    "enhancedDescription": "Advanced AI-powered financial analysis - Real data from Wardah ERP",
     "autoRefresh": "Auto Refresh",
     "syncNow": "Sync Now",
     "totalSales": "Total Sales",
@@ -874,7 +878,8 @@
     "breakEvenSales": "Break-Even (Sales)",
     "fixedCosts": "Fixed Costs",
     "lowMarginWarning": "Warning: Low margin of safety. Consider increasing sales or reducing costs.",
-    "loadingEnhanced": "Loading Gemini Dashboard..."
+    "loadingEnhanced": "Loading Insights Dashboard...",
+    "breakEvenUnavailable": "Unavailable — requires a real fixed/variable cost classification not currently available"
   },
   "accounting": {
     "debit": "Debit",

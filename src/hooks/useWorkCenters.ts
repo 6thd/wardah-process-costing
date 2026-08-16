@@ -8,7 +8,7 @@ import type { WorkCenter } from '@/types/work-center'
 
 export type { WorkCenter }
 
-export const useWorkCenters = () => {
+export const useWorkCenters = (options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['work-centers'],
     queryFn: async () => {
@@ -55,6 +55,7 @@ export const useWorkCenters = () => {
     gcTime: 30 * 60 * 1000,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
+    enabled: options?.enabled ?? true,
   })
 }
 

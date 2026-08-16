@@ -50,6 +50,7 @@ import {
   Building2,
   Receipt,
 } from 'lucide-react';
+import { usePermissions } from '@/hooks/usePermissions';
 import { getHrStatusKey, HR_MONTH_KEYS, useHrTranslation } from '../i18n';
 import '../translations/pages';
 import '../translations/ui';
@@ -57,6 +58,11 @@ import '../translations/ui';
 export const PayrollPage: React.FC = () => {
   const { t, i18n } = useHrTranslation();
   const { toast } = useToast();
+  const { hasPermissionKey } = usePermissions();
+  // isPayrollAdmin علم عرض فقط (موثّق كذلك في مصدره)، لا يُغني عن مفتاح
+  // الصلاحية الفعلي. ترحيل الرواتب يكتب قيدًا محاسبيًا ويقفل الفترة عبر RPC —
+  // فعل إشرافي يطابق hr.payroll.approve الحقيقي في الكتالوج.
+  const canApprovePayroll = hasPermissionKey('hr.payroll.approve');
   const queryClient = useQueryClient();
   const locale = i18n.resolvedLanguage?.startsWith('ar') ? 'ar-SA' : 'en-US';
   const currencyFormatter = React.useMemo(
@@ -97,7 +103,12 @@ export const PayrollPage: React.FC = () => {
   });
 
   const processPayrollMutation = useMutation({
-    mutationFn: () => processPayrollRun(selectedPeriod.year, selectedPeriod.month),
+    mutationFn: () => {
+      if (!canApprovePayroll) {
+        return Promise.reject(new Error(t('payroll.adminRequired')));
+      }
+      return processPayrollRun(selectedPeriod.year, selectedPeriod.month);
+    },
     onSuccess: () => {
       toast({ title: `✅ ${t('payroll.approvedSuccess')}` });
       refetchPreview();
@@ -198,8 +209,14 @@ export const PayrollPage: React.FC = () => {
             value={`${selectedPeriod.year}-${String(selectedPeriod.month).padStart(2, '0')}`}
             onChange={handlePeriodChange}
           />
+          {canApprovePayroll && (
           <Button
-            onClick={() => processPayrollMutation.mutate()}
+            onClick={() => {
+              if (!canApprovePayroll) return;
+              if (globalThis.window?.confirm(t('payroll.approve'))) {
+                processPayrollMutation.mutate();
+              }
+            }}
             disabled={!isPayrollAdmin || processPayrollMutation.isPending || preview?.locked || !preview?.employees.length}
             title={!isPayrollAdmin ? t('payroll.adminRequired') : undefined}
             className="gap-2 bg-teal-600 hover:bg-teal-700"
@@ -212,6 +229,7 @@ export const PayrollPage: React.FC = () => {
               <><CheckCircle className="h-4 w-4" />{t('payroll.approve')}</>
             )}
           </Button>
+          )}
         </div>
       </div>
 

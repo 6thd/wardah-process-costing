@@ -22,6 +22,12 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
+// هذا الملف يختبر أهلية حساب السداد داخل نموذج الإنشاء لا بوابة الصلاحيات —
+// منح كل شيء يبقيه مركّزًا على نيته الأصلية (تُغطَّى الحراسة في اختبار مستقل).
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({ hasPermissionKey: () => true }),
+}))
+
 vi.mock('@/services/payment-vouchers-service', () => ({ ...mocks }))
 
 vi.mock('@/services/supabase-service', () => ({

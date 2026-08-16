@@ -1,0 +1,83 @@
+name: Reports Insights Isolation E2E
+
+# Runs e2e/reports-insights-isolation.spec.ts as a real pull_request gate —
+# a real Chromium browser, driven by Playwright, against a local server
+# that reproduces vercel.json's actual response headers (see
+# e2e/fixtures/local-vercel-headers-server.ts). This suite needs no
+# Supabase session or E2E_* account secrets: the sandboxed dashboard
+# never talks to Supabase directly, that's the whole point of the
+# isolation it verifies.
+#
+# Path filters cover every piece this suite actually exercises: the
+# iframe content itself, the CSP/header contract it asserts against, and
+# the React host component + its Playwright spec/fixtures.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'public/reports-insights/**'
+      - 'src/features/reports/components/EnhancedInsightsDashboard.tsx'
+      - 'vercel.json'
+      - 'e2e/reports-insights-isolation.spec.ts'
+      - 'e2e/fixtures/reports-insights-harness.html'
+      - 'e2e/fixtures/local-vercel-headers-server.ts'
+      - 'playwright.reports-insights.config.ts'
+      - 'playwright.reports-insights.vercel-preview.config.ts'
+      - '.github/workflows/reports-insights-isolation-e2e.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Playwright — sandboxed dashboard isolation + CSP
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run reports-insights isolation suite
+        run: npx playwright test e2e/reports-insights-isolation.spec.ts --config=playwright.reports-insights.config.ts --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: reports-insights-isolation-playwright-report
+          path: playwright-report/
+          retention-days: 14
+
+# The real-Vercel-Preview check used to live here as a TEMPORARY
+# pull_request-triggered job (removed) — it existed only because
+# reports-insights-vercel-preview-check.yml, a workflow_dispatch workflow,
+# could not be dispatched via the API/UI before its file existed on the
+# default branch. #106 merged that permanent workflow to main, so that
+# constraint no longer applies; use it directly (workflow_dispatch, with
+# required `revision` and `preview_url` inputs) instead of an automatic
+# job here.
+#
+# The automatic version was removed for a second, independent reason, not
+# just obsolescence: it resolved the Preview URL via GitHub's Deployments
+# API filtered only by SHA, which returns every deployment for that commit
+# across every connected provider (this repo has both Vercel and Netlify
+# ones) with no check on which provider produced the match. The resolved
+# URL then received VERCEL_AUTOMATION_BYPASS_SECRET via
+# x-vercel-protection-bypass regardless. Every real run happened to select
+# a genuine *.vercel.app URL, but "happened to" is not a boundary — a
+# same-SHA Netlify deployment landing earlier in an unordered API response
+# would have sent this secret to a non-Vercel host. The permanent
+# workflow's own preview_url validation step (added there) is the actual
+# boundary: it runs before any step that receives the secret and enforces
+# https:// plus an exact *.vercel.app hostname suffix, regardless of how
+# the URL was obtained.

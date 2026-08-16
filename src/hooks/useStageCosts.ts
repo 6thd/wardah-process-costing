@@ -31,7 +31,7 @@ export interface StageCost {
   }
 }
 
-export const useStageCosts = (moId: string) => {
+export const useStageCosts = (moId: string, options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['stage-costs', moId],
     queryFn: async () => {
@@ -160,7 +160,7 @@ export const useStageCosts = (moId: string) => {
         }
       })
     },
-    enabled: !!moId
+    enabled: !!moId && (options?.enabled ?? true)
   })
 }
 

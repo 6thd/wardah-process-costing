@@ -37,15 +37,29 @@ import { useWorkOrders, useStartOperation, useCompleteOperation, usePauseWorkOrd
 import { WorkOrder } from '@/services/manufacturing/mesService'
 import { useQuery } from '@tanstack/react-query'
 import { supabase, getEffectiveTenantId } from '@/lib/supabase'
+import { usePermissions } from '@/hooks/usePermissions'
 import { WorkOrderCard } from './components/WorkOrderCard'
 import { WorkCenterSummary } from './components/WorkCenterSummary'
 import { WorkOrdersEmptyState } from './components/WorkOrdersEmptyState'
+
+// لا مفتاح صلاحية مطابق لعمليات أوامر العمل (work_orders: بدء/إيقاف مؤقت/
+// استئناف/إنهاء) في الكتالوج الحي — لا manufacturing.work_orders.* ولا مورد
+// مكافئ (الجدول work_orders مستقل عن orders وwork_centers دلاليًا). يُغلَق كل
+// فعل حي هنا افتراضيًا (fail-closed) بدل ربطه بمفتاح غير ذي صلة، ويُبلَّغ هذا
+// كفجوة كتالوج/منتج تحتاج قرارًا منتجيًا (مورد صلاحية جديد) قبل إعادة التفعيل.
+const CAN_ACT_ON_WORK_ORDERS = false
+
+// نفس الفجوة تنطبق على القراءة: لا manufacturing.work_orders.read في الكتالوج
+// الحي، فلا تُستدعى استعلامات أوامر العمل أو ملخصها إطلاقًا (لا صفوف ولا
+// عدادات مشتقة) لأي مستخدم — مستقل تمامًا عن manufacturing.work_centers.read
+// التي تبقى تحكم بيانات مراكز العمل المرجعية وحدها.
+const CAN_READ_WORK_ORDERS = false
 
 // eslint-disable-next-line complexity
 export function WorkCenterDashboard() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
-  
+
   const [selectedWorkCenter, setSelectedWorkCenter] = useState<string>('')
   const [showCompleteDialog, setShowCompleteDialog] = useState(false)
   const [selectedWorkOrder, setSelectedWorkOrder] = useState<WorkOrder | null>(null)
@@ -53,7 +67,11 @@ export function WorkCenterDashboard() {
   const [quantityScrapped, setQuantityScrapped] = useState<number>(0)
   const [notes, setNotes] = useState('')
 
-  // Fetch work centers
+  const { hasPermissionKey } = usePermissions()
+  const canReadWorkCenters = hasPermissionKey('manufacturing.work_centers.read')
+
+  // Fetch work centers — بيانات مرجعية مستقلة، مُحكَمة بمفتاحها الحقيقي
+  // manufacturing.work_centers.read فقط، بصرف النظر عن fail-closed أوامر العمل.
   const { data: workCenters } = useQuery({
     queryKey: ['work-centers'],
     queryFn: async () => {
@@ -65,7 +83,8 @@ export function WorkCenterDashboard() {
         .eq('is_active', true)
       if (error) throw error
       return data
-    }
+    },
+    enabled: canReadWorkCenters
   })
 
   // Set default work center
@@ -75,14 +94,16 @@ export function WorkCenterDashboard() {
     }
   }, [workCenters, selectedWorkCenter])
 
-  // Fetch work orders for selected work center
+  // Fetch work orders for selected work center — لا manufacturing.work_orders.read
+  // في الكتالوج الحي، فيُغلَق الاستعلام افتراضيًا (fail-closed) بصرف النظر عن
+  // أي صلاحية ممنوحة، اتساقًا مع أفعال بدء/إيقاف/استئناف/إنهاء أوامر العمل.
   const { data: workOrders, isLoading, refetch } = useWorkOrders({
     workCenterId: selectedWorkCenter,
     status: ['PENDING', 'READY', 'IN_SETUP', 'IN_PROGRESS', 'ON_HOLD']
-  })
+  }, { enabled: CAN_READ_WORK_ORDERS })
 
-  // Work center summary
-  const { data: summary } = useWorkCenterSummary(selectedWorkCenter)
+  // Work center summary — مشتق من أوامر العمل نفسها، فيُغلَق بنفس البوابة.
+  const { data: summary } = useWorkCenterSummary(selectedWorkCenter, { enabled: CAN_READ_WORK_ORDERS })
 
   // Mutations
   const startOperation = useStartOperation()
@@ -91,6 +112,7 @@ export function WorkCenterDashboard() {
   const resumeWorkOrder = useResumeWorkOrder()
 
   const handleStartSetup = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     startOperation.mutate({
       workOrderId: workOrder.id,
       isSetup: true
@@ -98,6 +120,7 @@ export function WorkCenterDashboard() {
   }
 
   const handleStartProduction = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     startOperation.mutate({
       workOrderId: workOrder.id,
       isSetup: false
@@ -105,14 +128,17 @@ export function WorkCenterDashboard() {
   }
 
   const handlePause = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     pauseWorkOrder.mutate({ workOrderId: workOrder.id })
   }
 
   const handleResume = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     resumeWorkOrder.mutate({ workOrderId: workOrder.id })
   }
 
   const openCompleteDialog = (workOrder: WorkOrder) => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     setSelectedWorkOrder(workOrder)
     setQuantityProduced(workOrder.planned_quantity - workOrder.completed_quantity - workOrder.scrapped_quantity)
     setQuantityScrapped(0)
@@ -121,6 +147,7 @@ export function WorkCenterDashboard() {
   }
 
   const handleComplete = () => {
+    if (!CAN_ACT_ON_WORK_ORDERS) return
     if (selectedWorkOrder) {
       completeOperation.mutate({
         workOrderId: selectedWorkOrder.id,
@@ -247,6 +274,7 @@ export function WorkCenterDashboard() {
                       pause: pauseWorkOrder.isPending,
                       resume: resumeWorkOrder.isPending
                     }}
+                    canAct={CAN_ACT_ON_WORK_ORDERS}
                   />
                 ))}
               </div>
@@ -310,17 +338,19 @@ export function WorkCenterDashboard() {
             <Button variant="outline" onClick={() => setShowCompleteDialog(false)}>
               {t('wcDashboard.cancel')}
             </Button>
-            <Button 
-              onClick={handleComplete}
-              disabled={completeOperation.isPending || quantityProduced <= 0}
-            >
-              {completeOperation.isPending ? (
-                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <CheckCircle className="w-4 h-4 mr-2" />
-              )}
-              {t('wcDashboard.confirm')}
-            </Button>
+            {CAN_ACT_ON_WORK_ORDERS && (
+              <Button
+                onClick={handleComplete}
+                disabled={completeOperation.isPending || quantityProduced <= 0}
+              >
+                {completeOperation.isPending ? (
+                  <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                ) : (
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                )}
+                {t('wcDashboard.confirm')}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

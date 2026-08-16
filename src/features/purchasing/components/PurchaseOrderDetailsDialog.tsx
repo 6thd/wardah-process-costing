@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { useAuth } from '@/contexts/AuthContext'
 import { approvePurchaseOrder, submitPurchaseOrder } from '@/services/purchasing-service'
+import { usePermissions } from '@/hooks/usePermissions'
 
 type PurchaseOrderLine = {
   id?: string
@@ -119,6 +120,7 @@ export function PurchaseOrderDetailsDialog({
   onStatusChanged,
 }: PurchaseOrderDetailsDialogProps) {
   const { currentOrgId } = useAuth()
+  const { hasPermissionKey } = usePermissions()
   const [pendingAction, setPendingAction] = useState<'submit' | 'approve' | null>(null)
 
   if (!order) return null
@@ -128,10 +130,24 @@ export function PurchaseOrderDetailsDialog({
   const deliveryDate =
     order.expected_delivery_date || order.expected_delivery || order.delivery_date
   const taxAmount = order.tax_amount ?? order.vat_amount
-  const canSubmit = order.status === 'draft'
-  const canApprove = order.status === 'draft' || order.status === 'submitted'
+  // حالة الأمر وحدها لا تكفي إذنًا — "إرسال للاعتماد" تعديل على أمر قائم
+  // (purchase_orders.update)، و"اعتماد" فعل مطابق تمامًا لـ purchase_orders.approve.
+  const statusAllowsSubmit = order.status === 'draft'
+  const statusAllowsApprove = order.status === 'draft' || order.status === 'submitted'
+  const hasSubmitPermission = hasPermissionKey('purchasing.purchase_orders.update')
+  const hasApprovePermission = hasPermissionKey('purchasing.purchase_orders.approve')
+  const canSubmit = statusAllowsSubmit && hasSubmitPermission
+  const canApprove = statusAllowsApprove && hasApprovePermission
 
   const runStatusAction = async (action: 'submit' | 'approve') => {
+    if (action === 'submit' && !hasSubmitPermission) {
+      toast.error('لا تملك صلاحية إرسال أمر الشراء للاعتماد')
+      return
+    }
+    if (action === 'approve' && !hasApprovePermission) {
+      toast.error('لا تملك صلاحية اعتماد أمر الشراء')
+      return
+    }
     if (!currentOrgId || !order.id) {
       toast.error('تعذّر تحديد المؤسسة أو أمر الشراء.')
       return

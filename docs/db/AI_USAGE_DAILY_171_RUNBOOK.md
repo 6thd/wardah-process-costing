@@ -2,7 +2,9 @@
 
 **Migration:** `171_ai_usage_daily_and_reports_insights_permission.sql`
 **Scope:** Add the quota-tracking table and race-safe accept/reject RPC that back the `reports-insights` Supabase Edge Function, plus seed the `reports.ai_insights.use` permission the Edge Function checks before calling any provider.
-**State:** Repository implementation, not yet applied to Production. Do not apply before the paired Fresh DB acceptance gate is green and this runbook's preflight/postflight queries have been reviewed. The Edge Function itself is deployed independently of this migration (see `docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md`-style DB-first ordering in `CLAUDE.md`) — this migration must land on Production and be verified **before** any UI that depends on `reports-insights` is merged.
+**State:** Applied to Production (`uutfztmqvajmsxnrqeiv`) on 2026-08-06, ledger version `20260806061156`, name `171_ai_usage_daily_and_reports_insights_permission`. Re-verified live on 2026-08-09: `public.ai_usage_daily` exists and exactly one `permissions` row carries `permission_key = 'reports.ai_insights.use'`.
+
+**DB-first ordering was honoured here.** This migration reached Production on 2026-08-06, and the UI that depends on `reports-insights` was merged afterwards — PR #106 on 2026-08-08, then #107 and #108. That is the ordering `CLAUDE.md` §"ترتيب النشر" requires (`DB PR → apply → verify → UI PR`), and it is recorded here as the worked example to follow, in contrast to Migration 148 (`docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md` §3) where the ordering was violated.
 
 ## 1. Purpose
 

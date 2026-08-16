@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { usePermissions } from '@/hooks/usePermissions';
 
 interface Journal {
   id: string;
@@ -26,6 +27,13 @@ interface Account {
 
 export function useJournalData() {
   const { t } = useTranslation();
+  const { hasPermissionKey } = usePermissions();
+  // journals هنا بيانات مرجعية (أنواع القيود) تابعة لمورد journal-entries
+  // نفسه، فتُحكَم بنفس accounting.journals.read الذي يحكم دخول الشاشة —
+  // فحص دفاعي إضافي هنا، لا اتكالًا فقط على بوابة الموجّه. gl_accounts مورد
+  // مختلف تمامًا (شجرة الحسابات) فيحتاج accounting.accounts.read الحقيقي.
+  const canReadJournals = hasPermissionKey('accounting.journals.read');
+  const canReadAccounts = hasPermissionKey('accounting.accounts.read');
   const [journals, setJournals] = useState<Journal[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
@@ -74,9 +82,18 @@ export function useJournalData() {
   };
 
   useEffect(() => {
-    fetchJournals();
-    fetchAccounts();
-  }, []);
+    if (canReadJournals) {
+      fetchJournals();
+    } else {
+      setJournals([]);
+    }
+    if (canReadAccounts) {
+      fetchAccounts();
+    } else {
+      setAccounts([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadJournals, canReadAccounts]);
 
   return {
     journals,

@@ -127,6 +127,18 @@ vi.mock('../stage-costing-actions.js', () => ({
   unregisterStageCostingActions: vi.fn()
 }))
 
+// This file's tests are shallow rendering smoke tests predating Round 7's
+// per-resource RBAC gating (see stage-costing-panel-rbac.test.tsx and
+// stage-costing-actions-permissions.test.ts for the real coverage). The
+// panel now calls usePermissions(), which requires AuthContext; mock it
+// fully-granted here so these pre-existing tests keep exercising rendering
+// rather than needing an AuthProvider wrapper.
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermissionKey: () => true,
+  }),
+}))
+
 describe('StageCostingPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()

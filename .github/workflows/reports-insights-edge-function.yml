@@ -1,0 +1,39 @@
+name: Reports Insights Edge Function
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/functions/reports-insights/**'
+      - 'public/reports-insights/escape-html.js'
+      - '.github/workflows/reports-insights-edge-function.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Type-check, lint, and test the reports-insights Edge Function
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Set up Deno
+        uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d # v1.5.2
+        with:
+          deno-version: v2.x
+
+      - name: Type-check
+        run: deno check supabase/functions/reports-insights/index.ts
+
+      - name: Lint
+        run: deno lint supabase/functions/reports-insights/index.ts supabase/functions/reports-insights/index.test.ts
+
+      - name: Test
+        # --no-check: the dedicated Type-check step above already proves
+        # index.ts itself. Without it, `deno test`'s own implicit
+        # type-check pulls in @supabase/supabase-js's transitive .d.ts
+        # graph, which references @types/node — resolvable in a dev
+        # environment that happens to have a root node_modules/, but not
+        # in this workflow's clean checkout (no `npm install` step here).
+        run: deno test --no-check --allow-env supabase/functions/reports-insights/index.test.ts

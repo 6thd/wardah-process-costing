@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-07-29  
+**آخر تحديث موثق:** 2026-08-14  
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,12 +27,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد Baseline المولد في 2026-07-29:
+الحالة الحية الموثقة بعد تطبيق Migration 175 في 2026-08-11 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152.
-- Production: مطبقة حتى 152 (`152_ap_allow_fully_received_purchase_orders`).
-- Repository: أعلى migration مرقمة هي 152.
-- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–175 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
+- Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه preflight الخاصة بـ175.
+- Repository: أعلى migration مرقمة هي 175 (`175_rbac_consumer_migration_rpcs.sql`).
+- Fresh DB: 153–175 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
+- تدقيق السجل الحي في 2026-08-14: `live_cutoff = 175`، `repo_max = 175`، `repository_ahead_by = 0`، ولا ملفات معلّقة.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -41,6 +42,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 - 101 و102 طُبقتا مرتين بإصدارات زمنية محددة؛ أي تكرار إضافي يفشل التدقيق.
 - سجل 121 يحمل الاسم التاريخي `fail_closed_tenant_isolation` ويطابق قانونيًا الملف `121_fail_closed_tenant_isolation.sql`.
+- سجل 163 يحمل الاسم التاريخي `payment_voucher_guarded_draft_inserts` (version `20260731102524`) ويطابق قانونيًا الملف `163_payment_voucher_atomic_draft_creation.sql`. **ظل هذا الاستثناء غير معلن حتى 2026-08-09، فكان `Audit Production Migration Ledger` يفشل مغلقًا في كل تشغيل** برسالة `has no exact repository file … and no documented alias`. الصفّ الحي لم يُمسّ.
 
 المراجع:
 
@@ -54,6 +56,32 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 - `docs/db/AP_THREE_WAY_MATCH_149_152_RUNBOOK.md` — 149–152: المطابقة الثلاثية،
   idempotency، hardening أمني، وترتيب تطبيق Production الإلزامي
   `149 → 150 → 151 → 152` مع فحوص قبل/بعد التطبيق.
+- `docs/db/VOUCHER_RESET_166_RUNBOOK.md`، `docs/db/VOUCHER_ALLOCATION_167_RUNBOOK.md`،
+  `docs/db/VOUCHER_ATOMIC_LIFECYCLE_168_RUNBOOK.md` — 166–168: انتقال دورة سندات
+  القبض والصرف إلى RPCs ذرية (Create/Edit/Post/Reset/Cancel).
+- `docs/db/VOUCHER_WRITE_CLOSURE_169_RUNBOOK.md` — 169: إغلاق سطح الكتابة المؤقت
+  على رؤوس السندات وأسطر التخصيص وحقول الدفع المشتقة عبر حارس مزدوج (مالك RPC
+  موثوق + GUC محلي للمعاملة معًا، لا GUC وحده).
+- `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` — **170–173 مجتمعة**: العرض
+  المركّب لسلسلة عزل المستأجرين وتشديد `has_permission()`. ثلاث migrations تستبدل
+  **الدالة نفسها**، فالعقد الحي هو اتحادها لا آخرها؛ اقرأ هذا الملف قبل أي تعديل
+  لاحق على `has_permission`. يتضمن الحالة الحية المتحقَّقة، وما لم تغيّره السلسلة
+  عمدًا (تجاوز org admin — Issue #93).
+- `docs/db/SENSITIVE_PERMISSIONS_174_RUNBOOK.md` — 174: فئة الصلاحيات الحساسة عبر
+  مصنّف مركزي، وتضييق تجاوز org admin، وRPCs ذرية لإدارة الأدوار والتعيينات مع
+  `rpc_permission_snapshot` مصدرًا وحيدًا لقرارات الواجهة. يتضمن **المعاملة التشغيلية
+  الإلزامية قبل التطبيق** وترتيب Production السباعي.
+- `docs/db/TENANT_ISOLATION_170_RUNBOOK.md`، `docs/db/AI_USAGE_DAILY_171_RUNBOOK.md`،
+  `docs/db/HAS_PERMISSION_172_RUNBOOK.md`، `docs/db/HAS_PERMISSION_173_RUNBOOK.md`
+  — تفصيل كل migration على حدة.
+- `docs/db/RBAC_CONSUMER_175_RUNBOOK.md` — **Migration 175 (مطبّقة على Production،
+  تحقق `20260811132302`)**: لا تسحب منح الجداول، لكنها ترفض تعيين دور بلا
+  عضوية نشطة عند حدّ قاعدة البيانات، وتغلق سباق آخر مسؤول بقفل مشترك على صف
+  المؤسسة. تضيف `rpc_remove_org_member` الذرية المدقَّقة، وتحصّن فرعي المنح
+  الصريحة في دالتي الصلاحيات، وتُلحق سجل تدقيق بـ`create_role_from_template`.
+  **تُطبّق 175 أولًا DB-first بعد نجاح preflight**، ثم تأتي PR المستهلك التي
+  تعيد توجيه `users.tsx` و`roles.tsx` إلى الـRPCs. سحب الكتابة المباشرة نفسه
+  مؤجَّل لـMigration 176 بعد نجاح Browser Smoke الفعلي على الواجهة المنشورة.
 
 ## Baseline
 
@@ -127,6 +155,41 @@ PR #32 أضاف أو حسّن:
 - helpers الداخلية لا تُمنح لـ`anon` أو`authenticated`.
 
 `scripts/ci/check_definer_guards.py` يفحص migrations الأحدث من cutoff بحثًا عن مرجع حارس معروف أو سحب PUBLIC. لا يثبت ترتيب أول statement أو صحة المنطق كاملة؛ المراجعة البشرية والاختبارات السلبية لازمة.
+
+### عقد `has_permission()` الحي بعد 173
+
+الدالة `public.has_permission(uuid, uuid, varchar)` هي اتحاد ثلاث migrations لا آخرها
+(170 حارس هوية المستدعي، 172 مطابقة تامة للمفتاح، 173 اشتراط دور نشط)، بالإضافة إلى
+انتهاء صلاحية الدور ونطاق المؤسسة الموروثَين. أي `CREATE OR REPLACE` لاحق يجب أن يعيد
+تثبيت الطبقات الخمس جميعًا — تفصيلها وفحص ما بعد التطبيق المركّب في
+`docs/db/PERMISSION_HARDENING_170_173_CHAIN.md`.
+
+**تجاوز org admin قائم ولم تغيّره السلسلة:** فرع `is_org_admin` لا يقرأ
+`p_permission_key` إطلاقًا، فأي مسؤول مؤسسة نشط يجتاز **كل** مفتاح بما فيه المفاتيح
+المحاسبية الحساسة (`unpost`/`cancel`/`reverse`). ينطبق ذلك على `has_permission`
+و`wardah_has_exact_permission` معًا — الأخيرة «تامة» في المفتاح لا في التجاوز. ونتيجةً
+لذلك **عدّ صفوف `role_permissions` لا يقيس الصلاحية الفعلية**؛ الفحص الصحيح هو استدعاء
+دالة الصلاحية لكل مستخدم نشط.
+
+**Migration 174 (مطبّقة على Production، تحقق `20260809112236`، سبقت 175 مباشرة)** تحسم Issue #93: مصنّف مركزي
+واحد `wardah_is_sensitive_permission(text)` — `IMMUTABLE STRICT`، مفتاحان فقط
+(`accounting.vouchers.unpost` و`accounting.vouchers.cancel`) — تستدعيه الدالتان معًا فلا
+تتباعدان. Super Admin يحتفظ بالتجاوز الكامل؛ Org Admin يحتفظ به لكل المفاتيح العادية
+وإدارة المستخدمين والأدوار، ويفقده للمفاتيح الحساسة فتحتاج منحًا صريحًا عبر دور نشط
+غير منتهٍ — ويجوز لمسؤول المؤسسة إنشاء الدور ومنحه لنفسه، فتتحول السلطة من تجاوز خفي
+إلى قرار صريح مُدقَّق في `audit_logs`. `accounting.vouchers.reverse` **غير موجود** حيًا ولا
+في المستودع، ولم يُضَف افتراضيًا. التفاصيل وترتيب النشر الإلزامي في
+`docs/db/SENSITIVE_PERMISSIONS_174_RUNBOOK.md`.
+
+**الـLockout لم يكن احتمالًا نظريًا وقت صياغة 174:** وفق جرد 2026-08-09 (قبل كتابة أي
+كود)، كان Super Admins = 0، وتعيينات الأدوار = 0، والمفتاحان ممنوحان لصفر دور — ودور
+`Full Access` لا يحتويهما (166 من 169). لذلك يشترط الـrunbook (§6) إنشاء دور
+`Financial Controller` ومنحه المفتاحين وتعيينه للمسؤول الحالي وإثبات
+`via_explicit_grant = true` كخطوات تشغيلية **يجب أن تسبق** تطبيق 174، لا تتبعه؛ الـmigration
+نفسها لا تتحقق منها برمجيًا (تتحقق فقط من وجود المفتاحين في `permissions`، لا من وجود
+منح صريح). وهي بيانات org-scoped فمكانها معاملة تشغيلية موثقة، لا migration ولا Baseline.
+يبقى هذا الإجراء المرجع الموثق لأي إعادة تطبيق أو تدقيق مستقبلي — لا إثبات بحد ذاته أن
+الخطوات نُفذت بالفعل على Production.
 
 ## i18n
 
@@ -202,6 +265,12 @@ SELECT org_id, value FROM public.org_settings WHERE key = '<flag_key>';
 ```
 
 حدثت هذه الفجوة فعلًا مع Migration 148؛ التفاصيل في `docs/db/UOM_PARTIAL_RECEIPT_148_RUNBOOK.md` §3.
+وحدثت مرة أخرى بوجه مقلوب مع Migration 170: دُمجت في `main` عبر PR #98 بينما ظل سجل
+Production عند 169، فبقيت الثغرات الثلاث **حية بالكامل** طوال تلك النافذة حتى التطبيق
+الفعلي في 2026-08-06. **الدمج يغلق الفجوة في المستودع لا في Production؛ خطوة التطبيق هي
+الإصلاح نفسه لا متابعة اختيارية.** في المقابل التُزم الترتيب مع 171 (تطبيق وتحقق في
+2026-08-06، ثم دمج واجهة `reports-insights` في 2026-08-08 عبر #106 وما بعده) — وهو
+النموذج المتَّبع. التفاصيل في `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` §6.
 
 ## Secrets
 

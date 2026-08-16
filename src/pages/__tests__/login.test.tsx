@@ -1,20 +1,27 @@
 /**
- * Tests for the isDevelopment() gate added around the demo-credentials
- * hint on the login page — it must never render outside development.
+ * Tests for the login page after removing the demo-credentials feature.
+ *
+ * Tied to the SonarCloud typescript:S2068 fix: there is no client-safe way
+ * to ship a demo password (a VITE_* value is inlined into the built bundle
+ * just like a literal), so rather than leaving a dead conditional path
+ * waiting for a future "safe" value, the demo-credentials hint and its
+ * backing config (src/config/demo-credentials.ts) were removed entirely.
+ * A future demo-login experience needs a server-side design that never
+ * returns the password to the client at all.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { LoginPage } from '@/pages/login';
 
 const mockGetSession = vi.fn().mockResolvedValue({ data: { session: null }, error: null });
-const mockIsDevelopment = vi.fn();
+const mockSignInWithPassword = vi.fn().mockResolvedValue({ data: { user: null }, error: { message: 'Invalid login credentials' } });
 
 vi.mock('@/lib/supabase', () => ({
   getSupabase: () => ({
     auth: {
       getSession: mockGetSession,
-      signInWithPassword: vi.fn(),
+      signInWithPassword: mockSignInWithPassword,
     },
   }),
 }));
@@ -23,39 +30,57 @@ vi.mock('@/contexts/AuthContext', () => ({
   useAuth: () => ({ user: null }),
 }));
 
-vi.mock('@/config/demo-credentials', () => ({
-  DEMO_CREDENTIALS: {
-    admin: { email: 'admin@wardah.sa', password: 'admin123' },
-  },
-  isDevelopment: () => mockIsDevelopment(),
-}));
-
-describe('LoginPage demo-credentials gate', () => {
+describe('LoginPage', () => {
   beforeEach(() => {
     window.location.hash = '';
+    mockSignInWithPassword.mockClear();
   });
 
-  it('renders the demo-credentials hint in development', async () => {
-    mockIsDevelopment.mockReturnValue(true);
+  it('never renders any demo-credentials hint — the feature and its backing config were removed', () => {
     render(
       <MemoryRouter>
         <LoginPage />
       </MemoryRouter>
     );
 
-    expect(await screen.findByText(/admin@wardah\.sa/)).toBeInTheDocument();
-    expect(screen.getByText(/admin123/)).toBeInTheDocument();
-  });
-
-  it('hides the demo-credentials hint outside development', () => {
-    mockIsDevelopment.mockReturnValue(false);
-    render(
-      <MemoryRouter>
-        <LoginPage />
-      </MemoryRouter>
-    );
-
+    expect(screen.queryByText(/بيانات تجريبية/)).not.toBeInTheDocument();
     expect(screen.queryByText(/admin@wardah\.sa/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/admin123/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/manager@wardah\.sa/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/employee@wardah\.sa/)).not.toBeInTheDocument();
+  });
+
+  it('the source no longer imports the removed demo-credentials module', async () => {
+    const fs = await import('node:fs');
+    const src = fs.readFileSync('src/pages/login.tsx', 'utf8');
+    expect(src).not.toMatch(/demo-credentials/);
+  });
+
+  it('normal login is unaffected: submitting real credentials still calls Supabase signInWithPassword', async () => {
+    render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    );
+
+    fireEvent.change(screen.getByLabelText('البريد الإلكتروني'), { target: { value: 'real.user@wardah.sa' } });
+    fireEvent.change(screen.getByLabelText('كلمة المرور'), { target: { value: 'a-real-user-password' } });
+    fireEvent.click(screen.getByRole('button', { name: /تسجيل الدخول/ }));
+
+    await waitFor(() => expect(mockSignInWithPassword).toHaveBeenCalledWith({
+      email: 'real.user@wardah.sa',
+      password: 'a-real-user-password',
+    }));
+  });
+
+  it('mounting the page makes no login attempt on its own', async () => {
+    render(
+      <MemoryRouter>
+        <LoginPage />
+      </MemoryRouter>
+    );
+
+    // Give any accidental effect a tick to fire, then assert nothing did.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockSignInWithPassword).not.toHaveBeenCalled();
   });
 });

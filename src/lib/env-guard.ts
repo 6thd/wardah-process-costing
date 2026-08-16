@@ -12,10 +12,25 @@ export interface EnvCheckResult {
   missing: string[]
 }
 
+const REQUIRED_ENV_KEYS = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY'] as const
+
+// Vite inlines `import.meta.env.SPECIFIC_KEY` as just that one string, but
+// inlines the bare `import.meta.env` object as *every* VITE_*-prefixed
+// variable configured at build time. Building this allowlist from named
+// property accesses — instead of defaulting to the whole object — keeps
+// any unrelated VITE_* variable configured on the deployment (demo
+// passwords included) out of the bundle, regardless of whether any
+// application code still imports it.
+function defaultEnv(): Record<string, string | undefined> {
+  return {
+    VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
+    VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY,
+  }
+}
+
 /** فحص مفاتيح البيئة الإلزامية للإقلاع */
-export function checkRequiredEnv(env: Record<string, string | undefined> = import.meta.env): EnvCheckResult {
-  const required = ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY'] as const
-  const missing = required.filter((key) => {
+export function checkRequiredEnv(env: Record<string, string | undefined> = defaultEnv()): EnvCheckResult {
+  const missing = REQUIRED_ENV_KEYS.filter((key) => {
     const v = env[key]
     return !v || String(v).trim() === ''
   })

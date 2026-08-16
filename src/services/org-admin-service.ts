@@ -3,6 +3,7 @@
 // خدمة Org Admin - إدارة مستخدمي وأدوار المنظمة
 
 import { getSupabase as _getSupabase } from '@/lib/supabase';
+import { replaceUserRoles } from './rbac-service';
 const getSupabase = () => _getSupabase() as import('@supabase/supabase-js').SupabaseClient
 
 // =====================================
@@ -166,6 +167,7 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
     // محاولة جلب الأدوار (اختياري - قد لا يوجد الجدول)
     const userIds = (data || []).map(u => u.user_id);
     const rolesMap = new Map<string, OrgRole[]>();
+    const profilesMap = new Map<string, OrgUser['user_profile'] & { email?: string }>();
     
     if (userIds.length > 0) {
       try {
@@ -193,12 +195,31 @@ export async function getOrgUsers(orgId: string): Promise<OrgUser[]> {
       } catch (rolesError) {
         console.warn('Could not fetch user roles:', rolesError);
       }
+
+      try {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('user_profiles')
+          .select('user_id, full_name, full_name_ar, phone, avatar_url, preferred_language, last_login_at, email')
+          .in('user_id', userIds);
+
+        if (profilesError) throw profilesError;
+        (profiles || []).forEach(profile => profilesMap.set(profile.user_id, profile));
+      } catch (profilesError) {
+        // Memberships and roles remain usable even if optional profile metadata
+        // is unavailable; the Users page will fall back to its generic labels.
+        console.warn('Could not fetch user profiles:', profilesError);
+      }
     }
 
-    return (data || []).map(user => ({
-      ...user,
-      roles: rolesMap.get(user.user_id) || [],
-    }));
+    return (data || []).map(user => {
+      const profile = profilesMap.get(user.user_id);
+      return {
+        ...user,
+        user_profile: profile,
+        email: profile?.email,
+        roles: rolesMap.get(user.user_id) || [],
+      };
+    });
   } catch (error) {
     console.error('Error fetching org users:', error);
     return [];
@@ -265,19 +286,11 @@ export async function removeUserFromOrg(
   try {
     const supabase = getSupabase();
 
-    // Delete user roles first
-    await supabase
-      .from('user_roles')
-      .delete()
-      .eq('user_id', userId)
-      .eq('org_id', orgId);
-
-    // Delete user organization link
-    const { error } = await supabase
-      .from('user_organizations')
-      .delete()
-      .eq('user_id', userId)
-      .eq('org_id', orgId);
+    // Migration 175: role assignments, membership deletion, last-admin/self
+    // guards, and the audit row commit atomically on the server.
+    const { error } = await supabase.rpc('rpc_remove_org_member', {
+      p_payload: { org_id: orgId, user_id: userId },
+    });
 
     if (error) throw error;
 
@@ -296,36 +309,11 @@ export async function updateUserRoles(
   orgId: string,
   roleIds: string[]
 ): Promise<{ success: boolean; error?: string }> {
-  try {
-    const supabase = getSupabase();
-
-    // Delete existing roles
-    await supabase
-      .from('user_roles')
-      .delete()
-      .eq('user_id', userId)
-      .eq('org_id', orgId);
-
-    // Add new roles
-    if (roleIds.length > 0) {
-      const newRoles = roleIds.map(roleId => ({
-        user_id: userId,
-        role_id: roleId,
-        org_id: orgId,
-      }));
-
-      const { error } = await supabase
-        .from('user_roles')
-        .insert(newRoles);
-
-      if (error) throw error;
-    }
-
-    return { success: true };
-  } catch (error: any) {
-    console.error('Error updating user roles:', error);
-    return { success: false, error: error.message || 'فشل تحديث الأدوار' };
-  }
+  // Migration 175 rejects every direct user_roles UPDATE and 174's RPC is the
+  // atomic replacement contract. Reuse the canonical wrapper so cache clearing
+  // and payload shaping cannot drift between the Users page and RBAC service.
+  const result = await replaceUserRoles({ userId, orgId, roles: roleIds });
+  return { success: result.success, error: result.error };
 }
 
 // =====================================
@@ -579,98 +567,6 @@ export async function getRoleTemplates(): Promise<RoleTemplate[]> {
   }
 }
 
-export async function createRoleFromTemplate(
-  orgId: string,
-  templateId: string,
-  customName?: string,
-  customNameAr?: string
-): Promise<{ success: boolean; role?: OrgRole; error?: string }> {
-  try {
-    const supabase = getSupabase();
-
-    // 1. Get the template
-    const { data: template, error: templateError } = await supabase
-      .from('role_templates')
-      .select('*')
-      .eq('id', templateId)
-      .single();
-
-    if (templateError || !template) {
-      return { success: false, error: 'Template not found' };
-    }
-
-    // 2. Create the role
-    const { data: role, error: roleError } = await supabase
-      .from('roles')
-      .insert({
-        org_id: orgId,
-        name: customName || template.name,
-        name_ar: customNameAr || template.name_ar,
-        description: template.description,
-        description_ar: template.description_ar,
-        is_system_role: false,
-        is_active: true,
-      })
-      .select()
-      .single();
-
-    if (roleError || !role) {
-      console.error('Error creating role from template:', roleError);
-      return { success: false, error: roleError?.message || 'Failed to create role' };
-    }
-
-    // 3. Get permissions that match the template's permission keys
-    // Template uses patterns like 'manufacturing.%' or 'sales.customers.read'
-    const permissionKeys = template.permission_keys || [];
-    
-    if (permissionKeys.length > 0) {
-      // Build query for permissions
-      // For patterns with %, we use ilike; for exact matches, we use eq
-      const query = supabase.from('permissions').select('id, permission_key');
-      
-      // We need to handle wildcards - for now, fetch all and filter in JS
-      const { data: allPermissions } = await query;
-      
-      if (allPermissions && allPermissions.length > 0) {
-        const matchingPermissionIds: string[] = [];
-        
-        for (const perm of allPermissions) {
-          for (const pattern of permissionKeys) {
-            if (pattern.includes('%')) {
-              // Wildcard pattern - convert to regex
-              const regexPattern = pattern.replaceAll('%', '.*');
-              const regex = new RegExp(`^${regexPattern}$`);
-              if (regex.test(perm.permission_key)) {
-                matchingPermissionIds.push(perm.id);
-                break;
-              }
-            } else if (perm.permission_key === pattern) {
-              // Exact match
-              matchingPermissionIds.push(perm.id);
-              break;
-            }
-          }
-        }
-
-        // 4. Create role_permissions
-        if (matchingPermissionIds.length > 0) {
-          const rolePermissions = matchingPermissionIds.map(permId => ({
-            role_id: role.id,
-            permission_id: permId,
-          }));
-
-          await supabase.from('role_permissions').insert(rolePermissions);
-        }
-      }
-    }
-
-    return { success: true, role };
-  } catch (error: any) {
-    console.error('Error in createRoleFromTemplate:', error);
-    return { success: false, error: error.message || 'Unknown error' };
-  }
-}
-
 // =====================================
 // Helper Functions
 // =====================================
@@ -714,8 +610,6 @@ export const orgAdminService = {
   acceptInvitation,
   getOrgRolesWithStats,
   getRoleTemplates,
-  createRoleFromTemplate,
 };
 
 export default orgAdminService;
-

@@ -41,6 +41,7 @@ import {
   type TerminationType,
 } from '@/services/hr/settlement-service';
 
+import { usePermissions } from '@/hooks/usePermissions';
 import { getHrStatusKey, useHrTranslation } from '../i18n';
 import { STATUS_BADGES } from '../types';
 import '../translations/pages';
@@ -66,6 +67,23 @@ export const SettlementsPage: React.FC = () => {
   const { t, i18n } = useHrTranslation();
   const locale = i18n.resolvedLanguage?.startsWith('ar') ? 'ar-SA' : 'en-US';
   const queryClient = useQueryClient();
+  const { hasPermissionKey } = usePermissions();
+  // لا مورد "hr.settlements" مخصص في الكتالوج الحي — دخول /hr/settlements
+  // مُحكَم فقط بـ hr.payroll.read كبديل رؤية (route-permissions.ts)، وهذا لا
+  // يفوّض الكتابة. الأفعال الأربعة (إنشاء/مراجعة/ترحيل/إلغاء) تكتب على
+  // hr_settlements وتُصدر قيدًا محاسبيًا وتُنهي خدمة الموظف عبر RPC — تُغلَق
+  // كلها افتراضيًا (fail-closed) بدل الاعتماد على isPayrollAdmin (علم عرض
+  // فقط موثّق كذلك في مصدره، لا فحص صلاحية حقيقي)، وتُبلَّغ كفجوة كتالوج/منتج
+  // تحتاج مفتاحًا مخصصًا قبل إعادة التفعيل.
+  const canCreate = false;
+  const canReview = false;
+  const canPost = false;
+  const canCancel = false;
+  // Same fallback view key route-permissions.ts already requires to reach
+  // /hr/settlements at all — reused here so the settlements list query below
+  // stops firing unconditionally regardless of route entry.
+  const canReadSettlements = hasPermissionKey('hr.payroll.read');
+  const canReadEmployees = hasPermissionKey('hr.employees.read');
 
   const [activeTab, setActiveTab] = React.useState('draft');
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -75,13 +93,24 @@ export const SettlementsPage: React.FC = () => {
   const [previewResult, setPreviewResult] = React.useState<EosResult | null>(null);
   const [form, setForm] = React.useState(EMPTY_FORM);
 
-  const { data: settlements = [], isLoading } = useQuery({
+  const { data: rawSettlements = [], isLoading } = useQuery({
     queryKey: ['hr', 'settlements'],
     queryFn: () => listSettlements(200),
+    enabled: canReadSettlements,
   });
+  // Re-checked at read time rather than trusting `enabled` alone: TanStack
+  // Query keeps a query's last successful result cached after `enabled`
+  // flips to false, and a request already in flight when permission is
+  // revoked still resolves into that cache. A revoked user must not keep
+  // seeing rows loaded before the revocation.
+  const settlements = React.useMemo(
+    () => (canReadSettlements ? rawSettlements : []),
+    [canReadSettlements, rawSettlements],
+  );
   const { data: employees = [] } = useQuery({
     queryKey: ['hr', 'employees'],
     queryFn: getEmployees,
+    enabled: canReadEmployees,
   });
   const { data: isPayrollAdmin = false } = useQuery({
     queryKey: ['hr', 'payroll-admin-gate'],
@@ -113,12 +142,15 @@ export const SettlementsPage: React.FC = () => {
   const operationError = (error: Error) => toast.error(error.message || t('settlements.operationFailed'));
 
   const createMutation = useMutation({
-    mutationFn: () => createSettlement({
-      employee_id: form.employee_id,
-      termination_type: form.termination_type as TerminationType,
-      service_end: form.service_end,
-      notes: form.notes || undefined,
-    }),
+    mutationFn: () => {
+      if (!canCreate) throw new Error(t('settlements.operationFailed'));
+      return createSettlement({
+        employee_id: form.employee_id,
+        termination_type: form.termination_type as TerminationType,
+        service_end: form.service_end,
+        notes: form.notes || undefined,
+      });
+    },
     onSuccess: ({ settlement, result }) => {
       setSelectedSettlement(settlement);
       setPreviewResult(result);
@@ -132,7 +164,10 @@ export const SettlementsPage: React.FC = () => {
   });
 
   const reviewMutation = useMutation({
-    mutationFn: submitSettlementForReview,
+    mutationFn: (id: string) => {
+      if (!canReview) throw new Error(t('settlements.operationFailed'));
+      return submitSettlementForReview(id);
+    },
     onSuccess: () => {
       refresh();
       setShowDetailsDialog(false);
@@ -142,7 +177,10 @@ export const SettlementsPage: React.FC = () => {
   });
 
   const postMutation = useMutation({
-    mutationFn: postSettlement,
+    mutationFn: (id: string) => {
+      if (!canPost) throw new Error(t('settlements.operationFailed'));
+      return postSettlement(id);
+    },
     onSuccess: () => {
       refresh();
       setShowDetailsDialog(false);
@@ -152,7 +190,10 @@ export const SettlementsPage: React.FC = () => {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: cancelSettlement,
+    mutationFn: (id: string) => {
+      if (!canCancel) throw new Error(t('settlements.operationFailed'));
+      return cancelSettlement(id);
+    },
     onSuccess: () => {
       refresh();
       setShowDetailsDialog(false);
@@ -222,10 +263,12 @@ export const SettlementsPage: React.FC = () => {
             <CardTitle>{t('settlements.listTitle')}</CardTitle>
             <CardDescription>{t('settlements.listDescription')}</CardDescription>
           </div>
-          <Button onClick={() => setShowNewDialog(true)}>
-            <Plus className="me-2 h-4 w-4" />
-            {t('settlements.newSettlement')}
-          </Button>
+          {canCreate && (
+            <Button onClick={() => setShowNewDialog(true)}>
+              <Plus className="me-2 h-4 w-4" />
+              {t('settlements.newSettlement')}
+            </Button>
+          )}
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative max-w-sm">
@@ -458,7 +501,7 @@ export const SettlementsPage: React.FC = () => {
           )}
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>{t('common.cancel')}</Button>
-            {(selectedSettlement?.status === 'draft' || selectedSettlement?.status === 'review') && (
+            {canCancel && (selectedSettlement?.status === 'draft' || selectedSettlement?.status === 'review') && (
               <Button
                 variant="outline"
                 onClick={() => cancelMutation.mutate(selectedSettlement.id)}
@@ -467,7 +510,7 @@ export const SettlementsPage: React.FC = () => {
                 {t('settlements.cancelSettlement')}
               </Button>
             )}
-            {selectedSettlement?.status === 'draft' && (
+            {canReview && selectedSettlement?.status === 'draft' && (
               <Button
                 onClick={() => reviewMutation.mutate(selectedSettlement.id)}
                 disabled={pending || !isPayrollAdmin}
@@ -477,7 +520,7 @@ export const SettlementsPage: React.FC = () => {
                 {pending ? t('settlements.sending') : t('settlements.sendReview')}
               </Button>
             )}
-            {selectedSettlement?.status === 'review' && (
+            {canPost && selectedSettlement?.status === 'review' && (
               <Button
                 onClick={() => postMutation.mutate(selectedSettlement.id)}
                 disabled={pending || !isPayrollAdmin}

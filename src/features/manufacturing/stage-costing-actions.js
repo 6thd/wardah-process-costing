@@ -6,6 +6,7 @@
 import uiEvents from '../../ui/events.js'
 import { toast } from 'sonner'
 import { processCostingService } from '@/services/process-costing-service'
+import { hasLiveStageCostingPermission, hasLiveStageCostingPermissionAll, STAGE_COSTING_PERMISSIONS } from './stage-costing-permissions'
 
 // Import domain modules - DISABLED (not implemented)
 // const Manufacturing = await import('../../domain/manufacturing.js')
@@ -17,8 +18,11 @@ const ProcessCosting = {
   getStageCosts: async (moId) => processCostingService.getStageCosts(moId),
   applyLaborTime: async (params) => processCostingService.applyLaborTime(params),
   applyOverhead: async (params) => processCostingService.applyOverhead(params),
-  upsertStageCost: async (params) => processCostingService.upsertStageCost(params),
-  postStageToGL: async () => ({ success: true, data: {} })
+  upsertStageCost: async (params) => processCostingService.upsertStageCost(params)
+  // postStageToGL intentionally removed: it was a stub (`{ success: true, data: {} }`)
+  // that never wrote a GL entry. Wiring a live authorization check onto a fake
+  // write would describe it as a protected real GL write, which it never was —
+  // see the "Post to GL" button removal below instead.
 }
 const Manufacturing = {
   // Matches generateStageCostReport()'s call below — was previously named
@@ -45,6 +49,15 @@ export function registerStageCostingActions() {
     const { element } = context
     const panel = element.closest('[data-panel="stage-costing"]')
     if (!panel) return
+
+    // This action is registered globally (see module header) and reachable
+    // regardless of whether the panel that rendered this button still has a
+    // read grant — recheck live, uncached, right before the read executes.
+    const authorized = await hasLiveStageCostingPermission(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_READ)
+    if (!authorized) {
+      toast.error('لا تملك صلاحية عرض تكاليف المراحل')
+      return
+    }
 
     // Show loading state
     element.disabled = true
@@ -82,6 +95,12 @@ export function registerStageCostingActions() {
     const panel = element.closest('[data-panel="stage-costing"]')
     if (!panel) return
 
+    const authorized = await hasLiveStageCostingPermission(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_READ)
+    if (!authorized) {
+      toast.error('لا تملك صلاحية عرض تكاليف المراحل')
+      return
+    }
+
     try {
       const moSelect = panel.querySelector('[name="manufacturingOrderId"]')
       const moId = moSelect?.value
@@ -114,6 +133,16 @@ export function registerStageCostingActions() {
 
     if (!laborHours || !laborRate) {
       toast.error('يجب إدخال ساعات العمل ومعدل الأجر')
+      return
+    }
+
+    // Live write: this handler is reachable through the global uiEvents
+    // registry regardless of which screen last rendered this button, and a
+    // grant held when the panel mounted may have been revoked since. Always
+    // ask the backend fresh, right before the insert.
+    const authorized = await hasLiveStageCostingPermission(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
+    if (!authorized) {
+      toast.error('لا تملك صلاحية تسجيل وقت العمل')
       return
     }
 
@@ -181,6 +210,14 @@ export function registerStageCostingActions() {
       return
     }
 
+    // Live write recheck — see apply-labor-time above for why this cannot be
+    // trusted to a permission snapshot captured when the panel mounted.
+    const authorized = await hasLiveStageCostingPermission(STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE)
+    if (!authorized) {
+      toast.error('لا تملك صلاحية تطبيق التكاليف غير المباشرة')
+      return
+    }
+
     // Show loading state
     element.disabled = true
     const originalText = element.textContent
@@ -236,6 +273,22 @@ export function registerStageCostingActions() {
 
     if (!moId || !workCenterId || Number.isNaN(goodQuantity) || goodQuantity < 0) {
       toast.error('يجب إدخال جميع البيانات المطلوبة (الكمية الجيدة يجب أن تكون قيمة صحيحة أكبر من أو تساوي الصفر)')
+      return
+    }
+
+    // Live write recheck. upsertStageCost() writes to stage_costs via an
+    // actual UPSERT (insert-or-update depending on whether a row already
+    // exists for this MO/stage), so create-only or update-only alone is an
+    // authorization bypass: create-only could UPDATE an existing conflicting
+    // row, and update-only could INSERT a brand-new one. Both keys are
+    // required — unlike apply-labor-time/apply-overhead, which always INSERT
+    // and only need create.
+    const authorized = await hasLiveStageCostingPermissionAll([
+      STAGE_COSTING_PERMISSIONS.STAGE_COSTS_CREATE,
+      STAGE_COSTING_PERMISSIONS.STAGE_COSTS_UPDATE
+    ])
+    if (!authorized) {
+      toast.error('لا تملك صلاحية احتساب تكلفة المرحلة')
       return
     }
 
@@ -320,64 +373,13 @@ export function registerStageCostingActions() {
     }
   })
 
-  // Post to GL action
-  uiEvents.registerAction('post-stage-to-gl', async (context) => {
-    const { element } = context
-    const panel = element.closest('[data-panel="stage-costing"]')
-    if (!panel) return
-
-    // Show loading state
-    element.disabled = true
-    const originalText = element.textContent
-    element.textContent = 'جاري الترحيل...'
-
-    try {
-      // Get the last calculated result
-      const resultData = panel.querySelector('[data-result]')?.dataset.result
-      if (!resultData) {
-        toast.error('لا توجد نتائج للترحيل')
-        return
-      }
-
-      const result = JSON.parse(resultData)
-      
-      // Create GL entry for stage cost
-      const glResult = await ProcessCosting.postStageToGL({
-        stageId: result.stageId,
-        totalCost: result.totalCost,
-        materialCost: result.totalCost - result.transferredIn - result.laborCost - result.overheadCost,
-        laborCost: result.laborCost,
-        overheadCost: result.overheadCost,
-        description: `تكلفة المرحلة - أمر ${element.closest('form')?.manufacturingOrderId?.value}`
-      })
-
-      if (glResult.success) {
-        toast.success(`تم ترحيل المرحلة للدفتر العام - قيد رقم: ${glResult.data.entryNumber}`)
-        
-        // Update UI to show posted status
-        element.style.display = 'none'
-        const postedBadge = panel.querySelector('[data-gl-status]')
-        if (postedBadge) {
-          postedBadge.className = 'bg-green-50 border-green-200 p-4 rounded-lg border'
-          postedBadge.innerHTML = `
-            <div class="flex items-center gap-2">
-              <svg class="h-5 w-5 text-green-600">...</svg>
-              <span class="font-medium text-green-800">تم ترحيل المرحلة للدفتر العام</span>
-            </div>
-            <div class="mt-2 text-sm text-green-700">
-              <strong>رقم القيد:</strong> ${glResult.data.entryNumber}
-            </div>
-          `
-        }
-      }
-    } catch (error) {
-      console.error('Error posting to GL:', error)
-      toast.error('خطأ في ترحيل المرحلة للدفتر العام')
-    } finally {
-      element.disabled = false
-      element.textContent = originalText
-    }
-  })
+  // NOTE: there is deliberately no 'post-stage-to-gl' action. The previous
+  // handler called a stub (ProcessCosting.postStageToGL, which only ever
+  // returned `{ success: true, data: {} }`) and rendered a fabricated
+  // "posted to GL" success state — a fake write dressed up as a protected
+  // real one. The control itself is removed in stage-costing-panel.tsx
+  // rather than kept around unauthorized or gated on a permission for a
+  // write that doesn't exist.
 
   console.log('✅ Stage costing actions registered successfully')
 }
@@ -505,8 +507,7 @@ export function unregisterStageCostingActions() {
     'view-stage-report', 
     'apply-labor-time',
     'apply-overhead',
-    'calculate-stage-cost',
-    'post-stage-to-gl'
+    'calculate-stage-cost'
   ]
 
   actions.forEach(action => {

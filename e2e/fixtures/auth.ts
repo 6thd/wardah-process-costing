@@ -26,9 +26,9 @@ export const accounts = {
 } satisfies Record<string, TestAccount>;
 
 export function skipIfMissingEnv(accountNames: (keyof typeof accounts)[]) {
-  const missing = accountNames.filter(n => !accounts[n].email);
+  const missing = accountNames.filter(n => !accounts[n].email || !accounts[n].password);
   if (missing.length > 0) {
-    return `Skipped: set env vars for ${missing.join(', ')} to run this test`;
+    return `Skipped: set email and password env vars for ${missing.join(', ')} to run this test`;
   }
   return null;
 }

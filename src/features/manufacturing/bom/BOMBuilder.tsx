@@ -15,6 +15,7 @@ import { Plus, Trash2, Save, X, Search } from 'lucide-react'
 import { useBOM, useCreateBOM, useUpdateBOM } from '@/hooks/manufacturing/useBOM'
 import { BOMLine } from '@/services/manufacturing/bomService'
 import { ProductPickerDialog, type PickedProduct } from '../components/ProductPickerDialog'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface BOMLineInput extends Omit<BOMLine, 'id' | 'bom_id' | 'org_id'> {
   tempId: string
@@ -23,6 +24,9 @@ interface BOMLineInput extends Omit<BOMLine, 'id' | 'bom_id' | 'org_id'> {
 export function BOMBuilder() {
   const { bomId } = useParams<{ bomId: string }>()
   const navigate = useNavigate()
+  const { hasPermissionKey } = usePermissions()
+  const canCreate = hasPermissionKey('manufacturing.boms.create')
+  const canUpdate = hasPermissionKey('manufacturing.boms.update')
   const [orgId, setOrgId] = useState<string>('')
 
   useEffect(() => {
@@ -133,6 +137,11 @@ export function BOMBuilder() {
 
   // Save BOM
   const handleSave = async () => {
+    if (bomId ? !canUpdate : !canCreate) {
+      toast.error(bomId ? 'لا تملك صلاحية تعديل قوائم المواد' : 'لا تملك صلاحية إنشاء قوائم مواد')
+      return
+    }
+
     // التحقق من الحقول الأساسية فقط (بدون مكونات)
     if (!bomNumber || !itemId) {
       toast.warning('الرجاء ملء رقم القائمة ورمز الصنف')

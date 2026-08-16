@@ -60,6 +60,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { getEmployees } from '@/services/hr/hr-service';
 import { createEmployee, deleteEmployee } from '@/services/hr/employee-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { STATUS_BADGES } from '../types';
 import { getHrStatusKey, useHrTranslation } from '../i18n';
 
@@ -71,6 +72,9 @@ export const EmployeeListPage: React.FC = () => {
     const { t, i18n } = useHrTranslation();
     const { toast } = useToast();
     const queryClient = useQueryClient();
+    const { hasPermissionKey } = usePermissions();
+    const canCreate = hasPermissionKey('hr.employees.create');
+    const canDelete = hasPermissionKey('hr.employees.delete');
     const isRtl = i18n.dir() === 'rtl';
     const dateLocale = isRtl ? 'ar-SA' : 'en-US';
 
@@ -105,8 +109,9 @@ export const EmployeeListPage: React.FC = () => {
 
     // Mutations
     const createEmployeeMutation = useMutation({
-        mutationFn: () =>
-            createEmployee({
+        mutationFn: () => {
+            if (!canCreate) return Promise.reject(new Error(t('employeeList.toast.createError')));
+            return createEmployee({
                 firstName: employeeForm.firstName.trim(),
                 lastName: employeeForm.lastName.trim(),
                 employeeCode: employeeForm.employeeCode.trim(),
@@ -114,7 +119,8 @@ export const EmployeeListPage: React.FC = () => {
                 department: employeeForm.department.trim() || undefined,
                 position: employeeForm.position.trim() || undefined,
                 salary: employeeForm.salary ? Number(employeeForm.salary) : 0,
-            }),
+            });
+        },
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['hr', 'employees'] });
             toast({ title: t('employeeList.toast.createSuccess') });
@@ -231,7 +237,10 @@ export const EmployeeListPage: React.FC = () => {
     };
 
     const deleteEmployeeMutation = useMutation({
-        mutationFn: (ids: string[]) => Promise.all(ids.map((id) => deleteEmployee(id))),
+        mutationFn: (ids: string[]) => {
+            if (!canDelete) return Promise.reject(new Error(t('employeeList.toast.deleteError')));
+            return Promise.all(ids.map((id) => deleteEmployee(id)));
+        },
         onSuccess: (_data, ids) => {
             queryClient.invalidateQueries({ queryKey: ['hr', 'employees'] });
             toast({ title: t('employeeList.toast.deleteSuccess', { count: ids.length }) });
@@ -251,17 +260,23 @@ export const EmployeeListPage: React.FC = () => {
     });
 
     const handleBulkDelete = () => {
-        if (selectedEmployees.size === 0) return;
+        if (!canDelete || selectedEmployees.size === 0) return;
+        // كان الحذف الجماعي يُنفَّذ مباشرة بلا أي تأكيد (بخلاف مسار الحذف
+        // الفردي عبر AlertDialog) — نفس التأكيد هنا الآن، اتساقًا معه.
+        if (!globalThis.window?.confirm(t('employeeList.deleteSelected', { count: selectedEmployees.size }))) {
+            return;
+        }
         deleteEmployeeMutation.mutate([...selectedEmployees]);
     };
 
     const handleDeleteEmployee = (id: string) => {
+        if (!canDelete) return;
         setEmployeeToDelete(id);
         setDeleteDialogOpen(true);
     };
 
     const confirmDelete = () => {
-        if (!employeeToDelete) return;
+        if (!employeeToDelete || !canDelete) return;
         deleteEmployeeMutation.mutate([employeeToDelete]);
     };
 
@@ -275,7 +290,7 @@ export const EmployeeListPage: React.FC = () => {
                     <p className="text-muted-foreground">{t('employeeList.subtitle')}</p>
                 </div>
                 <div className="flex gap-2">
-                    {selectedEmployees.size > 0 && (
+                    {canDelete && selectedEmployees.size > 0 && (
                         <Button variant="outline" onClick={handleBulkDelete} className="gap-2">
                             <Trash2 className="h-4 w-4" />
                             {t('employeeList.deleteSelected', { count: selectedEmployees.size })}
@@ -285,10 +300,12 @@ export const EmployeeListPage: React.FC = () => {
                         <FileDown className="h-4 w-4" />
                         {t('common.export')}
                     </Button>
-                    <Button onClick={() => setEmployeeDialogOpen(true)} className="gap-2 bg-teal-600 hover:bg-teal-700">
-                        <Plus className="h-4 w-4" />
-                        {t('employeeList.addEmployee')}
-                    </Button>
+                    {canCreate && (
+                        <Button onClick={() => setEmployeeDialogOpen(true)} className="gap-2 bg-teal-600 hover:bg-teal-700">
+                            <Plus className="h-4 w-4" />
+                            {t('employeeList.addEmployee')}
+                        </Button>
+                    )}
                 </div>
             </div>
 
@@ -464,10 +481,12 @@ export const EmployeeListPage: React.FC = () => {
                                                             <Edit className={`h-4 w-4 ${isRtl ? 'ml-2' : 'mr-2'}`} />
                                                             {t('employeeList.viewEdit')}
                                                         </DropdownMenuItem>
-                                                        <DropdownMenuItem onClick={() => handleDeleteEmployee(employee.id)} className="text-rose-500">
-                                                            <Trash2 className={`h-4 w-4 ${isRtl ? 'ml-2' : 'mr-2'}`} />
-                                                            {t('common.delete')}
-                                                        </DropdownMenuItem>
+                                                        {canDelete && (
+                                                            <DropdownMenuItem onClick={() => handleDeleteEmployee(employee.id)} className="text-rose-500">
+                                                                <Trash2 className={`h-4 w-4 ${isRtl ? 'ml-2' : 'mr-2'}`} />
+                                                                {t('common.delete')}
+                                                            </DropdownMenuItem>
+                                                        )}
                                                     </DropdownMenuContent>
                                                 </DropdownMenu>
                                             </TableCell>

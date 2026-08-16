@@ -37,6 +37,7 @@ import { stageWipLogService } from '@/services/supabase-service'
 import { useManufacturingOrders } from '@/hooks/useManufacturingOrders'
 import { useManufacturingStages } from '@/hooks/useManufacturingStages'
 import { WipLogFormDialog, type WipLogFormValues } from './components/WipLogFormDialog'
+import { usePermissions } from '@/hooks/usePermissions'
 
 interface ManufacturingOrder {
   id: string
@@ -77,6 +78,22 @@ interface WipLog {
 
 export function StageWipLogList() {
   const queryClient = useQueryClient()
+  const { hasPermissionKey } = usePermissions()
+  const canRead = hasPermissionKey('manufacturing.stage_costs.read')
+  const canCreate = hasPermissionKey('manufacturing.stage_costs.create')
+  const canUpdate = hasPermissionKey('manufacturing.stage_costs.update')
+  const canDelete = hasPermissionKey('manufacturing.stage_costs.delete')
+  // بيانات مرجعية من موردَين مختلفَين تمامًا عن stage_costs — أوامر التصنيع
+  // ومراحل التصنيع — كل منهما يحتاج مفتاح قراءته الفعلي الخاص، لا
+  // stage_costs.read وحدها (كانت المشكلة أن هذه الشاشة تحمّلهما لأي حامل
+  // لـstage_costs.read بصرف النظر عن صلاحيته الفعلية على orders/stages).
+  const canReadOrders = hasPermissionKey('manufacturing.orders.read')
+  const canReadStages = hasPermissionKey('manufacturing.stages.read')
+  // نموذج الإضافة/التعديل يحتاج القائمتين المرجعيتين ليكون قابلاً للاستخدام
+  // فعليًا — عُرضه بلا صلاحية قراءتهما يعني حقول اختيار فارغة توهم بإمكانية
+  // إرسال بيانات غير صحيحة، فيُغلق دخول النموذج كليًا حتى تتوفر الثلاثة معًا.
+  const canOpenCreateForm = canCreate && canReadOrders && canReadStages
+  const canOpenEditForm = canUpdate && canReadOrders && canReadStages
 
   const [filters, setFilters] = useState({
     moId: 'all',
@@ -87,38 +104,40 @@ export function StageWipLogList() {
   const [formOpen, setFormOpen] = useState(false)
   const [editingLog, setEditingLog] = useState<(Partial<WipLogFormValues> & { id: string }) | null>(null)
 
-  // Load related data
-  const { data: manufacturingOrdersData } = useManufacturingOrders()
-  const { data: stagesData } = useManufacturingStages()
-  
-  // Type assertions - needed because hooks return unknown types
-  const manufacturingOrders: ManufacturingOrder[] = Array.isArray(manufacturingOrdersData) 
+  // Load related data — كل استعلام مشروط بمفتاح قراءة موارده الفعلي
+  const { data: manufacturingOrdersData } = useManufacturingOrders({ enabled: canReadOrders })
+  const { data: stagesData } = useManufacturingStages({ enabled: canReadStages })
+
+  // canReadX يحجب حتى بيانات كاش سابقة إن سُحبت الصلاحية أثناء الجلسة —
+  // enabled:false وحده لا يمسح الكاش الموجود مسبقًا.
+  const manufacturingOrders: ManufacturingOrder[] = canReadOrders && Array.isArray(manufacturingOrdersData)
     ? (manufacturingOrdersData as unknown as ManufacturingOrder[])
     : []
-  const stages: ManufacturingStage[] = Array.isArray(stagesData)
+  const stages: ManufacturingStage[] = canReadStages && Array.isArray(stagesData)
     ? (stagesData as unknown as ManufacturingStage[])
     : []
 
-  // Load WIP logs
+  // Load WIP logs — مشروط بمفتاح قراءتها الفعلي، لا enabled:true دومًا
   const { data: wipLogsData, isLoading, isError, refetch } = useQuery<WipLog[]>({
     queryKey: ['stage-wip-log', filters],
     queryFn: async (): Promise<WipLog[]> => {
       const filtersToUse: Record<string, string> = {}
       if (filters.moId && filters.moId !== 'all') filtersToUse.moId = filters.moId
       if (filters.stageId && filters.stageId !== 'all') filtersToUse.stageId = filters.stageId
-      
+
       const result = await stageWipLogService.getAll(filtersToUse);
       return Array.isArray(result) ? result : [];
     },
-    enabled: true
+    enabled: canRead
   })
-  
-  // Use wipLogsData directly as it's already typed as WipLog[] | undefined
-  const wipLogs = wipLogsData ?? []
+
+  // canRead يحجب أيضًا أي بيانات كاش سابقة عند سحب الصلاحية أثناء الجلسة
+  const wipLogs = canRead ? (wipLogsData ?? []) : []
 
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
+      if (!canDelete) throw new Error('لا تملك صلاحية حذف سجلات WIP')
       await stageWipLogService.delete(id)
     },
     onSuccess: () => {
@@ -132,6 +151,10 @@ export function StageWipLogList() {
   })
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف سجلات WIP')
+      return
+    }
     if (confirm('هل أنت متأكد من حذف هذا السجل؟')) {
       deleteMutation.mutate(id)
     }
@@ -168,16 +191,18 @@ export function StageWipLogList() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
                 تحديث
               </Button>
-              <Button
-                size="sm"
-                onClick={() => {
-                  setEditingLog(null)
-                  setFormOpen(true)
-                }}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                إضافة سجل
-              </Button>
+              {canOpenCreateForm && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setEditingLog(null)
+                    setFormOpen(true)
+                  }}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  إضافة سجل
+                </Button>
+              )}
             </div>
           </div>
         </CardHeader>
@@ -345,42 +370,48 @@ export function StageWipLogList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={log.is_closed}
-                                onClick={() => {
-                                  setEditingLog({
-                                    id: log.id,
-                                    mo_id: log.mo_id ?? '',
-                                    stage_id: log.stage_id ?? '',
-                                    period_start: log.period_start?.split('T')[0] ?? '',
-                                    period_end: log.period_end?.split('T')[0] ?? '',
-                                    units_beginning_wip: log.units_beginning_wip ?? 0,
-                                    units_started: log.units_started ?? 0,
-                                    units_completed: log.units_completed ?? 0,
-                                    units_ending_wip: log.units_ending_wip ?? 0,
-                                    material_completion_pct: log.material_completion_pct ?? 100,
-                                    conversion_completion_pct: log.conversion_completion_pct ?? 50,
-                                    cost_beginning_wip: log.cost_beginning_wip ?? 0,
-                                    cost_material: log.cost_material ?? 0,
-                                    cost_labor: log.cost_labor ?? 0,
-                                    cost_overhead: log.cost_overhead ?? 0,
-                                    notes: log.notes ?? '',
-                                  })
-                                  setFormOpen(true)
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleDelete(log.id)}
-                                disabled={deleteMutation.isPending}
-                              >
-                                <Trash2 className="h-4 w-4 text-destructive" />
-                              </Button>
+                              {canOpenEditForm && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`تعديل سجل WIP ${log.id}`}
+                                  disabled={log.is_closed}
+                                  onClick={() => {
+                                    setEditingLog({
+                                      id: log.id,
+                                      mo_id: log.mo_id ?? '',
+                                      stage_id: log.stage_id ?? '',
+                                      period_start: log.period_start?.split('T')[0] ?? '',
+                                      period_end: log.period_end?.split('T')[0] ?? '',
+                                      units_beginning_wip: log.units_beginning_wip ?? 0,
+                                      units_started: log.units_started ?? 0,
+                                      units_completed: log.units_completed ?? 0,
+                                      units_ending_wip: log.units_ending_wip ?? 0,
+                                      material_completion_pct: log.material_completion_pct ?? 100,
+                                      conversion_completion_pct: log.conversion_completion_pct ?? 50,
+                                      cost_beginning_wip: log.cost_beginning_wip ?? 0,
+                                      cost_material: log.cost_material ?? 0,
+                                      cost_labor: log.cost_labor ?? 0,
+                                      cost_overhead: log.cost_overhead ?? 0,
+                                      notes: log.notes ?? '',
+                                    })
+                                    setFormOpen(true)
+                                  }}
+                                >
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                              )}
+                              {canDelete && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  aria-label={`حذف سجل WIP ${log.id}`}
+                                  onClick={() => handleDelete(log.id)}
+                                  disabled={deleteMutation.isPending}
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>
@@ -397,6 +428,7 @@ export function StageWipLogList() {
       <WipLogFormDialog
         open={formOpen}
         onOpenChange={setFormOpen}
+        canSubmit={editingLog ? canOpenEditForm : canOpenCreateForm}
         editing={editingLog}
         manufacturingOrders={manufacturingOrders.map((mo) => ({
           id: mo.id,

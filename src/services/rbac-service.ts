@@ -240,44 +240,33 @@ export async function createRole(params: {
   name_ar: string;
   description?: string;
   description_ar?: string;
-  permissionIds?: string[];
-}): Promise<{ success: boolean; role?: Role; error?: string }> {
+  permissionKeys?: string[];
+}): Promise<{ success: boolean; roleId?: string; sensitiveKeys?: string[]; error?: string }> {
   try {
     const supabase = getSupabase();
 
-    // Create role
-    const { data: role, error: roleError } = await supabase
-      .from('roles')
-      .insert({
+    // Migration 174: one atomic RPC instead of insert-role-then-insert-permissions.
+    // The old two-step could leave a role with no permissions when the second
+    // call failed, and its error was not always checked.
+    const { data, error } = await supabase.rpc('rpc_upsert_org_role', {
+      p_payload: {
         org_id: params.orgId,
         name: params.name,
         name_ar: params.name_ar,
         description: params.description,
-        description_ar: params.description_ar,
-        is_system_role: false,
-        is_active: true,
-      })
-      .select()
-      .single();
+        permission_keys: params.permissionKeys ?? [],
+      },
+    });
 
-    if (roleError) throw roleError;
-
-    // Add permissions if provided
-    if (params.permissionIds && params.permissionIds.length > 0) {
-      const rolePerms = params.permissionIds.map(permId => ({
-        role_id: role.id,
-        permission_id: permId,
-      }));
-
-      const { error: permsError } = await supabase
-        .from('role_permissions')
-        .insert(rolePerms);
-
-      if (permsError) throw permsError;
-    }
+    if (error) throw error;
 
     clearPermissionsCache();
-    return { success: true, role };
+    const result = data as { role_id?: string; sensitive_keys?: string[] } | null;
+    return {
+      success: true,
+      roleId: result?.role_id,
+      sensitiveKeys: result?.sensitive_keys ?? [],
+    };
   } catch (error: any) {
     console.error('Error creating role:', error);
     return { success: false, error: error.message || 'Failed to create role' };
@@ -287,37 +276,37 @@ export async function createRole(params: {
 /**
  * Update role permissions
  */
-export async function updateRolePermissions(
-  roleId: string,
-  permissionIds: string[]
-): Promise<{ success: boolean; error?: string }> {
+export async function updateRolePermissions(params: {
+  orgId: string;
+  roleId: string;
+  name: string;
+  name_ar?: string;
+  description?: string;
+  isActive?: boolean;
+  permissionKeys: string[];
+}): Promise<{ success: boolean; sensitiveKeys?: string[]; error?: string }> {
   try {
     const supabase = getSupabase();
 
-    // Delete existing permissions
-    const { error: deleteError } = await supabase
-      .from('role_permissions')
-      .delete()
-      .eq('role_id', roleId);
+    // The role row and its complete permission set are replaced in one
+    // transaction; a rejected key set leaves the previous one untouched.
+    const { data, error } = await supabase.rpc('rpc_upsert_org_role', {
+      p_payload: {
+        org_id: params.orgId,
+        role_id: params.roleId,
+        name: params.name,
+        name_ar: params.name_ar,
+        description: params.description,
+        is_active: params.isActive ?? true,
+        permission_keys: params.permissionKeys,
+      },
+    });
 
-    if (deleteError) throw deleteError;
-
-    // Add new permissions
-    if (permissionIds.length > 0) {
-      const rolePerms = permissionIds.map(permId => ({
-        role_id: roleId,
-        permission_id: permId,
-      }));
-
-      const { error: insertError } = await supabase
-        .from('role_permissions')
-        .insert(rolePerms);
-
-      if (insertError) throw insertError;
-    }
+    if (error) throw error;
 
     clearPermissionsCache();
-    return { success: true };
+    const result = data as { sensitive_keys?: string[] } | null;
+    return { success: true, sensitiveKeys: result?.sensitive_keys ?? [] };
   } catch (error: any) {
     console.error('Error updating role permissions:', error);
     return { success: false, error: error.message || 'Failed to update permissions' };
@@ -327,29 +316,20 @@ export async function updateRolePermissions(
 /**
  * Delete role
  */
-export async function deleteRole(roleId: string): Promise<{ success: boolean; error?: string }> {
+export async function deleteRole(
+  roleId: string,
+  orgId: string
+): Promise<{ success: boolean; error?: string }> {
   try {
     const supabase = getSupabase();
 
-    // Check if it's a system role
-    const { data: role, error: checkError } = await supabase
-      .from('roles')
-      .select('is_system_role')
-      .eq('id', roleId)
-      .single();
+    // Migration 174: the RPC refuses system roles AND roles still assigned to
+    // users, so deleting can no longer silently strip access via cascade.
+    const { error } = await supabase.rpc('rpc_delete_org_role', {
+      p_payload: { org_id: orgId, role_id: roleId },
+    });
 
-    if (checkError) throw checkError;
-    if (role?.is_system_role) {
-      return { success: false, error: 'لا يمكن حذف دور النظام' };
-    }
-
-    // Delete role (cascade will delete role_permissions and user_roles)
-    const { error: deleteError } = await supabase
-      .from('roles')
-      .delete()
-      .eq('id', roleId);
-
-    if (deleteError) throw deleteError;
+    if (error) throw error;
 
     clearPermissionsCache();
     return { success: true };
@@ -439,62 +419,83 @@ export async function getUserRoles(userId: string, orgId: string): Promise<UserR
 }
 
 /**
- * Assign role to user
+ * Replace a user's complete role set for one organization (Migration 174).
+ *
+ * The old assignRoleToUser/removeRoleFromUser pair wrote user_roles directly,
+ * one row at a time, so a failed second call could leave a user with no roles.
+ * The RPC is atomic and serializes concurrent edits on the membership row.
+ *
+ * Roles may be passed as ids, or as objects carrying a per-role expiry. A role
+ * that is retained keeps its existing deadline unless one is supplied — the
+ * client cannot silently make a time-boxed grant permanent.
  */
-export async function assignRoleToUser(params: {
+export async function replaceUserRoles(params: {
   userId: string;
-  roleId: string;
   orgId: string;
-  expiresAt?: string;
-}): Promise<{ success: boolean; error?: string }> {
+  roles: Array<string | { roleId: string; expiresAt?: string | null }>;
+  defaultExpiresAt?: string | null;
+}): Promise<{ success: boolean; sensitiveKeysGranted?: string[]; error?: string }> {
   try {
     const supabase = getSupabase();
 
-    const { error } = await supabase
-      .from('user_roles')
-      .upsert({
-        user_id: params.userId,
-        role_id: params.roleId,
+    const roleIds = params.roles.map(entry =>
+      typeof entry === 'string'
+        ? entry
+        : { role_id: entry.roleId, expires_at: entry.expiresAt ?? null }
+    );
+
+    const { data, error } = await supabase.rpc('rpc_replace_user_roles', {
+      p_payload: {
         org_id: params.orgId,
-        expires_at: params.expiresAt || null,
-        assigned_at: new Date().toISOString(),
-      });
+        user_id: params.userId,
+        role_ids: roleIds,
+        expires_at: params.defaultExpiresAt ?? null,
+      },
+    });
 
     if (error) throw error;
 
     clearPermissionsCache();
-    return { success: true };
+    const result = data as { sensitive_keys_granted?: string[] } | null;
+    return { success: true, sensitiveKeysGranted: result?.sensitive_keys_granted ?? [] };
   } catch (error: any) {
-    console.error('Error assigning role:', error);
-    return { success: false, error: error.message || 'Failed to assign role' };
+    console.error('Error replacing user roles:', error);
+    return { success: false, error: error.message || 'Failed to update user roles' };
   }
 }
 
 /**
- * Remove role from user
+ * The caller's effective permission decision, straight from the backend.
+ *
+ * This is the ONLY sanctioned source for UI authorization decisions. The client
+ * must not re-derive an org-admin or super-admin override locally: after
+ * Migration 174 the org-admin override no longer covers sensitive keys, so a
+ * locally-computed `true` would disagree with the database and surface a button
+ * that fails on click.
  */
-export async function removeRoleFromUser(
-  userId: string,
-  roleId: string,
+export interface PermissionSnapshot {
+  user_id: string;
+  org_id: string;
+  is_super_admin: boolean;
+  is_org_admin: boolean;
+  permission_keys: string[];
+  sensitive_permission_keys: string[];
+  generated_at: string;
+}
+
+export async function getPermissionSnapshot(
   orgId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ snapshot?: PermissionSnapshot; error?: string }> {
   try {
     const supabase = getSupabase();
-
-    const { error } = await supabase
-      .from('user_roles')
-      .delete()
-      .eq('user_id', userId)
-      .eq('role_id', roleId)
-      .eq('org_id', orgId);
-
+    const { data, error } = await supabase.rpc('rpc_permission_snapshot', {
+      p_org_id: orgId,
+    });
     if (error) throw error;
-
-    clearPermissionsCache();
-    return { success: true };
+    return { snapshot: data as PermissionSnapshot };
   } catch (error: any) {
-    console.error('Error removing role:', error);
-    return { success: false, error: error.message || 'Failed to remove role' };
+    console.error('Error loading permission snapshot:', error);
+    return { error: error.message || 'Failed to load permissions' };
   }
 }
 
@@ -676,8 +677,10 @@ export const rbacService = {
   
   // User Roles
   getUserRoles,
-  assignRoleToUser,
-  removeRoleFromUser,
+  replaceUserRoles,
+
+  // Permission snapshot — the single source of truth for UI decisions (174)
+  getPermissionSnapshot,
   
   // Permission Checking
   getUserPermissions,

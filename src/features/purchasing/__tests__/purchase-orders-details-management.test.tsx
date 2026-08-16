@@ -62,6 +62,19 @@ vi.mock('../index', () => ({
   PurchasingModule: () => <div>الوحدة الأصلية</div>,
 }))
 
+// هذا الملف يغطي التحميل/التنقل/العرض لا RBAC — يُمنح كل صلاحيات أوامر
+// الشراء افتراضيًا كي يبقى يختبر ما كان يختبره أصلًا بعد إضافة الحراسة
+// الفعلية (Round 6) على PurchaseOrdersDetailsManagement/PurchaseOrderDetailsDialog.
+vi.mock('@/hooks/usePermissions', () => ({
+  usePermissions: () => ({
+    hasPermission: () => true,
+    hasPermissionKey: () => true,
+    isOrgAdmin: false,
+    isSuperAdmin: false,
+    loading: false,
+  }),
+}))
+
 import {
   PurchaseOrdersDetailsManagement,
   PurchasingModuleHotfix,

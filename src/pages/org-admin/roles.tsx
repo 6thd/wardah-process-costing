@@ -5,14 +5,21 @@
 import { useEffect, useState, useCallback, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  getOrgRolesWithStats, 
-  OrgRole, 
-  getRoleTemplates, 
-  createRoleFromTemplate, 
-  RoleTemplate 
+import { usePermissions } from '@/hooks/usePermissions';
+import {
+  getOrgRolesWithStats,
+  OrgRole,
+  getRoleTemplates,
+  RoleTemplate
 } from '@/services/org-admin-service';
+import { createRoleFromTemplate } from '@/services/rbac-service';
 import { getSupabase } from '@/lib/supabase';
+import {
+  permissionIdsToKeys,
+  sensitiveAmong,
+  rbacErrorMessage,
+  buildUpsertRolePayload,
+} from './rbac-role-form';
 import {
   Card,
   CardContent,
@@ -61,9 +68,15 @@ import {
   FileText,
   Copy,
   Sparkles,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+/**
+ * Migration 174 RPCs raise stable, greppable codes. Surfacing the raw Postgres
+ * message would show the caller an internal string; mapping keeps the cause
+ * legible while the code stays in the console for debugging.
+ */
 interface Permission {
   id: string;
   module_id: string;
@@ -119,6 +132,13 @@ function getCategoryColor(category: string): string {
 export default function OrgAdminRoles() {
   const { currentOrgId } = useAuth();
   const navigate = useNavigate();
+  // Which keys are sensitive is a backend fact (Migration 174's central
+  // classifier), delivered through rpc_permission_snapshot. This page must not
+  // keep its own copy of that call — usePermissions() already owns fetching,
+  // caching, cross-tab revalidation, and de-duplicating that RPC across every
+  // consumer on the page; a second independent implementation here is exactly
+  // the drift this work removes.
+  const { sensitivePermissionKeys: sensitiveKeys, refreshPermissions } = usePermissions();
   const [roles, setRoles] = useState<OrgRole[]>([]);
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(true);
@@ -277,6 +297,16 @@ export default function OrgAdminRoles() {
     setDialogOpen(true);
   }, []);
 
+  const selectedPermissionKeys = useCallback(
+    (ids: string[]) => permissionIdsToKeys(modules, ids),
+    [modules]
+  );
+
+  const sensitiveSelected = useCallback(
+    (ids: string[]) => sensitiveAmong(permissionIdsToKeys(modules, ids), sensitiveKeys),
+    [modules, sensitiveKeys]
+  );
+
   async function handleSaveRole(e: FormEvent) {
     e.preventDefault();
     if (!currentOrgId) return;
@@ -288,109 +318,52 @@ export default function OrgAdminRoles() {
 
     setSaving(true);
     try {
-      const supabase = getSupabase();
+      // Migration 174: one atomic RPC replaces the previous
+      // update-then-delete-then-insert sequence, whose intermediate failures
+      // could leave a role with no permissions at all.
+      const { error } = await getSupabase().rpc('rpc_upsert_org_role', {
+        p_payload: buildUpsertRolePayload({
+          orgId: currentOrgId,
+          roleId: editingRole?.id ?? null,
+          name: formData.name,
+          nameAr: formData.name_ar,
+          description: formData.description,
+          permissionKeys: selectedPermissionKeys(formData.permission_ids),
+        }),
+      });
 
-      if (editingRole) {
-        // Update role
-        const { error: roleError } = await supabase
-          .from('roles')
-          .update({
-            name: formData.name || formData.name_ar,
-            name_ar: formData.name_ar,
-            description: formData.description,
-            description_ar: formData.description_ar,
-          })
-          .eq('id', editingRole.id);
+      if (error) throw error;
 
-        if (roleError) throw roleError;
-
-        // Delete existing permissions
-        await supabase
-          .from('role_permissions')
-          .delete()
-          .eq('role_id', editingRole.id);
-
-        // Add new permissions
-        if (formData.permission_ids.length > 0) {
-          const rolePerms = formData.permission_ids.map(permId => ({
-            role_id: editingRole.id,
-            permission_id: permId,
-          }));
-
-          await supabase.from('role_permissions').insert(rolePerms);
-        }
-
-        toast.success('تم تحديث الدور');
-      } else {
-        // Create new role
-        const { data: newRole, error: roleError } = await supabase
-          .from('roles')
-          .insert({
-            org_id: currentOrgId,
-            name: formData.name || formData.name_ar,
-            name_ar: formData.name_ar,
-            description: formData.description,
-            description_ar: formData.description_ar,
-            is_system_role: false,
-            is_active: true,
-          })
-          .select()
-          .single();
-
-        if (roleError) throw roleError;
-
-        // Add permissions
-        if (formData.permission_ids.length > 0) {
-          const rolePerms = formData.permission_ids.map(permId => ({
-            role_id: newRole.id,
-            permission_id: permId,
-          }));
-
-          await supabase.from('role_permissions').insert(rolePerms);
-        }
-
-        toast.success('تم إنشاء الدور');
-      }
+      toast.success(editingRole ? 'تم تحديث الدور' : 'تم إنشاء الدور');
 
       setDialogOpen(false);
       loadData();
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error saving role:', error);
-      toast.error(error.message || 'فشل حفظ الدور');
+      toast.error(rbacErrorMessage(error));
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDeleteRole(roleId: string) {
+    if (!currentOrgId) return;
     try {
-      const supabase = getSupabase();
-
-      // Delete role permissions first
-      await supabase
-        .from('role_permissions')
-        .delete()
-        .eq('role_id', roleId);
-
-      // Delete user roles
-      await supabase
-        .from('user_roles')
-        .delete()
-        .eq('role_id', roleId);
-
-      // Delete role
-      const { error } = await supabase
-        .from('roles')
-        .delete()
-        .eq('id', roleId);
+      // The RPC refuses a role that users still hold, so deleting can no longer
+      // strip access from people as a side effect of a cascade.
+      const { error } = await getSupabase().rpc('rpc_delete_org_role', {
+        p_payload: { org_id: currentOrgId, role_id: roleId },
+      });
 
       if (error) throw error;
 
       setRoles(roles.filter(r => r.id !== roleId));
       toast.success('تم حذف الدور');
+      await refreshPermissions();
     } catch (error: any) {
       console.error('Error deleting role:', error);
-      toast.error(error.message || 'فشل حذف الدور');
+      toast.error(rbacErrorMessage(error));
     }
   }
 
@@ -425,6 +398,8 @@ export default function OrgAdminRoles() {
   const getModuleSelectedCount = useCallback((module: Module) => {
     return module.permissions.filter(p => formData.permission_ids.includes(p.id)).length;
   }, [formData.permission_ids]);
+
+  const selectedSensitiveKeys = sensitiveSelected(formData.permission_ids);
 
   return (
     <div className="min-h-screen bg-background">
@@ -718,8 +693,9 @@ export default function OrgAdminRoles() {
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">الاسم بالعربية *</Label>
+                  <Label htmlFor="role-name-ar" className="text-muted-foreground">الاسم بالعربية *</Label>
                   <Input
+                    id="role-name-ar"
                     placeholder="مثال: محاسب"
                     value={formData.name_ar}
                     onChange={(e) => setFormData({ ...formData, name_ar: e.target.value })}
@@ -727,8 +703,9 @@ export default function OrgAdminRoles() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label className="text-muted-foreground">الاسم بالإنجليزية</Label>
+                  <Label htmlFor="role-name-en" className="text-muted-foreground">الاسم بالإنجليزية</Label>
                   <Input
+                    id="role-name-en"
                     placeholder="e.g. Accountant"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
@@ -771,34 +748,35 @@ export default function OrgAdminRoles() {
                         className="border border-border rounded-lg overflow-hidden"
                       >
                         {/* Module Header */}
-                        <button
-                          type="button"
-                          className="w-full flex items-center justify-between p-3 bg-muted/30 cursor-pointer hover:bg-muted/30 transition-colors border-0 bg-transparent text-start"
-                          onClick={() => toggleModule(module.id)}
-                        >
-                          <div className="flex items-center gap-3">
-                            <Checkbox
-                              checked={allSelected}
-                              onCheckedChange={(checked) => {
-                                toggleModulePermissions(module, !!checked);
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                              onPointerDown={(e) => e.stopPropagation()}
-                              className="border-input"
-                            />
-                            <span className="font-medium text-foreground">
-                              {module.name_ar || module.name}
+                        <div className="flex items-center gap-3 p-3 bg-muted/30 hover:bg-muted/40 transition-colors">
+                          <Checkbox
+                            checked={allSelected}
+                            onCheckedChange={(checked) => {
+                              toggleModulePermissions(module, !!checked);
+                            }}
+                            className="border-input"
+                            aria-label={`تحديد كل صلاحيات ${module.name_ar || module.name}`}
+                          />
+                          <button
+                            type="button"
+                            className="flex min-w-0 flex-1 items-center justify-between border-0 bg-transparent p-0 text-start"
+                            onClick={() => toggleModule(module.id)}
+                          >
+                            <span className="flex items-center gap-3">
+                              <span className="font-medium text-foreground">
+                                {module.name_ar || module.name}
+                              </span>
+                              <Badge variant="outline" className="border-border text-muted-foreground text-xs">
+                                {selectedCount}/{module.permissions.length}
+                              </Badge>
                             </span>
-                            <Badge variant="outline" className="border-border text-muted-foreground text-xs">
-                              {selectedCount}/{module.permissions.length}
-                            </Badge>
-                          </div>
-                          {isExpanded ? (
-                            <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                          ) : (
-                            <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                          )}
-                        </button>
+                            {isExpanded ? (
+                              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            )}
+                          </button>
+                        </div>
 
                         {/* Permissions List */}
                         {isExpanded && (
@@ -807,6 +785,7 @@ export default function OrgAdminRoles() {
                               <button
                                 key={perm.id}
                                 type="button"
+                                aria-pressed={formData.permission_ids.includes(perm.id)}
                                 className={`w-full text-start flex items-center gap-2 p-2 rounded-lg transition-colors cursor-pointer ${
                                   formData.permission_ids.includes(perm.id)
                                     ? 'bg-teal-950/50 border border-teal-500/30'
@@ -834,24 +813,28 @@ export default function OrgAdminRoles() {
                                   e.stopPropagation();
                                 }}
                               >
-                                <Checkbox
-                                  checked={formData.permission_ids.includes(perm.id)}
-                                  onCheckedChange={(checked) => {
-                                    setFormData(prev => {
-                                      if (checked) {
-                                        return { ...prev, permission_ids: [...prev.permission_ids, perm.id] };
-                                      } else {
-                                        return { ...prev, permission_ids: prev.permission_ids.filter(id => id !== perm.id) };
-                                      }
-                                    });
-                                  }}
-                                  onClick={(e) => e.stopPropagation()}
-                                  onPointerDown={(e) => e.stopPropagation()}
-                                  className="border-input"
-                                />
+                                <span
+                                  aria-hidden="true"
+                                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-sm border ${
+                                    formData.permission_ids.includes(perm.id)
+                                      ? 'border-primary bg-primary text-primary-foreground'
+                                      : 'border-input'
+                                  }`}
+                                >
+                                  {formData.permission_ids.includes(perm.id) && <Check className="h-4 w-4" />}
+                                </span>
                                 <span className="text-sm text-muted-foreground">
                                   {perm.resource_ar || perm.resource} - {perm.action_ar || perm.action}
                                 </span>
+                                {sensitiveKeys.includes(perm.permission_key) && (
+                                  <Badge
+                                    variant="destructive"
+                                    className="ms-2 text-[10px] px-1.5 py-0"
+                                    title="صلاحية حساسة: لا يمنحها دور مسؤول المؤسسة تلقائيًا، وتتطلب منحًا صريحًا عبر هذا الدور"
+                                  >
+                                    حساسة
+                                  </Badge>
+                                )}
                               </button>
                             ))}
                           </div>
@@ -860,6 +843,33 @@ export default function OrgAdminRoles() {
                     );
                   })}
                 </div>
+              </div>
+              {/* Always mounted, toggled by CSS: conditionally inserting and
+                  removing this node inside the dialog re-entered React's render
+                  cycle (observed as "Maximum update depth exceeded"). Keeping
+                  the node stable and only changing its contents avoids that
+                  without weakening the warning. */}
+              <div
+                role="alert"
+                aria-live="polite"
+                className={
+                  selectedSensitiveKeys.length > 0
+                    ? 'rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm'
+                    : 'sr-only'
+                }
+              >
+                {selectedSensitiveKeys.length > 0 && (
+                  <>
+                    <strong className="block mb-1">هذا الدور يمنح صلاحيات حساسة</strong>
+                    هذه المفاتيح لا يمنحها دور مسؤول المؤسسة تلقائيًا؛ من يحمل هذا الدور
+                    يكتسبها صراحةً، ويُسجَّل ذلك في سجل التدقيق:
+                    <ul className="list-disc ps-5 mt-1">
+                      {selectedSensitiveKeys.map(key => (
+                        <li key={key}><code>{key}</code></li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
               </div>
             </div>
@@ -891,4 +901,3 @@ export default function OrgAdminRoles() {
     </div>
   );
 }
-

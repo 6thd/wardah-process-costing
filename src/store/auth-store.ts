@@ -4,7 +4,6 @@ import { safeStorageAdapter } from '@/lib/safe-storage'
 import { getSupabase } from '../lib/supabase'
 import type { AuthError, AuthChangeEvent, Session, SupabaseClient } from '@supabase/supabase-js'
 import { loadConfig } from '../lib/config'
-import { DEMO_CREDENTIALS } from '@/config/demo-credentials'
 
 // Define a separate AppUser interface to include custom properties like full_name
 export interface AppUser {
@@ -39,28 +38,9 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         try {
           set({ isLoading: true, error: null })
-          
+
           await loadConfig()
-          
-          // NOSONAR - Demo credentials for development only
-          if (import.meta.env.DEV && email === DEMO_CREDENTIALS.admin.email && password === DEMO_CREDENTIALS.admin.password) { // NOSONAR
-            const mockUser: AppUser = {
-              id: 'demo-user-1',
-              email: DEMO_CREDENTIALS.admin.email, // NOSONAR
-              full_name: 'مدير النظام',
-              role: 'admin',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            }
-            
-            set({ 
-              user: mockUser, 
-              isAuthenticated: true, 
-              isLoading: false 
-            })
-            return
-          }
-          
+
           const client = getSupabase();
           if (!client) throw new Error('Supabase client not initialized');
           

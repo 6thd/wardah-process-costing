@@ -33,6 +33,13 @@ interface WorkOrderCardProps {
     pause?: boolean
     resume?: boolean
   }
+  /**
+   * لا مفتاح صلاحية مطابق لعمليات أوامر العمل (work_orders) في الكتالوج الحي
+   * — لا manufacturing.work_orders.* ولا مورد مكافئ (ليست orders ولا
+   * work_centers). تُغلَق كل أفعال هذه البطاقة افتراضيًا (fail-closed) حتى
+   * يُضاف مورد صلاحية مخصص، بدل ربطها بمفتاح غير ذي صلة.
+   */
+  canAct: boolean
 }
 
 export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
@@ -45,7 +52,8 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
   onComplete,
   getStatusBadge,
   getProgressPercentage,
-  isPending
+  isPending,
+  canAct
 }) => {
   const { t } = useTranslation()
   const progress = getProgressPercentage(workOrder)
@@ -91,6 +99,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
           </div>
 
           {/* Actions */}
+          {canAct && (
           <div className="flex flex-wrap gap-2">
             {canStartSetup && (
               <Button
@@ -140,6 +149,7 @@ export const WorkOrderCard: React.FC<WorkOrderCardProps> = ({
               </Button>
             )}
           </div>
+          )}
         </div>
       </CardContent>
     </Card>

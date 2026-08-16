@@ -69,15 +69,24 @@ async function fetchProducts(): Promise<Product[]> {
 
 /**
  * بند 11: موحَّد على React Query داخلياً — الواجهة الخارجية
- * { products, loading, loadProducts } كما كانت تماماً، لا كسر لأي مستهلك
+ * { products, loading, loadProducts } كما كانت تماماً، لا كسر لأي مستهلك.
+ *
+ * `enabled` (اختياري، افتراضه true): هذه بيانات مرجعية لنموذج إنشاء أمر
+ * تصنيع فقط — لا استهلاك آخر لها. مستهلك بلا manufacturing.orders.create
+ * (قراءة فقط) لا يجب أن يُطلِق طلب المنتجات إطلاقًا، وعند سحب الصلاحية أثناء
+ * الجلسة (والاستعلام كان منفَّذًا وله بيانات مخزَّنة) يجب ألا تُعرَض بيانات
+ * منتجات قديمة من الكاش — enabled:false يوقف كلا الأمرين معًا: `useQuery`
+ * لا ينفّذ queryFn وهي معطّلة، والعائد هنا يتجاهل أي `data` مخزَّن.
  */
-export function useManufacturingProducts() {
+export function useManufacturingProducts(options?: { enabled?: boolean }) {
+  const enabled = options?.enabled ?? true;
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery<Product[]>({
     queryKey: MANUFACTURING_PRODUCTS_QUERY_KEY,
     queryFn: fetchProducts,
     staleTime: 60_000,
+    enabled,
   });
 
   const loadProducts = useCallback(async () => {
@@ -85,8 +94,8 @@ export function useManufacturingProducts() {
   }, [queryClient]);
 
   return {
-    products: data ?? [],
-    loading: isLoading,
+    products: enabled ? (data ?? []) : [],
+    loading: enabled ? isLoading : false,
     loadProducts
   };
 }

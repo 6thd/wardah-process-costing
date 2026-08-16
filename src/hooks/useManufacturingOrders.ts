@@ -7,7 +7,7 @@ import { manufacturingService } from '@/services/supabase-service'
 import { getSupabase, type ManufacturingOrder } from '@/lib/supabase'
 import type { TablesInsert } from '@/types/database.generated'
 
-export const useManufacturingOrders = () => {
+export const useManufacturingOrders = (options?: { enabled?: boolean }) => {
   return useQuery({
     queryKey: ['manufacturing-orders'],
     queryFn: async () => manufacturingService.getAll(),
@@ -16,6 +16,7 @@ export const useManufacturingOrders = () => {
     gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes (formerly cacheTime)
     refetchOnWindowFocus: false, // Don't refetch on window focus
     refetchOnMount: false, // Don't refetch on component mount if data exists
+    enabled: options?.enabled ?? true,
   })
 }
 

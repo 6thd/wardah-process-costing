@@ -2,47 +2,22 @@
 // بسم الله الرحمن الرحيم
 // Org Admin Guard & Router
 
-import { useEffect, useState } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
-import { checkIsOrgAdmin } from '@/services/org-admin-service';
+import { usePermissions } from '@/hooks/usePermissions';
 import { Loader2 } from 'lucide-react';
 
 export default function OrgAdminLayout() {
-  const { user, loading: authLoading, currentOrgId } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const isAuthenticated = !!user;
-  const [isOrgAdmin, setIsOrgAdmin] = useState<boolean | null>(null);
-  const [checking, setChecking] = useState(true);
+  const {
+    isOrgAdmin,
+    isSuperAdmin,
+    loading: permissionsLoading,
+  } = usePermissions();
   const location = useLocation();
 
-  useEffect(() => {
-    async function checkAccess() {
-      // إذا لم تُحدَّد مؤسسة بعد، انتظر — لا نمنح الوصول
-      if (!currentOrgId) {
-        setIsOrgAdmin(false);
-        setChecking(false);
-        return;
-      }
-
-      try {
-        const result = await checkIsOrgAdmin(currentOrgId);
-        setIsOrgAdmin(result);
-      } catch {
-        // أي خطأ = رفض الوصول (fail-closed)
-        setIsOrgAdmin(false);
-      } finally {
-        setChecking(false);
-      }
-    }
-
-    if (isAuthenticated && !authLoading) {
-      checkAccess();
-    } else if (!authLoading && !isAuthenticated) {
-      setChecking(false);
-    }
-  }, [isAuthenticated, authLoading, currentOrgId]);
-
-  if (authLoading || checking) {
+  if (authLoading || (isAuthenticated && permissionsLoading)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
         <div className="flex flex-col items-center gap-4">
@@ -57,7 +32,7 @@ export default function OrgAdminLayout() {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!isOrgAdmin) {
+  if (!isOrgAdmin && !isSuperAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 to-slate-800">
         <div className="bg-slate-800/50 border border-rose-500/30 rounded-2xl p-8 text-center max-w-md">
@@ -81,4 +56,3 @@ export default function OrgAdminLayout() {
 
   return <Outlet />;
 }
-

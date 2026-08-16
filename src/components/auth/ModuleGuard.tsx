@@ -5,6 +5,8 @@
 import { ReactNode } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { usePermissions } from '@/hooks/usePermissions';
+import { getModuleConfig } from '@/config/module-permissions';
+import { resolveRoutePermission, satisfiesRouteRequirement } from '@/config/route-permissions';
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
@@ -100,7 +102,7 @@ function LoadingState() {
 export function ModuleGuard({ 
   children, 
   moduleCode, 
-  action = 'view', 
+  action,
   requireOrgAdmin = false,
   requireSuperAdmin = false,
   redirectTo,
@@ -109,6 +111,7 @@ export function ModuleGuard({
   const location = useLocation();
   const {
     hasPermission,
+    hasPermissionKey,
     isOrgAdmin,
     isSuperAdmin,
     loading,
@@ -133,8 +136,24 @@ export function ModuleGuard({
   }
 
   // التحقق من صلاحية الموديول
-  if (hasAccess && moduleCode && action) {
-    hasAccess = hasPermission(moduleCode, action);
+  if (hasAccess && moduleCode) {
+    if (action) {
+      // فحص فعل محدد صراحة: أضيق من أي مسار في العقد، ويتجاوزه.
+      hasAccess = hasPermission(moduleCode, action);
+    } else {
+      // امتلاك أي صلاحية داخل الموديول لا يكفي بعد الآن: كل subroute مربوط
+      // بمفتاح `read`/`view` محدد أو anyOf صريح في route-permissions.ts.
+      // مسار غير مربوط في العقد يفشل مغلقًا (requirement === undefined).
+      const basePath = getModuleConfig(moduleCode)?.path ?? `/${moduleCode}`;
+      const subPath =
+        location.pathname === basePath
+          ? '/'
+          : location.pathname.startsWith(`${basePath}/`)
+            ? location.pathname.slice(basePath.length)
+            : location.pathname;
+      const requirement = resolveRoutePermission(moduleCode, subPath);
+      hasAccess = requirement != null && satisfiesRouteRequirement(requirement, hasPermissionKey);
+    }
   }
 
   // إذا لم يكن لديه صلاحية
@@ -179,4 +198,3 @@ export function withModuleGuard<P extends object>(
 }
 
 export default ModuleGuard;
-

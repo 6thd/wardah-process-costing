@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, Link } from 'react-router-dom'
 import { LoadingSpinner } from '@/components/ui/loading-state'
 import { useTranslation } from 'react-i18next'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { cn } from '@/lib/utils'
 import { PageHeader } from '@/components/ui/page-header'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import { UomGoodsReceiptForm } from '@/components/forms/UomGoodsReceiptForm'
 import { useUomEngineEnabled } from '@/hooks/use-uom-engine-enabled'
 import { SupplierInvoiceForm } from '@/components/forms/SupplierInvoiceForm'
 import { SupplierPayments } from './components/SupplierPayments'
+import { usePermissions } from '@/hooks/usePermissions'
 
 export function PurchasingModule() {
   return (
@@ -40,26 +41,46 @@ export function PurchasingModule() {
 function PurchasingOverview() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  // متطلب دخول هذه الشاشة عند ModuleGuard هو anyOf بين موارد المشتريات؛ كل
+  // قسم هنا يُحمَّل ويُعرض فقط لمن يملك مفتاح قراءته الفعلي، لا لأي حامل
+  // صلاحية اجتاز الدخول.
+  const canReadSuppliers = hasPermissionKey('purchasing.suppliers.read')
+  const canReadOrders = hasPermissionKey('purchasing.purchase_orders.read')
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [orders, setOrders] = useState<PurchaseOrder[]>([])
 
   useEffect(() => {
-    const loadData = async () => {
-      try {
-        const [suppliersData, ordersData] = await Promise.all([
-          suppliersService.getAll(),
-          purchaseOrdersService.getAll()
-        ])
-        setSuppliers((suppliersData || []) as Supplier[])
-        setOrders((ordersData || []) as unknown as PurchaseOrder[])
-      } catch (error) {
-        console.error('Error loading purchasing data:', error)
-        toast.error('خطأ في تحميل بيانات المشتريات')
-      } finally {
-      }
+    if (!canReadSuppliers) {
+      setSuppliers([])
+      return
     }
-    loadData()
-  }, [])
+    let cancelled = false
+    suppliersService.getAll()
+      .then(data => { if (!cancelled) setSuppliers((data || []) as Supplier[]) })
+      .catch(error => {
+        console.error('Error loading suppliers:', error)
+        toast.error('خطأ في تحميل بيانات الموردين')
+        if (!cancelled) setSuppliers([])
+      })
+    return () => { cancelled = true }
+  }, [canReadSuppliers])
+
+  useEffect(() => {
+    if (!canReadOrders) {
+      setOrders([])
+      return
+    }
+    let cancelled = false
+    purchaseOrdersService.getAll()
+      .then(data => { if (!cancelled) setOrders((data || []) as unknown as PurchaseOrder[]) })
+      .catch(error => {
+        console.error('Error loading purchase orders:', error)
+        toast.error('خطأ في تحميل أوامر الشراء')
+        if (!cancelled) setOrders([])
+      })
+    return () => { cancelled = true }
+  }, [canReadOrders])
 
   const totalOrderValue = orders.reduce((sum, order) => sum + order.total_amount, 0)
   const pendingOrders = orders.filter(order => order.status === 'draft' || order.status === 'confirmed')
@@ -68,54 +89,70 @@ function PurchasingOverview() {
     <div className="space-y-6">
       <PageHeader title={t('purchasing.title')} description="إدارة المشتريات والموردين" hideOnPrint={false} />
 
-      {/* Key Metrics */}
+      {/* Key Metrics — كل بطاقة تُعرض فقط لمن يملك مفتاح قراءة موردها */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-blue-600">{suppliers.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الموردين</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-green-600">{totalOrderValue.toFixed(2)}</div>
-          <div className="text-sm text-muted-foreground">قيمة الطلبات (ريال)</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
-          <div className="text-sm text-muted-foreground">طلبات معلقة</div>
-        </div>
-        <div className="bg-card rounded-lg border p-4">
-          <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
-          <div className="text-sm text-muted-foreground">إجمالي الطلبات</div>
-        </div>
+        {canReadSuppliers && (
+          <div className="bg-card rounded-lg border p-4">
+            <div className="text-2xl font-bold text-blue-600">{suppliers.length}</div>
+            <div className="text-sm text-muted-foreground">إجمالي الموردين</div>
+          </div>
+        )}
+        {canReadOrders && (
+          <>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-green-600">{totalOrderValue.toFixed(2)}</div>
+              <div className="text-sm text-muted-foreground">قيمة الطلبات (ريال)</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-amber-600">{pendingOrders.length}</div>
+              <div className="text-sm text-muted-foreground">طلبات معلقة</div>
+            </div>
+            <div className="bg-card rounded-lg border p-4">
+              <div className="text-2xl font-bold text-purple-600">{orders.length}</div>
+              <div className="text-sm text-muted-foreground">إجمالي الطلبات</div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Actions — روابط لشاشات أخرى تُعرض فقط لمن يملك صلاحية دخولها */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Link to="suppliers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.suppliers')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            إدارة الموردين
-          </p>
-        </Link>
+        {canReadSuppliers && (
+          <Link to="suppliers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.suppliers')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              إدارة الموردين
+            </p>
+          </Link>
+        )}
 
-        <Link to="orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.purchaseOrders')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            أوامر الشراء
-          </p>
-        </Link>
+        {canReadOrders && (
+          <Link to="orders" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.purchaseOrders')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              أوامر الشراء
+            </p>
+          </Link>
+        )}
 
-        <Link to="receipts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
-            {t('purchasing.receipts')}
-          </h3>
-          <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
-            استلام البضائع
-          </p>
-        </Link>
+        {/* Receipts have no dedicated catalog resource; purchase_orders.read
+            gates this card as their genuine parent resource (see the same
+            key used for the orders card above and route-permissions.ts's
+            /receipts entry), not a nearest-resource guess. */}
+        {canReadOrders && (
+          <Link to="receipts" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+            <h3 className={cn("font-semibold mb-2", isRTL ? "text-right" : "text-left")}>
+              {t('purchasing.receipts')}
+            </h3>
+            <p className={cn("text-muted-foreground text-sm", isRTL ? "text-right" : "text-left")}>
+              استلام البضائع
+            </p>
+          </Link>
+        )}
       </div>
     </div>
   )
@@ -124,6 +161,8 @@ function PurchasingOverview() {
 function SuppliersManagement() {
   const { t, i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateSupplier = hasPermissionKey('purchasing.suppliers.create')
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
@@ -159,6 +198,12 @@ function SuppliersManagement() {
   )
 
   const handleAddSupplier = async () => {
+    // دفاع داخل الـhandler، لا اعتمادًا فقط على إخفاء الزر: create() لا
+    // تُستدعى بلا purchasing.suppliers.create مهما كان مصدر الاستدعاء.
+    if (!canCreateSupplier) {
+      toast.error('لا تملك صلاحية إضافة موردين')
+      return
+    }
     try {
       await suppliersService.create(newSupplier)
       toast.success('تم إضافة المورد بنجاح')
@@ -192,9 +237,11 @@ function SuppliersManagement() {
           <h1 className="text-2xl font-bold">{t('purchasing.suppliers')}</h1>
           <p className="text-muted-foreground">إدارة الموردين</p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? t('common.cancel') : t('common.add')}
-        </Button>
+        {canCreateSupplier && (
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? t('common.cancel') : t('common.add')}
+          </Button>
+        )}
       </div>
 
       {/* Search */}
@@ -206,7 +253,9 @@ function SuppliersManagement() {
         />
       </div>
 
-      {/* Add Supplier Form */}
+      {/* Add Supplier Form — الزر أعلاه هو ما يفتحها، فلا تُفتَح بلا صلاحية.
+          لا تُغلَق قسرًا إن سُحبت الصلاحية أثناء التعبئة — handleAddSupplier
+          نفسها آخر خط دفاع للحفظ الفعلي. */}
       {showAddForm && (
         <div className="bg-card rounded-lg border p-6">
           <h3 className="font-semibold mb-4">إضافة مورد جديد</h3>
@@ -314,6 +363,8 @@ function SuppliersManagement() {
 
 function PurchaseOrdersManagement() {
   const { t } = useTranslation()
+  const { hasPermissionKey } = usePermissions()
+  const canCreateOrder = hasPermissionKey('purchasing.purchase_orders.create')
   const [orders, setOrders] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -373,13 +424,16 @@ function PurchaseOrdersManagement() {
           <h1 className="text-2xl font-bold">{t('purchasing.purchaseOrders')}</h1>
           <p className="text-muted-foreground">أوامر الشراء</p>
         </div>
-        <Button onClick={() => setShowAddForm(true)}>
-          + إضافة أمر شراء
-        </Button>
+        {canCreateOrder && (
+          <Button onClick={() => setShowAddForm(true)}>
+            + إضافة أمر شراء
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا purchasing.purchase_orders.create. */}
       <PurchaseOrderForm
-        open={showAddForm}
+        open={showAddForm && canCreateOrder}
         onOpenChange={setShowAddForm}
         onSuccess={() => {
           loadOrders()
@@ -455,25 +509,51 @@ function GoodsReceiptManagement() {
   const isRTL = i18n.language === 'ar'
   // fail-closed: أثناء التحميل أو عند غياب المؤسسة يبقى المسار التقليدي هو العامل.
   const { isEnabled: uomEngineEnabled } = useUomEngineEnabled()
+  const { hasPermissionKey } = usePermissions()
+  // No dedicated "goods_receipts" catalog resource exists, but a receipt
+  // cannot be created without an existing purchase order to receive against
+  // (Migration 148's partial-receipt gate) — purchase_orders.update is the
+  // actual underlying resource this write operates on, the same genuine
+  // parent/sub-resource relationship route-permissions.ts documents for
+  // reading this route on purchasing.purchase_orders.read.
+  const canCreateReceipt = hasPermissionKey('purchasing.purchase_orders.update')
+  // Same read key route-permissions.ts already requires to reach
+  // /purchasing/receipts at all — reused here so the receipts list query
+  // below stops firing unconditionally regardless of route entry.
+  const canReadReceipts = hasPermissionKey('purchasing.purchase_orders.read')
   const [showGRForm, setShowGRForm] = useState(false)
   const [receipts, setReceipts] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  // Bumped on every revocation/permission change so a response for an
+  // in-flight request issued before the change is recognized as stale when
+  // it lands, and never repopulates `receipts`.
+  const requestGenerationRef = useRef(0)
 
   useEffect(() => {
+    if (!canReadReceipts) {
+      requestGenerationRef.current += 1
+      setReceipts([])
+      setLoading(false)
+      return
+    }
     loadReceipts()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadReceipts])
 
   const loadReceipts = async () => {
+    const requestId = ++requestGenerationRef.current
     setLoading(true)
     try {
       const res = await getAllGoodsReceipts()
+      if (requestGenerationRef.current !== requestId) return
       if (!res.success) throw res.error
       setReceipts(res.data || [])
     } catch (error) {
+      if (requestGenerationRef.current !== requestId) return
       console.error('Error loading goods receipts:', error)
       toast.error('خطأ في تحميل سندات الاستلام')
     } finally {
-      setLoading(false)
+      if (requestGenerationRef.current === requestId) setLoading(false)
     }
   }
 
@@ -498,18 +578,20 @@ function GoodsReceiptManagement() {
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <PageHeader title="استلام البضائع" description="إدارة عمليات استلام البضائع من الموردين" hideOnPrint={false} />
-        <Button onClick={() => setShowGRForm(true)}>
-          + إضافة استلام
-        </Button>
+        {canCreateReceipt && (
+          <Button onClick={() => setShowGRForm(true)}>
+            + إضافة استلام
+          </Button>
+        )}
       </div>
 
       {/* بوابة الطرح: العلم يحكم المسار الجديد ولا يقطع المسار القائم. عند إطفائه
           — وهي حالة كل المؤسسات اليوم — يبقى نموذج الاستلام التقليدي هو العامل،
           وتظل قائمة السندات أعلاه ظاهرة في الحالتين. النمط نفسه المتبع في
-          LegacyPurchaseOrderForm ضمن PR #42. */}
+          LegacyPurchaseOrderForm ضمن PR #42. لا يُمرَّر open=true بلا الصلاحية. */}
       {uomEngineEnabled ? (
         <UomGoodsReceiptForm
-          open={showGRForm}
+          open={showGRForm && canCreateReceipt}
           onOpenChange={setShowGRForm}
           onSuccess={async () => {
             await loadReceipts()
@@ -517,7 +599,7 @@ function GoodsReceiptManagement() {
         />
       ) : (
         <GoodsReceiptForm
-          open={showGRForm}
+          open={showGRForm && canCreateReceipt}
           onOpenChange={setShowGRForm}
           onSuccess={async () => {
             toast.success('تم إنشاء إشعار الاستلام بنجاح')
@@ -574,6 +656,8 @@ function GoodsReceiptManagement() {
 function SupplierInvoicesManagement() {
   const { i18n } = useTranslation()
   const isRTL = i18n.language === 'ar'
+  const { hasPermissionKey } = usePermissions()
+  const canCreateInvoice = hasPermissionKey('purchasing.purchase_invoices.create')
   const [showInvoiceForm, setShowInvoiceForm] = useState(false)
   const [invoices, setInvoices] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -625,13 +709,16 @@ function SupplierInvoicesManagement() {
     <div className="space-y-6">
       <div className={cn("flex justify-between items-center", isRTL ? "flex-row-reverse" : "")}>
         <PageHeader title="فواتير المشتريات" description="إدارة فواتير الموردين وقيود اليومية" hideOnPrint={false} />
-        <Button onClick={() => setShowInvoiceForm(true)}>
-          + إضافة فاتورة مشتريات
-        </Button>
+        {canCreateInvoice && (
+          <Button onClick={() => setShowInvoiceForm(true)}>
+            + إضافة فاتورة مشتريات
+          </Button>
+        )}
       </div>
 
+      {/* لا يُمرَّر open=true إلى النموذج بلا purchasing.purchase_invoices.create. */}
       <SupplierInvoiceForm
-        open={showInvoiceForm}
+        open={showInvoiceForm && canCreateInvoice}
         onOpenChange={setShowInvoiceForm}
         onSuccess={loadInvoices}
       />

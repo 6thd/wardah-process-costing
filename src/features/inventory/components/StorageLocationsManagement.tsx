@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Edit, Trash2, MapPin, Thermometer, Building2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -37,8 +37,18 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { warehouseService, type StorageLocation, type Warehouse } from '@/services/warehouse-service';
+import { usePermissions } from '@/hooks/usePermissions';
 
 export default function StorageLocationsManagement() {
+  const { hasPermissionKey } = usePermissions();
+  // لا مورد "locations" مخصص في الكتالوج الحي (لا inventory.locations.* ولا
+  // مورد مكافئ) — تُغلَق كل أفعال الكتابة هنا افتراضيًا (fail-closed) بدل
+  // ربطها بمفتاح غير ذي صلة، اتساقًا مع معالجة RoutingForm لاعتماد المسارات.
+  // العرض للقراءة فقط يبقى متاحًا. تُبلَّغ هذه كفجوة كتالوج/منتج.
+  const canCreate = false;
+  const canUpdate = false;
+  const canDelete = false;
+  const canReadWarehouses = hasPermissionKey('inventory.warehouses.read');
   const [locations, setLocations] = useState<StorageLocation[]>([]);
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
   const [selectedWarehouse, setSelectedWarehouse] = useState<string>('');
@@ -56,43 +66,84 @@ export default function StorageLocationsManagement() {
     is_receivable: true,
   });
 
-  useEffect(() => {
-    loadWarehouses();
-  }, []);
+  // loadWarehouses() and loadLocations() each check their OWN generation
+  // counter after their await resolves, not just canReadWarehouses at call
+  // time — a promise captures whatever canReadWarehouses was true WHEN it
+  // was issued, and stays true in that closure even if the grant is revoked
+  // before the response lands. Every revocation (and every new warehouse
+  // selection) bumps the relevant counter(s), so a request whose answer
+  // arrives after either event is recognized as stale and its data is never
+  // applied — closing both "in-flight revocation" and "superseded
+  // selection" races. Two independent counters, not one shared one: the
+  // locations effect runs on every mount/permission-change too (with
+  // selectedWarehouse still empty, before loadWarehouses' response has
+  // picked one), and bumping a single shared counter there would spuriously
+  // invalidate a warehouses request already in flight.
+  const warehousesGenerationRef = useRef(0);
+  const locationsGenerationRef = useRef(0);
 
   useEffect(() => {
-    if (selectedWarehouse) {
-      loadLocations(selectedWarehouse);
+    if (canReadWarehouses) {
+      loadWarehouses();
+    } else {
+      warehousesGenerationRef.current += 1;
+      locationsGenerationRef.current += 1;
+      setWarehouses([]);
+      setSelectedWarehouse('');
+      setLocations([]);
     }
-  }, [selectedWarehouse]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canReadWarehouses]);
+
+  useEffect(() => {
+    if (selectedWarehouse && canReadWarehouses) {
+      loadLocations(selectedWarehouse);
+    } else {
+      locationsGenerationRef.current += 1;
+      setLocations([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedWarehouse, canReadWarehouses]);
 
   const loadWarehouses = async () => {
+    const requestId = ++warehousesGenerationRef.current;
     try {
       const data = await warehouseService.getWarehouses();
+      if (warehousesGenerationRef.current !== requestId) return;
       setWarehouses(data || []);
       if (data && data.length > 0) {
         setSelectedWarehouse(data[0].id);
       }
     } catch (error) {
+      if (warehousesGenerationRef.current !== requestId) return;
       console.error('Error loading warehouses:', error);
       toast.error('فشل تحميل المخازن');
     }
   };
 
   const loadLocations = async (warehouseId: string) => {
+    const requestId = ++locationsGenerationRef.current;
     try {
       setLoading(true);
       const data = await warehouseService.getStorageLocations(warehouseId);
+      // Superseded by a newer request, a warehouse re-selection, or a
+      // revocation that already cleared state — do not repopulate it.
+      if (locationsGenerationRef.current !== requestId) return;
       setLocations(data || []);
     } catch (error) {
+      if (locationsGenerationRef.current !== requestId) return;
       console.error('Error loading locations:', error);
       toast.error('فشل تحميل مواقع التخزين');
     } finally {
-      setLoading(false);
+      if (locationsGenerationRef.current === requestId) setLoading(false);
     }
   };
 
   const handleOpenDialog = (location?: StorageLocation) => {
+    if ((location && !canUpdate) || (!location && !canCreate)) {
+      toast.error('لا تملك صلاحية هذا الإجراء على مواقع التخزين');
+      return;
+    }
     if (location) {
       setEditingLocation(location);
       setFormData(location);
@@ -129,6 +180,10 @@ export default function StorageLocationsManagement() {
   };
 
   const handleSave = async () => {
+    if (editingLocation ? !canUpdate : !canCreate) {
+      toast.error('لا تملك صلاحية هذا الإجراء على مواقع التخزين');
+      return;
+    }
     try {
       if (!formData.code || !formData.name || !selectedWarehouse) {
         toast.error('الرجاء إدخال الكود والاسم واختيار المخزن');
@@ -159,6 +214,10 @@ export default function StorageLocationsManagement() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canDelete) {
+      toast.error('لا تملك صلاحية حذف مواقع التخزين');
+      return;
+    }
     if (!confirm('هل أنت متأكد من حذف هذا الموقع؟')) {
       return;
     }
@@ -206,10 +265,12 @@ export default function StorageLocationsManagement() {
             إدارة المناطق والأرفف داخل كل مخزن (المستوى الثاني)
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
-          <Plus className="mr-2 h-4 w-4" />
-          موقع جديد
-        </Button>
+        {canCreate && (
+          <Button onClick={() => handleOpenDialog()} disabled={!selectedWarehouse}>
+            <Plus className="mr-2 h-4 w-4" />
+            موقع جديد
+          </Button>
+        )}
       </div>
 
       {/* Info Box */}
@@ -323,10 +384,12 @@ export default function StorageLocationsManagement() {
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <MapPin className="h-12 w-12 text-muted-foreground mb-4" />
                     <p className="text-muted-foreground">لا توجد مواقع تخزين في هذا المخزن</p>
-                    <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      إضافة أول موقع
-                    </Button>
+                    {canCreate && (
+                      <Button variant="outline" className="mt-4" onClick={() => handleOpenDialog()}>
+                        <Plus className="mr-2 h-4 w-4" />
+                        إضافة أول موقع
+                      </Button>
+                    )}
                   </div>
                 );
               }
@@ -402,20 +465,24 @@ export default function StorageLocationsManagement() {
                         </TableCell>
                         <TableCell className="text-start">
                           <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleOpenDialog(location)}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDelete(location.id)}
-                            >
-                              <Trash2 className="h-4 w-4 text-destructive" />
-                            </Button>
+                            {canUpdate && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleOpenDialog(location)}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            )}
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDelete(location.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>

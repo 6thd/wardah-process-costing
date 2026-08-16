@@ -41,7 +41,7 @@ function guardedLazy(
     const Component = mod[exportName];
     return {
       Component: () => (
-        <ModuleGuard moduleCode={moduleCode} action="view">
+        <ModuleGuard moduleCode={moduleCode}>
           <Component />
         </ModuleGuard>
       ),
@@ -151,9 +151,11 @@ export const appRouter = createBrowserRouter([
           },
           {
             // توافق URLs: الوحدة اليتيمة gemini-dashboard حُذفت (كانت غلافاً
-            // مكرّراً لمكوّن reports) — التوجيه يبقى للّوحة الحقيقية.
+            // مكرّراً لمكوّن reports)، ومسار /reports/gemini نفسه أُعيد
+            // تسميته إلى /reports/insights بعد إزالة اسم Gemini من الواجهة —
+            // التوجيه يتبع الوجهة الحقيقية الحالية.
             path: "gemini-dashboard/*",
-            element: <Navigate to="/reports/gemini" replace />,
+            element: <Navigate to="/reports/insights" replace />,
           },
           {
             path: "settings/*",
