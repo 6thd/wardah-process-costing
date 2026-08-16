@@ -1,9 +1,11 @@
 # خطة الوصول لمستوى متقدم — موديول التصنيع وتكاليف المراحل
 
 **الحالة:** مسودة تنفيذية معتمدة على تدقيق المستودع  
-**آخر تحديث:** 2026-08-06  
+**آخر تحديث:** 2026-08-16\
 **النطاق:** Manufacturing + Process Costing + MES المرتبط بالتكلفة  
 **خارج النطاق المباشر:** ZATCA، المبيعات الكاملة، CRM، الأصول الثابتة  
+
+> تمت مراجعة الحالة مقابل `main` عند `3325b18` ودفتر migrations المطبّق على Production حتى `175`.
 
 ---
 
@@ -28,7 +30,7 @@
 ### مبدأ حوكمة النشر (إلزامي في هذا المستودع)
 - أي RPC/Schema جديد: **PR قاعدة بيانات مستقل → دمج → تطبيق Production → تحقق → ثم PR الواجهة**.
 - لا تُدمج واجهة تعتمد على RPC غير مطبّق.
-- لا تُعدَّل migrations مطبّقة حيًا؛ أضف رقمًا جديدًا بعد `171`.
+- لا تُعدَّل migrations مطبّقة حيًا؛ استعمل الرقم التالي المتاح بعد مطابقة `main` وProduction. خط الأساس الحالي `175`، والرقم `176` محجوز لإغلاق RBAC بعد browser smoke؛ لا يُعاد استخدام رقم محجوز.
 - الكتابة التشغيلية داخل RPC ذري واحد؛ لا تفصل SLE/bin/product/GL على طلبات مستقلة.
 
 ---
@@ -66,7 +68,7 @@
 | Equivalent Units UI | `equivalent-units-dashboard.tsx` — Temporary stub |
 | Variance Alerts | `variance-alerts.tsx` — `mockVarianceAlerts` |
 | Quality page | `manufacturing/index.tsx` — `comingSoon` |
-| ترحيل مرحلة إلى GL من اللوحة | `stage-costing-actions.js` → `postStageToGL` stub |
+| ترحيل مرحلة إلى GL من اللوحة | أزيل مسار النجاح الوهمي من `stage-costing-actions.js`؛ لا يوجد handler إنتاجي الآن، لذلك الإجراء fail-closed والفجوة التنفيذية باقية |
 | Domain import معطّل | تعليقات `DISABLED (not implemented)` في stage-costing-actions / EU dashboard |
 | أجور + أوفرهيد + WIP متعدد المراحل داخل إكمال الأمر | تعليق migration `93`: «بناء لاحق» |
 | تبويب مقارنة FIFO في التقارير | معطّل / under development |
@@ -153,7 +155,7 @@ flowchart TD
 
 ### معايير القبول
 - [ ] وثيقة Limitations تعكس الواقع بلا تضارب.
-- [ ] لا مسار «نجاح صامت» لـ `postStageToGL` دون تحذير في بيئة غير إنتاجية على الأقل.
+- [x] أزيل مسار «النجاح الصامت» لـ `postStageToGL`؛ لا يُعاد زر/handler قبل وجود RPC حقيقي.
 - [ ] Checklist ديمو داخلي محدّث.
 
 ### نوع التغيير
@@ -195,7 +197,7 @@ flowchart TD
 
 ### P1-B — هل نحتاج migration؟
 - إذا كان توقيع `upsert_stage_cost` كافيًا: **لا migration** → UI PR فقط بعد التحقق من Production signature.
-- إذا نقصت حقول/صلاحيات EXECUTE/حراسة: **DB PR أولًا** برقم `172+`.
+- إذا نقصت حقول/صلاحيات EXECUTE/حراسة: **DB PR أولًا** بالرقم التالي المتاح بعد مطابقة migration ledger؛ لا يُثبَّت رقم مسبقًا في الخطة.
 
 ### سيناريوهات قبول رقمية (إلزامية في الاختبارات)
 
@@ -220,9 +222,9 @@ flowchart TD
 
 ---
 
-## P2 — ترحيل تكلفة المرحلة إلى الأستاذ (إنهاء stub)
+## P2 — ترحيل تكلفة المرحلة إلى الأستاذ (إضافة مسار قانوني)
 
-**الغرض:** إغلاق `postStageToGL` الكاذب وربط التكلفة بالدفتر القانوني `gl_entries`.
+**الغرض:** بعد إزالة مسار `postStageToGL` ذي النجاح الوهمي، إضافة مسار ذري حقيقي يربط التكلفة بالدفتر القانوني `gl_entries`.
 
 ### قرارات قبل الكود
 اختر سياسة واحدة وثبّتها في ADR قصير تحت `docs/architecture/`:
@@ -245,7 +247,7 @@ flowchart TD
 3. Runbook تحت `docs/db/` بفحوص قبل/بعد.
 
 ### مهام UI
-1. استبدال stub في `stage-costing-actions.js`.
+1. إضافة handler حقيقي في `stage-costing-actions.js`؛ ممنوع إعادة stub أو نجاح محلي بلا RPC.
 2. حالات الزر: Draft / Posted / Failed مع رسالة خطأ حقيقية.
 3. منع تعديل مرحلة مرحّلة إلا بعكس قانوني موثّق (لا حذف صامت).
 
@@ -466,7 +468,7 @@ flowchart TD
 | الفجوة الحالية | تُغلق في |
 |----------------|----------|
 | UI يحسب `total/goodQty` | P1 |
-| `postStageToGL` stub | P2 |
+| ترحيل المرحلة إلى GL غائب (fail-closed) | P2 |
 | مواد فقط في إكمال الأمر | P3 |
 | EU dashboard stub | P4 |
 | `wip_by_stage` المبسّط | P4 |
@@ -512,7 +514,7 @@ flowchart TD
 | ترتيب | PR | محتوى | يعتمد على |
 |-------|----|--------|-----------|
 | 1 | Docs P0 | Limitations + هذه الخطة + سياسة الديمو | — |
-| 2 | UI P1 (أو DB 172 إن لزم ثم UI) | وصل `upsert_stage_cost` | تحقق توقيع RPC على Production |
+| 2 | UI P1 (أو DB بالرقم التالي المتاح إن لزم ثم UI) | وصل `upsert_stage_cost` | تحقق توقيع RPC على Production |
 | 3 | DB P3-1/P3-2 | جسر أجور + توسيع إكمال الأمر | P1 مستقر |
 | 4 | UI P3 | ملخص تكلفة الإكمال + ربط الأعلام | تطبيق DB P3 |
 | 5 | DB/UI P2 | ترحيل GL حسب السياسة المختارة | P1 (+P3 إن S2-B) |
