@@ -43,16 +43,13 @@ vi.mock('@/services/supabase-service', () => ({
 }));
 
 function makeBuilder(table: string) {
-  const builder: Record<string, unknown> = {};
+  const result = table === 'products'
+    ? { data: [{ id: 'prod-1', code: 'P1', name: 'Product 1', name_ar: 'منتج 1' }], error: null }
+    : { data: [], error: null };
+  const builder = Promise.resolve(result) as Promise<typeof result> & Record<string, unknown>;
   builder.select = vi.fn(() => builder);
   builder.order = vi.fn(() => builder);
   builder.limit = vi.fn(() => builder);
-  builder.then = (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) => {
-    const result = table === 'products'
-      ? { data: [{ id: 'prod-1', code: 'P1', name: 'Product 1', name_ar: 'منتج 1' }], error: null }
-      : { data: [], error: null };
-    return Promise.resolve(result).then(resolve, reject);
-  };
   return builder;
 }
 

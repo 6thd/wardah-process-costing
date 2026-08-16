@@ -87,12 +87,11 @@ vi.mock('@/services/supabase-service', () => ({
 }))
 
 function chainable(result: { data: unknown[]; error: null }) {
-  const builder: Record<string, unknown> = {}
+  const builder = Promise.resolve(result) as Promise<typeof result> & Record<string, unknown>
   const methods = ['select', 'order', 'eq', 'limit', 'in']
   for (const m of methods) {
     builder[m] = vi.fn(() => builder)
   }
-  builder.then = (resolve: (v: unknown) => unknown) => Promise.resolve(result).then(resolve)
   return builder
 }
 
