@@ -108,6 +108,82 @@ interface WipLogTableRowProps {
   readonly onDelete: (id: string) => void
 }
 
+function WipUnitsCell({ log }: { readonly log: WipLog }) {
+  return (
+    <div className="text-sm">
+      <div>بداية: {log.units_beginning_wip || 0}</div>
+      <div>بدأ: {log.units_started || 0}</div>
+      <div>مكتمل: {log.units_completed || 0}</div>
+      <div>نهاية: {log.units_ending_wip || 0}</div>
+    </div>
+  )
+}
+
+function WipCostsCell({ log }: { readonly log: WipLog }) {
+  return (
+    <div className="text-sm">
+      <div>مواد: {Number(log.cost_material || 0).toFixed(2)}</div>
+      <div>عمل: {Number(log.cost_labor || 0).toFixed(2)}</div>
+      <div>مصروفات: {Number(log.cost_overhead || 0).toFixed(2)}</div>
+      <div className="font-medium">إجمالي: {Number(log.cost_total || 0).toFixed(2)}</div>
+    </div>
+  )
+}
+
+function WipEquivalentUnitsCell({ log }: { readonly log: WipLog }) {
+  return (
+    <div className="text-sm">
+      <div>مواد: {Number(log.equivalent_units_material || 0).toFixed(2)}</div>
+      <div>تحويل: {Number(log.equivalent_units_conversion || 0).toFixed(2)}</div>
+    </div>
+  )
+}
+
+interface WipLogRowActionsProps {
+  readonly log: WipLog
+  readonly canOpenEditForm: boolean
+  readonly canDelete: boolean
+  readonly isDeleting: boolean
+  readonly onEdit: (log: WipLog) => void
+  readonly onDelete: (id: string) => void
+}
+
+function WipLogRowActions({
+  log,
+  canOpenEditForm,
+  canDelete,
+  isDeleting,
+  onEdit,
+  onDelete,
+}: WipLogRowActionsProps) {
+  return (
+    <div className="flex gap-2">
+      {canOpenEditForm && (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`تعديل سجل WIP ${log.id}`}
+          disabled={log.is_closed}
+          onClick={() => onEdit(log)}
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      )}
+      {canDelete && (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`حذف سجل WIP ${log.id}`}
+          onClick={() => onDelete(log.id)}
+          disabled={isDeleting}
+        >
+          <Trash2 className="h-4 w-4 text-destructive" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
 function WipLogTableRow({
   log,
   stage,
@@ -131,26 +207,13 @@ function WipLogTableRow({
         {new Date(log.period_end ?? '').toLocaleDateString('en-US')}
       </TableCell>
       <TableCell>
-        <div className="text-sm">
-          <div>بداية: {log.units_beginning_wip || 0}</div>
-          <div>بدأ: {log.units_started || 0}</div>
-          <div>مكتمل: {log.units_completed || 0}</div>
-          <div>نهاية: {log.units_ending_wip || 0}</div>
-        </div>
+        <WipUnitsCell log={log} />
       </TableCell>
       <TableCell>
-        <div className="text-sm">
-          <div>مواد: {Number(log.cost_material || 0).toFixed(2)}</div>
-          <div>عمل: {Number(log.cost_labor || 0).toFixed(2)}</div>
-          <div>مصروفات: {Number(log.cost_overhead || 0).toFixed(2)}</div>
-          <div className="font-medium">إجمالي: {Number(log.cost_total || 0).toFixed(2)}</div>
-        </div>
+        <WipCostsCell log={log} />
       </TableCell>
       <TableCell>
-        <div className="text-sm">
-          <div>مواد: {Number(log.equivalent_units_material || 0).toFixed(2)}</div>
-          <div>تحويل: {Number(log.equivalent_units_conversion || 0).toFixed(2)}</div>
-        </div>
+        <WipEquivalentUnitsCell log={log} />
       </TableCell>
       <TableCell>
         <Badge variant={log.is_closed ? 'default' : 'outline'}>
@@ -158,30 +221,14 @@ function WipLogTableRow({
         </Badge>
       </TableCell>
       <TableCell>
-        <div className="flex gap-2">
-          {canOpenEditForm && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`تعديل سجل WIP ${log.id}`}
-              disabled={log.is_closed}
-              onClick={() => onEdit(log)}
-            >
-              <Edit className="h-4 w-4" />
-            </Button>
-          )}
-          {canDelete && (
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`حذف سجل WIP ${log.id}`}
-              onClick={() => onDelete(log.id)}
-              disabled={isDeleting}
-            >
-              <Trash2 className="h-4 w-4 text-destructive" />
-            </Button>
-          )}
-        </div>
+        <WipLogRowActions
+          log={log}
+          canOpenEditForm={canOpenEditForm}
+          canDelete={canDelete}
+          isDeleting={isDeleting}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
       </TableCell>
     </TableRow>
   )
