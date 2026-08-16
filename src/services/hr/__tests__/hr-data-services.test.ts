@@ -175,7 +175,7 @@ describe('HR data services', () => {
         id: 'c-1', code: 'HOUSING', name: 'Housing', name_ar: 'بدل سكن',
         component_type: 'earning', calculation_type: 'fixed',
       }
-      db.responses.push(ok([component]), ok([]), failed('components unavailable'))
+      db.responses.push(ok([component]), ok(null), failed('components unavailable'))
       await expect(listSalaryComponents()).resolves.toEqual([component])
       await expect(listSalaryComponents()).resolves.toEqual([])
       await expect(listSalaryComponents()).rejects.toThrow('components unavailable')
@@ -228,7 +228,7 @@ describe('HR data services', () => {
         id: 'd-1', employee_id: 'emp-1', component_code: 'BASIC',
         component_label: 'Basic', amount: 1000, is_deduction: false,
       }
-      db.responses.push(ok([detail]), ok([]))
+      db.responses.push(ok([detail]), ok(null))
       await expect(getPayrollDetailsForEmployee('run-1', 'emp-1')).resolves.toEqual([detail])
       await expect(getPayrollDetailsForEmployee('run-1', 'emp-1')).resolves.toEqual([])
 
@@ -254,8 +254,9 @@ describe('HR data services', () => {
   describe('alert service', () => {
     it('lists and resolves alerts with tenant-scoped filters', async () => {
       const alert = { id: 'a-1', org_id: 'org-1', is_resolved: false }
-      db.responses.push(ok([alert]), ok())
+      db.responses.push(ok([alert]), ok(null), ok())
       await expect(listAlerts(10)).resolves.toEqual([alert])
+      await expect(listAlerts()).resolves.toEqual([])
       await expect(resolveAlert('a-1')).resolves.toBeUndefined()
       expect(db.calls.limit).toContainEqual([10])
       expect(db.calls.update[0][0]).toMatchObject({ is_resolved: true })
@@ -292,7 +293,7 @@ describe('HR data services', () => {
     })
 
     it('returns zero for no generated alerts and falls back from upsert to insert', async () => {
-      db.responses.push(ok([{ id: 'e-1', full_name: 'Complete', contract_end_date: null, iban: 'SA1' }]))
+      db.responses.push(ok(null))
       await expect(generateAlerts()).resolves.toBe(0)
 
       db.responses.push(
@@ -323,8 +324,9 @@ describe('HR data services', () => {
   describe('payroll adjustments', () => {
     it('lists the selected month and creates normalized adjustments', async () => {
       const adjustment = { id: 'adj-1', amount: 500 }
-      db.responses.push(ok([adjustment]), ok(adjustment), ok({ id: 'adj-2', amount: 100 }))
+      db.responses.push(ok([adjustment]), ok(null), ok(adjustment), ok({ id: 'adj-2', amount: 100 }))
       await expect(listAdjustmentsForMonth(2026, 8)).resolves.toEqual([adjustment])
+      await expect(listAdjustmentsForMonth(2026, 8)).resolves.toEqual([])
       expect(db.calls.or[0][0]).toContain('effective_month.eq.2026-08-01')
 
       await expect(createAdjustment({
