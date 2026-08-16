@@ -212,6 +212,360 @@ export function StageCostsHistoryTable({ stageCosts }: StageCostsHistoryTablePro
   )
 }
 
+interface ManufacturingOrderStageWorkCenterFieldsProps {
+  readonly formData: StageCostingFormData
+  readonly manufacturingOrders: Array<Record<string, unknown>>
+  readonly stages: Array<Record<string, unknown>>
+  readonly workCenters: Array<Record<string, unknown>>
+  readonly selectedMO
+  readonly isMOLoading: boolean
+  readonly canReadOrders: boolean
+  readonly isStagesLoading: boolean
+  readonly canReadStages: boolean
+  readonly isWCLoading: boolean
+  readonly canReadWorkCenters: boolean
+  readonly onChange: (field: keyof StageCostingFormData, value: string | number) => void
+}
+
+export function ManufacturingOrderStageWorkCenterFields({
+  formData,
+  manufacturingOrders,
+  stages,
+  workCenters,
+  selectedMO,
+  isMOLoading,
+  canReadOrders,
+  isStagesLoading,
+  canReadStages,
+  isWCLoading,
+  canReadWorkCenters,
+  onChange,
+}: ManufacturingOrderStageWorkCenterFieldsProps) {
+  return (
+    <div className="grid md:grid-cols-4 gap-4 mb-6">
+      <div>
+        <label htmlFor="manufacturingOrderId" className="block text-sm font-medium mb-2">أمر التصنيع</label>
+        <select
+          id="manufacturingOrderId"
+          name="manufacturingOrderId"
+          className="w-full px-3 py-2 border rounded-md wardah-glass-card"
+          value={formData.manufacturingOrderId}
+          onChange={(e) => onChange('manufacturingOrderId', e.target.value)}
+          disabled={isMOLoading || !canReadOrders}
+        >
+          <option value="">اختر أمر التصنيع</option>
+          {manufacturingOrders.map((order: any) => (
+            <option key={order.id} value={order.id}>
+              {order.order_number} - {order.product_id ? `Product ${order.product_id}` : 'N/A'}
+            </option>
+          ))}
+        </select>
+        {!canReadOrders && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Lock className="h-3 w-3" /> لا تملك صلاحية عرض أوامر التصنيع
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="stageId" className="block text-sm font-medium mb-2">المرحلة</label>
+        <select
+          id="stageId"
+          name="stageId"
+          className="w-full px-3 py-2 border rounded-md wardah-glass-card"
+          value={formData.stageId}
+          onChange={(e) => onChange('stageId', e.target.value)}
+          disabled={isStagesLoading || !canReadStages}
+        >
+          <option value="">اختر المرحلة</option>
+          {stages
+            .filter((stage: any) => stage.is_active)
+            .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
+            .map((stage: any) => (
+              <option key={stage.id} value={stage.id}>
+                {stage.code} - {stage.name_ar || stage.name} (الترتيب: {stage.order_sequence})
+              </option>
+            ))}
+        </select>
+        {!canReadStages && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراحل التصنيع
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="workCenterId" className="block text-sm font-medium mb-2">مركز العمل</label>
+        <select
+          id="workCenterId"
+          name="workCenterId"
+          className="w-full px-3 py-2 border rounded-md wardah-glass-card"
+          value={formData.workCenterId}
+          onChange={(e) => onChange('workCenterId', e.target.value)}
+          disabled={isWCLoading || !canReadWorkCenters}
+        >
+          <option value="">اختر مركز العمل</option>
+          {workCenters.map((wc: any) => (
+            <option key={wc.id} value={wc.id}>
+              {wc.code} - {wc.name}
+            </option>
+          ))}
+        </select>
+        {!canReadWorkCenters && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراكز العمل
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label htmlFor="mo-status" className="block text-sm font-medium mb-2">حالة الأمر</label>
+        <div id="mo-status" className="pt-2">
+          {selectedMO && (
+            <Badge variant={selectedMO.status === 'in_progress' ? 'default' : 'outline'}>
+              {moStatusLabel(selectedMO.status)}
+            </Badge>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface QuantitiesSectionProps {
+  readonly formData: StageCostingFormData
+  readonly onChange: (field: keyof StageCostingFormData, value: string | number) => void
+}
+
+export function QuantitiesSection({ formData, onChange }: QuantitiesSectionProps) {
+  return (
+    <div className="wardah-glass-card p-4 mb-6">
+      <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
+        <BarChart3 className="h-5 w-5" />
+        الكميات المنتجة
+      </h3>
+      <div className="grid md:grid-cols-3 gap-4">
+        <div>
+          <label htmlFor="goodQuantity" className="block text-sm font-medium mb-2">الكمية الجيدة</label>
+          <Input
+            id="goodQuantity"
+            name="goodQuantity"
+            type="number"
+            min="0"
+            value={formData.goodQuantity}
+            onChange={(e) => onChange('goodQuantity', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="scrapQuantity" className="block text-sm font-medium mb-2">الكمية المعيبة</label>
+          <Input
+            id="scrapQuantity"
+            name="scrapQuantity"
+            type="number"
+            min="0"
+            value={formData.scrapQuantity}
+            onChange={(e) => onChange('scrapQuantity', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="reworkQuantity" className="block text-sm font-medium mb-2">كمية إعادة التشغيل</label>
+          <Input
+            id="reworkQuantity"
+            name="reworkQuantity"
+            type="number"
+            min="0"
+            value={formData.reworkQuantity}
+            onChange={(e) => onChange('reworkQuantity', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface CostComponentsSectionProps {
+  readonly formData: StageCostingFormData
+  readonly onChange: (field: keyof StageCostingFormData, value: string | number) => void
+}
+
+export function CostComponentsSection({ formData, onChange }: CostComponentsSectionProps) {
+  return (
+    <div className="wardah-glass-card p-4 mb-6">
+      <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
+        <DollarSign className="h-5 w-5" />
+        مكونات التكلفة
+      </h3>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <label htmlFor="directMaterialCost" className="block text-sm font-medium mb-2">تكلفة المواد المباشرة (ريال)</label>
+          <Input
+            id="directMaterialCost"
+            name="directMaterialCost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.directMaterialCost}
+            onChange={(e) => onChange('directMaterialCost', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="laborHours" className="block text-sm font-medium mb-2">ساعات العمل</label>
+          <Input
+            id="laborHours"
+            name="laborHours"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.laborHours}
+            onChange={(e) => onChange('laborHours', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="laborRate" className="block text-sm font-medium mb-2">معدل الأجر بالساعة (ريال)</label>
+          <Input
+            id="laborRate"
+            name="laborRate"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.laborRate}
+            onChange={(e) => onChange('laborRate', e.target.value)}
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="overheadRate" className="block text-sm font-medium mb-2">معدل التكاليف غير المباشرة (%)</label>
+          <Input
+            id="overheadRate"
+            name="overheadRate"
+            type="number"
+            min="0"
+            max="100"
+            step="0.01"
+            value={formData.overheadRate * 100}
+            onChange={(e) => onChange('overheadRate', Number.parseFloat(e.target.value) / 100)}
+            className="wardah-glass-card"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface LaborDetailsSectionProps {
+  readonly formData: StageCostingFormData
+  readonly onChange: (field: keyof StageCostingFormData, value: string | number) => void
+}
+
+export function LaborDetailsSection({ formData, onChange }: LaborDetailsSectionProps) {
+  return (
+    <div className="wardah-glass-card p-4 mb-6">
+      <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
+        <Users className="h-5 w-5" />
+        تفاصيل العمالة والتشغيل
+      </h3>
+      <div className="grid md:grid-cols-3 gap-4">
+        <div>
+          <label htmlFor="employeeName" className="block text-sm font-medium mb-2">اسم الموظف</label>
+          <Input
+            id="employeeName"
+            name="employeeName"
+            value={formData.employeeName || ''}
+            onChange={(e) => onChange('employeeName', e.target.value)}
+            placeholder="اسم الموظف أو المشغل"
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="operationCode" className="block text-sm font-medium mb-2">كود العملية</label>
+          <Input
+            id="operationCode"
+            name="operationCode"
+            value={formData.operationCode || ''}
+            onChange={(e) => onChange('operationCode', e.target.value)}
+            placeholder="OP001, WELD, CUT, etc."
+            className="wardah-glass-card"
+          />
+        </div>
+
+        <div>
+          <label htmlFor="notes" className="block text-sm font-medium mb-2">ملاحظات</label>
+          <Input
+            id="notes"
+            name="notes"
+            value={formData.notes || ''}
+            onChange={(e) => onChange('notes', e.target.value)}
+            placeholder="أي ملاحظات إضافية"
+            className="wardah-glass-card"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface StageCostingActionButtonsProps {
+  readonly formData: StageCostingFormData
+  readonly canApplyLaborTime: boolean
+  readonly canApplyOverhead: boolean
+  readonly canCalculateStageCost: boolean
+}
+
+export function StageCostingActionButtons({
+  formData,
+  canApplyLaborTime,
+  canApplyOverhead,
+  canCalculateStageCost,
+}: StageCostingActionButtonsProps) {
+  return (
+    <div className="flex flex-wrap gap-3 mb-6">
+      <Button
+        type="button"
+        data-action="apply-labor-time"
+        disabled={!formData.laborHours || !formData.laborRate || !canApplyLaborTime}
+        title={canApplyLaborTime ? undefined : 'لا تملك صلاحية تسجيل وقت العمل'}
+        className="bg-purple-600 hover:bg-purple-700 wardah-glass-card"
+      >
+        <Clock className="h-4 w-4 mr-2" />
+        تسجيل وقت العمل
+      </Button>
+
+      <Button
+        type="button"
+        data-action="apply-overhead"
+        disabled={!formData.overheadRate || !canApplyOverhead}
+        title={canApplyOverhead ? undefined : 'لا تملك صلاحية تطبيق التكاليف غير المباشرة'}
+        className="bg-orange-600 hover:bg-orange-700 wardah-glass-card"
+      >
+        <Settings className="h-4 w-4 mr-2" />
+        تطبيق التكاليف غير المباشرة
+      </Button>
+
+      <Button
+        type="button"
+        data-action="calculate-stage-cost"
+        disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity || !canCalculateStageCost}
+        title={canCalculateStageCost ? undefined : 'لا تملك صلاحية احتساب تكلفة المرحلة'}
+        className="bg-blue-600 hover:bg-blue-700 wardah-glass-card"
+      >
+        <Calculator className="h-4 w-4 mr-2" />
+        {'احتساب تكلفة المرحلة'}
+      </Button>
+    </div>
+  )
+}
+
 export default function StageCostingPanel() {
   const queryClient = useQueryClient()
   
@@ -411,288 +765,37 @@ export default function StageCostingPanel() {
           )}
         
           {/* Manufacturing Order Selection */}
-          <div className="grid md:grid-cols-4 gap-4 mb-6">
-            <div>
-              <label htmlFor="manufacturingOrderId" className="block text-sm font-medium mb-2">أمر التصنيع</label>
-              <select
-                id="manufacturingOrderId"
-                name="manufacturingOrderId"
-                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
-                value={formData.manufacturingOrderId}
-                onChange={(e) => handleInputChange('manufacturingOrderId', e.target.value)}
-                disabled={isMOLoading || !canReadOrders}
-              >
-                <option value="">اختر أمر التصنيع</option>
-                {manufacturingOrders.map((order: any) => (
-                  <option key={order.id} value={order.id}>
-                    {order.order_number} - {order.product_id ? `Product ${order.product_id}` : 'N/A'}
-                  </option>
-                ))}
-              </select>
-              {!canReadOrders && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض أوامر التصنيع
-                </p>
-              )}
-            </div>
+          <ManufacturingOrderStageWorkCenterFields
+            formData={formData}
+            manufacturingOrders={manufacturingOrders}
+            stages={stages}
+            workCenters={workCenters}
+            selectedMO={selectedMO}
+            isMOLoading={isMOLoading}
+            canReadOrders={canReadOrders}
+            isStagesLoading={isStagesLoading}
+            canReadStages={canReadStages}
+            isWCLoading={isWCLoading}
+            canReadWorkCenters={canReadWorkCenters}
+            onChange={handleInputChange}
+          />
 
-            <div>
-              <label htmlFor="stageId" className="block text-sm font-medium mb-2">المرحلة</label>
-              <select
-                id="stageId"
-                name="stageId"
-                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
-                value={formData.stageId}
-                onChange={(e) => handleInputChange('stageId', e.target.value)}
-                disabled={isStagesLoading || !canReadStages}
-              >
-                <option value="">اختر المرحلة</option>
-                {stages
-                  .filter((stage: any) => stage.is_active)
-                  .sort((a: any, b: any) => (a.order_sequence || 0) - (b.order_sequence || 0))
-                  .map((stage: any) => (
-                    <option key={stage.id} value={stage.id}>
-                      {stage.code} - {stage.name_ar || stage.name} (الترتيب: {stage.order_sequence})
-                    </option>
-                  ))}
-              </select>
-              {!canReadStages && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراحل التصنيع
-                </p>
-              )}
-            </div>
-
-            <div>
-              <label htmlFor="workCenterId" className="block text-sm font-medium mb-2">مركز العمل</label>
-              <select
-                id="workCenterId"
-                name="workCenterId"
-                className="w-full px-3 py-2 border rounded-md wardah-glass-card"
-                value={formData.workCenterId}
-                onChange={(e) => handleInputChange('workCenterId', e.target.value)}
-                disabled={isWCLoading || !canReadWorkCenters}
-              >
-                <option value="">اختر مركز العمل</option>
-                {workCenters.map((wc: any) => (
-                  <option key={wc.id} value={wc.id}>
-                    {wc.code} - {wc.name}
-                  </option>
-                ))}
-              </select>
-              {!canReadWorkCenters && (
-                <p className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Lock className="h-3 w-3" /> لا تملك صلاحية عرض مراكز العمل
-                </p>
-              )}
-            </div>
-            
-            <div>
-              <label htmlFor="mo-status" className="block text-sm font-medium mb-2">حالة الأمر</label>
-              <div id="mo-status" className="pt-2">
-                {selectedMO && (
-                  <Badge variant={selectedMO.status === 'in_progress' ? 'default' : 'outline'}>
-                    {moStatusLabel(selectedMO.status)}
-                  </Badge>
-                )}
-              </div>
-            </div>
-          </div>
-        
           {/* Quantities Section */}
-          <div className="wardah-glass-card p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
-              <BarChart3 className="h-5 w-5" />
-              الكميات المنتجة
-            </h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="goodQuantity" className="block text-sm font-medium mb-2">الكمية الجيدة</label>
-                <Input 
-                  id="goodQuantity"
-                  name="goodQuantity"
-                  type="number"
-                  min="0"
-                  value={formData.goodQuantity}
-                  onChange={(e) => handleInputChange('goodQuantity', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="scrapQuantity" className="block text-sm font-medium mb-2">الكمية المعيبة</label>
-                <Input 
-                  id="scrapQuantity"
-                  name="scrapQuantity"
-                  type="number"
-                  min="0"
-                  value={formData.scrapQuantity}
-                  onChange={(e) => handleInputChange('scrapQuantity', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="reworkQuantity" className="block text-sm font-medium mb-2">كمية إعادة التشغيل</label>
-                <Input 
-                  id="reworkQuantity"
-                  name="reworkQuantity"
-                  type="number"
-                  min="0"
-                  value={formData.reworkQuantity}
-                  onChange={(e) => handleInputChange('reworkQuantity', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-            </div>
-          </div>
-        
+          <QuantitiesSection formData={formData} onChange={handleInputChange} />
+
           {/* Cost Components */}
-          <div className="wardah-glass-card p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
-              <DollarSign className="h-5 w-5" />
-              مكونات التكلفة
-            </h3>
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="directMaterialCost" className="block text-sm font-medium mb-2">تكلفة المواد المباشرة (ريال)</label>
-                <Input 
-                  id="directMaterialCost"
-                  name="directMaterialCost"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.directMaterialCost}
-                  onChange={(e) => handleInputChange('directMaterialCost', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="laborHours" className="block text-sm font-medium mb-2">ساعات العمل</label>
-                <Input 
-                  id="laborHours"
-                  name="laborHours"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.laborHours}
-                  onChange={(e) => handleInputChange('laborHours', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="laborRate" className="block text-sm font-medium mb-2">معدل الأجر بالساعة (ريال)</label>
-                <Input 
-                  id="laborRate"
-                  name="laborRate"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.laborRate}
-                  onChange={(e) => handleInputChange('laborRate', e.target.value)}
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="overheadRate" className="block text-sm font-medium mb-2">معدل التكاليف غير المباشرة (%)</label>
-                <Input 
-                  id="overheadRate"
-                  name="overheadRate"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  value={formData.overheadRate * 100}
-                  onChange={(e) => handleInputChange('overheadRate', Number.parseFloat(e.target.value) / 100)}
-                  className="wardah-glass-card"
-                />
-              </div>
-            </div>
-          </div>
-        
+          <CostComponentsSection formData={formData} onChange={handleInputChange} />
+
           {/* Labor Details */}
-          <div className="wardah-glass-card p-4 mb-6">
-            <h3 className="font-semibold mb-4 flex items-center gap-2 wardah-text-gradient-google">
-              <Users className="h-5 w-5" />
-              تفاصيل العمالة والتشغيل
-            </h3>
-            <div className="grid md:grid-cols-3 gap-4">
-              <div>
-                <label htmlFor="employeeName" className="block text-sm font-medium mb-2">اسم الموظف</label>
-                <Input 
-                  id="employeeName"
-                  name="employeeName"
-                  value={formData.employeeName || ''}
-                  onChange={(e) => handleInputChange('employeeName', e.target.value)}
-                  placeholder="اسم الموظف أو المشغل"
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="operationCode" className="block text-sm font-medium mb-2">كود العملية</label>
-                <Input 
-                  id="operationCode"
-                  name="operationCode"
-                  value={formData.operationCode || ''}
-                  onChange={(e) => handleInputChange('operationCode', e.target.value)}
-                  placeholder="OP001, WELD, CUT, etc."
-                  className="wardah-glass-card"
-                />
-              </div>
-              
-              <div>
-                <label htmlFor="notes" className="block text-sm font-medium mb-2">ملاحظات</label>
-                <Input 
-                  id="notes"
-                  name="notes"
-                  value={formData.notes || ''}
-                  onChange={(e) => handleInputChange('notes', e.target.value)}
-                  placeholder="أي ملاحظات إضافية"
-                  className="wardah-glass-card"
-                />
-              </div>
-            </div>
-          </div>
-        
+          <LaborDetailsSection formData={formData} onChange={handleInputChange} />
+
           {/* Action Buttons */}
-          <div className="flex flex-wrap gap-3 mb-6">
-            <Button
-              type="button"
-              data-action="apply-labor-time"
-              disabled={!formData.laborHours || !formData.laborRate || !canApplyLaborTime}
-              title={canApplyLaborTime ? undefined : 'لا تملك صلاحية تسجيل وقت العمل'}
-              className="bg-purple-600 hover:bg-purple-700 wardah-glass-card"
-            >
-              <Clock className="h-4 w-4 mr-2" />
-              تسجيل وقت العمل
-            </Button>
-
-            <Button
-              type="button"
-              data-action="apply-overhead"
-              disabled={!formData.overheadRate || !canApplyOverhead}
-              title={canApplyOverhead ? undefined : 'لا تملك صلاحية تطبيق التكاليف غير المباشرة'}
-              className="bg-orange-600 hover:bg-orange-700 wardah-glass-card"
-            >
-              <Settings className="h-4 w-4 mr-2" />
-              تطبيق التكاليف غير المباشرة
-            </Button>
-
-            <Button
-              type="button"
-              data-action="calculate-stage-cost"
-              disabled={!formData.manufacturingOrderId || !formData.workCenterId || !formData.goodQuantity || !canCalculateStageCost}
-              title={canCalculateStageCost ? undefined : 'لا تملك صلاحية احتساب تكلفة المرحلة'}
-              className="bg-blue-600 hover:bg-blue-700 wardah-glass-card"
-            >
-              <Calculator className="h-4 w-4 mr-2" />
-              {'احتساب تكلفة المرحلة'}
-            </Button>
-          </div>
+          <StageCostingActionButtons
+            formData={formData}
+            canApplyLaborTime={canApplyLaborTime}
+            canApplyOverhead={canApplyOverhead}
+            canCalculateStageCost={canCalculateStageCost}
+          />
         </form>
 
         {/* Results Display */}
