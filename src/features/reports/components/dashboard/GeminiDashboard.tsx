@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { loadApexCharts } from '@/lib/export-libs';
 import axios from 'axios';
+import '@fortawesome/fontawesome-free/css/all.min.css';
 import './styles.css';
 
 interface KPICardProps {
