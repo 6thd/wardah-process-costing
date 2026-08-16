@@ -4,6 +4,9 @@
 **الإصدار:** v1.0  
 **الحالة:** ⚠️ Known Limitations (Documented)
 
+> **خطة التنفيذ المتقدمة (2026-08):** المسار الحي للواجهة ما زال يتجاوز محرك EUP/FIFO في مواضع؛ انظر الخطة المرحلية المحكمة في\
+> [`docs/features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md`](../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md).
+
 ---
 
 ## 📋 Current Implementation (v1.0)
@@ -402,4 +405,3 @@ unit_cost = total_cost / eup_cc  -- Includes beginning WIP cost
 - Current period cost calculated separately in FIFO
 - Unit cost based on current period cost only in FIFO
 - Method selection per manufacturing order
-
