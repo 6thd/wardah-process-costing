@@ -78,6 +78,7 @@ jobs:
         shell: bash
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.ref_name }}
         run: |
           set -u
           mkdir -p sonar-diagnostics
@@ -119,27 +120,68 @@ jobs:
               --output sonar-diagnostics/quality-gate.json || true
           fi
 
-          if [ -n "$project_key" ] && [ -n "${PR_NUMBER:-}" ]; then
+          if [ -n "$project_key" ]; then
+            scope_args=()
+            if [ -n "${PR_NUMBER:-}" ]; then
+              scope_args+=(--data-urlencode "pullRequest=$PR_NUMBER")
+            else
+              scope_args+=(--data-urlencode "branch=$BRANCH_NAME")
+            fi
+
             curl --fail --silent --show-error --get \
               --user "$SONAR_TOKEN:" \
               --data-urlencode "componentKeys=$project_key" \
-              --data-urlencode "pullRequest=$PR_NUMBER" \
+              "${scope_args[@]}" \
               --data-urlencode "statuses=OPEN,CONFIRMED" \
               --data-urlencode "types=BUG" \
               --data-urlencode "ps=500" \
               "https://sonarcloud.io/api/issues/search" \
               --output sonar-diagnostics/open-bugs.json || true
 
-            curl --fail --silent --show-error --get \
-              --user "$SONAR_TOKEN:" \
-              --data-urlencode "component=$project_key" \
-              --data-urlencode "pullRequest=$PR_NUMBER" \
-              --data-urlencode "metricKeys=new_coverage,new_duplicated_lines_density,new_reliability_rating,new_bugs,new_lines,lines_to_cover,uncovered_lines,duplicated_lines,duplicated_blocks" \
-              --data-urlencode "qualifiers=FIL" \
-              --data-urlencode "strategy=leaves" \
-              --data-urlencode "ps=500" \
-              "https://sonarcloud.io/api/measures/component_tree" \
-              --output sonar-diagnostics/file-measures.json || true
+            page=1
+            while true; do
+              page_file="sonar-diagnostics/file-measures-page-$page.json"
+              if ! curl --fail --silent --show-error --get \
+                --user "$SONAR_TOKEN:" \
+                --data-urlencode "component=$project_key" \
+                "${scope_args[@]}" \
+                --data-urlencode "metricKeys=new_coverage,new_duplicated_lines_density,new_reliability_rating,new_bugs,new_lines,lines_to_cover,uncovered_lines,duplicated_lines,duplicated_blocks" \
+                --data-urlencode "qualifiers=FIL" \
+                --data-urlencode "strategy=leaves" \
+                --data-urlencode "ps=500" \
+                --data-urlencode "p=$page" \
+                "https://sonarcloud.io/api/measures/component_tree" \
+                --output "$page_file"; then
+                break
+              fi
+
+              total="$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('$page_file','utf8'));process.stdout.write(String(j.paging?.total??''))}catch{}")"
+              page_size="$(node -e "const fs=require('fs');try{const j=JSON.parse(fs.readFileSync('$page_file','utf8'));process.stdout.write(String(j.paging?.pageSize??''))}catch{}")"
+              if ! [[ "$total" =~ ^[0-9]+$ && "$page_size" =~ ^[1-9][0-9]*$ ]]; then
+                break
+              fi
+              if (( page * page_size >= total )); then
+                break
+              fi
+              page=$((page + 1))
+            done
+
+            node <<'NODE'
+          const fs = require('fs')
+          const pageFiles = fs.readdirSync('sonar-diagnostics')
+            .filter((name) => /^file-measures-page-\d+\.json$/.test(name))
+            .sort((a, b) => Number(a.match(/\d+/)?.[0]) - Number(b.match(/\d+/)?.[0]))
+          const pages = pageFiles.flatMap((name) => {
+            try { return [JSON.parse(fs.readFileSync(`sonar-diagnostics/${name}`, 'utf8'))] } catch { return [] }
+          })
+          const components = pages.flatMap((page) => page.components ?? [])
+          const merged = {
+            ...(pages[0] ?? {}),
+            paging: { pageIndex: 1, pageSize: components.length, total: components.length },
+            components,
+          }
+          fs.writeFileSync('sonar-diagnostics/file-measures.json', JSON.stringify(merged, null, 2))
+          NODE
           fi
 
           node <<'NODE'
