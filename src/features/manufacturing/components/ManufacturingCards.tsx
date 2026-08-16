@@ -32,13 +32,13 @@ interface ManufacturingCardsProps {
 }
 
 interface ManufacturingLinkCardProps {
-  to: string
-  icon: React.ComponentType<{ className?: string }>
-  iconClassName: string
-  title: string
-  description: string
-  isRTL: boolean
-  children?: ReactNode
+  readonly to: string
+  readonly icon: React.ComponentType<{ className?: string }>
+  readonly iconClassName: string
+  readonly title: string
+  readonly description: string
+  readonly isRTL: boolean
+  readonly children?: ReactNode
 }
 
 function ManufacturingLinkCard({
@@ -66,7 +66,7 @@ function ManufacturingLinkCard({
   )
 }
 
-function LaborCard({ isRTL, t }: Pick<ManufacturingCardsProps, 'isRTL' | 't'>) {
+function LaborCard({ isRTL, t }: Readonly<Pick<ManufacturingCardsProps, 'isRTL' | 't'>>) {
   return (
     <div className="wardah-glass-card wardah-glass-card-hover p-6">
       <div className={cn('flex items-center gap-3 mb-3', isRTL ? 'flex-row-reverse' : '')}>
