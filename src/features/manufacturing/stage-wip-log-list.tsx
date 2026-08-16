@@ -53,7 +53,7 @@ interface ManufacturingStage {
   order_sequence?: number
 }
 
-interface WipLog {
+export interface WipLog {
   id: string
   mo_id?: string
   stage_id?: string
@@ -74,6 +74,117 @@ interface WipLog {
   equivalent_units_conversion?: number
   is_closed?: boolean
   notes?: string
+}
+
+export function toWipLogFormValues(log: WipLog): Partial<WipLogFormValues> & { id: string } {
+  return {
+    id: log.id,
+    mo_id: log.mo_id ?? '',
+    stage_id: log.stage_id ?? '',
+    period_start: log.period_start?.split('T')[0] ?? '',
+    period_end: log.period_end?.split('T')[0] ?? '',
+    units_beginning_wip: log.units_beginning_wip ?? 0,
+    units_started: log.units_started ?? 0,
+    units_completed: log.units_completed ?? 0,
+    units_ending_wip: log.units_ending_wip ?? 0,
+    material_completion_pct: log.material_completion_pct ?? 100,
+    conversion_completion_pct: log.conversion_completion_pct ?? 50,
+    cost_beginning_wip: log.cost_beginning_wip ?? 0,
+    cost_material: log.cost_material ?? 0,
+    cost_labor: log.cost_labor ?? 0,
+    cost_overhead: log.cost_overhead ?? 0,
+    notes: log.notes ?? '',
+  }
+}
+
+interface WipLogTableRowProps {
+  readonly log: WipLog
+  readonly stage: ManufacturingStage | undefined
+  readonly mo: ManufacturingOrder | undefined
+  readonly canOpenEditForm: boolean
+  readonly canDelete: boolean
+  readonly isDeleting: boolean
+  readonly onEdit: (log: WipLog) => void
+  readonly onDelete: (id: string) => void
+}
+
+function WipLogTableRow({
+  log,
+  stage,
+  mo,
+  canOpenEditForm,
+  canDelete,
+  isDeleting,
+  onEdit,
+  onDelete,
+}: WipLogTableRowProps) {
+  return (
+    <TableRow>
+      <TableCell>
+        {mo?.order_number || log.mo_id?.substring(0, 8)}
+      </TableCell>
+      <TableCell>
+        {stage?.code || 'N/A'} - {stage?.name_ar || stage?.name || 'N/A'}
+      </TableCell>
+      <TableCell>
+        {new Date(log.period_start ?? '').toLocaleDateString('en-US')} -{' '}
+        {new Date(log.period_end ?? '').toLocaleDateString('en-US')}
+      </TableCell>
+      <TableCell>
+        <div className="text-sm">
+          <div>بداية: {log.units_beginning_wip || 0}</div>
+          <div>بدأ: {log.units_started || 0}</div>
+          <div>مكتمل: {log.units_completed || 0}</div>
+          <div>نهاية: {log.units_ending_wip || 0}</div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="text-sm">
+          <div>مواد: {Number(log.cost_material || 0).toFixed(2)}</div>
+          <div>عمل: {Number(log.cost_labor || 0).toFixed(2)}</div>
+          <div>مصروفات: {Number(log.cost_overhead || 0).toFixed(2)}</div>
+          <div className="font-medium">إجمالي: {Number(log.cost_total || 0).toFixed(2)}</div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div className="text-sm">
+          <div>مواد: {Number(log.equivalent_units_material || 0).toFixed(2)}</div>
+          <div>تحويل: {Number(log.equivalent_units_conversion || 0).toFixed(2)}</div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <Badge variant={log.is_closed ? 'default' : 'outline'}>
+          {log.is_closed ? 'مقفل' : 'مسودة'}
+        </Badge>
+      </TableCell>
+      <TableCell>
+        <div className="flex gap-2">
+          {canOpenEditForm && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`تعديل سجل WIP ${log.id}`}
+              disabled={log.is_closed}
+              onClick={() => onEdit(log)}
+            >
+              <Edit className="h-4 w-4" />
+            </Button>
+          )}
+          {canDelete && (
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`حذف سجل WIP ${log.id}`}
+              onClick={() => onDelete(log.id)}
+              disabled={isDeleting}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          )}
+        </div>
+      </TableCell>
+    </TableRow>
+  )
 }
 
 export function StageWipLogList() {
@@ -328,93 +439,22 @@ export function StageWipLogList() {
                     wipLogs.map((log) => {
                       const stage = stages.find((s) => s.id === log.stage_id)
                       const mo = manufacturingOrders.find((m) => m.id === log.mo_id)
-                      
+
                       return (
-                        <TableRow key={log.id}>
-                          <TableCell>
-                            {mo?.order_number || log.mo_id?.substring(0, 8)}
-                          </TableCell>
-                          <TableCell>
-                            {stage?.code || 'N/A'} - {stage?.name_ar || stage?.name || 'N/A'}
-                          </TableCell>
-                          <TableCell>
-                            {new Date(log.period_start ?? '').toLocaleDateString('en-US')} -{' '}
-                            {new Date(log.period_end ?? '').toLocaleDateString('en-US')}
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div>بداية: {log.units_beginning_wip || 0}</div>
-                              <div>بدأ: {log.units_started || 0}</div>
-                              <div>مكتمل: {log.units_completed || 0}</div>
-                              <div>نهاية: {log.units_ending_wip || 0}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div>مواد: {Number(log.cost_material || 0).toFixed(2)}</div>
-                              <div>عمل: {Number(log.cost_labor || 0).toFixed(2)}</div>
-                              <div>مصروفات: {Number(log.cost_overhead || 0).toFixed(2)}</div>
-                              <div className="font-medium">إجمالي: {Number(log.cost_total || 0).toFixed(2)}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="text-sm">
-                              <div>مواد: {Number(log.equivalent_units_material || 0).toFixed(2)}</div>
-                              <div>تحويل: {Number(log.equivalent_units_conversion || 0).toFixed(2)}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={log.is_closed ? 'default' : 'outline'}>
-                              {log.is_closed ? 'مقفل' : 'مسودة'}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-2">
-                              {canOpenEditForm && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label={`تعديل سجل WIP ${log.id}`}
-                                  disabled={log.is_closed}
-                                  onClick={() => {
-                                    setEditingLog({
-                                      id: log.id,
-                                      mo_id: log.mo_id ?? '',
-                                      stage_id: log.stage_id ?? '',
-                                      period_start: log.period_start?.split('T')[0] ?? '',
-                                      period_end: log.period_end?.split('T')[0] ?? '',
-                                      units_beginning_wip: log.units_beginning_wip ?? 0,
-                                      units_started: log.units_started ?? 0,
-                                      units_completed: log.units_completed ?? 0,
-                                      units_ending_wip: log.units_ending_wip ?? 0,
-                                      material_completion_pct: log.material_completion_pct ?? 100,
-                                      conversion_completion_pct: log.conversion_completion_pct ?? 50,
-                                      cost_beginning_wip: log.cost_beginning_wip ?? 0,
-                                      cost_material: log.cost_material ?? 0,
-                                      cost_labor: log.cost_labor ?? 0,
-                                      cost_overhead: log.cost_overhead ?? 0,
-                                      notes: log.notes ?? '',
-                                    })
-                                    setFormOpen(true)
-                                  }}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {canDelete && (
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  aria-label={`حذف سجل WIP ${log.id}`}
-                                  onClick={() => handleDelete(log.id)}
-                                  disabled={deleteMutation.isPending}
-                                >
-                                  <Trash2 className="h-4 w-4 text-destructive" />
-                                </Button>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
+                        <WipLogTableRow
+                          key={log.id}
+                          log={log}
+                          stage={stage}
+                          mo={mo}
+                          canOpenEditForm={canOpenEditForm}
+                          canDelete={canDelete}
+                          isDeleting={deleteMutation.isPending}
+                          onEdit={(editedLog) => {
+                            setEditingLog(toWipLogFormValues(editedLog))
+                            setFormOpen(true)
+                          }}
+                          onDelete={handleDelete}
+                        />
                       )
                     })
                   )}
