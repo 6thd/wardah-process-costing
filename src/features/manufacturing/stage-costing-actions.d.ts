@@ -12,6 +12,11 @@ export function buildUpsertStageCostPayload(formData: { get(key: string): string
   reworkQty: number
   notes: string | null
 }
+export function writeBackStageIdentifiers(
+  form: { querySelector(selector: string): { value: string } | null },
+  stageId: string | null,
+  stageNumber: string | null
+): void
 export function registerStageCostingActions(): void
 export function unregisterStageCostingActions(): void
 export function escapeHtml(value: unknown): string

@@ -64,6 +64,23 @@ export function buildUpsertStageCostPayload(formData) {
 }
 
 /**
+ * Writes the resolved stage identifiers back onto the calculate-stage-cost
+ * form's own DOM inputs after a successful upsert. Pure DOM side effect, no
+ * closure over element/toast/permission state — moved verbatim out of the
+ * calculate-stage-cost action handler's success branch.
+ */
+export function writeBackStageIdentifiers(form, stageId, stageNumber) {
+  const stageIdInput = form.querySelector('[name="stageId"]')
+  const stageNumberInput = form.querySelector('[name="stageNumber"]')
+  if (stageIdInput) {
+    stageIdInput.value = stageId || ''
+  }
+  if (stageNumberInput) {
+    stageNumberInput.value = stageNumber || ''
+  }
+}
+
+/**
  * Register all stage costing actions
  */
 export function registerStageCostingActions() {
@@ -340,15 +357,8 @@ export function registerStageCostingActions() {
         toast.success(`تم احتساب ${stageName}: ${totalCost.toFixed(2)} ريال`)
         
         // Update form with result
-        const stageIdInput = form.querySelector('[name="stageId"]')
-        const stageNumberInput = form.querySelector('[name="stageNumber"]')
-        if (stageIdInput) {
-          stageIdInput.value = stageId || ''
-        }
-        if (stageNumberInput) {
-          stageNumberInput.value = formData.get('stageNumber') || ''
-        }
-        
+        writeBackStageIdentifiers(form, stageId, stageNumber)
+
         // Log the operation
         await Audit.logProcessCostingOperation({
           operation: 'stage_cost_calculation',
