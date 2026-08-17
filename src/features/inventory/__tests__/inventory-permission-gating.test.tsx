@@ -148,6 +148,44 @@ describe('InventoryOverview — per-section permission-aware loading', () => {
     expect(screen.queryByText('إجمالي الأصناف')).not.toBeInTheDocument();
     expect(itemsGetAll).toHaveBeenCalledTimes(1);
   });
+
+  it('inventory.adjustments.read gates the adjustments quick action independently without loading items', async () => {
+    setPermissions(['inventory.adjustments.read']);
+    renderAt('/inventory/overview');
+
+    await waitFor(() => expect(screen.getByRole('link', { name: /inventory.adjustments/ })).toBeInTheDocument());
+    expect(itemsGetAll).not.toHaveBeenCalled();
+    expect(screen.queryByText('إجمالي الأصناف')).not.toBeInTheDocument();
+    expect(screen.queryByText('🏭 المخازن (1)')).not.toBeInTheDocument();
+    expect(screen.queryByText('inventory.stockMoves')).not.toBeInTheDocument();
+  });
+
+  it('renders the derived metrics and low-stock alert from known item values', async () => {
+    itemsGetAll.mockResolvedValueOnce([
+      { id: 'item-low', name: 'Low item', stock_quantity: 2, minimum_stock: 5, cost_price: 10 },
+      { id: 'item-ok', name: 'Healthy item', stock_quantity: 8, minimum_stock: 3, cost_price: 4.5 },
+    ]);
+    setPermissions(['inventory.items.read']);
+    renderAt('/inventory/overview');
+
+    await waitFor(() => expect(screen.getByText('تنبيه: أصناف قليلة المخزون (1)')).toBeInTheDocument());
+    expect(screen.getByText('56.00')).toBeInTheDocument();
+    expect(screen.getByText('10')).toBeInTheDocument();
+    expect(screen.getByText('Low item')).toBeInTheDocument();
+    expect(screen.queryByText('Healthy item')).not.toBeInTheDocument();
+  });
+
+  it('keeps the low-stock alert hidden when every loaded item is above its threshold', async () => {
+    itemsGetAll.mockResolvedValueOnce([
+      { id: 'item-ok', name: 'Healthy item', stock_quantity: 8, minimum_stock: 3, cost_price: 4.5 },
+    ]);
+    setPermissions(['inventory.items.read']);
+    renderAt('/inventory/overview');
+
+    await waitFor(() => expect(itemsGetAll).toHaveBeenCalledTimes(1));
+    expect(screen.getByText('إجمالي الأصناف')).toBeInTheDocument();
+    expect(screen.queryByText(/تنبيه: أصناف قليلة المخزون/)).not.toBeInTheDocument();
+  });
 });
 
 describe('ItemsManagement — screen read vs. inventory.items.create', () => {
