@@ -100,22 +100,25 @@ function InventoryWarehouseQuickActions({ isRTL }: Readonly<{ isRTL: boolean }>)
   )
 }
 
-function InventoryStockMoveQuickActions({ t, isRTL }: Readonly<{ t: TFunction; isRTL: boolean }>) {
+function InventoryStockMovementQuickAction({ t, isRTL }: Readonly<{ t: TFunction; isRTL: boolean }>) {
   return (
-    <>
-      <InventoryQuickActionLink
-        to="/inventory/movements"
-        title={t('inventory.stockMoves')}
-        description="متابعة حركات المخزون"
-        isRTL={isRTL}
-      />
-      <InventoryQuickActionLink
-        to="/inventory/transfers"
-        title="🔄 تحويلات البضاعة"
-        description="نقل المخزون بين المستودعات"
-        isRTL={isRTL}
-      />
-    </>
+    <InventoryQuickActionLink
+      to="/inventory/movements"
+      title={t('inventory.stockMoves')}
+      description="متابعة حركات المخزون"
+      isRTL={isRTL}
+    />
+  )
+}
+
+function InventoryTransferQuickAction({ isRTL }: Readonly<{ isRTL: boolean }>) {
+  return (
+    <InventoryQuickActionLink
+      to="/inventory/transfers"
+      title="🔄 تحويلات البضاعة"
+      description="نقل المخزون بين المستودعات"
+      isRTL={isRTL}
+    />
   )
 }
 
@@ -139,8 +142,9 @@ export function InventoryQuickActions({
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
       {canReadItems && <InventoryItemQuickActions t={t} isRTL={isRTL} />}
-      {canReadStockMoves && <InventoryStockMoveQuickActions t={t} isRTL={isRTL} />}
+      {canReadStockMoves && <InventoryStockMovementQuickAction t={t} isRTL={isRTL} />}
       {canReadWarehouses && <InventoryWarehouseQuickActions isRTL={isRTL} />}
+      {canReadStockMoves && <InventoryTransferQuickAction isRTL={isRTL} />}
       {canReadAdjustments && (
         <InventoryQuickActionLink
           to="/inventory/adjustments"
