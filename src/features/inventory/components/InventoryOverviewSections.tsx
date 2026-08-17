@@ -1,4 +1,5 @@
 import type { TFunction } from 'i18next'
+import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -35,6 +36,89 @@ export function InventoryKeyMetrics({ items, totalValue, lowStockCount }: Invent
   )
 }
 
+interface InventoryQuickActionLinkProps {
+  readonly to: string
+  readonly title: ReactNode
+  readonly description: string
+  readonly isRTL: boolean
+}
+
+function InventoryQuickActionLink({ to, title, description, isRTL }: InventoryQuickActionLinkProps) {
+  return (
+    <Link to={to} className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
+      <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
+        {title}
+      </h3>
+      <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
+        {description}
+      </p>
+    </Link>
+  )
+}
+
+function InventoryItemQuickActions({ t, isRTL }: Readonly<{ t: TFunction; isRTL: boolean }>) {
+  return (
+    <>
+      <InventoryQuickActionLink
+        to="/inventory/items"
+        title={t('inventory.items')}
+        description="إدارة الأصناف والمواد"
+        isRTL={isRTL}
+      />
+      <InventoryQuickActionLink
+        to="/inventory/categories"
+        title="فئات المنتجات"
+        description="تصنيف المخزون"
+        isRTL={isRTL}
+      />
+    </>
+  )
+}
+
+function InventoryWarehouseQuickActions({ isRTL }: Readonly<{ isRTL: boolean }>) {
+  return (
+    <>
+      <InventoryQuickActionLink
+        to="/inventory/warehouses"
+        title="🏭 المخازن (1)"
+        description="المخازن الرئيسية"
+        isRTL={isRTL}
+      />
+      <InventoryQuickActionLink
+        to="/inventory/locations"
+        title="📍 مواقع التخزين (2)"
+        description="المناطق والأرفف"
+        isRTL={isRTL}
+      />
+      <InventoryQuickActionLink
+        to="/inventory/bins"
+        title="📦 صناديق التخزين (3)"
+        description="المواقع الدقيقة + باركود"
+        isRTL={isRTL}
+      />
+    </>
+  )
+}
+
+function InventoryStockMoveQuickActions({ t, isRTL }: Readonly<{ t: TFunction; isRTL: boolean }>) {
+  return (
+    <>
+      <InventoryQuickActionLink
+        to="/inventory/movements"
+        title={t('inventory.stockMoves')}
+        description="متابعة حركات المخزون"
+        isRTL={isRTL}
+      />
+      <InventoryQuickActionLink
+        to="/inventory/transfers"
+        title="🔄 تحويلات البضاعة"
+        description="نقل المخزون بين المستودعات"
+        isRTL={isRTL}
+      />
+    </>
+  )
+}
+
 interface InventoryQuickActionsProps {
   readonly canReadItems: boolean
   readonly canReadStockMoves: boolean
@@ -54,92 +138,16 @@ export function InventoryQuickActions({
 }: InventoryQuickActionsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-      {canReadItems && (
-        <Link to="/inventory/items" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            {t('inventory.items')}
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            إدارة الأصناف والمواد
-          </p>
-        </Link>
-      )}
-
-      {canReadItems && (
-        <Link to="/inventory/categories" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            فئات المنتجات
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            تصنيف المخزون
-          </p>
-        </Link>
-      )}
-
-      {canReadStockMoves && (
-        <Link to="/inventory/movements" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            {t('inventory.stockMoves')}
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            متابعة حركات المخزون
-          </p>
-        </Link>
-      )}
-
-      {canReadWarehouses && (
-        <Link to="/inventory/warehouses" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            🏭 المخازن (1)
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            المخازن الرئيسية
-          </p>
-        </Link>
-      )}
-
-      {canReadWarehouses && (
-        <Link to="/inventory/locations" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            📍 مواقع التخزين (2)
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            المناطق والأرفف
-          </p>
-        </Link>
-      )}
-
-      {canReadWarehouses && (
-        <Link to="/inventory/bins" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            📦 صناديق التخزين (3)
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            المواقع الدقيقة + باركود
-          </p>
-        </Link>
-      )}
-
-      {canReadStockMoves && (
-        <Link to="/inventory/transfers" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            🔄 تحويلات البضاعة
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            نقل المخزون بين المستودعات
-          </p>
-        </Link>
-      )}
-
+      {canReadItems && <InventoryItemQuickActions t={t} isRTL={isRTL} />}
+      {canReadStockMoves && <InventoryStockMoveQuickActions t={t} isRTL={isRTL} />}
+      {canReadWarehouses && <InventoryWarehouseQuickActions isRTL={isRTL} />}
       {canReadAdjustments && (
-        <Link to="/inventory/adjustments" className="bg-card rounded-lg border p-6 hover:bg-accent transition-colors">
-          <h3 className={cn('font-semibold mb-2', isRTL ? 'text-right' : 'text-left')}>
-            {t('inventory.adjustments')}
-          </h3>
-          <p className={cn('text-muted-foreground text-sm', isRTL ? 'text-right' : 'text-left')}>
-            تسويات المخزون
-          </p>
-        </Link>
+        <InventoryQuickActionLink
+          to="/inventory/adjustments"
+          title={t('inventory.adjustments')}
+          description="تسويات المخزون"
+          isRTL={isRTL}
+        />
       )}
     </div>
   )
