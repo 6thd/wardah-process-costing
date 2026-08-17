@@ -566,6 +566,137 @@ export function StageCostingActionButtons({
   )
 }
 
+interface StageCostingPanelHeaderProps {
+  readonly isSCLoading: boolean
+  readonly canReadStageCosts: boolean
+  readonly onRefresh: () => void
+}
+
+export function StageCostingPanelHeader({ isSCLoading, canReadStageCosts, onRefresh }: StageCostingPanelHeaderProps) {
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-3">
+        <Calculator className="h-6 w-6 text-primary" />
+        <h2 className="text-xl font-bold wardah-text-gradient-google">احتساب تكلفة المراحل (Process Costing)</h2>
+      </div>
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-action="refresh-stage-costs"
+          onClick={onRefresh}
+          disabled={isSCLoading || !canReadStageCosts}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${isSCLoading ? 'animate-spin' : ''}`} />
+          تحديث
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          data-action="view-stage-report"
+          disabled={!canReadStageCosts}
+        >
+          <BarChart3 className="h-4 w-4 mr-2" />
+          تقرير المراحل
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+interface StageCostingLoadStateProps {
+  readonly isLoading: boolean
+  readonly isError: boolean
+}
+
+export function StageCostingLoadState({ isLoading, isError }: StageCostingLoadStateProps) {
+  return (
+    <>
+      {isLoading && (
+        <div className="mb-4 p-4 wardah-glass-card">
+          <p>جاري تحميل البيانات...</p>
+        </div>
+      )}
+
+      {isError && (
+        <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
+          <p className="text-red-700 dark:text-red-300">خطأ في تحميل البيانات. يرجى التحديث.</p>
+        </div>
+      )}
+    </>
+  )
+}
+
+interface StageCostingFormSectionsProps {
+  readonly formData: StageCostingFormData
+  readonly manufacturingOrders: Array<Record<string, unknown>>
+  readonly stages: Array<Record<string, unknown>>
+  readonly workCenters: Array<Record<string, unknown>>
+  readonly selectedMO
+  readonly isMOLoading: boolean
+  readonly canReadOrders: boolean
+  readonly isStagesLoading: boolean
+  readonly canReadStages: boolean
+  readonly isWCLoading: boolean
+  readonly canReadWorkCenters: boolean
+  readonly onChange: (field: keyof StageCostingFormData, value: string | number) => void
+  readonly canApplyLaborTime: boolean
+  readonly canApplyOverhead: boolean
+  readonly canCalculateStageCost: boolean
+}
+
+export function StageCostingFormSections({
+  formData,
+  manufacturingOrders,
+  stages,
+  workCenters,
+  selectedMO,
+  isMOLoading,
+  canReadOrders,
+  isStagesLoading,
+  canReadStages,
+  isWCLoading,
+  canReadWorkCenters,
+  onChange,
+  canApplyLaborTime,
+  canApplyOverhead,
+  canCalculateStageCost,
+}: StageCostingFormSectionsProps) {
+  return (
+    <>
+      <ManufacturingOrderStageWorkCenterFields
+        formData={formData}
+        manufacturingOrders={manufacturingOrders}
+        stages={stages}
+        workCenters={workCenters}
+        selectedMO={selectedMO}
+        isMOLoading={isMOLoading}
+        canReadOrders={canReadOrders}
+        isStagesLoading={isStagesLoading}
+        canReadStages={canReadStages}
+        isWCLoading={isWCLoading}
+        canReadWorkCenters={canReadWorkCenters}
+        onChange={onChange}
+      />
+
+      <QuantitiesSection formData={formData} onChange={onChange} />
+
+      <CostComponentsSection formData={formData} onChange={onChange} />
+
+      <LaborDetailsSection formData={formData} onChange={onChange} />
+
+      <StageCostingActionButtons
+        formData={formData}
+        canApplyLaborTime={canApplyLaborTime}
+        canApplyOverhead={canApplyOverhead}
+        canCalculateStageCost={canCalculateStageCost}
+      />
+    </>
+  )
+}
+
 export default function StageCostingPanel() {
   const queryClient = useQueryClient()
   
@@ -721,51 +852,18 @@ export default function StageCostingPanel() {
       {/* Header */}
       <div className="wardah-glass-card p-6">
         <form onSubmit={(e) => e.preventDefault()}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Calculator className="h-6 w-6 text-primary" />
-              <h2 className="text-xl font-bold wardah-text-gradient-google">احتساب تكلفة المراحل (Process Costing)</h2>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-action="refresh-stage-costs"
-                onClick={loadStageCosts}
-                disabled={isSCLoading || !canReadStageCosts}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${isSCLoading ? 'animate-spin' : ''}`} />
-                تحديث
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                data-action="view-stage-report"
-                disabled={!canReadStageCosts}
-              >
-                <BarChart3 className="h-4 w-4 mr-2" />
-                تقرير المراحل
-              </Button>
-            </div>
-          </div>
-        
-          {/* Loading and Error States */}
-          {(isMOLoading || isWCLoading || isStagesLoading || isSCLoading) && (
-            <div className="mb-4 p-4 wardah-glass-card">
-              <p>جاري تحميل البيانات...</p>
-            </div>
-          )}
-          
-          {(isMOError || isWCError || isStagesError || isSCError) && (
-            <div className="mb-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-lg">
-              <p className="text-red-700 dark:text-red-300">خطأ في تحميل البيانات. يرجى التحديث.</p>
-            </div>
-          )}
-        
-          {/* Manufacturing Order Selection */}
-          <ManufacturingOrderStageWorkCenterFields
+          <StageCostingPanelHeader
+            isSCLoading={isSCLoading}
+            canReadStageCosts={canReadStageCosts}
+            onRefresh={loadStageCosts}
+          />
+
+          <StageCostingLoadState
+            isLoading={isMOLoading || isWCLoading || isStagesLoading || isSCLoading}
+            isError={isMOError || isWCError || isStagesError || isSCError}
+          />
+
+          <StageCostingFormSections
             formData={formData}
             manufacturingOrders={manufacturingOrders}
             stages={stages}
@@ -778,20 +876,6 @@ export default function StageCostingPanel() {
             isWCLoading={isWCLoading}
             canReadWorkCenters={canReadWorkCenters}
             onChange={handleInputChange}
-          />
-
-          {/* Quantities Section */}
-          <QuantitiesSection formData={formData} onChange={handleInputChange} />
-
-          {/* Cost Components */}
-          <CostComponentsSection formData={formData} onChange={handleInputChange} />
-
-          {/* Labor Details */}
-          <LaborDetailsSection formData={formData} onChange={handleInputChange} />
-
-          {/* Action Buttons */}
-          <StageCostingActionButtons
-            formData={formData}
             canApplyLaborTime={canApplyLaborTime}
             canApplyOverhead={canApplyOverhead}
             canCalculateStageCost={canCalculateStageCost}
