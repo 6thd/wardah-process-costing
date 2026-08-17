@@ -1,0 +1,25 @@
+name: Agent Inventory Overview Refactor
+
+on: [push]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python scripts/ci/agent_inventory_overview_refactor.py
+      - run: git diff --check
+      - name: Commit refactor and remove temporary helpers
+        run: |
+          rm .github/workflows/agent-inventory-overview-refactor.yml
+          rm scripts/ci/agent_inventory_overview_refactor.py
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/features/inventory/index.tsx .github/workflows/agent-inventory-overview-refactor.yml scripts/ci/agent_inventory_overview_refactor.py
+          git commit -m "refactor(inventory): compose overview sections"
+          git push
