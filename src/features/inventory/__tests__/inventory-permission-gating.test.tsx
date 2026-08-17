@@ -128,6 +128,33 @@ describe('InventoryOverview — per-section permission-aware loading', () => {
     expect(itemsGetAll).not.toHaveBeenCalled();
   });
 
+  it('preserves the original quick-action DOM order when all overview permissions are granted', async () => {
+    setPermissions([
+      'inventory.items.read',
+      'inventory.stock_moves.read',
+      'inventory.warehouses.read',
+      'inventory.adjustments.read',
+    ]);
+    renderAt('/inventory/overview');
+
+    await waitFor(() => expect(itemsGetAll).toHaveBeenCalledTimes(1));
+    const quickActionHrefs = screen
+      .getAllByRole('link')
+      .map((link) => link.getAttribute('href'))
+      .filter((href): href is string => href?.startsWith('/inventory/') === true);
+
+    expect(quickActionHrefs).toEqual([
+      '/inventory/items',
+      '/inventory/categories',
+      '/inventory/movements',
+      '/inventory/warehouses',
+      '/inventory/locations',
+      '/inventory/bins',
+      '/inventory/transfers',
+      '/inventory/adjustments',
+    ]);
+  });
+
   it('switching items → warehouses in the same mount drops the stale items metrics', async () => {
     setPermissions(['inventory.items.read']);
     const { rerender } = renderAt('/inventory/overview');
