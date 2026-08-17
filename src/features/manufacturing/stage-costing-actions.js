@@ -39,6 +39,48 @@ const Audit = {
 }
 
 /**
+ * Builds the upsertStageCost payload from the calculate-stage-cost form's
+ * FormData snapshot. Pure and side-effect-free: no DOM access, no await, no
+ * closure over element/form/toast — moved verbatim out of the
+ * calculate-stage-cost action handler's try block.
+ */
+export function buildUpsertStageCostPayload(formData) {
+  // Get stageId or fallback to stageNumber for backward compatibility
+  const stageId = formData.get('stageId')
+  const stageNumber = formData.get('stageNumber') // Fallback for old forms
+
+  return {
+    moId: formData.get('manufacturingOrderId'),
+    stageId: stageId || null,  // New: Use stageId
+    stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,  // Old: Fallback
+    workCenterId: formData.get('workCenterId'),
+    goodQty: Number.parseFloat(formData.get('goodQuantity')),
+    directMaterialCost: Number.parseFloat(formData.get('directMaterialCost')) || 0,
+    mode: 'actual',
+    scrapQty: Number.parseFloat(formData.get('scrapQuantity')) || 0,
+    reworkQty: Number.parseFloat(formData.get('reworkQuantity')) || 0,
+    notes: formData.get('notes')
+  }
+}
+
+/**
+ * Writes the resolved stage identifiers back onto the calculate-stage-cost
+ * form's own DOM inputs after a successful upsert. Pure DOM side effect, no
+ * closure over element/toast/permission state — moved verbatim out of the
+ * calculate-stage-cost action handler's success branch.
+ */
+export function writeBackStageIdentifiers(form, stageId, stageNumber) {
+  const stageIdInput = form.querySelector('[name="stageId"]')
+  const stageNumberInput = form.querySelector('[name="stageNumber"]')
+  if (stageIdInput) {
+    stageIdInput.value = stageId || ''
+  }
+  if (stageNumberInput) {
+    stageNumberInput.value = stageNumber || ''
+  }
+}
+
+/**
  * Register all stage costing actions
  */
 export function registerStageCostingActions() {
@@ -298,22 +340,10 @@ export function registerStageCostingActions() {
     element.textContent = 'جاري الاحتساب...'
 
     try {
-      // Get stageId or fallback to stageNumber for backward compatibility
-      const stageId = formData.get('stageId')
+      // stageNumber is still read here (not just inside buildUpsertStageCostPayload)
+      // because the Audit.logProcessCostingOperation call below also needs it.
       const stageNumber = formData.get('stageNumber') // Fallback for old forms
-      
-      const result = await ProcessCosting.upsertStageCost({
-        moId: moId,
-        stageId: stageId || null,  // New: Use stageId
-        stageNo: stageNumber ? Number.parseInt(stageNumber, 10) : null,  // Old: Fallback
-        workCenterId: workCenterId,
-        goodQty: goodQuantity,
-        directMaterialCost: Number.parseFloat(formData.get('directMaterialCost')) || 0,
-        mode: 'actual',
-        scrapQty: Number.parseFloat(formData.get('scrapQuantity')) || 0,
-        reworkQty: Number.parseFloat(formData.get('reworkQuantity')) || 0,
-        notes: formData.get('notes')
-      })
+      const result = await ProcessCosting.upsertStageCost(buildUpsertStageCostPayload(formData))
 
       if (result.success) {
         const efficiency = goodQuantity / (goodQuantity + (Number.parseFloat(formData.get('scrapQuantity')) || 0) + (Number.parseFloat(formData.get('reworkQuantity')) || 0)) * 100
@@ -327,15 +357,8 @@ export function registerStageCostingActions() {
         toast.success(`تم احتساب ${stageName}: ${totalCost.toFixed(2)} ريال`)
         
         // Update form with result
-        const stageIdInput = form.querySelector('[name="stageId"]')
-        const stageNumberInput = form.querySelector('[name="stageNumber"]')
-        if (stageIdInput) {
-          stageIdInput.value = stageId || ''
-        }
-        if (stageNumberInput) {
-          stageNumberInput.value = formData.get('stageNumber') || ''
-        }
-        
+        writeBackStageIdentifiers(form, stageId, stageNumber)
+
         // Log the operation
         await Audit.logProcessCostingOperation({
           operation: 'stage_cost_calculation',

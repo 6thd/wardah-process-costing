@@ -1,5 +1,22 @@
 // Type declarations for stage-costing-actions.js
 
+export function buildUpsertStageCostPayload(formData: { get(key: string): string | null }): {
+  moId: string | null
+  stageId: string | null
+  stageNo: number | null
+  workCenterId: string | null
+  goodQty: number
+  directMaterialCost: number
+  mode: string
+  scrapQty: number
+  reworkQty: number
+  notes: string | null
+}
+export function writeBackStageIdentifiers(
+  form: { querySelector(selector: string): { value: string } | null },
+  stageId: string | null,
+  stageNumber: string | null
+): void
 export function registerStageCostingActions(): void
 export function unregisterStageCostingActions(): void
 export function escapeHtml(value: unknown): string
