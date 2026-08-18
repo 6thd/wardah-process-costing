@@ -359,6 +359,10 @@ jobs:
         if: steps.full-vitest.outcome == 'failure'
         run: exit 1
 
+      - name: Remove successful Vitest diagnostic
+        if: steps.full-vitest.outcome == 'success'
+        run: rm -f vitest-full.json
+
       - name: Production build
         run: npm run build
 
