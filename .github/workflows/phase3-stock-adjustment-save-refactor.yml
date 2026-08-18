@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - agent/stock-adjustments-save-refactor-phase3
+    paths:
+      - .github/workflows/phase3-stock-adjustment-save-refactor.yml
 
 permissions:
   contents: write
@@ -15,17 +17,19 @@ jobs:
       - name: Checkout guarded branch
         uses: actions/checkout@v4
         with:
-          fetch-depth: 2
+          fetch-depth: 0
 
-      - name: Verify exact Phase 3 base
+      - name: Verify exact Phase 3 base and workflow-only staging
         shell: bash
         run: |
           set -euo pipefail
           EXPECTED_BASE="6ffcfc44859330561c12261e1ae7f896e2867f4f"
-          ACTUAL_BASE="$(git rev-parse HEAD^)"
-          test "$ACTUAL_BASE" = "$EXPECTED_BASE"
           test "$(git branch --show-current)" = "agent/stock-adjustments-save-refactor-phase3"
-          echo "Guarded base confirmed: $ACTUAL_BASE"
+          git merge-base --is-ancestor "$EXPECTED_BASE" HEAD
+          CHANGED="$(git diff --name-only "$EXPECTED_BASE"...HEAD)"
+          test "$CHANGED" = ".github/workflows/phase3-stock-adjustment-save-refactor.yml"
+          echo "Guarded base confirmed: $EXPECTED_BASE"
+          echo "Pre-refactor changes are workflow-only."
 
       - name: Apply behavior-preserving save extraction
         shell: bash
