@@ -229,15 +229,28 @@ function setPermissions(keys: readonly string[]) {
   hasPermissionKeyMock.mockImplementation((key: string) => keys.includes(key));
 }
 
-function renderAdjustments() {
-  const element = (
+function buildAdjustmentsElement() {
+  return (
     <MemoryRouter initialEntries={['/inventory/adjustments']}>
       <Routes>
         <Route path="/inventory/*" element={<InventoryModule />} />
       </Routes>
     </MemoryRouter>
   );
-  return { ...render(element), element };
+}
+
+function renderAdjustments() {
+  const rendered = render(buildAdjustmentsElement());
+  return {
+    ...rendered,
+    // Mocked hooks (useAuth/usePermissions/useProductUomStatus) read mutable
+    // module-level state, not React context. Passing the same element back
+    // into RTL's rerender lets React bail out on referential prop equality
+    // and skip re-invoking those hooks, so a mock mutated between renders
+    // would never be observed. Building a fresh element per call forces
+    // React to re-render and re-read the mocks.
+    rerender: () => rendered.rerender(buildAdjustmentsElement()),
+  };
 }
 
 async function openValidCreateForm() {
@@ -259,6 +272,15 @@ async function openValidCreateForm() {
   await userEvent.click(await screen.findByRole('button', { name: /Widget/ }));
   await userEvent.click(screen.getByRole('button', { name: 'إضافة' }));
   await waitFor(() => expect(screen.getByRole('button', { name: 'حفظ كمسودة' })).toBeEnabled());
+
+  // A newly added item starts with new_qty=0 (difference_qty=0), which
+  // validateAdjustmentForm() rejects. Set a real new quantity so the form
+  // is actually valid before guard-ordering tests build on top of it.
+  const newQtyInput = screen.getByRole('spinbutton');
+  await userEvent.clear(newQtyInput);
+  await userEvent.type(newQtyInput, '12');
+  await waitFor(() => expect(newQtyInput).toHaveValue(12));
+
   return rendered;
 }
 
@@ -325,13 +347,13 @@ beforeEach(() => {
 
 describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
   it('re-checks create permission before validation/UoM/auth and performs zero writes after revocation', async () => {
-    const { rerender, element } = await openValidCreateForm();
+    const { rerender } = await openValidCreateForm();
     operationLog.length = 0;
     writePayloads.length = 0;
     getUserSpy.mockClear();
 
     setPermissions(['inventory.adjustments.read', ...FULL_REF_PERMS]);
-    rerender(element);
+    rerender();
     await userEvent.click(screen.getByRole('button', { name: 'حفظ كمسودة' }));
 
     expect(toast.error).toHaveBeenCalledWith('لا تملك صلاحية إنشاء تسويات مخزون');
@@ -340,10 +362,10 @@ describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
   });
 
   it('runs form validation before the UoM readiness guard and before auth/DB', async () => {
-    const { rerender, element } = await openValidCreateForm();
+    const { rerender } = await openValidCreateForm();
     await userEvent.clear(screen.getByLabelText('السبب *'));
     productUomStatusMock = { ...productUomStatusMock, isEnabled: true, isSuccess: false };
-    rerender(element);
+    rerender();
     operationLog.length = 0;
     getUserSpy.mockClear();
 
@@ -356,9 +378,9 @@ describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
   });
 
   it('blocks on UoM readiness before auth and before any DB write', async () => {
-    const { rerender, element } = await openValidCreateForm();
+    const { rerender } = await openValidCreateForm();
     productUomStatusMock = { ...productUomStatusMock, isEnabled: true, isSuccess: false };
-    rerender(element);
+    rerender();
     operationLog.length = 0;
     getUserSpy.mockClear();
 
@@ -382,9 +404,9 @@ describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
   });
 
   it('treats a missing active organization as a toast.error hard stop after auth with zero writes', async () => {
-    const { rerender, element } = await openValidCreateForm();
+    const { rerender } = await openValidCreateForm();
     currentOrgIdMock = null;
-    rerender(element);
+    rerender();
     operationLog.length = 0;
     writePayloads.length = 0;
     getUserSpy.mockClear();
@@ -488,9 +510,9 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
 
   it('treats a missing active organization as a toast.error hard stop after auth and before adjustment reads', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const { rerender, element } = await openAdjustmentView();
+    const { rerender } = await openAdjustmentView();
     currentOrgIdMock = null;
-    rerender(element);
+    rerender();
     operationLog.length = 0;
     writePayloads.length = 0;
 
@@ -553,9 +575,9 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
 
   it('blocks UoM readiness after reading adjustment/items but before the SLE write', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const { rerender, element } = await openAdjustmentView();
+    const { rerender } = await openAdjustmentView();
     productUomStatusMock = { ...productUomStatusMock, isEnabled: true, isSuccess: false };
-    rerender(element);
+    rerender();
     operationLog.length = 0;
     writePayloads.length = 0;
 
