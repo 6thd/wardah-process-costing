@@ -6,6 +6,7 @@ on:
       - main
     types:
       - opened
+      - synchronize
 
 permissions:
   contents: write
@@ -292,7 +293,7 @@ jobs:
         run: npm run lint
 
       - name: Full Vitest suite
-        run: npm run test -- --run --coverage.enabled=false
+        run: npm run test -- --run --coverage.enabled=false --reporter=dot --bail=1
 
       - name: Production build
         run: npm run build
