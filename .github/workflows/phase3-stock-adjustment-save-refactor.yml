@@ -293,7 +293,49 @@ jobs:
         run: npm run lint
 
       - name: Full Vitest suite
-        run: npm run test -- --run --coverage.enabled=false --reporter=dot --bail=1
+        id: full-vitest
+        continue-on-error: true
+        run: npm run test -- --run --coverage.enabled=false --reporter=json --outputFile=vitest-full.json
+
+      - name: Report first full-suite failure
+        if: steps.full-vitest.outcome == 'failure'
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path('vitest-full.json')
+          if not path.exists():
+              print('VITEST_JSON_MISSING')
+              raise SystemExit(0)
+
+          data = json.loads(path.read_text(encoding='utf-8'))
+          for result in data.get('testResults', []):
+              for assertion in result.get('assertionResults') or []:
+                  if assertion.get('status') == 'failed':
+                      messages = assertion.get('failureMessages') or []
+                      print('FAILED_FILE:', result.get('name'))
+                      print('FAILED_TEST:', assertion.get('fullName') or assertion.get('title'))
+                      print('FAILURE_MESSAGE:', (messages[0] if messages else result.get('message', ''))[:4000])
+                      raise SystemExit(0)
+              if result.get('status') == 'failed':
+                  print('FAILED_FILE:', result.get('name'))
+                  print('FAILURE_MESSAGE:', str(result.get('message', ''))[:4000])
+                  raise SystemExit(0)
+          print('NO_FAILED_TEST_FOUND_IN_JSON')
+          PY
+
+      - name: Upload full-suite diagnostic
+        if: steps.full-vitest.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-vitest-failure
+          path: vitest-full.json
+
+      - name: Stop on full-suite failure
+        if: steps.full-vitest.outcome == 'failure'
+        run: exit 1
 
       - name: Production build
         run: npm run build
