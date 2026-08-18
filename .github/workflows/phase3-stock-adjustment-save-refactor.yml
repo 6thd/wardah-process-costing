@@ -43,9 +43,11 @@ jobs:
           index_path = Path('src/features/inventory/index.tsx')
           helpers_index_path = Path('src/features/inventory/helpers/index.ts')
           save_helper_path = Path('src/features/inventory/helpers/stockAdjustmentSave.ts')
+          org_scope_test_path = Path('src/features/inventory/__tests__/stock-adjustment-org-scope.test.ts')
 
           index_text = index_path.read_text(encoding='utf-8')
           helpers_index = helpers_index_path.read_text(encoding='utf-8')
+          org_scope_test = org_scope_test_path.read_text(encoding='utf-8')
 
           old_import = """  findUnmappedAdjustmentProductIds,\n  updateAdjustmentItemQuantity,\n"""
           new_import = """  findUnmappedAdjustmentProductIds,\n  saveStockAdjustmentDraft,\n  updateAdjustmentItemQuantity,\n"""
@@ -269,6 +271,28 @@ jobs:
             return { isEditing }
           }
           """, encoding='utf-8')
+
+          old_org_scope_assertion = """    expect(source).toContain(".eq('organization_id', currentOrgId)")
+              expect(source).toContain('organization_id: currentOrgId')
+              expect(source).toContain('org_id: currentOrgId')
+          """
+          new_org_scope_assertion = """    expect(source).toContain(".eq('organization_id', currentOrgId)")
+              expect(source).toContain('orgId: currentOrgId')
+              expect(source).toContain('org_id: currentOrgId')
+
+              const saveSource = readFileSync(
+                resolve(process.cwd(), 'src/features/inventory/helpers/stockAdjustmentSave.ts'),
+                'utf8',
+              )
+              expect(saveSource).toContain(".eq('organization_id', orgId)")
+              expect(saveSource).toContain('organization_id: orgId')
+          """
+          if org_scope_test.count(old_org_scope_assertion) != 1:
+              raise SystemExit('Guard failed: org-scope regression-test anchor changed')
+          org_scope_test_path.write_text(
+              org_scope_test.replace(old_org_scope_assertion, new_org_scope_assertion, 1),
+              encoding='utf-8',
+          )
           PY
 
       - name: Setup Node.js
@@ -281,7 +305,7 @@ jobs:
         run: npm ci
 
       - name: Focused behavior lock
-        run: npm run test -- --run src/features/inventory/__tests__/stock-adjustments-behavior-lock.test.tsx --coverage.enabled=false
+        run: npm run test -- --run src/features/inventory/__tests__/stock-adjustments-behavior-lock.test.tsx src/features/inventory/__tests__/stock-adjustment-org-scope.test.ts --coverage.enabled=false
 
       - name: TypeScript type check
         run: npm run type-check
@@ -304,12 +328,10 @@ jobs:
           python3 - <<'PY'
           import json
           from pathlib import Path
-
           path = Path('vitest-full.json')
           if not path.exists():
               print('VITEST_JSON_MISSING')
               raise SystemExit(0)
-
           data = json.loads(path.read_text(encoding='utf-8'))
           for result in data.get('testResults', []):
               for assertion in result.get('assertionResults') or []:
@@ -351,6 +373,7 @@ jobs:
               'src/features/inventory/index.tsx',
               'src/features/inventory/helpers/index.ts',
               'src/features/inventory/helpers/stockAdjustmentSave.ts',
+              'src/features/inventory/__tests__/stock-adjustment-org-scope.test.ts',
           }
           lines = subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
           paths = {line[3:] for line in lines if len(line) >= 4}
@@ -365,6 +388,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/features/inventory/index.tsx src/features/inventory/helpers/index.ts src/features/inventory/helpers/stockAdjustmentSave.ts
+          git add src/features/inventory/index.tsx src/features/inventory/helpers/index.ts src/features/inventory/helpers/stockAdjustmentSave.ts src/features/inventory/__tests__/stock-adjustment-org-scope.test.ts
           git commit -m "refactor(inventory): extract adjustment draft persistence"
           git push origin HEAD:agent/stock-adjustments-save-refactor-phase3
