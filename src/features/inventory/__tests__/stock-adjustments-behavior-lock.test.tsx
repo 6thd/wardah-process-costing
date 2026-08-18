@@ -269,6 +269,7 @@ async function openAdjustmentView() {
   return rendered;
 }
 
+
 function expectIncreaseJournalRpcPayload() {
   expect(rpcSpy).toHaveBeenCalledTimes(1);
   expect(rpcSpy).toHaveBeenCalledWith('rpc_create_journal_entry', {
