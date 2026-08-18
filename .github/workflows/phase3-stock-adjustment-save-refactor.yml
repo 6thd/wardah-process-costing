@@ -1,11 +1,11 @@
 name: Phase 3 Stock Adjustment Save Refactor
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/stock-adjustments-save-refactor-phase3
-    paths:
-      - .github/workflows/phase3-stock-adjustment-save-refactor.yml
+      - main
+    types:
+      - opened
 
 permissions:
   contents: write
@@ -14,9 +14,10 @@ jobs:
   refactor-and-verify:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout guarded branch
+      - name: Checkout guarded head branch
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.ref }}
           fetch-depth: 0
 
       - name: Verify exact Phase 3 base and workflow-only staging
@@ -81,15 +82,12 @@ jobs:
               toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
               return
             }
-            // Use imported validation from helpers
             const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
             if (!validation.valid) {
               toast.error(validation.message)
               return
             }
 
-            // Re-check UoM setup fail-closed: a draft may carry a product selected during a
-            // status-load race, or one left unmapped. Block before any DB write.
             if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
               toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
               return
@@ -101,8 +99,6 @@ jobs:
 
             try {
               const supabase = getSupabase()
-
-              // Keep auth and org checks in the component so their ordering remains unchanged.
               const { data: { user } } = await supabase.auth.getUser()
               if (!user) {
                 toast.error('الرجاء تسجيل الدخول')
@@ -135,8 +131,6 @@ jobs:
                 decrease_account_id: '',
                 items: []
               })
-
-              // Reload adjustments
               loadAdjustments()
             } catch (error: any) {
               console.error('Error saving adjustment:', error)
@@ -152,23 +146,15 @@ jobs:
               raise SystemExit('Guard failed: stockAdjustmentSave helper already exported')
           if "export * from './stockAdjustmentHelpers';" not in helpers_index:
               raise SystemExit('Guard failed: inventory helpers index anchor changed')
-          helpers_index = helpers_index.rstrip() + "\n" + export_line + "\n"
-          helpers_index_path.write_text(helpers_index, encoding='utf-8')
+          helpers_index_path.write_text(helpers_index.rstrip() + "\n" + export_line + "\n", encoding='utf-8')
 
           if save_helper_path.exists():
               raise SystemExit('Guard failed: stockAdjustmentSave.ts already exists')
-
           save_helper_path.write_text("""import type { SupabaseClient } from '@supabase/supabase-js'
           import type { Database } from '@/lib/supabase'
-          import {
-            calculateAdjustmentTotals,
-            type AdjustmentFormState,
-          } from './stockAdjustmentHelpers'
+          import { calculateAdjustmentTotals, type AdjustmentFormState } from './stockAdjustmentHelpers'
 
-          type SelectedAdjustmentForSave = {
-            id: string
-            isEditing?: boolean
-          } | null | undefined
+          type SelectedAdjustmentForSave = { id: string; isEditing?: boolean } | null | undefined
 
           interface SaveStockAdjustmentDraftParams {
             supabase: SupabaseClient<Database>
@@ -185,11 +171,8 @@ jobs:
           }
 
           async function updateExistingAdjustment(
-            supabase: SupabaseClient<Database>,
-            form: AdjustmentFormState,
-            totals: AdjustmentTotals,
-            orgId: string,
-            adjustmentId: string,
+            supabase: SupabaseClient<Database>, form: AdjustmentFormState,
+            totals: AdjustmentTotals, orgId: string, adjustmentId: string,
           ) {
             const { data: updatedAdjustment, error: updateError } = await supabase
               .from('stock_adjustments')
@@ -211,7 +194,6 @@ jobs:
               .eq('organization_id', orgId)
               .select()
               .single()
-
             throwIfSupabaseError(updateError)
 
             const { error: deleteError } = await supabase
@@ -219,17 +201,13 @@ jobs:
               .delete()
               .eq('adjustment_id', adjustmentId)
               .eq('organization_id', orgId)
-
             throwIfSupabaseError(deleteError)
             return updatedAdjustment!
           }
 
           async function createAdjustment(
-            supabase: SupabaseClient<Database>,
-            form: AdjustmentFormState,
-            totals: AdjustmentTotals,
-            orgId: string,
-            userId: string,
+            supabase: SupabaseClient<Database>, form: AdjustmentFormState,
+            totals: AdjustmentTotals, orgId: string, userId: string,
           ) {
             const { data: newAdjustment, error: adjustmentError } = await supabase
               .from('stock_adjustments')
@@ -252,16 +230,13 @@ jobs:
               })
               .select()
               .single()
-
             throwIfSupabaseError(adjustmentError)
             return newAdjustment!
           }
 
           async function insertAdjustmentItems(
-            supabase: SupabaseClient<Database>,
-            form: AdjustmentFormState,
-            orgId: string,
-            adjustmentId: string,
+            supabase: SupabaseClient<Database>, form: AdjustmentFormState,
+            orgId: string, adjustmentId: string,
           ): Promise<void> {
             const itemsToInsert = form.items.map((item) => ({
               adjustment_id: adjustmentId,
@@ -275,33 +250,20 @@ jobs:
               value_difference: item.value_difference,
               reason: item.reason || null,
             }))
-
             const { error: itemsError } = await supabase
               .from('stock_adjustment_items')
               .insert(itemsToInsert)
-
             throwIfSupabaseError(itemsError)
           }
 
           export async function saveStockAdjustmentDraft({
-            supabase,
-            form,
-            orgId,
-            userId,
-            selectedAdjustment,
+            supabase, form, orgId, userId, selectedAdjustment,
           }: SaveStockAdjustmentDraftParams): Promise<{ isEditing: boolean }> {
             const totals = calculateAdjustmentTotals(form.items)
             const isEditing = Boolean(selectedAdjustment?.isEditing)
             const adjustment = selectedAdjustment?.isEditing
-              ? await updateExistingAdjustment(
-                  supabase,
-                  form,
-                  totals,
-                  orgId,
-                  selectedAdjustment.id,
-                )
+              ? await updateExistingAdjustment(supabase, form, totals, orgId, selectedAdjustment.id)
               : await createAdjustment(supabase, form, totals, orgId, userId)
-
             await insertAdjustmentItems(supabase, form, orgId, adjustment.id)
             return { isEditing }
           }
@@ -347,10 +309,8 @@ jobs:
               'src/features/inventory/helpers/index.ts',
               'src/features/inventory/helpers/stockAdjustmentSave.ts',
           }
-          changed = set(subprocess.check_output(
-              ['git', 'status', '--short'], text=True
-          ).splitlines())
-          paths = {line[3:] for line in changed if len(line) >= 4 and not line[3:].startswith('.github/workflows/')}
+          lines = subprocess.check_output(['git', 'status', '--short'], text=True).splitlines()
+          paths = {line[3:] for line in lines if len(line) >= 4}
           if paths != expected:
               raise SystemExit(f'Unexpected Phase 3 paths: {sorted(paths)}')
           print('Phase 3 changed paths verified:', sorted(paths))
@@ -362,8 +322,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/features/inventory/index.tsx \
-                  src/features/inventory/helpers/index.ts \
-                  src/features/inventory/helpers/stockAdjustmentSave.ts
+          git add src/features/inventory/index.tsx src/features/inventory/helpers/index.ts src/features/inventory/helpers/stockAdjustmentSave.ts
           git commit -m "refactor(inventory): extract adjustment draft persistence"
           git push origin HEAD:agent/stock-adjustments-save-refactor-phase3
