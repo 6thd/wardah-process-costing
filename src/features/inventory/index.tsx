@@ -1117,66 +1117,66 @@ function StockAdjustments() {
   }
 
   const handleSaveAdjustment = async () => {
-  const isEditingGuard = selectedAdjustment?.isEditing
-  if (isEditingGuard ? !canUpdateAdjustment : !canCreateAdjustment) {
-    toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
-    return
-  }
-  const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
-  if (!validation.valid) {
-    toast.error(validation.message)
-    return
-  }
-
-  if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
-    toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
-    return
-  }
-  if (findUnmappedAdjustmentProductIds(newAdjustment.items, productNeedsUomSetup).length > 0) {
-    toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
-    return
-  }
-
-  try {
-    const supabase = getSupabase()
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
-      toast.error('الرجاء تسجيل الدخول')
+    const isEditingGuard = selectedAdjustment?.isEditing
+    if (isEditingGuard ? !canUpdateAdjustment : !canCreateAdjustment) {
+      toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
+      return
+    }
+    const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
+    if (!validation.valid) {
+      toast.error(validation.message)
       return
     }
 
-    if (!currentOrgId) {
-      toast.error('لم يتم تحديد المؤسسة النشطة')
+    if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+      toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
+      return
+    }
+    if (findUnmappedAdjustmentProductIds(newAdjustment.items, productNeedsUomSetup).length > 0) {
+      toast.error('لا يمكن الحفظ: توجد أصناف تحتاج إعداد وحدة قبل استخدامها في التسوية')
       return
     }
 
-    const { isEditing } = await saveStockAdjustmentDraft({
-      supabase,
-      form: newAdjustment as AdjustmentFormState,
-      orgId: currentOrgId,
-      userId: user.id,
-      selectedAdjustment,
-    })
+    try {
+      const supabase = getSupabase()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        toast.error('الرجاء تسجيل الدخول')
+        return
+      }
 
-    toast.success(isEditing ? 'تم تحديث التسوية بنجاح' : 'تم حفظ التسوية كمسودة بنجاح')
-    setShowNewForm(false)
-    setSelectedAdjustment(null)
-    setNewAdjustment({
-      adjustment_date: new Date().toISOString().split('T')[0],
-      adjustment_type: 'PHYSICAL_COUNT',
-      reason: '',
-      reference_number: '',
-      warehouse_id: warehouses[0]?.id || '',
-      increase_account_id: '',
-      decrease_account_id: '',
-      items: []
-    })
-    loadAdjustments()
-  } catch (error: any) {
-    console.error('Error saving adjustment:', error)
-    toast.error(error.message || 'خطأ في حفظ التسوية')
+      if (!currentOrgId) {
+        toast.error('لم يتم تحديد المؤسسة النشطة')
+        return
+      }
+
+      const { isEditing } = await saveStockAdjustmentDraft({
+        supabase,
+        form: newAdjustment as AdjustmentFormState,
+        orgId: currentOrgId,
+        userId: user.id,
+        selectedAdjustment,
+      })
+
+      toast.success(isEditing ? 'تم تحديث التسوية بنجاح' : 'تم حفظ التسوية كمسودة بنجاح')
+      setShowNewForm(false)
+      setSelectedAdjustment(null)
+      setNewAdjustment({
+        adjustment_date: new Date().toISOString().split('T')[0],
+        adjustment_type: 'PHYSICAL_COUNT',
+        reason: '',
+        reference_number: '',
+        warehouse_id: warehouses[0]?.id || '',
+        increase_account_id: '',
+        decrease_account_id: '',
+        items: []
+      })
+      loadAdjustments()
+    } catch (error: any) {
+      console.error('Error saving adjustment:', error)
+      toast.error(error.message || 'خطأ في حفظ التسوية')
+    }
   }
-}
 
   const handleSubmitAdjustment = async (adjustmentId: string) => {
     if (!canApproveAdjustment) {
