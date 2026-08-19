@@ -32,8 +32,15 @@ describe('StockAdjustments organization scope regression', () => {
     expect(source).toContain(".from('products')")
     expect(source).toContain(".eq('org_id', currentOrgId)")
     expect(source).toContain(".eq('organization_id', currentOrgId)")
-    expect(source).toContain('organization_id: currentOrgId')
+    expect(source).toContain('orgId: currentOrgId')
     expect(source).toContain('org_id: currentOrgId')
+
+    const saveSource = readFileSync(
+      resolve(process.cwd(), 'src/features/inventory/helpers/stockAdjustmentSave.ts'),
+      'utf8',
+    )
+    expect(saveSource).toContain(".eq('organization_id', orgId)")
+    expect(saveSource).toContain('organization_id: orgId')
   })
 
   it('does not retain a warehouse selected under a previously active organization', () => {

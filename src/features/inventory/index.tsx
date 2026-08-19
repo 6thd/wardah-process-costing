@@ -26,6 +26,7 @@ import {
   calculateAdjustmentTotals,
   createAdjustmentItem,
   findUnmappedAdjustmentProductIds,
+  saveStockAdjustmentDraft,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -1121,15 +1122,12 @@ function StockAdjustments() {
       toast.error(isEditingGuard ? 'لا تملك صلاحية تعديل تسويات المخزون' : 'لا تملك صلاحية إنشاء تسويات مخزون')
       return
     }
-    // Use imported validation from helpers
     const validation = validateAdjustmentForm(newAdjustment as AdjustmentFormState)
     if (!validation.valid) {
       toast.error(validation.message)
       return
     }
 
-    // Re-check UoM setup fail-closed: a draft may carry a product selected during a
-    // status-load race, or one left unmapped. Block before any DB write.
     if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
       toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
       return
@@ -1141,8 +1139,6 @@ function StockAdjustments() {
 
     try {
       const supabase = getSupabase()
-      
-      // Get user and organization
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) {
         toast.error('الرجاء تسجيل الدخول')
@@ -1154,96 +1150,13 @@ function StockAdjustments() {
         return
       }
 
-      // Calculate totals using helper
-      const totals = calculateAdjustmentTotals(newAdjustment.items as AdjustmentItem[])
-      const { totalItems, totalQtyDiff, totalValueDiff } = totals
-
-      // Check if editing existing adjustment
-      const isEditing = selectedAdjustment?.isEditing
-
-      let adjustment: any
-
-      if (isEditing) {
-        // Update existing adjustment
-        const { data: updatedAdj, error: updateError } = await supabase
-          .from('stock_adjustments')
-          .update({
-            adjustment_date: newAdjustment.adjustment_date,
-            posting_date: newAdjustment.adjustment_date,
-            adjustment_type: newAdjustment.adjustment_type,
-            reason: newAdjustment.reason,
-            reference_number: newAdjustment.reference_number || null,
-            warehouse_id: newAdjustment.warehouse_id,
-            increase_account_id: newAdjustment.increase_account_id,
-            decrease_account_id: newAdjustment.decrease_account_id,
-            total_items: totalItems,
-            total_qty_difference: totalQtyDiff,
-            total_value_difference: totalValueDiff,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', selectedAdjustment.id)
-          .eq('organization_id', currentOrgId)
-          .select()
-          .single()
-
-        if (updateError) throw updateError
-        adjustment = updatedAdj
-
-        // Delete old items
-        const { error: deleteError } = await supabase
-          .from('stock_adjustment_items')
-          .delete()
-          .eq('adjustment_id', selectedAdjustment.id)
-          .eq('organization_id', currentOrgId)
-
-        if (deleteError) throw deleteError
-      } else {
-        // Save new adjustment header
-        const { data: newAdj, error: adjError } = await supabase
-          .from('stock_adjustments')
-          .insert({
-            organization_id: currentOrgId,
-            adjustment_date: newAdjustment.adjustment_date,
-            adjustment_number: `ADJ-${Date.now()}`,
-            posting_date: newAdjustment.adjustment_date,
-            adjustment_type: newAdjustment.adjustment_type,
-            reason: newAdjustment.reason,
-            reference_number: newAdjustment.reference_number || null,
-            warehouse_id: newAdjustment.warehouse_id,
-            increase_account_id: newAdjustment.increase_account_id,
-            decrease_account_id: newAdjustment.decrease_account_id,
-            status: 'DRAFT',
-            total_items: totalItems,
-            total_qty_difference: totalQtyDiff,
-            total_value_difference: totalValueDiff,
-            created_by: user.id
-          })
-          .select()
-          .single()
-
-        if (adjError) throw adjError
-        adjustment = newAdj
-      }
-
-      // Save adjustment items
-      const itemsToInsert = newAdjustment.items.map((item: any) => ({
-        adjustment_id: adjustment.id,
-        organization_id: currentOrgId,
-        product_id: item.product_id,
-        warehouse_id: item.warehouse_id || newAdjustment.warehouse_id, // Use item warehouse or adjustment warehouse
-        current_qty: item.current_qty,
-        new_qty: item.new_qty,
-        difference_qty: item.difference_qty,
-        current_rate: item.current_rate,
-        value_difference: item.value_difference,
-        reason: item.reason || null
-      }))
-
-      const { error: itemsError } = await supabase
-        .from('stock_adjustment_items')
-        .insert(itemsToInsert)
-
-      if (itemsError) throw itemsError
+      const { isEditing } = await saveStockAdjustmentDraft({
+        supabase,
+        form: newAdjustment as AdjustmentFormState,
+        orgId: currentOrgId,
+        userId: user.id,
+        selectedAdjustment,
+      })
 
       toast.success(isEditing ? 'تم تحديث التسوية بنجاح' : 'تم حفظ التسوية كمسودة بنجاح')
       setShowNewForm(false)
@@ -1258,8 +1171,6 @@ function StockAdjustments() {
         decrease_account_id: '',
         items: []
       })
-      
-      // Reload adjustments
       loadAdjustments()
     } catch (error: any) {
       console.error('Error saving adjustment:', error)
