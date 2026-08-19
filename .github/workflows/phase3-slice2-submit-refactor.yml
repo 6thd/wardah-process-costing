@@ -1,0 +1,66 @@
+name: Phase 3 Slice 2 Submit Refactor
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - .github/workflows/phase3-slice2-submit-refactor.yml
+      - scripts/ci/phase3_slice2_submit_refactor.py
+
+permissions:
+  contents: write
+
+jobs:
+  guarded-refactor:
+    if: github.event.pull_request.head.ref == 'agent/stock-adjustments-submit-refactor-phase3-v2'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 4
+
+      - name: Verify exact ancestry
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="4e88d72df4037949ac5e0b365337ac95c03e290b"
+          git cat-file -e "$BASE^{commit}"
+          test "$(git merge-base HEAD "$BASE")" = "$BASE"
+          test "$(git diff --name-only "$BASE"...HEAD | sort)" = $'.github/workflows/phase3-slice2-submit-refactor.yml\nscripts/ci/phase3_slice2_submit_refactor.py'
+
+      - name: Apply submit extraction
+        run: |
+          python3 scripts/ci/phase3_slice2_submit_refactor.py
+          git diff --check
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Focused behavior lock
+        run: npx vitest run src/features/inventory/__tests__/stock-adjustments-behavior-lock.test.tsx
+
+      - name: TypeScript
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: ESLint changed source
+        run: npx eslint src/features/inventory/index.tsx src/features/inventory/helpers/stockAdjustmentSubmit.ts src/features/inventory/helpers/index.ts
+
+      - name: Full Vitest
+        run: npx vitest run
+
+      - name: Production build
+        run: npm run build
+
+      - name: Commit verified refactor and remove staging files
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/phase3-slice2-submit-refactor.yml scripts/ci/phase3_slice2_submit_refactor.py
+          git add src/features/inventory/index.tsx src/features/inventory/helpers/index.ts src/features/inventory/helpers/stockAdjustmentSubmit.ts
+          test "$(git diff --cached --name-only | sort)" = $'.github/workflows/phase3-slice2-submit-refactor.yml\nscripts/ci/phase3_slice2_submit_refactor.py\nsrc/features/inventory/helpers/index.ts\nsrc/features/inventory/helpers/stockAdjustmentSubmit.ts\nsrc/features/inventory/index.tsx'
+          git commit -m "refactor(inventory): extract stock adjustment submit orchestration"
+          git push origin HEAD:agent/stock-adjustments-submit-refactor-phase3-v2
