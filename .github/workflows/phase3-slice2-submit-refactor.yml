@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Focused behavior lock
-        run: npx vitest run src/features/inventory/__tests__/stock-adjustments-behavior-lock.test.tsx
+        run: npx vitest run src/features/inventory/__tests__/stock-adjustments-behavior-lock.test.tsx --coverage.enabled=false
 
       - name: TypeScript
         run: npx tsc --noEmit -p tsconfig.json
