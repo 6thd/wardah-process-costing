@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/empty-state';
 import {
     GLAccount,
@@ -22,12 +21,10 @@ import { toast } from 'sonner';
 import { loadXLSX, loadJsPDF } from '@/lib/export-libs';
 import { AccountStatement } from '@/features/accounting/account-statement';
 import { usePermissions } from '@/hooks/usePermissions';
+import { AccountTreeItem } from './components/AccountTreeItem';
+import { saveGeneralLedgerAccount } from './helpers/saveAccount';
 import {
   Plus,
-  Pencil,
-  Trash2,
-  ChevronRight,
-  ChevronDown,
   FileDown,
   Search,
   Filter,
@@ -134,196 +131,6 @@ function AccountFormModal({ isOpen, onClose, onSave, account, parentAccount }: {
     );
 }
 
-// New AccountTreeItem Component for Collapsible Tree with Enhanced Design
-const AccountTreeItem = ({ account, level, isRTL, expandedNodes, onToggleNode, onOpenModal, onDeleteAccount, searchTerm, categoryFilter, showInactiveAccounts, canCreate, canEdit, canDelete }: {
-  account: any,
-  level: number,
-  isRTL: boolean,
-  expandedNodes: Set<string>,
-  onToggleNode: (code: string) => void,
-  onOpenModal: (type: 'add' | 'edit', account?: any, parent?: any) => void,
-  onDeleteAccount: (account: any) => void,
-  searchTerm: string,
-  categoryFilter: string,
-  showInactiveAccounts: boolean,
-  canCreate: boolean,
-  canEdit: boolean,
-  canDelete: boolean
-}) => {
-    const { t } = useTranslation();
-    const isExpanded = expandedNodes.has(account.code);
-    const hasChildren = account.children && account.children.length > 0;
-
-    // Helper function to check if account or any child matches filters
-    const matchesFilters = (acc: any): boolean => {
-        // Check search term
-        const matchesSearch = !searchTerm ||
-            acc.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            (acc.name && acc.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
-            (acc.name_ar && acc.name_ar.toLowerCase().includes(searchTerm.toLowerCase()));
-
-        // Check category filter
-        const matchesCategory = categoryFilter === 'all' || acc.category === categoryFilter;
-
-        // Check active status
-        const matchesActive = showInactiveAccounts || acc.is_active;
-
-        return matchesSearch && matchesCategory && matchesActive;
-    };
-
-    // Check if this account or any child matches
-    const hasMatchingChild = (acc: any): boolean => {
-        if (matchesFilters(acc)) return true;
-        if (acc.children && acc.children.length > 0) {
-            return acc.children.some((child: any) => hasMatchingChild(child));
-        }
-        return false;
-    };
-
-    if (!hasMatchingChild(account)) {
-        return null;
-    }
-
-    const getCategoryBadge = (category: string) => {
-        const badges: any = {
-            'ASSET': { label: t('gl.asset'), variant: 'default', className: 'bg-blue-100 text-blue-800 border-blue-200' },
-            'LIABILITY': { label: t('gl.liability'), variant: 'secondary', className: 'bg-red-100 text-red-800 border-red-200' },
-            'EQUITY': { label: t('gl.equity'), variant: 'outline', className: 'bg-purple-100 text-purple-800 border-purple-200' },
-            'REVENUE': { label: t('gl.revenue'), variant: 'default', className: 'bg-green-100 text-green-800 border-green-200' },
-            'EXPENSE': { label: t('gl.expense'), variant: 'destructive', className: 'bg-orange-100 text-orange-800 border-orange-200' }
-        };
-        const badge = badges[category] || { label: category, variant: 'outline', className: '' };
-        return <Badge variant="outline" className={`text-xs ${badge.className}`}>{badge.label}</Badge>;
-    };
-
-    const getNormalBalanceBadge = (normalBalance: string) => {
-        if (normalBalance === 'Debit') {
-            return <Badge variant="outline" className="text-xs bg-sky-50 text-sky-700 border-sky-200">{t('gl.debitShort')}</Badge>;
-        } else {
-            return <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{t('gl.creditShort')}</Badge>;
-        }
-    };
-
-    return (
-        <div key={account.code}>
-            <div
-                className={`flex justify-between items-center transition-all duration-150 group border-b border-border/40 hover:bg-accent/50 hover:shadow-sm ${
-                    !account.is_active ? 'opacity-50' : ''
-                } ${
-                    level === 0 ? 'font-semibold' : ''
-                }`}
-                style={{
-                    paddingRight: isRTL ? `${level * 24 + 12}px` : '12px',
-                    paddingLeft: isRTL ? '12px' : `${level * 24 + 12}px`,
-                    paddingTop: '10px',
-                    paddingBottom: '10px'
-                }}
-            >
-                <div className="flex items-center gap-3 flex-1">
-                    <button
-                        type="button"
-                        disabled={!hasChildren}
-                        className="cursor-pointer flex items-center hover:bg-accent/30 rounded-md p-1 transition-colors disabled:cursor-default disabled:opacity-50 border-0 bg-transparent"
-                        onClick={() => hasChildren && onToggleNode(account.code)}
-                    >
-                        {hasChildren ? (
-                            isExpanded ?
-                                <ChevronDown className="h-4 w-4 text-primary" /> :
-                                <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                        ) : (
-                            <span className="w-4 h-4 flex items-center justify-center">
-                                <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40"></span>
-                            </span>
-                        )}
-                    </button>
-
-                    <div className="flex items-center gap-2 flex-1">
-                        <code className={`text-sm font-mono px-2 py-0.5 rounded bg-muted/50 ${level === 0 ? 'font-bold' : ''}`}>
-                            {account.code}
-                        </code>
-                        <span className={`${level === 0 ? 'text-base font-bold' : 'text-sm'} flex-1`}>
-                            {isRTL ? (account.name_ar || account.name) : (account.name_en || account.name)}
-                        </span>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                        {getCategoryBadge(account.category)}
-                        {getNormalBalanceBadge(account.normal_balance)}
-                        {account.allow_posting && (
-                            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
-                                {t('gl.postable')}
-                            </Badge>
-                        )}
-                        {!account.is_active && (
-                            <Badge variant="outline" className="text-xs bg-gray-100 text-gray-600 border-gray-300">
-                                {t('common.inactive')}
-                            </Badge>
-                        )}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-4">
-                    {!account.allow_posting && canCreate && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-primary/10 hover:text-primary"
-                            title={t('gl.addSubAccount')}
-                            onClick={() => onOpenModal('add', undefined, account)}
-                        >
-                            <Plus className="h-4 w-4" />
-                        </Button>
-                    )}
-                    {canEdit && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-blue-100 hover:text-blue-700"
-                            title={t('gl.editAccountBtn')}
-                            onClick={() => onOpenModal('edit', account)}
-                        >
-                            <Pencil className="h-4 w-4" />
-                        </Button>
-                    )}
-                    {canDelete && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 hover:bg-red-100 hover:text-red-700"
-                            title={t('gl.deleteAccountBtn')}
-                            onClick={() => onDeleteAccount(account)}
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </Button>
-                    )}
-                </div>
-            </div>
-            {isExpanded && hasChildren && (
-                <div className="border-l-2 border-primary/20 ml-4">
-                    {account.children.map((child: any) => (
-                        <AccountTreeItem
-                            key={child.code}
-                            account={child}
-                            level={level + 1}
-                            isRTL={isRTL}
-                            expandedNodes={expandedNodes}
-                            onToggleNode={onToggleNode}
-                            onOpenModal={onOpenModal}
-                            onDeleteAccount={onDeleteAccount}
-                            searchTerm={searchTerm}
-                            categoryFilter={categoryFilter}
-                            showInactiveAccounts={showInactiveAccounts}
-                            canCreate={canCreate}
-                            canEdit={canEdit}
-                            canDelete={canDelete}
-                        />
-                    ))}
-                </div>
-            )}
-        </div>
-    );
-};
-
 function ChartOfAccounts() {
     const { t, i18n } = useTranslation();
     const isRTL = i18n.language === 'ar';
@@ -405,67 +212,25 @@ function ChartOfAccounts() {
             return;
         }
         try {
-            const org_id = await getEffectiveTenantId();
-            if (!org_id) throw new Error(t('gl.orgIdNotFound'));
-
-            // Validate required fields
-            if (!formData.code || !formData.name || !formData.category) {
-                toast.error(t('gl.requiredFields'));
+            const outcome = await saveGeneralLedgerAccount(
+                {
+                    formData,
+                    modalType,
+                    selectedAccount,
+                    t: (key, options) => t(key, options) as string,
+                },
+                {
+                    getEffectiveTenantId,
+                    checkAccountCodeExists,
+                    createGLAccount,
+                    updateGLAccount,
+                },
+            );
+            if (outcome.status === 'rejected') {
+                toast.error(outcome.message);
                 return;
             }
-
-            // Check for duplicate account code (only on create or if code changed)
-            if (modalType === 'add' || (modalType === 'edit' && selectedAccount && formData.code !== selectedAccount.code)) {
-                const codeExists = await checkAccountCodeExists(formData.code as string, org_id);
-                if (codeExists) {
-                    toast.error(t('gl.duplicateCode', { code: formData.code }));
-                    return;
-                }
-            }
-
-            // Convert category to account_type for CreateGLAccountInput
-            const accountType = formData.category as 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE' | undefined;
-            if (!accountType) {
-                toast.error(t('gl.accountTypeRequired'));
-                return;
-            }
-
-            if (modalType === 'edit' && selectedAccount) {
-                // Update existing account - UpdateGLAccountInput needs { id, ...updates }
-                const updateData: any = {
-                    id: selectedAccount.id,
-                    code: formData.code,
-                    name: formData.name,
-                    name_ar: formData.name_ar,
-                    name_en: formData.name_en,
-                    account_type: accountType,
-                    parent_id: formData.parent_id || null,
-                    is_active: formData.is_active,
-                };
-                const result = await updateGLAccount(updateData);
-                if (result.success) {
-                    toast.success(t('gl.updatedSuccess'));
-                } else {
-                    throw new Error(result.error || 'Update failed');
-                }
-            } else {
-                // Create new account - CreateGLAccountInput needs account_type (required)
-                const createData: any = {
-                    code: formData.code as string,
-                    name: formData.name as string,
-                    name_ar: formData.name_ar,
-                    name_en: formData.name_en,
-                    account_type: accountType,
-                    parent_id: formData.parent_id || null,
-                    is_active: formData.is_active !== false,
-                };
-                const result = await createGLAccount(createData);
-                if (result.success) {
-                    toast.success(t('gl.createdSuccess'));
-                } else {
-                    throw new Error(result.error || 'Create failed');
-                }
-            }
+            toast.success(outcome.message);
 
             handleCloseModal();
             await loadAccounts();
