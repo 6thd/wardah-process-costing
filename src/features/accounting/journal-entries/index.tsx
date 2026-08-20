@@ -1,23 +1,18 @@
 import { useState } from 'react';
-import { Plus, Edit, Trash2, CheckCircle, FileText, RotateCcw, Layers, Search, BookOpen } from 'lucide-react';
-import { EmptyState } from '@/components/ui/empty-state';
-import { TableSkeleton } from '@/components/ui/loading-state';
+import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useTranslation } from 'react-i18next';
 import { format } from 'date-fns';
-import { ar } from 'date-fns/locale';
 import { BatchPostDialog } from './components/BatchPostDialog';
-import { ApprovalWorkflow } from './components/ApprovalWorkflow';
 import { AttachmentsSection } from './components/AttachmentsSection';
 import { CommentsSection } from './components/CommentsSection';
+import { JournalEntriesTable, JournalEntryFilters, JournalEntryViewDialog } from './components/JournalEntrySections';
 import { toast } from 'sonner';
 import { useJournalData } from './hooks/useJournalData';
 import { useJournalEntries } from './hooks/useJournalEntries';
@@ -28,6 +23,25 @@ import { JournalService } from '@/services/accounting/journal-service';
 import { isValidDecimalInput } from '@/utils/numberValidation';
 import { usePermissions } from '@/hooks/usePermissions';
 import type { JournalEntry, JournalLine } from './types';
+
+function canOpenEntryDialog(open: boolean, editingEntry: JournalEntry | null, canCreate: boolean, canUpdate: boolean) {
+  return open && (editingEntry ? canUpdate : canCreate);
+}
+
+const BALANCE_CLASS_NAMES = {
+  true: 'text-green-600',
+  false: 'text-red-600',
+} as const;
+
+const BALANCE_LABEL_KEYS = {
+  true: 'accounting.journalEntries.balanced',
+  false: 'accounting.journalEntries.notBalanced',
+} as const;
+
+const SAVE_LABEL_KEYS = {
+  true: 'accounting.journalEntries.saving',
+  false: 'common.save',
+} as const;
 
 const JournalEntries = () => {
   const { t, i18n } = useTranslation();
@@ -237,17 +251,38 @@ const JournalEntries = () => {
     setEditingEntry(null);
   };
 
-  const getStatusBadge = (status: string) => {
-    const variants: Record<string, 'default' | 'secondary' | 'destructive'> = {
-      draft: 'secondary',
-      posted: 'default',
-      reversed: 'destructive'
-    };
-    return (
-      <Badge variant={variants[status]}>
-        {t(`accounting.status.${status}`)}
-      </Badge>
-    );
+  const handleView = async (entry: JournalEntry) => {
+    const fullEntry = await JournalService.getEntryWithDetails(entry.id);
+    if (fullEntry) {
+      setViewingEntry(fullEntry);
+      setViewDialogOpen(true);
+    }
+  };
+
+  const handleReverse = async (entry: JournalEntry) => {
+    if (!canApprove) {
+      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية عكس القيود' }));
+      return;
+    }
+    if (!confirm(t('accounting.journalEntries.confirmReverse'))) {
+      return;
+    }
+    try {
+      const result = await JournalService.reverseEntry(entry.id);
+      if (result.success) {
+        toast.success(t('accounting.journalEntries.entryReversed'));
+        fetchEntries();
+      }
+    } catch (error: any) {
+      toast.error(error.message || t('accounting.journalEntries.reversalFailed'));
+    }
+  };
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setDateFilter('');
+    fetchEntries();
   };
 
   const filteredEntries = entries.filter(entry => {
@@ -259,6 +294,8 @@ const JournalEntries = () => {
   });
 
   const { totalDebit, totalCredit, balanced } = calculateTotals(formData.lines);
+  const balanceKey = String(balanced) as keyof typeof BALANCE_CLASS_NAMES;
+  const loadingKey = String(loading) as keyof typeof SAVE_LABEL_KEYS;
 
   return (
     <div className="container mx-auto p-6" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -273,7 +310,7 @@ const JournalEntries = () => {
                 {t('accounting.journalEntries.subtitle')}
               </CardDescription>
             </div>
-            <Dialog open={isDialogOpen && (editingEntry ? canUpdate : canCreate)} onOpenChange={(open) => {
+            <Dialog open={canOpenEntryDialog(isDialogOpen, editingEntry, canCreate, canUpdate)} onOpenChange={(open) => {
               setIsDialogOpen(open);
               if (!open) resetForm();
             }}>
@@ -512,8 +549,8 @@ const JournalEntries = () => {
                             </div>
                             <div>
                               <p className="text-sm text-muted-foreground">{t('common.status')}</p>
-                              <p className={`text-lg font-bold ${balanced ? 'text-green-600' : 'text-red-600'}`}>
-                                {balanced ? t('accounting.journalEntries.balanced') : t('accounting.journalEntries.notBalanced')}
+                              <p className={`text-lg font-bold ${BALANCE_CLASS_NAMES[balanceKey]}`}>
+                                {t(BALANCE_LABEL_KEYS[balanceKey])}
                               </p>
                             </div>
                           </div>
@@ -581,7 +618,7 @@ const JournalEntries = () => {
                       {t('common.cancel')}
                     </Button>
                     <Button onClick={handleSubmit} disabled={loading || !balanced}>
-                      {loading ? t('accounting.journalEntries.saving') : t('common.save')}
+                      {t(SAVE_LABEL_KEYS[loadingKey])}
                     </Button>
                   </div>
                 </div>
@@ -591,188 +628,33 @@ const JournalEntries = () => {
         </CardHeader>
 
         <CardContent>
-          <div className="flex gap-4 mb-6">
-            <div className="flex-1">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                <Input
-                  placeholder={t('accounting.journalEntries.searchPlaceholder')}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-            </div>
+          <JournalEntryFilters
+            searchTerm={searchTerm}
+            statusFilter={statusFilter}
+            dateFilter={dateFilter}
+            canApprove={canApprove}
+            t={t}
+            onSearchChange={setSearchTerm}
+            onStatusChange={setStatusFilter}
+            onDateChange={setDateFilter}
+            onReset={resetFilters}
+            onBatchPost={() => setBatchPostDialogOpen(true)}
+          />
 
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-48">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('accounting.journalEntries.allStatuses')}</SelectItem>
-                <SelectItem value="draft">{t('accounting.status.draft')}</SelectItem>
-                <SelectItem value="posted">{t('accounting.status.posted')}</SelectItem>
-                <SelectItem value="reversed">{t('accounting.status.reversed')}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <Input
-              type="date"
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="w-48"
-            />
-
-            <Button variant="outline" onClick={() => { setSearchTerm(''); setStatusFilter('all'); setDateFilter(''); fetchEntries(); }}>
-              {t('common.reset')}
-            </Button>
-            {canApprove && (
-              <Button variant="outline" onClick={() => setBatchPostDialogOpen(true)}>
-                <Layers className="h-4 w-4 mr-2" />
-                {t('accounting.journalEntries.batchPost')}
-              </Button>
-            )}
-          </div>
-
-          <div className="rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('accounting.entryNumber')}</TableHead>
-                  <TableHead>{t('common.date')}</TableHead>
-                  <TableHead>{t('accounting.journalEntries.journal')}</TableHead>
-                  <TableHead>{t('common.description')}</TableHead>
-                  <TableHead className="text-right">{t('accounting.debit')}</TableHead>
-                  <TableHead className="text-right">{t('accounting.credit')}</TableHead>
-                  <TableHead>{t('common.status')}</TableHead>
-                  <TableHead className="text-center">{t('common.actions')}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={8} className="p-4">
-                      <TableSkeleton rows={5} />
-                    </TableCell>
-                  </TableRow>
-                ) : filteredEntries.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={8}>
-                      <EmptyState
-                        icon={<BookOpen aria-hidden="true" />}
-                        title={t('accounting.journalEntries.noEntries')}
-                        description={t('accounting.journalEntries.noEntriesDesc')}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  filteredEntries.map((entry) => (
-                    <TableRow key={entry.id}>
-                      <TableCell className="font-medium">{entry.entry_number}</TableCell>
-                      <TableCell>
-                        {format(new Date(entry.entry_date), 'dd/MM/yyyy', { locale: isRTL ? ar : undefined })}
-                      </TableCell>
-                      <TableCell>
-                        {isRTL ? (entry.journal_name_ar || entry.journal_name) : entry.journal_name}
-                      </TableCell>
-                      <TableCell>
-                        {isRTL ? entry.description_ar : entry.description}
-                      </TableCell>
-                      <TableCell className="text-right font-mono" dir="ltr">
-                        {entry.total_debit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell className="text-right font-mono" dir="ltr">
-                        {entry.total_credit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </TableCell>
-                      <TableCell>{getStatusBadge(entry.status)}</TableCell>
-                      <TableCell>
-                        <div className="flex justify-center gap-2">
-                          {entry.status === 'draft' && (
-                            <>
-                              {canUpdate && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleEdit(entry)}
-                                  title={t('common.edit')}
-                                >
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              )}
-                              {canApprove && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handlePost(entry)}
-                                  title={t('accounting.journalEntries.post')}
-                                >
-                                  <CheckCircle className="h-4 w-4 text-green-600" />
-                                </Button>
-                              )}
-                              {canDelete && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => handleDelete(entry)}
-                                  title={t('common.delete')}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-600" />
-                                </Button>
-                              )}
-                            </>
-                          )}
-                          {entry.status === 'posted' && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={async () => {
-                                  const fullEntry = await JournalService.getEntryWithDetails(entry.id);
-                                  if (fullEntry) {
-                                    setViewingEntry(fullEntry);
-                                    setViewDialogOpen(true);
-                                  }
-                                }}
-                                title={t('accounting.journalEntries.view')}
-                              >
-                                <FileText className="h-4 w-4 text-blue-600" />
-                              </Button>
-                              {!entry.reversed_by_entry_id && canApprove && (
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={async () => {
-                                    if (!canApprove) {
-                                      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية عكس القيود' }));
-                                      return;
-                                    }
-                                    if (confirm(t('accounting.journalEntries.confirmReverse'))) {
-                                      try {
-                                        const result = await JournalService.reverseEntry(entry.id);
-                                        if (result.success) {
-                                          toast.success(t('accounting.journalEntries.entryReversed'));
-                                          fetchEntries();
-                                        }
-                                      } catch (error: any) {
-                                        toast.error(error.message || t('accounting.journalEntries.reversalFailed'));
-                                      }
-                                    }
-                                  }}
-                                  title={t('accounting.journalEntries.reverse')}
-                                >
-                                  <RotateCcw className="h-4 w-4 text-orange-600" />
-                                </Button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          <JournalEntriesTable
+            entries={filteredEntries}
+            loading={loading}
+            isRTL={isRTL}
+            canUpdate={canUpdate}
+            canApprove={canApprove}
+            canDelete={canDelete}
+            t={t}
+            onEdit={handleEdit}
+            onPost={handlePost}
+            onDelete={handleDelete}
+            onView={handleView}
+            onReverse={handleReverse}
+          />
         </CardContent>
       </Card>
 
@@ -784,110 +666,14 @@ const JournalEntries = () => {
         onSuccess={fetchEntries}
       />
 
-      {/* View Entry Dialog with Tabs */}
-      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
-          <DialogHeader>
-            <DialogTitle>
-              {t('accounting.entryDetails')} - {viewingEntry?.entry_number}
-            </DialogTitle>
-            <DialogDescription>
-              {t('accounting.journalEntries.viewEntryDetails')}
-            </DialogDescription>
-          </DialogHeader>
-
-          {viewingEntry && (
-            <Tabs defaultValue="details" className="w-full">
-              <TabsList className="grid w-full grid-cols-4">
-                <TabsTrigger value="details">
-                  {t('accounting.journalEntries.details')}
-                </TabsTrigger>
-                <TabsTrigger value="approvals">
-                  {t('accounting.journalEntries.approvals')}
-                </TabsTrigger>
-                <TabsTrigger value="attachments">
-                  {t('accounting.journalEntries.attachmentsTab')}
-                </TabsTrigger>
-                <TabsTrigger value="comments">
-                  {t('accounting.journalEntries.commentsTab')}
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="details" className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label>{t('accounting.entryNumber')}</Label>
-                    <p className="font-mono">{viewingEntry.entry_number}</p>
-                  </div>
-                  <div>
-                    <Label>{t('common.date')}</Label>
-                    <p>{format(new Date(viewingEntry.entry_date), 'dd/MM/yyyy')}</p>
-                  </div>
-                  <div>
-                    <Label>{t('common.status')}</Label>
-                    <div>{getStatusBadge(viewingEntry.status)}</div>
-                  </div>
-                  <div>
-                    <Label>{t('accounting.debit')}</Label>
-                    <p className="font-mono">{viewingEntry.total_debit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                  <div>
-                    <Label>{t('accounting.credit')}</Label>
-                    <p className="font-mono">{viewingEntry.total_credit.toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                  </div>
-                </div>
-
-                {viewingEntry.lines && viewingEntry.lines.length > 0 && (
-                  <div className="border rounded-lg">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>{t('accounting.account')}</TableHead>
-                          <TableHead className="text-right">{t('accounting.debit')}</TableHead>
-                          <TableHead className="text-right">{t('accounting.credit')}</TableHead>
-                          <TableHead>{t('common.description')}</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {viewingEntry.lines.map((line) => (
-                          <TableRow key={line.id || line.line_number}>
-                            <TableCell>
-                              {line.account_code} - {isRTL ? (line.account_name_ar || line.account_name) : line.account_name}
-                            </TableCell>
-                            <TableCell className="text-right font-mono">
-                              {Number(line.debit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </TableCell>
-                            <TableCell className="text-right font-mono">
-                              {Number(line.credit || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                            </TableCell>
-                            <TableCell>{isRTL ? line.description_ar : line.description}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="approvals">
-                <ApprovalWorkflow
-                  entryId={viewingEntry.id}
-                  entryNumber={viewingEntry.entry_number}
-                  canApprove={canApprove}
-                />
-              </TabsContent>
-
-              <TabsContent value="attachments">
-                <AttachmentsSection entryId={viewingEntry.id} />
-              </TabsContent>
-
-              <TabsContent value="comments">
-                <CommentsSection entryId={viewingEntry.id} />
-              </TabsContent>
-            </Tabs>
-          )}
-        </DialogContent>
-      </Dialog>
+      <JournalEntryViewDialog
+        open={viewDialogOpen}
+        entry={viewingEntry}
+        isRTL={isRTL}
+        canApprove={canApprove}
+        t={t}
+        onOpenChange={setViewDialogOpen}
+      />
     </div>
   );
 };

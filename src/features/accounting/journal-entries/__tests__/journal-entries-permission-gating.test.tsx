@@ -240,6 +240,30 @@ describe('journal-entries — reverse on a POSTED entry requires accounting.jour
 
     await waitFor(() => expect(reverseEntryMock).toHaveBeenCalledWith('entry-2'));
   });
+
+  it('loads the full posted entry before opening the view dialog', async () => {
+    setPermissions([...CAN_READ]);
+    render(<JournalEntries />);
+
+    await waitFor(() => expect(screen.getByText('JE-0002')).toBeInTheDocument());
+    const row = screen.getByText('JE-0002').closest('tr')!;
+    await userEvent.click(within(row).getByTitle('accounting.journalEntries.view'));
+
+    await waitFor(() => expect(getEntryWithDetailsMock).toHaveBeenCalledWith('entry-2'));
+    expect(screen.getByText('accounting.journalEntries.viewEntryDetails')).toBeInTheDocument();
+  });
+
+  it('does not reverse when confirmation is rejected', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.approve']);
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    render(<JournalEntries />);
+
+    await waitFor(() => expect(screen.getByText('JE-0002')).toBeInTheDocument());
+    const row = screen.getByText('JE-0002').closest('tr')!;
+    await userEvent.click(within(row).getByTitle('accounting.journalEntries.reverse'));
+
+    expect(reverseEntryMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('journal-entries — batch post requires accounting.journals.approve', () => {
