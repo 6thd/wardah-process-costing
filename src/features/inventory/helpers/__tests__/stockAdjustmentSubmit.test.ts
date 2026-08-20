@@ -12,6 +12,7 @@ type HarnessOptions = {
   warehouseAccounts?: Array<string | null>;
   rpcData?: { success?: boolean; error?: string } | null;
   rpcError?: Error | null;
+  rpcThrown?: unknown;
   updateError?: Error | null;
 };
 
@@ -134,6 +135,7 @@ function createSubmitHarness(options: HarnessOptions = {}) {
   const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
     operations.push('rpc:journal');
     rpcCalls.push({ name, args });
+    if (options.rpcThrown !== undefined) throw options.rpcThrown;
     return {
       data: options.rpcData === undefined ? { success: true } : options.rpcData,
       error: options.rpcError ?? null,
@@ -271,6 +273,8 @@ describe('submitStockAdjustmentDraft', () => {
   it.each([
     ['RPC transport failure', { rpcError: new Error('rpc failed') }, 'فشل في إنشاء القيد المحاسبي: rpc failed'],
     ['RPC business failure', { rpcData: { success: false, error: 'posting refused' } }, 'posting refused'],
+    ['thrown string', { rpcThrown: 'unexpected failure' }, 'unexpected failure'],
+    ['thrown object', { rpcThrown: { code: 'unexpected' } }, 'فشل غير معروف في إنشاء القيد المحاسبي'],
   ] as const)('warns but still marks submitted after %s', async (_case, options, warning) => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const onJournalWarning = vi.fn();

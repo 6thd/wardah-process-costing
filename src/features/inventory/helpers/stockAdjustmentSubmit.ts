@@ -177,6 +177,12 @@ async function markAdjustmentSubmitted(
   if (updateError) throw updateError
 }
 
+function getJournalErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === 'string') return error
+  return 'فشل غير معروف في إنشاء القيد المحاسبي'
+}
+
 export async function submitStockAdjustmentDraft({
   supabase, adjustmentId, orgId, userId, validateUom, onJournalWarning,
 }: SubmitStockAdjustmentDraftParams): Promise<SubmitStockAdjustmentDraftResult> {
@@ -192,7 +198,7 @@ export async function submitStockAdjustmentDraft({
     await createJournalEntry(supabase, adjustment, items, adjustmentId, orgId)
   } catch (jeError: unknown) {
     console.error('Error creating journal entries:', jeError)
-    onJournalWarning(jeError instanceof Error ? jeError.message : String(jeError))
+    onJournalWarning(getJournalErrorMessage(jeError))
   }
   await markAdjustmentSubmitted(supabase, adjustmentId, orgId, userId)
   return { ok: true }
