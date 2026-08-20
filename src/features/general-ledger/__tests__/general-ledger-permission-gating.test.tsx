@@ -30,6 +30,7 @@ const getAllGLAccounts = vi.fn();
 const createGLAccount = vi.fn();
 const updateGLAccount = vi.fn();
 const deleteGLAccount = vi.fn();
+const checkAccountCodeExists = vi.fn();
 
 vi.mock('@/lib/supabase', () => ({
   getAllGLAccounts: (...args: unknown[]) => getAllGLAccounts(...args),
@@ -37,7 +38,7 @@ vi.mock('@/lib/supabase', () => ({
   createGLAccount: (...args: unknown[]) => createGLAccount(...args),
   updateGLAccount: (...args: unknown[]) => updateGLAccount(...args),
   deleteGLAccount: (...args: unknown[]) => deleteGLAccount(...args),
-  checkAccountCodeExists: vi.fn().mockResolvedValue(false),
+  checkAccountCodeExists: (...args: unknown[]) => checkAccountCodeExists(...args),
 }));
 
 vi.mock('@/lib/export-libs', () => ({
@@ -83,6 +84,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   hasPermissionKeyMock.mockReturnValue(false);
   getAllGLAccounts.mockResolvedValue(accounts);
+  checkAccountCodeExists.mockResolvedValue(false);
 });
 
 describe('ChartOfAccounts — screen view vs. general_ledger.chart_of_accounts.create/.edit/.delete', () => {
@@ -155,6 +157,41 @@ describe('ChartOfAccounts — screen view vs. general_ledger.chart_of_accounts.c
     await userEvent.click(screen.getByText('common.save'));
 
     await waitFor(() => expect(createGLAccount).toHaveBeenCalled());
+  });
+
+  it('keeps the create form open and performs no write when the code already exists', async () => {
+    checkAccountCodeExists.mockResolvedValue(true);
+    setPermissions([
+      'general_ledger.chart_of_accounts.view',
+      'general_ledger.chart_of_accounts.create',
+    ]);
+    renderAt('/general-ledger/accounts');
+    await waitFor(() => expect(screen.getByText('1000')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByText('gl.addAccount'));
+    await userEvent.type(await screen.findByPlaceholderText('gl.accountCode'), '2000');
+    await userEvent.type(screen.getByPlaceholderText('gl.accountNameEn'), 'Bank');
+    await userEvent.click(screen.getByText('common.save'));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('gl.duplicateCode'));
+    expect(screen.getByPlaceholderText('gl.accountCode')).toBeInTheDocument();
+    expect(createGLAccount).not.toHaveBeenCalled();
+  });
+
+  it('a full edit grant preserves the update gateway and closes after success', async () => {
+    updateGLAccount.mockResolvedValue({ success: true });
+    setPermissions([
+      'general_ledger.chart_of_accounts.view',
+      'general_ledger.chart_of_accounts.edit',
+    ]);
+    renderAt('/general-ledger/accounts');
+    await waitFor(() => expect(screen.getByText('1000')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByTitle('gl.editAccountBtn'));
+    await userEvent.click(await screen.findByText('common.save'));
+
+    await waitFor(() => expect(updateGLAccount).toHaveBeenCalled());
+    expect(screen.queryByPlaceholderText('gl.accountCode')).not.toBeInTheDocument();
   });
 
   it('hides subaccount creation for a non-posting account without the create key', async () => {
