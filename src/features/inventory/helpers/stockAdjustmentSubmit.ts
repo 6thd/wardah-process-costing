@@ -103,8 +103,10 @@ async function appendIncreaseJournalEntries(
     .from('warehouses').select('inventory_account_id')
     .eq('id', adjustment.warehouse_id).eq('org_id', orgId).single()
   if (warehouseData?.inventory_account_id) {
-    journalEntries.push({ account_id: warehouseData.inventory_account_id, debit: totalIncrease, credit: 0, description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` })
-    journalEntries.push({ account_id: adjustment.increase_account_id, debit: 0, credit: totalIncrease, description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` })
+    journalEntries.push(
+      { account_id: warehouseData.inventory_account_id, debit: totalIncrease, credit: 0, description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` },
+      { account_id: adjustment.increase_account_id, debit: 0, credit: totalIncrease, description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` },
+    )
   }
 }
 
@@ -117,8 +119,10 @@ async function appendDecreaseJournalEntries(
     .from('warehouses').select('inventory_account_id')
     .eq('id', adjustment.warehouse_id).eq('org_id', orgId).single()
   if (warehouseData?.inventory_account_id) {
-    journalEntries.push({ account_id: adjustment.decrease_account_id, debit: totalDecrease, credit: 0, description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` })
-    journalEntries.push({ account_id: warehouseData.inventory_account_id, debit: 0, credit: totalDecrease, description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` })
+    journalEntries.push(
+      { account_id: adjustment.decrease_account_id, debit: totalDecrease, credit: 0, description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` },
+      { account_id: warehouseData.inventory_account_id, debit: 0, credit: totalDecrease, description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}` },
+    )
   }
 }
 
@@ -186,9 +190,9 @@ export async function submitStockAdjustmentDraft({
   await insertStockLedgerEntries(supabase, adjustment, items, adjustmentId, orgId, userId)
   try {
     await createJournalEntry(supabase, adjustment, items, adjustmentId, orgId)
-  } catch (jeError: any) {
+  } catch (jeError: unknown) {
     console.error('Error creating journal entries:', jeError)
-    onJournalWarning(jeError.message)
+    onJournalWarning(jeError instanceof Error ? jeError.message : String(jeError))
   }
   await markAdjustmentSubmitted(supabase, adjustmentId, orgId, userId)
   return { ok: true }
