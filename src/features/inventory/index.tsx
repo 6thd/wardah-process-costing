@@ -27,6 +27,7 @@ import {
   createAdjustmentItem,
   findUnmappedAdjustmentProductIds,
   saveStockAdjustmentDraft,
+  submitStockAdjustmentDraft,
   updateAdjustmentItemQuantity,
   validateAdjustmentForm,
   type AdjustmentItem,
@@ -1192,216 +1193,36 @@ function StockAdjustments() {
         return
       }
 
-      // Get user's organization
       if (!currentOrgId) {
         toast.error('لم يتم تحديد المؤسسة النشطة')
         return
       }
 
-      // Get adjustment with items
-      const { data: adjustment, error: adjError } = await supabase
-        .from('stock_adjustments')
-        .select('*')
-        .eq('id', adjustmentId)
-        .eq('organization_id', currentOrgId)
-        .single()
-
-      if (adjError || !adjustment) {
-        toast.error('لم يتم العثور على التسوية')
-        return
-      }
-
-      if (adjustment.status !== 'DRAFT') {
-        toast.error('يمكن فقط ترحيل التسويات بحالة مسودة')
-        return
-      }
-
-      // Get adjustment items
-      const { data: items, error: itemsError } = await supabase
-        .from('stock_adjustment_items')
-        .select('*')
-        .eq('adjustment_id', adjustmentId)
-        .eq('organization_id', currentOrgId)
-
-      if (itemsError || !items || items.length === 0) {
-        toast.error('لم يتم العثور على بنود التسوية')
-        return
-      }
-
-      // Re-check UoM setup fail-closed before posting: an older draft may reference
-      // a product that is not (or no longer) MAPPED. Block before any SLE write.
-      if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
-        toast.error('جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات')
-        return
-      }
-      if (findUnmappedAdjustmentProductIds(items as Array<{ product_id: string }>, productNeedsUomSetup).length > 0) {
-        toast.error('لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية')
-        return
-      }
-
-      // Use the warehouse from the adjustment
-      const warehouseId = adjustment.warehouse_id
-
-      if (!warehouseId) {
-        toast.error('لم يتم تحديد المخزن في التسوية')
-        return
-      }
-
-      // Create stock ledger entries for each item
-      const stockLedgerEntries = items.map((item: any) => ({
-        org_id: currentOrgId,
-        posting_date: adjustment.posting_date,
-        posting_time: new Date().toTimeString().split(' ')[0],
-        voucher_type: 'Stock Adjustment',
-        voucher_id: adjustmentId,
-        voucher_number: adjustment.adjustment_number || adjustment.reference_number || `ADJ-${adjustmentId.substring(0, 8)}`,
-        product_id: item.product_id,
-        warehouse_id: item.warehouse_id || warehouseId, // Use item's warehouse or adjustment's warehouse
-        actual_qty: item.difference_qty,
-        qty_after_transaction: item.new_qty,
-        incoming_rate: item.difference_qty > 0 ? item.current_rate : 0,
-        outgoing_rate: item.difference_qty < 0 ? item.current_rate : 0,
-        valuation_rate: item.current_rate,
-        stock_value: item.new_qty * item.current_rate,
-        stock_value_difference: item.value_difference,
-        is_cancelled: false,
-        created_by: user.id
-      }))
-
-      const { error: ledgerError } = await supabase
-        .from('stock_ledger_entries')
-        .insert(stockLedgerEntries)
-
-      if (ledgerError) {
-        console.error('Error creating stock ledger entries:', ledgerError)
-        throw new Error('فشل في إنشاء قيود المخزون: ' + ledgerError.message)
-      }
-
-      // Create Journal Entries for accounting integration
-      try {
-        // Calculate totals for increases and decreases
-        const totalIncrease = items
-          .filter((item: any) => item.difference_qty > 0)
-          .reduce((sum: number, item: any) => sum + item.value_difference, 0)
-        
-        const totalDecrease = items
-          .filter((item: any) => item.difference_qty < 0)
-          .reduce((sum: number, item: any) => sum + Math.abs(item.value_difference), 0)
-
-        const journalEntries = []
-
-        // Entry for increases (Dr: Inventory Asset, Cr: Adjustment Account)
-        if (totalIncrease > 0 && adjustment.increase_account_id) {
-          const { data: warehouseData } = await supabase
-            .from('warehouses')
-            .select('inventory_account_id')
-            .eq('id', adjustment.warehouse_id)
-            .eq('org_id', currentOrgId)
-            .single()
-
-          if (warehouseData?.inventory_account_id) {
-            journalEntries.push({
-              account_id: warehouseData.inventory_account_id,
-              debit: totalIncrease,
-              credit: 0,
-              description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
-            })
-            journalEntries.push({
-              account_id: adjustment.increase_account_id,
-              debit: 0,
-              credit: totalIncrease,
-              description: `زيادة مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
-            })
+      const result = await submitStockAdjustmentDraft({
+        supabase,
+        adjustmentId,
+        orgId: currentOrgId,
+        userId: user.id,
+        validateUom: (items) => {
+          if (productUomStatus.isEnabled && !productUomStatus.isSuccess) {
+            return 'جارٍ التحقق من إعداد وحدات الأصناف — أعد المحاولة بعد لحظات'
           }
-        }
-
-        // Entry for decreases (Dr: Expense Account, Cr: Inventory Asset)
-        if (totalDecrease > 0 && adjustment.decrease_account_id) {
-          const { data: warehouseData } = await supabase
-            .from('warehouses')
-            .select('inventory_account_id')
-            .eq('id', adjustment.warehouse_id)
-            .eq('org_id', currentOrgId)
-            .single()
-
-          if (warehouseData?.inventory_account_id) {
-            journalEntries.push({
-              account_id: adjustment.decrease_account_id,
-              debit: totalDecrease,
-              credit: 0,
-              description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
-            })
-            journalEntries.push({
-              account_id: warehouseData.inventory_account_id,
-              debit: 0,
-              credit: totalDecrease,
-              description: `نقص مخزون - ${adjustment.adjustment_type} - ${adjustment.reference_number || adjustmentId}`
-            })
+          if (findUnmappedAdjustmentProductIds(items, productNeedsUomSetup).length > 0) {
+            return 'لا يمكن الترحيل: توجد أصناف تحتاج إعداد وحدة في هذه التسوية'
           }
-        }
+          return null
+        },
+        onJournalWarning: (message) => {
+          toast.warning('تم ترحيل التسوية لكن فشل إنشاء القيود المحاسبية: ' + message)
+        },
+      })
 
-        // Insert journal entries if any — عبر القناة القانونية الوحيدة للكتابة على GL
-        // (كان الرأس يُدرج في gl_entries والسطور في journal_lines القديم ⇒ قيود بلا سطور)
-        if (journalEntries.length > 0) {
-          const { data: rpcResult, error: rpcError } = await supabase.rpc(
-            'rpc_create_journal_entry',
-            {
-              p_payload: {
-                org_id: currentOrgId,
-                entry_date: adjustment.posting_date,
-                entry_type: 'manual',
-                reference_type: 'stock_adjustments',
-                reference_number: adjustment.reference_number
-                  || adjustment.adjustment_number
-                  || `ADJ-${adjustmentId.substring(0, 8)}`,
-                description: `تسوية مخزون - ${adjustment.reason}`,
-                auto_post: true,
-                // نفس مفتاح stock-adjustment-service — تكرار الترحيل من أي مسار = replay
-                idempotency_key: `stock-adj-${adjustmentId}`,
-                lines: journalEntries.map((entry: any, idx: number) => ({
-                  line_number: idx + 1,
-                  account_id: entry.account_id,
-                  debit: entry.debit || 0,
-                  credit: entry.credit || 0,
-                  description: entry.description || ''
-                }))
-              }
-            }
-          )
-
-          if (rpcError) {
-            console.error('Error creating GL entry:', rpcError)
-            throw new Error('فشل في إنشاء القيد المحاسبي: ' + rpcError.message)
-          }
-          const glResult = rpcResult as { success?: boolean; error?: string } | null
-          if (!glResult?.success) {
-            throw new Error(glResult?.error || 'فشل في إنشاء القيد المحاسبي')
-          }
-        } else {
-          console.warn('⚠️ No journal entries to create')
-        }
-      } catch (jeError: any) {
-        console.error('Error creating journal entries:', jeError)
-        // Don't fail the whole operation if journal entry creation fails
-        toast.warning('تم ترحيل التسوية لكن فشل إنشاء القيود المحاسبية: ' + jeError.message)
+      if ('message' in result) {
+        toast.error(result.message)
+        return
       }
-      
-      // Update adjustment status to SUBMITTED
-      const { error: updateError } = await supabase
-        .from('stock_adjustments')
-        .update({
-          status: 'SUBMITTED',
-          submitted_at: new Date().toISOString(),
-          submitted_by: user.id
-        })
-        .eq('id', adjustmentId)
-        .eq('organization_id', currentOrgId)
-
-      if (updateError) throw updateError
 
       toast.success('✅ تم ترحيل التسوية بنجاح وتحديث قيود المخزون')
-      
-      // Close view mode and reload
       setViewMode(false)
       setSelectedAdjustment(null)
       loadAdjustments()
