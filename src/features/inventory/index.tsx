@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { Plus, X, Trash2, PackageOpen, ClipboardList } from 'lucide-react'
+import { X, Trash2, PackageOpen } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
@@ -19,8 +19,15 @@ import { useAuth } from '@/contexts/AuthContext'
 import { usePermissions } from '@/hooks/usePermissions'
 import { ProductUomSettings } from './components/ProductUomSettings'
 import { UomBackfillIssues } from './components/UomBackfillIssues'
-import { UomStatusBadge } from './components/UomStatusBadge'
 import { InventoryKeyMetrics, InventoryQuickActions, LowStockAlert } from './components/InventoryOverviewSections'
+import {
+  StockAdjustmentCreateAction,
+  StockAdjustmentDetailsCard,
+  StockAdjustmentFilters,
+  StockAdjustmentProductPicker,
+  StockAdjustmentsList,
+  type StockAdjustmentRecord,
+} from './components/StockAdjustmentSections'
 import { 
   ADJUSTMENT_TYPES,
   calculateAdjustmentTotals,
@@ -1233,6 +1240,87 @@ function StockAdjustments() {
     }
   }
 
+  const handleCloseAdjustmentDetails = () => {
+    setViewMode(false)
+    setSelectedAdjustment(null)
+  }
+
+  const handleEditSelectedAdjustment = async () => {
+    if (!canUpdateAdjustment || !selectedAdjustment) return
+
+    try {
+      const supabase = getSupabase()
+      const { data: items, error } = await supabase
+        .from('stock_adjustment_items')
+        .select('*, products(*)')
+        .eq('adjustment_id', selectedAdjustment.id)
+
+      if (error) throw error
+
+      setNewAdjustment({
+        adjustment_date: selectedAdjustment.adjustment_date,
+        adjustment_type: selectedAdjustment.adjustment_type,
+        reason: selectedAdjustment.reason || '',
+        reference_number: selectedAdjustment.reference_number,
+        warehouse_id: selectedAdjustment.warehouse_id,
+        increase_account_id: selectedAdjustment.increase_account_id || '',
+        decrease_account_id: selectedAdjustment.decrease_account_id || '',
+        items: items?.map(item => ({
+          id: item.id,
+          product_id: item.product_id,
+          product: item.products,
+          warehouse_id: item.warehouse_id,
+          current_qty: item.current_qty || 0,
+          new_qty: item.new_qty || 0,
+          difference_qty: item.difference_qty || 0,
+          current_rate: item.current_rate || 0,
+          value_difference: item.value_difference || 0,
+          reason: item.reason || ''
+        })) || []
+      })
+
+      setViewMode(false)
+      setSelectedAdjustment({ ...selectedAdjustment, isEditing: true })
+      setShowNewForm(true)
+    } catch (error: any) {
+      toast.error('فشل تحميل بيانات التسوية: ' + error.message)
+    }
+  }
+
+  const handleSubmitSelectedAdjustment = async () => {
+    if (!canApproveAdjustment || !selectedAdjustment) return
+    if (confirm('هل أنت متأكد من ترحيل هذه التسوية؟ سيتم تحديث أرصدة المخزون وإنشاء القيود المحاسبية.')) {
+      await handleSubmitAdjustment(selectedAdjustment.id)
+    }
+  }
+
+  const handleCancelSelectedAdjustment = async () => {
+    if (!canUpdateAdjustment || !selectedAdjustment) return
+    if (!confirm('هل أنت متأكد من إلغاء هذه التسوية؟')) return
+
+    try {
+      const supabase = getSupabase()
+      const { error } = await supabase
+        .from('stock_adjustments')
+        .update({ status: 'CANCELLED' })
+        .eq('id', selectedAdjustment.id)
+
+      if (error) throw error
+
+      toast.success('تم إلغاء التسوية بنجاح')
+      setViewMode(false)
+      setSelectedAdjustment(null)
+      loadAdjustments()
+    } catch (error: any) {
+      toast.error('فشل إلغاء التسوية: ' + error.message)
+    }
+  }
+
+  const handleSelectAdjustment = (adjustment: StockAdjustmentRecord) => {
+    setSelectedAdjustment(adjustment)
+    setViewMode(true)
+  }
+
   const filteredProducts = products.filter(
     (p: any) =>
       p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1254,12 +1342,11 @@ function StockAdjustments() {
         description="تعديل وتصحيح أرصدة المخزون حسب المعايير المحاسبية"
         hideOnPrint={false}
         actions={
-          canCreateAdjustment && canOpenAdjustmentForm && (
-            <Button onClick={() => setShowNewForm(true)} className="gap-2">
-              <Plus className="w-4 h-4" />
-              تسوية جديدة
-            </Button>
-          )
+          <StockAdjustmentCreateAction
+            canCreateAdjustment={canCreateAdjustment}
+            canOpenAdjustmentForm={canOpenAdjustmentForm}
+            onCreate={() => setShowNewForm(true)}
+          />
         }
       />
 
@@ -1492,106 +1579,26 @@ function StockAdjustments() {
               />
             </div>
 
-            {/* Product Selection */}
-            <div className="relative z-20">
-              <label htmlFor="adjustment-add-item" className="block text-sm font-medium mb-2">
-                إضافة منتج
-              </label>
-              
-              {!newAdjustment.warehouse_id && (
-                <div className="mb-2 p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
-                  <p className="text-sm text-amber-800 dark:text-amber-200 flex items-center gap-2">
-                    <span>⚠️</span>
-                    <span>يجب اختيار المخزن أولاً قبل إضافة المنتجات</span>
-                  </p>
-                </div>
-              )}
-
-              <div className="flex gap-2">
-                <div className="flex-1 relative product-search-container">
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => {
-                      setSearchTerm(e.target.value)
-                      setShowProductSearch(true)
-                    }}
-                    onFocus={() => setShowProductSearch(true)}
-                    placeholder="ابحث عن منتج..."
-                    disabled={!newAdjustment.warehouse_id}
-                    className="w-full px-3 py-2 border rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                  />
-                  
-                  {showProductSearch && searchTerm && (
-                    <div 
-                      className="absolute z-[9999] w-full mt-1 bg-card dark:bg-gray-950 border-2 border-gray-400 dark:border-gray-400 rounded-lg shadow-2xl max-h-60 overflow-y-auto"
-                      style={{ 
-                        boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.95), 0 0 0 1px rgba(255, 255, 255, 0.1)',
-                      }}
-                    >
-                      {productUomStatus.isEnabled && productUomStatus.isLoading ? (
-                        <div className="px-4 py-4 text-center text-muted-foreground bg-card dark:bg-gray-950">
-                          جارٍ التحقق من إعداد وحدات الأصناف…
-                        </div>
-                      ) : productUomStatus.isEnabled && productUomStatus.isError ? (
-                        <div className="px-4 py-4 text-center text-red-600 bg-card dark:bg-gray-950">
-                          تعذّر التحقق من حالة وحدات الأصناف — لا يمكن اختيار صنف الآن
-                        </div>
-                      ) : filteredProducts.length > 0 ? (
-                        filteredProducts.map((product) => {
-                          const needsUom = productNeedsUomSetup(product.id)
-                          // Unmapped product: not a selectable button — a non-interactive
-                          // row carrying a linked badge so the repair link stays reachable
-                          // and keyboard-accessible (a link inside a disabled button is not).
-                          if (needsUom) {
-                            return (
-                              <div
-                                key={product.id}
-                                className="w-full px-4 py-3 text-right border-b border-border dark:border-gray-700 last:border-b-0 bg-muted/40 dark:bg-gray-900 opacity-80"
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="font-medium text-foreground dark:text-white">{product.name}</div>
-                                  <UomStatusBadge />
-                                </div>
-                                <div className="text-sm text-muted-foreground dark:text-muted-foreground">
-                                  {product.code} - الرصيد: {product.stock_quantity}
-                                </div>
-                              </div>
-                            )
-                          }
-                          return (
-                          <button
-                            key={product.id}
-                            onClick={() => {
-                              setSelectedProduct(product)
-                              setSearchTerm(product.name)
-                              setShowProductSearch(false)
-                            }}
-                            className="w-full px-4 py-3 text-right hover:bg-muted dark:hover:bg-gray-800 border-b border-border dark:border-gray-700 last:border-b-0 transition-colors bg-card dark:bg-gray-950"
-                          >
-                            <div className="font-medium text-foreground dark:text-white">{product.name}</div>
-                            <div className="text-sm text-muted-foreground dark:text-muted-foreground">
-                              {product.code} - الرصيد: {product.stock_quantity}
-                            </div>
-                          </button>
-                          )
-                        })
-                      ) : (
-                        <div className="px-4 py-4 text-center text-muted-foreground dark:text-muted-foreground bg-card dark:bg-gray-950">
-                          لا توجد نتائج
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-                <Button 
-                  onClick={handleAddItem}
-                  disabled={!newAdjustment.warehouse_id || !selectedProduct}
-                >
-                  إضافة
-                </Button>
-              </div>
-            </div>
+            <StockAdjustmentProductPicker
+              warehouseId={newAdjustment.warehouse_id}
+              searchTerm={searchTerm}
+              showProductSearch={showProductSearch}
+              filteredProducts={filteredProducts}
+              selectedProduct={selectedProduct}
+              productUomStatus={productUomStatus}
+              productNeedsUomSetup={productNeedsUomSetup}
+              onSearchTermChange={(value) => {
+                setSearchTerm(value)
+                setShowProductSearch(true)
+              }}
+              onSearchFocus={() => setShowProductSearch(true)}
+              onProductSelect={(product) => {
+                setSelectedProduct(product)
+                setSearchTerm(product.name)
+                setShowProductSearch(false)
+              }}
+              onAddItem={handleAddItem}
+            />
 
             {/* Items Table */}
             {newAdjustment.items.length > 0 && (
@@ -1772,287 +1779,30 @@ function StockAdjustments() {
         </Card>
       )}
 
-      {/* View Mode - Display Adjustment Details */}
       {viewMode && selectedAdjustment && (
-        <Card className="p-6">
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-2xl font-bold flex items-center gap-2">
-                <span>
-                  {ADJUSTMENT_TYPES[selectedAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.icon}
-                </span>
-                {' '}
-                تفاصيل التسوية
-              </h3>
-              <Button variant="outline" onClick={() => {
-                setViewMode(false)
-                setSelectedAdjustment(null)
-              }}>
-                ✕ إغلاق
-              </Button>
-            </div>
-
-            {/* Adjustment Header Info */}
-            <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 dark:bg-gray-900 rounded-lg">
-              <div>
-                <span className="text-sm text-muted-foreground">رقم التسوية:</span>
-                <p className="font-medium">{selectedAdjustment.adjustment_number}</p>
-              </div>
-              <div>
-                <span className="text-sm text-muted-foreground">التاريخ:</span>
-                <p className="font-medium">
-                  {new Date(selectedAdjustment.adjustment_date).toLocaleDateString('en-US')}
-                </p>
-              </div>
-              <div>
-                <span className="text-sm text-muted-foreground">النوع:</span>
-                <p className="font-medium">
-                  {ADJUSTMENT_TYPES[selectedAdjustment.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.label}
-                </p>
-              </div>
-              <div>
-                <span className="text-sm text-muted-foreground">الحالة:</span>
-                <Badge
-                  variant={
-                    selectedAdjustment.status === 'SUBMITTED'
-                      ? 'default'
-                      : selectedAdjustment.status === 'DRAFT'
-                      ? 'secondary'
-                      : 'destructive'
-                  }
-                >
-                  {selectedAdjustment.status === 'SUBMITTED'
-                    ? 'مرحل'
-                    : selectedAdjustment.status === 'DRAFT'
-                    ? 'مسودة'
-                    : 'ملغي'}
-                </Badge>
-              </div>
-              <div className="col-span-2">
-                <span className="text-sm text-muted-foreground">السبب:</span>
-                <p className="font-medium">{selectedAdjustment.reason}</p>
-              </div>
-              {selectedAdjustment.reference_number && (
-                <div className="col-span-2">
-                  <span className="text-sm text-muted-foreground">رقم المرجع:</span>
-                  <p className="font-medium">{selectedAdjustment.reference_number}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Summary Statistics */}
-            <div className="grid grid-cols-4 gap-4">
-              <div className="p-4 bg-blue-50 dark:bg-blue-950 rounded-lg">
-                <p className="text-sm text-muted-foreground">إجمالي المنتجات</p>
-                <p className="text-2xl font-bold">{selectedAdjustment.total_items || 0}</p>
-              </div>
-              <div className="p-4 bg-purple-50 dark:bg-purple-950 rounded-lg">
-                <p className="text-sm text-muted-foreground">فرق الكمية</p>
-                <p className="text-2xl font-bold">{selectedAdjustment.total_qty_difference || 0}</p>
-              </div>
-              <div className="p-4 bg-green-50 dark:bg-green-950 rounded-lg">
-                <p className="text-sm text-muted-foreground">فرق القيمة</p>
-                <p className="text-2xl font-bold">
-                  {(selectedAdjustment.total_value_difference || 0).toFixed(2)} ر.س
-                </p>
-              </div>
-              <div className="p-4 bg-amber-50 dark:bg-amber-950 rounded-lg">
-                <p className="text-sm text-muted-foreground">يتطلب موافقة</p>
-                <p className="text-2xl font-bold">{selectedAdjustment.requires_approval ? 'نعم' : 'لا'}</p>
-              </div>
-            </div>
-
-            {/* Action Buttons */}
-            {selectedAdjustment.status === 'DRAFT' && (
-              <div className="flex justify-end gap-2">
-                {canUpdateAdjustment && canOpenAdjustmentForm && (
-                <Button variant="outline" onClick={async () => {
-                  if (!canUpdateAdjustment) return
-                  try {
-                    // Load adjustment items
-                    const supabase = getSupabase()
-                    const { data: items, error } = await supabase
-                      .from('stock_adjustment_items')
-                      .select('*, products(*)')
-                      .eq('adjustment_id', selectedAdjustment.id)
-                    
-                    if (error) throw error
-
-                    // Set form data for editing
-                    setNewAdjustment({
-                      adjustment_date: selectedAdjustment.adjustment_date,
-                      adjustment_type: selectedAdjustment.adjustment_type,
-                      reason: selectedAdjustment.reason || '',
-                      reference_number: selectedAdjustment.reference_number,
-                      warehouse_id: selectedAdjustment.warehouse_id,
-                      increase_account_id: selectedAdjustment.increase_account_id || '',
-                      decrease_account_id: selectedAdjustment.decrease_account_id || '',
-                      items: items?.map(item => ({
-                        id: item.id,
-                        product_id: item.product_id,
-                        product: item.products,
-                        warehouse_id: item.warehouse_id,
-                        current_qty: item.current_qty || 0,
-                        new_qty: item.new_qty || 0,
-                        difference_qty: item.difference_qty || 0,
-                        current_rate: item.current_rate || 0,
-                        value_difference: item.value_difference || 0,
-                        reason: item.reason || ''
-                      })) || []
-                    })
-
-                    // Switch to edit mode
-                    setViewMode(false)
-                    setSelectedAdjustment({ ...selectedAdjustment, isEditing: true })
-                    setShowNewForm(true)
-                  } catch (error: any) {
-                    toast.error('فشل تحميل بيانات التسوية: ' + error.message)
-                  }
-                }}>
-                  ✏️ تعديل
-                </Button>
-                )}
-                {canApproveAdjustment && (
-                <Button onClick={async () => {
-                  if (!canApproveAdjustment) return
-                  if (confirm('هل أنت متأكد من ترحيل هذه التسوية؟ سيتم تحديث أرصدة المخزون وإنشاء القيود المحاسبية.')) {
-                    await handleSubmitAdjustment(selectedAdjustment.id)
-                  }
-                }}>
-                  ✅ ترحيل
-                </Button>
-                )}
-                {canUpdateAdjustment && (
-                <Button variant="destructive" onClick={async () => {
-                  if (!canUpdateAdjustment) return
-                  if (confirm('هل أنت متأكد من إلغاء هذه التسوية؟')) {
-                    try {
-                      const supabase = getSupabase()
-                      const { error } = await supabase
-                        .from('stock_adjustments')
-                        .update({ status: 'CANCELLED' })
-                        .eq('id', selectedAdjustment.id)
-
-                      if (error) throw error
-
-                      toast.success('تم إلغاء التسوية بنجاح')
-                      setViewMode(false)
-                      setSelectedAdjustment(null)
-                      loadAdjustments()
-                    } catch (error: any) {
-                      toast.error('فشل إلغاء التسوية: ' + error.message)
-                    }
-                  }
-                }}>
-                  🗑️ إلغاء
-                </Button>
-                )}
-              </div>
-            )}
-          </div>
-        </Card>
+        <StockAdjustmentDetailsCard
+          adjustment={selectedAdjustment}
+          canUpdateAdjustment={canUpdateAdjustment}
+          canApproveAdjustment={canApproveAdjustment}
+          canOpenAdjustmentForm={canOpenAdjustmentForm}
+          onClose={handleCloseAdjustmentDetails}
+          onEdit={handleEditSelectedAdjustment}
+          onSubmit={handleSubmitSelectedAdjustment}
+          onCancel={handleCancelSelectedAdjustment}
+        />
       )}
 
-      {/* Filters */}
-      <Card className="p-4">
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label htmlFor="filter-status" className="block text-sm font-medium mb-1">الحالة</label>
-            <select
-              id="filter-status"
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-gray-700 rounded-md bg-card dark:bg-gray-800 text-foreground dark:text-gray-100 hover:bg-muted/50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="all">الكل</option>
-              <option value="DRAFT">مسودة</option>
-              <option value="SUBMITTED">مرحل</option>
-              <option value="CANCELLED">ملغي</option>
-            </select>
-          </div>
-          <div className="flex-1">
-            <label htmlFor="filter-type" className="block text-sm font-medium mb-1">النوع</label>
-            <select
-              id="filter-type"
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="w-full px-3 py-2 border border-border dark:border-gray-700 rounded-md bg-card dark:bg-gray-800 text-foreground dark:text-gray-100 hover:bg-muted/50 dark:hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
-            >
-              <option value="all">الكل</option>
-              {Object.entries(ADJUSTMENT_TYPES).map(([key, value]) => (
-                <option key={key} value={key}>
-                  {value.icon} {value.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </Card>
+      <StockAdjustmentFilters
+        filterStatus={filterStatus}
+        filterType={filterType}
+        onStatusChange={setFilterStatus}
+        onTypeChange={setFilterType}
+      />
 
-      {/* Adjustments List */}
-      <div className="bg-card rounded-lg border">
-        {adjustments.length === 0 ? (
-          <EmptyState
-            icon={<ClipboardList aria-hidden="true" />}
-            title="لا توجد تسويات مخزون بعد"
-            description="ابدأ بإنشاء تسوية جديدة بالزر أعلاه"
-          />
-        ) : (
-          <div className="divide-y">
-            {adjustments.map((adj) => (
-              <button
-                key={adj.id}
-                type="button"
-                aria-label={`عرض تفاصيل تسوية المخزون ${adj.id}`}
-                className="w-full text-start p-4 hover:bg-muted/50 cursor-pointer transition-colors border-0 bg-transparent"
-                onClick={() => {
-                  setSelectedAdjustment(adj)
-                  setViewMode(true)
-                }}
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">
-                        {ADJUSTMENT_TYPES[adj.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.icon}
-                      </span>
-                      <div>
-                        <h3 className="font-medium">
-                          {ADJUSTMENT_TYPES[adj.adjustment_type as keyof typeof ADJUSTMENT_TYPES]?.label}
-                        </h3>
-                        <p className="text-sm text-muted-foreground">
-                          {adj.reference_number || adj.id}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-sm mt-2">{adj.reason}</p>
-                  </div>
-                  <div className="text-start">
-                    <Badge
-                      variant={
-                        adj.status === 'SUBMITTED'
-                          ? 'default'
-                          : adj.status === 'DRAFT'
-                          ? 'secondary'
-                          : 'destructive'
-                      }
-                    >
-                      {adj.status === 'SUBMITTED'
-                        ? 'مرحل'
-                        : adj.status === 'DRAFT'
-                        ? 'مسودة'
-                        : 'ملغي'}
-                    </Badge>
-                    <div className="text-sm text-muted-foreground mt-2">
-                      {new Date(adj.adjustment_date).toLocaleDateString('en-US')}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+      <StockAdjustmentsList
+        adjustments={adjustments}
+        onSelect={handleSelectAdjustment}
+      />
     </div>
   )
 }
@@ -2438,7 +2188,3 @@ function StorageBinsPage() {
 function StockTransfersPage() {
   return <StockTransferManagement />
 }
-
-
-
-
