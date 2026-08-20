@@ -9,19 +9,19 @@ export interface AccountTreeNode extends GLAccount {
 }
 
 export interface AccountTreeItemProps {
-  account: AccountTreeNode;
-  level: number;
-  isRTL: boolean;
-  expandedNodes: Set<string>;
-  onToggleNode: (code: string) => void;
-  onOpenModal: (type: 'add' | 'edit', account?: GLAccount, parent?: GLAccount) => void;
-  onDeleteAccount: (account: GLAccount) => void;
-  searchTerm: string;
-  categoryFilter: string;
-  showInactiveAccounts: boolean;
-  canCreate: boolean;
-  canEdit: boolean;
-  canDelete: boolean;
+  readonly account: AccountTreeNode;
+  readonly level: number;
+  readonly isRTL: boolean;
+  readonly expandedNodes: Set<string>;
+  readonly onToggleNode: (code: string) => void;
+  readonly onOpenModal: (type: 'add' | 'edit', account?: GLAccount, parent?: GLAccount) => void;
+  readonly onDeleteAccount: (account: GLAccount) => void;
+  readonly searchTerm: string;
+  readonly categoryFilter: string;
+  readonly showInactiveAccounts: boolean;
+  readonly canCreate: boolean;
+  readonly canEdit: boolean;
+  readonly canDelete: boolean;
 }
 
 interface AccountFilter {
@@ -34,8 +34,8 @@ export function accountMatchesFilters(account: AccountTreeNode, filter: AccountF
   const normalizedSearch = filter.searchTerm.toLowerCase();
   const matchesSearch = !filter.searchTerm
     || account.code.toLowerCase().includes(normalizedSearch)
-    || Boolean(account.name && account.name.toLowerCase().includes(normalizedSearch))
-    || Boolean(account.name_ar && account.name_ar.toLowerCase().includes(normalizedSearch));
+    || Boolean(account.name?.toLowerCase().includes(normalizedSearch))
+    || Boolean(account.name_ar?.toLowerCase().includes(normalizedSearch));
   const matchesCategory = filter.categoryFilter === 'all'
     || account.category === filter.categoryFilter;
   const matchesActive = filter.showInactiveAccounts || account.is_active;
