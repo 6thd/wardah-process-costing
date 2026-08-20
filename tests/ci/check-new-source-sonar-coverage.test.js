@@ -12,7 +12,7 @@ import {
   parseLcovSourceFiles,
   findNewSourceCoverageGaps,
   isSafeGitRef,
-  globToRegExp,
+  matchesAnyGlob,
 } from '../../scripts/ci/check-new-source-sonar-coverage.mjs'
 
 describe('parseSonarProperties', () => {
@@ -147,11 +147,15 @@ describe('isSafeGitRef', () => {
   })
 })
 
-describe('globToRegExp', () => {
-  it('collapses consecutive `**` segments so the compiled pattern has no adjacent unbounded-star groups', () => {
-    const regex = globToRegExp('**/**/**/src/features/accounting/journal-entries/components/**')
-    expect(regex.source.match(/\.\*/g)?.length).toBe(2) // one `(?:.*/)?`, one trailing `.*` — not one per collapsed `**`
-    expect(regex.test('src/features/accounting/journal-entries/components/JournalEntrySections.tsx')).toBe(true)
-    expect(regex.test('src/features/accounting/journal-entries/index.tsx')).toBe(false)
+describe('matchesAnyGlob', () => {
+  it('matches sonar.coverage.exclusions-style `**/dir/**` globs via path.matchesGlob (positive and negative cases)', () => {
+    const globs = ['**/src/features/accounting/journal-entries/components/**']
+
+    // positive: a file inside the excluded directory
+    expect(matchesAnyGlob('src/features/accounting/journal-entries/components/JournalEntrySections.tsx', globs)).toBe(true)
+    // negative: a sibling file one level up, outside the excluded directory
+    expect(matchesAnyGlob('src/features/accounting/journal-entries/index.tsx', globs)).toBe(false)
+    // negative: an unrelated directory that only shares a suffix
+    expect(matchesAnyGlob('src/features/inventory/components/StockAdjustmentSections.tsx', globs)).toBe(false)
   })
 })
