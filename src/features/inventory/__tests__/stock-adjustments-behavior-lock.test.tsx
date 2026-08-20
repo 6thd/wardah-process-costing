@@ -345,6 +345,62 @@ beforeEach(() => {
   hasPermissionKeyMock.mockReturnValue(false);
 });
 
+describe('StockAdjustments — extracted details behavior lock', () => {
+  it('closes the details card without mutating the selected adjustment', async () => {
+    await openAdjustmentView();
+
+    await userEvent.click(screen.getByRole('button', { name: /إغلاق/ }));
+
+    expect(screen.queryByText('تفاصيل التسوية')).not.toBeInTheDocument();
+    expect(writePayloads).toHaveLength(0);
+  });
+
+  it('does not cancel when the user rejects the confirmation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(false);
+    await openAdjustmentView();
+    operationLog.length = 0;
+    writePayloads.length = 0;
+
+    await userEvent.click(screen.getByRole('button', { name: /إلغاء/ }));
+
+    expect(writePayloads).toHaveLength(0);
+    expect(screen.getByText('تفاصيل التسوية')).toBeInTheDocument();
+  });
+
+  it('preserves the CANCELLED update, success toast, close and reload sequence', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openAdjustmentView();
+    operationLog.length = 0;
+    writePayloads.length = 0;
+
+    await userEvent.click(screen.getByRole('button', { name: /إلغاء/ }));
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('تم إلغاء التسوية بنجاح'));
+    expect(writePayloads).toContainEqual({
+      table: 'stock_adjustments',
+      action: 'update',
+      payload: { status: 'CANCELLED' },
+    });
+    expect(operationLog.slice(0, 3)).toEqual([
+      'update:stock_adjustments',
+      'auth:getUser',
+      'select:stock_adjustments',
+    ]);
+    expect(screen.queryByText('تفاصيل التسوية')).not.toBeInTheDocument();
+  });
+
+  it('keeps details open and reports the existing error message when cancellation fails', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openAdjustmentView();
+    saveHeaderResult = { data: null, error: new Error('cancel failed') };
+
+    await userEvent.click(screen.getByRole('button', { name: /إلغاء/ }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('فشل إلغاء التسوية: cancel failed'));
+    expect(screen.getByText('تفاصيل التسوية')).toBeInTheDocument();
+  });
+});
+
 describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
   it('re-checks create permission before validation/UoM/auth and performs zero writes after revocation', async () => {
     const { rerender } = await openValidCreateForm();
