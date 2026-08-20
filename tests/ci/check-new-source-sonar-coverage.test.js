@@ -11,6 +11,8 @@ import {
   parseSonarProperties,
   parseLcovSourceFiles,
   findNewSourceCoverageGaps,
+  isSafeGitRef,
+  globToRegExp,
 } from '../../scripts/ci/check-new-source-sonar-coverage.mjs'
 
 describe('parseSonarProperties', () => {
@@ -94,5 +96,62 @@ describe('findNewSourceCoverageGaps', () => {
 
     expect(checked).toEqual(['src/features/inventory/components/StockAdjustmentSections.tsx'])
     expect(errors).toEqual([])
+  })
+
+  it('skips a new SQL migration and a non-JS asset under src, since neither can ever appear in coverage/lcov.info', () => {
+    const addedFiles = [
+      'sql/migrations/176_new_thing.sql',
+      'src/assets/logo.svg',
+      'src/types/database.generated.d.ts',
+    ]
+    const lcovSourceFiles = new Set()
+
+    const { checked, errors } = findNewSourceCoverageGaps({ addedFiles, sonarConfig, lcovSourceFiles })
+
+    expect(checked).toEqual([])
+    expect(errors).toEqual([])
+  })
+
+  it('allows a coverage-exclusions entry the same diff introduces, without demanding lcov coverage for it', () => {
+    const addedFiles = ['src/features/accounting/journal-entries/components/NewCoordinator.tsx']
+    const lcovSourceFiles = new Set() // deliberately excluded — never instrumented
+    const newlyAddedCoverageExclusionGlobs = new Set([
+      '**/src/features/accounting/journal-entries/components/**',
+    ])
+
+    const { checked, errors } = findNewSourceCoverageGaps({
+      addedFiles,
+      sonarConfig,
+      lcovSourceFiles,
+      newlyAddedCoverageExclusionGlobs,
+    })
+
+    expect(checked).toEqual(addedFiles)
+    expect(errors).toEqual([])
+  })
+})
+
+describe('isSafeGitRef', () => {
+  it('accepts real ref shapes and rejects a leading dash (git argument injection) or unsafe characters', () => {
+    expect(isSafeGitRef('HEAD')).toBe(true)
+    expect(isSafeGitRef('HEAD^')).toBe(true)
+    expect(isSafeGitRef('HEAD~1')).toBe(true)
+    expect(isSafeGitRef('origin/main')).toBe(true)
+    expect(isSafeGitRef('ffb3b9ea16ae38aef43d4a95eced4a58076b46a7')).toBe(true)
+
+    expect(isSafeGitRef('--upload-pack=evil')).toBe(false)
+    expect(isSafeGitRef('-x')).toBe(false)
+    expect(isSafeGitRef('origin/main; rm -rf /')).toBe(false)
+    expect(isSafeGitRef('')).toBe(false)
+    expect(isSafeGitRef(undefined)).toBe(false)
+  })
+})
+
+describe('globToRegExp', () => {
+  it('collapses consecutive `**` segments so the compiled pattern has no adjacent unbounded-star groups', () => {
+    const regex = globToRegExp('**/**/**/src/features/accounting/journal-entries/components/**')
+    expect(regex.source.match(/\.\*/g)?.length).toBe(2) // one `(?:.*/)?`, one trailing `.*` — not one per collapsed `**`
+    expect(regex.test('src/features/accounting/journal-entries/components/JournalEntrySections.tsx')).toBe(true)
+    expect(regex.test('src/features/accounting/journal-entries/index.tsx')).toBe(false)
   })
 })
