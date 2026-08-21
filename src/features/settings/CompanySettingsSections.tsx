@@ -112,20 +112,14 @@ function EmptyLogo({
   };
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
-        'text-center p-4',
+        'text-center p-4 border-0 bg-transparent',
         canUpdate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60',
       )}
-      role="button"
-      tabIndex={0}
+      aria-disabled={!canUpdate}
       onClick={openFilePicker}
-      onKeyDown={(event) => {
-        if (canUpdate && (event.key === 'Enter' || event.key === ' ')) {
-          event.preventDefault();
-          fileInputRef.current?.click();
-        }
-      }}
     >
       {isUploadingLogo ? (
         <Loader2 className="h-10 w-10 animate-spin mx-auto text-muted-foreground" />
@@ -137,7 +131,7 @@ function EmptyLogo({
           </span>
         </>
       )}
-    </div>
+    </button>
   );
 }
 

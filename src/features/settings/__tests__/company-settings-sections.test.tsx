@@ -1,5 +1,6 @@
 import { createRef } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import {
   CompanyLogoPanel,
@@ -88,11 +89,16 @@ describe('CompanySettingsSections', () => {
       key: 'Enter',
     });
     expect(clickSpy).not.toHaveBeenCalled();
-    expect(container.querySelectorAll('button')).toHaveLength(0);
+    expect(container.querySelectorAll('button')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Click to upload logo' })).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
     expect(screen.getByText('ORG1')).toBeInTheDocument();
   });
 
-  it('forwards file changes and exposes logo actions only with update permission', () => {
+  it('forwards file changes and exposes logo actions only with update permission', async () => {
+    const user = userEvent.setup();
     const fileInputRef = createRef<HTMLInputElement>();
     const onLogoUpload = vi.fn();
     const onDeleteLogo = vi.fn();
@@ -112,10 +118,11 @@ describe('CompanySettingsSections', () => {
     const fileInput = fileInputRef.current;
     if (!fileInput) throw new Error('Expected the logo file input to be mounted');
     const clickSpy = vi.spyOn(fileInput, 'click');
-    fireEvent.click(filePicker);
-    fireEvent.keyDown(filePicker, { key: 'Enter' });
-    fireEvent.keyDown(filePicker, { key: ' ' });
-    fireEvent.keyDown(filePicker, { key: 'Escape' });
+    await user.click(filePicker);
+    filePicker.focus();
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+    await user.keyboard('{Escape}');
     expect(clickSpy).toHaveBeenCalledTimes(3);
     fireEvent.change(fileInput, { target: { files: [file] } });
     expect(onLogoUpload).toHaveBeenCalledOnce();
