@@ -8,26 +8,16 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { 
-  Building2, 
   Phone, 
   Mail, 
   Globe, 
   MapPin, 
   FileText,
-  Upload,
-  Trash2,
-  Save,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  Camera,
   Palette,
   Settings2,
   Building,
-  Hash,
   Calendar
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -49,100 +39,16 @@ import {
   uploadOrganizationLogo,
   deleteOrganizationLogo
 } from '@/lib/organization';
-
-// ===================================
-// Types
-// ===================================
-
-interface FormState {
-  // المعلومات الأساسية
-  name: string;
-  name_ar: string;
-  name_en: string;
-  // البيانات الضريبية
-  tax_number: string;
-  commercial_registration: string;
-  license_number: string;
-  // التواصل
-  phone: string;
-  mobile: string;
-  email: string;
-  website: string;
-  fax: string;
-  // العنوان
-  address: string;
-  city: string;
-  state: string;
-  country: string;
-  postal_code: string;
-  // الهوية البصرية
-  logo_url: string;
-  primary_color: string;
-  secondary_color: string;
-  // الإعدادات
-  currency: string;
-  timezone: string;
-  fiscal_year_start: number;
-  date_format: string;
-}
-
-const initialFormState: FormState = {
-  name: '',
-  name_ar: '',
-  name_en: '',
-  tax_number: '',
-  commercial_registration: '',
-  license_number: '',
-  phone: '',
-  mobile: '',
-  email: '',
-  website: '',
-  fax: '',
-  address: '',
-  city: '',
-  state: '',
-  country: '',
-  postal_code: '',
-  logo_url: '',
-  primary_color: '#1e40af',
-  secondary_color: '#3b82f6',
-  currency: 'SAR',
-  timezone: 'Asia/Riyadh',
-  fiscal_year_start: 1,
-  date_format: 'DD/MM/YYYY'
-};
-
-/**
- * Maps organization profile data to form state with defaults
- * Extracted to reduce complexity in loadOrganizationData
- */
-function mapOrganizationToFormState(data: OrganizationProfile): FormState {
-  return {
-    name: data.name || '',
-    name_ar: data.name_ar || '',
-    name_en: data.name_en || '',
-    tax_number: data.tax_number || '',
-    commercial_registration: data.commercial_registration || '',
-    license_number: data.license_number || '',
-    phone: data.phone || '',
-    mobile: data.mobile || '',
-    email: data.email || '',
-    website: data.website || '',
-    fax: data.fax || '',
-    address: data.address || '',
-    city: data.city || '',
-    state: data.state || '',
-    country: data.country || initialFormState.country,
-    postal_code: data.postal_code || '',
-    logo_url: data.logo_url || '',
-    primary_color: data.primary_color || initialFormState.primary_color,
-    secondary_color: data.secondary_color || initialFormState.secondary_color,
-    currency: data.currency || initialFormState.currency,
-    timezone: data.timezone || initialFormState.timezone,
-    fiscal_year_start: data.fiscal_year_start || initialFormState.fiscal_year_start,
-    date_format: data.date_format || initialFormState.date_format
-  };
-}
+import {
+  CompanyLogoPanel,
+  CompanySettingsHeader,
+  CompanySettingsLoading,
+} from './CompanySettingsSections';
+import {
+  initialCompanySettingsFormState,
+  mapOrganizationToCompanySettingsForm,
+  type CompanySettingsFormState,
+} from './companySettingsForm';
 
 // ===================================
 // Constants
@@ -203,7 +109,7 @@ export function CompanySettings() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
-  const [form, setForm] = useState<FormState>(initialFormState);
+  const [form, setForm] = useState<CompanySettingsFormState>(initialCompanySettingsFormState);
   const [originalData, setOriginalData] = useState<OrganizationProfile | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [activeTab, setActiveTab] = useState('basic');
@@ -219,7 +125,7 @@ export function CompanySettings() {
   useEffect(() => {
     if (originalData) {
       const changed = Object.keys(form).some(key => {
-        const formValue = form[key as keyof FormState];
+        const formValue = form[key as keyof CompanySettingsFormState];
         const originalValue = originalData[key as keyof OrganizationProfile];
         return formValue !== (originalValue || '');
       });
@@ -234,7 +140,7 @@ export function CompanySettings() {
       
       if (result.success && result.data) {
         setOriginalData(result.data);
-        setForm(mapOrganizationToFormState(result.data));
+        setForm(mapOrganizationToCompanySettingsForm(result.data));
       } else {
         toast.error(result.error || tr('فشل تحميل بيانات الشركة', 'Failed to load company data'));
       }
@@ -246,7 +152,7 @@ export function CompanySettings() {
     }
   };
 
-  const handleInputChange = useCallback((field: keyof FormState, value: string | number) => {
+  const handleInputChange = useCallback((field: keyof CompanySettingsFormState, value: string | number) => {
     setForm(prev => ({ ...prev, [field]: value }));
   }, []);
 
@@ -346,161 +252,32 @@ export function CompanySettings() {
 
   // Loading state
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center space-y-4">
-          <Loader2 className="h-10 w-10 animate-spin mx-auto text-primary" />
-          <p className="text-muted-foreground">{tr('جاري تحميل بيانات الشركة...', 'Loading company data...')}</p>
-        </div>
-      </div>
-    );
+    return <CompanySettingsLoading tr={tr} />;
   }
 
   return (
     <div className="space-y-6" dir={isRTL ? 'rtl' : 'ltr'}>
-      {/* Header */}
-      <div className={cn(
-        "flex items-start justify-between gap-4",
-        isRTL ? "flex-row-reverse" : ""
-      )}>
-        <div className={cn(isRTL ? "text-right" : "text-left")}>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <Building2 className="h-8 w-8 text-primary" />
-            {tr('بيانات الشركة', 'Company Profile')}
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            {tr('إدارة معلومات الشركة والهوية البصرية والإعدادات العامة', 'Manage company information, branding and general settings')}
-          </p>
-        </div>
-        
-        {/* Save Button */}
-        {canUpdate && (
-        <Button
-          onClick={handleSave}
-          disabled={!hasChanges || isSaving}
-          className={cn(
-            "min-w-[140px]",
-            hasChanges ? "bg-primary hover:bg-primary/90" : ""
-          )}
-        >
-          {isSaving ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin ml-2" />
-              {tr('جاري الحفظ...', 'Saving...')}
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4 ml-2" />
-              {tr('حفظ التغييرات', 'Save Changes')}
-            </>
-          )}
-        </Button>
-        )}
-      </div>
-
-      {/* Status Badge */}
-      {hasChanges && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-2 text-amber-800">
-          <AlertCircle className="h-5 w-5" />
-          <span>{tr('لديك تغييرات غير محفوظة', 'You have unsaved changes')}</span>
-        </div>
-      )}
+      <CompanySettingsHeader
+        isRTL={isRTL}
+        canUpdate={canUpdate}
+        hasChanges={hasChanges}
+        isSaving={isSaving}
+        onSave={handleSave}
+        tr={tr}
+      />
 
       {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Logo Section - Side Panel */}
-        <div className="lg:col-span-1">
-          <div className="bg-card border rounded-xl p-6 space-y-4 sticky top-4">
-            <h3 className="font-semibold text-lg flex items-center gap-2">
-              <Camera className="h-5 w-5 text-primary" />
-              {tr('شعار الشركة', 'Company Logo')}
-            </h3>
-            
-            {/* Logo Preview */}
-            <div className="relative mx-auto w-40 h-40 rounded-xl border-2 border-dashed border-muted-foreground/25 flex items-center justify-center overflow-hidden bg-muted/50 group">
-              {form.logo_url ? (
-                <>
-                  <img 
-                    src={form.logo_url} 
-                    alt={tr('شعار الشركة', 'Company logo')}
-                    className="w-full h-full object-contain p-2"
-                  />
-                  {/* Overlay on hover */}
-                  {canUpdate && (
-                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isUploadingLogo}
-                    >
-                      <Upload className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={handleDeleteLogo}
-                      disabled={isUploadingLogo}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  )}
-                </>
-              ) : (
-                <div
-                  className={cn("text-center p-4", canUpdate ? "cursor-pointer" : "cursor-not-allowed opacity-60")}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => canUpdate && fileInputRef.current?.click()}
-                  onKeyDown={(e) => {
-                    if (canUpdate && (e.key === 'Enter' || e.key === ' ')) {
-                      e.preventDefault();
-                      fileInputRef.current?.click();
-                    }
-                  }}
-                >
-                  {isUploadingLogo ? (
-                    <Loader2 className="h-10 w-10 animate-spin mx-auto text-muted-foreground" />
-                  ) : (
-                    <>
-                      <Upload className="h-10 w-10 mx-auto text-muted-foreground mb-2" />
-                      <span className="text-sm text-muted-foreground">{tr('اضغط لرفع الشعار', 'Click to upload logo')}</span>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleLogoUpload}
-            />
-
-            <p className="text-xs text-muted-foreground text-center">
-              {tr('JPG, PNG أو WebP', 'JPG, PNG or WebP')}
-              <br />
-              {tr('الحد الأقصى 5 ميجابايت', 'Maximum size: 5 MB')}
-            </p>
-
-            {/* Quick Info */}
-            <div className="pt-4 border-t space-y-3">
-              <div className="flex items-center gap-2 text-sm">
-                <Hash className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">{tr('كود:', 'Code:')}</span>
-                <span className="font-mono">{originalData?.code || '-'}</span>
-              </div>
-              <div className="flex items-center gap-2 text-sm">
-                <CheckCircle2 className="h-4 w-4 text-green-500" />
-                <span className="text-muted-foreground">{tr('الحالة:', 'Status:')}</span>
-                <span className="text-green-600">{tr('نشط', 'Active')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <CompanyLogoPanel
+          logoUrl={form.logo_url}
+          organizationCode={originalData?.code}
+          canUpdate={canUpdate}
+          isUploadingLogo={isUploadingLogo}
+          fileInputRef={fileInputRef}
+          onLogoUpload={handleLogoUpload}
+          onDeleteLogo={handleDeleteLogo}
+          tr={tr}
+        />
 
         {/* Form Tabs */}
         <div className="lg:col-span-3">
@@ -940,4 +717,3 @@ export function CompanySettings() {
 }
 
 export default CompanySettings;
-
