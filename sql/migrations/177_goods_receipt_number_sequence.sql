@@ -24,7 +24,7 @@ CREATE SEQUENCE IF NOT EXISTS public.goods_receipt_number_seq
 
 DO $migration$
 DECLARE
-  c_sequence regclass CONSTANT := 'public.goods_receipt_number_seq'::regclass;
+  c_sequence CONSTANT regclass := 'public.goods_receipt_number_seq'::regclass;
   v_canonical_max bigint;
   v_last_value bigint;
 BEGIN
@@ -59,10 +59,10 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  c_lines_key text CONSTANT := 'lines';
-  c_quality_accepted text CONSTANT := 'accepted';
-  c_quality_rejected text CONSTANT := 'rejected';
-  c_receipt_sequence regclass CONSTANT := 'public.goods_receipt_number_seq'::regclass;
+  c_lines_key CONSTANT text := 'lines';
+  c_quality_accepted CONSTANT text := 'accepted';
+  c_quality_rejected CONSTANT text := 'rejected';
+  c_receipt_sequence CONSTANT regclass := 'public.goods_receipt_number_seq'::regclass;
   v_org uuid; v_uid uuid; v_gr_id uuid; v_gr_number text; v_po_id uuid;
   v_po_status text; v_po_vendor uuid; v_vendor_id uuid; v_wh_id uuid;
   v_idem_key text; v_req_hash text; v_existing_id uuid; v_existing_no text; v_existing_hash text;
