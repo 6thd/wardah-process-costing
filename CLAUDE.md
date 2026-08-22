@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-14  
+**آخر تحديث موثق:** 2026-08-22
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -31,9 +31,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 - Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–175 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
 - Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه preflight الخاصة بـ175.
-- Repository: أعلى migration مرقمة هي 175 (`175_rbac_consumer_migration_rpcs.sql`).
-- Fresh DB: 153–175 تُطبَّق فوق baseline cutoff 152 دون migration معلّقة؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية ولا تُعامل كفجوة (`sql/migrations/skipped_migration_numbers.yml`).
-- تدقيق السجل الحي في 2026-08-14: `live_cutoff = 175`، `repo_max = 175`، `repository_ahead_by = 0`، ولا ملفات معلّقة.
+- Repository: أعلى migration مرقمة هي 177 (`177_goods_receipt_number_sequence.sql`). Migration 176 باقية محجوزة لإغلاق الكتابة المباشرة على RBAC بعد Browser Smoke، ومعلنة مؤقتًا في `skipped_migration_numbers.yml` حتى يأتي PR نطاقها.
+- Fresh DB: 153–175 ثم 177 تُطبَّق فوق baseline cutoff 152؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية، و176 محجوزة لمسار RBAC، فلا تُعامل هذه الأرقام كفجوات (`sql/migrations/skipped_migration_numbers.yml`).
+- حالة هذا PR في 2026-08-22: `live_cutoff = 175`، `repo_max = 177`، `repository_ahead_by = 1` (Migration 177 فقط؛ 176 محجوزة). لا تُعد 177 مطبقة حيًا قبل دمج PR قاعدة البيانات ثم تطبيقها والتحقق من سجل Production.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -82,6 +82,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   **تُطبّق 175 أولًا DB-first بعد نجاح preflight**، ثم تأتي PR المستهلك التي
   تعيد توجيه `users.tsx` و`roles.tsx` إلى الـRPCs. سحب الكتابة المباشرة نفسه
   مؤجَّل لـMigration 176 بعد نجاح Browser Smoke الفعلي على الواجهة المنشورة.
+- `docs/db/GOODS_RECEIPT_NUMBER_SEQUENCE_177_RUNBOOK.md` — **Migration 177 (Repository-only حتى الدمج والتطبيق)**: إصلاح تصادم مولّد أرقام سندات الاستلام الذي كشفه Pilot الإنتاجي لـIssue #45 بعد أول استلام جزئي. تستخدم عدّادًا عالميًا يطابق قيد التفرد العالمي، وتُبقي عقد 148 الذرّي والسلوك الوظيفي دون تغيير.
 
 ## Baseline
 

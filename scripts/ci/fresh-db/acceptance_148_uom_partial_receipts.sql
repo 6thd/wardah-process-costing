@@ -409,6 +409,51 @@ BEGIN
   END IF;
 END $$;
 
+-- Regression fixture for Migration 177. Production historically contains
+-- timestamp-shaped receipt numbers. The old max(...)+lpad(..., 6) allocator
+-- truncated the next candidate and returned the same six-digit number on every
+-- new receipt after the first. The sequence-backed allocator must ignore this
+-- legacy shape and keep every new document unique.
+INSERT INTO public.goods_receipts (
+  org_id, receipt_number, vendor_id, receipt_date, warehouse_id, status,
+  created_by, idempotency_key, request_hash
+) VALUES (
+  '48111111-1111-1111-1111-111111111111',
+  'GR-1762341441495',
+  '48f00000-0000-0000-0000-000000000001',
+  '2026-07-23',
+  '48a00000-0000-0000-0000-000000000001',
+  'confirmed',
+  '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  'U148-LEGACY-LONG-NUMBER',
+  'legacy-number-fixture'
+);
+
+-- Simulate the precise upgrade race closed by Migration 177: an invocation of
+-- the old allocator commits the sequence's next canonical number after seed.
+-- The replacement RPC must consume that collision and retry the next value.
+INSERT INTO public.goods_receipts (
+  org_id, receipt_number, vendor_id, receipt_date, warehouse_id, status,
+  created_by, idempotency_key, request_hash
+)
+SELECT
+  '48111111-1111-1111-1111-111111111111',
+  'GR-' || CASE
+    WHEN next_value < 1000000 THEN lpad(next_value::text, 6, '0')
+    ELSE next_value::text
+  END,
+  '48f00000-0000-0000-0000-000000000001',
+  '2026-07-23',
+  '48a00000-0000-0000-0000-000000000001',
+  'confirmed',
+  '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+  'U148-SEED-RACE',
+  'seed-race-fixture'
+FROM (
+  SELECT CASE WHEN is_called THEN last_value + 1 ELSE last_value END AS next_value
+  FROM public.goods_receipt_number_seq
+) sequence_state;
+
 -- ---------------------------------------------------------------------------
 -- 4. Partial accepted receipt: 4 cartons = 48 base pieces.
 -- ---------------------------------------------------------------------------
@@ -506,6 +551,25 @@ BEGIN
   PERFORM pg_temp.assert_stock(
     '48d00000-0000-0000-0000-000000000001',
     '48a00000-0000-0000-0000-000000000001', 48, 'after rejected 6 cartons');
+END $$;
+
+-- Migration 177 regression: the legacy timestamp-shaped number above must not
+-- collapse the two new receipt numbers into the same six-character prefix.
+DO $$
+DECLARE
+  v_count integer;
+  v_distinct integer;
+BEGIN
+  SELECT count(*), count(DISTINCT receipt_number)
+  INTO v_count, v_distinct
+  FROM public.goods_receipts
+  WHERE idempotency_key IN ('U148-GR-1', 'U148-GR-2');
+
+  IF v_count <> 2 OR v_distinct <> 2 THEN
+    RAISE EXCEPTION
+      'ACCEPTANCE_FAIL: Migration 177 did not allocate two distinct receipt numbers (%/%).',
+      v_count, v_distinct;
+  END IF;
 END $$;
 
 -- The rejected units released contract balance, so the order is still listed
