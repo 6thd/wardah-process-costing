@@ -1,0 +1,135 @@
+name: RBAC Direct Write 176 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/176_rbac_direct_write_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_176_rbac_direct_write_closure.sql'
+      - '.github/workflows/rbac-direct-write-176-acceptance.yml'
+      - 'sql/migrations/skipped_migration_numbers.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm authenticated RBAC table writes are closed
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through current migration chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 176 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_176_rbac_direct_write_closure.sql \
+            2>&1 | tee /tmp/rbac-176.out
+          grep -q 'RBAC_176_DIRECT_WRITE_CLOSURE_ACCEPTANCE_PASS' /tmp/rbac-176.out
+
+      - name: Re-run sensitive permission acceptance after 176
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_174_sensitive_permission_class.sql \
+            2>&1 | tee /tmp/rbac-174-rerun.out
+          grep -q 'SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS' /tmp/rbac-174-rerun.out
+
+      - name: Red proof — 175 passes and authenticated writes exist without 176
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field BASELINE_PATH)" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$(pair_field REFERENCE_PATH)" -q
+
+          grep -v '^176_' /tmp/chain_order.txt > /tmp/chain_red.txt
+          REPORT=/tmp/red_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_red.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql \
+            2>&1 | tee /tmp/rbac-175-pre176.out
+          grep -q 'RBAC_CONSUMER_175_ACCEPTANCE_PASS' /tmp/rbac-175-pre176.out
+
+          for table in roles role_permissions user_roles; do
+            for privilege in INSERT UPDATE DELETE TRUNCATE; do
+              value=$(psql -tA -v ON_ERROR_STOP=1 -d wardah_red -c \
+                "SELECT has_table_privilege('authenticated','public.${table}','${privilege}');")
+              echo "pre-176 ${table} ${privilege}: ${value}"
+              if [ "$value" != "t" ]; then
+                echo "RED PROOF FAILED: expected authenticated ${privilege} on ${table} before 176"
+                exit 1
+              fi
+            done
+          done
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Application source gate — no direct RBAC writes
+        run: node scripts/ci/check-rbac-direct-writes.mjs
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbac-direct-write-176-${{ github.run_id }}
+          path: |
+            /tmp/rbac-176.out
+            /tmp/rbac-174-rerun.out
+            /tmp/rbac-175-pre176.out
+            /tmp/chain_report.txt
+            /tmp/red_report.txt
+          retention-days: 30
