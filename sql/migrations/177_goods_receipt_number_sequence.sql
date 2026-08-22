@@ -24,6 +24,7 @@ CREATE SEQUENCE IF NOT EXISTS public.goods_receipt_number_seq
 
 DO $migration$
 DECLARE
+  c_sequence regclass CONSTANT := 'public.goods_receipt_number_seq'::regclass;
   v_canonical_max bigint;
   v_last_value bigint;
 BEGIN
@@ -36,10 +37,10 @@ BEGIN
   FROM public.goods_receipt_number_seq;
 
   IF v_canonical_max IS NULL AND v_last_value = 1 THEN
-    PERFORM setval('public.goods_receipt_number_seq', 1, false);
+    PERFORM setval(c_sequence, 1, false);
   ELSE
     PERFORM setval(
-      'public.goods_receipt_number_seq',
+      c_sequence,
       greatest(coalesce(v_canonical_max, 1), v_last_value),
       true
     );
@@ -58,6 +59,10 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
+  c_lines_key text CONSTANT := 'lines';
+  c_quality_accepted text CONSTANT := 'accepted';
+  c_quality_rejected text CONSTANT := 'rejected';
+  c_receipt_sequence regclass CONSTANT := 'public.goods_receipt_number_seq'::regclass;
   v_org uuid; v_uid uuid; v_gr_id uuid; v_gr_number text; v_po_id uuid;
   v_po_status text; v_po_vendor uuid; v_vendor_id uuid; v_wh_id uuid;
   v_idem_key text; v_req_hash text; v_existing_id uuid; v_existing_no text; v_existing_hash text;
@@ -115,8 +120,8 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.vendors WHERE id=v_vendor_id AND org_id=v_org) THEN
     RAISE EXCEPTION 'VENDOR_NOT_FOUND';
   END IF;
-  IF jsonb_typeof(COALESCE(p_payload->'lines','[]'::jsonb))<>'array'
-     OR jsonb_array_length(COALESCE(p_payload->'lines','[]'::jsonb))=0 THEN
+  IF jsonb_typeof(COALESCE(p_payload->c_lines_key,'[]'::jsonb))<>'array'
+     OR jsonb_array_length(COALESCE(p_payload->c_lines_key,'[]'::jsonb))=0 THEN
     RAISE EXCEPTION 'INVALID_PAYLOAD: receipt lines required';
   END IF;
   v_wh_id:=NULLIF(p_payload->>'warehouse_id','')::uuid;
@@ -149,7 +154,7 @@ BEGIN
   -- Migration 177: a database sequence is global (matching the global UNIQUE
   -- constraint), concurrency-safe, and never truncates legacy timestamp-shaped
   -- receipt numbers through lpad(..., 6).
-  SELECT nextval('public.goods_receipt_number_seq') INTO v_receipt_sequence;
+  SELECT nextval(c_receipt_sequence) INTO v_receipt_sequence;
   v_gr_number := 'GR-' || CASE
     WHEN v_receipt_sequence < 1000000
       THEN lpad(v_receipt_sequence::text, 6, '0')
@@ -165,7 +170,7 @@ BEGIN
     'confirmed',NULLIF(p_payload->>'notes',''),v_idem_key,v_req_hash,v_uid
   ) RETURNING id INTO v_gr_id;
 
-  FOR v_line IN SELECT value FROM jsonb_array_elements(p_payload->'lines') LOOP
+  FOR v_line IN SELECT value FROM jsonb_array_elements(p_payload->c_lines_key) LOOP
     v_line_no:=v_line_no+1;
     IF jsonb_typeof(v_line) <> 'object' THEN
       RAISE EXCEPTION 'GR_LINE_OBJECT_REQUIRED: line=%',v_line_no;
@@ -179,8 +184,8 @@ BEGIN
       RAISE EXCEPTION 'ITEM_NOT_FOUND: line=%',v_line_no;
     END IF;
 
-    v_quality:=COALESCE(NULLIF(v_line->>'quality_status',''),'accepted');
-    IF v_quality NOT IN ('accepted','rejected','pending_inspection') THEN
+    v_quality:=COALESCE(NULLIF(v_line->>'quality_status',''),c_quality_accepted);
+    IF v_quality NOT IN (c_quality_accepted,c_quality_rejected,'pending_inspection') THEN
       RAISE EXCEPTION 'INVALID_QUALITY_STATUS: line=%',v_line_no;
     END IF;
 
@@ -281,7 +286,7 @@ BEGIN
       -- units release it so a replacement delivery does not trip OVER_RECEIPT.
       v_pending:=GREATEST(v_pol.received-v_pol.accepted-v_pol.rejected,0);
       v_committed:=v_pol.accepted+v_pending;
-      v_consumes:=(v_quality='accepted');
+      v_consumes:=(v_quality=c_quality_accepted);
 
       IF v_consumes AND v_committed+v_qty_base>v_pol.quantity THEN
         RAISE EXCEPTION 'OVER_RECEIPT: remaining=%, requested_base=%',
@@ -293,7 +298,7 @@ BEGIN
       -- be recorded as delivering — and the buyer as rejecting — an unbounded
       -- quantity against a finite order. A single shipment may not exceed the
       -- balance that was open when it arrived.
-      IF v_quality='rejected' THEN
+      IF v_quality=c_quality_rejected THEN
         IF v_qty_base>v_pol.quantity-v_committed THEN
           RAISE EXCEPTION 'REJECTED_QUANTITY_EXCEEDS_OPEN_BALANCE: remaining=%, requested_base=%',
             v_pol.quantity-v_committed,v_qty_base;
@@ -304,8 +309,8 @@ BEGIN
       -- Only the accepted/rejected split is quality driven.
       UPDATE public.purchase_order_lines
       SET received_quantity=v_pol.received+v_qty_base,
-          accepted_quantity=v_pol.accepted+CASE WHEN v_quality='accepted' THEN v_qty_base ELSE 0 END,
-          rejected_quantity=v_pol.rejected+CASE WHEN v_quality='rejected' THEN v_qty_base ELSE 0 END
+          accepted_quantity=v_pol.accepted+CASE WHEN v_quality=c_quality_accepted THEN v_qty_base ELSE 0 END,
+          rejected_quantity=v_pol.rejected+CASE WHEN v_quality=c_quality_rejected THEN v_qty_base ELSE 0 END
       WHERE id=v_pol_id;
     ELSE
       v_qty_entered:=COALESCE(
@@ -342,7 +347,7 @@ BEGIN
       v_uom,v_qty_entered,v_factor,v_cost_entered
     );
 
-    IF v_quality='accepted' AND v_qty_base>0 THEN
+    IF v_quality=c_quality_accepted AND v_qty_base>0 THEN
       v_stock:=public.wardah_apply_stock_incoming(
         v_org,v_product,v_wh_id,v_qty_base,v_cost_base,
         'Goods Receipt',v_gr_id,v_gr_number,v_recv_date
@@ -394,4 +399,3 @@ GRANT EXECUTE ON FUNCTION public.rpc_post_goods_receipt(jsonb) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_post_goods_receipt(jsonb) IS
 'Migration 177: Migration-148 atomic UoM goods receipt contract with collision-safe global receipt numbering. Uses goods_receipt_number_seq seeded from canonical six-digit GR numbers; legacy timestamp-shaped numbers cannot be truncated into duplicates.';
-
