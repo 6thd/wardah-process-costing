@@ -68,7 +68,7 @@ jobs:
             2>&1 | tee /tmp/rbac-176.out
           grep -q 'RBAC_176_DIRECT_WRITE_CLOSURE_ACCEPTANCE_PASS' /tmp/rbac-176.out
 
-      - name: Re-run sensitive permission and consumer acceptance
+      - name: Re-run sensitive permission acceptance after 176
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -77,12 +77,7 @@ jobs:
             2>&1 | tee /tmp/rbac-174-rerun.out
           grep -q 'SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS' /tmp/rbac-174-rerun.out
 
-          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
-            -f scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql \
-            2>&1 | tee /tmp/rbac-175-rerun.out
-          grep -q 'RBAC_CONSUMER_175_ACCEPTANCE_PASS' /tmp/rbac-175-rerun.out
-
-      - name: Red proof — authenticated writes exist without 176
+      - name: Red proof — 175 passes and authenticated writes exist without 176
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -96,6 +91,11 @@ jobs:
           grep -v '^176_' /tmp/chain_order.txt > /tmp/chain_red.txt
           REPORT=/tmp/red_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_red.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_175_rbac_consumer_migration_rpcs.sql \
+            2>&1 | tee /tmp/rbac-175-pre176.out
+          grep -q 'RBAC_CONSUMER_175_ACCEPTANCE_PASS' /tmp/rbac-175-pre176.out
 
           for table in roles role_permissions user_roles; do
             for privilege in INSERT UPDATE DELETE TRUNCATE; do
@@ -120,7 +120,7 @@ jobs:
           path: |
             /tmp/rbac-176.out
             /tmp/rbac-174-rerun.out
-            /tmp/rbac-175-rerun.out
+            /tmp/rbac-175-pre176.out
             /tmp/chain_report.txt
             /tmp/red_report.txt
           retention-days: 30
