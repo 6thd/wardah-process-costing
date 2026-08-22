@@ -15,6 +15,13 @@
 -- Migration 176 remains reserved for the RBAC direct-write closure documented
 -- in CLAUDE.md; it is intentionally not reused for this production blocker.
 
+BEGIN;
+
+-- Keep committed receipt writers out of the seed-and-function-swap window.
+-- An old RPC invocation that calculated a number before waiting on this lock
+-- is handled by the collision retry in the replacement function below.
+LOCK TABLE public.goods_receipts IN SHARE ROW EXCLUSIVE MODE;
+
 CREATE SEQUENCE IF NOT EXISTS public.goods_receipt_number_seq
   AS bigint
   MINVALUE 1
@@ -60,6 +67,7 @@ SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
   c_lines_key CONSTANT text := 'lines';
+  c_number_attempt_limit CONSTANT integer := 100;
   c_quality_accepted CONSTANT text := 'accepted';
   c_quality_rejected CONSTANT text := 'rejected';
   c_receipt_sequence CONSTANT regclass := 'public.goods_receipt_number_seq'::regclass;
@@ -73,6 +81,7 @@ DECLARE
   v_payload_cost_base numeric; v_quality text;
   v_total numeric:=0; v_pol record; v_pol_id uuid; v_recv_date date; v_stock jsonb;
   v_pending numeric; v_committed numeric; v_consumes boolean;
+  v_number_attempt integer:=0;
   v_receipt_sequence bigint;
 BEGIN
   IF p_payload IS NULL OR jsonb_typeof(p_payload) <> 'object' THEN
@@ -153,22 +162,39 @@ BEGIN
 
   -- Migration 177: a database sequence is global (matching the global UNIQUE
   -- constraint), concurrency-safe, and never truncates legacy timestamp-shaped
-  -- receipt numbers through lpad(..., 6).
-  SELECT nextval(c_receipt_sequence) INTO v_receipt_sequence;
-  v_gr_number := 'GR-' || CASE
-    WHEN v_receipt_sequence < 1000000
-      THEN lpad(v_receipt_sequence::text, 6, '0')
-    ELSE v_receipt_sequence::text
-  END;
+  -- receipt numbers through lpad(..., 6). The retry closes the narrow upgrade
+  -- race where an invocation of the old allocator commits after sequence seed.
+  LOOP
+    v_number_attempt:=v_number_attempt+1;
+    SELECT nextval(c_receipt_sequence) INTO v_receipt_sequence;
+    v_gr_number := 'GR-' || CASE
+      WHEN v_receipt_sequence < 1000000
+        THEN lpad(v_receipt_sequence::text, 6, '0')
+      ELSE v_receipt_sequence::text
+    END;
 
-  INSERT INTO public.goods_receipts(
-    org_id,receipt_number,purchase_order_id,vendor_id,receipt_date,warehouse_id,
-    warehouse_location,receiver_name,status,notes,idempotency_key,request_hash,created_by
-  ) VALUES(
-    v_org,v_gr_number,v_po_id,v_vendor_id,v_recv_date,v_wh_id,
-    NULLIF(p_payload->>'warehouse_location',''),NULLIF(p_payload->>'receiver_name',''),
-    'confirmed',NULLIF(p_payload->>'notes',''),v_idem_key,v_req_hash,v_uid
-  ) RETURNING id INTO v_gr_id;
+    BEGIN
+      INSERT INTO public.goods_receipts(
+        org_id,receipt_number,purchase_order_id,vendor_id,receipt_date,warehouse_id,
+        warehouse_location,receiver_name,status,notes,idempotency_key,request_hash,created_by
+      ) VALUES(
+        v_org,v_gr_number,v_po_id,v_vendor_id,v_recv_date,v_wh_id,
+        NULLIF(p_payload->>'warehouse_location',''),NULLIF(p_payload->>'receiver_name',''),
+        'confirmed',NULLIF(p_payload->>'notes',''),v_idem_key,v_req_hash,v_uid
+      ) RETURNING id INTO v_gr_id;
+      EXIT;
+    EXCEPTION
+      WHEN unique_violation THEN
+        IF v_number_attempt<c_number_attempt_limit AND EXISTS (
+          SELECT 1
+          FROM public.goods_receipts
+          WHERE receipt_number=v_gr_number
+        ) THEN
+          CONTINUE;
+        END IF;
+        RAISE;
+    END;
+  END LOOP;
 
   FOR v_line IN SELECT value FROM jsonb_array_elements(p_payload->c_lines_key) LOOP
     v_line_no:=v_line_no+1;
@@ -399,3 +425,5 @@ GRANT EXECUTE ON FUNCTION public.rpc_post_goods_receipt(jsonb) TO authenticated;
 
 COMMENT ON FUNCTION public.rpc_post_goods_receipt(jsonb) IS
 'Migration 177: Migration-148 atomic UoM goods receipt contract with collision-safe global receipt numbering. Uses goods_receipt_number_seq seeded from canonical six-digit GR numbers; legacy timestamp-shaped numbers cannot be truncated into duplicates.';
+
+COMMIT;

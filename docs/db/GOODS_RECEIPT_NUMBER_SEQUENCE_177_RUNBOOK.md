@@ -36,10 +36,13 @@ number allocation:
 3. Ignore historical 13-digit timestamp-shaped values during seeding.
 4. Keep six-digit zero padding below one million and never truncate larger
    sequence values.
-5. Keep sequence access unavailable to `PUBLIC`, `anon`, and
+5. Hold a receipt-table writer lock for the transactional seed-and-function
+   swap, then retry receipt-number-only unique collisions to cover an old RPC
+   invocation that began before the lock was acquired.
+6. Keep sequence access unavailable to `PUBLIC`, `anon`, and
    `authenticated`; only the guarded `SECURITY DEFINER` receipt RPC consumes
    it.
-6. Preserve membership, organization isolation, approval gates, immutable UoM
+7. Preserve membership, organization isolation, approval gates, immutable UoM
    snapshots, quality-aware quantities, atomic stock/GRNI, request hashing, and
    idempotent replay exactly as in Migration 148.
 
@@ -128,4 +131,3 @@ Do not delete or renumber historical goods receipts and do not lower the
 sequence. If a regression is found, ship an additive corrective migration that
 `CREATE OR REPLACE`s the RPC while retaining the sequence and all legal
 history. Existing receipt numbers remain immutable.
-
