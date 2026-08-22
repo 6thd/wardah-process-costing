@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - 'sql/migrations/148_uom_purchase_receipt_snapshots.sql'
+      - 'sql/migrations/177_goods_receipt_number_sequence.sql'
       - 'scripts/ci/fresh-db/acceptance_148_uom_partial_receipts.sql'
       - 'src/components/forms/GoodsReceiptForm.tsx'
       - 'src/components/forms/UomGoodsReceiptForm.tsx'
@@ -23,7 +24,7 @@ on:
 
 jobs:
   acceptance:
-    name: Migration 148 Quality-Aware Partial Receipt
+    name: Migrations 148 + 177 Quality-Aware Partial Receipt
     runs-on: ubuntu-latest
 
     services:
