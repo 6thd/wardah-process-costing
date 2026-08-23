@@ -2212,6 +2212,7 @@ export type Database = {
           id: string
           idempotency_key: string | null
           journal_id: string | null
+          journal_origin: string
           org_id: string
           posted_at: string | null
           posted_by: string | null
@@ -2234,6 +2235,7 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           journal_id?: string | null
+          journal_origin?: string
           org_id: string
           posted_at?: string | null
           posted_by?: string | null
@@ -2256,6 +2258,7 @@ export type Database = {
           id?: string
           idempotency_key?: string | null
           journal_id?: string | null
+          journal_origin?: string
           org_id?: string
           posted_at?: string | null
           posted_by?: string | null
@@ -10960,6 +10963,10 @@ export type Database = {
         Args: { p_org_id: string; p_product_id: string; p_uom_id: string }
         Returns: Json
       }
+      rpc_batch_post_manual_journal_entries: {
+        Args: { p_entry_ids: string[] }
+        Returns: Json
+      }
       rpc_cancel_customer_receipt: {
         Args: { p_reason: string; p_receipt_id: string }
         Returns: Json
@@ -11007,6 +11014,10 @@ export type Database = {
       }
       rpc_create_customer_receipt: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_journal_entry: { Args: { p_payload: Json }; Returns: Json }
+      rpc_create_manual_journal_entry: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       rpc_create_matched_supplier_invoice: {
         Args: { p_payload: Json }
         Returns: Json
@@ -11038,6 +11049,10 @@ export type Database = {
       rpc_create_supplier_payment: { Args: { p_payload: Json }; Returns: Json }
       rpc_create_uom_purchase_order: {
         Args: { p_payload: Json }
+        Returns: Json
+      }
+      rpc_delete_manual_journal_entry: {
+        Args: { p_entry_id: string }
         Returns: Json
       }
       rpc_delete_org_role: { Args: { p_payload: Json }; Returns: Json }
@@ -11135,6 +11150,36 @@ export type Database = {
         Returns: string
       }
       rpc_post_goods_receipt: { Args: { p_payload: Json }; Returns: Json }
+      rpc_post_manual_event_journal: {
+        Args: {
+          p_amount: number
+          p_event: string
+          p_idempotency_key?: string
+          p_jv_date?: string
+          p_memo: string
+          p_ref_id?: string
+          p_ref_type?: string
+          p_tenant?: string
+        }
+        Returns: string
+      }
+      rpc_post_manual_journal_entry: {
+        Args: { p_entry_id: string }
+        Returns: Json
+      }
+      rpc_post_manual_work_center_oh: {
+        Args: {
+          p_amount: number
+          p_idempotency_key?: string
+          p_jv_date?: string
+          p_memo: string
+          p_ref_id?: string
+          p_ref_type?: string
+          p_tenant?: string
+          p_work_center: string
+        }
+        Returns: string
+      }
       rpc_post_payroll_run: { Args: { p_payload: Json }; Returns: Json }
       rpc_post_settlement: { Args: { p_payload: Json }; Returns: Json }
       rpc_post_supplier_payment: {
@@ -11170,6 +11215,14 @@ export type Database = {
           p_note?: string
           p_org_id: string
           p_resolved_uom_id?: string
+        }
+        Returns: Json
+      }
+      rpc_reverse_manual_journal_entry: {
+        Args: {
+          p_entry_id: string
+          p_reversal_date?: string
+          p_reversal_reason?: string
         }
         Returns: Json
       }
@@ -11233,6 +11286,10 @@ export type Database = {
       }
       rpc_update_customer_receipt_draft: {
         Args: { p_payload: Json; p_receipt_id: string }
+        Returns: Json
+      }
+      rpc_update_manual_journal_entry: {
+        Args: { p_entry_id: string; p_payload: Json }
         Returns: Json
       }
       rpc_update_supplier_payment_draft: {
@@ -11636,6 +11693,14 @@ export type Database = {
       wardah_175_internal_replace_user_roles: {
         Args: { p_payload: Json }
         Returns: Json
+      }
+      wardah_178_assert_permission: {
+        Args: { p_org: string; p_permission_key: string }
+        Returns: undefined
+      }
+      wardah_178_validate_manual_lines: {
+        Args: { p_lines: Json; p_org: string }
+        Returns: undefined
       }
       wardah_apply_stock_incoming: {
         Args: {

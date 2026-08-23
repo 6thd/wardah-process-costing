@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 """
-CI guard: prevent new SECURITY DEFINER functions without an org-member guard.
+CI guard: prevent new SECURITY DEFINER functions without a tenant/authorization guard.
 
 Scans all migration files numbered > BASELINE_CUTOFF for new/replaced DEFINER
-functions. Fails if any is callable by 'authenticated' without a body line that
-calls wardah_assert_org_member, wardah_assert_org_admin, or wardah_is_org_member.
+functions. Fails if any client-callable function lacks one of the reviewed
+server-boundary guards.
+
+Recognized guards:
+  - wardah_assert_org_member / wardah_assert_org_admin / wardah_is_org_member
+  - wardah_178_assert_permission: Migration 178's assertion wrapper around
+    wardah_has_exact_permission. Unlike matching a bare boolean permission
+    helper, this wrapper raises on denial and preserves the central Super Admin,
+    active-membership, role-org, role-active and expiry semantics.
 
 Exemptions:
   - Functions with REVOKE EXECUTE/ALL FROM PUBLIC immediately after definition
-  - Functions listed in KNOWN_EXEMPT (intentionally open or superseded, documented)
+  - Functions listed in KNOWN_EXEMPT (intentionally open/delegating/superseded,
+    with a documented reason)
 """
 
 import pathlib
@@ -34,12 +42,22 @@ KNOWN_EXEMPT = {
     # because this function's whole purpose is validating identity, not org
     # membership, for a caller checking their own permissions.
     "has_permission",
+    # Migration 178 assertion helper. It is an internal, non-client-callable
+    # wrapper around wardah_has_exact_permission and is itself the recognized
+    # authorization assertion used by the public manual-journal RPCs.
+    "wardah_178_assert_permission",
+    # Migration 178 batch wrapper performs no table mutation or privileged read;
+    # every entry is delegated to rpc_post_manual_journal_entry, which performs
+    # the exact-permission assertion against that entry's own organization.
+    "rpc_batch_post_manual_journal_entries",
 }
 
 GUARD_PATTERNS = [
     r"wardah_assert_org_member",
     r"wardah_assert_org_admin",
     r"wardah_is_org_member",
+    # Match only the assertion wrapper, never a bare boolean permission lookup.
+    r"wardah_178_assert_permission",
 ]
 GUARD_RE = re.compile("|".join(GUARD_PATTERNS))
 
@@ -84,12 +102,7 @@ def check_file(path: pathlib.Path) -> list[str]:
     errors = []
     sql = path.read_text(encoding="utf-8")
 
-    for m in re.finditer(
-        r"SECURITY\s+DEFINER",
-        sql,
-        re.IGNORECASE,
-    ):
-        # Walk back to find the CREATE FUNCTION
+    for m in re.finditer(r"SECURITY\s+DEFINER", sql, re.IGNORECASE):
         prefix = sql[: m.start()]
         func_m = None
         for fm in DEFINER_FUNC_RE.finditer(prefix):
@@ -103,7 +116,7 @@ def check_file(path: pathlib.Path) -> list[str]:
 
         body = extract_function_body(sql, func_m.start())
 
-        # Check for explicit REVOKE after definition
+        # Check for explicit REVOKE after definition and before the next CREATE.
         after = sql[func_m.end():]
         revoke_before_next_func = after.split("CREATE")[0] if "CREATE" in after else after
         if REVOKE_RE.search(revoke_before_next_func):
@@ -112,8 +125,7 @@ def check_file(path: pathlib.Path) -> list[str]:
         if not GUARD_RE.search(body):
             errors.append(
                 f"  ❌ {path.name}: function '{func_name}' is SECURITY DEFINER "
-                f"but has no org-member guard (wardah_assert_org_member / "
-                f"wardah_assert_org_admin / wardah_is_org_member)"
+                f"but has no recognized tenant/authorization assertion"
             )
 
     return errors
@@ -135,15 +147,13 @@ def main() -> int:
 
     all_errors: list[str] = []
     for mig in sorted(new_migrations):
-        errors = check_file(mig)
-        all_errors.extend(errors)
+        all_errors.extend(check_file(mig))
 
     if all_errors:
         print("\n".join(all_errors), file=sys.stderr)
         print(
-            "\nأضف wardah_assert_org_member(v_org) أو wardah_assert_org_admin(v_org) "
-            "في أول جسم الدالة، أو اسحب EXECUTE/ALL من PUBLIC، أو أضف اسمها إلى "
-            "KNOWN_EXEMPT إن كانت مقصودة.",
+            "\nأضف tenant/authorization assertion معترفاً بها، أو اسحب EXECUTE/ALL "
+            "من PUBLIC فور تعريف الدالة، أو وثّق تفويضاً آمناً في KNOWN_EXEMPT.",
             file=sys.stderr,
         )
         return 1
