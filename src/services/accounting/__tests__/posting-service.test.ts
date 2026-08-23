@@ -17,7 +17,7 @@ describe('PostingService', () => {
     vi.clearAllMocks()
   })
 
-  it('postEventJournal يستدعي rpc_post_event_journal بالمعاملات الصحيحة', async () => {
+  it('postEventJournal يستدعي الغلاف المحروس rpc_post_manual_event_journal بالمعاملات الصحيحة', async () => {
     mockRpc.mockResolvedValue({ data: 'entry-uuid-1', error: null })
 
     const id = await PostingService.postEventJournal({
@@ -30,7 +30,7 @@ describe('PostingService', () => {
     })
 
     expect(id).toBe('entry-uuid-1')
-    expect(mockRpc).toHaveBeenCalledWith('rpc_post_event_journal', expect.objectContaining({
+    expect(mockRpc).toHaveBeenCalledWith('rpc_post_manual_event_journal', expect.objectContaining({
       p_event: 'GR_RECEIPT',
       p_amount: 1500,
       p_ref_type: 'GOODS_RECEIPT',
@@ -38,7 +38,7 @@ describe('PostingService', () => {
     }))
   })
 
-  it('postEventJournal يرمي رسالة الخطأ من القاعدة كما هي', async () => {
+  it('postEventJournal يرمي رسالة الخطأ من الغلاف المحروس كما هي', async () => {
     mockRpc.mockResolvedValue({
       data: null,
       error: { code: 'P0001', message: 'NO_MAPPING: لا خريطة للحدث GR_RECEIPT' },
@@ -54,7 +54,7 @@ describe('PostingService', () => {
     ).rejects.toThrow('NO_MAPPING')
   })
 
-  it('postWorkCenterOH يستدعي rpc_post_work_center_oh', async () => {
+  it('postWorkCenterOH يستدعي الغلاف المحروس rpc_post_manual_work_center_oh', async () => {
     mockRpc.mockResolvedValue({ data: 'entry-uuid-2', error: null })
 
     const id = await PostingService.postWorkCenterOH({
@@ -65,7 +65,7 @@ describe('PostingService', () => {
     })
 
     expect(id).toBe('entry-uuid-2')
-    expect(mockRpc).toHaveBeenCalledWith('rpc_post_work_center_oh', expect.objectContaining({
+    expect(mockRpc).toHaveBeenCalledWith('rpc_post_manual_work_center_oh', expect.objectContaining({
       p_work_center: 'MIXING',
       p_amount: 800,
     }))
