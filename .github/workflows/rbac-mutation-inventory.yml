@@ -1,0 +1,53 @@
+name: RBAC Mutation Inventory
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/ci/security/inventory-rbac-mutations.mjs'
+      - 'scripts/ci/security/check-rbac-mutation-baseline.mjs'
+      - 'scripts/ci/security/rbac-mutation-baseline.json'
+      - 'scripts/ci/security/classify-rbac-mutations.mjs'
+      - 'scripts/ci/security/rbac-mutation-classification-rules.json'
+      - 'scripts/ci/security/rbac-mutation-classification-reviewed.json'
+      - '.github/workflows/rbac-mutation-inventory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Generate RBAC mutation candidates
+        run: node scripts/ci/security/inventory-rbac-mutations.mjs --output artifacts/security/rbac-mutation-candidates.json
+
+      - name: Enforce reviewed mutation baseline
+        run: node scripts/ci/security/check-rbac-mutation-baseline.mjs artifacts/security/rbac-mutation-candidates.json scripts/ci/security/rbac-mutation-baseline.json
+
+      - name: Generate RBAC mutation closure matrix
+        run: node scripts/ci/security/classify-rbac-mutations.mjs artifacts/security/rbac-mutation-candidates.json scripts/ci/security/rbac-mutation-classification-rules.json artifacts/security/rbac-mutation-matrix.json
+
+      - name: Upload inventory artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbac-mutation-inventory
+          path: |
+            artifacts/security/rbac-mutation-candidates.json
+            artifacts/security/rbac-mutation-matrix.json
+          if-no-files-found: error
+          retention-days: 14
