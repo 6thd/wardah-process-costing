@@ -57,7 +57,7 @@ const handlers = {
 };
 
 describe('JournalEntryFilters', () => {
-  it('forwards search, date, reset and batch-post actions while respecting approval visibility', () => {
+  it('forwards search, date, reset and batch-post actions while respecting post visibility', () => {
     const onSearchChange = vi.fn();
     const onDateChange = vi.fn();
     const onReset = vi.fn();
@@ -67,7 +67,7 @@ describe('JournalEntryFilters', () => {
         searchTerm=""
         statusFilter="all"
         dateFilter=""
-        canApprove={false}
+        canPost={false}
         t={t}
         onSearchChange={onSearchChange}
         onStatusChange={vi.fn()}
@@ -90,7 +90,7 @@ describe('JournalEntryFilters', () => {
         searchTerm="JE-2"
         statusFilter="draft"
         dateFilter="2026-01-03"
-        canApprove
+        canPost
         t={t}
         onSearchChange={onSearchChange}
         onStatusChange={vi.fn()}
@@ -111,7 +111,8 @@ describe('JournalEntriesTable', () => {
       loading={false}
       isRTL={false}
       canUpdate
-      canApprove
+      canPost
+      canReverse
       canDelete
       t={t}
       {...handlers}
@@ -121,11 +122,11 @@ describe('JournalEntriesTable', () => {
 
   it('renders loading and empty states', () => {
     const { rerender } = render(
-      <JournalEntriesTable entries={[]} loading isRTL={false} canUpdate={false} canApprove={false} canDelete={false} t={t} {...handlers} />,
+      <JournalEntriesTable entries={[]} loading isRTL={false} canUpdate={false} canPost={false} canReverse={false} canDelete={false} t={t} {...handlers} />,
     );
     expect(document.querySelectorAll('[data-testid="skeleton"]')).toBeDefined();
 
-    rerender(<JournalEntriesTable entries={[]} loading={false} isRTL={false} canUpdate={false} canApprove={false} canDelete={false} t={t} {...handlers} />);
+    rerender(<JournalEntriesTable entries={[]} loading={false} isRTL={false} canUpdate={false} canPost={false} canReverse={false} canDelete={false} t={t} {...handlers} />);
     expect(screen.getByText('accounting.journalEntries.noEntries')).toBeInTheDocument();
   });
 
@@ -147,6 +148,14 @@ describe('JournalEntriesTable', () => {
     expect(handlers.onReverse).toHaveBeenCalledWith(postedEntry);
   });
 
+  it('separates post and reverse visibility', () => {
+    renderTable([draftEntry, postedEntry], { canPost: true, canReverse: false, canUpdate: false, canDelete: false });
+    const draftRow = screen.getByText('JE-001').closest('tr')!;
+    expect(within(draftRow).getByTitle('accounting.journalEntries.post')).toBeInTheDocument();
+    const postedRow = screen.getByText('JE-002').closest('tr')!;
+    expect(within(postedRow).queryByTitle('accounting.journalEntries.reverse')).not.toBeInTheDocument();
+  });
+
   it('hides gated actions and renders RTL and reversed entries', () => {
     const reversedEntry: JournalEntry = {
       ...postedEntry,
@@ -156,7 +165,7 @@ describe('JournalEntriesTable', () => {
       journal_name_ar: undefined,
     };
     const alreadyReversed = { ...postedEntry, id: 'posted-2', entry_number: 'JE-004', reversed_by_entry_id: 'reversal-1' };
-    renderTable([draftEntry, alreadyReversed, reversedEntry], { isRTL: true, canUpdate: false, canApprove: false, canDelete: false });
+    renderTable([draftEntry, alreadyReversed, reversedEntry], { isRTL: true, canUpdate: false, canPost: false, canReverse: false, canDelete: false });
 
     const draftRow = screen.getByText('JE-001').closest('tr')!;
     expect(within(draftRow).queryByRole('button')).not.toBeInTheDocument();
