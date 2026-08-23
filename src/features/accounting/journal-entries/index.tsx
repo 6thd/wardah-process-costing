@@ -50,11 +50,8 @@ const JournalEntries = () => {
   const canCreate = hasPermissionKey('accounting.journals.create');
   const canUpdate = hasPermissionKey('accounting.journals.update');
   const canDelete = hasPermissionKey('accounting.journals.delete');
-  // لا مفتاح "post" أو "reverse" منفصل في الكتالوج الحي — accounting.journals
-  // .approve هو المفتاح الإشرافي الوحيد فوق CRUD، فيُستخدم للترحيل (post)
-  // وعكس القيد المرحَّل (reverse) ودورة الاعتماد متعددة المستويات
-  // (ApprovalWorkflow) معًا؛ الثلاثة أفعال إشرافية تتجاوز CRUD العادي ولا
-  // مفتاح أدق منها متاح في الكتالوج الحي.
+  const canPost = hasPermissionKey('accounting.journals.post');
+  const canReverse = hasPermissionKey('accounting.journals.reverse');
   const canApprove = hasPermissionKey('accounting.journals.approve');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
@@ -162,8 +159,8 @@ const JournalEntries = () => {
   };
 
   const handlePost = async (entry: JournalEntry) => {
-    if (!canApprove) {
-      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية ترحيل القيود' }));
+    if (!canPost) {
+      toast.error(t('accounting.journalEntries.noPostPermission', { defaultValue: 'لا تملك صلاحية ترحيل القيود' }));
       return;
     }
     if (!globalThis.window?.confirm(t('accounting.journalEntries.confirmPost', { entryNumber: entry.entry_number }))) {
@@ -260,8 +257,8 @@ const JournalEntries = () => {
   };
 
   const handleReverse = async (entry: JournalEntry) => {
-    if (!canApprove) {
-      toast.error(t('accounting.journalEntries.noApprovePermission', { defaultValue: 'لا تملك صلاحية عكس القيود' }));
+    if (!canReverse) {
+      toast.error(t('accounting.journalEntries.noReversePermission', { defaultValue: 'لا تملك صلاحية عكس القيود' }));
       return;
     }
     if (!confirm(t('accounting.journalEntries.confirmReverse'))) {
@@ -632,7 +629,7 @@ const JournalEntries = () => {
             searchTerm={searchTerm}
             statusFilter={statusFilter}
             dateFilter={dateFilter}
-            canApprove={canApprove}
+            canPost={canPost}
             t={t}
             onSearchChange={setSearchTerm}
             onStatusChange={setStatusFilter}
@@ -646,7 +643,8 @@ const JournalEntries = () => {
             loading={loading}
             isRTL={isRTL}
             canUpdate={canUpdate}
-            canApprove={canApprove}
+            canPost={canPost}
+            canReverse={canReverse}
             canDelete={canDelete}
             t={t}
             onEdit={handleEdit}
@@ -660,7 +658,7 @@ const JournalEntries = () => {
 
       {/* Batch Post Dialog */}
       <BatchPostDialog
-        isOpen={batchPostDialogOpen && canApprove}
+        isOpen={batchPostDialogOpen && canPost}
         onClose={() => setBatchPostDialogOpen(false)}
         entries={entries}
         onSuccess={fetchEntries}
