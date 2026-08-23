@@ -21,8 +21,35 @@ function matches(rule, item) {
   return true;
 }
 
+function specificity(rule) {
+  let score = 0;
+  if (rule.target) score += 100;
+  if (rule.targets) score += 90;
+  if (rule.file_prefix) score += 40;
+  if (rule.file_prefixes) score += 30;
+  if (rule.kind) score += 10;
+  if (rule.operation) score += 10;
+  return score;
+}
+
+function selectMostSpecificRule(item) {
+  let best = null;
+  let bestScore = -1;
+
+  for (const rule of config.rules) {
+    if (!matches(rule, item)) continue;
+    const score = specificity(rule);
+    if (score > bestScore) {
+      best = rule;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
 const rows = (inventory.candidates || []).map((item) => {
-  const matched = config.rules.find(rule => matches(rule, item));
+  const matched = selectMostSpecificRule(item);
   const classification = matched || config.default;
   return {
     file: item.file,
