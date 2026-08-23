@@ -1,0 +1,35 @@
+name: RBAC Mutation Inventory
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/ci/security/inventory-rbac-mutations.mjs'
+      - '.github/workflows/rbac-mutation-inventory.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Generate RBAC mutation candidates
+        run: node scripts/ci/security/inventory-rbac-mutations.mjs --output artifacts/security/rbac-mutation-candidates.json
+
+      - name: Upload inventory artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rbac-mutation-inventory
+          path: artifacts/security/rbac-mutation-candidates.json
+          if-no-files-found: error
+          retention-days: 14
