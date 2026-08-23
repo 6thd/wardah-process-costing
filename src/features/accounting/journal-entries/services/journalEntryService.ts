@@ -1,9 +1,22 @@
 import i18next from 'i18next';
-import { supabase, getEffectiveTenantId } from '@/lib/supabase';
+import { supabase as typedSupabase, getEffectiveTenantId } from '@/lib/supabase';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import type { JournalEntry, JournalLine } from '../types';
 
+// Migration 178 adds RPCs that are not present in the currently committed
+// generated Supabase type snapshot yet. Keep the cast local to this service so
+// the rest of the application retains generated-schema type checking; the DB
+// regeneration gate remains responsible for detecting/committing schema drift.
+const supabase = typedSupabase as SupabaseClient;
 const t = (key: string) => i18next.t(key);
+
+type JournalRpcResult = {
+  success?: boolean;
+  entry_id?: string;
+  entry_number?: string;
+  status?: string;
+};
 
 interface CreateEntryData {
   journal_id: string;
@@ -50,16 +63,17 @@ export async function createJournalEntry(data: CreateEntryData): Promise<string 
       return null;
     }
 
-    const { data: result, error } = await supabase.rpc('rpc_create_manual_journal_entry', {
+    const { data: rawResult, error } = await supabase.rpc('rpc_create_manual_journal_entry', {
       p_payload: toPayload(orgId, data),
     });
     if (error) throw error;
-    if (!result?.success || !result?.entry_id) {
+    const result = rawResult as JournalRpcResult | null;
+    if (!result?.success || !result.entry_id) {
       throw new Error('Manual journal RPC returned no entry');
     }
 
     toast.success(t('accounting.journalEntries.svc.saveSuccess'));
-    return result.entry_id as string;
+    return result.entry_id;
   } catch (error: any) {
     console.error('Error creating entry:', error);
     toast.error(error.message || t('accounting.journalEntries.svc.saveError'));
@@ -75,11 +89,12 @@ export async function updateJournalEntry(data: UpdateEntryData): Promise<boolean
       return false;
     }
 
-    const { data: result, error } = await supabase.rpc('rpc_update_manual_journal_entry', {
+    const { data: rawResult, error } = await supabase.rpc('rpc_update_manual_journal_entry', {
       p_entry_id: data.id,
       p_payload: toPayload(orgId, data),
     });
     if (error) throw error;
+    const result = rawResult as JournalRpcResult | null;
     if (!result?.success) throw new Error('Manual journal update failed');
 
     toast.success(t('accounting.journalEntries.svc.updateSuccess'));
@@ -93,10 +108,11 @@ export async function updateJournalEntry(data: UpdateEntryData): Promise<boolean
 
 export async function postJournalEntry(entry: JournalEntry): Promise<boolean> {
   try {
-    const { data: result, error } = await supabase.rpc('rpc_post_manual_journal_entry', {
+    const { data: rawResult, error } = await supabase.rpc('rpc_post_manual_journal_entry', {
       p_entry_id: entry.id,
     });
     if (error) throw error;
+    const result = rawResult as JournalRpcResult | null;
     if (!result?.success) {
       toast.error(t('accounting.journalEntries.svc.postFailed'));
       return false;
@@ -118,10 +134,11 @@ export async function deleteJournalEntry(entry: JournalEntry): Promise<boolean> 
       return false;
     }
 
-    const { data: result, error } = await supabase.rpc('rpc_delete_manual_journal_entry', {
+    const { data: rawResult, error } = await supabase.rpc('rpc_delete_manual_journal_entry', {
       p_entry_id: entry.id,
     });
     if (error) throw error;
+    const result = rawResult as JournalRpcResult | null;
     if (!result?.success) throw new Error('Manual journal delete failed');
 
     toast.success(t('accounting.journalEntries.svc.deleteSuccess'));
