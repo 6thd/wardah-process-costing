@@ -1,6 +1,6 @@
 /**
  * اختبارات JournalService — مسار المال الأهم (P4-B6)
- * RPC الذرّي أولاً | Fallback عند PGRST202 | التوازن | تمرير الأخطاء
+ * Migration 178: manual-journal RPC boundary | التوازن | تمرير الأخطاء
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -31,7 +31,7 @@ describe('JournalService.createEntry', () => {
     vi.clearAllMocks()
   })
 
-  it('يستخدم rpc_create_journal_entry الذرّي عند توفره', async () => {
+  it('يستخدم rpc_create_manual_journal_entry المحروس عند إنشاء قيد يدوي', async () => {
     mockRpc.mockResolvedValue({
       data: { success: true, entry_id: 'e-1', entry_number: 'JE-0001', status: 'draft' },
       error: null,
@@ -41,7 +41,7 @@ describe('JournalService.createEntry', () => {
 
     expect(result.success).toBe(true)
     expect(result.data.id).toBe('e-1')
-    expect(mockRpc).toHaveBeenCalledWith('rpc_create_journal_entry', {
+    expect(mockRpc).toHaveBeenCalledWith('rpc_create_manual_journal_entry', {
       p_payload: expect.objectContaining({
         org_id: 'org-jtest',
         entry_date: '2026-07-01',
@@ -50,7 +50,6 @@ describe('JournalService.createEntry', () => {
         ]),
       }),
     })
-    // المسار الذرّي لا يلمس الجداول مباشرة
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
@@ -69,7 +68,7 @@ describe('JournalService.createEntry', () => {
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('خطأ حقيقي من الدالة الذرّية (فترة مقفلة) يصل كما هو — لا fallback', async () => {
+  it('يحافظ على بادئة الخطأ العربية وينقل خطأ RPC الحقيقي بلا fallback', async () => {
     mockRpc.mockResolvedValue({
       data: null,
       error: { code: 'P0001', message: 'PERIOD_CLOSED: الفترة 2026-06 مقفلة' },
@@ -78,7 +77,9 @@ describe('JournalService.createEntry', () => {
     const result = await JournalService.createEntry(balancedRequest)
 
     expect(result.success).toBe(false)
+    expect(String(result.error?.message ?? result.error)).toContain('[خدمة قيد اليومية]')
     expect(String(result.error?.message ?? result.error)).toContain('PERIOD_CLOSED')
+    expect(mockRpc).toHaveBeenCalledWith('rpc_create_manual_journal_entry', expect.any(Object))
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
