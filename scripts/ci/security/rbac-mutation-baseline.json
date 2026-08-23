@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "scanner_schema_version": 2,
+  "candidate_count": 374,
+  "signature_count": 343,
+  "signature_sha256": "0cbeda396a8d927f3dcee92d713ef485b37424a61bc35a3456a79d9851db2b8d",
+  "note": "Baseline of production mutation/RPC signatures. Updating this digest requires reviewing the generated RBAC mutation inventory artifact and classifying any added or changed path under Issue #148 / parent #48."
+}
