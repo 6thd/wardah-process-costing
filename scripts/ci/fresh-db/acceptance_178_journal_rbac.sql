@@ -144,7 +144,9 @@ BEGIN
   END IF;
 END $$;
 
--- Cross-org entry cannot be posted with org-A role.
+-- Cross-org UUIDs are indistinguishable from missing UUIDs for every public
+-- row-addressed mutation. This closes the tenant-existence oracle before the
+-- exact-permission check is reached.
 RESET ROLE;
 INSERT INTO public.gl_entries(id,org_id,journal_id,entry_number,entry_date,entry_type,status,total_debit,total_credit,journal_origin)
 VALUES ('17800000-4444-4444-4444-000000000099','17800000-bbbb-bbbb-bbbb-000000000002',
@@ -153,7 +155,22 @@ SELECT set_config('request.jwt.claim.sub','17800000-0000-0000-0000-000000000002'
 SET LOCAL ROLE authenticated;
 SELECT pg_temp.expect_error(
   'SELECT public.rpc_post_manual_journal_entry(''17800000-4444-4444-4444-000000000099''::uuid)',
-  'PERMISSION_DENIED');
+  'JOURNAL_ENTRY_NOT_FOUND');
+SELECT pg_temp.expect_error(
+  'SELECT public.rpc_delete_manual_journal_entry(''17800000-4444-4444-4444-000000000099''::uuid)',
+  'JOURNAL_ENTRY_NOT_FOUND');
+SELECT pg_temp.expect_error(format(
+  'SELECT public.rpc_update_manual_journal_entry(%L::uuid,%L::jsonb)',
+  '17800000-4444-4444-4444-000000000099',
+  pg_temp.payload('17800000-aaaa-aaaa-aaaa-000000000001','17800000-2222-2222-2222-000000000001',
+    '17800000-3333-3333-3333-000000000001','17800000-3333-3333-3333-000000000002','foreign-update',false)),
+  'JOURNAL_ENTRY_NOT_FOUND');
+SELECT pg_temp.expect_error(
+  'SELECT public.rpc_reverse_manual_journal_entry(''17800000-4444-4444-4444-000000000099''::uuid,''foreign'',''2026-08-23''::date)',
+  'JOURNAL_ENTRY_NOT_FOUND');
+SELECT pg_temp.expect_error(
+  'SELECT public.rpc_post_manual_journal_entry(''17800000-4444-4444-4444-000000000098''::uuid)',
+  'JOURNAL_ENTRY_NOT_FOUND');
 
 -- Post succeeds with exact post grant.
 CREATE TEMP TABLE t178_post AS

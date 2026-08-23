@@ -6,6 +6,8 @@
 --   * add first-class post/reverse permissions;
 --   * make reverse sensitive (explicit grant required for org admins);
 --   * close legacy/internal journal primitives to authenticated clients;
+--   * scope entry lookup before authorization so foreign UUIDs do not become
+--     a cross-tenant existence oracle;
 --   * provide permission-guarded create/update/delete/post/reverse RPCs for
 --     manually maintained journals only.
 --
@@ -296,7 +298,22 @@ DECLARE
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
 
-  SELECT * INTO v_old FROM public.gl_entries WHERE id = p_entry_id FOR UPDATE;
+  SELECT ge.* INTO v_old
+  FROM public.gl_entries ge
+  WHERE ge.id = p_entry_id
+    AND (
+      EXISTS (
+        SELECT 1 FROM public.super_admins sa
+        WHERE sa.user_id = v_uid AND sa.is_active = true
+      )
+      OR EXISTS (
+        SELECT 1 FROM public.user_organizations uo
+        WHERE uo.user_id = v_uid
+          AND uo.org_id = ge.org_id
+          AND COALESCE(uo.is_active, true)
+      )
+    )
+  FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'JOURNAL_ENTRY_NOT_FOUND'; END IF;
 
   PERFORM public.wardah_178_assert_permission(v_old.org_id, 'accounting.journals.update');
@@ -373,7 +390,22 @@ DECLARE
   v_entry public.gl_entries%rowtype;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
-  SELECT * INTO v_entry FROM public.gl_entries WHERE id=p_entry_id FOR UPDATE;
+  SELECT ge.* INTO v_entry
+  FROM public.gl_entries ge
+  WHERE ge.id = p_entry_id
+    AND (
+      EXISTS (
+        SELECT 1 FROM public.super_admins sa
+        WHERE sa.user_id = v_uid AND sa.is_active = true
+      )
+      OR EXISTS (
+        SELECT 1 FROM public.user_organizations uo
+        WHERE uo.user_id = v_uid
+          AND uo.org_id = ge.org_id
+          AND COALESCE(uo.is_active, true)
+      )
+    )
+  FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'JOURNAL_ENTRY_NOT_FOUND'; END IF;
 
   PERFORM public.wardah_178_assert_permission(v_entry.org_id,'accounting.journals.delete');
@@ -407,7 +439,22 @@ DECLARE
   v_lines integer;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
-  SELECT * INTO v_entry FROM public.gl_entries WHERE id=p_entry_id FOR UPDATE;
+  SELECT ge.* INTO v_entry
+  FROM public.gl_entries ge
+  WHERE ge.id = p_entry_id
+    AND (
+      EXISTS (
+        SELECT 1 FROM public.super_admins sa
+        WHERE sa.user_id = v_uid AND sa.is_active = true
+      )
+      OR EXISTS (
+        SELECT 1 FROM public.user_organizations uo
+        WHERE uo.user_id = v_uid
+          AND uo.org_id = ge.org_id
+          AND COALESCE(uo.is_active, true)
+      )
+    )
+  FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'JOURNAL_ENTRY_NOT_FOUND'; END IF;
 
   PERFORM public.wardah_178_assert_permission(v_entry.org_id,'accounting.journals.post');
@@ -494,7 +541,22 @@ DECLARE
   v_reversal uuid;
 BEGIN
   IF v_uid IS NULL THEN RAISE EXCEPTION 'NOT_AUTHENTICATED'; END IF;
-  SELECT * INTO v_original FROM public.gl_entries WHERE id=p_entry_id FOR UPDATE;
+  SELECT ge.* INTO v_original
+  FROM public.gl_entries ge
+  WHERE ge.id = p_entry_id
+    AND (
+      EXISTS (
+        SELECT 1 FROM public.super_admins sa
+        WHERE sa.user_id = v_uid AND sa.is_active = true
+      )
+      OR EXISTS (
+        SELECT 1 FROM public.user_organizations uo
+        WHERE uo.user_id = v_uid
+          AND uo.org_id = ge.org_id
+          AND COALESCE(uo.is_active, true)
+      )
+    )
+  FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'JOURNAL_ENTRY_NOT_FOUND'; END IF;
 
   PERFORM public.wardah_178_assert_permission(v_original.org_id,'accounting.journals.reverse');
