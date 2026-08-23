@@ -7,9 +7,19 @@ const ROOT = process.cwd();
 const inventoryPath = process.argv[2] || 'artifacts/security/rbac-mutation-candidates.json';
 const rulesPath = process.argv[3] || 'scripts/ci/security/rbac-mutation-classification-rules.json';
 const outputPath = process.argv[4] || 'artifacts/security/rbac-mutation-matrix.json';
+const reviewedRulesPath = 'scripts/ci/security/rbac-mutation-classification-reviewed.json';
 
 const inventory = JSON.parse(await fs.readFile(path.resolve(ROOT, inventoryPath), 'utf8'));
 const config = JSON.parse(await fs.readFile(path.resolve(ROOT, rulesPath), 'utf8'));
+
+let reviewedConfig = { rules: [] };
+try {
+  reviewedConfig = JSON.parse(await fs.readFile(path.resolve(ROOT, reviewedRulesPath), 'utf8'));
+} catch (error) {
+  if (error?.code !== 'ENOENT') throw error;
+}
+
+const allRules = [...config.rules, ...(reviewedConfig.rules || [])];
 
 function matches(rule, item) {
   if (rule.target && item.target !== rule.target) return false;
@@ -22,7 +32,7 @@ function matches(rule, item) {
 }
 
 function specificity(rule) {
-  let score = 0;
+  let score = Number(rule.priority || 0) * 1000;
   if (rule.target) score += 100;
   if (rule.targets) score += 90;
   if (rule.file_prefix) score += 40;
@@ -36,7 +46,7 @@ function selectMostSpecificRule(item) {
   let best = null;
   let bestScore = -1;
 
-  for (const rule of config.rules) {
+  for (const rule of allRules) {
     if (!matches(rule, item)) continue;
     const score = specificity(rule);
     if (score > bestScore) {
