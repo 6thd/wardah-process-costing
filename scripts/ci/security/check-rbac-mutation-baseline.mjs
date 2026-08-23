@@ -17,8 +17,9 @@ for (const item of inventory.candidates || []) {
   counts.set(key, (counts.get(key) || 0) + 1);
 }
 
+const compareStable = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const lines = [...counts.entries()]
-  .sort(([a], [b]) => a.localeCompare(b))
+  .sort(([a], [b]) => compareStable(a, b))
   .map(([key, count]) => `${key}|${count}`);
 const payload = `${lines.join('\n')}\n`;
 const digest = crypto.createHash('sha256').update(payload).digest('hex');
