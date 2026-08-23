@@ -2,11 +2,13 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import ts from 'typescript';
 
 const ROOT = process.cwd();
 const SRC_ROOT = path.join(ROOT, 'src');
 const outputArgIndex = process.argv.indexOf('--output');
 const outputPath = outputArgIndex >= 0 ? process.argv[outputArgIndex + 1] : null;
+const TABLE_MUTATIONS = new Set(['insert', 'update', 'upsert', 'delete']);
 
 function isProductionSource(filePath) {
   const normalized = filePath.split(path.sep).join('/');
@@ -35,59 +37,108 @@ async function walk(dir) {
   return files;
 }
 
-function lineForIndex(text, index) {
-  return text.slice(0, index).split('\n').length;
+function stringArg(call, index = 0) {
+  const arg = call.arguments[index];
+  if (!arg) return null;
+  if (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg)) {
+    return arg.text;
+  }
+  return null;
 }
 
-function excerpt(text, index) {
+function findFromTarget(node) {
+  if (!node) return null;
+
+  if (ts.isCallExpression(node)) {
+    if (ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'from') {
+      return stringArg(node);
+    }
+    return findFromTarget(node.expression);
+  }
+
+  if (ts.isPropertyAccessExpression(node)) {
+    return findFromTarget(node.expression);
+  }
+
+  if (ts.isElementAccessExpression(node)) {
+    return findFromTarget(node.expression);
+  }
+
+  if (ts.isParenthesizedExpression(node)) {
+    return findFromTarget(node.expression);
+  }
+
+  return null;
+}
+
+function lineForNode(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function excerptForNode(sourceFile, node) {
+  const text = sourceFile.text;
+  const index = node.getStart(sourceFile);
   const start = Math.max(0, text.lastIndexOf('\n', index - 1) + 1);
-  const endLine1 = text.indexOf('\n', index);
-  const endLine2 = endLine1 < 0 ? -1 : text.indexOf('\n', endLine1 + 1);
-  const end = endLine2 < 0 ? Math.min(text.length, index + 240) : endLine2;
+  const firstEnd = text.indexOf('\n', index);
+  const secondEnd = firstEnd < 0 ? -1 : text.indexOf('\n', firstEnd + 1);
+  const end = secondEnd < 0 ? Math.min(text.length, index + 240) : secondEnd;
   return text.slice(start, end).trim().replace(/\s+/g, ' ').slice(0, 300);
 }
 
-function scanTableMutations(text, relativePath) {
+function scanSource(sourceFile, relativePath) {
   const results = [];
-  const fromRegex = /\.from\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
-  let match;
 
-  while ((match = fromRegex.exec(text)) !== null) {
-    const afterStart = match.index + match[0].length;
-    const semicolon = text.indexOf(';', afterStart);
-    const hardEnd = Math.min(text.length, afterStart + 1600);
-    const end = semicolon >= 0 && semicolon < hardEnd ? semicolon : hardEnd;
-    const chain = text.slice(afterStart, end);
-    const mutationMatch = chain.match(/\.(insert|update|upsert|delete)\s*\(/);
-    if (!mutationMatch) continue;
+  function visit(node) {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const property = node.expression.name.text;
 
-    const operationIndex = afterStart + mutationMatch.index;
-    results.push({
-      kind: 'direct_table_mutation',
-      target: match[1],
-      operation: mutationMatch[1],
-      file: relativePath,
-      line: lineForIndex(text, operationIndex),
-      excerpt: excerpt(text, match.index),
-    });
+      if (TABLE_MUTATIONS.has(property)) {
+        const target = findFromTarget(node.expression.expression);
+        if (target) {
+          results.push({
+            kind: 'direct_table_mutation',
+            target,
+            operation: property,
+            file: relativePath,
+            line: lineForNode(sourceFile, node),
+            excerpt: excerptForNode(sourceFile, node),
+          });
+        }
+      } else if (property === 'rpc') {
+        const target = stringArg(node);
+        if (target) {
+          results.push({
+            kind: 'rpc_call',
+            target,
+            operation: 'rpc',
+            file: relativePath,
+            line: lineForNode(sourceFile, node),
+            excerpt: excerptForNode(sourceFile, node),
+          });
+        }
+      } else if (
+        property === 'invoke' &&
+        ts.isPropertyAccessExpression(node.expression.expression) &&
+        node.expression.expression.name.text === 'functions'
+      ) {
+        const target = stringArg(node);
+        if (target) {
+          results.push({
+            kind: 'edge_function_call',
+            target,
+            operation: 'invoke',
+            file: relativePath,
+            line: lineForNode(sourceFile, node),
+            excerpt: excerptForNode(sourceFile, node),
+          });
+        }
+      }
+    }
+
+    ts.forEachChild(node, visit);
   }
 
-  return results;
-}
-
-function scanNamedCalls(text, relativePath, regex, kind, operation) {
-  const results = [];
-  let match;
-  while ((match = regex.exec(text)) !== null) {
-    results.push({
-      kind,
-      target: match[1],
-      operation,
-      file: relativePath,
-      line: lineForIndex(text, match.index),
-      excerpt: excerpt(text, match.index),
-    });
-  }
+  visit(sourceFile);
   return results;
 }
 
@@ -97,26 +148,9 @@ const candidates = [];
 for (const filePath of files) {
   const text = await fs.readFile(filePath, 'utf8');
   const relativePath = path.relative(ROOT, filePath).split(path.sep).join('/');
-
-  candidates.push(...scanTableMutations(text, relativePath));
-  candidates.push(
-    ...scanNamedCalls(
-      text,
-      relativePath,
-      /\.rpc\(\s*['"`]([^'"`]+)['"`]/g,
-      'rpc_call',
-      'rpc'
-    )
-  );
-  candidates.push(
-    ...scanNamedCalls(
-      text,
-      relativePath,
-      /\.functions\.invoke\(\s*['"`]([^'"`]+)['"`]/g,
-      'edge_function_call',
-      'invoke'
-    )
-  );
+  const scriptKind = filePath.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sourceFile = ts.createSourceFile(relativePath, text, ts.ScriptTarget.Latest, true, scriptKind);
+  candidates.push(...scanSource(sourceFile, relativePath));
 }
 
 candidates.sort((a, b) =>
@@ -129,7 +163,8 @@ const byKind = candidates.reduce((acc, item) => {
 }, {});
 
 const report = {
-  schema_version: 1,
+  schema_version: 2,
+  scanner: 'typescript-ast',
   generated_from: 'src/**/*.ts(x) production sources',
   generated_at: new Date().toISOString(),
   source_file_count: files.length,
