@@ -23,7 +23,7 @@ interface JournalEntryFiltersProps {
   searchTerm: string;
   statusFilter: string;
   dateFilter: string;
-  canApprove: boolean;
+  canPost: boolean;
   t: TFunction;
   onSearchChange: (value: string) => void;
   onStatusChange: (value: string) => void;
@@ -36,7 +36,7 @@ export function JournalEntryFilters({
   searchTerm,
   statusFilter,
   dateFilter,
-  canApprove,
+  canPost,
   t,
   onSearchChange,
   onStatusChange,
@@ -80,7 +80,7 @@ export function JournalEntryFilters({
       <Button variant="outline" onClick={onReset}>
         {t('common.reset')}
       </Button>
-      {canApprove && (
+      {canPost && (
         <Button variant="outline" onClick={onBatchPost}>
           <Layers className="h-4 w-4 mr-2" />
           {t('accounting.journalEntries.batchPost')}
@@ -95,7 +95,8 @@ interface JournalEntriesTableProps {
   loading: boolean;
   isRTL: boolean;
   canUpdate: boolean;
-  canApprove: boolean;
+  canPost: boolean;
+  canReverse: boolean;
   canDelete: boolean;
   t: TFunction;
   onEdit: EntryHandler;
@@ -142,7 +143,8 @@ function EmptyRows({ t }: Readonly<{ t: TFunction }>) {
 interface JournalEntryActionsProps {
   entry: JournalEntry;
   canUpdate: boolean;
-  canApprove: boolean;
+  canPost: boolean;
+  canReverse: boolean;
   canDelete: boolean;
   t: TFunction;
   onEdit: EntryHandler;
@@ -155,7 +157,8 @@ interface JournalEntryActionsProps {
 function JournalEntryActions({
   entry,
   canUpdate,
-  canApprove,
+  canPost,
+  canReverse,
   canDelete,
   t,
   onEdit,
@@ -172,7 +175,7 @@ function JournalEntryActions({
             <Edit className="h-4 w-4" />
           </Button>
         )}
-        {canApprove && (
+        {canPost && (
           <Button size="sm" variant="ghost" onClick={() => onPost(entry)} title={t('accounting.journalEntries.post')}>
             <CheckCircle className="h-4 w-4 text-green-600" />
           </Button>
@@ -195,7 +198,7 @@ function JournalEntryActions({
       <Button size="sm" variant="ghost" onClick={() => onView(entry)} title={t('accounting.journalEntries.view')}>
         <FileText className="h-4 w-4 text-blue-600" />
       </Button>
-      {!entry.reversed_by_entry_id && canApprove && (
+      {!entry.reversed_by_entry_id && canReverse && (
         <Button size="sm" variant="ghost" onClick={() => onReverse(entry)} title={t('accounting.journalEntries.reverse')}>
           <RotateCcw className="h-4 w-4 text-orange-600" />
         </Button>
@@ -208,7 +211,8 @@ function EntryRow({
   entry,
   isRTL,
   canUpdate,
-  canApprove,
+  canPost,
+  canReverse,
   canDelete,
   t,
   onEdit,
@@ -234,7 +238,8 @@ function EntryRow({
         <JournalEntryActions
           entry={entry}
           canUpdate={canUpdate}
-          canApprove={canApprove}
+          canPost={canPost}
+          canReverse={canReverse}
           canDelete={canDelete}
           t={t}
           onEdit={onEdit}
