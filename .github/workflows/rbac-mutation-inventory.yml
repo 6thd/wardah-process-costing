@@ -9,6 +9,7 @@ on:
       - 'scripts/ci/security/rbac-mutation-baseline.json'
       - 'scripts/ci/security/classify-rbac-mutations.mjs'
       - 'scripts/ci/security/rbac-mutation-classification-rules.json'
+      - 'scripts/ci/security/rbac-mutation-classification-reviewed.json'
       - '.github/workflows/rbac-mutation-inventory.yml'
   workflow_dispatch:
 
