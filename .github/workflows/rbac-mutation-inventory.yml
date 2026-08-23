@@ -5,6 +5,8 @@ on:
     paths:
       - 'src/**'
       - 'scripts/ci/security/inventory-rbac-mutations.mjs'
+      - 'scripts/ci/security/check-rbac-mutation-baseline.mjs'
+      - 'scripts/ci/security/rbac-mutation-baseline.json'
       - '.github/workflows/rbac-mutation-inventory.yml'
   workflow_dispatch:
 
@@ -30,7 +32,11 @@ jobs:
       - name: Generate RBAC mutation candidates
         run: node scripts/ci/security/inventory-rbac-mutations.mjs --output artifacts/security/rbac-mutation-candidates.json
 
+      - name: Enforce reviewed mutation baseline
+        run: node scripts/ci/security/check-rbac-mutation-baseline.mjs artifacts/security/rbac-mutation-candidates.json scripts/ci/security/rbac-mutation-baseline.json
+
       - name: Upload inventory artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rbac-mutation-inventory
