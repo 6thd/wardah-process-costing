@@ -1,0 +1,111 @@
+name: Journal RBAC 178 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/178_journal_rbac_and_canonical_manual_lifecycle.sql'
+      - 'scripts/ci/fresh-db/acceptance_178_journal_rbac.sql'
+      - '.github/workflows/journal-rbac-178-acceptance.yml'
+      - 'src/services/accounting/journal-service.ts'
+      - 'src/services/accounting/posting-service.ts'
+      - 'src/features/accounting/journal-entries/**'
+      - 'src/features/inventory/helpers/stockAdjustmentSubmit.ts'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm canonical journal permission boundaries
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through Migration 178
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 178 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_178_journal_rbac.sql \
+            2>&1 | tee /tmp/journal-178.out
+          grep -q 'JOURNAL_RBAC_178_ACCEPTANCE_PASS' /tmp/journal-178.out
+
+      - name: Re-run sensitive-permission regression after 178
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_174_sensitive_permission_class.sql \
+            2>&1 | tee /tmp/rbac-174-after-178.out
+          grep -q 'SENSITIVE_PERMISSION_174_ACCEPTANCE_PASS' /tmp/rbac-174-after-178.out
+
+      - name: Verify legacy/internal journal execute surface is closed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -tA -v ON_ERROR_STOP=1 -d wardah_fresh <<'SQL' | tee /tmp/journal-178-grants.out
+          SELECT 'generic_create_auth=' || has_function_privilege('authenticated','public.rpc_create_journal_entry(jsonb)','EXECUTE');
+          SELECT 'event_post_auth=' || has_function_privilege('authenticated','public.rpc_post_event_journal(text,numeric,text,text,uuid,uuid,text,date)','EXECUTE');
+          SELECT 'legacy_batch_auth=' || has_function_privilege('authenticated','public.batch_post_journal_entries(uuid[])','EXECUTE');
+          SELECT 'legacy_post_anon=' || has_function_privilege('anon','public.post_journal_entry(uuid)','EXECUTE');
+          SELECT 'manual_create_auth=' || has_function_privilege('authenticated','public.rpc_create_manual_journal_entry(jsonb)','EXECUTE');
+          SELECT 'manual_post_auth=' || has_function_privilege('authenticated','public.rpc_post_manual_journal_entry(uuid)','EXECUTE');
+          SQL
+          grep -q '^generic_create_auth=false$' /tmp/journal-178-grants.out
+          grep -q '^event_post_auth=false$' /tmp/journal-178-grants.out
+          grep -q '^legacy_batch_auth=false$' /tmp/journal-178-grants.out
+          grep -q '^legacy_post_anon=false$' /tmp/journal-178-grants.out
+          grep -q '^manual_create_auth=true$' /tmp/journal-178-grants.out
+          grep -q '^manual_post_auth=true$' /tmp/journal-178-grants.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: journal-rbac-178-${{ github.run_id }}
+          path: |
+            /tmp/journal-178.out
+            /tmp/rbac-174-after-178.out
+            /tmp/journal-178-grants.out
+            /tmp/chain_report.txt
+          retention-days: 30
