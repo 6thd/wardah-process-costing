@@ -56,16 +56,21 @@ export interface TrialBalanceRequest {
 }
 
 /**
- * Posting Service for GL Integration
- * Connects UI components to the enhanced GL posting functions
+ * Posting Service for GL Integration.
+ *
+ * Migration 178 deliberately closes the trusted internal event-posting
+ * primitives to browser clients. UI-driven event posting therefore uses the
+ * permission-guarded public adapters below; domain SECURITY DEFINER RPCs keep
+ * calling the internal primitives as the database owner.
  */
 export class PostingService {
   /**
-   * Post an event journal entry
+   * Post an event journal entry from an authenticated UI workflow.
+   * Requires both accounting.journals.create and accounting.journals.post.
    */
   static async postEventJournal(request: PostingRequest): Promise<string> {
     if (!supabase) throw new Error('Supabase client not initialized')
-    const { data, error } = await supabase.rpc('rpc_post_event_journal', {
+    const { data, error } = await supabase.rpc('rpc_post_manual_event_journal', {
       p_event: request.event,
       p_amount: request.amount,
       p_memo: request.memo,
@@ -81,11 +86,12 @@ export class PostingService {
   }
 
   /**
-   * Post work center overhead
+   * Post work center overhead from an authenticated UI workflow.
+   * Requires both accounting.journals.create and accounting.journals.post.
    */
   static async postWorkCenterOH(request: WorkCenterOHRequest): Promise<string> {
     if (!supabase) throw new Error('Supabase client not initialized')
-    const { data, error } = await supabase.rpc('rpc_post_work_center_oh', {
+    const { data, error } = await supabase.rpc('rpc_post_manual_work_center_oh', {
       p_work_center: request.workCenter,
       p_amount: request.amount,
       p_memo: request.memo,
@@ -144,5 +150,4 @@ export class PostingService {
   }
 }
 
-// Export default instance for convenience
 export default PostingService
