@@ -7,6 +7,8 @@ on:
       - 'scripts/ci/security/inventory-rbac-mutations.mjs'
       - 'scripts/ci/security/check-rbac-mutation-baseline.mjs'
       - 'scripts/ci/security/rbac-mutation-baseline.json'
+      - 'scripts/ci/security/classify-rbac-mutations.mjs'
+      - 'scripts/ci/security/rbac-mutation-classification-rules.json'
       - '.github/workflows/rbac-mutation-inventory.yml'
   workflow_dispatch:
 
@@ -35,11 +37,16 @@ jobs:
       - name: Enforce reviewed mutation baseline
         run: node scripts/ci/security/check-rbac-mutation-baseline.mjs artifacts/security/rbac-mutation-candidates.json scripts/ci/security/rbac-mutation-baseline.json
 
-      - name: Upload inventory artifact
+      - name: Generate RBAC mutation closure matrix
+        run: node scripts/ci/security/classify-rbac-mutations.mjs artifacts/security/rbac-mutation-candidates.json scripts/ci/security/rbac-mutation-classification-rules.json artifacts/security/rbac-mutation-matrix.json
+
+      - name: Upload inventory artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: rbac-mutation-inventory
-          path: artifacts/security/rbac-mutation-candidates.json
+          path: |
+            artifacts/security/rbac-mutation-candidates.json
+            artifacts/security/rbac-mutation-matrix.json
           if-no-files-found: error
           retention-days: 14
