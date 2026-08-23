@@ -30,6 +30,13 @@
       "note": "Purchasing mutation permission alignment tracked in #151."
     },
     {
+      "id": "purchasing-callers",
+      "file_prefixes": ["src/modules/purchasing/", "src/features/purchasing/", "src/components/forms/SupplierInvoiceForm.tsx", "src/components/forms/LegacyPurchaseOrderForm.tsx"],
+      "verdict": "follow_up_required",
+      "issue": 151,
+      "note": "Purchasing controller/form mutation paths are included in the exact-permission reconciliation tracked by #151."
+    },
+    {
       "id": "purchasing-rpcs",
       "targets": [
         "rpc_submit_purchase_order",
@@ -154,7 +161,7 @@
       "target": "products",
       "verdict": "verified_gap",
       "issue": 157,
-      "note": "Products CRUD is same-org RLS only despite first-class inventory.items create/update/delete permissions."
+      "note": "Products CRUD is same-org RLS only; #157 resolves the live inventory.items vs inventory.products permission-family ambiguity before enforcing the canonical exact keys."
     },
     {
       "id": "manufacturing-core-tables",
@@ -183,6 +190,41 @@
       "verdict": "follow_up_required",
       "issue": 158,
       "note": "BOM mutation callers are tracked in #158; target-specific rules override this for confirmed membership-only or fail-closed tables."
+    },
+    {
+      "id": "customer-receipt-rpcs",
+      "targets": ["rpc_create_customer_receipt", "rpc_update_customer_receipt_draft", "rpc_post_customer_receipt"],
+      "verdict": "verified_gap",
+      "issue": 159,
+      "note": "Migration 169 internal create/update/post receipt paths require org membership but do not enforce the live sales.receipts granular permissions."
+    },
+    {
+      "id": "customer-receipt-sensitive-covered",
+      "targets": ["rpc_cancel_customer_receipt", "rpc_reset_customer_receipt_to_draft"],
+      "verdict": "server_covered_exact_permission",
+      "issue": 159,
+      "note": "Internal implementations enforce accounting.vouchers.cancel and accounting.vouchers.unpost exactly; also proven in #93 smoke."
+    },
+    {
+      "id": "stock-transfer-tables",
+      "targets": ["stock_transfers", "stock_transfer_items"],
+      "verdict": "verified_gap",
+      "issue": 160,
+      "note": "Production ALL RLS is membership-only; exact stock-move/transfer mutation permission contract is required."
+    },
+    {
+      "id": "stock-ledger-direct-write-closed",
+      "target": "stock_ledger_entries",
+      "verdict": "server_fail_closed_rls",
+      "issue": 160,
+      "note": "Production stock_ledger_entries exposes authenticated SELECT policy only; direct client mutation is rejected."
+    },
+    {
+      "id": "hardened-rbac-admin-rpcs",
+      "targets": ["rpc_upsert_org_role", "rpc_delete_org_role", "rpc_replace_user_roles", "create_role_from_template", "rpc_set_org_admin", "rpc_remove_org_member"],
+      "verdict": "server_covered_admin_boundary",
+      "issue": 148,
+      "note": "Migrations 174–176 provide the audited org-admin RPC boundary; direct RBAC table DML is revoked and browser/server smoke passed."
     }
   ],
   "default": {
