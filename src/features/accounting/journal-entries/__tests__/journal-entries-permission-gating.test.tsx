@@ -1,16 +1,10 @@
 // src/features/accounting/journal-entries/__tests__/journal-entries-permission-gating.test.tsx
 //
-// /accounting/journal-entries had zero permission checks beyond the
-// route-level accounting.journals.read entry gate: any user who cleared
-// that single .read key could create, edit, post, delete and reverse
-// journal entries, batch-post, and "approve" through ApprovalWorkflow
-// (whose canApprove prop was hardcoded to true). It also loaded the Chart
-// of Accounts (gl_accounts, a different resource — accounting.accounts.*)
-// unconditionally. This file mounts the real component and hooks (not
-// mocked stand-ins) against a generic Supabase mock to prove: each action
-// requires its own exact key, reference-data queries require their own
-// exact key, and mid-session revocation blocks both the trigger and the
-// underlying handler.
+// /accounting/journal-entries is permission-aware at both route and action
+// surfaces. Migration 178 makes post/reverse first-class permissions, while
+// accounting.journals.approve remains reserved for the separate approval flow.
+// This mounts the real component/hooks against a generic Supabase mock to prove
+// exact action keys and reference-data read gates, including mid-session revoke.
 
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -158,7 +152,7 @@ describe('journal-entries — create requires accounting.journals.create', () =>
     expect(screen.queryByText('accounting.journalEntries.newEntry')).not.toBeInTheDocument();
   });
 
-  it('a create grant opens the dialog and a real submit calls the create gateway', async () => {
+  it('a create grant opens the dialog', async () => {
     setPermissions([...CAN_READ, 'accounting.journals.create', 'accounting.accounts.read']);
     render(<JournalEntries />);
 
@@ -168,8 +162,8 @@ describe('journal-entries — create requires accounting.journals.create', () =>
   });
 });
 
-describe('journal-entries — row actions on a DRAFT entry require their own exact key', () => {
-  it('read-only user sees no edit/post/delete controls on the draft row', async () => {
+describe('journal-entries — DRAFT row actions use exact keys', () => {
+  it('read-only user sees no edit/post/delete controls', async () => {
     setPermissions([...CAN_READ]);
     render(<JournalEntries />);
 
@@ -180,8 +174,17 @@ describe('journal-entries — row actions on a DRAFT entry require their own exa
     expect(within(row).queryByTitle('common.delete')).not.toBeInTheDocument();
   });
 
-  it('accounting.journals.approve grants post and calls the post gateway, not create/update/delete', async () => {
+  it('approve alone does not grant post', async () => {
     setPermissions([...CAN_READ, 'accounting.journals.approve']);
+    render(<JournalEntries />);
+
+    await waitFor(() => expect(screen.getByText('JE-0001')).toBeInTheDocument());
+    const row = screen.getByText('JE-0001').closest('tr')!;
+    expect(within(row).queryByTitle('accounting.journalEntries.post')).not.toBeInTheDocument();
+  });
+
+  it('accounting.journals.post grants post and calls the post gateway', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.post']);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<JournalEntries />);
 
@@ -206,7 +209,7 @@ describe('journal-entries — row actions on a DRAFT entry require their own exa
     await waitFor(() => expect(deleteJournalEntryMock).toHaveBeenCalledWith(expect.objectContaining({ id: 'entry-1' })));
   });
 
-  it('accounting.journals.update grants edit; without accounting.accounts.read the dialog cannot open (fetchEntryLines still runs, but no account picker options)', async () => {
+  it('accounting.journals.update grants edit', async () => {
     setPermissions([...CAN_READ, 'accounting.journals.update']);
     render(<JournalEntries />);
 
@@ -218,7 +221,7 @@ describe('journal-entries — row actions on a DRAFT entry require their own exa
   });
 });
 
-describe('journal-entries — reverse on a POSTED entry requires accounting.journals.approve', () => {
+describe('journal-entries — reverse on a POSTED entry uses accounting.journals.reverse', () => {
   it('read-only user sees the view action but no reverse control', async () => {
     setPermissions([...CAN_READ]);
     render(<JournalEntries />);
@@ -229,8 +232,17 @@ describe('journal-entries — reverse on a POSTED entry requires accounting.jour
     expect(within(row).queryByTitle('accounting.journalEntries.reverse')).not.toBeInTheDocument();
   });
 
-  it('accounting.journals.approve grants reverse and calls the reverse gateway', async () => {
+  it('approve alone does not grant reverse', async () => {
     setPermissions([...CAN_READ, 'accounting.journals.approve']);
+    render(<JournalEntries />);
+
+    await waitFor(() => expect(screen.getByText('JE-0002')).toBeInTheDocument());
+    const row = screen.getByText('JE-0002').closest('tr')!;
+    expect(within(row).queryByTitle('accounting.journalEntries.reverse')).not.toBeInTheDocument();
+  });
+
+  it('accounting.journals.reverse grants reverse and calls the reverse gateway', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.reverse']);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<JournalEntries />);
 
@@ -254,7 +266,7 @@ describe('journal-entries — reverse on a POSTED entry requires accounting.jour
   });
 
   it('does not reverse when confirmation is rejected', async () => {
-    setPermissions([...CAN_READ, 'accounting.journals.approve']);
+    setPermissions([...CAN_READ, 'accounting.journals.reverse']);
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     render(<JournalEntries />);
 
@@ -266,26 +278,26 @@ describe('journal-entries — reverse on a POSTED entry requires accounting.jour
   });
 });
 
-describe('journal-entries — batch post requires accounting.journals.approve', () => {
-  it('hides the batch-post trigger without approve', async () => {
-    setPermissions([...CAN_READ]);
+describe('journal-entries — batch post uses accounting.journals.post', () => {
+  it('hides the batch-post trigger without post, even with approve', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.approve']);
     render(<JournalEntries />);
 
     await waitFor(() => expect(screen.getByText('JE-0001')).toBeInTheDocument());
     expect(screen.queryByText('accounting.journalEntries.batchPost')).not.toBeInTheDocument();
   });
 
-  it('shows the batch-post trigger with approve', async () => {
-    setPermissions([...CAN_READ, 'accounting.journals.approve']);
+  it('shows the batch-post trigger with post', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.post']);
     render(<JournalEntries />);
 
     await waitFor(() => expect(screen.getByText('accounting.journalEntries.batchPost')).toBeInTheDocument());
   });
 });
 
-describe('journal-entries — revoking mid-session hides row controls immediately (dialog/handler boundary)', () => {
-  it('revoking approve after the draft row is rendered removes the post control on rerender', async () => {
-    setPermissions([...CAN_READ, 'accounting.journals.approve']);
+describe('journal-entries — mid-session revoke hides exact action immediately', () => {
+  it('revoking post removes the post control on rerender', async () => {
+    setPermissions([...CAN_READ, 'accounting.journals.post']);
     const { rerender } = render(<JournalEntries />);
 
     await waitFor(() => expect(screen.getByText('JE-0001')).toBeInTheDocument());
