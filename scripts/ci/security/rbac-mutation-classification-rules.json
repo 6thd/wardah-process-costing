@@ -1,0 +1,158 @@
+{
+  "schema_version": 1,
+  "rules": [
+    {
+      "id": "super-admin-service",
+      "file_prefix": "src/services/super-admin-service.ts",
+      "verdict": "server_covered_rls_needs_acceptance",
+      "issue": 148,
+      "note": "Production RLS restricts organization/super-admin mutations to org-admin or super-admin as applicable; dedicated super-admin acceptance remains required."
+    },
+    {
+      "id": "journal-service",
+      "file_prefix": "src/services/accounting/journal-service.ts",
+      "verdict": "follow_up_required",
+      "issue": 150,
+      "note": "Journal create/post/approve/reverse service-level permission alignment tracked in #150."
+    },
+    {
+      "id": "journal-rpc-create",
+      "target": "rpc_create_journal_entry",
+      "verdict": "verified_gap",
+      "issue": 150,
+      "note": "Authenticated SECURITY DEFINER create RPC has no exact permission assertion."
+    },
+    {
+      "id": "purchasing-service",
+      "file_prefix": "src/services/purchasing-service.ts",
+      "verdict": "follow_up_required",
+      "issue": 151,
+      "note": "Purchasing mutation permission alignment tracked in #151."
+    },
+    {
+      "id": "purchasing-rpcs",
+      "targets": [
+        "rpc_submit_purchase_order",
+        "rpc_approve_purchase_order",
+        "rpc_post_goods_receipt",
+        "rpc_create_supplier_payment",
+        "rpc_update_supplier_payment_draft",
+        "rpc_post_supplier_payment"
+      ],
+      "verdict": "verified_gap",
+      "issue": 151,
+      "note": "Live DEFINER boundary is membership/admin scoped rather than exact business-permission scoped."
+    },
+    {
+      "id": "voucher-sensitive-covered",
+      "targets": ["rpc_cancel_supplier_payment", "rpc_reset_supplier_payment_to_draft"],
+      "verdict": "server_covered_exact_permission",
+      "issue": 151,
+      "note": "Internal implementation enforces accounting.vouchers.cancel / accounting.vouchers.unpost exactly; preserved by #151."
+    },
+    {
+      "id": "routing-service",
+      "file_prefix": "src/services/manufacturing/routingService.ts",
+      "verdict": "verified_gap",
+      "issue": 152,
+      "note": "Routing tables are membership-only writable and no first-class manufacturing.routing permission resource exists."
+    },
+    {
+      "id": "routing-tables",
+      "targets": ["routings", "routing_operations", "operation_resources"],
+      "verdict": "verified_gap",
+      "issue": 152,
+      "note": "Membership-only CRUD RLS; first-class Routing RBAC required."
+    },
+    {
+      "id": "stock-adjustment-rpcs",
+      "targets": ["rpc_create_stock_adjustment", "rpc_submit_stock_adjustment", "rpc_cancel_stock_adjustment"],
+      "verdict": "verified_gap",
+      "issue": 153,
+      "note": "Create is membership-only; submit/cancel are org-admin-only rather than granular adjustment permissions."
+    },
+    {
+      "id": "storage-bins",
+      "target": "storage_bins",
+      "verdict": "verified_gap",
+      "issue": 153,
+      "note": "Production storage_bins ALL policy allows same-org member mutations without a first-class bin permission."
+    },
+    {
+      "id": "warehouse-fail-closed",
+      "targets": ["warehouses", "storage_locations"],
+      "verdict": "server_fail_closed_rls",
+      "issue": 153,
+      "note": "Production exposes authenticated SELECT policy only; direct writes are rejected by RLS."
+    },
+    {
+      "id": "mes-service",
+      "file_prefix": "src/services/manufacturing/mesService.ts",
+      "verdict": "verified_gap",
+      "issue": 154,
+      "note": "MES mutation surface is predominantly organization-membership authorized; granular execution permissions required."
+    },
+    {
+      "id": "mes-tables",
+      "targets": [
+        "work_orders",
+        "operation_execution_logs",
+        "labor_time_tracking",
+        "material_consumption",
+        "machine_downtime",
+        "quality_inspections",
+        "operator_sessions"
+      ],
+      "verdict": "verified_gap",
+      "issue": 154,
+      "note": "Production CRUD RLS is organization-membership based."
+    },
+    {
+      "id": "mes-rpcs",
+      "targets": ["generate_work_orders_from_mo", "start_operation", "complete_operation"],
+      "verdict": "verified_gap",
+      "issue": 154,
+      "note": "Authenticated SECURITY DEFINER RPCs assert org membership only."
+    },
+    {
+      "id": "sales-delivery-rpc",
+      "target": "rpc_post_delivery_note",
+      "verdict": "verified_gap",
+      "issue": 155,
+      "note": "Authenticated SECURITY DEFINER delivery posting asserts org membership only despite delivery-note catalog permissions."
+    },
+    {
+      "id": "sales-legacy-services",
+      "file_prefixes": ["src/services/enhanced-sales-service.ts", "src/services/sales-service.ts", "src/services/sales/"],
+      "verdict": "follow_up_required",
+      "issue": 155,
+      "note": "Core sales document direct writes are currently RLS fail-closed; reachable legacy callers must be removed or migrated to guarded RPCs."
+    },
+    {
+      "id": "hr-services",
+      "file_prefix": "src/services/hr/",
+      "verdict": "follow_up_required",
+      "issue": 156,
+      "note": "HR/Payroll authorization migration from membership/legacy roles to exact RBAC tracked in #156."
+    },
+    {
+      "id": "hr-attendance-rpc",
+      "target": "upsert_attendance_day",
+      "verdict": "verified_gap",
+      "issue": 156,
+      "note": "Authenticated SECURITY DEFINER attendance upsert checks membership only and bypasses stricter table RLS."
+    },
+    {
+      "id": "hr-financial-rpcs",
+      "targets": ["rpc_post_payroll_run", "rpc_submit_settlement_review", "rpc_post_settlement"],
+      "verdict": "follow_up_required",
+      "issue": 156,
+      "note": "Org-admin guarded but not aligned to granular hr.payroll business permissions."
+    }
+  ],
+  "default": {
+    "verdict": "pending_review",
+    "issue": 148,
+    "note": "Candidate is pinned by the inventory baseline but has not yet received a server-authorization verdict."
+  }
+}
