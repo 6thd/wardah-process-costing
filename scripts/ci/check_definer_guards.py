@@ -50,6 +50,11 @@ KNOWN_EXEMPT = {
     # every entry is delegated to rpc_post_manual_journal_entry, which performs
     # the exact-permission assertion against that entry's own organization.
     "rpc_batch_post_manual_journal_entries",
+    # Migration 179 redefines this internal primitive for idempotency only.
+    # Migration 178 already revoked PUBLIC/anon/authenticated EXECUTE and
+    # CREATE OR REPLACE preserves those ACLs; 179 acceptance independently
+    # verifies that authenticated still cannot execute it directly.
+    "rpc_create_journal_entry",
 }
 
 GUARD_PATTERNS = [

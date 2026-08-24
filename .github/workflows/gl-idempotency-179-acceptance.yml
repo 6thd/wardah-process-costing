@@ -7,6 +7,7 @@ on:
       - 'sql/migrations/179_gl_journal_idempotency_race_safe.sql'
       - 'scripts/ci/fresh-db/setup_179_pre_migration_fixture.sql'
       - 'scripts/ci/fresh-db/acceptance_179_gl_idempotency.sql'
+      - 'scripts/ci/check_definer_guards.py'
       - '.github/workflows/gl-idempotency-179-acceptance.yml'
   workflow_dispatch:
 
@@ -111,6 +112,11 @@ jobs:
           SQL
 
           cat >/tmp/j179-race.sql <<'SQL'
+          SELECT set_config(
+            'request.jwt.claim.sub',
+            '17900000-0000-0000-0000-000000000001',
+            false
+          );
           SELECT public.rpc_create_journal_entry(jsonb_build_object(
             'org_id','17900000-aaaa-aaaa-aaaa-000000000001',
             'journal_id','17900000-2222-2222-2222-000000000001',

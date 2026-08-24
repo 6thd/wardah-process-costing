@@ -4,8 +4,15 @@
 -- before request_hash exists. Migration 179 must preserve it as an explicitly
 -- unverified legacy replay and must never invent/backfill a request hash.
 
+INSERT INTO auth.users (id, email) VALUES
+  ('17900000-0000-0000-0000-000000000001', 'j179-member@example.test');
+
 INSERT INTO public.organizations (id, code, name) VALUES
   ('17900000-aaaa-aaaa-aaaa-000000000001', 'J179-A', 'Journal 179 Org A');
+
+INSERT INTO public.user_organizations (user_id, org_id, is_active, is_org_admin) VALUES
+  ('17900000-0000-0000-0000-000000000001',
+   '17900000-aaaa-aaaa-aaaa-000000000001', true, false);
 
 INSERT INTO public.journals
   (id, org_id, code, name, journal_type, sequence_prefix, is_active)

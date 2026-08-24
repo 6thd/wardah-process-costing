@@ -47,6 +47,15 @@ BEGIN
 END;
 $$;
 
+-- The generic primitive is internal after 178, but wardah_org_id(explicit)
+-- still enforces active organization membership through auth.uid(). Model the
+-- authenticated domain caller explicitly so the test reaches idempotency logic.
+SELECT set_config(
+  'request.jwt.claim.sub',
+  '17900000-0000-0000-0000-000000000001',
+  false
+);
+
 -- Schema and historical-row contract.
 DO $$
 BEGIN
