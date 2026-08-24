@@ -2,7 +2,6 @@ import type { TFunction } from 'i18next';
 import { format } from 'date-fns';
 import { ar } from 'date-fns/locale';
 import { BookOpen, CheckCircle, Edit, FileText, Layers, RotateCcw, Search, Trash2 } from 'lucide-react';
-import { ApprovalWorkflow } from './ApprovalWorkflow';
 import { AttachmentsSection } from './AttachmentsSection';
 import { CommentsSection } from './CommentsSection';
 import { Badge } from '@/components/ui/badge';
@@ -292,12 +291,11 @@ interface JournalEntryViewDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function EntryDetails({ entry, isRTL, canApprove, t }: Readonly<{ entry: JournalEntry; isRTL: boolean; canApprove: boolean; t: TFunction }>) {
+function EntryDetails({ entry, isRTL, t }: Readonly<{ entry: JournalEntry; isRTL: boolean; t: TFunction }>) {
   return (
     <Tabs defaultValue="details" className="w-full">
-      <TabsList className="grid w-full grid-cols-4">
+      <TabsList className="grid w-full grid-cols-3">
         <TabsTrigger value="details">{t('accounting.journalEntries.details')}</TabsTrigger>
-        <TabsTrigger value="approvals">{t('accounting.journalEntries.approvals')}</TabsTrigger>
         <TabsTrigger value="attachments">{t('accounting.journalEntries.attachmentsTab')}</TabsTrigger>
         <TabsTrigger value="comments">{t('accounting.journalEntries.commentsTab')}</TabsTrigger>
       </TabsList>
@@ -330,14 +328,14 @@ function EntryDetails({ entry, isRTL, canApprove, t }: Readonly<{ entry: Journal
         )}
       </TabsContent>
 
-      <TabsContent value="approvals"><ApprovalWorkflow entryId={entry.id} entryNumber={entry.entry_number} canApprove={canApprove} /></TabsContent>
       <TabsContent value="attachments"><AttachmentsSection entryId={entry.id} /></TabsContent>
       <TabsContent value="comments"><CommentsSection entryId={entry.id} /></TabsContent>
     </Tabs>
   );
 }
 
-export function JournalEntryViewDialog({ open, entry, isRTL, canApprove, t, onOpenChange }: Readonly<JournalEntryViewDialogProps>) {
+export function JournalEntryViewDialog(props: Readonly<JournalEntryViewDialogProps>) {
+  const { open, entry, isRTL, t, onOpenChange } = props;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto" dir={isRTL ? 'rtl' : 'ltr'}>
@@ -345,7 +343,7 @@ export function JournalEntryViewDialog({ open, entry, isRTL, canApprove, t, onOp
           <DialogTitle>{t('accounting.entryDetails')} - {entry?.entry_number}</DialogTitle>
           <DialogDescription>{t('accounting.journalEntries.viewEntryDetails')}</DialogDescription>
         </DialogHeader>
-        {entry && <EntryDetails entry={entry} isRTL={isRTL} canApprove={canApprove} t={t} />}
+        {entry && <EntryDetails entry={entry} isRTL={isRTL} t={t} />}
       </DialogContent>
     </Dialog>
   );
