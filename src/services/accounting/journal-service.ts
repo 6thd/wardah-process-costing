@@ -1,6 +1,6 @@
 /**
  * Journal Entry Service
- * Enhanced with Batch Posting, Approvals, Attachments, Comments
+ * Canonical gl_entries lifecycle after Migration 178.
  */
 
 import { supabase as _supabase, getEffectiveTenantId } from '@/lib/supabase';
@@ -19,7 +19,7 @@ export interface JournalEntry {
   reference_number?: string;
   description?: string;
   description_ar?: string;
-  status: 'draft' | 'posted' | 'reversed';
+  status: 'draft' | 'posted' | 'reversed' | 'cancelled';
   posted_at?: string;
   posted_by?: string;
   reversed_by_entry_id?: string;
@@ -112,25 +112,8 @@ export interface CreateJournalEntryRequest {
   }>;
 }
 
-/**
- * Check if an RPC error means the function is not deployed yet
- * (Migration 76 not applied) — in that case we fall back to the legacy path
- */
-function isMissingFunctionError(error: { code?: string; message?: string }): boolean {
-  return (
-    error?.code === 'PGRST202' ||
-    (error?.message?.includes('Could not find the function') ?? false)
-  );
-}
-
 export class JournalService {
-  /**
-   * Create a journal entry with lines
-   *
-   * المسار الأساسي: rpc_create_journal_entry (ذرّي — رأس + سطور في معاملة واحدة،
-   * Migration 76). إذا لم تكن الدالة مطبَّقة بعد على قاعدة البيانات، نسقط تلقائياً
-   * إلى المسار القديم (INSERT رأس ثم سطور) دون كسر أي شيء.
-   */
+  /** Create a manual journal through the authoritative server boundary. */
   static async createEntry(request: CreateJournalEntryRequest): Promise<{
     success: boolean;
     data?: any;
@@ -140,17 +123,13 @@ export class JournalService {
       const tenantId = await getEffectiveTenantId();
       if (!tenantId) throw new Error('Tenant ID not found');
 
-      // Calculate totals
       const totalDebit = request.lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
       const totalCredit = request.lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
-
-      // Validate balance
       if (Math.abs(totalDebit - totalCredit) > 0.01) {
         throw new Error(`Entry not balanced! Debit: ${totalDebit}, Credit: ${totalCredit}`);
       }
 
-      // ===== المسار الذرّي الجديد (Migration 76) =====
-      const { data: rpcResult, error: rpcError } = await supabase.rpc('rpc_create_journal_entry', {
+      const { data, error } = await supabase.rpc('rpc_create_manual_journal_entry', {
         p_payload: {
           org_id: tenantId,
           journal_id: request.journal_id || null,
@@ -166,179 +145,67 @@ export class JournalService {
             credit: Number(line.credit) || 0,
             currency_code: line.currency_code || 'SAR',
             description: line.description || null,
-            description_ar: line.description_ar || null
-          }))
-        }
+            description_ar: line.description_ar || null,
+          })),
+        },
       });
-
-      if (!rpcError && rpcResult?.success) {
-        return {
-          success: true,
-          data: {
-            id: rpcResult.entry_id,
-            entry_number: rpcResult.entry_number,
-            entry_date: request.entry_date,
-            status: rpcResult.status || 'draft',
-            total_debit: totalDebit,
-            total_credit: totalCredit,
-            org_id: tenantId,
-            lines: request.lines
-          }
-        };
-      }
-
-      // خطأ حقيقي من الدالة الذرّية (توازن/فترة مقفلة/...) — يُعرض للمستخدم ولا نتجاوزه
-      if (rpcError && !isMissingFunctionError(rpcError)) {
-        throw new Error(rpcError.message);
-      }
-
-      // ===== Fallback: الدالة غير مطبَّقة بعد — المسار القديم كما هو =====
-
-      // Get default journal if not provided
-      let journalId = request.journal_id;
-      if (!journalId) {
-        const { data: defaultJournal } = await supabase
-          .from('journals')
-          .select('id')
-          .eq('org_id', tenantId)
-          .eq('is_active', true)
-          .order('created_at', { ascending: true })
-          .limit(1)
-          .single();
-
-        if (defaultJournal) {
-          journalId = defaultJournal.id;
-        } else {
-          throw new Error('No active journal found');
-        }
-      }
-
-      // Generate entry number
-      const { data: entryNumber, error: numberError } = await supabase
-        .rpc('generate_entry_number', { p_journal_id: journalId });
-
-      if (numberError) throw numberError;
-
-      // Create entry header
-      const entryData = {
-        journal_id: journalId,
-        entry_number: entryNumber,
-        entry_date: request.entry_date,
-        entry_type: 'manual',
-        description: request.description || null,
-        description_ar: request.description_ar || null,
-        reference_type: request.reference_type || null,
-        reference_number: request.reference_number || null,
-        status: 'draft',
-        total_debit: totalDebit,
-        total_credit: totalCredit,
-        org_id: tenantId
-      };
-
-      const { data: newEntry, error: entryError } = await supabase
-        .from('gl_entries')
-        .insert([entryData])
-        .select()
-        .single();
-
-      if (entryError) throw entryError;
-
-      // Insert lines
-      const lines = request.lines.map((line) => ({
-        entry_id: newEntry.id,
-        line_number: line.line_number,
-        account_id: line.account_id,
-        debit: Number(line.debit) || 0,
-        credit: Number(line.credit) || 0,
-        currency_code: line.currency_code || 'SAR',
-        description: line.description || null,
-        description_ar: line.description_ar || null,
-        org_id: tenantId,
-        tenant_id: tenantId
-      }));
-
-      const { error: linesError } = await supabase
-        .from('gl_entry_lines')
-        .insert(lines);
-
-      if (linesError) throw linesError;
+      if (error) throw error;
+      if (!data?.success || !data?.entry_id) throw new Error('Manual journal RPC returned no entry');
 
       return {
         success: true,
-        data: { ...newEntry, lines }
+        data: {
+          id: data.entry_id,
+          entry_number: data.entry_number,
+          entry_date: request.entry_date,
+          status: data.status || 'draft',
+          total_debit: totalDebit,
+          total_credit: totalCredit,
+          org_id: tenantId,
+          lines: request.lines,
+        },
       };
     } catch (error: any) {
       console.error('Error creating journal entry:', error);
-      return {
-        success: false,
-        error: error.message || 'Failed to create journal entry'
-      };
+      return { success: false, error: error.message || 'Failed to create journal entry' };
     }
   }
 
-  /**
-   * Post a single journal entry
-   */
   static async postJournalEntry(entryId: string): Promise<{
     success: boolean;
     message?: string;
     error?: string;
   }> {
     try {
-      const tenantId = await getEffectiveTenantId();
-      if (!tenantId) throw new Error('Tenant ID not found');
-
-      // Use batch post with single entry
-      const result = await this.batchPostEntries([entryId]);
-      
-      if (result.success_count > 0) {
-        return { success: true, message: 'Entry posted successfully' };
-      } else {
-        const failedResult = result.results.find(r => r.entry_id === entryId);
-        return { 
-          success: false, 
-          error: failedResult?.error || 'Failed to post entry' 
-        };
-      }
+      const { data, error } = await supabase.rpc('rpc_post_manual_journal_entry', {
+        p_entry_id: entryId,
+      });
+      if (error) throw error;
+      if (!data?.success) return { success: false, error: 'Failed to post entry' };
+      return { success: true, message: 'Entry posted successfully' };
     } catch (error: any) {
       console.error('Error posting entry:', error);
       return { success: false, error: error.message || 'Failed to post entry' };
     }
   }
 
-  /**
-   * Batch Post multiple journal entries
-   */
   static async batchPostEntries(entryIds: string[]): Promise<{
     success: boolean;
     total: number;
     success_count: number;
     fail_count: number;
-    results: Array<{
-      entry_id: string;
-      success: boolean;
-      message?: string;
-      error?: string;
-    }>;
+    results: Array<{ entry_id: string; success: boolean; message?: string; error?: string }>;
   }> {
-    try {
-      const tenantId = await getEffectiveTenantId();
-      if (!tenantId) throw new Error('Tenant ID not found');
-
-      const { data, error } = await supabase.rpc('batch_post_journal_entries', {
-        p_entry_ids: entryIds
-      });
-
-      if (error) throw error;
-      return data;
-    } catch (error: any) {
-      console.error('Error in batch posting:', error);
-      throw new Error(error.message || 'Batch posting failed');
-    }
+    const { data, error } = await supabase.rpc('rpc_batch_post_manual_journal_entries', {
+      p_entry_ids: entryIds,
+    });
+    if (error) throw new Error(error.message || 'Batch posting failed');
+    return data;
   }
 
   /**
-   * Check if entry requires approval
+   * Legacy approval reads remain temporarily available for #175 migration.
+   * Mutation is intentionally fail-closed on the database after 178.
    */
   static async checkApprovalRequired(entryId: string): Promise<{
     required: boolean;
@@ -346,25 +213,19 @@ export class JournalService {
     current_levels: number;
   }> {
     try {
-      const { data, error } = await supabase.rpc('check_entry_approval_required', {
-        p_entry_id: entryId
-      });
-
+      const { data, error } = await supabase.rpc('check_entry_approval_required', { p_entry_id: entryId });
       if (error) throw error;
       return data;
     } catch (error: any) {
       console.error('Error checking approval:', error);
-      throw new Error(error.message || 'Failed to check approval');
+      return { required: false, required_levels: 0, current_levels: 0 };
     }
   }
 
-  /**
-   * Approve journal entry at a level
-   */
   static async approveEntry(
-    entryId: string,
-    approvalLevel: number,
-    comments?: string
+    _entryId: string,
+    _approvalLevel: number,
+    _comments?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -372,28 +233,13 @@ export class JournalService {
     required_levels: number;
     can_post: boolean;
   }> {
-    try {
-      const { data, error } = await supabase.rpc('approve_journal_entry', {
-        p_entry_id: entryId,
-        p_approval_level: approvalLevel,
-        p_comments: comments || null
-      });
-
-      if (error) throw error;
-      return data;
-    } catch (error: any) {
-      console.error('Error approving entry:', error);
-      throw new Error(error.message || 'Approval failed');
-    }
+    throw new Error('Legacy journal approval is disabled pending the canonical gl_entries workflow (#175)');
   }
 
-  /**
-   * Reverse journal entry
-   */
   static async reverseEntry(
     entryId: string,
     reversalReason?: string,
-    reversalDate?: string
+    reversalDate?: string,
   ): Promise<{
     success: boolean;
     message: string;
@@ -402,23 +248,19 @@ export class JournalService {
     reversal_number: string;
   }> {
     try {
-      const { data, error } = await supabase.rpc('reverse_journal_entry_enhanced', {
+      const { data, error } = await supabase.rpc('rpc_reverse_manual_journal_entry', {
         p_entry_id: entryId,
         p_reversal_reason: reversalReason || null,
-        p_reversal_date: reversalDate || new Date().toISOString().split('T')[0]
+        p_reversal_date: reversalDate || new Date().toISOString().split('T')[0],
       });
-
       if (error) throw error;
-      return data;
+      return { ...data, message: data?.duplicate ? 'Entry already reversed' : 'Entry reversed successfully' };
     } catch (error: any) {
       console.error('Error reversing entry:', error);
       throw new Error(error.message || 'Reversal failed');
     }
   }
 
-  /**
-   * Get entry approvals
-   */
   static async getEntryApprovals(entryId: string): Promise<JournalApproval[]> {
     try {
       const { data, error } = await supabase
@@ -426,7 +268,6 @@ export class JournalService {
         .select('*')
         .eq('entry_id', entryId)
         .order('approval_level', { ascending: true });
-
       if (error) throw error;
       return data || [];
     } catch (error: any) {
@@ -435,9 +276,6 @@ export class JournalService {
     }
   }
 
-  /**
-   * Get entry attachments
-   */
   static async getEntryAttachments(entryId: string): Promise<JournalAttachment[]> {
     try {
       const { data, error } = await supabase
@@ -445,7 +283,6 @@ export class JournalService {
         .select('*')
         .eq('entry_id', entryId)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data || [];
     } catch (error: any) {
@@ -454,71 +291,35 @@ export class JournalService {
     }
   }
 
-  /**
-   * Upload attachment
-   */
-  static async uploadAttachment(
-    entryId: string,
-    file: File
-  ): Promise<JournalAttachment> {
-    try {
-      const tenantId = await getEffectiveTenantId();
-      if (!tenantId) throw new Error('Tenant ID not found');
-
-      // Upload file to storage
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${entryId}/${Date.now()}.${fileExt}`;
-      const filePath = `journal-attachments/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from('documents')
-        .upload(filePath, file);
-
-      if (uploadError) throw uploadError;
-
-      // Save attachment record
-      const { data, error } = await supabase
-        .from('journal_entry_attachments')
-        .insert({
-          entry_id: entryId,
-          file_name: file.name,
-          file_path: filePath,
-          file_size: file.size,
-          file_type: file.type,
-          org_id: tenantId,
-          tenant_id: tenantId // Added tenant_id to satisfy constraint
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error: any) {
-      console.error('Error uploading attachment:', error);
-      throw new Error(error.message || 'Upload failed');
-    }
+  static async uploadAttachment(entryId: string, file: File): Promise<JournalAttachment> {
+    const tenantId = await getEffectiveTenantId();
+    if (!tenantId) throw new Error('Tenant ID not found');
+    const fileExt = file.name.split('.').pop();
+    const filePath = `journal-attachments/${entryId}/${Date.now()}.${fileExt}`;
+    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
+    if (uploadError) throw uploadError;
+    const { data, error } = await supabase
+      .from('journal_entry_attachments')
+      .insert({
+        entry_id: entryId,
+        file_name: file.name,
+        file_path: filePath,
+        file_size: file.size,
+        file_type: file.type,
+        org_id: tenantId,
+        tenant_id: tenantId,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
   }
 
-  /**
-   * Delete attachment
-   */
   static async deleteAttachment(attachmentId: string): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('journal_entry_attachments')
-        .delete()
-        .eq('id', attachmentId);
-
-      if (error) throw error;
-    } catch (error: any) {
-      console.error('Error deleting attachment:', error);
-      throw new Error(error.message || 'Delete failed');
-    }
+    const { error } = await supabase.from('journal_entry_attachments').delete().eq('id', attachmentId);
+    if (error) throw error;
   }
 
-  /**
-   * Get entry comments
-   */
   static async getEntryComments(entryId: string): Promise<JournalComment[]> {
     try {
       const { data, error } = await supabase
@@ -526,7 +327,6 @@ export class JournalService {
         .select('*')
         .eq('entry_id', entryId)
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       return data || [];
     } catch (error: any) {
@@ -535,182 +335,106 @@ export class JournalService {
     }
   }
 
-  /**
-   * Add comment to entry
-   */
   static async addComment(
     entryId: string,
     commentText: string,
-    commentType: 'note' | 'comment' | 'internal' = 'comment'
+    commentType: 'note' | 'comment' | 'internal' = 'comment',
   ): Promise<JournalComment> {
-    try {
-      const tenantId = await getEffectiveTenantId();
-      if (!tenantId) throw new Error('Tenant ID not found');
-
-      const { data, error } = await supabase
-        .from('journal_entry_comments')
-        .insert({
-          entry_id: entryId,
-          comment_text: commentText,
-          comment_type: commentType,
-          tenant_id: tenantId
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error: any) {
-      console.error('Error adding comment:', error);
-      throw new Error(error.message || 'Failed to add comment');
-    }
-  }
-
-  /**
-   * Delete comment
-   */
-  static async deleteComment(commentId: string): Promise<void> {
-    try {
-      const { error } = await supabase
-        .from('journal_entry_comments')
-        .delete()
-        .eq('id', commentId);
-
-      if (error) throw error;
-    } catch (error: any) {
-      console.error('Error deleting comment:', error);
-      throw new Error(error.message || 'Delete failed');
-    }
-  }
-
-  /**
-   * Fetch entry from database
-   */
-  private static async fetchEntry(entryId: string): Promise<any> {
-    const { data: glData, error: glError } = await supabase
-      .from('gl_entries')
-      .select('*')
-      .eq('id', entryId)
+    const tenantId = await getEffectiveTenantId();
+    if (!tenantId) throw new Error('Tenant ID not found');
+    const { data, error } = await supabase
+      .from('journal_entry_comments')
+      .insert({ entry_id: entryId, comment_text: commentText, comment_type: commentType, tenant_id: tenantId })
+      .select()
       .single();
-
-    if (glError) throw glError;
-    return glData;
+    if (error) throw error;
+    return data;
   }
 
-  /**
-   * Fetch entry lines from database
-   */
+  static async deleteComment(commentId: string): Promise<void> {
+    const { error } = await supabase.from('journal_entry_comments').delete().eq('id', commentId);
+    if (error) throw error;
+  }
+
+  private static async fetchEntry(entryId: string): Promise<any> {
+    const { data, error } = await supabase.from('gl_entries').select('*').eq('id', entryId).single();
+    if (error) throw error;
+    return data;
+  }
+
   private static async fetchEntryLines(entryId: string): Promise<any[]> {
-    const { data: glLinesData } = await supabase
+    const { data } = await supabase
       .from('gl_entry_lines')
       .select('*')
       .eq('entry_id', entryId)
       .order('line_number');
-
-    return glLinesData || [];
+    return data || [];
   }
 
-  /**
-   * Enrich lines with account details
-   */
   private static async enrichLinesWithAccounts(lines: any[]): Promise<any[]> {
     if (lines.length === 0) return lines;
-
-    const accountIds = lines.map(l => l.account_id).filter(Boolean);
+    const accountIds = lines.map((line) => line.account_id).filter(Boolean);
     if (accountIds.length === 0) return lines;
-
-    const { data: accounts } = await supabase
-      .from('gl_accounts')
-      .select('id, code, name, name_ar')
-      .in('id', accountIds);
-
+    const { data: accounts } = await supabase.from('gl_accounts').select('id, code, name, name_ar').in('id', accountIds);
     if (!accounts) return lines;
-
-    return lines.map(line => {
-      const account = accounts.find(a => a.id === line.account_id);
+    return lines.map((line) => {
+      const account = accounts.find((candidate) => candidate.id === line.account_id);
       return {
         ...line,
         account_code: account?.code,
         account_name: account?.name,
-        account_name_ar: account?.name_ar
+        account_name_ar: account?.name_ar,
       };
     });
   }
 
-  /**
-   * Fetch related data (approvals, attachments, comments)
-   */
   private static async fetchEntryRelatedData(entryId: string): Promise<[any[], any[], any[]]> {
     return Promise.all([
       this.getEntryApprovals(entryId).catch(() => []),
       this.getEntryAttachments(entryId).catch(() => []),
-      this.getEntryComments(entryId).catch(() => [])
+      this.getEntryComments(entryId).catch(() => []),
     ]);
   }
 
-  /**
-   * Build entry response with all details
-   */
-  private static buildEntryResponse(entry: any, lines: any[], approvals: any[], attachments: any[], comments: any[]): JournalEntry {
+  private static buildEntryResponse(
+    entry: any,
+    lines: any[],
+    approvals: any[],
+    attachments: any[],
+    comments: any[],
+  ): JournalEntry {
     return {
       ...entry,
       journal_name: entry.journals?.name || entry.journal_name,
       journal_name_ar: entry.journals?.name_ar || entry.journal_name_ar,
-      lines: lines.map((line: any) => ({
-        ...line,
-        account_code: line.gl_accounts?.code || line.account_code,
-        account_name: line.gl_accounts?.name || line.account_name,
-        account_name_ar: line.gl_accounts?.name_ar || line.account_name_ar
-      })),
+      lines,
       approvals: approvals || [],
       attachments: attachments || [],
-      comments: comments || []
+      comments: comments || [],
     };
   }
 
-  /**
-   * Get fallback entry (basic info only)
-   */
   private static async getFallbackEntry(entryId: string): Promise<JournalEntry | null> {
     try {
-      const { data: entry } = await supabase
-        .from('gl_entries')
-        .select('*')
-        .eq('id', entryId)
-        .single();
-
-      if (!entry) return null;
-
-      return {
-        ...entry,
-        lines: [],
-        approvals: [],
-        attachments: [],
-        comments: []
-      } as JournalEntry;
-    } catch (error: unknown) {
-      console.error('Error in journal service:', error);
+      const { data } = await supabase.from('gl_entries').select('*').eq('id', entryId).single();
+      if (!data) return null;
+      return { ...data, lines: [], approvals: [], attachments: [], comments: [] } as JournalEntry;
+    } catch {
       return null;
     }
   }
 
-  /**
-   * Get full entry with all related data
-   */
   static async getEntryWithDetails(entryId: string): Promise<JournalEntry | null> {
     try {
       const entry = await this.fetchEntry(entryId);
       if (!entry) return null;
-
       const rawLines = await this.fetchEntryLines(entryId);
-      const enrichedLines = await this.enrichLinesWithAccounts(rawLines);
+      const lines = await this.enrichLinesWithAccounts(rawLines);
       const [approvals, attachments, comments] = await this.fetchEntryRelatedData(entryId);
-
-      return this.buildEntryResponse(entry, enrichedLines, approvals, attachments, comments);
+      return this.buildEntryResponse(entry, lines, approvals, attachments, comments);
     } catch (error: any) {
       console.error('Error fetching entry details:', error);
       return this.getFallbackEntry(entryId);
     }
   }
 }
-

@@ -11,7 +11,7 @@ export interface JournalEntry {
   reference_number?: string;
   description?: string;
   description_ar?: string;
-  status: 'draft' | 'posted' | 'reversed';
+  status: 'draft' | 'posted' | 'reversed' | 'cancelled';
   posted_at?: string;
   posted_by?: string;
   reversed_by_entry_id?: string;
@@ -72,4 +72,3 @@ export interface Account {
   allow_posting?: boolean;
   is_active: boolean;
 }
-
