@@ -1,0 +1,249 @@
+name: GL Idempotency 179 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/179_gl_journal_idempotency_race_safe.sql'
+      - 'scripts/ci/fresh-db/setup_179_pre_migration_fixture.sql'
+      - 'scripts/ci/fresh-db/acceptance_179_gl_idempotency.sql'
+      - 'scripts/ci/check_definer_guards.py'
+      - '.github/workflows/gl-idempotency-179-acceptance.yml'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm race-safe GL idempotency
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_fresh
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through Migration 178
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/full_order.txt
+          grep -v '^179_' /tmp/full_order.txt > /tmp/pre179_order.txt
+          REPORT=/tmp/pre179_chain_report.txt \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre179_order.txt
+
+      - name: Seed pre-179 legacy keyed row
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/setup_179_pre_migration_fixture.sql \
+            2>&1 | tee /tmp/setup-179.out
+          grep -q 'SETUP_179_PRE_MIGRATION_PASS' /tmp/setup-179.out
+
+      - name: Apply Migration 179
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/179_gl_journal_idempotency_race_safe.sql \
+            2>&1 | tee /tmp/migration-179.out
+
+      - name: Run deterministic replay acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_179_gl_idempotency.sql \
+            2>&1 | tee /tmp/acceptance-179.out
+          grep -q 'GL_IDEMPOTENCY_179_ACCEPTANCE_PASS' /tmp/acceptance-179.out
+
+      - name: Run real two-session idempotency race
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          # Test-only trigger: both RPC calls pass their SELECT pre-check, then block
+          # at INSERT on an advisory lock held by a third session. We verify both
+          # sessions are actually waiting before releasing the barrier.
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE OR REPLACE FUNCTION public.j179_test_insert_barrier()
+          RETURNS trigger LANGUAGE plpgsql AS $function$
+          BEGIN
+            IF NEW.idempotency_key = 'J179:race:key' THEN
+              PERFORM pg_advisory_xact_lock(179176);
+            END IF;
+            RETURN NEW;
+          END;
+          $function$;
+          CREATE TRIGGER aaa_j179_test_insert_barrier
+          BEFORE INSERT ON public.gl_entries
+          FOR EACH ROW EXECUTE FUNCTION public.j179_test_insert_barrier();
+          SQL
+
+          cat >/tmp/j179-race.sql <<'SQL'
+          SELECT set_config(
+            'request.jwt.claim.sub',
+            '17900000-0000-0000-0000-000000000001',
+            false
+          );
+          SELECT public.rpc_create_journal_entry(jsonb_build_object(
+            'org_id','17900000-aaaa-aaaa-aaaa-000000000001',
+            'journal_id','17900000-2222-2222-2222-000000000001',
+            'entry_date','2026-08-24',
+            'description','J179 concurrent request',
+            'reference_type','J179_RACE',
+            'reference_number','race',
+            'idempotency_key','J179:race:key',
+            'auto_post',false,
+            'lines',jsonb_build_array(
+              jsonb_build_object('line_number',1,'account_id','17900000-3333-3333-3333-000000000001','debit',100,'credit',0,'currency_code','SAR'),
+              jsonb_build_object('line_number',2,'account_id','17900000-3333-3333-3333-000000000002','debit',0,'credit',100,'currency_code','SAR')
+            )
+          ));
+          SQL
+
+          rm -f /tmp/j179-holder.fifo
+          mkfifo /tmp/j179-holder.fifo
+          ( printf 'SELECT pg_advisory_lock(179176);\n'; cat /tmp/j179-holder.fifo ) \
+            | psql -qAt > /tmp/j179-holder.out 2>&1 &
+          holder_pid=$!
+
+          for _ in $(seq 1 50); do
+            held=$(psql -qAt -c "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=179176 AND granted")
+            [ "$held" -ge 1 ] && break
+            sleep 0.1
+          done
+          [ "${held:-0}" -ge 1 ] || { echo 'Barrier holder did not acquire advisory lock'; exit 1; }
+
+          psql -qAt -v ON_ERROR_STOP=1 -f /tmp/j179-race.sql > /tmp/j179-race-1.out 2>&1 &
+          race1=$!
+          psql -qAt -v ON_ERROR_STOP=1 -f /tmp/j179-race.sql > /tmp/j179-race-2.out 2>&1 &
+          race2=$!
+
+          waiters=0
+          for _ in $(seq 1 100); do
+            waiters=$(psql -qAt -c "SELECT count(*) FROM pg_stat_activity WHERE datname=current_database() AND query LIKE '%J179:race:key%' AND wait_event='advisory'")
+            [ "$waiters" -ge 2 ] && break
+            sleep 0.1
+          done
+          if [ "$waiters" -lt 2 ]; then
+            echo "Expected two independently blocked RPC sessions, saw $waiters"
+            cat /tmp/j179-race-1.out || true
+            cat /tmp/j179-race-2.out || true
+            exit 1
+          fi
+
+          printf 'SELECT pg_advisory_unlock(179176);\n\\q\n' > /tmp/j179-holder.fifo
+          wait "$holder_pid"
+          wait "$race1"
+          wait "$race2"
+
+          cat /tmp/j179-race-1.out
+          cat /tmp/j179-race-2.out
+          ! grep -q '23505\|duplicate key value' /tmp/j179-race-1.out
+          ! grep -q '23505\|duplicate key value' /tmp/j179-race-2.out
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          vals=[]
+          for path in ('/tmp/j179-race-1.out','/tmp/j179-race-2.out'):
+              lines=[x.strip() for x in Path(path).read_text().splitlines() if x.strip().startswith('{')]
+              assert len(lines)==1, (path, lines)
+              vals.append(json.loads(lines[0]))
+          assert vals[0]['entry_id'] == vals[1]['entry_id'], vals
+          assert sorted(v['duplicate'] for v in vals) == [False, True], vals
+          assert all(v.get('payload_verified') is True for v in vals), vals
+          assert all(v.get('legacy_replay') is False for v in vals), vals
+          PY
+
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          DO $do$
+          DECLARE v_id uuid;
+          BEGIN
+            IF (SELECT count(*) FROM public.gl_entries
+                WHERE org_id='17900000-aaaa-aaaa-aaaa-000000000001'
+                  AND idempotency_key='J179:race:key') <> 1 THEN
+              RAISE EXCEPTION 'J179 race committed more than one header';
+            END IF;
+            SELECT id INTO v_id FROM public.gl_entries
+            WHERE org_id='17900000-aaaa-aaaa-aaaa-000000000001'
+              AND idempotency_key='J179:race:key';
+            IF (SELECT count(*) FROM public.gl_entry_lines WHERE entry_id=v_id) <> 2 THEN
+              RAISE EXCEPTION 'J179 race committed wrong line set';
+            END IF;
+            IF (SELECT request_hash FROM public.gl_entries WHERE id=v_id) IS NULL THEN
+              RAISE EXCEPTION 'J179 race winner lacks request_hash';
+            END IF;
+          END;
+          $do$;
+          DROP TRIGGER aaa_j179_test_insert_barrier ON public.gl_entries;
+          DROP FUNCTION public.j179_test_insert_barrier();
+          SQL
+
+      - name: Re-run Migration 178 journal boundary regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_178_journal_rbac.sql \
+            2>&1 | tee /tmp/journal-178-after-179.out
+          grep -q 'JOURNAL_RBAC_178_ACCEPTANCE_PASS' /tmp/journal-178-after-179.out
+
+      - name: Verify no legacy hash backfill occurred
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -qAt -v ON_ERROR_STOP=1 <<'SQL' | tee /tmp/legacy-179.out
+          SELECT 'legacy_hash_is_null=' || (request_hash IS NULL)
+          FROM public.gl_entries
+          WHERE id='17900000-4444-4444-4444-000000000001';
+          SQL
+          grep -q '^legacy_hash_is_null=true$' /tmp/legacy-179.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-idempotency-179-${{ github.run_id }}
+          path: |
+            /tmp/pre179_chain_report.txt
+            /tmp/setup-179.out
+            /tmp/migration-179.out
+            /tmp/acceptance-179.out
+            /tmp/j179-race-1.out
+            /tmp/j179-race-2.out
+            /tmp/journal-178-after-179.out
+            /tmp/legacy-179.out
+          retention-days: 30
