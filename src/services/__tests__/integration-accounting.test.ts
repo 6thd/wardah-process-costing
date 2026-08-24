@@ -296,9 +296,9 @@ describe('Integration: Accounting Service', () => {
 
       expect(result.success).toBe(true)
       expect(result.data).toBeDefined()
-      // القيد مرّ عبر الدالة الذرّية — لا INSERT مباشر في gl_entries
+      // القيد مرّ عبر الدالة الذرّية اليدوية — لا INSERT مباشر في gl_entries
       expect(supabase.rpc).toHaveBeenCalledWith(
-        'rpc_create_journal_entry',
+        'rpc_create_manual_journal_entry',
         expect.objectContaining({ p_payload: expect.any(Object) })
       )
     })
