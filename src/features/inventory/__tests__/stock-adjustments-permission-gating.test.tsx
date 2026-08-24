@@ -1,17 +1,10 @@
 // src/features/inventory/__tests__/stock-adjustments-permission-gating.test.tsx
 //
-// StockAdjustments (create draft, edit draft, post/GL-posting via
-// handleSubmitAdjustment, cancel) ran with ZERO permission checks — any user
-// who cleared the /inventory/* module gate could post GL-affecting stock
-// adjustments. It also loaded products, warehouses and gl_accounts (three
-// unrelated resources) unconditionally as soon as the org id was known.
-//
-// This file proves: (1) reference-data queries fire only when their own
-// exact read key is granted, not merely inventory.adjustments.read; (2) the
-// "new adjustment" trigger requires create + all three reference reads;
-// (3) the GL-posting "ترحيل" action requires inventory.adjustments.approve
-// specifically and, once granted, actually writes stock_ledger_entries and
-// calls rpc_create_journal_entry.
+// StockAdjustments (create draft, edit draft, post via handleSubmitAdjustment,
+// cancel) historically ran with insufficient permission boundaries. This file
+// proves exact reference-data reads and UI action gating, and verifies that
+// posting delegates to the atomic server transaction rather than performing
+// browser-side stock-ledger / generic-journal mutations.
 
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -177,7 +170,7 @@ describe('StockAdjustments — new-adjustment trigger requires create + all refe
   });
 });
 
-describe('StockAdjustments — GL-posting ("ترحيل") requires inventory.adjustments.approve specifically', () => {
+describe('StockAdjustments — posting ("ترحيل") requires inventory.adjustments.approve specifically', () => {
   it('a create-only user viewing a DRAFT adjustment sees no post ("ترحيل") button', async () => {
     setPermissions(['inventory.adjustments.read', 'inventory.adjustments.create', 'inventory.adjustments.update']);
     renderAdjustments();
@@ -188,7 +181,7 @@ describe('StockAdjustments — GL-posting ("ترحيل") requires inventory.adju
     expect(rpcSpy).not.toHaveBeenCalled();
   });
 
-  it('a user with inventory.adjustments.approve can post: writes stock_ledger_entries and calls rpc_create_journal_entry', async () => {
+  it('a user with inventory.adjustments.approve posts only through the atomic submit RPC', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     setPermissions(['inventory.adjustments.read', 'inventory.adjustments.approve']);
     renderAdjustments();
@@ -196,8 +189,9 @@ describe('StockAdjustments — GL-posting ("ترحيل") requires inventory.adju
     await userEvent.click(await screen.findByRole('button', { name: /عرض تفاصيل تسوية المخزون adj-1/ }));
     await userEvent.click(await screen.findByRole('button', { name: /ترحيل/ }));
 
-    await waitFor(() => expect(fromSpy).toHaveBeenCalledWith('stock_ledger_entries'));
-    await waitFor(() => expect(rpcSpy).toHaveBeenCalledWith('rpc_create_journal_entry', expect.any(Object)));
+    await waitFor(() => expect(rpcSpy).toHaveBeenCalledWith('rpc_submit_stock_adjustment', { p_adjustment_id: 'adj-1' }));
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
   });
 
   it('the cancel ("إلغاء") action requires inventory.adjustments.update, not merely read', async () => {
