@@ -82,6 +82,18 @@ describe('JournalService.createEntry', () => {
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
+  it('يفشل مغلقًا إذا لم يرجع RPC معرّف قيد ناجحًا', async () => {
+    mockRpc.mockResolvedValue({
+      data: { success: false },
+      error: null,
+    })
+
+    const result = await JournalService.createEntry(balancedRequest)
+
+    expect(result).toEqual({ success: false, error: 'Manual journal RPC returned no entry' })
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
   it('يقبل فرق تقريب ضمن هامش 0.01', async () => {
     mockRpc.mockResolvedValue({
       data: { success: true, entry_id: 'e-3', entry_number: 'JE-0003', status: 'draft' },
@@ -98,5 +110,135 @@ describe('JournalService.createEntry', () => {
 
     const result = await JournalService.createEntry(nearlyBalanced)
     expect(result.success).toBe(true)
+  })
+})
+
+describe('JournalService canonical lifecycle RPCs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('يرحّل قيدًا واحدًا عبر صلاحية post المحروسة', async () => {
+    mockRpc.mockResolvedValue({ data: { success: true }, error: null })
+
+    const result = await JournalService.postJournalEntry('entry-post-1')
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_post_manual_journal_entry', {
+      p_entry_id: 'entry-post-1',
+    })
+    expect(result).toEqual({ success: true, message: 'Entry posted successfully' })
+  })
+
+  it('يفشل ترحيل القيد مغلقًا عند رفض RPC أو عند نتيجة غير ناجحة', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: null, error: { message: 'PERMISSION_DENIED' } })
+      .mockResolvedValueOnce({ data: { success: false }, error: null })
+
+    await expect(JournalService.postJournalEntry('entry-post-denied')).resolves.toEqual({
+      success: false,
+      error: 'PERMISSION_DENIED',
+    })
+    await expect(JournalService.postJournalEntry('entry-post-failed')).resolves.toEqual({
+      success: false,
+      error: 'Failed to post entry',
+    })
+  })
+
+  it('يرحّل الدفعة عبر rpc_batch_post_manual_journal_entries فقط', async () => {
+    const rpcResult = {
+      success: true,
+      total: 2,
+      success_count: 2,
+      fail_count: 0,
+      results: [
+        { entry_id: 'e-1', success: true },
+        { entry_id: 'e-2', success: true },
+      ],
+    }
+    mockRpc.mockResolvedValue({ data: rpcResult, error: null })
+
+    const result = await JournalService.batchPostEntries(['e-1', 'e-2'])
+
+    expect(mockRpc).toHaveBeenCalledWith('rpc_batch_post_manual_journal_entries', {
+      p_entry_ids: ['e-1', 'e-2'],
+    })
+    expect(result).toEqual(rpcResult)
+  })
+
+  it('ينقل خطأ دفعة الترحيل ولا يحاول مسارًا قديمًا', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'PERMISSION_DENIED' } })
+
+    await expect(JournalService.batchPostEntries(['e-1'])).rejects.toThrow('PERMISSION_DENIED')
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('يبقي فحص الموافقة القديم للقراءة فقط ويفشل مغلقًا عند خطئه', async () => {
+    const approvalState = { required: true, required_levels: 2, current_levels: 1 }
+    mockRpc
+      .mockResolvedValueOnce({ data: approvalState, error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: 'LEGACY_READ_FAILED' } })
+
+    await expect(JournalService.checkApprovalRequired('e-approve')).resolves.toEqual(approvalState)
+    await expect(JournalService.checkApprovalRequired('e-approve')).resolves.toEqual({
+      required: false,
+      required_levels: 0,
+      current_levels: 0,
+    })
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'check_entry_approval_required', {
+      p_entry_id: 'e-approve',
+    })
+  })
+
+  it('يعطّل mutation الموافقة القديم صراحة إلى أن يكتمل #175', async () => {
+    await expect(JournalService.approveEntry('e-approve', 1, 'ok')).rejects.toThrow(
+      'Legacy journal approval is disabled pending the canonical gl_entries workflow (#175)',
+    )
+    expect(mockRpc).not.toHaveBeenCalled()
+  })
+
+  it('يعكس القيد عبر reverse المحروس ويعالج replay idempotent', async () => {
+    mockRpc
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          original_entry_id: 'e-original',
+          reversal_entry_id: 'e-reversal',
+          reversal_number: 'REV-1',
+          duplicate: false,
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: {
+          success: true,
+          original_entry_id: 'e-original',
+          reversal_entry_id: 'e-reversal',
+          reversal_number: 'REV-1',
+          duplicate: true,
+        },
+        error: null,
+      })
+
+    const first = await JournalService.reverseEntry('e-original', 'تصحيح', '2026-08-24')
+    const replay = await JournalService.reverseEntry('e-original', 'تصحيح', '2026-08-24')
+
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'rpc_reverse_manual_journal_entry', {
+      p_entry_id: 'e-original',
+      p_reversal_reason: 'تصحيح',
+      p_reversal_date: '2026-08-24',
+    })
+    expect(first.message).toBe('Entry reversed successfully')
+    expect(replay.message).toBe('Entry already reversed')
+  })
+
+  it('ينقل خطأ reverse المحروس بلا fallback إلى دالة legacy', async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'PERMISSION_DENIED' } })
+
+    await expect(
+      JournalService.reverseEntry('e-original', 'تصحيح', '2026-08-24'),
+    ).rejects.toThrow('PERMISSION_DENIED')
+    expect(mockRpc).toHaveBeenCalledTimes(1)
+    expect(mockFrom).not.toHaveBeenCalled()
   })
 })
