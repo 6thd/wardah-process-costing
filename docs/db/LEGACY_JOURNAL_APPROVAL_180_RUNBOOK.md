@@ -10,8 +10,8 @@ The active journal lifecycle is `gl_entries` / `gl_entry_lines` and the canonica
 Production evidence before this migration shows:
 
 - `journal_entry_approvals` has no active rows;
-- `approve_journal_entry` is already not executable by `authenticated`;
-- `check_entry_approval_required` returns `false` and contains a TODO rather than an active approval policy;
+- `approve_journal_entry` is already not executable by `authenticated`, while `service_role` still retains EXECUTE before 180;
+- `check_entry_approval_required` remains executable by `authenticated` and `service_role`, returns `false`, and contains a TODO rather than an active approval policy;
 - the client `JournalService.approveEntry()` is intentionally fail-closed pending #175.
 
 A future multi-level approval feature, if required, must be designed explicitly against canonical `gl_entries`, with assigned-approver and segregation-of-duties rules. It must not reuse the legacy `journal_entries` workflow.
@@ -36,7 +36,8 @@ Before applying to Production, confirm:
 3. `journal_entry_approvals` still exists;
 4. legacy approval row count is recorded without modifying rows;
 5. canonical manual journal RPC grants match the post-178 contract;
-6. generic `rpc_create_journal_entry(jsonb)` remains closed to `anon` and `authenticated` per 178/179.
+6. generic `rpc_create_journal_entry(jsonb)` remains closed to `anon` and `authenticated` per 178/179;
+7. no supported backend caller depends on `service_role` access to `approve_journal_entry` or `check_entry_approval_required` — explicitly search `supabase/functions`, scheduled/background jobs, and server-side scripts before applying 180.
 
 Do not create test journal entries or approval rows in Production for this migration.
 
