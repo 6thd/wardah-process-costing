@@ -1,0 +1,100 @@
+name: Legacy Journal Approval 180 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/180_retire_legacy_journal_approval_surface.sql'
+      - 'scripts/ci/fresh-db/acceptance_180_legacy_journal_approval_retirement.sql'
+      - '.github/workflows/legacy-journal-approval-180-acceptance.yml'
+      - 'docs/db/LEGACY_JOURNAL_APPROVAL_180_RUNBOOK.md'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Confirm legacy approval surface is retired
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_fresh
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database through Migration 179
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" > /tmp/full_order.txt
+          grep -v '^180_' /tmp/full_order.txt > /tmp/pre180_order.txt
+          REPORT=/tmp/pre180_chain_report.txt \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/pre180_order.txt
+
+      - name: Apply Migration 180
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/180_retire_legacy_journal_approval_surface.sql \
+            2>&1 | tee /tmp/migration-180.out
+
+      - name: Run Migration 180 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_180_legacy_journal_approval_retirement.sql \
+            2>&1 | tee /tmp/acceptance-180.out
+          grep -q 'LEGACY_JOURNAL_APPROVAL_180_ACCEPTANCE_PASS' /tmp/acceptance-180.out
+
+      - name: Re-run Migration 178 canonical journal regression
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_178_journal_rbac.sql \
+            2>&1 | tee /tmp/journal-178-after-180.out
+          grep -q 'JOURNAL_RBAC_178_ACCEPTANCE_PASS' /tmp/journal-178-after-180.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: legacy-journal-approval-180-${{ github.run_id }}
+          path: |
+            /tmp/pre180_chain_report.txt
+            /tmp/migration-180.out
+            /tmp/acceptance-180.out
+            /tmp/journal-178-after-180.out
+          retention-days: 30
