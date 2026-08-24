@@ -6,11 +6,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
+const mockStorageFrom = vi.fn()
 
 vi.mock('@/lib/supabase', () => ({
   supabase: {
     rpc: (...args: unknown[]) => mockRpc(...args),
     from: (...args: unknown[]) => mockFrom(...args),
+    storage: {
+      from: (...args: unknown[]) => mockStorageFrom(...args),
+    },
   },
   getEffectiveTenantId: vi.fn(() => Promise.resolve('org-jtest')),
 }))
@@ -240,5 +244,265 @@ describe('JournalService canonical lifecycle RPCs', () => {
     ).rejects.toThrow('PERMISSION_DENIED')
     expect(mockRpc).toHaveBeenCalledTimes(1)
     expect(mockFrom).not.toHaveBeenCalled()
+  })
+})
+
+describe('JournalService related-data helpers', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('يقرأ الموافقات والمرفقات والتعليقات من الجداول canonical المرتبطة', async () => {
+    const makeOrderedQuery = (data: unknown[]) => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data, error: null }),
+        }),
+      }),
+    })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'journal_entry_approvals') return makeOrderedQuery([{ id: 'approval-1' }])
+      if (table === 'journal_entry_attachments') return makeOrderedQuery([{ id: 'attachment-1' }])
+      if (table === 'journal_entry_comments') return makeOrderedQuery([{ id: 'comment-1' }])
+      throw new Error(`unexpected table ${table}`)
+    })
+
+    await expect(JournalService.getEntryApprovals('entry-1')).resolves.toEqual([{ id: 'approval-1' }])
+    await expect(JournalService.getEntryAttachments('entry-1')).resolves.toEqual([{ id: 'attachment-1' }])
+    await expect(JournalService.getEntryComments('entry-1')).resolves.toEqual([{ id: 'comment-1' }])
+  })
+
+  it('يعيد قوائم فارغة إذا فشلت قراءة البيانات المرتبطة', async () => {
+    mockFrom.mockReturnValue({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data: null, error: { message: 'READ_FAILED' } }),
+        }),
+      }),
+    })
+
+    await expect(JournalService.getEntryApprovals('entry-1')).resolves.toEqual([])
+    await expect(JournalService.getEntryAttachments('entry-1')).resolves.toEqual([])
+    await expect(JournalService.getEntryComments('entry-1')).resolves.toEqual([])
+  })
+
+  it('يرفع المرفق ثم يسجل metadata داخل tenant الحالي', async () => {
+    const upload = vi.fn().mockResolvedValue({ error: null })
+    mockStorageFrom.mockReturnValue({ upload })
+    const single = vi.fn().mockResolvedValue({
+      data: { id: 'attachment-1', entry_id: 'entry-1', file_name: 'proof.pdf' },
+      error: null,
+    })
+    const select = vi.fn().mockReturnValue({ single })
+    const insert = vi.fn().mockReturnValue({ select })
+    mockFrom.mockReturnValue({ insert })
+    const file = { name: 'proof.pdf', size: 12, type: 'application/pdf' } as File
+
+    const result = await JournalService.uploadAttachment('entry-1', file)
+
+    expect(mockStorageFrom).toHaveBeenCalledWith('documents')
+    expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^journal-attachments\/entry-1\/\d+\.pdf$/), file)
+    expect(mockFrom).toHaveBeenCalledWith('journal_entry_attachments')
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+      entry_id: 'entry-1',
+      file_name: 'proof.pdf',
+      org_id: 'org-jtest',
+      tenant_id: 'org-jtest',
+    }))
+    expect(result.id).toBe('attachment-1')
+  })
+
+  it('ينقل خطأ تخزين المرفق ولا يكتب metadata بعده', async () => {
+    mockStorageFrom.mockReturnValue({
+      upload: vi.fn().mockResolvedValue({ error: new Error('UPLOAD_FAILED') }),
+    })
+
+    await expect(
+      JournalService.uploadAttachment(
+        'entry-1',
+        { name: 'proof.pdf', size: 12, type: 'application/pdf' } as File,
+      ),
+    ).rejects.toThrow('UPLOAD_FAILED')
+    expect(mockFrom).not.toHaveBeenCalled()
+  })
+
+  it('يحذف المرفق والتعليق ويضيف تعليقًا داخل tenant الحالي', async () => {
+    const attachmentEq = vi.fn().mockResolvedValue({ error: null })
+    const commentDeleteEq = vi.fn().mockResolvedValue({ error: null })
+    const commentSingle = vi.fn().mockResolvedValue({
+      data: { id: 'comment-2', entry_id: 'entry-1', comment_text: 'note' },
+      error: null,
+    })
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'journal_entry_attachments') {
+        return { delete: vi.fn().mockReturnValue({ eq: attachmentEq }) }
+      }
+      if (table === 'journal_entry_comments') {
+        return {
+          insert: vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({ single: commentSingle }),
+          }),
+          delete: vi.fn().mockReturnValue({ eq: commentDeleteEq }),
+        }
+      }
+      throw new Error(`unexpected table ${table}`)
+    })
+
+    await expect(JournalService.deleteAttachment('attachment-1')).resolves.toBeUndefined()
+    await expect(JournalService.addComment('entry-1', 'note', 'internal')).resolves.toEqual(
+      expect.objectContaining({ id: 'comment-2' }),
+    )
+    await expect(JournalService.deleteComment('comment-2')).resolves.toBeUndefined()
+    expect(attachmentEq).toHaveBeenCalledWith('id', 'attachment-1')
+    expect(commentDeleteEq).toHaveBeenCalledWith('id', 'comment-2')
+  })
+
+  it('ينقل أخطاء حذف/إضافة البيانات المرتبطة', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'journal_entry_attachments') {
+        return {
+          delete: vi.fn().mockReturnValue({
+            eq: vi.fn().mockResolvedValue({ error: new Error('ATTACHMENT_DELETE_FAILED') }),
+          }),
+        }
+      }
+      if (table === 'journal_entry_comments') {
+        return {
+          insert: vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: null, error: new Error('COMMENT_ADD_FAILED') }),
+            }),
+          }),
+        }
+      }
+      throw new Error(`unexpected table ${table}`)
+    })
+
+    await expect(JournalService.deleteAttachment('attachment-1')).rejects.toThrow('ATTACHMENT_DELETE_FAILED')
+    await expect(JournalService.addComment('entry-1', 'note')).rejects.toThrow('COMMENT_ADD_FAILED')
+  })
+})
+
+describe('JournalService.getEntryWithDetails', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('يجمع الرأس والسطور والحسابات والبيانات المرتبطة في استجابة واحدة', async () => {
+    const entry = {
+      id: 'entry-1',
+      org_id: 'org-jtest',
+      journal_id: 'journal-1',
+      entry_number: 'JE-1',
+      entry_date: '2026-08-24',
+      status: 'draft',
+      total_debit: 100,
+      total_credit: 100,
+      created_at: '2026-08-24T00:00:00Z',
+      updated_at: '2026-08-24T00:00:00Z',
+      journals: { name: 'General', name_ar: 'عام' },
+    }
+    const line = { id: 'line-1', entry_id: 'entry-1', line_number: 1, account_id: 'acc-1', debit: 100, credit: 0 }
+    const related = (data: unknown[]) => ({
+      select: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          order: vi.fn().mockResolvedValue({ data, error: null }),
+        }),
+      }),
+    })
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'gl_entries') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              single: vi.fn().mockResolvedValue({ data: entry, error: null }),
+            }),
+          }),
+        }
+      }
+      if (table === 'gl_entry_lines') {
+        return {
+          select: vi.fn().mockReturnValue({
+            eq: vi.fn().mockReturnValue({
+              order: vi.fn().mockResolvedValue({ data: [line], error: null }),
+            }),
+          }),
+        }
+      }
+      if (table === 'gl_accounts') {
+        return {
+          select: vi.fn().mockReturnValue({
+            in: vi.fn().mockResolvedValue({
+              data: [{ id: 'acc-1', code: '1000', name: 'Cash', name_ar: 'نقد' }],
+            }),
+          }),
+        }
+      }
+      if (table === 'journal_entry_approvals') return related([{ id: 'approval-1' }])
+      if (table === 'journal_entry_attachments') return related([{ id: 'attachment-1' }])
+      if (table === 'journal_entry_comments') return related([{ id: 'comment-1' }])
+      throw new Error(`unexpected table ${table}`)
+    })
+
+    const result = await JournalService.getEntryWithDetails('entry-1')
+
+    expect(result).toEqual(expect.objectContaining({
+      id: 'entry-1',
+      journal_name: 'General',
+      journal_name_ar: 'عام',
+      approvals: [{ id: 'approval-1' }],
+      attachments: [{ id: 'attachment-1' }],
+      comments: [{ id: 'comment-1' }],
+    }))
+    expect(result?.lines?.[0]).toEqual(expect.objectContaining({
+      account_code: '1000',
+      account_name: 'Cash',
+      account_name_ar: 'نقد',
+    }))
+  })
+
+  it('يعود إلى الرأس الأساسي إذا فشل مسار التفاصيل الكامل', async () => {
+    let glEntryRead = 0
+    mockFrom.mockImplementation((table: string) => {
+      if (table !== 'gl_entries') throw new Error(`unexpected table ${table}`)
+      glEntryRead += 1
+      return {
+        select: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue(
+              glEntryRead === 1
+                ? { data: null, error: new Error('DETAIL_READ_FAILED') }
+                : {
+                    data: {
+                      id: 'entry-1',
+                      org_id: 'org-jtest',
+                      journal_id: 'journal-1',
+                      entry_number: 'JE-1',
+                      entry_date: '2026-08-24',
+                      status: 'draft',
+                      total_debit: 100,
+                      total_credit: 100,
+                      created_at: '2026-08-24T00:00:00Z',
+                      updated_at: '2026-08-24T00:00:00Z',
+                    },
+                    error: null,
+                  },
+            ),
+          }),
+        }),
+      }
+    })
+
+    const result = await JournalService.getEntryWithDetails('entry-1')
+
+    expect(result).toEqual(expect.objectContaining({
+      id: 'entry-1',
+      lines: [],
+      approvals: [],
+      attachments: [],
+      comments: [],
+    }))
+    expect(glEntryRead).toBe(2)
   })
 })
