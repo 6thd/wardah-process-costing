@@ -45,9 +45,9 @@ describe('StockAdjustments organization scope regression', () => {
       resolve(process.cwd(), 'src/features/inventory/helpers/stockAdjustmentSubmit.ts'),
       'utf8',
     )
-    expect(submitSource).toContain(".eq('organization_id', orgId)")
-    expect(submitSource).toContain(".eq('org_id', orgId)")
-    expect(submitSource).toContain('org_id: orgId')
+    expect(submitSource.match(/\.eq\('organization_id', orgId\)/g)).toHaveLength(2)
+    expect(submitSource).not.toContain(".eq('org_id', orgId)")
+    expect(submitSource).toContain("rpc('rpc_submit_stock_adjustment'")
   })
 
   it('does not retain a warehouse selected under a previously active organization', () => {
