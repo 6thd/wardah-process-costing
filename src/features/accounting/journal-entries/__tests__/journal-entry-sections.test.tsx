@@ -8,12 +8,6 @@ import {
 } from '../components/JournalEntrySections';
 import type { JournalEntry } from '../types';
 
-vi.mock('../components/ApprovalWorkflow', () => ({
-  ApprovalWorkflow: ({ entryId, canApprove }: { entryId: string; canApprove: boolean }) => (
-    <div>approval:{entryId}:{String(canApprove)}</div>
-  ),
-}));
-
 vi.mock('../components/AttachmentsSection', () => ({
   AttachmentsSection: ({ entryId }: { entryId: string }) => <div>attachments:{entryId}</div>,
 }));
@@ -186,7 +180,7 @@ describe('JournalEntryViewDialog', () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('renders entry details and lines in RTL while preserving approval permission', async () => {
+  it('renders canonical details, attachments and comments without a legacy approvals tab', async () => {
     const entry: JournalEntry = {
       ...postedEntry,
       lines: [
@@ -197,8 +191,9 @@ describe('JournalEntryViewDialog', () => {
     render(<JournalEntryViewDialog open entry={entry} isRTL canApprove t={t} onOpenChange={vi.fn()} />);
     expect(screen.getAllByText('JE-002').length).toBeGreaterThan(0);
     expect(screen.getByText('1000 - النقدية')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.approvals' }));
-    expect(screen.getByText('approval:posted-1:true')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'accounting.journalEntries.approvals' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+
     await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.attachmentsTab' }));
     expect(screen.getByText('attachments:posted-1')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.commentsTab' }));
