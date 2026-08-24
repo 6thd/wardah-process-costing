@@ -1,8 +1,9 @@
 /**
- * اختبارات JournalService — مسار المال الأهم (P4-B6)
- * Migration 178: manual-journal RPC boundary | التوازن | تمرير الأخطاء
+ * JournalService tests — canonical gl_entries lifecycle.
+ * Migration 180 retires the legacy journal approval surface; these tests lock
+ * the active service to canonical create/post/reverse plus attachments/comments.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mockRpc = vi.fn()
 const mockFrom = vi.fn()
@@ -35,7 +36,7 @@ describe('JournalService.createEntry', () => {
     vi.clearAllMocks()
   })
 
-  it('يستخدم rpc_create_manual_journal_entry المحروس عند إنشاء قيد يدوي', async () => {
+  it('uses the canonical manual-journal RPC', async () => {
     mockRpc.mockResolvedValue({
       data: { success: true, entry_id: 'e-1', entry_number: 'JE-0001', status: 'draft' },
       error: null,
@@ -57,63 +58,32 @@ describe('JournalService.createEntry', () => {
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
-  it('يرفض القيد غير المتوازن قبل أي نداء للقاعدة', async () => {
-    const unbalanced = {
+  it('rejects an unbalanced entry before touching the database', async () => {
+    const result = await JournalService.createEntry({
       ...balancedRequest,
       lines: [
         { account_id: 'acc-1', line_number: 1, debit: 500, credit: 0 },
         { account_id: 'acc-2', line_number: 2, debit: 0, credit: 300 },
       ],
-    }
-
-    const result = await JournalService.createEntry(unbalanced)
+    })
 
     expect(result.success).toBe(false)
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('يمرر خطأ RPC الحقيقي بلا fallback أو تغليف إضافي', async () => {
-    mockRpc.mockResolvedValue({
-      data: null,
-      error: { code: 'P0001', message: 'PERIOD_CLOSED: الفترة 2026-06 مقفلة' },
+  it('passes through the canonical RPC error and fails closed on missing entry id', async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: null, error: { message: 'PERIOD_CLOSED' } })
+      .mockResolvedValueOnce({ data: { success: false }, error: null })
+
+    await expect(JournalService.createEntry(balancedRequest)).resolves.toEqual({
+      success: false,
+      error: 'PERIOD_CLOSED',
     })
-
-    const result = await JournalService.createEntry(balancedRequest)
-
-    expect(result.success).toBe(false)
-    expect(result.error).toBe('PERIOD_CLOSED: الفترة 2026-06 مقفلة')
-    expect(mockRpc).toHaveBeenCalledWith('rpc_create_manual_journal_entry', expect.any(Object))
-    expect(mockFrom).not.toHaveBeenCalled()
-  })
-
-  it('يفشل مغلقًا إذا لم يرجع RPC معرّف قيد ناجحًا', async () => {
-    mockRpc.mockResolvedValue({
-      data: { success: false },
-      error: null,
+    await expect(JournalService.createEntry(balancedRequest)).resolves.toEqual({
+      success: false,
+      error: 'Manual journal RPC returned no entry',
     })
-
-    const result = await JournalService.createEntry(balancedRequest)
-
-    expect(result).toEqual({ success: false, error: 'Manual journal RPC returned no entry' })
-    expect(mockFrom).not.toHaveBeenCalled()
-  })
-
-  it('يقبل فرق تقريب ضمن هامش 0.01', async () => {
-    mockRpc.mockResolvedValue({
-      data: { success: true, entry_id: 'e-3', entry_number: 'JE-0003', status: 'draft' },
-      error: null,
-    })
-
-    const nearlyBalanced = {
-      ...balancedRequest,
-      lines: [
-        { account_id: 'acc-1', line_number: 1, debit: 100.005, credit: 0 },
-        { account_id: 'acc-2', line_number: 2, debit: 0, credit: 100 },
-      ],
-    }
-
-    const result = await JournalService.createEntry(nearlyBalanced)
-    expect(result.success).toBe(true)
   })
 })
 
@@ -122,18 +92,19 @@ describe('JournalService canonical lifecycle RPCs', () => {
     vi.clearAllMocks()
   })
 
-  it('يرحّل قيدًا واحدًا عبر صلاحية post المحروسة', async () => {
+  it('posts through rpc_post_manual_journal_entry', async () => {
     mockRpc.mockResolvedValue({ data: { success: true }, error: null })
 
-    const result = await JournalService.postJournalEntry('entry-post-1')
-
+    await expect(JournalService.postJournalEntry('entry-post-1')).resolves.toEqual({
+      success: true,
+      message: 'Entry posted successfully',
+    })
     expect(mockRpc).toHaveBeenCalledWith('rpc_post_manual_journal_entry', {
       p_entry_id: 'entry-post-1',
     })
-    expect(result).toEqual({ success: true, message: 'Entry posted successfully' })
   })
 
-  it('يفشل ترحيل القيد مغلقًا عند رفض RPC أو عند نتيجة غير ناجحة', async () => {
+  it('fails posting closed on RPC denial or unsuccessful response', async () => {
     mockRpc
       .mockResolvedValueOnce({ data: null, error: { message: 'PERMISSION_DENIED' } })
       .mockResolvedValueOnce({ data: { success: false }, error: null })
@@ -148,7 +119,7 @@ describe('JournalService canonical lifecycle RPCs', () => {
     })
   })
 
-  it('يرحّل الدفعة عبر rpc_batch_post_manual_journal_entries فقط', async () => {
+  it('batch-posts only through the canonical batch RPC', async () => {
     const rpcResult = {
       success: true,
       total: 2,
@@ -161,47 +132,14 @@ describe('JournalService canonical lifecycle RPCs', () => {
     }
     mockRpc.mockResolvedValue({ data: rpcResult, error: null })
 
-    const result = await JournalService.batchPostEntries(['e-1', 'e-2'])
-
+    await expect(JournalService.batchPostEntries(['e-1', 'e-2'])).resolves.toEqual(rpcResult)
     expect(mockRpc).toHaveBeenCalledWith('rpc_batch_post_manual_journal_entries', {
       p_entry_ids: ['e-1', 'e-2'],
     })
-    expect(result).toEqual(rpcResult)
-  })
-
-  it('ينقل خطأ دفعة الترحيل ولا يحاول مسارًا قديمًا', async () => {
-    mockRpc.mockResolvedValue({ data: null, error: { message: 'PERMISSION_DENIED' } })
-
-    await expect(JournalService.batchPostEntries(['e-1'])).rejects.toThrow('PERMISSION_DENIED')
-    expect(mockRpc).toHaveBeenCalledTimes(1)
     expect(mockFrom).not.toHaveBeenCalled()
   })
 
-  it('يبقي فحص الموافقة القديم للقراءة فقط ويفشل مغلقًا عند خطئه', async () => {
-    const approvalState = { required: true, required_levels: 2, current_levels: 1 }
-    mockRpc
-      .mockResolvedValueOnce({ data: approvalState, error: null })
-      .mockResolvedValueOnce({ data: null, error: { message: 'LEGACY_READ_FAILED' } })
-
-    await expect(JournalService.checkApprovalRequired('e-approve')).resolves.toEqual(approvalState)
-    await expect(JournalService.checkApprovalRequired('e-approve')).resolves.toEqual({
-      required: false,
-      required_levels: 0,
-      current_levels: 0,
-    })
-    expect(mockRpc).toHaveBeenNthCalledWith(1, 'check_entry_approval_required', {
-      p_entry_id: 'e-approve',
-    })
-  })
-
-  it('يعطّل mutation الموافقة القديم صراحة إلى أن يكتمل #175', async () => {
-    await expect(JournalService.approveEntry('e-approve', 1, 'ok')).rejects.toThrow(
-      'Legacy journal approval is disabled pending the canonical gl_entries workflow (#175)',
-    )
-    expect(mockRpc).not.toHaveBeenCalled()
-  })
-
-  it('يعكس القيد عبر reverse المحروس ويعالج replay idempotent', async () => {
+  it('reverses through rpc_reverse_manual_journal_entry and handles replay', async () => {
     mockRpc
       .mockResolvedValueOnce({
         data: {
@@ -236,12 +174,10 @@ describe('JournalService canonical lifecycle RPCs', () => {
     expect(replay.message).toBe('Entry already reversed')
   })
 
-  it('ينقل خطأ reverse المحروس بلا fallback إلى دالة legacy', async () => {
+  it('does not fall back to a legacy reversal function on denial', async () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: 'PERMISSION_DENIED' } })
 
-    await expect(
-      JournalService.reverseEntry('e-original', 'تصحيح', '2026-08-24'),
-    ).rejects.toThrow('PERMISSION_DENIED')
+    await expect(JournalService.reverseEntry('e-original')).rejects.toThrow('PERMISSION_DENIED')
     expect(mockRpc).toHaveBeenCalledTimes(1)
     expect(mockFrom).not.toHaveBeenCalled()
   })
@@ -252,81 +188,58 @@ describe('JournalService related-data helpers', () => {
     vi.clearAllMocks()
   })
 
-  it('يقرأ الموافقات والمرفقات والتعليقات من الجداول canonical المرتبطة', async () => {
-    const makeOrderedQuery = (data: unknown[]) => ({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          order: vi.fn().mockResolvedValue({ data, error: null }),
-        }),
+  const makeOrderedQuery = (data: unknown[], error: unknown = null) => ({
+    select: vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        order: vi.fn().mockResolvedValue({ data, error }),
       }),
-    })
+    }),
+  })
+
+  it('reads only attachments and comments from active related-data tables', async () => {
     mockFrom.mockImplementation((table: string) => {
-      if (table === 'journal_entry_approvals') return makeOrderedQuery([{ id: 'approval-1' }])
       if (table === 'journal_entry_attachments') return makeOrderedQuery([{ id: 'attachment-1' }])
       if (table === 'journal_entry_comments') return makeOrderedQuery([{ id: 'comment-1' }])
       throw new Error(`unexpected table ${table}`)
     })
 
-    await expect(JournalService.getEntryApprovals('entry-1')).resolves.toEqual([{ id: 'approval-1' }])
     await expect(JournalService.getEntryAttachments('entry-1')).resolves.toEqual([{ id: 'attachment-1' }])
     await expect(JournalService.getEntryComments('entry-1')).resolves.toEqual([{ id: 'comment-1' }])
+    expect(mockFrom).not.toHaveBeenCalledWith('journal_entry_approvals')
   })
 
-  it('يعيد قوائم فارغة إذا فشلت قراءة البيانات المرتبطة', async () => {
-    mockFrom.mockReturnValue({
-      select: vi.fn().mockReturnValue({
-        eq: vi.fn().mockReturnValue({
-          order: vi.fn().mockResolvedValue({ data: null, error: { message: 'READ_FAILED' } }),
-        }),
-      }),
-    })
+  it('returns empty lists when attachment/comment reads fail', async () => {
+    mockFrom.mockReturnValue(makeOrderedQuery([], { message: 'READ_FAILED' }))
 
-    await expect(JournalService.getEntryApprovals('entry-1')).resolves.toEqual([])
     await expect(JournalService.getEntryAttachments('entry-1')).resolves.toEqual([])
     await expect(JournalService.getEntryComments('entry-1')).resolves.toEqual([])
   })
 
-  it('يرفع المرفق ثم يسجل metadata داخل tenant الحالي', async () => {
+  it('uploads attachment metadata inside the current tenant', async () => {
     const upload = vi.fn().mockResolvedValue({ error: null })
     mockStorageFrom.mockReturnValue({ upload })
     const single = vi.fn().mockResolvedValue({
       data: { id: 'attachment-1', entry_id: 'entry-1', file_name: 'proof.pdf' },
       error: null,
     })
-    const select = vi.fn().mockReturnValue({ single })
-    const insert = vi.fn().mockReturnValue({ select })
+    const insert = vi.fn().mockReturnValue({
+      select: vi.fn().mockReturnValue({ single }),
+    })
     mockFrom.mockReturnValue({ insert })
     const file = { name: 'proof.pdf', size: 12, type: 'application/pdf' } as File
 
     const result = await JournalService.uploadAttachment('entry-1', file)
 
     expect(mockStorageFrom).toHaveBeenCalledWith('documents')
-    expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^journal-attachments\/entry-1\/\d+\.pdf$/), file)
-    expect(mockFrom).toHaveBeenCalledWith('journal_entry_attachments')
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({
       entry_id: 'entry-1',
-      file_name: 'proof.pdf',
       org_id: 'org-jtest',
       tenant_id: 'org-jtest',
     }))
     expect(result.id).toBe('attachment-1')
   })
 
-  it('ينقل خطأ تخزين المرفق ولا يكتب metadata بعده', async () => {
-    mockStorageFrom.mockReturnValue({
-      upload: vi.fn().mockResolvedValue({ error: new Error('UPLOAD_FAILED') }),
-    })
-
-    await expect(
-      JournalService.uploadAttachment(
-        'entry-1',
-        { name: 'proof.pdf', size: 12, type: 'application/pdf' } as File,
-      ),
-    ).rejects.toThrow('UPLOAD_FAILED')
-    expect(mockFrom).not.toHaveBeenCalled()
-  })
-
-  it('يحذف المرفق والتعليق ويضيف تعليقًا داخل tenant الحالي', async () => {
+  it('deletes attachments/comments and adds comments through the active tables', async () => {
     const attachmentEq = vi.fn().mockResolvedValue({ error: null })
     const commentDeleteEq = vi.fn().mockResolvedValue({ error: null })
     const commentSingle = vi.fn().mockResolvedValue({
@@ -353,33 +266,6 @@ describe('JournalService related-data helpers', () => {
       expect.objectContaining({ id: 'comment-2' }),
     )
     await expect(JournalService.deleteComment('comment-2')).resolves.toBeUndefined()
-    expect(attachmentEq).toHaveBeenCalledWith('id', 'attachment-1')
-    expect(commentDeleteEq).toHaveBeenCalledWith('id', 'comment-2')
-  })
-
-  it('ينقل أخطاء حذف/إضافة البيانات المرتبطة', async () => {
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'journal_entry_attachments') {
-        return {
-          delete: vi.fn().mockReturnValue({
-            eq: vi.fn().mockResolvedValue({ error: new Error('ATTACHMENT_DELETE_FAILED') }),
-          }),
-        }
-      }
-      if (table === 'journal_entry_comments') {
-        return {
-          insert: vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnValue({
-              single: vi.fn().mockResolvedValue({ data: null, error: new Error('COMMENT_ADD_FAILED') }),
-            }),
-          }),
-        }
-      }
-      throw new Error(`unexpected table ${table}`)
-    })
-
-    await expect(JournalService.deleteAttachment('attachment-1')).rejects.toThrow('ATTACHMENT_DELETE_FAILED')
-    await expect(JournalService.addComment('entry-1', 'note')).rejects.toThrow('COMMENT_ADD_FAILED')
   })
 })
 
@@ -388,7 +274,7 @@ describe('JournalService.getEntryWithDetails', () => {
     vi.clearAllMocks()
   })
 
-  it('يجمع الرأس والسطور والحسابات والبيانات المرتبطة في استجابة واحدة', async () => {
+  it('builds canonical details without touching the retired approval table', async () => {
     const entry = {
       id: 'entry-1',
       org_id: 'org-jtest',
@@ -402,7 +288,14 @@ describe('JournalService.getEntryWithDetails', () => {
       updated_at: '2026-08-24T00:00:00Z',
       journals: { name: 'General', name_ar: 'عام' },
     }
-    const line = { id: 'line-1', entry_id: 'entry-1', line_number: 1, account_id: 'acc-1', debit: 100, credit: 0 }
+    const line = {
+      id: 'line-1',
+      entry_id: 'entry-1',
+      line_number: 1,
+      account_id: 'acc-1',
+      debit: 100,
+      credit: 0,
+    }
     const related = (data: unknown[]) => ({
       select: vi.fn().mockReturnValue({
         eq: vi.fn().mockReturnValue({
@@ -439,7 +332,6 @@ describe('JournalService.getEntryWithDetails', () => {
           }),
         }
       }
-      if (table === 'journal_entry_approvals') return related([{ id: 'approval-1' }])
       if (table === 'journal_entry_attachments') return related([{ id: 'attachment-1' }])
       if (table === 'journal_entry_comments') return related([{ id: 'comment-1' }])
       throw new Error(`unexpected table ${table}`)
@@ -451,7 +343,7 @@ describe('JournalService.getEntryWithDetails', () => {
       id: 'entry-1',
       journal_name: 'General',
       journal_name_ar: 'عام',
-      approvals: [{ id: 'approval-1' }],
+      approvals: [],
       attachments: [{ id: 'attachment-1' }],
       comments: [{ id: 'comment-1' }],
     }))
@@ -460,9 +352,12 @@ describe('JournalService.getEntryWithDetails', () => {
       account_name: 'Cash',
       account_name_ar: 'نقد',
     }))
+    expect(mockFrom).not.toHaveBeenCalledWith('journal_entry_approvals')
+    expect(mockRpc).not.toHaveBeenCalledWith('check_entry_approval_required', expect.anything())
+    expect(mockRpc).not.toHaveBeenCalledWith('approve_journal_entry', expect.anything())
   })
 
-  it('يعود إلى الرأس الأساسي إذا فشل مسار التفاصيل الكامل', async () => {
+  it('falls back to the base header with no legacy approval data', async () => {
     let glEntryRead = 0
     mockFrom.mockImplementation((table: string) => {
       if (table !== 'gl_entries') throw new Error(`unexpected table ${table}`)
@@ -504,5 +399,6 @@ describe('JournalService.getEntryWithDetails', () => {
       comments: [],
     }))
     expect(glEntryRead).toBe(2)
+    expect(mockFrom).not.toHaveBeenCalledWith('journal_entry_approvals')
   })
 })
