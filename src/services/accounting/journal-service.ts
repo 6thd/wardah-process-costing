@@ -61,6 +61,10 @@ export interface JournalLine {
   created_at?: string;
 }
 
+/**
+ * Historical response shape retained for compatibility only.
+ * The active Journal UI no longer reads or mutates legacy approval records.
+ */
 export interface JournalApproval {
   id: string;
   entry_id: string;
@@ -203,39 +207,6 @@ export class JournalService {
     return data;
   }
 
-  /**
-   * Legacy approval reads remain temporarily available for #175 migration.
-   * Mutation is intentionally fail-closed on the database after 178.
-   */
-  static async checkApprovalRequired(entryId: string): Promise<{
-    required: boolean;
-    required_levels: number;
-    current_levels: number;
-  }> {
-    try {
-      const { data, error } = await supabase.rpc('check_entry_approval_required', { p_entry_id: entryId });
-      if (error) throw error;
-      return data;
-    } catch (error: any) {
-      console.error('Error checking approval:', error);
-      return { required: false, required_levels: 0, current_levels: 0 };
-    }
-  }
-
-  static async approveEntry(
-    _entryId: string,
-    _approvalLevel: number,
-    _comments?: string,
-  ): Promise<{
-    success: boolean;
-    message: string;
-    approved_levels: number;
-    required_levels: number;
-    can_post: boolean;
-  }> {
-    throw new Error('Legacy journal approval is disabled pending the canonical gl_entries workflow (#175)');
-  }
-
   static async reverseEntry(
     entryId: string,
     reversalReason?: string,
@@ -258,21 +229,6 @@ export class JournalService {
     } catch (error: any) {
       console.error('Error reversing entry:', error);
       throw new Error(error.message || 'Reversal failed');
-    }
-  }
-
-  static async getEntryApprovals(entryId: string): Promise<JournalApproval[]> {
-    try {
-      const { data, error } = await supabase
-        .from('journal_entry_approvals')
-        .select('*')
-        .eq('entry_id', entryId)
-        .order('approval_level', { ascending: true });
-      if (error) throw error;
-      return data || [];
-    } catch (error: any) {
-      console.error('Error fetching approvals:', error);
-      return [];
     }
   }
 
@@ -388,9 +344,8 @@ export class JournalService {
     });
   }
 
-  private static async fetchEntryRelatedData(entryId: string): Promise<[any[], any[], any[]]> {
+  private static async fetchEntryRelatedData(entryId: string): Promise<[any[], any[]]> {
     return Promise.all([
-      this.getEntryApprovals(entryId).catch(() => []),
       this.getEntryAttachments(entryId).catch(() => []),
       this.getEntryComments(entryId).catch(() => []),
     ]);
@@ -399,7 +354,6 @@ export class JournalService {
   private static buildEntryResponse(
     entry: any,
     lines: any[],
-    approvals: any[],
     attachments: any[],
     comments: any[],
   ): JournalEntry {
@@ -408,7 +362,7 @@ export class JournalService {
       journal_name: entry.journals?.name || entry.journal_name,
       journal_name_ar: entry.journals?.name_ar || entry.journal_name_ar,
       lines,
-      approvals: approvals || [],
+      approvals: [],
       attachments: attachments || [],
       comments: comments || [],
     };
@@ -430,8 +384,8 @@ export class JournalService {
       if (!entry) return null;
       const rawLines = await this.fetchEntryLines(entryId);
       const lines = await this.enrichLinesWithAccounts(rawLines);
-      const [approvals, attachments, comments] = await this.fetchEntryRelatedData(entryId);
-      return this.buildEntryResponse(entry, lines, approvals, attachments, comments);
+      const [attachments, comments] = await this.fetchEntryRelatedData(entryId);
+      return this.buildEntryResponse(entry, lines, attachments, comments);
     } catch (error: any) {
       console.error('Error fetching entry details:', error);
       return this.getFallbackEntry(entryId);
