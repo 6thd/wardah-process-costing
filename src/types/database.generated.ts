@@ -2219,6 +2219,7 @@ export type Database = {
           reference_id: string | null
           reference_number: string | null
           reference_type: string | null
+          request_hash: string | null
           status: string | null
           total_credit: number
           total_debit: number
@@ -2242,6 +2243,7 @@ export type Database = {
           reference_id?: string | null
           reference_number?: string | null
           reference_type?: string | null
+          request_hash?: string | null
           status?: string | null
           total_credit?: number
           total_debit?: number
@@ -2265,6 +2267,7 @@ export type Database = {
           reference_id?: string | null
           reference_number?: string | null
           reference_type?: string | null
+          request_hash?: string | null
           status?: string | null
           total_credit?: number
           total_debit?: number
