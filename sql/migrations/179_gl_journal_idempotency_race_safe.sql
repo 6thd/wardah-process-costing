@@ -219,7 +219,12 @@ EXCEPTION
 END;
 $function$;
 
--- 178 deliberately revoked browser execution of this generic primitive.
--- CREATE OR REPLACE preserves those existing ACLs; do not widen them here.
+-- Re-assert the internal-only execute surface in this migration itself. This is
+-- intentionally redundant with Migration 178: it makes the safety property
+-- local to the SECURITY DEFINER redefinition and keeps future per-file CI strict.
+REVOKE ALL ON FUNCTION public.rpc_create_journal_entry(jsonb) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.rpc_create_journal_entry(jsonb) FROM anon;
+REVOKE ALL ON FUNCTION public.rpc_create_journal_entry(jsonb) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.rpc_create_journal_entry(jsonb) TO service_role;
 
 COMMIT;
