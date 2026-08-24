@@ -68,7 +68,7 @@ describe('JournalService.createEntry', () => {
     expect(mockRpc).not.toHaveBeenCalled()
   })
 
-  it('يحافظ على بادئة الخطأ العربية وينقل خطأ RPC الحقيقي بلا fallback', async () => {
+  it('يمرر خطأ RPC الحقيقي بلا fallback أو تغليف إضافي', async () => {
     mockRpc.mockResolvedValue({
       data: null,
       error: { code: 'P0001', message: 'PERIOD_CLOSED: الفترة 2026-06 مقفلة' },
@@ -77,8 +77,7 @@ describe('JournalService.createEntry', () => {
     const result = await JournalService.createEntry(balancedRequest)
 
     expect(result.success).toBe(false)
-    expect(String(result.error?.message ?? result.error)).toContain('[خدمة قيد اليومية]')
-    expect(String(result.error?.message ?? result.error)).toContain('PERIOD_CLOSED')
+    expect(result.error).toBe('PERIOD_CLOSED: الفترة 2026-06 مقفلة')
     expect(mockRpc).toHaveBeenCalledWith('rpc_create_manual_journal_entry', expect.any(Object))
     expect(mockFrom).not.toHaveBeenCalled()
   })
