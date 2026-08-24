@@ -21,6 +21,12 @@ VALUES
    '17900000-aaaa-aaaa-aaaa-000000000001',
    'J179', 'Journal 179', 'general', 'J179', true);
 
+-- generate_entry_number(uuid) executes CREATE SEQUENCE IF NOT EXISTS inside
+-- the caller transaction. Pre-create this test journal sequence so that the
+-- concurrency test is not serialized by unrelated transactional DDL before
+-- both calls reach the idempotency INSERT barrier.
+CREATE SEQUENCE IF NOT EXISTS public.seq_j179 START WITH 1;
+
 INSERT INTO public.gl_accounts
   (id, org_id, code, name, category, subtype, normal_balance, allow_posting, is_active)
 VALUES
