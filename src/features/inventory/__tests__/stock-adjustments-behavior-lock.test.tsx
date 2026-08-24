@@ -75,18 +75,6 @@ const ADJUSTMENT_ITEM = {
   reason: '',
 };
 
-const DECREASE_ADJUSTMENT_ITEM = {
-  ...ADJUSTMENT_ITEM,
-  id: 'item-2',
-  product_id: 'p2',
-  products: { id: 'p2', name: 'Widget 2', code: 'W-2' },
-  current_qty: 10,
-  new_qty: 7,
-  difference_qty: -3,
-  current_rate: 5,
-  value_difference: -15,
-};
-
 const PRODUCT = {
   id: 'p1',
   name: 'Widget',
@@ -126,8 +114,6 @@ let adjustmentItemsReadResult: any[] = [ADJUSTMENT_ITEM];
 let saveHeaderResult: QueryResult = { data: { ...ADJUSTMENT, id: 'adj-created' }, error: null };
 let saveItemsResult: QueryResult = { data: null, error: null };
 let editDeleteResult: QueryResult = { data: null, error: null };
-let ledgerInsertResult: QueryResult = { data: null, error: null };
-let submittedUpdateResult: QueryResult = { data: null, error: null };
 let rpcResult: QueryResult = { data: { success: true }, error: null };
 
 function resultFor(state: QueryState): QueryResult {
@@ -145,9 +131,7 @@ function resultFor(state: QueryState): QueryResult {
       : { data: adjustmentReadResult ? [adjustmentReadResult] : [], error: null };
   }
   if (table === 'stock_adjustments' && action === 'insert') return saveHeaderResult;
-  if (table === 'stock_adjustments' && action === 'update') {
-    return payload?.status === 'SUBMITTED' ? submittedUpdateResult : saveHeaderResult;
-  }
+  if (table === 'stock_adjustments' && action === 'update') return saveHeaderResult;
   if (table === 'stock_adjustment_items' && action === 'select') {
     return { data: adjustmentItemsReadResult, error: null };
   }
@@ -160,7 +144,6 @@ function resultFor(state: QueryState): QueryResult {
       : { data: [WAREHOUSE], error: null };
   }
   if (table === 'gl_accounts' && action === 'select') return { data: GL_ACCOUNTS, error: null };
-  if (table === 'stock_ledger_entries' && action === 'insert') return ledgerInsertResult;
   return { data: [], error: null };
 }
 
@@ -291,35 +274,6 @@ async function openAdjustmentView() {
   return rendered;
 }
 
-
-function expectIncreaseJournalRpcPayload() {
-  expect(rpcSpy).toHaveBeenCalledTimes(1);
-  expect(rpcSpy).toHaveBeenCalledWith('rpc_create_journal_entry', {
-    p_payload: expect.objectContaining({
-      org_id: 'org-1',
-      reference_type: 'stock_adjustments',
-      idempotency_key: 'stock-adj-adj-1',
-      auto_post: true,
-      lines: [
-        {
-          line_number: 1,
-          account_id: 'acct-asset',
-          debit: 10,
-          credit: 0,
-          description: 'زيادة مخزون - PHYSICAL_COUNT - REF-1',
-        },
-        {
-          line_number: 2,
-          account_id: 'acct-inc',
-          debit: 0,
-          credit: 10,
-          description: 'زيادة مخزون - PHYSICAL_COUNT - REF-1',
-        },
-      ],
-    }),
-  });
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   operationLog.length = 0;
@@ -339,8 +293,6 @@ beforeEach(() => {
   saveHeaderResult = { data: { ...ADJUSTMENT, id: 'adj-created' }, error: null };
   saveItemsResult = { data: null, error: null };
   editDeleteResult = { data: null, error: null };
-  ledgerInsertResult = { data: null, error: null };
-  submittedUpdateResult = { data: null, error: null };
   rpcResult = { data: { success: true }, error: null };
   hasPermissionKeyMock.mockReturnValue(false);
 });
@@ -550,7 +502,7 @@ describe('StockAdjustments — handleSaveAdjustment behavior lock', () => {
 });
 
 describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
-  it('treats a missing authenticated user as a toast.error hard stop before adjustment reads/SLE writes', async () => {
+  it('treats a missing authenticated user as a toast.error hard stop before adjustment reads or mutations', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
     getUserResult = null;
@@ -562,6 +514,7 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('الرجاء تسجيل الدخول'));
     expect(operationLog).toEqual(['auth:getUser']);
     expect(writePayloads).toHaveLength(0);
+    expect(rpcSpy).not.toHaveBeenCalled();
   });
 
   it('treats a missing active organization as a toast.error hard stop after auth and before adjustment reads', async () => {
@@ -577,9 +530,10 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('لم يتم تحديد المؤسسة النشطة'));
     expect(operationLog).toEqual(['auth:getUser']);
     expect(writePayloads).toHaveLength(0);
+    expect(rpcSpy).not.toHaveBeenCalled();
   });
 
-  it('blocks a non-DRAFT adjustment before loading items or writing the stock ledger', async () => {
+  it('blocks a non-DRAFT adjustment before loading items or invoking the atomic RPC', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
     adjustmentReadResult = { ...ADJUSTMENT, status: 'SUBMITTED' };
@@ -590,10 +544,11 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('يمكن فقط ترحيل التسويات بحالة مسودة'));
     expect(operationLog).toEqual(['auth:getUser', 'select:stock_adjustments']);
+    expect(rpcSpy).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
   });
 
-  it('blocks when adjustment items are missing before UoM/warehouse/SLE work', async () => {
+  it('blocks when adjustment items are missing before UoM/warehouse/atomic mutation', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
     adjustmentItemsReadResult = [];
@@ -608,10 +563,11 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
       'select:stock_adjustments',
       'select:stock_adjustment_items',
     ]);
+    expect(rpcSpy).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
   });
 
-  it('blocks a DRAFT without warehouse after items/UoM checks and before the SLE write', async () => {
+  it('blocks a DRAFT without warehouse after items/UoM checks and before the atomic RPC', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
     adjustmentReadResult = { ...ADJUSTMENT, warehouse_id: null };
@@ -626,10 +582,11 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
       'select:stock_adjustments',
       'select:stock_adjustment_items',
     ]);
+    expect(rpcSpy).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
   });
 
-  it('blocks UoM readiness after reading adjustment/items but before the SLE write', async () => {
+  it('blocks UoM readiness after reading adjustment/items but before the atomic RPC', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     const { rerender } = await openAdjustmentView();
     productUomStatusMock = { ...productUomStatusMock, isEnabled: true, isSuccess: false };
@@ -645,65 +602,13 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
       'select:stock_adjustments',
       'select:stock_adjustment_items',
     ]);
+    expect(rpcSpy).not.toHaveBeenCalled();
     expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
   });
 
-  it('preserves SLE -> GL RPC -> SUBMITTED sequencing and critical payloads on success', async () => {
+  it('delegates stock, GL and status mutation to one atomic RPC with no browser writes', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
-    operationLog.length = 0;
-    writePayloads.length = 0;
-
-    await userEvent.click(screen.getByRole('button', { name: /ترحيل/ }));
-
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('✅ تم ترحيل التسوية بنجاح وتحديث قيود المخزون'));
-    expect(operationLog).toEqual(expect.arrayContaining([
-      'insert:stock_ledger_entries',
-      'rpc:rpc_create_journal_entry',
-      'update:stock_adjustments',
-    ]));
-    expect(operationLog.indexOf('insert:stock_ledger_entries')).toBeLessThan(operationLog.indexOf('rpc:rpc_create_journal_entry'));
-    expect(operationLog.indexOf('rpc:rpc_create_journal_entry')).toBeLessThan(operationLog.indexOf('update:stock_adjustments'));
-
-    const ledger = writePayloads.find((entry) => entry.table === 'stock_ledger_entries' && entry.action === 'insert')?.payload;
-    expect(ledger).toEqual([
-      expect.objectContaining({
-        org_id: 'org-1',
-        voucher_type: 'Stock Adjustment',
-        voucher_id: 'adj-1',
-        product_id: 'p1',
-        warehouse_id: 'wh-1',
-        actual_qty: 2,
-        qty_after_transaction: 12,
-        incoming_rate: 5,
-        outgoing_rate: 0,
-        valuation_rate: 5,
-        stock_value: 60,
-        stock_value_difference: 10,
-        is_cancelled: false,
-        created_by: 'user-1',
-      }),
-    ]);
-
-    expectIncreaseJournalRpcPayload();
-
-    const submitted = writePayloads.find(
-      (entry) => entry.table === 'stock_adjustments' && entry.action === 'update' && entry.payload?.status === 'SUBMITTED',
-    )?.payload;
-    expect(submitted).toEqual(expect.objectContaining({
-      status: 'SUBMITTED',
-      submitted_by: 'user-1',
-      submitted_at: expect.any(String),
-    }));
-  });
-
-  it('preserves increase/decrease GL line account direction, values, and line_number order 1 -> 4', async () => {
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    await openAdjustmentView();
-    adjustmentItemsReadResult = [
-      { ...ADJUSTMENT_ITEM },
-      { ...DECREASE_ADJUSTMENT_ITEM },
-    ];
     operationLog.length = 0;
     writePayloads.length = 0;
 
@@ -711,43 +616,23 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
 
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('✅ تم ترحيل التسوية بنجاح وتحديث قيود المخزون'));
     expect(rpcSpy).toHaveBeenCalledTimes(1);
-    expect(rpcSpy).toHaveBeenCalledWith('rpc_create_journal_entry', {
-      p_payload: expect.objectContaining({
-        lines: [
-          {
-            line_number: 1,
-            account_id: 'acct-asset',
-            debit: 10,
-            credit: 0,
-            description: 'زيادة مخزون - PHYSICAL_COUNT - REF-1',
-          },
-          {
-            line_number: 2,
-            account_id: 'acct-inc',
-            debit: 0,
-            credit: 10,
-            description: 'زيادة مخزون - PHYSICAL_COUNT - REF-1',
-          },
-          {
-            line_number: 3,
-            account_id: 'acct-dec',
-            debit: 15,
-            credit: 0,
-            description: 'نقص مخزون - PHYSICAL_COUNT - REF-1',
-          },
-          {
-            line_number: 4,
-            account_id: 'acct-asset',
-            debit: 0,
-            credit: 15,
-            description: 'نقص مخزون - PHYSICAL_COUNT - REF-1',
-          },
-        ],
-      }),
+    expect(rpcSpy).toHaveBeenCalledWith('rpc_submit_stock_adjustment', {
+      p_adjustment_id: 'adj-1',
     });
+    expect(operationLog).toEqual(expect.arrayContaining([
+      'auth:getUser',
+      'select:stock_adjustments',
+      'select:stock_adjustment_items',
+      'rpc:rpc_submit_stock_adjustment',
+    ]));
+    expect(operationLog.indexOf('select:stock_adjustment_items')).toBeLessThan(operationLog.indexOf('rpc:rpc_submit_stock_adjustment'));
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
+    expect(writePayloads.some(
+      (entry) => entry.table === 'stock_adjustments' && entry.action === 'update' && entry.payload?.status === 'SUBMITTED',
+    )).toBe(false);
   });
 
-  it('GL/RPC failure warns, invokes rpc_create_journal_entry exactly once, and still marks the adjustment SUBMITTED', async () => {
+  it('fails closed on an atomic RPC business rejection without warning-only continuation', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     await openAdjustmentView();
     rpcResult = { data: { success: false, error: 'GL rejected' }, error: null };
@@ -756,12 +641,32 @@ describe('StockAdjustments — handleSubmitAdjustment behavior lock', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /ترحيل/ }));
 
-    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('تم ترحيل التسوية لكن فشل إنشاء القيود المحاسبية')));
-    await waitFor(() => expect(
-      writePayloads.some((entry) => entry.table === 'stock_adjustments' && entry.action === 'update' && entry.payload?.status === 'SUBMITTED'),
-    ).toBe(true));
-    expectIncreaseJournalRpcPayload();
-    expect(operationLog.indexOf('insert:stock_ledger_entries')).toBeLessThan(operationLog.indexOf('rpc:rpc_create_journal_entry'));
-    expect(operationLog.indexOf('rpc:rpc_create_journal_entry')).toBeLessThan(operationLog.lastIndexOf('update:stock_adjustments'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('GL rejected'));
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+    expect(rpcSpy).toHaveBeenCalledWith('rpc_submit_stock_adjustment', { p_adjustment_id: 'adj-1' });
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
+    expect(writePayloads.some(
+      (entry) => entry.table === 'stock_adjustments' && entry.action === 'update' && entry.payload?.status === 'SUBMITTED',
+    )).toBe(false);
+  });
+
+  it('fails closed on an atomic RPC transport error with no direct fallback mutation', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    await openAdjustmentView();
+    rpcResult = { data: null, error: { message: 'atomic submit failed' } };
+    operationLog.length = 0;
+    writePayloads.length = 0;
+
+    await userEvent.click(screen.getByRole('button', { name: /ترحيل/ }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('atomic submit failed'));
+    expect(rpcSpy).toHaveBeenCalledTimes(1);
+    expect(rpcSpy).toHaveBeenCalledWith('rpc_submit_stock_adjustment', { p_adjustment_id: 'adj-1' });
+    expect(toast.warning).not.toHaveBeenCalled();
+    expect(fromSpy).not.toHaveBeenCalledWith('stock_ledger_entries');
+    expect(writePayloads.some(
+      (entry) => entry.table === 'stock_adjustments' && entry.action === 'update' && entry.payload?.status === 'SUBMITTED',
+    )).toBe(false);
   });
 });
