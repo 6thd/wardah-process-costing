@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-22
+**آخر تحديث موثق:** 2026-08-25
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,13 +27,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد تطبيق Migration 175 في 2026-08-11 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
+الحالة الحية الموثقة بعد تطبيق Migration 180 في 2026-08-24 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–175 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
-- Production: مطبقة حتى 175 (`175_rbac_consumer_migration_rpcs`, version `20260811132302`)، عبر تسلسل 153 → 163 → 164 → 165 → 166 → 167 → 168 → 169 → 170 → 171 → 172 → 173 → 174 → 175 فوق cutoff 152. سبقتها مباشرةً Migration 174 (`174_sensitive_permission_class_and_rbac_rpcs`, version `20260809112236`)، وهي المتطلب المسبق الذي تتحقق منه preflight الخاصة بـ175.
-- Repository: أعلى migration مرقمة هي 177 (`177_goods_receipt_number_sequence.sql`). Migration 176 باقية محجوزة لإغلاق الكتابة المباشرة على RBAC بعد Browser Smoke، ومعلنة مؤقتًا في `skipped_migration_numbers.yml` حتى يأتي PR نطاقها.
-- Fresh DB: 153–175 ثم 177 تُطبَّق فوق baseline cutoff 152؛ 154–162 محجوزة رسميًا لمحرك التقارير المالية، و176 محجوزة لمسار RBAC، فلا تُعامل هذه الأرقام كفجوات (`sql/migrations/skipped_migration_numbers.yml`).
-- حالة هذا PR في 2026-08-22: `live_cutoff = 175`، `repo_max = 177`، `repository_ahead_by = 1` (Migration 177 فقط؛ 176 محجوزة). لا تُعد 177 مطبقة حيًا قبل دمج PR قاعدة البيانات ثم تطبيقها والتحقق من سجل Production.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–180 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
+- Production: مطبقة حتى 180 (`180_retire_legacy_journal_approval_surface`, version `20260824201045`). السجل الحي يؤكد أيضًا: 177 (`177_goods_receipt_number_sequence`, `20260822084608`)؛ 176 (`176_rbac_direct_write_closure`, `20260823091140`)؛ 178 (`178_journal_rbac_and_canonical_manual_lifecycle`, `20260823205023`)؛ 179 (`179_gl_journal_idempotency_race_safe`, `20260824133648`)؛ ثم 180. ترتيب الإصدارات الزمنية في Production هو المرجع، ولا يُستنتج من الرقم وحده.
+- Repository: أعلى migration مرقمة هي 180 (`180_retire_legacy_journal_approval_surface.sql`). Migration 176 ليست محجوزة؛ هي ملف حقيقي مدموج ومطبّق، وقد أُزيلت من `skipped_migration_numbers.yml`.
+- Fresh DB: تُطبَّق migrations القانونية الأحدث من baseline cutoff 152 حتى 180. الأرقام 154–162 فقط هي المحجوزة رسميًا لمحرك التقارير المالية في `sql/migrations/skipped_migration_numbers.yml`; لا تُعامل 176 كفجوة.
+- الحالة المتحقَّقة في 2026-08-25: `live_cutoff = 180`، `repo_max = 180`، `repository_ahead_by = 0`.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -79,10 +79,31 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   عضوية نشطة عند حدّ قاعدة البيانات، وتغلق سباق آخر مسؤول بقفل مشترك على صف
   المؤسسة. تضيف `rpc_remove_org_member` الذرية المدقَّقة، وتحصّن فرعي المنح
   الصريحة في دالتي الصلاحيات، وتُلحق سجل تدقيق بـ`create_role_from_template`.
-  **تُطبّق 175 أولًا DB-first بعد نجاح preflight**، ثم تأتي PR المستهلك التي
-  تعيد توجيه `users.tsx` و`roles.tsx` إلى الـRPCs. سحب الكتابة المباشرة نفسه
-  مؤجَّل لـMigration 176 بعد نجاح Browser Smoke الفعلي على الواجهة المنشورة.
-- `docs/db/GOODS_RECEIPT_NUMBER_SEQUENCE_177_RUNBOOK.md` — **Migration 177 (Repository-only حتى الدمج والتطبيق)**: إصلاح تصادم مولّد أرقام سندات الاستلام الذي كشفه Pilot الإنتاجي لـIssue #45 بعد أول استلام جزئي. تستخدم عدّادًا عالميًا يطابق قيد التفرد العالمي، وتُبقي عقد 148 الذرّي والسلوك الوظيفي دون تغيير.
+  أتت بعدها Migration 176 لإغلاق الكتابة المباشرة على `roles` و`role_permissions`
+  و`user_roles` بعد نجاح مسار المستهلك، فلا تعتبر 176 مؤجلة أو محجوزة بعد الآن.
+- `sql/migrations/176_rbac_direct_write_closure.sql` +
+  `.github/workflows/rbac-direct-write-176-acceptance.yml` — **Migration 176
+  (مطبّقة على Production، `20260823091140`)**: إغلاق الكتابة المباشرة الموثقة على
+  جداول RBAC الثلاثة مع قبول Fresh DB مخصص. لا توجد runbook مستقلة لـ176؛ هذه
+  الملفات هي المرجع القانوني الحالي ولا يُنشأ رابط توثيقي غير موجود.
+- `docs/db/GOODS_RECEIPT_NUMBER_SEQUENCE_177_RUNBOOK.md` — **Migration 177
+  (مطبّقة على Production، `20260822084608`)**: إصلاح تصادم مولّد أرقام سندات
+  الاستلام الذي كشفه Pilot الإنتاجي لـIssue #45 بعد أول استلام جزئي. تستخدم عدّادًا
+  عالميًا يطابق قيد التفرد العالمي، وتُبقي عقد 148 الذرّي والسلوك الوظيفي دون تغيير.
+- `sql/migrations/178_journal_rbac_and_canonical_manual_lifecycle.sql` +
+  `scripts/ci/fresh-db/acceptance_178_journal_rbac.sql` +
+  `.github/workflows/journal-rbac-178-acceptance.yml` — **Migration 178
+  (مطبّقة على Production، `20260823205023`)**: حدّ قاعدة البيانات للقيود اليدوية
+  القانونية على `gl_entries`، وإغلاق البدائيات العامة/التاريخية أمام العميل مع
+  إبقاء RPCs create/post/reverse اليدوية القانونية متاحة لـ`authenticated`.
+  لا توجد runbook مستقلة لـ178 في `docs/db` حاليًا؛ لا تستنتجها أو تخترع اسمًا لها.
+- `docs/db/GL_IDEMPOTENCY_179_RUNBOOK.md` — **Migration 179 (مطبّقة على Production،
+  `20260824133648`)**: تثبيت idempotency للـGL بشكل race-safe مع إعادة تثبيت إغلاق
+  `rpc_create_journal_entry(jsonb)` عن `PUBLIC` و`anon` و`authenticated`.
+- `docs/db/LEGACY_JOURNAL_APPROVAL_180_RUNBOOK.md` — **Migration 180 (مطبّقة على
+  Production، `20260824201045`)**: سحب كل وصول غير مالك إلى سطح اعتماد القيود
+  التاريخي (`journal_entry_approvals` والدالتان القديمتان) مع إبقاء الكائنات والبيانات
+  التاريخية في مكانها، ودون تغيير دورة `gl_entries` القانونية.
 
 ## Baseline
 
