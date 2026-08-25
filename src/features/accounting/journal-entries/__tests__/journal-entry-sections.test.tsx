@@ -174,7 +174,7 @@ describe('JournalEntriesTable', () => {
 describe('JournalEntryViewDialog', () => {
   it('renders no details without an entry and reports close changes', () => {
     const onOpenChange = vi.fn();
-    render(<JournalEntryViewDialog open entry={null} isRTL={false} canApprove={false} t={t} onOpenChange={onOpenChange} />);
+    render(<JournalEntryViewDialog open entry={null} isRTL={false} t={t} onOpenChange={onOpenChange} />);
     expect(screen.getByText('accounting.journalEntries.viewEntryDetails')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
@@ -188,7 +188,7 @@ describe('JournalEntryViewDialog', () => {
         { line_number: 2, account_id: 'a2', account_code: '2000', account_name: 'Payable', debit: undefined, credit: 100, currency_code: 'SAR' },
       ],
     };
-    render(<JournalEntryViewDialog open entry={entry} isRTL canApprove t={t} onOpenChange={vi.fn()} />);
+    render(<JournalEntryViewDialog open entry={entry} isRTL t={t} onOpenChange={vi.fn()} />);
     expect(screen.getAllByText('JE-002').length).toBeGreaterThan(0);
     expect(screen.getByText('1000 - النقدية')).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: 'accounting.journalEntries.approvals' })).not.toBeInTheDocument();
@@ -207,7 +207,7 @@ describe('JournalEntryViewDialog', () => {
         { line_number: 1, account_id: 'a1', account_code: '1000', account_name: 'Cash', debit: 100, credit: 0, currency_code: 'SAR', description: 'Debit line' },
       ],
     };
-    render(<JournalEntryViewDialog open entry={entry} isRTL={false} canApprove={false} t={t} onOpenChange={vi.fn()} />);
+    render(<JournalEntryViewDialog open entry={entry} isRTL={false} t={t} onOpenChange={vi.fn()} />);
     expect(screen.getByText('1000 - Cash')).toBeInTheDocument();
     expect(screen.getByText('Debit line')).toBeInTheDocument();
   });
