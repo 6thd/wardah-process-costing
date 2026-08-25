@@ -286,7 +286,6 @@ interface JournalEntryViewDialogProps {
   open: boolean;
   entry: JournalEntry | null;
   isRTL: boolean;
-  canApprove: boolean;
   t: TFunction;
   onOpenChange: (open: boolean) => void;
 }
