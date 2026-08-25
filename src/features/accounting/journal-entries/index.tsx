@@ -52,7 +52,6 @@ const JournalEntries = () => {
   const canDelete = hasPermissionKey('accounting.journals.delete');
   const canPost = hasPermissionKey('accounting.journals.post');
   const canReverse = hasPermissionKey('accounting.journals.reverse');
-  const canApprove = hasPermissionKey('accounting.journals.approve');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -668,7 +667,6 @@ const JournalEntries = () => {
         open={viewDialogOpen}
         entry={viewingEntry}
         isRTL={isRTL}
-        canApprove={canApprove}
         t={t}
         onOpenChange={setViewDialogOpen}
       />
