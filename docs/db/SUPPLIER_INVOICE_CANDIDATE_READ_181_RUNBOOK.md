@@ -177,15 +177,17 @@ The gate uses PostgreSQL 17 and:
 3. runs migration syntax + SECURITY DEFINER guards;
 4. runs Acceptance 148 to build legal PO/GRN fixtures through production RPCs;
 5. runs Acceptance 149 to create a real matched allocation;
-6. proves 181 returns the authoritative remaining balance (48 accepted − 10.5
-   allocated = 37.5);
+6. proves 181 returns the authoritative remaining balance for the targeted GRN
+   line by deriving the expected allocation from the ledger and cross-checking the
+   expected remainder with `wardah_receipt_line_uninvoiced_base`, without relying
+   on fixture-specific allocation constants or candidate-list cardinality;
 7. explicitly proves that the candidate PO state is `fully_received`, preserving
    direct regression coverage of Migration 152's terminal PO state;
 8. proves membership/D4 denial paths;
 9. proves draft GRN, rejected line and fully consumed line are excluded;
 10. inserts an actual append-only allocation reversal row and proves both the 181
     candidate read and `wardah_receipt_line_uninvoiced_base` restore the same
-    remaining balance and candidate visibility;
+    pre-probe remaining balance and candidate visibility;
 11. proves vendor/PO filters fail closed;
 12. re-runs the remaining 149 closure + concurrency suites as regression proof;
 13. verifies the final function definition and EXECUTE surface.
