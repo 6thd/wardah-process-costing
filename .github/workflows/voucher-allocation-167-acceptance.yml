@@ -7,6 +7,7 @@ on:
       - 'sql/migrations/166_voucher_reset_to_draft_workflow.sql'
       - 'sql/migrations/167_voucher_allocation_lines_hardening.sql'
       - 'scripts/ci/fresh-db/acceptance_167_voucher_allocation_hardening.sql'
+      - 'scripts/ci/fresh-db/acceptance_167_current_allocation_contract.sql'
       - '.github/workflows/voucher-allocation-167-acceptance.yml'
       - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
       - 'scripts/ci/fresh-db/build_apply_order.py'
@@ -39,16 +40,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build fresh database through migration 167
+      - name: Build current fresh database
         shell: bash
         run: |
           set -Eeuo pipefail
-          set +e
           PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
-          PAIR_STATUS=$?
-          set -e
-          test "$PAIR_STATUS" -eq 0
-
           pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
           BASELINE=$(pair_field BASELINE_PATH)
           REFERENCE=$(pair_field REFERENCE_PATH)
@@ -68,30 +64,30 @@ jobs:
 
           psql -v ON_ERROR_STOP=1 -d wardah_fresh -tAc \
             "SELECT to_regprocedure('public.wardah_protect_voucher_allocation_lines()') IS NOT NULL
-                    AND to_regprocedure('public.rpc_reset_customer_receipt_to_draft(uuid,text)') IS NOT NULL
-                    AND to_regprocedure('public.rpc_reset_supplier_payment_to_draft(uuid,text)') IS NOT NULL" \
+                    AND to_regprocedure('public.rpc_create_customer_receipt(jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_create_supplier_payment(jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_update_customer_receipt_draft(uuid,jsonb)') IS NOT NULL
+                    AND to_regprocedure('public.rpc_update_supplier_payment_draft(uuid,jsonb)') IS NOT NULL" \
             | grep -qx t
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Execute allocation hardening acceptance
+      - name: Verify current allocation closure contract
         shell: bash
         run: |
           set -Eeuo pipefail
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
-            -f scripts/ci/fresh-db/acceptance_167_voucher_allocation_hardening.sql \
+            -f scripts/ci/fresh-db/acceptance_167_current_allocation_contract.sql \
             | tee /tmp/voucher-allocation-167.out
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      # Independent completion marker: keep this even with pipefail so a future
-      # script edit cannot stop early and still present an apparently green run.
       - name: Verify acceptance marker
-        run: grep -q 'VOUCHER_ALLOCATION_167_ACCEPTANCE_PASS' /tmp/voucher-allocation-167.out
+        run: grep -q 'VOUCHER_ALLOCATION_167_CURRENT_CONTRACT_PASS' /tmp/voucher-allocation-167.out
 
       - name: Upload allocation hardening evidence
         if: always()
