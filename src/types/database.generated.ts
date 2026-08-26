@@ -11114,6 +11114,14 @@ export type Database = {
         Args: { p_fiscal_year?: number; p_tenant?: string }
         Returns: Json
       }
+      rpc_list_supplier_invoice_candidates: {
+        Args: {
+          p_org_id: string
+          p_purchase_order_id?: string
+          p_vendor_id?: string
+        }
+        Returns: Json
+      }
       rpc_list_uom_purchase_order_options: {
         Args: { p_org_id: string }
         Returns: Json
