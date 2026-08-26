@@ -8,12 +8,6 @@ import {
 } from '../components/JournalEntrySections';
 import type { JournalEntry } from '../types';
 
-vi.mock('../components/ApprovalWorkflow', () => ({
-  ApprovalWorkflow: ({ entryId, canApprove }: { entryId: string; canApprove: boolean }) => (
-    <div>approval:{entryId}:{String(canApprove)}</div>
-  ),
-}));
-
 vi.mock('../components/AttachmentsSection', () => ({
   AttachmentsSection: ({ entryId }: { entryId: string }) => <div>attachments:{entryId}</div>,
 }));
@@ -180,13 +174,13 @@ describe('JournalEntriesTable', () => {
 describe('JournalEntryViewDialog', () => {
   it('renders no details without an entry and reports close changes', () => {
     const onOpenChange = vi.fn();
-    render(<JournalEntryViewDialog open entry={null} isRTL={false} canApprove={false} t={t} onOpenChange={onOpenChange} />);
+    render(<JournalEntryViewDialog open entry={null} isRTL={false} t={t} onOpenChange={onOpenChange} />);
     expect(screen.getByText('accounting.journalEntries.viewEntryDetails')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
-  it('renders entry details and lines in RTL while preserving approval permission', async () => {
+  it('renders canonical details, attachments and comments without a legacy approvals tab', async () => {
     const entry: JournalEntry = {
       ...postedEntry,
       lines: [
@@ -194,11 +188,12 @@ describe('JournalEntryViewDialog', () => {
         { line_number: 2, account_id: 'a2', account_code: '2000', account_name: 'Payable', debit: undefined, credit: 100, currency_code: 'SAR' },
       ],
     };
-    render(<JournalEntryViewDialog open entry={entry} isRTL canApprove t={t} onOpenChange={vi.fn()} />);
+    render(<JournalEntryViewDialog open entry={entry} isRTL t={t} onOpenChange={vi.fn()} />);
     expect(screen.getAllByText('JE-002').length).toBeGreaterThan(0);
     expect(screen.getByText('1000 - النقدية')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.approvals' }));
-    expect(screen.getByText('approval:posted-1:true')).toBeInTheDocument();
+    expect(screen.queryByRole('tab', { name: 'accounting.journalEntries.approvals' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+
     await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.attachmentsTab' }));
     expect(screen.getByText('attachments:posted-1')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('tab', { name: 'accounting.journalEntries.commentsTab' }));
@@ -212,7 +207,7 @@ describe('JournalEntryViewDialog', () => {
         { line_number: 1, account_id: 'a1', account_code: '1000', account_name: 'Cash', debit: 100, credit: 0, currency_code: 'SAR', description: 'Debit line' },
       ],
     };
-    render(<JournalEntryViewDialog open entry={entry} isRTL={false} canApprove={false} t={t} onOpenChange={vi.fn()} />);
+    render(<JournalEntryViewDialog open entry={entry} isRTL={false} t={t} onOpenChange={vi.fn()} />);
     expect(screen.getByText('1000 - Cash')).toBeInTheDocument();
     expect(screen.getByText('Debit line')).toBeInTheDocument();
   });

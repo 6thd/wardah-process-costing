@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 365,
-  "signature_count": 336,
-  "signature_sha256": "1a9eed58d5e17833dd39c8ee6d30ec427eb2cbf716c5d7482747392acf520bfb",
-  "note": "Reviewed #150 drift: removed legacy/direct Journal and partial stock-adjustment mutation signatures, added canonical guarded manual-journal RPCs and the existing atomic stock-adjustment RPC. Updating this digest requires reviewing the generated RBAC mutation inventory artifact and classifying every added/changed path under parent #48."
+  "candidate_count": 364,
+  "signature_count": 335,
+  "signature_sha256": "757fbd24ebe2a3b5a67a012958585da06cf0b44e89561f51724d25b5e1cde9bb",
+  "note": "Reviewed #175 drift after Production Migration 180 retired the legacy journal approval surface: application cleanup removes the stale check_entry_approval_required RPC/read path and journal_entry_approvals access without adding any mutation surface. Updating this digest still requires reviewing the generated RBAC mutation inventory artifact and classifying every added/changed path under parent #48."
 }
