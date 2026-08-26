@@ -27,13 +27,12 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد تطبيق Migration 181 في 2026-08-26 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
+الحالة الحية الموثقة بعد Baseline المولد في 2026-08-26:
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–181 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
-- Production: مطبقة حتى 181 (`181_supplier_invoice_candidate_read`, version `20260826112454`). السجل الحي يؤكد أيضًا: 177 (`177_goods_receipt_number_sequence`, `20260822084608`)؛ 176 (`176_rbac_direct_write_closure`, `20260823091140`)؛ 178 (`178_journal_rbac_and_canonical_manual_lifecycle`, `20260823205023`)؛ 179 (`179_gl_journal_idempotency_race_safe`, `20260824133648`)؛ 180 (`180_retire_legacy_journal_approval_surface`, `20260824201045`)؛ ثم 181. ترتيب الإصدارات الزمنية في Production هو المرجع، ولا يُستنتج من الرقم وحده.
-- Repository: أعلى migration مرقمة هي 181 (`181_supplier_invoice_candidate_read.sql`). Migration 176 ليست محجوزة؛ هي ملف حقيقي مدموج ومطبّق، وقد أُزيلت من `skipped_migration_numbers.yml`.
-- Fresh DB: تُطبَّق migrations القانونية الأحدث من baseline cutoff 152 حتى 181. الأرقام 154–162 فقط هي المحجوزة رسميًا لمحرك التقارير المالية في `sql/migrations/skipped_migration_numbers.yml`; لا تُعامل 176 كفجوة.
-- الحالة المتحقَّقة في 2026-08-26: `live_cutoff = 181`، `repo_max = 181`، `repository_ahead_by = 0`.
+- Baseline الحالي: `000_schema_baseline_20260826_131415.sql`, cutoff 181.
+- Production: مطبقة حتى 181 (`181_supplier_invoice_candidate_read`).
+- Repository: أعلى migration مرقمة هي 181.
+- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 

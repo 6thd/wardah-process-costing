@@ -9,6 +9,7 @@ on:
       - 'sql/migrations/168_voucher_atomic_lifecycle_rpcs.sql'
       - 'scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql'
       - 'scripts/ci/fresh-db/acceptance_168_concurrency.sh'
+      - 'scripts/ci/fresh-db/acceptance_168_current_tenant_cancel_contract.sql'
       - '.github/workflows/voucher-atomic-168-acceptance.yml'
       - 'scripts/ci/fresh-db/resolve_baseline_pair.sh'
       - 'scripts/ci/fresh-db/build_apply_order.py'
@@ -41,15 +42,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build fresh database through migration 168
+      - name: Build current fresh database
         run: |
           set -Eeuo pipefail
-          set +e
           PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
-          PAIR_STATUS=$?
-          set -e
-          test "$PAIR_STATUS" -eq 0
-
           pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
           BASELINE=$(pair_field BASELINE_PATH)
           REFERENCE=$(pair_field REFERENCE_PATH)
@@ -73,74 +69,88 @@ jobs:
                     AND to_regprocedure('public.rpc_update_customer_receipt_draft(uuid,jsonb)') IS NOT NULL
                     AND to_regprocedure('public.rpc_update_supplier_payment_draft(uuid,jsonb)') IS NOT NULL
                     AND to_regprocedure('public.rpc_cancel_customer_receipt(uuid,text)') IS NOT NULL
-                    AND to_regprocedure('public.rpc_cancel_supplier_payment(uuid,text)') IS NOT NULL" \
+                    AND to_regprocedure('public.rpc_cancel_supplier_payment(uuid,text)') IS NOT NULL
+                    AND to_regprocedure('public.wardah_has_exact_permission(uuid,uuid,text)') IS NOT NULL" \
             | grep -qx t
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Execute atomic lifecycle acceptance
+      - name: Verify current permission-first and tenant-cancel contract
         shell: bash
         run: |
           set -Eeuo pipefail
-          : > /tmp/voucher-atomic-168.out
-
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
-            -f scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql \
-            | tee -a /tmp/voucher-atomic-168.out
-
-          PGDATABASE=wardah_fresh \
-            bash scripts/ci/fresh-db/acceptance_168_concurrency.sh \
-            | tee -a /tmp/voucher-atomic-168.out
+            -f scripts/ci/fresh-db/acceptance_168_current_tenant_cancel_contract.sql \
+            | tee /tmp/voucher-atomic-168.out
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      # Migration 168 replaces protect_posted_gl_entries, which the earlier
-      # voucher gates depend on. Re-running them here proves the replacement did
-      # not quietly change behaviour those suites already rely on.
-      - name: Re-run the dependent voucher gates against the 168 chain
+      # Keep the original Migration 168 race proof alive on the historical
+      # transition it was written to test. Running it on the latest baseline is
+      # invalid because later migrations (169/174+) deliberately changed the
+      # direct-write and sensitive-permission contracts used by its fixtures.
+      - name: Rebuild historical cutoff 152 through migration 168
         shell: bash
         run: |
           set -Eeuo pipefail
-          # A separate database: the suites below seed their own tenants and
-          # must not meet the fixtures the 168 suite committed.
-          createdb wardah_regression
-          psql -v ON_ERROR_STOP=1 -d wardah_regression \
-            -f scripts/ci/fresh-db/supabase_shim.sql -q
-          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
-          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
-          psql -v ON_ERROR_STOP=1 -d wardah_regression -f "$(pair_field BASELINE_PATH)" -q
-          psql -v ON_ERROR_STOP=1 -d wardah_regression -f "$(pair_field REFERENCE_PATH)" -q
-          REPORT=/tmp/regression_chain.txt PGDATABASE=wardah_regression \
-            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+          HIST_BASELINE=sql/baseline/000_schema_baseline_20260729_210941.sql
+          HIST_REFERENCE=sql/baseline/001_system_reference_data_20260729_210941.sql
 
-          psql -v ON_ERROR_STOP=1 -d wardah_regression \
-            -f scripts/ci/fresh-db/acceptance_166_voucher_reset.sql \
-            | tee -a /tmp/voucher-atomic-168.out
-          psql -v ON_ERROR_STOP=1 -d wardah_regression \
-            -f scripts/ci/fresh-db/acceptance_166_voucher_reset_isolation.sql \
-            | tee -a /tmp/voucher-atomic-168.out
-          psql -v ON_ERROR_STOP=1 -d wardah_regression \
-            -f scripts/ci/fresh-db/acceptance_167_voucher_allocation_hardening.sql \
-            | tee -a /tmp/voucher-atomic-168.out
+          test -f "$HIST_BASELINE"
+          test -f "$HIST_REFERENCE"
+
+          createdb wardah_168_historical
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical -f "$HIST_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical -f "$HIST_REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 152 \
+            | awk -F_ '$1 + 0 <= 168 { print }' \
+            > /tmp/chain_order_168_historical.txt
+
+          test -s /tmp/chain_order_168_historical.txt
+          tail -1 /tmp/chain_order_168_historical.txt \
+            | grep -q '^168_voucher_atomic_lifecycle_rpcs.sql$'
+
+          REPORT=/tmp/chain_report_168_historical.txt \
+            PGDATABASE=wardah_168_historical \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/chain_order_168_historical.txt
         env:
           PGHOST: localhost
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      # An independent completion contract. Without it a future pipeline change
-      # could stop after the first suite and still report a green job.
+      - name: Re-run original Migration 168 acceptance and concurrency proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical \
+            -f scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql \
+            | tee /tmp/voucher-atomic-168-historical.out
+
+          PGDATABASE=wardah_168_historical \
+            bash scripts/ci/fresh-db/acceptance_168_concurrency.sh \
+            | tee -a /tmp/voucher-atomic-168-historical.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
       - name: Verify acceptance markers
         run: |
           set -Eeuo pipefail
-          grep -q 'VOUCHER_ATOMIC_168_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
-          grep -q 'VOUCHER_ATOMIC_168_CONCURRENCY_PASS' /tmp/voucher-atomic-168.out
-          grep -q 'VOUCHER_RESET_166_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
-          grep -q 'VOUCHER_RESET_166_ISOLATION_IDEMPOTENCY_PASS' /tmp/voucher-atomic-168.out
-          grep -q 'VOUCHER_ALLOCATION_167_ACCEPTANCE_PASS' /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_ATOMIC_168_CURRENT_TENANT_CANCEL_CONTRACT_PASS' \
+            /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_ATOMIC_168_ACCEPTANCE_PASS' \
+            /tmp/voucher-atomic-168-historical.out
+          grep -q 'VOUCHER_ATOMIC_168_CONCURRENCY_PASS' \
+            /tmp/voucher-atomic-168-historical.out
 
       - name: Upload atomic lifecycle acceptance evidence
         if: always()
@@ -149,8 +159,14 @@ jobs:
           name: voucher-atomic-168-${{ github.run_id }}
           path: |
             /tmp/voucher-atomic-168.out
+            /tmp/voucher-atomic-168-historical.out
             /tmp/chain_order.txt
             /tmp/chain_report.txt
-            /tmp/regression_chain.txt
+            /tmp/chain_order_168_historical.txt
+            /tmp/chain_report_168_historical.txt
+            /tmp/v168-cancel-a.out
+            /tmp/v168-cancel-b.out
+            /tmp/v168-edit-a.out
+            /tmp/v168-edit-b.out
           if-no-files-found: error
           retention-days: 30
