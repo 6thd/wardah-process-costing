@@ -3,25 +3,27 @@ set -Eeuo pipefail
 
 MAIN_DB=${PGDATABASE:-wardah_fin153}
 REJECT_DB=${REJECT_DB:-wardah_fin153_reject}
-BASELINE_DIR=${BASELINE_DIR:-sql/baseline}
 
-pair=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh "$BASELINE_DIR")
-pair_field() { printf '%s\n' "$pair" | sed -n "s/^$1=//p"; }
-BASELINE=$(pair_field BASELINE_PATH)
-REFERENCE=$(pair_field REFERENCE_PATH)
-CUTOFF=$(pair_field BASELINE_CUTOFF)
-CUTOFF=${CUTOFF:-0}
+# Migration 153 is a historical transition gate. It must always start from the
+# last reviewed baseline before 153, not from resolve_baseline_pair.sh's latest
+# Production snapshot (which now already contains 153 and later migrations).
+BASELINE=${FIN153_BASELINE:-sql/baseline/000_schema_baseline_20260729_210941.sql}
+REFERENCE=${FIN153_REFERENCE:-sql/baseline/001_system_reference_data_20260729_210941.sql}
+CUTOFF=152
 
-if [[ -z "$BASELINE" || -z "$REFERENCE" ]]; then
-  echo 'FINANCIAL_GL_153_GATE_FAIL: baseline pair could not be resolved' >&2
-  exit 1
-fi
-if [[ "$CUTOFF" != 152 ]]; then
-  echo "FINANCIAL_GL_153_GATE_FAIL: expected cutoff 152, got $CUTOFF" >&2
+if [[ ! -f "$BASELINE" || ! -f "$REFERENCE" ]]; then
+  echo "FINANCIAL_GL_153_GATE_FAIL: historical cutoff-152 baseline pair missing: baseline=$BASELINE reference=$REFERENCE" >&2
   exit 1
 fi
 
-echo "Financial GL 153 gate: baseline=$BASELINE reference=$REFERENCE cutoff=$CUTOFF"
+# Guard against silently repointing the historical fixture to a later snapshot.
+if [[ "$(basename "$BASELINE")" != "000_schema_baseline_20260729_210941.sql" \
+   || "$(basename "$REFERENCE")" != "001_system_reference_data_20260729_210941.sql" ]]; then
+  echo "FINANCIAL_GL_153_GATE_FAIL: historical gate must use the reviewed cutoff-152 pair" >&2
+  exit 1
+fi
+
+echo "Financial GL 153 historical gate: baseline=$BASELINE reference=$REFERENCE cutoff=$CUTOFF"
 
 setup_pre153_db() {
   local db=$1
