@@ -89,8 +89,68 @@ jobs:
           PGUSER: postgres
           PGPASSWORD: postgres
 
-      - name: Verify acceptance marker
-        run: grep -q 'VOUCHER_ATOMIC_168_CURRENT_TENANT_CANCEL_CONTRACT_PASS' /tmp/voucher-atomic-168.out
+      # Keep the original Migration 168 race proof alive on the historical
+      # transition it was written to test. Running it on the latest baseline is
+      # invalid because later migrations (169/174+) deliberately changed the
+      # direct-write and sensitive-permission contracts used by its fixtures.
+      - name: Rebuild historical cutoff 152 through migration 168
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          HIST_BASELINE=sql/baseline/000_schema_baseline_20260729_210941.sql
+          HIST_REFERENCE=sql/baseline/001_system_reference_data_20260729_210941.sql
+
+          test -f "$HIST_BASELINE"
+          test -f "$HIST_REFERENCE"
+
+          createdb wardah_168_historical
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical -f "$HIST_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical -f "$HIST_REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 152 \
+            | awk -F_ '$1 + 0 <= 168 { print }' \
+            > /tmp/chain_order_168_historical.txt
+
+          test -s /tmp/chain_order_168_historical.txt
+          tail -1 /tmp/chain_order_168_historical.txt \
+            | grep -q '^168_voucher_atomic_lifecycle_rpcs.sql$'
+
+          REPORT=/tmp/chain_report_168_historical.txt \
+            PGDATABASE=wardah_168_historical \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/chain_order_168_historical.txt
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Re-run original Migration 168 acceptance and concurrency proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_168_historical \
+            -f scripts/ci/fresh-db/acceptance_168_voucher_atomic_lifecycle.sql \
+            | tee /tmp/voucher-atomic-168-historical.out
+
+          PGDATABASE=wardah_168_historical \
+            bash scripts/ci/fresh-db/acceptance_168_concurrency.sh \
+            | tee -a /tmp/voucher-atomic-168-historical.out
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: Verify acceptance markers
+        run: |
+          set -Eeuo pipefail
+          grep -q 'VOUCHER_ATOMIC_168_CURRENT_TENANT_CANCEL_CONTRACT_PASS' \
+            /tmp/voucher-atomic-168.out
+          grep -q 'VOUCHER_ATOMIC_168_ACCEPTANCE_PASS' \
+            /tmp/voucher-atomic-168-historical.out
+          grep -q 'VOUCHER_ATOMIC_168_CONCURRENCY_PASS' \
+            /tmp/voucher-atomic-168-historical.out
 
       - name: Upload atomic lifecycle acceptance evidence
         if: always()
@@ -99,7 +159,14 @@ jobs:
           name: voucher-atomic-168-${{ github.run_id }}
           path: |
             /tmp/voucher-atomic-168.out
+            /tmp/voucher-atomic-168-historical.out
             /tmp/chain_order.txt
             /tmp/chain_report.txt
+            /tmp/chain_order_168_historical.txt
+            /tmp/chain_report_168_historical.txt
+            /tmp/v168-cancel-a.out
+            /tmp/v168-cancel-b.out
+            /tmp/v168-edit-a.out
+            /tmp/v168-edit-b.out
           if-no-files-found: error
           retention-days: 30
