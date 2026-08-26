@@ -9,7 +9,7 @@ BEGIN;
 INSERT INTO auth.users (id, email) VALUES
   ('66faaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'voucher166-current-admin@example.test'),
   ('66fbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'voucher166-current-reader@example.test'),
-  ('66fcccc-cccc-cccc-cccc-cccccccccccc', 'voucher166-current-corrector@example.test');
+  ('66fccccc-cccc-cccc-cccc-cccccccccccc', 'voucher166-current-corrector@example.test');
 
 INSERT INTO public.organizations (id, code, name) VALUES
   ('66f11111-1111-1111-1111-111111111111', 'V166C', 'Voucher 166 Current Contract');
@@ -23,7 +23,7 @@ INSERT INTO public.user_organizations
    '66fbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
    '66f11111-1111-1111-1111-111111111111', 'user', true, false),
   ('66f00000-0000-0000-0000-000000000003',
-   '66fcccc-cccc-cccc-cccc-cccccccccccc',
+   '66fccccc-cccc-cccc-cccc-cccccccccccc',
    '66f11111-1111-1111-1111-111111111111', 'user', true, false);
 
 INSERT INTO public.roles
@@ -58,7 +58,7 @@ INSERT INTO public.user_roles (id, user_id, role_id, org_id) VALUES
    '66f70000-0000-0000-0000-000000000001',
    '66f11111-1111-1111-1111-111111111111'),
   ('66f80000-0000-0000-0000-000000000002',
-   '66fcccc-cccc-cccc-cccc-cccccccccccc',
+   '66fccccc-cccc-cccc-cccc-cccccccccccc',
    '66f70000-0000-0000-0000-000000000002',
    '66f11111-1111-1111-1111-111111111111');
 
@@ -101,18 +101,18 @@ $$;
 
 -- Explicit corrector: both helpers must accept the exact sensitive grant.
 SELECT set_config('request.jwt.claim.sub',
-                  '66fcccc-cccc-cccc-cccc-cccccccccccc', false);
+                  '66fccccc-cccc-cccc-cccc-cccccccccccc', false);
 DO $$
 BEGIN
   IF NOT public.has_permission(
-       '66fcccc-cccc-cccc-cccc-cccccccccccc',
+       '66fccccc-cccc-cccc-cccc-cccccccccccc',
        '66f11111-1111-1111-1111-111111111111',
        'accounting.vouchers.unpost') THEN
     RAISE EXCEPTION 'CURRENT_166_FAIL: has_permission rejected exact unpost grant';
   END IF;
 
   IF NOT public.wardah_has_exact_permission(
-       '66fcccc-cccc-cccc-cccc-cccccccccccc',
+       '66fccccc-cccc-cccc-cccc-cccccccccccc',
        '66f11111-1111-1111-1111-111111111111',
        'accounting.vouchers.unpost') THEN
     RAISE EXCEPTION 'CURRENT_166_FAIL: exact helper rejected exact unpost grant';
