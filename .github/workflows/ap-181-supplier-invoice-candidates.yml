@@ -1,0 +1,70 @@
+name: AP 181 Supplier Invoice Candidate Read
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'sql/migrations/181_supplier_invoice_candidate_read.sql'
+      - 'scripts/ci/fresh-db/acceptance_181_supplier_invoice_candidates.sql'
+      - 'scripts/ci/fresh-db/run_ap_181_candidate_gate.sh'
+      - 'scripts/ci/fresh-db/**'
+      - 'sql/baseline/**'
+      - '.github/workflows/ap-181-supplier-invoice-candidates.yml'
+
+jobs:
+  ap-181-candidates:
+    name: Migration 181 Supplier Invoice Candidate Read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install SQL validation dependencies
+        run: |
+          python3 -m pip install --quiet pglast pyyaml
+
+      - name: Parse migrations and enforce DEFINER guards
+        run: |
+          python3 scripts/ci/check_migration_syntax.py
+          python3 scripts/ci/check_definer_guards.py
+
+      - name: Run AP 181 Fresh DB gate
+        run: bash scripts/ci/fresh-db/run_ap_181_candidate_gate.sh
+        env:
+          PGHOST: localhost
+          PGPORT: 5432
+          PGUSER: postgres
+          PGPASSWORD: postgres
+          PGDATABASE: wardah_ap181
+
+      - name: Upload AP 181 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ap-181-diagnostics-${{ github.run_id }}
+          path: |
+            /tmp/ap181-chain-order.txt
+            /tmp/ap181-chain-report.txt
+            /tmp/u149-race-a.out
+            /tmp/u149-race-a.err
+            /tmp/u149-race-b.out
+            /tmp/u149-race-b.err
+          if-no-files-found: ignore
+          retention-days: 14
