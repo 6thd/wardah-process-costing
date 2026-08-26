@@ -19,6 +19,17 @@ BEGIN
   END IF;
 END $$;
 
+CREATE OR REPLACE FUNCTION pg_temp.find_candidate(p_rows jsonb, p_grl uuid)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT value
+  FROM jsonb_array_elements(COALESCE(p_rows, '[]'::jsonb)) AS x(value)
+  WHERE (value ->> 'goods_receipt_line_id')::uuid = p_grl
+  LIMIT 1
+$$;
+
 -- ---------------------------------------------------------------------------
 -- 1. Definition / execute surface / D4 all-of contract.
 -- ---------------------------------------------------------------------------
@@ -81,11 +92,12 @@ SELECT set_config('request.jwt.claim.sub', '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb
 
 -- ---------------------------------------------------------------------------
 -- 3. Happy path and authoritative remaining balance after 149 allocation.
--- acceptance_149_ap_three_way_match.sql consumes 10.5 from U148-GR-1's accepted
--- 48 base units, so this read must report exactly 37.5 remaining. Acceptance 148
--- leaves U148-PO-MAIN in fully_received; assert that state explicitly so later
--- fixture changes cannot silently remove coverage of Migration 152's terminal PO
--- state from this gate.
+-- The PO may legitimately have more than one accepted GRN candidate. Target the
+-- U148-GR-1 line by its immutable GRN-line id instead of assuming the whole
+-- vendor+PO list has cardinality one. Derive the expected allocation from the
+-- ledger itself and cross-check remaining quantity with the 149/151 helper.
+-- Acceptance 148 leaves U148-PO-MAIN in fully_received; assert that state
+-- explicitly so fixture changes cannot silently remove Migration 152 coverage.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -94,6 +106,8 @@ DECLARE
   v_grl uuid;
   v_rows jsonb;
   v_row jsonb;
+  v_expected_allocated numeric;
+  v_expected_remaining numeric;
 BEGIN
   SELECT po.id, po.vendor_id, grl.id
     INTO STRICT v_po, v_vendor, v_grl
@@ -107,21 +121,30 @@ BEGIN
     AND gr.idempotency_key = 'U148-GR-1'
     AND grl.quality_status = 'accepted';
 
+  SELECT COALESCE(SUM(
+    CASE WHEN a.reversal_of_allocation_id IS NULL
+         THEN a.quantity_base ELSE -a.quantity_base END
+  ), 0)
+    INTO v_expected_allocated
+  FROM public.supplier_invoice_receipt_allocations a
+  WHERE a.goods_receipt_line_id = v_grl;
+
+  v_expected_remaining := public.wardah_receipt_line_uninvoiced_base(v_grl);
+
   v_rows := public.rpc_list_supplier_invoice_candidates(
     '48111111-1111-1111-1111-111111111111'::uuid,
     v_vendor,
     v_po
   );
+  v_row := pg_temp.find_candidate(v_rows, v_grl);
 
-  IF jsonb_array_length(v_rows) <> 1 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: expected one candidate, got %', v_rows;
+  IF v_row IS NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: target GRN line missing from candidates: %', v_rows;
   END IF;
 
-  v_row := v_rows -> 0;
-  IF (v_row ->> 'goods_receipt_line_id')::uuid <> v_grl
-     OR (v_row ->> 'accepted_qty_base')::numeric <> 48
-     OR (v_row ->> 'allocated_qty_base')::numeric <> 10.5
-     OR (v_row ->> 'remaining_qty_base')::numeric <> 37.5
+  IF (v_row ->> 'accepted_qty_base')::numeric <> 48
+     OR (v_row ->> 'allocated_qty_base')::numeric <> v_expected_allocated
+     OR (v_row ->> 'remaining_qty_base')::numeric <> v_expected_remaining
      OR (v_row ->> 'conversion_factor_snapshot')::numeric <> 12
      OR (v_row ->> 'po_unit_price_base')::numeric <> 10
      OR (v_row ->> 'po_unit_price_entered')::numeric <> 120
@@ -150,21 +173,28 @@ SELECT pg_temp.expect_error(
 
 -- ---------------------------------------------------------------------------
 -- 4. Eligibility filters are fail-closed and leave no state changes.
--- Each negative probe is inside a transaction and rolled back.
+-- Other legal receipt lines on the same PO must not make a negative probe fail:
+-- each assertion checks only the targeted U148-GR-1 line. Every probe rolls back.
 -- ---------------------------------------------------------------------------
 BEGIN;
 UPDATE public.goods_receipts
 SET status = 'draft'
 WHERE idempotency_key = 'U148-GR-1';
 DO $$
-DECLARE v_rows jsonb; v_po uuid; v_vendor uuid;
+DECLARE v_rows jsonb; v_po uuid; v_vendor uuid; v_grl uuid;
 BEGIN
-  SELECT id, vendor_id INTO STRICT v_po, v_vendor
-  FROM public.purchase_orders WHERE order_number = 'U148-PO-MAIN';
+  SELECT po.id, po.vendor_id, grl.id
+    INTO STRICT v_po, v_vendor, v_grl
+  FROM public.purchase_orders po
+  JOIN public.goods_receipts gr ON gr.purchase_order_id = po.id
+  JOIN public.goods_receipt_lines grl ON grl.goods_receipt_id = gr.id
+  WHERE po.order_number = 'U148-PO-MAIN'
+    AND gr.idempotency_key = 'U148-GR-1';
+
   v_rows := public.rpc_list_supplier_invoice_candidates(
     '48111111-1111-1111-1111-111111111111', v_vendor, v_po);
-  IF jsonb_array_length(v_rows) <> 0 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: draft GRN leaked into candidates: %', v_rows;
+  IF pg_temp.find_candidate(v_rows, v_grl) IS NOT NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: draft target GRN leaked into candidates: %', v_rows;
   END IF;
 END $$;
 ROLLBACK;
@@ -176,50 +206,78 @@ FROM public.goods_receipts gr
 WHERE gr.id = grl.goods_receipt_id
   AND gr.idempotency_key = 'U148-GR-1';
 DO $$
-DECLARE v_rows jsonb; v_po uuid; v_vendor uuid;
+DECLARE v_rows jsonb; v_po uuid; v_vendor uuid; v_grl uuid;
 BEGIN
-  SELECT id, vendor_id INTO STRICT v_po, v_vendor
-  FROM public.purchase_orders WHERE order_number = 'U148-PO-MAIN';
+  SELECT po.id, po.vendor_id, grl.id
+    INTO STRICT v_po, v_vendor, v_grl
+  FROM public.purchase_orders po
+  JOIN public.goods_receipts gr ON gr.purchase_order_id = po.id
+  JOIN public.goods_receipt_lines grl ON grl.goods_receipt_id = gr.id
+  WHERE po.order_number = 'U148-PO-MAIN'
+    AND gr.idempotency_key = 'U148-GR-1';
+
   v_rows := public.rpc_list_supplier_invoice_candidates(
     '48111111-1111-1111-1111-111111111111', v_vendor, v_po);
-  IF jsonb_array_length(v_rows) <> 0 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: rejected GRN line leaked: %', v_rows;
+  IF pg_temp.find_candidate(v_rows, v_grl) IS NOT NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: rejected target GRN line leaked: %', v_rows;
   END IF;
 END $$;
 ROLLBACK;
 
--- A fully consumed receipt line is excluded. Add only the remaining 37.5 inside
--- this transaction, then rollback; no permanent fixture mutation survives.
+-- A fully consumed target receipt line is excluded. Consume exactly the helper's
+-- current remaining balance inside this transaction, then rollback.
 BEGIN;
-INSERT INTO public.supplier_invoice_receipt_allocations (
-  org_id, supplier_invoice_id, supplier_invoice_line_id,
-  goods_receipt_line_id, purchase_order_line_id, quantity_base,
-  idempotency_key, created_by
-)
-SELECT
-  a.org_id,
-  a.supplier_invoice_id,
-  a.supplier_invoice_line_id,
-  a.goods_receipt_line_id,
-  a.purchase_order_line_id,
-  37.5,
-  'u181-full-consumption-probe',
-  '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid
-FROM public.supplier_invoice_receipt_allocations a
-JOIN public.goods_receipt_lines grl ON grl.id = a.goods_receipt_line_id
-JOIN public.goods_receipts gr ON gr.id = grl.goods_receipt_id
-WHERE gr.idempotency_key = 'U148-GR-1'
-  AND a.reversal_of_allocation_id IS NULL
-LIMIT 1;
 DO $$
-DECLARE v_rows jsonb; v_po uuid; v_vendor uuid;
+DECLARE
+  v_org uuid;
+  v_invoice uuid;
+  v_invoice_line uuid;
+  v_grl uuid;
+  v_pol uuid;
+  v_po uuid;
+  v_vendor uuid;
+  v_remaining numeric;
+  v_rows jsonb;
 BEGIN
-  SELECT id, vendor_id INTO STRICT v_po, v_vendor
-  FROM public.purchase_orders WHERE order_number = 'U148-PO-MAIN';
-  v_rows := public.rpc_list_supplier_invoice_candidates(
-    '48111111-1111-1111-1111-111111111111', v_vendor, v_po);
-  IF jsonb_array_length(v_rows) <> 0 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: fully consumed line leaked: %', v_rows;
+  SELECT
+    a.org_id,
+    a.supplier_invoice_id,
+    a.supplier_invoice_line_id,
+    a.goods_receipt_line_id,
+    a.purchase_order_line_id,
+    po.id,
+    po.vendor_id
+  INTO STRICT
+    v_org, v_invoice, v_invoice_line, v_grl, v_pol, v_po, v_vendor
+  FROM public.supplier_invoice_receipt_allocations a
+  JOIN public.goods_receipt_lines grl ON grl.id = a.goods_receipt_line_id
+  JOIN public.goods_receipts gr ON gr.id = grl.goods_receipt_id
+  JOIN public.purchase_order_lines pol ON pol.id = a.purchase_order_line_id
+  JOIN public.purchase_orders po ON po.id = pol.purchase_order_id
+  WHERE gr.idempotency_key = 'U148-GR-1'
+    AND a.reversal_of_allocation_id IS NULL
+  ORDER BY a.created_at, a.id
+  LIMIT 1;
+
+  v_remaining := public.wardah_receipt_line_uninvoiced_base(v_grl);
+  IF v_remaining <= 0 THEN
+    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: target fixture unexpectedly has no remaining balance';
+  END IF;
+
+  INSERT INTO public.supplier_invoice_receipt_allocations (
+    org_id, supplier_invoice_id, supplier_invoice_line_id,
+    goods_receipt_line_id, purchase_order_line_id, quantity_base,
+    idempotency_key, created_by
+  ) VALUES (
+    v_org, v_invoice, v_invoice_line,
+    v_grl, v_pol, v_remaining,
+    'u181-full-consumption-probe',
+    '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid
+  );
+
+  v_rows := public.rpc_list_supplier_invoice_candidates(v_org, v_vendor, v_po);
+  IF pg_temp.find_candidate(v_rows, v_grl) IS NOT NULL THEN
+    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: fully consumed target line leaked: %', v_rows;
   END IF;
 END $$;
 ROLLBACK;
@@ -227,8 +285,8 @@ ROLLBACK;
 -- ---------------------------------------------------------------------------
 -- 5. Append-only reversal arithmetic is executable, not just inspected.
 -- Add a temporary 5-unit allocation and a second row that reverses it. The net
--- allocation must return to the original 10.5, the remaining balance to 37.5,
--- and the candidate must remain visible. Roll back both rows afterward.
+-- allocation and remaining balance must return to their exact pre-probe values,
+-- the target candidate must remain visible, and the 149/151 helper must agree.
 -- ---------------------------------------------------------------------------
 BEGIN;
 DO $$
@@ -243,6 +301,8 @@ DECLARE
   v_vendor uuid;
   v_rows jsonb;
   v_row jsonb;
+  v_baseline_allocated numeric;
+  v_baseline_remaining numeric;
   v_helper_remaining numeric;
 BEGIN
   SELECT
@@ -254,13 +314,7 @@ BEGIN
     po.id,
     po.vendor_id
   INTO STRICT
-    v_org,
-    v_invoice,
-    v_invoice_line,
-    v_grl,
-    v_pol,
-    v_po,
-    v_vendor
+    v_org, v_invoice, v_invoice_line, v_grl, v_pol, v_po, v_vendor
   FROM public.supplier_invoice_receipt_allocations a
   JOIN public.goods_receipt_lines grl ON grl.id = a.goods_receipt_line_id
   JOIN public.goods_receipts gr ON gr.id = grl.goods_receipt_id
@@ -270,6 +324,16 @@ BEGIN
     AND a.reversal_of_allocation_id IS NULL
   ORDER BY a.created_at, a.id
   LIMIT 1;
+
+  SELECT COALESCE(SUM(
+    CASE WHEN a.reversal_of_allocation_id IS NULL
+         THEN a.quantity_base ELSE -a.quantity_base END
+  ), 0)
+    INTO v_baseline_allocated
+  FROM public.supplier_invoice_receipt_allocations a
+  WHERE a.goods_receipt_line_id = v_grl;
+
+  v_baseline_remaining := public.wardah_receipt_line_uninvoiced_base(v_grl);
 
   INSERT INTO public.supplier_invoice_receipt_allocations (
     org_id, supplier_invoice_id, supplier_invoice_line_id,
@@ -296,47 +360,60 @@ BEGIN
     '48bbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'::uuid
   );
 
-  v_rows := public.rpc_list_supplier_invoice_candidates(
-    v_org, v_vendor, v_po
-  );
+  v_rows := public.rpc_list_supplier_invoice_candidates(v_org, v_vendor, v_po);
+  v_row := pg_temp.find_candidate(v_rows, v_grl);
 
-  IF jsonb_array_length(v_rows) <> 1 THEN
+  IF v_row IS NULL THEN
     RAISE EXCEPTION
-      'ACCEPTANCE_181_FAIL: reversed allocation did not restore candidate visibility: %',
+      'ACCEPTANCE_181_FAIL: reversed allocation did not restore target candidate visibility: %',
       v_rows;
   END IF;
 
-  v_row := v_rows -> 0;
-  IF (v_row ->> 'goods_receipt_line_id')::uuid <> v_grl
-     OR (v_row ->> 'allocated_qty_base')::numeric <> 10.5
-     OR (v_row ->> 'remaining_qty_base')::numeric <> 37.5 THEN
+  IF (v_row ->> 'allocated_qty_base')::numeric <> v_baseline_allocated
+     OR (v_row ->> 'remaining_qty_base')::numeric <> v_baseline_remaining THEN
     RAISE EXCEPTION
       'ACCEPTANCE_181_FAIL: reversal arithmetic mismatch in candidate read: %',
       v_row;
   END IF;
 
   v_helper_remaining := public.wardah_receipt_line_uninvoiced_base(v_grl);
-  IF v_helper_remaining <> 37.5 THEN
+  IF v_helper_remaining <> v_baseline_remaining THEN
     RAISE EXCEPTION
-      'ACCEPTANCE_181_FAIL: 149/151 helper disagrees after reversal: %',
-      v_helper_remaining;
+      'ACCEPTANCE_181_FAIL: 149/151 helper disagrees after reversal: % vs baseline %',
+      v_helper_remaining, v_baseline_remaining;
   END IF;
 END $$;
 ROLLBACK;
 
--- Final proof that every negative/reversal probe rolled back and did not mutate
--- the durable 148/149 fixture.
+-- Final proof that every negative/reversal probe rolled back and that the helper
+-- still agrees with an independently recomputed ledger balance.
 DO $$
-DECLARE v_remaining numeric;
+DECLARE
+  v_grl uuid;
+  v_accepted numeric;
+  v_allocated numeric;
+  v_helper_remaining numeric;
 BEGIN
-  SELECT public.wardah_receipt_line_uninvoiced_base(grl.id)
-    INTO STRICT v_remaining
+  SELECT grl.id, grl.received_quantity
+    INTO STRICT v_grl, v_accepted
   FROM public.goods_receipt_lines grl
   JOIN public.goods_receipts gr ON gr.id = grl.goods_receipt_id
   WHERE gr.idempotency_key = 'U148-GR-1'
     AND grl.quality_status = 'accepted';
-  IF v_remaining <> 37.5 THEN
-    RAISE EXCEPTION 'ACCEPTANCE_181_FAIL: probes changed remaining balance: %', v_remaining;
+
+  SELECT COALESCE(SUM(
+    CASE WHEN a.reversal_of_allocation_id IS NULL
+         THEN a.quantity_base ELSE -a.quantity_base END
+  ), 0)
+    INTO v_allocated
+  FROM public.supplier_invoice_receipt_allocations a
+  WHERE a.goods_receipt_line_id = v_grl;
+
+  v_helper_remaining := public.wardah_receipt_line_uninvoiced_base(v_grl);
+  IF v_helper_remaining <> v_accepted - v_allocated THEN
+    RAISE EXCEPTION
+      'ACCEPTANCE_181_FAIL: durable fixture/helper mismatch after probes: helper %, accepted %, allocated %',
+      v_helper_remaining, v_accepted, v_allocated;
   END IF;
 END $$;
 
