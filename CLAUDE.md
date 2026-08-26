@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-25
+**آخر تحديث موثق:** 2026-08-26
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -27,13 +27,13 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 3. **Production:** سجل `supabase_migrations.schema_migrations`.
 
 <!-- DATABASE_STATE_START -->
-الحالة الحية الموثقة بعد تطبيق Migration 180 في 2026-08-24 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
+الحالة الحية الموثقة بعد تطبيق Migration 181 في 2026-08-26 (الـBaseline نفسه لم يتغيّر، ولا يزال عند اللقطة المولّدة في 2026-07-29):
 
-- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–180 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
-- Production: مطبقة حتى 180 (`180_retire_legacy_journal_approval_surface`, version `20260824201045`). السجل الحي يؤكد أيضًا: 177 (`177_goods_receipt_number_sequence`, `20260822084608`)؛ 176 (`176_rbac_direct_write_closure`, `20260823091140`)؛ 178 (`178_journal_rbac_and_canonical_manual_lifecycle`, `20260823205023`)؛ 179 (`179_gl_journal_idempotency_race_safe`, `20260824133648`)؛ ثم 180. ترتيب الإصدارات الزمنية في Production هو المرجع، ولا يُستنتج من الرقم وحده.
-- Repository: أعلى migration مرقمة هي 180 (`180_retire_legacy_journal_approval_surface.sql`). Migration 176 ليست محجوزة؛ هي ملف حقيقي مدموج ومطبّق، وقد أُزيلت من `skipped_migration_numbers.yml`.
-- Fresh DB: تُطبَّق migrations القانونية الأحدث من baseline cutoff 152 حتى 180. الأرقام 154–162 فقط هي المحجوزة رسميًا لمحرك التقارير المالية في `sql/migrations/skipped_migration_numbers.yml`; لا تُعامل 176 كفجوة.
-- الحالة المتحقَّقة في 2026-08-25: `live_cutoff = 180`، `repo_max = 180`، `repository_ahead_by = 0`.
+- Baseline الحالي: `000_schema_baseline_20260729_210941.sql`, cutoff 152. لم يُحدَّث بعد ظهور 153–181 في سجل Production؛ تحديثه خطوة منفصلة عبر `generate-baseline.yml` وPR مستقل، ولا تُستنتَج ضمنيًا من هذا التحديث.
+- Production: مطبقة حتى 181 (`181_supplier_invoice_candidate_read`, version `20260826112454`). السجل الحي يؤكد أيضًا: 177 (`177_goods_receipt_number_sequence`, `20260822084608`)؛ 176 (`176_rbac_direct_write_closure`, `20260823091140`)؛ 178 (`178_journal_rbac_and_canonical_manual_lifecycle`, `20260823205023`)؛ 179 (`179_gl_journal_idempotency_race_safe`, `20260824133648`)؛ 180 (`180_retire_legacy_journal_approval_surface`, `20260824201045`)؛ ثم 181. ترتيب الإصدارات الزمنية في Production هو المرجع، ولا يُستنتج من الرقم وحده.
+- Repository: أعلى migration مرقمة هي 181 (`181_supplier_invoice_candidate_read.sql`). Migration 176 ليست محجوزة؛ هي ملف حقيقي مدموج ومطبّق، وقد أُزيلت من `skipped_migration_numbers.yml`.
+- Fresh DB: تُطبَّق migrations القانونية الأحدث من baseline cutoff 152 حتى 181. الأرقام 154–162 فقط هي المحجوزة رسميًا لمحرك التقارير المالية في `sql/migrations/skipped_migration_numbers.yml`; لا تُعامل 176 كفجوة.
+- الحالة المتحقَّقة في 2026-08-26: `live_cutoff = 181`، `repo_max = 181`، `repository_ahead_by = 0`.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -104,6 +104,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   Production، `20260824201045`)**: سحب كل وصول غير مالك إلى سطح اعتماد القيود
   التاريخي (`journal_entry_approvals` والدالتان القديمتان) مع إبقاء الكائنات والبيانات
   التاريخية في مكانها، ودون تغيير دورة `gl_entries` القانونية.
+- `docs/db/SUPPLIER_INVOICE_CANDIDATE_READ_181_RUNBOOK.md` — **Migration 181
+  (مطبّقة على Production، `20260826112454`)**: تضيف عقد القراءة
+  `rpc_list_supplier_invoice_candidates` لمرشحي فواتير المورد المطابقين لـPO/GRN؛
+  الحارس يتطلب عضوية نشطة وصلاحيتي D4 معًا، وEXECUTE متاح فقط لـ`authenticated`،
+  بينما يبقى `PUBLIC` و`anon` و`service_role` مرفوضين. تحقق ما بعد التطبيق أثبت
+  نجاح استدعاء read-only تحت سياق مستخدم مصادق وإرجاع مرشحين حقيقيين دون أي كتابة
+  تجارية. لا يعني تطبيق 181 أن PR الواجهة التالي جاهز للدمج؛ يبقى ترتيب DB-first
+  للواجهة قائمًا، كما تبقى خرائط GL المطلوبة خطوة مستقلة قبل أي pilot للكتابة.
 
 ## Baseline
 
