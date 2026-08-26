@@ -63,6 +63,13 @@ Execution surface:
 - `anon`: revoked;
 - `service_role`: revoked for this client read API.
 
+The `service_role` revoke is deliberate, not accidental. This function exists as
+a permission-aware browser/API read boundary and its authorization semantics are
+defined in terms of `auth.uid()` + active membership + the two D4 permissions.
+There is no approved background/service workflow that requires candidate listing.
+If one is introduced later, it must use a separately reviewed service contract
+rather than silently bypassing the D4 caller model on this client RPC.
+
 `search_path` is pinned to `public, pg_temp` and every business-table predicate is
 explicitly scoped to the resolved organization.
 
@@ -84,6 +91,11 @@ A row is returned only when all conditions are true:
 - both PO and GRN carry complete immutable UoM snapshot evidence;
 - PO and GRN snapshots agree;
 - remaining accepted uninvoiced base quantity is greater than zero.
+
+The equality check between PO and GRN UoM snapshots is intentionally defensive.
+For legal PO-linked receipts created by Migration 148+ the GRN snapshot is copied
+from the PO line, so equality should always hold. The predicate protects the new
+read contract from legacy/corrupt rows; it is not a new operational matching rule.
 
 Legacy/base-unit rows without complete snapshots are deliberately excluded from
 this first UI slice rather than guessed or reinterpreted.
@@ -108,9 +120,16 @@ remaining base quantity
   = accepted base quantity - allocated base quantity
 ```
 
-This is the same allocation-ledger model established in 149/151. The read RPC is
-advisory for UX only: the write RPC still locks rows and recomputes remaining
-quantity under lock before any invoice write.
+This is the same allocation-ledger model established in 149/151. Migration 181
+spells the aggregate inline in its candidate query instead of invoking
+`wardah_receipt_line_uninvoiced_base(uuid)` once per candidate row. The duplication
+is intentional in this slice: the read RPC remains one auditable tenant-scoped
+query, avoids repeated privileged helper calls, and the Fresh DB acceptance now
+asserts that the inline aggregate and the 149/151 helper agree under both normal
+allocation and an actual append-only reversal row.
+
+The read RPC is advisory for UX only: the write RPC still locks rows and
+recomputes remaining quantity under lock before any invoice write.
 
 ## 6. Returned evidence
 
@@ -160,14 +179,19 @@ The gate uses PostgreSQL 17 and:
 5. runs Acceptance 149 to create a real matched allocation;
 6. proves 181 returns the authoritative remaining balance (48 accepted − 10.5
    allocated = 37.5);
-7. proves membership/D4 denial paths;
-8. proves draft GRN, rejected line and fully consumed line are excluded;
-9. proves vendor/PO filters fail closed;
-10. re-runs the remaining 149 closure + concurrency suites as regression proof;
-11. verifies the final function definition and EXECUTE surface.
+7. explicitly proves that the candidate PO state is `fully_received`, preserving
+   direct regression coverage of Migration 152's terminal PO state;
+8. proves membership/D4 denial paths;
+9. proves draft GRN, rejected line and fully consumed line are excluded;
+10. inserts an actual append-only allocation reversal row and proves both the 181
+    candidate read and `wardah_receipt_line_uninvoiced_base` restore the same
+    remaining balance and candidate visibility;
+11. proves vendor/PO filters fail closed;
+12. re-runs the remaining 149 closure + concurrency suites as regression proof;
+13. verifies the final function definition and EXECUTE surface.
 
-Negative probes are transaction-scoped and rolled back so they do not corrupt the
-shared 148/149 fixtures.
+Negative and reversal probes are transaction-scoped and rolled back so they do
+not corrupt the shared 148/149 fixtures.
 
 ## 8. Repository merge gate
 
