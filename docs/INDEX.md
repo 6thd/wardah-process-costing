@@ -24,7 +24,7 @@
 
 ## المحاسبة والتقارير المالية
 
-- [`FINANCIAL_REPORTING_ENGINE_SPEC.md`](./FINANCIAL_REPORTING_ENGINE_SPEC.md) — مواصفات محرك التقارير المالية.
+- [`FINANCIAL_REPORTING_ENGINE_SPEC.md`](./FINANCIAL_REPORTING_ENGINE_SPEC.md) — مواصفات موجودة لمحرك التقارير المالية، لكن خط أساسها 152 قديم؛ حالتها `AUDIT_REQUIRED` في `EXECUTION_LEDGER.md` قبل أي تنفيذ جديد.
 - [`db/SUPPLIER_INVOICE_ATOMIC_LIFECYCLE_PLAN.md`](./db/SUPPLIER_INVOICE_ATOMIC_LIFECYCLE_PLAN.md) — سجل تصميم وتنفيذ دورة فاتورة المورد الذرية.
 - [`PRODUCTION_CHECKLIST.md`](./PRODUCTION_CHECKLIST.md) — قائمة تحقق تشغيلية عامة؛ لا تحل محل runbook خاص بكل تغيير.
 
