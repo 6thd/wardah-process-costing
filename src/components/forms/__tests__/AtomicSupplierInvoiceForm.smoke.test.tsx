@@ -2,9 +2,15 @@ import type { ReactNode } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const resolveOrgIdWithFallback = vi.fn(async () => 'org-1')
-const listSupplierInvoiceCandidates = vi.fn(async () => [])
-const createMatchedSupplierInvoice = vi.fn()
+const {
+  resolveOrgIdWithFallback,
+  listSupplierInvoiceCandidates,
+  createMatchedSupplierInvoice,
+} = vi.hoisted(() => ({
+  resolveOrgIdWithFallback: vi.fn(async () => 'org-1'),
+  listSupplierInvoiceCandidates: vi.fn(async () => []),
+  createMatchedSupplierInvoice: vi.fn(),
+}))
 
 vi.mock('@/lib/supabase', () => ({
   resolveOrgIdWithFallback,
