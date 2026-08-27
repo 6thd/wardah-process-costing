@@ -61,6 +61,14 @@ function lineTax(candidate: SupplierInvoiceCandidate): number {
   return lineNet(candidate) * candidate.tax_percentage / 100
 }
 
+function calendarDay(date: Date): string {
+  return format(date, 'yyyy-MM-dd')
+}
+
+function isBeforeInvoiceDay(date: Date, invoiceDate: Date): boolean {
+  return calendarDay(date) < calendarDay(invoiceDate)
+}
+
 export function SupplierInvoiceForm({
   open,
   onOpenChange,
@@ -207,7 +215,7 @@ export function SupplierInvoiceForm({
       toast.error('أدخل رقم فاتورة المورد')
       return false
     }
-    if (dueDate && dueDate < invoiceDate) {
+    if (dueDate && isBeforeInvoiceDay(dueDate, invoiceDate)) {
       toast.error('تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الفاتورة')
       return false
     }
@@ -226,8 +234,8 @@ export function SupplierInvoiceForm({
     org_id: orgId,
     vendor_id: selectedVendorId,
     invoice_number: invoiceNumber.trim(),
-    invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
-    due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null,
+    invoice_date: calendarDay(invoiceDate),
+    due_date: dueDate ? calendarDay(dueDate) : null,
     lines: selectedCandidates.map(candidateToMatchedLine),
   })
 
@@ -250,14 +258,24 @@ export function SupplierInvoiceForm({
         idempotency_key: identity.key,
       })
 
+      // From this point the atomic server operation is committed. A local list
+      // refresh failure must never be reclassified as a failed financial write.
       const replaySuffix = result.idempotent_replay ? ' (إعادة محاولة آمنة)' : ''
       toast.success(`تم اعتماد فاتورة المورد وترحيل قيدها${replaySuffix}`)
-      await onSuccess()
       resetForm()
       onOpenChange(false)
+
+      try {
+        await onSuccess()
+      } catch (refreshError) {
+        console.error('Supplier invoice committed but local refresh failed:', refreshError)
+        toast.warning('تم الاعتماد والترحيل بنجاح، لكن تعذر تحديث القائمة تلقائيًا', {
+          description: 'حدّث قائمة فواتير الموردين يدويًا لعرض المستند الجديد.',
+        })
+      }
     } catch (error) {
-      // Keep operationIdentityRef unchanged. An ambiguous retry of the exact
-      // same logical request must reuse the same idempotency key.
+      // Keep operationIdentityRef unchanged only when the server operation did
+      // not report success. An exact ambiguous retry then reuses the same key.
       showMappedError(error)
     } finally {
       setPosting(false)
@@ -463,7 +481,7 @@ export function SupplierInvoiceForm({
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <CalendarComponent mode="single" selected={dueDate} onSelect={setDueDate} disabled={(date) => date < invoiceDate} />
+                    <CalendarComponent mode="single" selected={dueDate} onSelect={setDueDate} disabled={(date) => isBeforeInvoiceDay(date, invoiceDate)} />
                   </PopoverContent>
                 </Popover>
               </div>
