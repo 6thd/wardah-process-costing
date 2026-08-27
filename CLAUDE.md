@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-26
+**آخر تحديث موثق:** 2026-08-27
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -253,6 +253,30 @@ isRTL ? 'نص عربي' : 'English text'
 ## E2E
 
 Playwright يحتاج staging URL وحسابات اختبار منفصلة للأدوار والمؤسستين. لا تعتبر T4 مثبتة دون تشغيل فعلي وArtifact ناجح. لا تستخدم حسابات Production الحقيقية.
+
+## Environment topology and Preview/Staging policy
+
+اعتبارًا من 2026-08-27، بيئات الواجهة وقواعد البيانات منفصلة صراحةً. الهدف هو منع أي Preview أو PR تجريبي من الكتابة على Production، ومنع Staging من مطاردة كل commit على فروع العمل.
+
+| طبقة النشر | مصدر الكود | قاعدة Supabase | قاعدة المزامنة |
+|---|---|---|---|
+| **Production** | `main` المستقر فقط | `Manufacturing Process` — `uutfztmqvajmsxnrqeiv` | سجل Production هو المرجع القانوني |
+| **Preview العام / Staging** | آخر حالة مستقرة مدموجة في `main` | `Wardah-Staging` — حاليًا project ref `bhomjavdkzcvjyymzyla` | يطابق `main` المدموج فقط، لا HEAD لكل فرع |
+| **Preview خاص بفرع/PR** | الفرع أو PR نفسه | Supabase branch/project معزول لذلك الاختبار عند وجود DB changes | يتبع ذلك PR فقط، ولا يُعتبر Staging الدائم |
+
+قواعد التشغيل:
+
+1. **Staging يطابق `main`، وليس آخر commit في أي فرع تطوير.** لا تُطبَّق عليه migration موجودة فقط في PR مفتوح.
+2. أي PR واجهة فقط، ولا يعتمد على Schema/RPC جديدة، يمكنه استخدام Preview العام و`Wardah-Staging`.
+3. أي PR يضيف أو يغيّر migration/RPC/RLS أو عقد قاعدة بيانات يحتاج بيئة Supabase معزولة وVercel Custom Preview Branch إذا كان الاختبار قبل الدمج مطلوبًا.
+4. بعد دمج migration إلى `main`، حدّث Staging إلى نفس baseline/ledger المستقر ثم نفّذ smoke/acceptance؛ لا تجعل Staging يتقدم على `main`.
+5. Production وPreview لا يشتركان في قيم Supabase. في Vercel يجب أن تكون `VITE_SUPABASE_URL` و`VITE_SUPABASE_ANON_KEY` scoped منفصلة لـProduction وPreview. أي branch-specific Preview قد يملك override خاصًا به.
+6. لا تستخدم `service_role` أو أي secret إداري في متغير يبدأ بـ`VITE_`. مفاتيح Vite تصل إلى المتصفح؛ المسموح فقط Project URL وanon/publishable key مع RLS وحراس قاعدة البيانات.
+7. لا تستخدم حسابات Production الحقيقية في Preview/Staging أو E2E.
+8. قبل أي Redeploy للـPreview العام، تحقق أن Staging وصل إلى baseline المطلوب من `main` وأن الفجوات المعروفة مغلقة. قبل أي Redeploy لـProduction، تحقق من أن متغيراته تشير فقط إلى Supabase Production.
+9. اسم مشروع Staging الدائم يجب أن يبقى واضحًا تنظيميًا (`Wardah-Staging` مفضل). تغيير الاسم لا يغيّر `project_ref` أو URL.
+
+ملاحظة تاريخية: المشروع `bhomjavdkzcvjyymzyla` أُنشئ أصلًا كـ`Wardah-E2E-PR114-a77f6d2` لاختبار معزول، ثم اختير ليصبح Staging العام بعد التحقق والتحديث. لا يُعتبر جاهزًا تلقائيًا لمجرد تغيير اسمه؛ يجب إثبات تطابقه مع `main` المستقر قبل الاعتماد.
 
 ## Migration workflow
 
