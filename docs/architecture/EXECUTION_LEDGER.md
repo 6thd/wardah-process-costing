@@ -13,7 +13,7 @@
 - `PARTIAL` — some accepted outputs landed, but the phase definition is not fully met.
 - `BLOCKED` — known prerequisite prevents safe continuation.
 - `QUEUED` — approved direction, not started.
-- `AUDIT_REQUIRED` — old plan claims progress, but current `main`/Production must be re-verified before relying on it.
+- `AUDIT_REQUIRED` — old plan/spec claims progress or an old baseline; current `main`/Production must be re-verified before relying on it.
 - `SUPERSEDED` — retained for history; do not resume from it directly.
 
 ## Phase namespaces — do not use bare P0/P1/P2/P3
@@ -31,7 +31,8 @@
 1. `ALIGN-P0` — establish truthful product/repository map and live documentation index.
 2. `ALIGN-P1` — product catalog + dynamic Sidebar, in a separate application PR after the documentation checkpoint is reviewable.
 3. Security prerequisite wave before financial statements: `SEC-172`, `SEC-162`, `SEC-161`, then `SEC-171` if scope remains focused.
-4. `FINREP-1` — authoritative financial reporting round.
+4. Reconcile `FINREP-SPEC` against the current DB/repository baseline.
+5. `FINREP-1` — authoritative financial reporting round.
 
 No Production mutation is authorized by this ledger.
 
@@ -39,14 +40,15 @@ No Production mutation is authorized by this ledger.
 
 | ID | Status | Evidence / current truth | Next action / gate |
 |---|---|---|---|
-| `ALIGN-P0` | ACTIVE | Product-alignment plan approved for staged execution; current `docs/INDEX.md` still points to paths that do not exist and old reorganization docs present a historical target as current. | Documentation-only PR: live gap inventory, live index, superseded markers, execution ledger. No file moves. |
+| `ALIGN-P0` | ACTIVE | Documentation branch now contains the product-alignment plan, durable ledger, live route×Sidebar×permission inventory, live docs index, and a superseded marker on the old repository reorganization plan. | Review the focused docs PR; no file moves or runtime changes. After merge/reconciliation, begin `ALIGN-P1` in a separate application PR. |
 | `ALIGN-P1` | QUEUED | Approved direction: central product catalog, Sidebar driven from catalog + permissions, remove decorative badges/duplicate module constants, tests. | Separate application PR after `ALIGN-P0` checkpoint is reviewed. No DB dependency expected; verify permission semantics before code. |
 | PR `#190` | BLOCKED | Existing docs-only Production/Staging/Preview topology PR is still open. Its base predates #189/#191. | Reconcile/rebase onto current `main`, re-review diff, then normal merge authorization. Do not duplicate its policy text elsewhere. |
 | `SEC-172` | QUEUED | Financial report RPC reads are tenant/member scoped without exact financial read permissions. Direct prerequisite for the financial-reporting round. | DB-first design + focused migration/acceptance PR; Production apply requires separate authorization. |
 | `SEC-162` | QUEUED | Fiscal-period generation/status mutation boundary lacks exact RBAC. | Design exact period permissions; DB-first migration/acceptance. |
 | `SEC-161` | QUEUED | `gl_accounts` mutations have broad org boundary and overlapping CoA permission families. | Decide canonical CoA permission family before changing RLS/RPCs. |
 | `SEC-171` | QUEUED | Client can insert into trusted audit stream. | Separate trusted server audit from client telemetry or close direct INSERT. |
-| `FINREP-1` | BLOCKED | Trial balance/account statement/reconciliation UI already exists, but `SEC-172` must be closed before treating report reads as a safe product boundary. | After security prerequisite: Trial Balance authority → GL/account statement → Income Statement → Balance Sheet → Cash Flow → comparison/export/print. |
+| `FINREP-SPEC` | AUDIT_REQUIRED | `docs/FINANCIAL_REPORTING_ENGINE_SPEC.md` still declares repository/Production cutoff 152 and migration numbering from that era, while the current documented/live DB cutoff is 181. Its accounting design may remain useful, but its deployment sequence cannot be executed as written. | Before `FINREP-1`, reconcile the specification against current `main`, Production ledger, canonical GL model, fiscal-period state, and the open security issues. Do not reuse old migration numbers. |
+| `FINREP-1` | BLOCKED | Trial balance/account statement/reconciliation UI already exists, but `SEC-172` and `FINREP-SPEC` reconciliation must be closed before treating report reads/design as a safe current product boundary. | After prerequisites: Trial Balance authority → GL/account statement → Income Statement → Balance Sheet → Cash Flow → comparison/export/print. |
 
 ## Reconstructed historical phase state
 
@@ -65,7 +67,7 @@ The document under `docs/improvements/README.md` is an execution history, not a 
 
 | ID | Status on current `main` | Current evidence | Next action |
 |---|---|---|---|
-| `MFG-P0` | PARTIAL | Fake `postStageToGL` success path is removed, but the roadmap still records unchecked P0 documentation/demo tasks. | Reconcile roadmap/limitations during `ALIGN-P0`; keep stub/demo truth explicit. |
+| `MFG-P0` | PARTIAL | Fake `postStageToGL` success path is removed, but the roadmap still records unchecked P0 documentation/demo tasks. | Reconcile roadmap/limitations in a later focused docs pass; keep stub/demo truth explicit. |
 | `MFG-P1` | NOT DONE | Current `process-costing-service.ts` still calculates `unitCost = totalCost / goodQty` client-side and directly UPSERTs `stage_costs`; it does not make the legal EUP/FIFO/Scrap RPC the sole calculation boundary. | Later focused manufacturing round: verify live `upsert_stage_cost` signature/permissions, then DB-first if needed and UI follow-up. |
 | `MFG-P2` | NOT DONE | `postStageToGL` remains intentionally absent; no legal stage-posting handler is active. | First choose S2-A vs S2-B accounting policy in ADR; do not restore a fake button. |
 | `MFG-P3` | NOT DONE / AUDIT_REQUIRED | `labor_time_logs` + `moh_applied` are still written by the process-costing service; the roadmap requires reconciling them with MES/conversion costing before MO completion can be considered complete. | Audit current `rpc_complete_manufacturing_order` on current DB chain, then design conversion/OH integration. |
