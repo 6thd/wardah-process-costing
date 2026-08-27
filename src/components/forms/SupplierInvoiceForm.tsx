@@ -1,565 +1,327 @@
-import { useState, useEffect } from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { format } from 'date-fns'
+import { CalendarIcon, CheckCircle2, Loader2, Package, RefreshCw, ShieldCheck } from 'lucide-react'
+import { toast } from 'sonner'
+
 import { Button } from '@/components/ui/button'
+import { Calendar as CalendarComponent } from '@/components/ui/calendar'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Calendar as CalendarComponent } from '@/components/ui/calendar'
-import { toast } from 'sonner'
-import { supabase, resolveOrgIdWithFallback } from '@/lib/supabase'
-import { Loader2, Package, Truck, Calendar, DollarSign, CalendarIcon } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
-import { format } from 'date-fns'
 import { cn } from '@/lib/utils'
-import { loadPurchasableProducts } from '@/lib/product-utils'
+import { resolveOrgIdWithFallback } from '@/lib/supabase'
+import { mapApError } from '@/services/ap-error-mapper'
+import {
+  candidateToMatchedLine,
+  createMatchedSupplierInvoice,
+  listSupplierInvoiceCandidates,
+  stableOperationIdentity,
+  type StableOperationIdentity,
+  type SupplierInvoiceCandidate,
+} from '@/services/supplier-invoice-atomic-service'
 
 interface SupplierInvoiceFormProps {
   readonly open: boolean
   readonly onOpenChange: (open: boolean) => void
-  readonly onSuccess: () => void
+  readonly onSuccess: () => void | Promise<void>
+  readonly canApprove: boolean
 }
 
-interface Vendor {
+interface CandidateVendor {
   id: string
   code: string
   name: string
 }
 
-interface PurchaseOrder {
+interface CandidatePurchaseOrder {
   id: string
-  order_number: string
-  order_date: string
-  vendor_id: string
+  orderNumber: string
   status: string
-  total_amount: number
-  vendor?: {
-    code: string
-    name: string
-  }
 }
 
-interface POLine {
-  id: string
-  product_id: string
-  quantity: number
-  received_quantity: number | null
-  unit_price: number
-  discount_percentage: number | null
-  tax_percentage: number | null
-  line_total: number | null
-  product?: {
-    id: string
-    code: string
-    name: string
-  }
+function toEnglishDigits(value: string | number): string {
+  return String(value).replace(/[٠-٩]/g, (digit) => '٠١٢٣٤٥٦٧٨٩'.indexOf(digit).toString())
 }
 
-interface InvoiceLine {
-  po_line_id: string
-  product_id: string
-  product_name: string
-  product_code: string
-  ordered_quantity: number
-  already_invoiced: number
-  remaining_quantity: number
-  quantity_to_invoice: number
-  unit_price: number
-  discount_amount: number
-  tax_rate: number
-  selected: boolean
+function money(value: number): string {
+  return toEnglishDigits(value.toFixed(2))
 }
 
-export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierInvoiceFormProps) {
-  const [loading, setLoading] = useState(false)
-  const [loadingVendors, setLoadingVendors] = useState(true)
-  const [loadingPOs, setLoadingPOs] = useState(false)
-  const [createMode, setCreateMode] = useState<'with-po' | 'without-po'>('with-po')
-  const [vendors, setVendors] = useState<Vendor[]>([])
+function lineNet(candidate: SupplierInvoiceCandidate): number {
+  return candidate.remaining_qty_base
+    * candidate.po_unit_price_base
+    * (1 - candidate.discount_percentage / 100)
+}
+
+function lineTax(candidate: SupplierInvoiceCandidate): number {
+  return lineNet(candidate) * candidate.tax_percentage / 100
+}
+
+export function SupplierInvoiceForm({
+  open,
+  onOpenChange,
+  onSuccess,
+  canApprove,
+}: SupplierInvoiceFormProps) {
+  const [loadingCandidates, setLoadingCandidates] = useState(false)
+  const [posting, setPosting] = useState(false)
+  const [orgId, setOrgId] = useState('')
+  const [candidates, setCandidates] = useState<SupplierInvoiceCandidate[]>([])
   const [selectedVendorId, setSelectedVendorId] = useState('')
-  const [availablePOs, setAvailablePOs] = useState<PurchaseOrder[]>([])
   const [selectedPOId, setSelectedPOId] = useState('')
-  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null)
-  const [invoiceLines, setInvoiceLines] = useState<InvoiceLine[]>([])
-  const [invoiceDate, setInvoiceDate] = useState<Date>(new Date())
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
   const [invoiceNumber, setInvoiceNumber] = useState('')
-  const [dueDate, setDueDate] = useState<Date | undefined>(undefined)
-  const [notes, setNotes] = useState('')
-  const [availableProducts, setAvailableProducts] = useState<any[]>([])
+  const [invoiceDate, setInvoiceDate] = useState<Date>(new Date())
+  const [dueDate, setDueDate] = useState<Date | undefined>()
+  const [previewReady, setPreviewReady] = useState(false)
+  const operationIdentityRef = useRef<StableOperationIdentity | null>(null)
 
-  // Load vendors when dialog opens
-  useEffect(() => {
-    if (open) {
-      loadVendors()
+  const resetForm = () => {
+    setCandidates([])
+    setOrgId('')
+    setSelectedVendorId('')
+    setSelectedPOId('')
+    setSelectedLineIds([])
+    setInvoiceNumber('')
+    setInvoiceDate(new Date())
+    setDueDate(undefined)
+    setPreviewReady(false)
+    operationIdentityRef.current = null
+  }
+
+  const showMappedError = (error: unknown) => {
+    const mapped = mapApError(error)
+    console.error(`[${mapped.code}]`, mapped.technicalDetails ?? error)
+    toast.error(mapped.title, { description: mapped.description })
+  }
+
+  const loadCandidates = async () => {
+    setLoadingCandidates(true)
+    try {
+      const resolvedOrgId = await resolveOrgIdWithFallback()
+      const data = await listSupplierInvoiceCandidates({ orgId: resolvedOrgId })
+      setOrgId(resolvedOrgId)
+      setCandidates(data)
+
+      // Candidate refresh never changes a logical operation key by itself. It
+      // only invalidates UI selections that are no longer legal candidates.
+      const validIds = new Set(data.map((candidate) => candidate.goods_receipt_line_id))
+      setSelectedLineIds((current) => current.filter((id) => validIds.has(id)))
+
+      if (data.length === 0) {
+        toast.info('لا توجد استلامات مقبولة قابلة للفوترة حاليًا')
+      }
+    } catch (error) {
+      setCandidates([])
+      showMappedError(error)
+    } finally {
+      setLoadingCandidates(false)
     }
+  }
+
+  useEffect(() => {
+    if (!open) return
+    void loadCandidates()
+    // Loading is intentionally tied to opening the dialog only. Candidate
+    // filtering below is local over the server-authorized snapshot set.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  // Load POs when vendor is selected or mode changes to with-po
   useEffect(() => {
-    if (selectedVendorId && createMode === 'with-po') {
-      loadPurchaseOrders(selectedVendorId)
-    } else {
-      setAvailablePOs([])
-      setSelectedPOId('')
-    }
-  }, [selectedVendorId, createMode])
+    setSelectedPOId('')
+    setSelectedLineIds([])
+    setPreviewReady(false)
+  }, [selectedVendorId])
 
-  // Load PO lines when PO is selected
   useEffect(() => {
-    if (selectedPOId) {
-      loadPOLines(selectedPOId)
-      // Generate invoice number automatically
-      if (!invoiceNumber) {
-        setInvoiceNumber(`PINV-${Date.now()}`)
-      }
-    } else {
-      setInvoiceLines([])
-      setSelectedPO(null)
-    }
+    setSelectedLineIds([])
+    setPreviewReady(false)
   }, [selectedPOId])
 
-  const loadVendors = async () => {
-    setLoadingVendors(true)
-    try {
-      const { data, error } = await supabase
-        .from('vendors')
-        .select('id, code, name')
-        .order('name')
+  useEffect(() => {
+    setPreviewReady(false)
+  }, [invoiceNumber, invoiceDate, dueDate, selectedLineIds])
 
-      if (error) throw error
-      setVendors(data || [])
-    } catch (error) {
-      console.error('Error loading vendors:', error)
-      toast.error('خطأ في تحميل الموردين')
-    } finally {
-      setLoadingVendors(false)
+  const vendors = useMemo<CandidateVendor[]>(() => {
+    const unique = new Map<string, CandidateVendor>()
+    for (const candidate of candidates) {
+      unique.set(candidate.vendor_id, candidate.vendor)
     }
-  }
+    return [...unique.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar'))
+  }, [candidates])
 
-  const loadPurchaseOrders = async (vendorId: string) => {
-    setLoadingPOs(true)
-    try {
-      console.log('🔍 Loading POs for vendor:', vendorId, 'in mode:', createMode)
-      
-      const { data, error } = await supabase
-        .from('purchase_orders')
-        .select('*, vendor:vendors(code, name)')
-        .eq('vendor_id', vendorId)
-        .in('status', ['draft', 'confirmed', 'partially_invoiced', 'received', 'partially_received', 'fully_received'])
-        .order('order_date', { ascending: false })
-
-      if (error) {
-        throw error
-      }
-      
-      setAvailablePOs(data || [])
-      
-      if (!data || data.length === 0) {
-        toast.info('لا توجد أوامر شراء متاحة لهذا المورد')
-      }
-    } catch (error) {
-      toast.error('خطأ في تحميل أوامر الشراء')
-    } finally {
-      setLoadingPOs(false)
-    }
-  }
-
-  const loadPOLines = async (poId: string) => {
-    setLoading(true)
-    try {
-      // Get PO details
-      const po = availablePOs.find(p => p.id === poId)
-      setSelectedPO(po || null)
-
-      // Get PO lines with product details
-      const { data, error } = await supabase
-        .from('purchase_order_lines')
-        .select('*, product:products(id, code, name)')
-        .eq('purchase_order_id', poId)
-
-      if (error) throw error
-
-      // Transform to invoice lines (invoiced_quantity not tracked in DB — use 0 as base)
-      const lines: InvoiceLine[] = (data || []).map((line: POLine) => {
-        const orderedQty = line.quantity
-        const alreadyInvoiced = 0
-        const remaining = orderedQty - alreadyInvoiced
-
-        return {
-          po_line_id: line.id,
-          product_id: line.product_id,
-          product_name: line.product?.name || 'منتج غير محدد',
-          product_code: line.product?.code || '',
-          ordered_quantity: orderedQty,
-          already_invoiced: alreadyInvoiced,
-          remaining_quantity: remaining,
-          quantity_to_invoice: remaining,
-          unit_price: line.unit_price,
-          discount_amount: 0,
-          tax_rate: line.tax_percentage ?? 15,
-          selected: remaining > 0
-        }
+  const purchaseOrders = useMemo<CandidatePurchaseOrder[]>(() => {
+    if (!selectedVendorId) return []
+    const unique = new Map<string, CandidatePurchaseOrder>()
+    for (const candidate of candidates) {
+      if (candidate.vendor_id !== selectedVendorId) continue
+      unique.set(candidate.purchase_order_id, {
+        id: candidate.purchase_order_id,
+        orderNumber: candidate.purchase_order_number,
+        status: candidate.purchase_order_status,
       })
-
-      setInvoiceLines(lines)
-    } catch (error) {
-      console.error('Error loading PO lines:', error)
-      toast.error('خطأ في تحميل بنود أمر الشراء')
-    } finally {
-      setLoading(false)
     }
-  }
+    return [...unique.values()].sort((a, b) => a.orderNumber.localeCompare(b.orderNumber))
+  }, [candidates, selectedVendorId])
 
-  const handleSelectAll = (checked: boolean) => {
-    setInvoiceLines(lines =>
-      lines.map(line => ({
-        ...line,
-        selected: checked && line.remaining_quantity > 0
-      }))
+  const poCandidates = useMemo(() => (
+    candidates.filter((candidate) =>
+      candidate.vendor_id === selectedVendorId
+      && candidate.purchase_order_id === selectedPOId
     )
-  }
+  ), [candidates, selectedVendorId, selectedPOId])
 
-  const handleLineSelect = (index: number, checked: boolean) => {
-    setInvoiceLines(lines =>
-      lines.map((line, i) =>
-        i === index ? { ...line, selected: checked } : line
-      )
-    )
-  }
+  const selectedCandidates = useMemo(() => {
+    const selected = new Set(selectedLineIds)
+    return poCandidates
+      .filter((candidate) => selected.has(candidate.goods_receipt_line_id))
+      .sort((a, b) => a.goods_receipt_line_id.localeCompare(b.goods_receipt_line_id))
+  }, [poCandidates, selectedLineIds])
 
-  // Helper function to convert Arabic numerals to English
-  const toEnglishDigits = (str: string | number): string => {
-    const value = typeof str === 'number' ? str.toString() : str
-    return value.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d).toString()) // NOSONAR S6653 - replaceAll cannot be used with callback function
-  }
+  const subtotal = selectedCandidates.reduce((sum, candidate) => sum + lineNet(candidate), 0)
+  const taxAmount = selectedCandidates.reduce((sum, candidate) => sum + lineTax(candidate), 0)
+  const totalAmount = subtotal + taxAmount
 
-  const loadProducts = async () => {
-    try {
-      const filteredProducts = await loadPurchasableProducts()
-      setAvailableProducts(filteredProducts)
-    } catch (error) {
-      console.error('Error loading products:', error)
-      toast.error('خطأ في تحميل المنتجات')
+  const validatePreview = (): boolean => {
+    if (!orgId) {
+      toast.error('تعذر تحديد المؤسسة الحالية')
+      return false
     }
-  }
-
-  const handleQuantityChange = (index: number, value: string) => {
-    const qty = Number.parseFloat(value) || 0
-    setInvoiceLines(lines =>
-      lines.map((line, i) => {
-        if (i === index) {
-          return { ...line, quantity_to_invoice: Math.min(qty, line.remaining_quantity) }
-        }
-        return line
-      })
-    )
-  }
-
-  const calculateLineTotal = (line: InvoiceLine) => {
-    const subtotal = line.quantity_to_invoice * line.unit_price
-    const discount = line.discount_amount || 0
-    const afterDiscount = subtotal - discount
-    const tax = afterDiscount * (line.tax_rate / 100)
-    return afterDiscount + tax
-  }
-
-  const handleSubmit = async () => {
-    // Validation
-    const selectedLines = invoiceLines.filter(line => line.selected)
-    if (selectedLines.length === 0) {
-      toast.error('الرجاء اختيار بند واحد على الأقل')
-      return
-    }
-
-    // Validate all selected lines have products (for without-po mode)
-    if (createMode === 'without-po') {
-      const missingProduct = selectedLines.find(line => !line.product_id)
-      if (missingProduct) {
-        toast.error('الرجاء اختيار منتج لكل بند')
-        return
-      }
-    }
-
-    if (!invoiceNumber.trim()) {
-      toast.error('الرجاء إدخال رقم الفاتورة')
-      return
-    }
-
-    if (!invoiceDate) {
-      toast.error('الرجاء إدخال تاريخ الفاتورة')
-      return
-    }
-
     if (!selectedVendorId) {
-      toast.error('الرجاء اختيار مورد')
+      toast.error('اختر موردًا من الاستلامات المرشحة')
+      return false
+    }
+    if (!selectedPOId) {
+      toast.error('اختر أمر شراء لديه استلام مقبول')
+      return false
+    }
+    if (selectedCandidates.length === 0) {
+      toast.error('اختر سطر استلام مقبولًا واحدًا على الأقل')
+      return false
+    }
+    if (!invoiceNumber.trim()) {
+      toast.error('أدخل رقم فاتورة المورد')
+      return false
+    }
+    if (dueDate && dueDate < invoiceDate) {
+      toast.error('تاريخ الاستحقاق لا يمكن أن يسبق تاريخ الفاتورة')
+      return false
+    }
+    return true
+  }
+
+  const handlePreparePreview = () => {
+    if (!validatePreview()) return
+    // D3: create permission means local preparation only. This handler is
+    // intentionally side-effect free with respect to the database.
+    setPreviewReady(true)
+    toast.success('تم تجهيز المعاينة محليًا دون حفظ أو ترحيل')
+  }
+
+  const logicalRequest = () => ({
+    org_id: orgId,
+    vendor_id: selectedVendorId,
+    invoice_number: invoiceNumber.trim(),
+    invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
+    due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null,
+    lines: selectedCandidates.map(candidateToMatchedLine),
+  })
+
+  const handleApproveAndPost = async () => {
+    if (!canApprove) {
+      toast.error('لا تملك صلاحية اعتماد وترحيل فواتير الموردين')
       return
     }
+    if (!validatePreview()) return
 
-    setLoading(true)
+    const request = logicalRequest()
+    const fingerprint = JSON.stringify(request)
+    const identity = stableOperationIdentity(fingerprint, operationIdentityRef.current)
+    operationIdentityRef.current = identity
 
+    setPosting(true)
     try {
-      // Calculate totals
-      let subtotal = 0
-      let totalDiscount = 0
-      let totalTax = 0
-
-      selectedLines.forEach(line => {
-        const lineSubtotal = line.quantity_to_invoice * line.unit_price
-        const lineDiscount = line.discount_amount || 0
-        const lineAfterDiscount = lineSubtotal - lineDiscount
-        const lineTax = lineAfterDiscount * (line.tax_rate / 100)
-        
-        subtotal += lineSubtotal
-        totalDiscount += lineDiscount
-        totalTax += lineTax
+      const result = await createMatchedSupplierInvoice({
+        ...request,
+        idempotency_key: identity.key,
       })
 
-      const totalAmount = subtotal - totalDiscount + totalTax
-
-      const orgId = await resolveOrgIdWithFallback()
-
-      // 1. Create supplier invoice
-      const { data: invoice, error: invoiceError } = await supabase
-        .from('supplier_invoices')
-        .insert({
-          org_id: orgId,
-          invoice_number: invoiceNumber,
-          invoice_date: format(invoiceDate, 'yyyy-MM-dd'),
-          due_date: dueDate ? format(dueDate, 'yyyy-MM-dd') : null,
-          vendor_id: selectedVendorId,
-          purchase_order_id: selectedPOId || null,
-          subtotal: subtotal,
-          discount_amount: totalDiscount,
-          tax_amount: totalTax,
-          total_amount: totalAmount,
-          status: 'pending',
-          notes: notes || null
-        })
-        .select()
-        .single()
-
-      if (invoiceError) throw invoiceError
-
-      // 2. Insert invoice lines
-      for (const line of selectedLines) {
-        if (line.quantity_to_invoice <= 0) continue
-
-        const { error: lineError } = await supabase
-          .from('supplier_invoice_lines')
-          .insert({
-            org_id: orgId,
-            supplier_invoice_id: invoice.id,
-            product_id: line.product_id,
-            quantity: line.quantity_to_invoice,
-            unit_cost: line.unit_price,
-            discount_percentage: 0,
-            tax_percentage: line.tax_rate
-          })
-
-        if (lineError) throw lineError
-
-        // Note: purchase_order_lines has no invoiced_quantity column — PO fulfillment tracked via supplier_invoices.purchase_order_id
-      }
-
-      // 3. Mark PO as partially invoiced
-      if (createMode === 'with-po' && selectedPOId) {
-        const { error: updatePOError } = await supabase
-          .from('purchase_orders')
-          .update({ status: 'partially_invoiced' })
-          .eq('id', selectedPOId)
-
-        if (updatePOError) throw updatePOError
-      }
-
-      // 5. Create GL Entry (Journal Entry)
-      await createGLEntry(invoice, selectedLines)
-
-      toast.success(`تم إنشاء فاتورة المشتريات ${invoiceNumber} بنجاح`)
-      onSuccess()
+      const replaySuffix = result.idempotent_replay ? ' (إعادة محاولة آمنة)' : ''
+      toast.success(`تم اعتماد فاتورة المورد وترحيل قيدها${replaySuffix}`)
+      await onSuccess()
       resetForm()
       onOpenChange(false)
     } catch (error) {
-      console.error('Error creating supplier invoice:', error)
-      toast.error('خطأ في إنشاء فاتورة المشتريات')
+      // Keep operationIdentityRef unchanged. An ambiguous retry of the exact
+      // same logical request must reuse the same idempotency key.
+      showMappedError(error)
     } finally {
-      setLoading(false)
+      setPosting(false)
     }
   }
 
-  const createGLEntry = async (invoice: { id: string; invoice_date: string; invoice_number: string; subtotal: number; discount_amount: number; tax_amount: number; total_amount: number; org_id: string }, _lines: InvoiceLine[]) => {
-    try {
-      const orgId = invoice.org_id
-
-      // Get GL accounts from mappings (key_type = transaction category, debit/credit_account_code = account codes)
-      const { data: mappings, error: mappingsError } = await supabase
-        .from('gl_mappings')
-        .select('*')
-        .eq('org_id', orgId)
-
-      if (mappingsError) throw mappingsError
-
-      const inventoryCode = mappings?.find((m) => m.key_type === 'PURCHASE_INVENTORY')?.debit_account_code
-      const taxCode = mappings?.find((m) => m.key_type === 'PURCHASE_TAX')?.debit_account_code
-      const payableCode = mappings?.find((m) => m.key_type === 'PURCHASE_PAYABLE')?.credit_account_code
-
-      if (!inventoryCode || !payableCode) {
-        console.warn('GL mappings not configured for purchases')
-        return
-      }
-
-      // Create GL Entry using gl_entries (canonical path is rpc_create_journal_entry — TODO Phase 3)
-      const entryNumber = `JE-PI-${Date.now()}`
-      const { data: glEntry, error: entryError } = await supabase
-        .from('gl_entries')
-        .insert({
-          org_id: orgId,
-          entry_number: entryNumber,
-          entry_type: 'PURCHASE_INVOICE',
-          entry_date: invoice.invoice_date,
-          description: `فاتورة مشتريات ${invoice.invoice_number}`,
-          status: 'posted',
-          reference_type: 'PURCHASE_INVOICE',
-          reference_id: invoice.id
-        })
-        .select()
-        .single()
-
-      if (entryError) throw entryError
-
-      // Debit: Inventory
-      const inventoryAmount = invoice.subtotal - invoice.discount_amount
-      await supabase
-        .from('gl_entry_lines')
-        .insert({
-          org_id: orgId,
-          entry_id: glEntry.id,
-          account_code: inventoryCode,
-          debit: inventoryAmount,
-          credit: 0,
-          description: `مشتريات - ${invoice.invoice_number}`
-        })
-
-      // Debit: Tax
-      if (invoice.tax_amount > 0 && taxCode) {
-        await supabase
-          .from('gl_entry_lines')
-          .insert({
-            org_id: orgId,
-            entry_id: glEntry.id,
-            account_code: taxCode,
-            debit: invoice.tax_amount,
-            credit: 0,
-            description: `ضريبة مشتريات - ${invoice.invoice_number}`
-          })
-      }
-
-      // Credit: Accounts Payable
-      await supabase
-        .from('gl_entry_lines')
-        .insert({
-          org_id: orgId,
-          entry_id: glEntry.id,
-          account_code: payableCode,
-          debit: 0,
-          credit: invoice.total_amount,
-          description: `ذمم موردين - ${invoice.invoice_number}`
-        })
-
-      console.log('✅ GL Entry created:', entryNumber)
-    } catch (error) {
-      console.error('Error creating GL entry:', error)
-      // Don't throw - invoice is already created
-    }
+  const toggleLine = (id: string, checked: boolean) => {
+    setSelectedLineIds((current) => {
+      if (checked) return current.includes(id) ? current : [...current, id]
+      return current.filter((candidateId) => candidateId !== id)
+    })
   }
 
-  const resetForm = () => {
-    setCreateMode('with-po')
-    setSelectedVendorId('')
-    setSelectedPOId('')
-    setSelectedPO(null)
-    setInvoiceLines([])
-    setInvoiceDate(new Date())
-    setInvoiceNumber('')
-    setDueDate(undefined)
-    setNotes('')
-    setAvailableProducts([])
-  }
-
-  const selectedCount = invoiceLines.filter(line => line.selected).length
-  
-  // Calculate detailed totals
-  const selectedLines = invoiceLines.filter(line => line.selected)
-  const subtotal = selectedLines.reduce((sum, line) => 
-    sum + (line.quantity_to_invoice * line.unit_price), 0)
-  const totalDiscount = selectedLines.reduce((sum, line) => 
-    sum + (line.discount_amount || 0), 0)
-  const totalTax = selectedLines.reduce((sum, line) => {
-    const afterDiscount = (line.quantity_to_invoice * line.unit_price) - (line.discount_amount || 0)
-    return sum + (afterDiscount * (line.tax_rate / 100))
-  }, 0)
-  const totalToInvoice = subtotal - totalDiscount + totalTax
+  const allSelected = poCandidates.length > 0
+    && poCandidates.every((candidate) => selectedLineIds.includes(candidate.goods_receipt_line_id))
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !posting) resetForm()
+        onOpenChange(nextOpen)
+      }}
+    >
       <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto" dir="rtl">
         <DialogHeader>
-          <DialogTitle className="text-2xl">إضافة فاتورة مشتريات جديدة</DialogTitle>
+          <DialogTitle className="text-2xl">فاتورة مورد مطابقة للاستلام</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-6 mt-4">
-          {/* Creation Mode Selection */}
-          <div className="flex gap-2 bg-muted/30 dark:bg-muted/10 p-2 rounded-lg">
-            <Button
-              type="button"
-              variant={createMode === 'with-po' ? 'default' : 'outline'}
-              onClick={() => {
-                setCreateMode('with-po')
-                setInvoiceLines([])
-                // If vendor already selected, load POs
-                if (selectedVendorId) {
-                  loadPurchaseOrders(selectedVendorId)
-                }
-              }}
-              className="flex-1"
-            >
-              إنشاء من أمر شراء
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 rounded-lg bg-muted/30 p-2">
+            <Button type="button" variant="default" disabled>
+              <Package className="ml-2 h-4 w-4" />
+              من أمر شراء + استلام مقبول
             </Button>
-            <Button
-              type="button"
-              variant={createMode === 'without-po' ? 'default' : 'outline'}
-              onClick={() => {
-                setCreateMode('without-po')
-                setSelectedPOId('')
-                setSelectedPO(null)
-                setInvoiceLines([])
-                if (!invoiceNumber) {
-                  setInvoiceNumber(`PINV-${Date.now()}`)
-                }
-                loadProducts()
-              }}
-              className="flex-1"
-            >
-              إنشاء فاتورة مباشرة
+            <Button type="button" variant="outline" disabled>
+              فاتورة مباشرة بدون أمر شراء — غير متاحة في هذه الشريحة
             </Button>
           </div>
 
-          {/* Vendor and PO Selection */}
-          <div className={`grid ${(createMode === 'with-po' && selectedVendorId) ? 'grid-cols-2' : 'grid-cols-1'} gap-4`}>
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+            لا يمكن إنشاء فاتورة قبل وجود استلام مقبول، ولا توجد كتابة مباشرة بديلة. المرشحون أدناه صادرون من عقد الخادم المعتمد فقط.
+          </div>
+
+          <div className="flex justify-between items-center gap-3">
+            <div>
+              <h3 className="font-semibold">الاستلامات القابلة للفوترة</h3>
+              <p className="text-xs text-muted-foreground">الكمية والسعر ثابتان من Snapshot الخادم ولا يمكن تعديلهما من هذه الشاشة.</p>
+            </div>
+            <Button type="button" variant="outline" onClick={() => void loadCandidates()} disabled={loadingCandidates || posting}>
+              {loadingCandidates ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <RefreshCw className="ml-2 h-4 w-4" />}
+              تحديث المرشحين
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>اختر المورد *</Label>
-              <Select 
-                value={selectedVendorId} 
-                onValueChange={(value) => {
-                  console.log('🏢 Vendor changed to:', value)
-                  setSelectedVendorId(value)
-                }}
-              >
+              <Label>المورد *</Label>
+              <Select value={selectedVendorId} onValueChange={setSelectedVendorId} disabled={loadingCandidates || posting}>
                 <SelectTrigger>
-                  <SelectValue placeholder={loadingVendors ? 'جاري التحميل...' : 'اختر مورد'} />
+                  <SelectValue placeholder={loadingCandidates ? 'جاري التحميل...' : 'اختر موردًا'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {vendors.map(vendor => (
+                  {vendors.map((vendor) => (
                     <SelectItem key={vendor.id} value={vendor.id}>
                       {vendor.code} - {vendor.name}
                     </SelectItem>
@@ -568,134 +330,126 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
               </Select>
             </div>
 
-            {/* PO Selection - Only show in with-po mode */}
-            {createMode === 'with-po' && selectedVendorId ? (
-              <div className="space-y-2">
-                <Label>اختر أمر الشراء *</Label>
-                <Select value={selectedPOId} onValueChange={setSelectedPOId} disabled={loadingPOs}>
-                  <SelectTrigger>
-                  <SelectValue placeholder={(() => {
-                    if (loadingPOs) return 'جاري التحميل...'
-                    if (availablePOs.length === 0) return 'لا توجد أوامر شراء متاحة'
-                    return 'اختر أمر شراء'
-                  })()} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availablePOs.length === 0 ? (
-                      <div className="p-4 text-center text-sm text-muted-foreground">
-                        <p className="font-semibold mb-2">لا توجد أوامر شراء متاحة</p>
-                        <p className="text-xs">قد يكون السبب:</p>
-                        <ul className="text-xs mt-1 space-y-1">
-                          <li>• لا توجد أوامر شراء لهذا المورد</li>
-                          <li>• جميع الأوامر تم فوترتها بالكامل</li>
-                        </ul>
-                      </div>
-                    ) : (
-                      availablePOs.map(po => (
-                        <SelectItem key={po.id} value={po.id}>
-                          {toEnglishDigits(po.order_number)} - {toEnglishDigits(po.total_amount.toFixed(2))} ريال ({po.status})
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-                {loadingPOs && (
-                  <p className="text-xs text-muted-foreground flex items-center gap-1">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    جاري تحميل أوامر الشراء...
-                  </p>
-                )}
-                {!loadingPOs && availablePOs.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    تم العثور على {toEnglishDigits(availablePOs.length)} {availablePOs.length === 1 ? 'أمر شراء' : 'أوامر شراء'}
-                  </p>
-                )}
-              </div>
-            ) : createMode === 'with-po' && !selectedVendorId && (
-              <div className="space-y-2 flex items-end">
-                <p className="text-sm text-muted-foreground pb-2">
-                  ← اختر المورد أولاً لعرض أوامر الشراء
-                </p>
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label>أمر الشراء *</Label>
+              <Select value={selectedPOId} onValueChange={setSelectedPOId} disabled={!selectedVendorId || posting}>
+                <SelectTrigger>
+                  <SelectValue placeholder={purchaseOrders.length ? 'اختر أمر شراء' : 'لا يوجد أمر لديه استلام مقبول'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {purchaseOrders.map((po) => (
+                    <SelectItem key={po.id} value={po.id}>
+                      {toEnglishDigits(po.orderNumber)} ({po.status})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
-          {/* PO Details */}
-          {selectedPO && (
-            <div className="bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Package className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <p className="text-muted-foreground">رقم أمر الشراء</p>
-                    <p className="font-semibold text-foreground">{selectedPO.order_number}</p>
-                  </div>
+          {selectedPOId && poCandidates.length === 0 && (
+            <div className="rounded-lg border p-4 text-center text-muted-foreground">
+              لا توجد أسطر استلام مقبولة متبقية لهذا الأمر. لا يمكن المتابعة قبل وجود رصيد استلام قانوني.
+            </div>
+          )}
+
+          {poCandidates.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between rounded-lg bg-muted/30 p-3">
+                <Label className="text-base font-semibold">أسطر الاستلام ({toEnglishDigits(poCandidates.length)})</Label>
+                <div className="flex items-center gap-2 rounded-md border bg-background px-3 py-1.5">
+                  <Checkbox
+                    id="supplier-invoice-select-all"
+                    checked={allSelected}
+                    onCheckedChange={(checked) => {
+                      setSelectedLineIds(checked === true
+                        ? poCandidates.map((candidate) => candidate.goods_receipt_line_id)
+                        : [])
+                    }}
+                    disabled={posting}
+                  />
+                  <label htmlFor="supplier-invoice-select-all" className="cursor-pointer text-sm font-medium">تحديد الكل</label>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Truck className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <p className="text-muted-foreground">المورد</p>
-                    <p className="font-semibold text-foreground">{selectedPO.vendor?.name || 'غير محدد'}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <p className="text-muted-foreground">تاريخ الأمر</p>
-                    <p className="font-semibold text-foreground font-mono">
-                      {format(new Date(selectedPO.order_date), 'dd/MM/yyyy')}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <DollarSign className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <div>
-                    <p className="text-muted-foreground">إجمالي الأمر</p>
-                    <p className="font-semibold text-foreground font-mono">{toEnglishDigits(selectedPO.total_amount.toFixed(2))} ريال</p>
-                  </div>
-                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/70">
+                    <tr>
+                      <th className="p-3 text-center">✓</th>
+                      <th className="p-3 text-right">المنتج / الاستلام</th>
+                      <th className="p-3 text-center">الرصيد المتبقي</th>
+                      <th className="p-3 text-center">سعر PO</th>
+                      <th className="p-3 text-center">ضريبة</th>
+                      <th className="p-3 text-center">الإجمالي</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {poCandidates.map((candidate) => {
+                      const checked = selectedLineIds.includes(candidate.goods_receipt_line_id)
+                      const uomLabel = candidate.uom.symbol || candidate.uom.name_ar || candidate.uom.name
+                      const total = lineNet(candidate) + lineTax(candidate)
+                      return (
+                        <tr key={candidate.goods_receipt_line_id} className="hover:bg-accent/40">
+                          <td className="p-3 text-center">
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) => toggleLine(candidate.goods_receipt_line_id, value === true)}
+                              disabled={posting}
+                            />
+                          </td>
+                          <td className="p-3">
+                            <div className="font-medium">{candidate.product.name_ar || candidate.product.name}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {candidate.product.code} · {candidate.goods_receipt_number}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center font-mono">
+                            {toEnglishDigits(candidate.remaining_qty_entered)} {uomLabel}
+                            <div className="text-[11px] text-muted-foreground">
+                              أساس: {toEnglishDigits(candidate.remaining_qty_base)}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center font-mono">
+                            {money(candidate.po_unit_price_entered)} ر.س / {uomLabel}
+                            <div className="text-[11px] text-muted-foreground">
+                              أساس: {money(candidate.po_unit_price_base)}
+                            </div>
+                          </td>
+                          <td className="p-3 text-center font-mono">{toEnglishDigits(candidate.tax_percentage)}%</td>
+                          <td className="p-3 text-center font-mono font-semibold">{money(total)} ر.س</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}
 
-          {/* Invoice Details */}
-          <div className="bg-muted/30 dark:bg-muted/10 rounded-lg p-4 space-y-4">
-            <h3 className="font-semibold text-sm text-foreground">تفاصيل الفاتورة</h3>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="rounded-lg bg-muted/30 p-4 space-y-4">
+            <h3 className="font-semibold">بيانات فاتورة المورد</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label>رقم الفاتورة *</Label>
+                <Label>رقم فاتورة المورد *</Label>
                 <Input
                   value={invoiceNumber}
-                  onChange={(e) => setInvoiceNumber(e.target.value)}
-                  placeholder="PINV-001"
-                  className="font-mono"
+                  onChange={(event) => setInvoiceNumber(event.target.value)}
+                  placeholder="رقم المستند لدى المورد"
+                  disabled={posting}
                 />
               </div>
               <div className="space-y-2">
                 <Label>تاريخ الفاتورة *</Label>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-right font-normal",
-                        !invoiceDate && "text-muted-foreground"
-                      )}
-                    >
+                    <Button variant="outline" disabled={posting} className={cn('w-full justify-start text-right font-normal', !invoiceDate && 'text-muted-foreground')}>
                       <CalendarIcon className="ml-2 h-4 w-4" />
-                      {invoiceDate ? (
-                        <span className="flex-1 text-right">{format(invoiceDate, 'dd/MM/yyyy')}</span>
-                      ) : (
-                        <span className="flex-1 text-right">اختر التاريخ</span>
-                      )}
+                      {format(invoiceDate, 'dd/MM/yyyy')}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <CalendarComponent
-                      mode="single"
-                      selected={invoiceDate}
-                      onSelect={(date) => date && setInvoiceDate(date)}
-                    />
+                    <CalendarComponent mode="single" selected={invoiceDate} onSelect={(date) => date && setInvoiceDate(date)} />
                   </PopoverContent>
                 </Popover>
               </div>
@@ -703,371 +457,53 @@ export function SupplierInvoiceForm({ open, onOpenChange, onSuccess }: SupplierI
                 <Label>تاريخ الاستحقاق</Label>
                 <Popover>
                   <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className={cn(
-                        "w-full justify-start text-right font-normal",
-                        !dueDate && "text-muted-foreground"
-                      )}
-                    >
+                    <Button variant="outline" disabled={posting} className="w-full justify-start text-right font-normal">
                       <CalendarIcon className="ml-2 h-4 w-4" />
-                      {dueDate ? (
-                        <span className="flex-1 text-right">{format(dueDate, 'dd/MM/yyyy')}</span>
-                      ) : (
-                        <span className="flex-1 text-right">اختر التاريخ</span>
-                      )}
+                      {dueDate ? format(dueDate, 'dd/MM/yyyy') : 'اختياري'}
                     </Button>
                   </PopoverTrigger>
                   <PopoverContent className="w-auto p-0" align="start">
-                    <CalendarComponent
-                      mode="single"
-                      selected={dueDate}
-                      onSelect={setDueDate}
-                      disabled={(date) => date < invoiceDate}
-                    />
+                    <CalendarComponent mode="single" selected={dueDate} onSelect={setDueDate} disabled={(date) => date < invoiceDate} />
                   </PopoverContent>
                 </Popover>
               </div>
             </div>
           </div>
 
-          {/* Add Products Directly (without PO mode) */}
-          {createMode === 'without-po' && selectedVendorId && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between bg-muted/30 dark:bg-muted/10 rounded-lg p-3">
-                <Label className="text-base font-semibold">إضافة منتجات</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const newLine: InvoiceLine = {
-                      po_line_id: `temp-${Date.now()}`,
-                      product_id: '',
-                      product_name: '',
-                      product_code: '',
-                      ordered_quantity: 0,
-                      already_invoiced: 0,
-                      remaining_quantity: 999999,
-                      quantity_to_invoice: 1,
-                      unit_price: 0,
-                      discount_amount: 0,
-                      tax_rate: 15,
-                      selected: true
-                    }
-                    setInvoiceLines([...invoiceLines, newLine])
-                  }}
-                >
-                  + إضافة منتج
-                </Button>
+          {selectedCandidates.length > 0 && (
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold">المعاينة المالية</h4>
+                {previewReady && <Badge variant="secondary"><CheckCircle2 className="ml-1 h-3 w-3" /> مجهزة محليًا</Badge>}
               </div>
-
-              {invoiceLines.length > 0 && (
-                <div className="border rounded-lg overflow-hidden shadow-sm">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/70 dark:bg-muted">
-                      <tr className="border-b-2">
-                        <th className="p-3 text-right font-semibold">المنتج</th>
-                        <th className="p-3 text-center font-semibold">الكمية</th>
-                        <th className="p-3 text-center font-semibold">سعر الوحدة</th>
-                        <th className="p-3 text-center font-semibold">خصم</th>
-                        <th className="p-3 text-center font-semibold">الإجمالي</th>
-                        <th className="p-3 text-center font-semibold w-12">حذف</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {invoiceLines.map((line, index) => (
-                        <tr key={line.po_line_id} className="hover:bg-accent/50">
-                          <td className="p-3">
-                            <Select
-                              value={line.product_id}
-                              onValueChange={(value) => {
-                                const product = availableProducts.find(p => p.id === value)
-                                if (product) {
-                                  setInvoiceLines(lines =>
-                                    lines.map((l, i) =>
-                                      i === index
-                                        ? {
-                                            ...l,
-                                            product_id: product.id,
-                                            product_name: product.name,
-                                            product_code: product.code,
-                                            unit_price: product.cost_price || 0
-                                          }
-                                        : l
-                                    )
-                                  )
-                                }
-                              }}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="اختر منتج" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {availableProducts.map(product => (
-                                  <SelectItem key={product.id} value={product.id}>
-                                    {product.code} - {product.name}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              min="0.01"
-                              step="0.01"
-                              value={line.quantity_to_invoice}
-                              onChange={(e) => handleQuantityChange(index, e.target.value)}
-                              className="w-24 text-center font-mono"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={line.unit_price}
-                              onChange={(e) => {
-                                setInvoiceLines(lines =>
-                                  lines.map((l, i) =>
-                                    i === index ? { ...l, unit_price: Number.parseFloat(e.target.value) || 0 } : l
-                                  )
-                                )
-                              }}
-                              className="w-28 text-center font-mono"
-                            />
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={line.discount_amount}
-                              onChange={(e) => {
-                                setInvoiceLines(lines =>
-                                  lines.map((l, i) =>
-                                    i === index ? { ...l, discount_amount: Number.parseFloat(e.target.value) || 0 } : l
-                                  )
-                                )
-                              }}
-                              className="w-24 text-center font-mono"
-                            />
-                          </td>
-                          <td className="p-3 text-center font-bold text-foreground font-mono">
-                            {toEnglishDigits(calculateLineTotal(line).toFixed(2))} ر.س
-                          </td>
-                          <td className="p-3 text-center">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setInvoiceLines(lines => lines.filter((_, i) => i !== index))
-                              }}
-                            >
-                              ✕
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Invoice Lines (from PO) */}
-          {createMode === 'with-po' && invoiceLines.length > 0 && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between bg-muted/30 dark:bg-muted/10 rounded-lg p-3">
-                <Label className="text-base font-semibold">بنود الفاتورة ({invoiceLines.length})</Label>
-                <div className="flex items-center gap-2 bg-background px-3 py-1.5 rounded-md border">
-                  <Checkbox
-                    id="select-all"
-                    checked={invoiceLines.every(line => line.selected || line.remaining_quantity === 0)}
-                    onCheckedChange={handleSelectAll}
-                  />
-                  <label htmlFor="select-all" className="text-sm cursor-pointer font-medium">
-                    تحديد الكل
-                  </label>
-                </div>
-              </div>
-
-              <div className="border rounded-lg overflow-hidden shadow-sm">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/70 dark:bg-muted">
-                    <tr className="border-b-2">
-                      <th className="p-3 text-right w-12 font-semibold">✓</th>
-                      <th className="p-3 text-right font-semibold">المنتج</th>
-                      <th className="p-3 text-center font-semibold">الكمية المطلوبة</th>
-                      <th className="p-3 text-center font-semibold">تم الفوترة</th>
-                      <th className="p-3 text-center font-semibold">المتبقي</th>
-                      <th className="p-3 text-center font-semibold">كمية الفاتورة</th>
-                      <th className="p-3 text-center font-semibold">سعر الوحدة</th>
-                      <th className="p-3 text-center font-semibold">الإجمالي</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {invoiceLines.map((line, index) => {
-                      const canInvoice = line.remaining_quantity > 0
-
-                      return (
-                        <tr
-                          key={line.po_line_id}
-                          className={canInvoice ? 'hover:bg-accent/50' : 'bg-muted/30'}
-                        >
-                          <td className="p-3 text-center">
-                            <Checkbox
-                              checked={line.selected}
-                              onCheckedChange={(checked) => handleLineSelect(index, checked as boolean)}
-                              disabled={!canInvoice}
-                            />
-                          </td>
-                          <td className="p-3">
-                            <div>
-                              <p className="font-medium text-foreground">{line.product_name}</p>
-                              <p className="text-xs text-muted-foreground">{line.product_code}</p>
-                            </div>
-                          </td>
-                          <td className="p-3 text-center font-medium font-mono">
-                            {toEnglishDigits(line.ordered_quantity)}
-                          </td>
-                          <td className="p-3 text-center text-green-600 dark:text-green-400 font-medium font-mono">
-                            {toEnglishDigits(line.already_invoiced)}
-                          </td>
-                          <td className="p-3 text-center">
-                            <Badge variant={line.remaining_quantity > 0 ? 'default' : 'secondary'}>
-                              {toEnglishDigits(line.remaining_quantity)}
-                            </Badge>
-                          </td>
-                          <td className="p-3">
-                            <Input
-                              type="number"
-                              min="0"
-                              max={line.remaining_quantity}
-                              step="0.01"
-                              value={line.quantity_to_invoice}
-                              onChange={(e) => handleQuantityChange(index, e.target.value)}
-                              disabled={!line.selected}
-                              className="w-24 text-center font-mono"
-                            />
-                          </td>
-                          <td className="p-3 text-center text-muted-foreground font-mono">
-                            {toEnglishDigits(line.unit_price.toFixed(2))} ر.س
-                          </td>
-                          <td className="p-3 text-center font-bold text-foreground font-mono">
-                            {toEnglishDigits(calculateLineTotal(line).toFixed(2))} ر.س
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Summary */}
-              {selectedCount > 0 && (
-                <div className="bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 border border-primary/30 rounded-lg p-5 shadow-sm">
-                  <h4 className="font-semibold mb-3 text-foreground">ملخص الفاتورة</h4>
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">عدد البنود:</span>
-                      <span className="font-semibold text-foreground">{toEnglishDigits(selectedCount)} بند</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">المجموع الفرعي:</span>
-                      <span className="font-mono font-medium text-foreground">{toEnglishDigits(subtotal.toFixed(2))} ر.س</span>
-                    </div>
-                    {totalDiscount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-muted-foreground">الخصم:</span>
-                        <span className="font-mono font-medium text-red-600 dark:text-red-400">- {toEnglishDigits(totalDiscount.toFixed(2))} ر.س</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">ضريبة القيمة المضافة (15%):</span>
-                      <span className="font-mono font-medium text-foreground">{toEnglishDigits(totalTax.toFixed(2))} ر.س</span>
-                    </div>
-                    <div className="border-t pt-2 mt-2">
-                      <div className="flex justify-between items-center">
-                        <span className="font-semibold text-foreground">الإجمالي النهائي:</span>
-                        <span className="text-2xl font-bold text-primary dark:text-primary-foreground font-mono">
-                          {toEnglishDigits(totalToInvoice.toFixed(2))} ر.س
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Summary for without-po mode */}
-          {createMode === 'without-po' && invoiceLines.length > 0 && (
-            <div className="bg-gradient-to-br from-primary/10 to-primary/5 dark:from-primary/20 dark:to-primary/10 border border-primary/30 rounded-lg p-5 shadow-sm">
-              <h4 className="font-semibold mb-3 text-foreground">ملخص الفاتورة</h4>
-              <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">عدد البنود:</span>
-                  <span className="font-semibold text-foreground">{toEnglishDigits(selectedCount)} بند</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">المجموع الفرعي:</span>
-                  <span className="font-mono font-medium text-foreground">{toEnglishDigits(subtotal.toFixed(2))} ر.س</span>
-                </div>
-                {totalDiscount > 0 && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">الخصم:</span>
-                    <span className="font-mono font-medium text-red-600 dark:text-red-400">- {toEnglishDigits(totalDiscount.toFixed(2))} ر.س</span>
-                  </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">ضريبة القيمة المضافة (15%):</span>
-                  <span className="font-mono font-medium text-foreground">{toEnglishDigits(totalTax.toFixed(2))} ر.س</span>
-                </div>
-                <div className="border-t pt-2 mt-2">
-                  <div className="flex justify-between items-center">
-                    <span className="font-semibold text-foreground">الإجمالي النهائي:</span>
-                    <span className="text-2xl font-bold text-primary dark:text-primary-foreground font-mono">
-                      {toEnglishDigits(totalToInvoice.toFixed(2))} ر.س
-                    </span>
-                  </div>
-                </div>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between"><span>عدد الأسطر</span><strong>{toEnglishDigits(selectedCandidates.length)}</strong></div>
+                <div className="flex justify-between"><span>الصافي قبل الضريبة</span><strong>{money(subtotal)} ر.س</strong></div>
+                <div className="flex justify-between"><span>ضريبة المدخلات</span><strong>{money(taxAmount)} ر.س</strong></div>
+                <div className="flex justify-between border-t pt-2 text-base"><span>الإجمالي المتوقع</span><strong>{money(totalAmount)} ر.س</strong></div>
               </div>
             </div>
           )}
 
-          {/* Notes */}
-          <div className="space-y-2">
-            <Label>ملاحظات</Label>
-            <Input
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="ملاحظات إضافية (اختياري)"
-            />
-          </div>
+          {!canApprove && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50/60 p-4 text-sm text-blue-900 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-100">
+              لديك صلاحية تجهيز الطلب ومعاينته فقط. لا يتم حفظ مسودة في قاعدة البيانات، ويتطلب الاعتماد والترحيل صلاحية <span className="font-mono">purchasing.purchase_invoices.approve</span>.
+            </div>
+          )}
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t">
-            <Button
-              onClick={handleSubmit}
-              disabled={loading || invoiceLines.length === 0 || !invoiceNumber.trim() || !selectedVendorId}
-              className="flex-1 h-11"
-              size="lg"
-            >
-              {loading && <Loader2 className="ml-2 h-4 w-4 animate-spin" />}
-              {!loading && <DollarSign className="ml-2 h-4 w-4" />}
-              إنشاء فاتورة المشتريات
+          <div className="flex flex-wrap gap-3 border-t pt-4">
+            <Button type="button" variant="outline" onClick={handlePreparePreview} disabled={posting || loadingCandidates}>
+              تجهيز المعاينة
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={loading}
-              className="h-11"
-              size="lg"
-            >
+
+            {canApprove && (
+              <Button type="button" onClick={() => void handleApproveAndPost()} disabled={posting || loadingCandidates}>
+                {posting ? <Loader2 className="ml-2 h-4 w-4 animate-spin" /> : <ShieldCheck className="ml-2 h-4 w-4" />}
+                اعتماد وترحيل
+              </Button>
+            )}
+
+            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={posting}>
               إلغاء
             </Button>
           </div>
