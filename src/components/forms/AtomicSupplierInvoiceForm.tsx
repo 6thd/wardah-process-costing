@@ -236,7 +236,7 @@ export function SupplierInvoiceForm({
     invoice_number: invoiceNumber.trim(),
     invoice_date: calendarDay(invoiceDate),
     due_date: dueDate ? calendarDay(dueDate) : null,
-    lines: selectedCandidates.map(candidateToMatchedLine),
+    lines: selectedCandidates.map((candidate) => candidateToMatchedLine(candidate)),
   })
 
   const handleApproveAndPost = async () => {
