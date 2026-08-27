@@ -1,12 +1,5 @@
-import fs from 'node:fs'
-import path from 'node:path'
+import source from '@/components/forms/AtomicSupplierInvoiceForm.tsx?raw'
 import { describe, expect, it } from 'vitest'
-
-const sourcePath = path.resolve(
-  process.cwd(),
-  'src/components/forms/AtomicSupplierInvoiceForm.tsx',
-)
-const source = fs.readFileSync(sourcePath, 'utf8')
 
 describe('supplier invoice atomic UI ratchet', () => {
   it('contains only the canonical matched-invoice write service', () => {
