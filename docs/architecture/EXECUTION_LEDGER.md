@@ -2,7 +2,7 @@
 
 **Purpose:** durable restart checkpoint for active and unfinished product, security, financial-reporting, manufacturing, and repository-alignment work.
 
-**Current anchor:** `main@680754dbddbfc696ed0e9a7e96d667489ffc6fcd` (after PR #191)
+**Current anchor:** `main@608633c1b96f13df9fde9f2fbd1689dee3959695` (after PR #190)
 
 > This file is the live execution checkpoint. Historical plans keep their original phase names and evidence, but new work must use the namespaced IDs below. A phase is not considered complete because a chat or old plan says so; completion requires repository/PR/migration/test evidence recorded here.
 
@@ -28,8 +28,8 @@
 
 ## Current focus
 
-1. `ALIGN-P0` — establish truthful product/repository map and live documentation index.
-2. `ALIGN-P1` — product catalog + dynamic Sidebar, in a separate application PR after the documentation checkpoint is reviewable.
+1. `ALIGN-P0` — Draft PR #192 establishes the truthful product/repository map and live documentation checkpoint.
+2. `ALIGN-P1` — product catalog + dynamic Sidebar, in a separate application PR after the documentation checkpoint is reviewed/merged.
 3. Security prerequisite wave before financial statements: `SEC-172`, `SEC-162`, `SEC-161`, then `SEC-171` if scope remains focused.
 4. Reconcile `FINREP-SPEC` against the current DB/repository baseline.
 5. `FINREP-1` — authoritative financial reporting round.
@@ -40,14 +40,14 @@ No Production mutation is authorized by this ledger.
 
 | ID | Status | Evidence / current truth | Next action / gate |
 |---|---|---|---|
-| `ALIGN-P0` | ACTIVE | Documentation branch now contains the product-alignment plan, durable ledger, live route×Sidebar×permission inventory, live docs index, and a superseded marker on the old repository reorganization plan. | Review the focused docs PR; no file moves or runtime changes. After merge/reconciliation, begin `ALIGN-P1` in a separate application PR. |
-| `ALIGN-P1` | QUEUED | Approved direction: central product catalog, Sidebar driven from catalog + permissions, remove decorative badges/duplicate module constants, tests. | Separate application PR after `ALIGN-P0` checkpoint is reviewed. No DB dependency expected; verify permission semantics before code. |
-| PR `#190` | BLOCKED | Existing docs-only Production/Staging/Preview topology PR is still open. Its base predates #189/#191. | Reconcile/rebase onto current `main`, re-review diff, then normal merge authorization. Do not duplicate its policy text elsewhere. |
+| `ALIGN-P0` | ACTIVE | Draft PR #192 contains the product-alignment plan, durable ledger, live route×Sidebar×permission inventory, live docs index, and a superseded marker on the old repository reorganization plan. Its branch has current `main@608633c...` merged in. | Review #192. No file moves/runtime changes. After normal merge authorization, begin `ALIGN-P1` separately. |
+| `ALIGN-P1` | QUEUED | Approved direction: central product catalog, Sidebar driven from catalog + permissions, remove decorative badges/duplicate module constants, tests. | Separate application PR after `ALIGN-P0`; verify exact permission semantics before code. |
+| PR `#190` | DONE | Production/Staging/Preview topology documentation merged to `main` as `608633c1b96f13df9fde9f2fbd1689dee3959695`. | Preserve its `CLAUDE.md` policy; no duplicate follow-up required unless CI/review finds a defect. |
 | `SEC-172` | QUEUED | Financial report RPC reads are tenant/member scoped without exact financial read permissions. Direct prerequisite for the financial-reporting round. | DB-first design + focused migration/acceptance PR; Production apply requires separate authorization. |
 | `SEC-162` | QUEUED | Fiscal-period generation/status mutation boundary lacks exact RBAC. | Design exact period permissions; DB-first migration/acceptance. |
 | `SEC-161` | QUEUED | `gl_accounts` mutations have broad org boundary and overlapping CoA permission families. | Decide canonical CoA permission family before changing RLS/RPCs. |
 | `SEC-171` | QUEUED | Client can insert into trusted audit stream. | Separate trusted server audit from client telemetry or close direct INSERT. |
-| `FINREP-SPEC` | AUDIT_REQUIRED | `docs/FINANCIAL_REPORTING_ENGINE_SPEC.md` still declares repository/Production cutoff 152 and migration numbering from that era, while the current documented/live DB cutoff is 181. Its accounting design may remain useful, but its deployment sequence cannot be executed as written. | Before `FINREP-1`, reconcile the specification against current `main`, Production ledger, canonical GL model, fiscal-period state, and the open security issues. Do not reuse old migration numbers. |
+| `FINREP-SPEC` | AUDIT_REQUIRED | `docs/FINANCIAL_REPORTING_ENGINE_SPEC.md` still declares repository/Production cutoff 152 and migration numbering from that era, while the current documented/live DB cutoff is 181. Its accounting design may remain useful, but its deployment sequence cannot be executed as written. | Before `FINREP-1`, reconcile the specification against current `main`, Production ledger, canonical GL model, fiscal-period state, and open security issues. Do not reuse old migration numbers. |
 | `FINREP-1` | BLOCKED | Trial balance/account statement/reconciliation UI already exists, but `SEC-172` and `FINREP-SPEC` reconciliation must be closed before treating report reads/design as a safe current product boundary. | After prerequisites: Trial Balance authority → GL/account statement → Income Statement → Balance Sheet → Cash Flow → comparison/export/print. |
 
 ## Reconstructed historical phase state
@@ -95,7 +95,7 @@ When resuming work after an interruption:
 - `docs/INDEX.md` links only to real current resources;
 - old reorganization plans are clearly historical/superseded;
 - route × Sidebar × permission readiness inventory is captured;
-- PR #190 is represented as an existing open dependency rather than forgotten;
-- this ledger is updated to the resulting PR/head.
+- PR #190 is recorded with its real current status;
+- this ledger points to the resulting PR/head.
 
 Then `ALIGN-P1` begins in its own application PR.
