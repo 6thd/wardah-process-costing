@@ -60,7 +60,7 @@ function child(
   href: string,
   labelKey: string,
   status: ProductReadiness = 'ga',
-  extra: Pick<ProductCatalogItem, 'blockedByIssue' | 'compatibilityOnly'> = {},
+  extra: Partial<Pick<ProductCatalogItem, 'blockedByIssue' | 'compatibilityOnly'>> = {},
 ): ProductCatalogItem {
   return {
     key,
@@ -87,7 +87,10 @@ function moduleItem(
     href,
     icon,
     moduleCode,
-    requirements: routeRequirement(moduleCode, href, `${href}/overview`),
+    // Every guarded product module defines its root `/` contract. Deriving
+    // parent navigation from the root avoids inventing `/overview` where one
+    // does not exist (Reports is the important current example).
+    requirements: routeRequirement(moduleCode, href, href),
     status,
     children,
   };
@@ -231,7 +234,7 @@ const superAdminChildren: readonly ProductCatalogItem[] = [
   { key: 'organizations', labelKey: 'navigation.organizations', href: '/super-admin/organizations', moduleCode: MODULE_CODES.SUPER_ADMIN, status: 'ga', requireSuperAdmin: true },
 ];
 
-const accountingOverview = resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/overview');
+const accountingOverview = resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/');
 const generalLedgerOverview = resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/');
 
 export const PRODUCT_CATALOG: readonly ProductCatalogItem[] = [
