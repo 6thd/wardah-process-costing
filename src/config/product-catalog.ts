@@ -29,8 +29,7 @@ export interface ProductCatalogItem {
   readonly moduleCode: string;
   /**
    * Exact route-entry requirements derived from route-permissions.ts.
-   * Multiple requirements are OR-ed only for intentional cross-module groups
-   * such as the unified Accounting + General Ledger navigation group.
+   * Multiple requirements are OR-ed only for intentional navigation groups.
    */
   readonly requirements?: readonly RouteRequirement[];
   readonly status: ProductReadiness;
@@ -81,16 +80,21 @@ function moduleItem(
   children: readonly ProductCatalogItem[],
   status: ProductReadiness = 'ga',
 ): ProductCatalogItem {
+  const rootRequirements = routeRequirement(moduleCode, href, href) ?? [];
+  const childRequirements = children.flatMap(item => item.requirements ?? []);
+
   return {
     key,
     labelKey: `navigation.${key}`,
     href,
     icon,
     moduleCode,
-    // Every guarded product module defines its root `/` contract. Deriving
-    // parent navigation from the root avoids inventing `/overview` where one
-    // does not exist (Reports is the important current example).
-    requirements: routeRequirement(moduleCode, href, href),
+    // A navigation group is relevant when the caller may enter its root OR at
+    // least one visible child. This is intentionally broader than the root
+    // overview contract, but every requirement still comes from the exact
+    // fail-closed route contract. Collapsed Sidebar navigation opens the first
+    // permitted child so it never relies on a root permission the caller lacks.
+    requirements: [...rootRequirements, ...childRequirements],
     status,
     children,
   };
@@ -234,8 +238,9 @@ const superAdminChildren: readonly ProductCatalogItem[] = [
   { key: 'organizations', labelKey: 'navigation.organizations', href: '/super-admin/organizations', moduleCode: MODULE_CODES.SUPER_ADMIN, status: 'ga', requireSuperAdmin: true },
 ];
 
-const accountingOverview = resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/');
-const generalLedgerOverview = resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/');
+const accountingRootRequirements = resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/') ? [resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/') as RouteRequirement] : [];
+const generalLedgerRootRequirements = resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/') ? [resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/') as RouteRequirement] : [];
+const accountingChildRequirements = accountingChildren.flatMap(item => item.requirements ?? []);
 
 export const PRODUCT_CATALOG: readonly ProductCatalogItem[] = [
   {
@@ -257,7 +262,7 @@ export const PRODUCT_CATALOG: readonly ProductCatalogItem[] = [
     href: '/accounting',
     icon: 'BookOpen',
     moduleCode: MODULE_CODES.ACCOUNTING,
-    requirements: [accountingOverview, generalLedgerOverview].filter((r): r is RouteRequirement => r !== undefined),
+    requirements: [...accountingRootRequirements, ...generalLedgerRootRequirements, ...accountingChildRequirements],
     status: 'beta',
     children: accountingChildren,
   },
