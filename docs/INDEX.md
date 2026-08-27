@@ -1,151 +1,63 @@
-# 📚 Documentation Index
-**فهرس التوثيق الشامل**
+# Wardah ERP — Documentation Index
 
-> **Last Updated:** 2025-01-20
+**آخر تحديث:** 2026-08-27  
+**الحالة:** فهرس حي — الروابط أدناه تشير فقط إلى موارد موجودة في المستودع وقت التحديث.
 
----
+> المرجع التشغيلي لقاعدة البيانات وCI هو [`CLAUDE.md`](../CLAUDE.md).  
+> نقطة استئناف العمل بين الجولات هي [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md).
 
-## 🚀 Getting Started
+## ابدأ من هنا
 
-### For New Users:
-1. [Installation Guide](./getting-started/installation.md) - Setup from scratch
-2. [Quick Start Guide](./getting-started/quick-start.md) - Get running in 5 minutes
-3. [First Steps](./getting-started/first-steps.md) - What to do after installation
+- [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md) — ما انتهى، ما هو نشط، ما هو متوقف، والخطوة التالية. استخدم أسماء المراحل المقيّدة مثل `CORE-P*` و`MFG-P*` و`ALIGN-P*` بدل `P0/P1` المجردة.
+- [`architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة مواءمة خريطة المنتج والتنقّل والمستودع.
+- [`architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — جرد حي لمسارات الواجهة × Sidebar × عقود الصلاحيات.
+- [`architecture/README.md`](./architecture/README.md) — ADRs والمرجع المعماري.
 
----
+## قاعدة البيانات والحوكمة
 
-## 📖 Features Documentation
+- [`db/`](./db/) — Runbooks وسجلات التصميم والمطابقة بين المستودع وProduction.
+- [`../CLAUDE.md`](../CLAUDE.md) — حوكمة migrations/CI وحالة التشغيل المرجعية.
+- [`../sql/migrations/`](../sql/migrations/) — سلسلة migrations القانونية في المستودع.
+- [`../sql/baseline/`](../sql/baseline/) — baseline المولّد والمراجع.
 
-### 📊 Accounting Module
-- [Accounting Overview](./features/accounting/README.md) - Complete guide
-- Chart of Accounts - Hierarchical account management
-- Journal Entries - Double-entry bookkeeping
-- Trial Balance - Financial reporting
-- Account Statements - Detailed account analysis
+لا يُستدل على حالة Production من وجود migration في المستودع فقط؛ حالة Production تحتاج ledger/live verification منفصلًا.
 
-### 🏭 Manufacturing Module
-- [Manufacturing Overview](./features/manufacturing/README.md) - Complete guide
-- Process Costing - Stage-by-stage cost calculation
-- BOM Management - Bill of Materials
-- Manufacturing Orders - Production planning
-- Work Centers - Resource management
+## المحاسبة والتقارير المالية
 
-### 📦 Inventory Module
-- [Inventory Overview](./features/inventory/README.md) - Complete guide
-- Stock Movements - Track all inventory changes
-- Stock Adjustments - Manual corrections
-- AVCO Valuation - Average cost method
-- Warehouse Management - Multi-warehouse support
+- [`FINANCIAL_REPORTING_ENGINE_SPEC.md`](./FINANCIAL_REPORTING_ENGINE_SPEC.md) — مواصفات محرك التقارير المالية.
+- [`db/SUPPLIER_INVOICE_ATOMIC_LIFECYCLE_PLAN.md`](./db/SUPPLIER_INVOICE_ATOMIC_LIFECYCLE_PLAN.md) — سجل تصميم وتنفيذ دورة فاتورة المورد الذرية.
+- [`PRODUCTION_CHECKLIST.md`](./PRODUCTION_CHECKLIST.md) — قائمة تحقق تشغيلية عامة؛ لا تحل محل runbook خاص بكل تغيير.
 
-### 👥 HR Module
-- [HR Overview](./features/hr/README.md) - Complete guide
-- Employee Management - Employee records
-- Payroll - Salary calculations
-- Attendance - Time tracking
-- Leaves - Leave management
+العمل المفتوح والتصحيحات الأمنية تُتبع في GitHub Issues وتُربط من `EXECUTION_LEDGER.md` بدل نسخ حالتها يدويًا هنا.
 
----
+## التصنيع وتكلفة المراحل
 
-## 🗄️ Deployment & Setup
+- [`features/manufacturing/`](./features/manufacturing/) — التوثيق الحي لمجال التصنيع.
+- [`features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md`](./features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) — خارطة التصنيع المتقدمة (`MFG-P*`).
+- [`architecture/PROCESS_COSTING_LIMITATIONS.md`](./architecture/PROCESS_COSTING_LIMITATIONS.md) — الحدود المعروفة لمحرك تكلفة المراحل.
+- [`architecture/ADR-003-Process-Costing-Implementation.md`](./architecture/ADR-003-Process-Costing-Implementation.md) — قرار معمارية Process Costing.
 
-### Database:
-- [Database Setup](./deployment/database-setup.md) - Initial database configuration
-- [SQL Scripts Guide](./deployment/sql-scripts.md) - How to run SQL scripts
-- [Migrations](./deployment/migrations.md) - Database migration guide
+## التحسينات التاريخية
 
-### Production:
-- [Production Deployment](./deployment/production.md) - Deploy to production
-- [Environment Variables](./deployment/environment.md) - Configuration guide
-- [Backup & Restore](./deployment/backup.md) - Data backup procedures
+- [`improvements/README.md`](./improvements/README.md) — برنامج التحسينات الجوهرية في يوليو 2026 (`CORE-P*`). يُستخدم كسجل تاريخي، بينما الحالة الحالية لكل بند تُراجع من `EXECUTION_LEDGER.md` والمستودع الحي.
+- [`REPOSITORY_REORGANIZATION_PLAN.md`](./REPOSITORY_REORGANIZATION_PLAN.md) — خطة إعادة تنظيم تاريخية/مستبدلة؛ لا تُستخدم كصورة حالية للمستودع.
+- [`archive/`](./archive/) — مواد تاريخية. ليست مصدر حقيقة حيًا ما لم يُشر إليها Runbook/ADR حالي صراحةً.
 
----
+## الجودة والأمن والاختبارات
 
-## 🔧 Troubleshooting
+- [`quality/`](./quality/) — تقارير ومراجعات الجودة الموجودة في المستودع.
+- [`security/`](./security/) — توثيق الأمن الموجود في المستودع.
+- [`testing/`](./testing/) — توثيق الاختبارات الموجود في المستودع.
 
-### Common Issues:
-- [Common Issues](./troubleshooting/common-issues.md) - Frequently asked questions
-- [Performance Guide](./troubleshooting/performance.md) - Optimization tips
-- [Error Messages](./troubleshooting/errors.md) - Error resolution guide
+## النشر والبيئات
 
-### Maintenance:
-- [Weekly Checklist](./troubleshooting/weekly-checklist.md) - Regular maintenance
-- [Index Maintenance](./troubleshooting/index-maintenance.md) - Database optimization
-- [Cache Management](./troubleshooting/cache.md) - Cache invalidation
+- [`deployment/`](./deployment/) — توثيق النشر الموجود حاليًا.
+- يوجد PR توثيقي مستقل لتثبيت سياسة Production/Staging/Preview؛ حالته الحالية تُتابع من `EXECUTION_LEDGER.md` بدل افتراض اكتمالها من هذا الفهرس.
 
----
+## قاعدة الحفاظ على صدق الفهرس
 
-## 📊 Performance Optimization
-
-### Achievements:
-- ✅ 40-60% performance improvement
-- ✅ 289 database indexes
-- ✅ 5 optimized views
-- ✅ React Query caching
-
-### Guides:
-- [Performance Optimization Guide](./troubleshooting/performance.md)
-- [Index Maintenance](./troubleshooting/index-maintenance.md)
-- [Weekly Performance Checklist](./troubleshooting/weekly-checklist.md)
-
----
-
-## 📁 Archive
-
-### Old Documentation:
-All previous documentation files have been moved to [docs/archive/](./archive/) for reference.
-
-### SQL Scripts:
-Historical SQL scripts are in [sql/archive/](../sql/archive/) for reference.
-
-### Scripts:
-Old automation scripts are in [scripts/archive/](../scripts/archive/) for reference.
-
----
-
-## 🔍 Quick Links
-
-### Most Used:
-- 🚀 [Quick Start](./getting-started/quick-start.md)
-- 🗄️ [Database Setup](./deployment/database-setup.md)
-- 📊 [Accounting Guide](./features/accounting/README.md)
-- 🏭 [Manufacturing Guide](./features/manufacturing/README.md)
-- ⚡ [Performance Guide](./troubleshooting/performance.md)
-
-### For Developers:
-- [API Documentation](./api/README.md) - Coming soon
-- [Component Library](./components/README.md) - Coming soon
-- [Testing Guide](./testing/README.md) - Coming soon
-
----
-
-## 📝 Documentation Standards
-
-### File Naming:
-- Use lowercase with hyphens: `getting-started.md`
-- Be descriptive: `database-setup.md` not `setup.md`
-
-### Structure:
-- Start with a brief overview
-- Use clear headings (H2, H3)
-- Include code examples
-- Add screenshots when helpful
-
-### Updates:
-- Update this index when adding new docs
-- Keep dates updated
-- Remove outdated information
-
----
-
-## 🎯 Need Help?
-
-1. **Check this index first** - Most questions are answered here
-2. **Search the archive** - Old docs might have answers
-3. **Check GitHub Issues** - See if others had the same problem
-4. **Ask in Discussions** - Community support
-
----
-
-**Last Updated:** 2025-01-20  
-**Maintained by:** Wardah ERP Team
-
+1. لا يُضاف رابط إلى ملف/مجلد مخطط له قبل وجوده فعليًا.
+2. الموارد التاريخية تُعلَّم Historical/Superseded ولا تُقدَّم كمصدر حقيقة حي.
+3. `docs/db` و`CLAUDE.md` يبقيان منفصلين عن خطط UI/تنظيم المستودع.
+4. تغيّر حالة مشروع/PR/Issue لا يُنسخ هنا إلا إذا كان جزءًا من عقد توثيق دائم؛ الحالة التنفيذية المتغيرة مكانها `EXECUTION_LEDGER.md`.
+5. عند إضافة مجال منتج جديد، يُحدّث هذا الفهرس بعد أن يصبح مساره/توثيقه موجودًا فعلًا.
