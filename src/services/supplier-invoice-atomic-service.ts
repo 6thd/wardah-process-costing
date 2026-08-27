@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { Json } from '@/types/database.generated'
 
 export interface SupplierInvoiceCandidate {
   organization_id: string
@@ -96,11 +97,29 @@ export async function listSupplierInvoiceCandidates(input: {
   return data as unknown as SupplierInvoiceCandidate[]
 }
 
+function matchedPayloadToJson(payload: MatchedSupplierInvoicePayload): Json {
+  return {
+    org_id: payload.org_id,
+    vendor_id: payload.vendor_id,
+    invoice_number: payload.invoice_number,
+    invoice_date: payload.invoice_date,
+    due_date: payload.due_date,
+    idempotency_key: payload.idempotency_key,
+    lines: payload.lines.map((line) => ({
+      goods_receipt_line_id: line.goods_receipt_line_id,
+      quantity_base: line.quantity_base,
+      unit_price: line.unit_price,
+      discount_percentage: line.discount_percentage,
+      tax_percentage: line.tax_percentage,
+    })),
+  }
+}
+
 export async function createMatchedSupplierInvoice(
   payload: MatchedSupplierInvoicePayload,
 ): Promise<MatchedSupplierInvoiceResult> {
   const { data, error } = await supabase.rpc('rpc_create_matched_supplier_invoice', {
-    p_payload: payload,
+    p_payload: matchedPayloadToJson(payload),
   })
 
   if (error) throw error
