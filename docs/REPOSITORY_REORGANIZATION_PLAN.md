@@ -1,7 +1,12 @@
 # 🗂️ Repository Reorganization Plan
 **خطة إعادة تنظيم الريبو**
 
-## 📊 الوضع الحالي: ✅ **مكتمل!**
+> **⚠️ HISTORICAL / SUPERSEDED — ليست صورة المستودع الحالية.**  
+> هذه الخطة توثق جولة تنظيم سابقة ونتائجها في وقتها، لكنها تصف هيكلًا طموحًا لم يعد يطابق القرص الحالي حرفيًا.  
+> المرجع الحالي لمواءمة المنتج/المستودع هو [`architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md)، ونقطة الاستئناف التنفيذية هي [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md).  
+> لا تُستأنف مراحل جديدة من هذا الملف ولا تُنشأ مجلدات/روابط لمجرد أنها مذكورة أدناه؛ يُحتفظ بالمحتوى التالي كسجل تاريخي.
+
+## 📊 الوضع التاريخي عند إغلاق الجولة: ✅ **مكتمل حسب نطاقها وقتها**
 - ✅ تم نقل 171 ملف markdown إلى docs/archive/
 - ✅ تم نقل 138 ملف SQL إلى sql/archive/
 - ✅ تم نقل 67 ملف script إلى scripts/archive/
