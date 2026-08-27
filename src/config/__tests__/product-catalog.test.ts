@@ -88,7 +88,10 @@ describe('product catalog navigation', () => {
     const visible = getVisibleProductNavigation(context(['reports.inventory.read']));
 
     expect(moduleByKey(visible, 'reports')).toBeDefined();
-    expect(childKeys(visible, 'reports')).toEqual(['inventory']);
+    // /reports/advanced accepts any of financial/inventory/manufacturing/sales
+    // (REPORTS_ADVANCED in route-permissions.ts), so reports.inventory.read
+    // alone satisfies both the /inventory and /advanced route contracts.
+    expect(childKeys(visible, 'reports')).toEqual(['inventory', 'advanced']);
   });
 
   it('keeps admin surfaces behind their explicit admin flags', () => {
