@@ -374,14 +374,24 @@ BEGIN
      DATE '2026-03-20', 'sale', 'Historical account-code fallback',
      125.00, 125.00, 'posted', 'system');
 
+  -- Migration 153 correctly rejects *new* lines without account_id. Reproduce
+  -- a pre-153 historical row by bypassing only the compatibility trigger inside
+  -- this rollback-only fixture. Keep the legacy mirror columns synchronized so
+  -- LT-3 below remains the sole deliberate view/ledger divergence.
+  ALTER TABLE public.gl_entry_lines
+    DISABLE TRIGGER trg_wardah_gl_line_legal_compat;
+
   INSERT INTO public.gl_entry_lines
     (org_id, entry_id, line_number, account_id, account_code, account_name,
-     debit, credit, currency_code)
+     debit, credit, debit_amount, credit_amount, currency_code)
   VALUES
     (v_org, '7b1a0000-3333-4000-8000-000000000004', 1, NULL, '1101',
-     'Cash fallback', 125.00, 0, 'SAR'),
+     'Cash fallback', 125.00, 0, 125.00, 0, 'SAR'),
     (v_org, '7b1a0000-3333-4000-8000-000000000004', 2, NULL, '4101',
-     'Revenue fallback', 0, 125.00, 'SAR');
+     'Revenue fallback', 0, 125.00, 0, 125.00, 'SAR');
+
+  ALTER TABLE public.gl_entry_lines
+    ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
   v_dr := NULL;
   v_name_ar := NULL;
