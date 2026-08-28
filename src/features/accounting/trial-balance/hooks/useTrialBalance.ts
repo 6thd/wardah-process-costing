@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { supabase } from '@/lib/supabase';
+import { supabase, getTenantId } from '@/lib/supabase';
 import { trialBalanceService } from '@/services/supabase-service';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
 import type { TrialBalanceRow } from '../types';
@@ -46,9 +46,20 @@ export function useTrialBalance(fromDate: string, asOfDate: string) {
           console.warn('Trying RPC fallback...');
         }
 
+        // هوية المؤسسة تُشتق من عضوية المستخدم الحالي، ولا تُثبَّت في الكود.
+        // معرّف افتراضي هنا كان سيعرض أرقام مؤسسة أخرى داخل شاشة المستخدم فور
+        // وجود أكثر من مؤسسة. بلا هوية ⇒ فشل مغلق إلى الحساب اليدوي، لا افتراض.
+        const orgId = await getTenantId();
+        if (!orgId) {
+          console.warn('⚠️ No active organization for caller — using manual fallback');
+          const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
+          setBalances(manualData);
+          return;
+        }
+
         const { data, error } = await supabase
           .rpc('rpc_get_trial_balance', {
-            p_tenant: '00000000-0000-0000-0000-000000000001',
+            p_tenant: orgId,
             p_as_of_date: asOfDate
           });
 
