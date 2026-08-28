@@ -1,0 +1,137 @@
+name: Trial Balance Ledger Truth
+
+# Contract: every trial-balance reporting surface must reconcile against
+# gl_entry_lines — the legal ledger. Nothing else is a source of truth.
+#
+# The gate runs in two modes (see the acceptance script header):
+#
+#   pending   — the pre-182 state. rpc_get_trial_balance read the retired
+#               journal_lines/journal_entries tables, and the gate pinned that
+#               gap: it passed while the gap existed and FAILED if the gap
+#               closed without this workflow being switched to 'enforced'.
+#
+#   enforced  — ACTIVE since Migration 182 moved the RPC onto the legal ledger.
+#               Moving any reporting surface back to journal_* now fails this
+#               gate, as do regression cases A–E.
+#
+# Both states were exercised locally before shipping, in all four combinations
+# of RPC state x mode. See docs/ai-simulation-lab/ for the audit, the consumer
+# inventory, and the migration report.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_trial_balance_ledger_truth.sql'
+      - 'sql/migrations/182_trial_balance_ledger_truth.sql'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+      - '.github/workflows/trial-balance-ledger-truth.yml'
+  workflow_dispatch:
+    inputs:
+      rpc_contract:
+        description: 'Contract mode for the RPC path (manual runs only)'
+        required: false
+        default: 'enforced'
+        type: choice
+        options: [enforced, pending]
+
+env:
+  # Flipped by the Migration 182 PR. Do not move this back to 'pending' to make
+  # a red build green: that would be reopening the reporting gap by hand.
+  RPC_CONTRACT: enforced
+
+jobs:
+  ledger-truth:
+    name: Reporting reconciles against gl_entry_lines
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_fresh
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build fresh database from the current baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          BASELINE=$(pair_field BASELINE_PATH)
+          REFERENCE=$(pair_field REFERENCE_PATH)
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/apply_order.txt
+          REPORT=/tmp/chain_report.txt \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/apply_order.txt
+
+      - name: Run the Ledger Truth contract
+        shell: bash
+        env:
+          RPC_CONTRACT_MODE: ${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}
+        run: |
+          set -Eeuo pipefail
+          MODE="$RPC_CONTRACT_MODE"
+          echo "rpc_contract mode: $MODE"
+          psql -v ON_ERROR_STOP=1 -v rpc_contract="$MODE" \
+            -f scripts/ci/fresh-db/acceptance_trial_balance_ledger_truth.sql \
+            2>&1 | tee /tmp/ledger-truth.out
+          grep -q 'TRIAL_BALANCE_LEDGER_TRUTH_PASS' /tmp/ledger-truth.out
+
+      - name: Confirm the gate is not vacuous
+        shell: bash
+        env:
+          RPC_CONTRACT_MODE: ${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}
+        run: |
+          set -Eeuo pipefail
+          # A gate that cannot fail proves nothing. LT-3 inside the script injects
+          # a real divergence and asserts it is caught; require that evidence in
+          # the log rather than trusting a green exit code.
+          grep -q 'LT-3 red proof OK' /tmp/ledger-truth.out
+          grep -q 'LT-1 view=' /tmp/ledger-truth.out
+          # Under 'enforced' the regression cases must have actually run, not
+          # been skipped. A skip line here would mean the cases proved nothing.
+          MODE="$RPC_CONTRACT_MODE"
+          if [ "$MODE" = 'enforced' ]; then
+            for c in A B C D E; do
+              grep -q "Case $c OK" /tmp/ledger-truth.out \
+                || { echo "Case $c did not run under enforced mode"; exit 1; }
+            done
+          fi
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trial-balance-ledger-truth-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/ledger-truth.out
+          retention-days: 30
