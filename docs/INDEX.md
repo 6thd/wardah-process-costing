@@ -10,7 +10,7 @@
 
 - [`architecture/EXECUTION_LEDGER.md`](./architecture/EXECUTION_LEDGER.md) — ما انتهى، ما هو نشط، ما هو متوقف، والخطوة التالية. استخدم أسماء المراحل المقيّدة مثل `CORE-P*` و`MFG-P*` و`ALIGN-P*` بدل `P0/P1` المجردة.
 - [`architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة مواءمة خريطة المنتج والتنقّل والمستودع.
-- [`architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — جرد حي لمسارات الواجهة × Sidebar × عقود الصلاحيات.
+- [`architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — جرد تاريخي قبل `ALIGN-P1` مع نتيجة PR #193؛ لا يُعامل كقائمة عمل حالية.
 - [`architecture/README.md`](./architecture/README.md) — ADRs والمرجع المعماري.
 
 ## قاعدة البيانات والحوكمة

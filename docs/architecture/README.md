@@ -7,7 +7,7 @@
 
 - [`EXECUTION_LEDGER.md`](./EXECUTION_LEDGER.md) — المصدر الأول لمعرفة أين توقف العمل، وما الذي انتهى أو بقي جزئيًا أو يحتاج تدقيقًا.
 - [`PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة `ALIGN-P*` لمواءمة خريطة المنتج والتنقّل وهيكل المستودع.
-- [`PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — snapshot حي لمسارات المنتج × Sidebar × عقود الصلاحيات عند بدء `ALIGN-P0`.
+- [`PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — snapshot تاريخي قبل `ALIGN-P1` مع توثيق نتيجة PR #193؛ ليس backlog حاليًا.
 
 > لتجنب الالتباس لا تستخدم `P0/P1/P2/P3` وحدها.  
 > `CORE-P*` = برنامج التحسينات الجوهرية التاريخي، `MFG-P*` = خارطة التصنيع المتقدمة، `ALIGN-P*` = مواءمة المنتج/المستودع.

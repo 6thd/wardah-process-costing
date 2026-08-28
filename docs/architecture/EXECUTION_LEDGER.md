@@ -28,11 +28,12 @@
 
 ## Current focus
 
-1. `ALIGN-P0` — Draft PR #192 establishes the truthful product/repository map and live documentation checkpoint.
+1. `ALIGN-P0` — PR #192 is ready for review and establishes the truthful product/repository map and live documentation checkpoint.
 2. `ALIGN-P1` — **DONE.** PR #193 merged to `main` as `6811ca1`; see the inventory row below.
-3. Security prerequisite wave before financial statements: `SEC-172`, `SEC-162`, `SEC-161`, then `SEC-171` if scope remains focused.
-4. Reconcile `FINREP-SPEC` against the current DB/repository baseline.
-5. `FINREP-1` — authoritative financial reporting round.
+3. Open PR #194 may finish its own CI/review repairs, but remains blocked from merge behind `SEC-172` unless an explicit sequencing exception is approved.
+4. Security prerequisite wave before financial statements: `SEC-172`, `SEC-162`, `SEC-161`, then `SEC-171` if scope remains focused.
+5. Reconcile `FINREP-SPEC` against the current DB/repository baseline.
+6. `FINREP-1` — authoritative financial reporting round.
 
 No Production mutation is authorized by this ledger.
 
@@ -40,10 +41,11 @@ No Production mutation is authorized by this ledger.
 
 | ID | Status | Evidence / current truth | Next action / gate |
 |---|---|---|---|
-| `ALIGN-P0` | ACTIVE | Draft PR #192 contains the product-alignment plan, durable ledger, live route×Sidebar×permission inventory, live docs index, and a superseded marker on the old repository reorganization plan. Its branch has current `main@6811ca1...` (after PR #193) merged in. | Review #192. No file moves/runtime changes. After normal merge authorization, this checkpoint is closed. |
+| `ALIGN-P0` | ACTIVE | PR #192 is ready for review and contains the product-alignment plan, durable ledger, historical pre-`ALIGN-P1` route×Sidebar×permission inventory with its post-#193 reconciliation, live docs index, and a superseded marker on the old repository reorganization plan. Its branch has current `main@6811ca1...` merged in. | Review #192. No file moves/runtime changes. After normal merge authorization, this checkpoint is closed. |
 | `ALIGN-P1` | DONE | PR #193 (`feat/align-p1-product-catalog`) merged to `main` as `6811ca196dfea8e460b2ac0104dbe8c917ca8e04`. Delivered `src/config/product-catalog.ts` as the single navigation source of truth, `src/components/layout/sidebar.tsx` driven from it (655 lines of hand-maintained item list/`MODULE_CODES` duplication/`hasModuleAccess()` module-prefix check removed), decorative badges removed, `inventory.categories`/`manufacturing.routing`/`quality` correctly `hidden`/`planned` instead of GA. Independent review caught two functional-authorization dead ends after the first pass (collapsed-sidebar icon linking a permission-only group to a root the caller couldn't enter; a childless-but-visible group rendering as a dead button) — both closed via `landingHref`, which mirrors `ModuleGuard`'s own root check and falls back to the first visible child. Covered by DOM-level tests (`sidebar-landing-href.test.tsx`), a catalog invariant test across 8 permission scenarios, and a regression guard on the `moduleItem` hidden-child requirement filter. | None. Sidebar navigation is now driven by the same exact route-permission contracts as `ModuleGuard`, closing a recurring "visible-but-forbidden" class of bug from earlier RBAC rounds. |
 | PR `#190` | DONE | Production/Staging/Preview topology documentation merged to `main` as `608633c1b96f13df9fde9f2fbd1689dee3959695`. | Preserve its `CLAUDE.md` policy; no duplicate follow-up required unless CI/review finds a defect. |
 | PR `#193` | DONE | ALIGN-P1 application PR merged to `main` as `6811ca196dfea8e460b2ac0104dbe8c917ca8e04`. | See `ALIGN-P1` row above for scope/evidence. |
+| PR `#194` | BLOCKED | Open Trial Balance correctness PR. Head `d344e17390d75ea4f009f718516b4da3534645bc` adds repository Migration 182 and moves `rpc_get_trial_balance` to the legal ledger while intentionally preserving the existing membership-only guard. It has not been applied to Production; `main` and the last verified Production ledger remain at 181. | Finish CI/review, but do not merge it ahead of `SEC-172` without an explicit sequencing decision: #194 repairs accounting truth but does not close the exact financial-read permission boundary. No Production apply is authorized. |
 | `SEC-172` | QUEUED | Financial report RPC reads are tenant/member scoped without exact financial read permissions. Direct prerequisite for the financial-reporting round. | DB-first design + focused migration/acceptance PR; Production apply requires separate authorization. |
 | `SEC-162` | QUEUED | Fiscal-period generation/status mutation boundary lacks exact RBAC. | Design exact period permissions; DB-first migration/acceptance. |
 | `SEC-161` | QUEUED | `gl_accounts` mutations have broad org boundary and overlapping CoA permission families. | Decide canonical CoA permission family before changing RLS/RPCs. |
