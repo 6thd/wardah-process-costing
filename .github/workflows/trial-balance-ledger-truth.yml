@@ -94,9 +94,11 @@ jobs:
 
       - name: Run the Ledger Truth contract
         shell: bash
+        env:
+          RPC_CONTRACT_MODE: ${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}
         run: |
           set -Eeuo pipefail
-          MODE="${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}"
+          MODE="$RPC_CONTRACT_MODE"
           echo "rpc_contract mode: $MODE"
           psql -v ON_ERROR_STOP=1 -v rpc_contract="$MODE" \
             -f scripts/ci/fresh-db/acceptance_trial_balance_ledger_truth.sql \
@@ -105,6 +107,8 @@ jobs:
 
       - name: Confirm the gate is not vacuous
         shell: bash
+        env:
+          RPC_CONTRACT_MODE: ${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}
         run: |
           set -Eeuo pipefail
           # A gate that cannot fail proves nothing. LT-3 inside the script injects
@@ -114,7 +118,7 @@ jobs:
           grep -q 'LT-1 view=' /tmp/ledger-truth.out
           # Under 'enforced' the regression cases must have actually run, not
           # been skipped. A skip line here would mean the cases proved nothing.
-          MODE="${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}"
+          MODE="$RPC_CONTRACT_MODE"
           if [ "$MODE" = 'enforced' ]; then
             for c in A B C D E; do
               grep -q "Case $c OK" /tmp/ledger-truth.out \
