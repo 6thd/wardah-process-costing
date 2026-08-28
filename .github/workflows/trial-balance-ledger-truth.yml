@@ -5,40 +5,41 @@ name: Trial Balance Ledger Truth
 #
 # The gate runs in two modes (see the acceptance script header):
 #
-#   pending   — today. rpc_get_trial_balance still reads the retired
-#               journal_lines/journal_entries tables, so the gate pins that gap:
-#               it passes while the gap exists and FAILS if the gap closes
-#               without this workflow being switched to 'enforced'. The gap
-#               cannot be closed silently, and it cannot widen unnoticed.
+#   pending   — the pre-182 state. rpc_get_trial_balance read the retired
+#               journal_lines/journal_entries tables, and the gate pinned that
+#               gap: it passed while the gap existed and FAILED if the gap
+#               closed without this workflow being switched to 'enforced'.
 #
-#   enforced  — set by the migration PR that rewrites the RPC onto the legal
-#               ledger. From then on, moving any reporting surface back to
-#               journal_* fails this gate.
+#   enforced  — ACTIVE since Migration 182 moved the RPC onto the legal ledger.
+#               Moving any reporting surface back to journal_* now fails this
+#               gate, as do regression cases A–D.
 #
-# To flip: change RPC_CONTRACT below to 'enforced' in the same PR as the
-# migration. Both states are exercised locally before shipping; see the audit
-# and consumer inventory in docs/ai-simulation-lab/.
+# Both states were exercised locally before shipping, in all four combinations
+# of RPC state x mode. See docs/ai-simulation-lab/ for the audit, the consumer
+# inventory, and the migration report.
 
 on:
   pull_request:
     branches: [main]
     paths:
       - 'scripts/ci/fresh-db/acceptance_trial_balance_ledger_truth.sql'
+      - 'sql/migrations/182_trial_balance_ledger_truth.sql'
       - 'sql/baseline/**'
       - 'sql/migrations/**'
       - '.github/workflows/trial-balance-ledger-truth.yml'
   workflow_dispatch:
     inputs:
       rpc_contract:
-        description: 'Contract mode for the RPC path'
+        description: 'Contract mode for the RPC path (manual runs only)'
         required: false
-        default: 'pending'
+        default: 'enforced'
         type: choice
-        options: [pending, enforced]
+        options: [enforced, pending]
 
 env:
-  # Single place to flip when the fixing migration lands.
-  RPC_CONTRACT: pending
+  # Flipped by the Migration 182 PR. Do not move this back to 'pending' to make
+  # a red build green: that would be reopening the reporting gap by hand.
+  RPC_CONTRACT: enforced
 
 jobs:
   ledger-truth:
@@ -111,6 +112,15 @@ jobs:
           # the log rather than trusting a green exit code.
           grep -q 'LT-3 red proof OK' /tmp/ledger-truth.out
           grep -q 'LT-1 view=' /tmp/ledger-truth.out
+          # Under 'enforced' the regression cases must have actually run, not
+          # been skipped. A skip line here would mean the cases proved nothing.
+          MODE="${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}"
+          if [ "$MODE" = 'enforced' ]; then
+            for c in A B C D; do
+              grep -q "Case $c OK" /tmp/ledger-truth.out \
+                || { echo "Case $c did not run under enforced mode"; exit 1; }
+            done
+          fi
 
       - name: Upload acceptance evidence
         if: always()

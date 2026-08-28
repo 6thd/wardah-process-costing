@@ -178,6 +178,178 @@ END;
 $do$;
 
 -- ---------------------------------------------------------------------------
+-- Regression cases A–D. These describe what the repaired RPC must do, so they
+-- only run once the contract is enforced; under 'pending' the RPC returns
+-- nothing and the cases would report a defect already covered by LT-2.
+-- ---------------------------------------------------------------------------
+DO $cases$
+DECLARE
+  v_mode      text := current_setting('ledger_truth.rpc_contract', true);
+  v_org       uuid := '7b1a0000-0000-4000-8000-000000000001';
+  v_other_org uuid := '7b1a0000-0000-4000-8000-000000000009';
+  v_dr        numeric;
+  v_cr        numeric;
+  v_open_dr   numeric;
+  v_rows      integer;
+BEGIN
+  IF v_mode <> 'enforced' THEN
+    RAISE NOTICE 'Cases A-D skipped: rpc_contract=% (they describe the repaired RPC)', v_mode;
+    RETURN;
+  END IF;
+
+  -- Cases run on the clean fixture, before LT-3 injects its deliberate
+  -- corruption. That order is load-bearing: trg_protect_posted_gl_entry_lines
+  -- makes posted lines immutable, so LT-3's injection cannot be cleaned up
+  -- afterwards — and it should not be, since the guard is doing its job.
+
+  -- ---- Case A: a balanced ledger yields a balanced trial balance ----------
+  SELECT COALESCE(SUM(closing_debit), 0), COALESCE(SUM(closing_credit), 0)
+  INTO v_dr, v_cr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31');
+
+  IF abs(v_dr - v_cr) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_A_FAIL: closing debit % <> closing credit % — a balanced '
+      'ledger must produce a balanced trial balance', v_dr, v_cr;
+  END IF;
+  IF abs(v_dr - 2000.00) >= 0.01 THEN
+    RAISE EXCEPTION 'LEDGER_TRUTH_CASE_A_FAIL: closing debit = %, expected 2000.00', v_dr;
+  END IF;
+  RAISE NOTICE 'Case A OK: closing dr=% cr=% balanced', v_dr, v_cr;
+
+  -- ---- Case B: real opening balances --------------------------------------
+  -- A posted entry in the prior fiscal year must land in opening, not period.
+  INSERT INTO public.gl_entries
+    (id, org_id, entry_number, entry_date, entry_type, description,
+     total_debit, total_credit, status, journal_origin)
+  VALUES
+    ('7b1a0000-3333-4000-8000-000000000003', v_org, 'LT-PRIOR', DATE '2025-11-30',
+     'sale', 'Prior fiscal year', 300.00, 300.00, 'posted', 'system');
+
+  INSERT INTO public.gl_entry_lines
+    (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
+  VALUES
+    (v_org, '7b1a0000-3333-4000-8000-000000000003', 1,
+     '7b1a0000-2222-4000-8000-000000000001', 300.00, 0, 'SAR'),
+    (v_org, '7b1a0000-3333-4000-8000-000000000003', 2,
+     '7b1a0000-2222-4000-8000-000000000002', 0, 300.00, 'SAR');
+
+  SELECT COALESCE(SUM(opening_debit), 0), COALESCE(SUM(period_debit), 0)
+  INTO v_open_dr, v_dr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31');
+
+  IF abs(v_open_dr - 300.00) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_B_FAIL: opening debit = %, expected 300.00 from the '
+      'prior fiscal year. Opening balances must be derived, not hardcoded to 0.',
+      v_open_dr;
+  END IF;
+  IF abs(v_dr - 2000.00) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_B_FAIL: period debit = %, expected 2000.00 — prior-year '
+      'movement must not leak into the current period', v_dr;
+  END IF;
+  RAISE NOTICE 'Case B OK: opening dr=% period dr=%', v_open_dr, v_dr;
+
+  -- ---- Case C: tenant isolation -------------------------------------------
+  -- A second organization with its own posted entry must be invisible here,
+  -- and asking for it as a non-member must be refused outright.
+  INSERT INTO public.organizations (id, name, code)
+  VALUES (v_other_org, 'Other Org', 'LTOTHER');
+
+  INSERT INTO public.gl_accounts
+    (id, org_id, code, name, name_ar, category, subtype, normal_balance,
+     allow_posting, is_active)
+  VALUES
+    ('7b1a0000-2222-4000-8000-000000000009', v_other_org, '1101', 'Cash',
+     'النقدية', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true);
+
+  INSERT INTO public.gl_entries
+    (id, org_id, entry_number, entry_date, entry_type, description,
+     total_debit, total_credit, status, journal_origin)
+  VALUES
+    ('7b1a0000-3333-4000-8000-000000000009', v_other_org, 'LT-OTHER',
+     DATE '2026-03-12', 'sale', 'Other org entry', 9999.00, 9999.00,
+     'posted', 'system');
+
+  INSERT INTO public.gl_entry_lines
+    (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
+  VALUES
+    (v_other_org, '7b1a0000-3333-4000-8000-000000000009', 1,
+     '7b1a0000-2222-4000-8000-000000000009', 9999.00, 0, 'SAR');
+
+  SELECT COALESCE(SUM(closing_debit), 0)
+  INTO v_dr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31');
+
+  IF v_dr >= 9999.00 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_C_FAIL: another organization''s 9999.00 leaked into '
+      'this trial balance (closing debit = %)', v_dr;
+  END IF;
+
+  BEGIN
+    PERFORM public.rpc_get_trial_balance(v_other_org, DATE '2026-12-31');
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_C_FAIL: reading another organization''s trial balance '
+      'was permitted — wardah_assert_org_member did not refuse';
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM LIKE '%LEDGER_TRUTH_CASE_C_FAIL%' THEN
+      RAISE;
+    END IF;
+    IF SQLERRM NOT LIKE '%NOT_ORG_MEMBER%' THEN
+      RAISE EXCEPTION
+        'LEDGER_TRUTH_CASE_C_FAIL: expected NOT_ORG_MEMBER for a foreign '
+        'organization, got [%]', SQLERRM;
+    END IF;
+  END;
+  RAISE NOTICE 'Case C OK: foreign org invisible and refused';
+
+  -- ---- Case D: the retired ledger has no influence ------------------------
+  -- This is the original defect. Rows in journal_lines/journal_entries must not
+  -- move the trial balance by a single unit.
+  SELECT COALESCE(SUM(closing_debit), 0) INTO v_dr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31');
+
+  INSERT INTO public.journals
+    (id, org_id, code, name, journal_type)
+  VALUES
+    ('7b1a0000-5555-4000-8000-000000000001', v_org, 'LTJ', 'Ledger truth journal', 'general');
+
+  INSERT INTO public.journal_entries
+    (id, org_id, journal_id, entry_number, entry_date, description, status,
+     total_debit, total_credit)
+  VALUES
+    ('7b1a0000-4444-4000-8000-000000000001', v_org,
+     '7b1a0000-5555-4000-8000-000000000001', 'LT-LEGACY', DATE '2026-03-15',
+     'Retired ledger row', 'posted', 7777.00, 7777.00);
+
+  INSERT INTO public.journal_lines
+    (org_id, entry_id, line_number, account_id, debit, credit)
+  VALUES
+    (v_org, '7b1a0000-4444-4000-8000-000000000001', 1,
+     '7b1a0000-2222-4000-8000-000000000001', 7777.00, 0);
+
+  SELECT COALESCE(SUM(closing_debit), 0) INTO v_cr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31');
+
+  IF abs(v_cr - v_dr) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_D_FAIL: a journal_lines row changed the trial balance '
+      '(% -> %). The RPC is reading the retired ledger again.', v_dr, v_cr;
+  END IF;
+
+  SELECT count(*) INTO v_rows FROM public.journal_lines
+  WHERE entry_id = '7b1a0000-4444-4000-8000-000000000001';
+  IF v_rows <> 1 THEN
+    RAISE EXCEPTION 'LEDGER_TRUTH_CASE_D_FIXTURE_BROKEN: legacy row not seeded (%)', v_rows;
+  END IF;
+
+  RAISE NOTICE 'Case D OK: legacy journal row present but inert (% unchanged)', v_cr;
+END;
+$cases$;
+
+-- ---------------------------------------------------------------------------
 -- LT-3 — RED PROOF for LT-1.
 --
 -- A probe that never goes red proves nothing. v_trial_balance aggregates the

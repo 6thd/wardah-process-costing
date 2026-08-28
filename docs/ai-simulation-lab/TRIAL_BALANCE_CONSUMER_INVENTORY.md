@@ -213,7 +213,7 @@ expect(result.isBalanced).toBeDefined()
 |---|---|---|---|---|
 | 1 | ✅ **مُنفَّذ** — حذف المعرّف المثبَّت من `useTrialBalance.ts` واستبداله بهوية المستدعي عبر `getTenantId()`، مع فشل مغلق إلى الحساب اليدوي بلا هوية | سطر واحد | 🔴 عالية | عطل تعدّد مستأجرين كامن، ولا يحتاج migration |
 | 2 | ✅ **مُنفَّذ** — عقد Ledger Truth: `scripts/ci/fresh-db/acceptance_trial_balance_ledger_truth.sql` + `.github/workflows/trial-balance-ledger-truth.yml` + اختبار حراسة الهوية | متوسطة | 🔴 عالية | لا شبكة أمان اليوم؛ ويجب أن يسبق أي تعديل على الـRPC |
-| 3 | **migration: إعادة كتابة `rpc_get_trial_balance`** على `gl_entries`/`gl_entry_lines` بأرصدة افتتاحية حقيقية | متوسطة | 🟠 | آمن — لا مستهلك يعتمد على السلوك الحالي (§6) |
+| 3 | ✅ **مُنفَّذ** — `sql/migrations/182_trial_balance_ledger_truth.sql` + البوابة على `enforced`. التفصيل في [`TRIAL_BALANCE_LEDGER_TRUTH_182_RUNBOOK.md`](../db/TRIAL_BALANCE_LEDGER_TRUTH_182_RUNBOOK.md) | متوسطة | 🟠 | آمن — لا مستهلك يعتمد على السلوك الحالي (§6) |
 | 4 | **حسم مصير النسختين المعطَّلتين** (#5، #6): إصلاح أو حذف | صغيرة | 🟡 | كود ميت يوهم بوجود مسار عامل |
 | 5 | **إصلاح أو إزالة اختبار `getTrialBalance`** الوهمي | صغيرة | 🟡 | أخضر كاذب أسوأ من غياب اختبار |
 | 6 | **حسم `v_trial_balance` كمصدر معتمد** أو الاستغناء عنه لصالح الـRPC المصحَّحة | متوسطة | 🟠 | ست نسخ لا تصير واحدة بإصلاح واحدة منها |
