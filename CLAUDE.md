@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-27
+**آخر تحديث موثق:** 2026-08-28
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -30,9 +30,10 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 الحالة الحية الموثقة بعد Baseline المولد في 2026-08-26:
 
 - Baseline الحالي: `000_schema_baseline_20260826_131415.sql`, cutoff 181.
-- Production: مطبقة حتى 181 (`181_supplier_invoice_candidate_read`).
-- Repository: أعلى migration مرقمة هي 181.
-- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
+- Production: مطبقة حتى 182 (`182_trial_balance_ledger_truth`، تحقق `20260828214043`).
+- Repository: أعلى migration مرقمة هي 182.
+- Fresh DB: يطبق Migration 182 بعد Baseline ذي cutoff 181، وعقد Ledger Truth
+  مفروض بوضع `RPC_CONTRACT=enforced`.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
 
@@ -111,6 +112,16 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   نجاح استدعاء read-only تحت سياق مستخدم مصادق وإرجاع مرشحين حقيقيين دون أي كتابة
   تجارية. لا يعني تطبيق 181 أن PR الواجهة التالي جاهز للدمج؛ يبقى ترتيب DB-first
   للواجهة قائمًا، كما تبقى خرائط GL المطلوبة خطوة مستقلة قبل أي pilot للكتابة.
+- `docs/db/TRIAL_BALANCE_LEDGER_TRUTH_182_RUNBOOK.md` — **Migration 182 (مطبّقة
+  على Production، `20260828214043`)**: تنقل `rpc_get_trial_balance` من
+  `journal_entries/journal_lines` التاريخيين إلى `gl_entries/gl_entry_lines`
+  القانونيين، وتضيف أرصدة افتتاحية حسب السنة المالية وتحفظ الحسابات المعطلة
+  والأسطر التاريخية ذات `account_id IS NULL`. تحقق Production بهوية
+  `authenticated` أعاد 12 حسابًا متوازنة وصفر اختلافات عن الحساب القانوني المستقل؛
+  دوران الدفتر `30,805.00` لكل جانب وصافي أرصدته `27,685.00`، والفرق `3,120.00`
+  يساوي `SUM(LEAST(debit, credit))` داخل الحسابات. تحذير Supabase Advisor من
+  `SECURITY DEFINER` الممنوحة لـ`authenticated` هو **SEC-172** نفسه: Migration 183
+  يجب أن تضيف صلاحية القراءة المالية الدقيقة مع إعادة تثبيت جسم 182 كاملًا.
 
 ## Baseline
 
