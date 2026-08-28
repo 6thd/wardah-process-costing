@@ -38,12 +38,23 @@ export interface ProductCatalogItem {
   readonly compatibilityOnly?: boolean;
   readonly blockedByIssue?: number;
   readonly children?: readonly ProductCatalogItem[];
+  /**
+   * Where a click on the collapsed icon / a childless expanded group should
+   * navigate. Computed by getVisibleProductNavigation for the caller's actual
+   * permissions — never authored statically, since it depends on whether the
+   * caller satisfies the item's own root contract or only a child's.
+   */
+  readonly landingHref?: string;
 }
 
 export interface ProductCatalogAccessContext {
   readonly isOrgAdmin: boolean;
   readonly isSuperAdmin: boolean;
   readonly hasPermissionKey: (permissionKey: string) => boolean;
+}
+
+function isRenderableStatus(status: ProductReadiness): boolean {
+  return status === 'ga' || status === 'beta';
 }
 
 function routeRequirement(moduleCode: string, moduleRoot: string, href: string): readonly RouteRequirement[] | undefined {
@@ -81,7 +92,12 @@ function moduleItem(
   status: ProductReadiness = 'ga',
 ): ProductCatalogItem {
   const rootRequirements = routeRequirement(moduleCode, href, href) ?? [];
-  const childRequirements = children.flatMap(item => item.requirements ?? []);
+  // Only a child that can actually render should be able to pull the group
+  // into view — a hidden/planned-only child's requirement must not make the
+  // parent appear with nothing reachable underneath it.
+  const childRequirements = children
+    .filter(item => isRenderableStatus(item.status) && !item.compatibilityOnly)
+    .flatMap(item => item.requirements ?? []);
 
   return {
     key,
@@ -240,7 +256,9 @@ const superAdminChildren: readonly ProductCatalogItem[] = [
 
 const accountingRootRequirements = resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/') ? [resolveRoutePermission(MODULE_CODES.ACCOUNTING, '/') as RouteRequirement] : [];
 const generalLedgerRootRequirements = resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/') ? [resolveRoutePermission(MODULE_CODES.GENERAL_LEDGER, '/') as RouteRequirement] : [];
-const accountingChildRequirements = accountingChildren.flatMap(item => item.requirements ?? []);
+const accountingChildRequirements = accountingChildren
+  .filter(item => isRenderableStatus(item.status) && !item.compatibilityOnly)
+  .flatMap(item => item.requirements ?? []);
 
 export const PRODUCT_CATALOG: readonly ProductCatalogItem[] = [
   {
@@ -291,10 +309,6 @@ export const PRODUCT_CATALOG: readonly ProductCatalogItem[] = [
   },
 ] as const;
 
-function isRenderableStatus(status: ProductReadiness): boolean {
-  return status === 'ga' || status === 'beta';
-}
-
 export function canSeeCatalogItem(item: ProductCatalogItem, context: ProductCatalogAccessContext): boolean {
   if (!isRenderableStatus(item.status) || item.compatibilityOnly) return false;
   if (item.requireSuperAdmin) return context.isSuperAdmin;
@@ -304,6 +318,22 @@ export function canSeeCatalogItem(item: ProductCatalogItem, context: ProductCata
   return item.requirements.some(requirement =>
     satisfiesRouteRequirement(requirement, context.hasPermissionKey),
   );
+}
+
+/**
+ * Whether the caller may enter `item.href` itself — i.e. exactly what
+ * ModuleGuard evaluates for the bare module root (subPath '/'). A group can
+ * be visible in canSeeCatalogItem() via a permitted child without this being
+ * true (e.g. general_ledger.chart_of_accounts.view alone does not satisfy
+ * the Accounting root contract), which is why landingHref below can't just
+ * be item.href.
+ */
+function satisfiesOwnRoot(item: ProductCatalogItem, context: ProductCatalogAccessContext): boolean {
+  if (item.requireSuperAdmin) return context.isSuperAdmin;
+  if (item.requireOrgAdmin) return context.isOrgAdmin || context.isSuperAdmin;
+  if (item.moduleCode === MODULE_CODES.DASHBOARD) return true;
+  const rootRequirement = resolveRoutePermission(item.moduleCode, '/');
+  return rootRequirement != null && satisfiesRouteRequirement(rootRequirement, context.hasPermissionKey);
 }
 
 /**
@@ -318,6 +348,12 @@ export function getVisibleProductNavigation(
   return catalog.flatMap(item => {
     if (!canSeeCatalogItem(item, context)) return [];
     const children = item.children?.filter(childItem => canSeeCatalogItem(childItem, context));
-    return [{ ...item, children }];
+    // The caller may see this group without satisfying its own root contract
+    // (only a child's) — land on the first permitted child instead of a root
+    // ModuleGuard would reject. isRenderableStatus + the childRequirements
+    // filter above guarantee a permitted child exists whenever the root
+    // itself doesn't, so this never falls through to a stale item.href.
+    const landingHref = satisfiesOwnRoot(item, context) ? item.href : (children?.[0]?.href ?? item.href);
+    return [{ ...item, children, landingHref }];
   });
 }

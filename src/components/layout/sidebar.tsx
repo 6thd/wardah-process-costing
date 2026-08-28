@@ -65,7 +65,7 @@ function renderCollapsedItem(
     <Tooltip>
       <TooltipTrigger asChild>
         <NavLink
-          to={item.href}
+          to={item.landingHref ?? item.href}
           className={cn(
             'flex items-center justify-center p-3 rounded-lg text-sm font-medium transition-all duration-200',
             'hover:bg-accent/50 hover:scale-105',
@@ -144,39 +144,45 @@ function renderExpandedItem(
 ) {
   const Icon = getItemIcon(item)
   const hasChildren = Boolean(item.children?.length)
+  const landingHref = item.landingHref ?? item.href
 
-  const handleItemAction = () => {
-    if (hasChildren) toggleExpanded(item.key)
-    else handleItemClick()
-  }
+  const itemClassName = cn(
+    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group border-0',
+    'hover:bg-accent/50 hover:shadow-sm',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+    isActive && 'bg-primary text-primary-foreground shadow-md hover:bg-primary/90',
+    isRTL ? 'text-right' : 'text-left',
+  )
+
+  const itemContent = (
+    <>
+      <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
+      <span className={cn('flex-1 truncate', isRTL ? 'text-right' : 'text-left')}>
+        {t(item.labelKey)}
+      </span>
+      {hasChildren && (
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 transition-transform duration-200',
+            isExpanded && 'rotate-180',
+            isRTL && 'rotate-180',
+          )}
+        />
+      )}
+    </>
+  )
 
   return (
     <>
-      <button
-        type="button"
-        className={cn(
-          'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group border-0',
-          'hover:bg-accent/50 hover:shadow-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-          isActive && 'bg-primary text-primary-foreground shadow-md hover:bg-primary/90',
-          isRTL ? 'text-right' : 'text-left',
-        )}
-        onClick={handleItemAction}
-      >
-        <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
-        <span className={cn('flex-1 truncate', isRTL ? 'text-right' : 'text-left')}>
-          {t(item.labelKey)}
-        </span>
-        {hasChildren && (
-          <ChevronDown
-            className={cn(
-              'h-4 w-4 shrink-0 transition-transform duration-200',
-              isExpanded && 'rotate-180',
-              isRTL && 'rotate-180',
-            )}
-          />
-        )}
-      </button>
+      {hasChildren ? (
+        <button type="button" className={itemClassName} onClick={() => toggleExpanded(item.key)}>
+          {itemContent}
+        </button>
+      ) : (
+        <NavLink to={landingHref} className={itemClassName} onClick={handleItemClick}>
+          {itemContent}
+        </NavLink>
+      )}
       {renderChildren(item, isExpanded, isRTL, t, ChevronIcon, handleItemClick, pathname)}
     </>
   )
@@ -195,48 +201,58 @@ function renderMobileItem(
 ) {
   const Icon = getItemIcon(item)
   const hasChildren = Boolean(item.children?.length)
-
-  const handleItemAction = () => {
-    if (hasChildren) toggleExpanded(item.key)
-    else handleItemClick()
-  }
+  const landingHref = item.landingHref ?? item.href
 
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault()
-      handleItemAction()
+      toggleExpanded(item.key)
     }
   }
 
+  const itemClassName = cn(
+    'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 group',
+    'hover:bg-accent/50 hover:shadow-sm',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+    isActive && 'bg-primary text-primary-foreground shadow-md hover:bg-primary/90',
+    isRTL ? 'text-right' : 'text-left',
+  )
+
+  const itemContent = (
+    <>
+      <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
+      <span className={cn('flex-1 truncate', isRTL ? 'text-right' : 'text-left')}>
+        {t(item.labelKey)}
+      </span>
+      {hasChildren && (
+        <ChevronDown
+          className={cn(
+            'h-4 w-4 shrink-0 transition-transform duration-200',
+            isExpanded && 'rotate-180',
+            isRTL && 'rotate-180',
+          )}
+        />
+      )}
+    </>
+  )
+
   return (
     <div key={item.key} className="space-y-1">
-      <div
-        role="menuitem"
-        tabIndex={0}
-        className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer group',
-          'hover:bg-accent/50 hover:shadow-sm',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-          isActive && 'bg-primary text-primary-foreground shadow-md hover:bg-primary/90',
-          isRTL ? 'text-right' : 'text-left',
-        )}
-        onClick={handleItemAction}
-        onKeyDown={handleKeyDown}
-      >
-        <Icon className="h-5 w-5 shrink-0 transition-transform group-hover:scale-110" />
-        <span className={cn('flex-1 truncate', isRTL ? 'text-right' : 'text-left')}>
-          {t(item.labelKey)}
-        </span>
-        {hasChildren && (
-          <ChevronDown
-            className={cn(
-              'h-4 w-4 shrink-0 transition-transform duration-200',
-              isExpanded && 'rotate-180',
-              isRTL && 'rotate-180',
-            )}
-          />
-        )}
-      </div>
+      {hasChildren ? (
+        <div
+          role="menuitem"
+          tabIndex={0}
+          className={cn(itemClassName, 'cursor-pointer')}
+          onClick={() => toggleExpanded(item.key)}
+          onKeyDown={handleKeyDown}
+        >
+          {itemContent}
+        </div>
+      ) : (
+        <NavLink to={landingHref} role="menuitem" className={itemClassName} onClick={handleItemClick}>
+          {itemContent}
+        </NavLink>
+      )}
       {renderChildren(item, isExpanded, isRTL, t, ChevronIcon, handleItemClick, pathname)}
     </div>
   )

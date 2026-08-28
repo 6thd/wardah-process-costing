@@ -120,4 +120,65 @@ describe('product catalog navigation', () => {
       for (const child of item.children ?? []) expect(child).not.toHaveProperty('badge');
     }
   });
+
+  describe('landingHref', () => {
+    it('lands on the first visible child when the caller cannot enter the group root itself', () => {
+      // general_ledger.chart_of_accounts.view satisfies /general-ledger/accounts
+      // and (via be6706c) makes the Accounting group visible, but it does NOT
+      // satisfy ACCOUNTING_OVERVIEW, the actual /accounting root contract —
+      // so a collapsed-sidebar click must not send this caller to /accounting.
+      const visible = getVisibleProductNavigation(context(['general_ledger.chart_of_accounts.view']));
+      const accounting = moduleByKey(visible, 'accounting');
+
+      expect(accounting?.children?.map(c => c.href)).toEqual(['/general-ledger/accounts']);
+      expect(accounting?.landingHref).toBe('/general-ledger/accounts');
+      expect(accounting?.landingHref).not.toBe(accounting?.href);
+    });
+
+    it('lands on the group root when the caller genuinely satisfies its own contract', () => {
+      const visible = getVisibleProductNavigation(context(['accounting.journals.read']));
+      const accounting = moduleByKey(visible, 'accounting');
+
+      expect(accounting?.landingHref).toBe('/accounting');
+      expect(accounting?.landingHref).toBe(accounting?.href);
+    });
+
+    it('lands on /settings directly for a caller with only settings.users.read, even though every visible child requires settings.organization.read', () => {
+      // SETTINGS_OVERVIEW (route-permissions.ts) accepts settings.users.read on
+      // its own, so the /settings root itself is reachable — even though none
+      // of company/system/backup (all gated on settings.organization.read) are
+      // visible. Before landingHref this rendered a childless parent whose
+      // click did nothing.
+      const visible = getVisibleProductNavigation(context(['settings.users.read']));
+      const settings = moduleByKey(visible, 'settings');
+
+      expect(settings).toBeDefined();
+      expect(settings?.children).toEqual([]);
+      expect(settings?.landingHref).toBe('/settings');
+    });
+
+    it('every visible group either satisfies its own root or has a visible child to land on', () => {
+      const scenarios: ProductCatalogAccessContext[] = [
+        context([]),
+        context(['general_ledger.chart_of_accounts.view']),
+        context(['settings.users.read']),
+        context(['settings.roles.read']),
+        context(['reports.inventory.read']),
+        context(['manufacturing.work_centers.read', 'manufacturing.stage_costs.read', 'manufacturing.orders.read']),
+        context([], { isOrgAdmin: true }),
+        context([], { isSuperAdmin: true }),
+      ];
+
+      for (const scenario of scenarios) {
+        for (const item of getVisibleProductNavigation(scenario)) {
+          const landsOnRoot = item.landingHref === item.href;
+          const hasVisibleChild = (item.children?.length ?? 0) > 0;
+          expect(
+            landsOnRoot || hasVisibleChild,
+            `${item.key} landingHref=${item.landingHref} has no visible children to fall back to`,
+          ).toBe(true);
+        }
+      }
+    });
+  });
 });
