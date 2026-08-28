@@ -15,8 +15,8 @@ import { MemoryRouter } from 'react-router-dom'
 import arTranslation from '@/locales/ar/translation.json'
 import enTranslation from '@/locales/en/translation.json'
 
-// مصدر المكوّن كنص خام — لاستخراج المفاتيح آلياً بدل قائمة يدوية
-import sidebarSource from '@/components/layout/sidebar.tsx?raw'
+// مصدر التنقل الحي — الكتالوج هو مصدر الحقيقة بعد ALIGN-P1، لا sidebar.tsx
+import { PRODUCT_CATALOG, type ProductCatalogItem } from '@/config/product-catalog'
 
 import i18n from '@/i18n'
 import { Sidebar } from '@/components/layout/sidebar'
@@ -30,7 +30,7 @@ vi.mock('@/hooks/usePermissions', () => ({
   usePermissions: vi.fn(() => ({
     isOrgAdmin: false,
     isSuperAdmin: false,
-    hasModuleAccess: () => false,
+    hasPermissionKey: () => false,
     permissions: [],
     loading: false,
     error: null,
@@ -50,30 +50,34 @@ vi.mock('@/contexts/AuthContext', () => ({
 }))
 
 // ----------------------------------------------------------------
-// استخراج مفاتيح التنقل آلياً من مصدر sidebar
+// استخراج مفاتيح التنقل آلياً من الكتالوج الحي (مصدر الحقيقة بعد ALIGN-P1)
 // ----------------------------------------------------------------
 
-/** مفاتيح القوائم الرئيسية: key: 'X', يتبعها icon: (بنية عناصر التنقل) */
-function extractTopLevelKeys(src: string): string[] {
-  const re = /key:\s*'([^']+)',\s*[\r\n]+\s*icon:/g
+function navKeyOf(item: ProductCatalogItem): string {
+  return item.labelKey.replace(/^navigation\./, '')
+}
+
+/** مفاتيح المنتجات الجذرية (موديولات + dashboard + org-admin/super-admin). */
+function extractTopLevelKeys(catalog: readonly ProductCatalogItem[]): string[] {
+  return catalog.map(item => item.key)
+}
+
+/** مفاتيح ترجمة كل القوائم الفرعية (children) عبر الكتالوج بالكامل. */
+function extractSubItemNavKeys(catalog: readonly ProductCatalogItem[]): string[] {
   const out = new Set<string>()
-  let m: RegExpExecArray | null
-  while ((m = re.exec(src)) !== null) out.add(m[1])
+  const walk = (items: readonly ProductCatalogItem[]) => {
+    for (const item of items) {
+      out.add(navKeyOf(item))
+      if (item.children) walk(item.children)
+    }
+  }
+  for (const item of catalog) if (item.children) walk(item.children)
   return [...out]
 }
 
-/** مفاتيح ترجمة القوائم الفرعية: labelKey: 'navigation.X' */
-function extractSubItemNavKeys(src: string): string[] {
-  const re = /labelKey:\s*'navigation\.([^']+)'/g
-  const out = new Set<string>()
-  let m: RegExpExecArray | null
-  while ((m = re.exec(src)) !== null) out.add(m[1])
-  return [...out]
-}
-
-const TOP_LEVEL_KEYS = extractTopLevelKeys(sidebarSource)
-const SUBITEM_KEYS = extractSubItemNavKeys(sidebarSource)
-const ALL_NAV_KEYS = [...new Set([...TOP_LEVEL_KEYS, ...SUBITEM_KEYS])]
+const TOP_LEVEL_KEYS = extractTopLevelKeys(PRODUCT_CATALOG)
+const SUBITEM_KEYS = extractSubItemNavKeys(PRODUCT_CATALOG)
+const ALL_NAV_KEYS = [...new Set([...TOP_LEVEL_KEYS, ...PRODUCT_CATALOG.map(navKeyOf), ...SUBITEM_KEYS])]
 
 const ARABIC = /[؀-ۿ]/
 
@@ -94,7 +98,7 @@ describe('Sidebar — i18n', () => {
     ;(usePermissions as any).mockReturnValue({
       isOrgAdmin: false,
       isSuperAdmin: false,
-      hasModuleAccess: () => false,
+      hasPermissionKey: () => false,
       permissions: [],
       loading: false,
       error: null,
@@ -171,7 +175,7 @@ describe('Sidebar — i18n', () => {
     ;(usePermissions as any).mockReturnValue({
       isOrgAdmin: true,
       isSuperAdmin: true,
-      hasModuleAccess: () => true,
+      hasPermissionKey: () => true,
       permissions: [],
       loading: false,
       error: null,
@@ -204,7 +208,7 @@ describe('Sidebar — i18n', () => {
     ;(usePermissions as any).mockReturnValue({
       isOrgAdmin: false,
       isSuperAdmin: false,
-      hasModuleAccess: (moduleCode: string) => moduleCode === 'sales',
+      hasPermissionKey: (key: string) => key === 'sales.customers.read',
       permissions: [],
       loading: false,
       error: null,
@@ -221,7 +225,7 @@ describe('Sidebar — i18n', () => {
     ;(usePermissions as any).mockReturnValue({
       isOrgAdmin: true,
       isSuperAdmin: false,
-      hasModuleAccess: () => true,
+      hasPermissionKey: () => true,
       permissions: [],
       loading: false,
       error: null,
