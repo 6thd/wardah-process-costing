@@ -1,229 +1,51 @@
-# Architecture Decision Records (ADRs)
+# Wardah ERP — Architecture Index
 
-## ما هو ADR؟
+**آخر تحديث:** 2026-08-27  
+**الغرض:** فهرس معماري حي. لا تُستخدم نسب اكتمال أو خطط قديمة كبديل عن قراءة `main` الحالي وسجل التنفيذ.
 
-**ADR** (Architecture Decision Record) هو توثيق للقرارات المعمارية المهمة مع السياق والعواقب.
+## نقطة الاستئناف الحالية
 
-### لماذا نستخدم ADRs؟
+- [`EXECUTION_LEDGER.md`](./EXECUTION_LEDGER.md) — المصدر الأول لمعرفة أين توقف العمل، وما الذي انتهى أو بقي جزئيًا أو يحتاج تدقيقًا.
+- [`PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة `ALIGN-P*` لمواءمة خريطة المنتج والتنقّل وهيكل المستودع.
+- [`PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — snapshot تاريخي قبل `ALIGN-P1` مع توثيق نتيجة PR #193؛ ليس backlog حاليًا.
 
-1. ✅ **ذاكرة جماعية**: لماذا اتخذنا هذا القرار؟
-2. ✅ **Onboarding**: المطورون الجدد يفهمون السياق
-3. ✅ **Audit Trail**: تتبع تطور المعمارية
-4. ✅ **منع إعادة النقاشات**: القرارات موثقة
+> لتجنب الالتباس لا تستخدم `P0/P1/P2/P3` وحدها.  
+> `CORE-P*` = برنامج التحسينات الجوهرية التاريخي، `MFG-P*` = خارطة التصنيع المتقدمة، `ALIGN-P*` = مواءمة المنتج/المستودع.
 
----
+## ADRs المقبولة الموجودة
 
-## القرارات المعمارية
+| ID | القرار | الحالة |
+|---|---|---|
+| [`ADR-001`](./ADR-001-Clean-Architecture.md) | Clean Architecture | Accepted historically; نطاق التطبيق الحالي انتقائي ويُراجع عند إعادة تنظيم الخدمات |
+| [`ADR-002`](./ADR-002-CQRS-Pattern.md) | CQRS Pattern | Accepted historically; لا يعني أن كل مجال يستخدم CQRS |
+| [`ADR-003`](./ADR-003-Process-Costing-Implementation.md) | Process Costing: EUP / Scrap / FIFO | Accepted foundation; اكتمال محرك SQL لا يعني اكتمال ربط الواجهة الحية |
 
-### ✅ مقبولة (Accepted)
+### قاعدة ترقيم ADRs الجديدة
 
-| #ID | Title | Date | Status |
-|-----|-------|------|--------|
-| [ADR-001](./ADR-001-Clean-Architecture.md) | تبني Clean Architecture | 2025-12-13 | ✅ Accepted |
-| [ADR-002](./ADR-002-CQRS-Pattern.md) | تبني CQRS Pattern | 2025-12-13 | ✅ Accepted |
-| [ADR-003](./ADR-003-Process-Costing-Implementation.md) | Process Costing Implementation (EUP, Scrap, FIFO) | 2025-12-25 | ✅ Accepted |
+لا يُحجز رقم ADR من قائمة backlog قديمة فقط. قبل إنشاء ADR جديد يجب فحص الملفات الموجودة واختيار الرقم التالي غير المستخدم في `docs/architecture/` ثم فتح PR مراجعة مستقل عند الحاجة. لهذا السبب لا تعتبر عبارة "ADR-004" في أي خطة مقترحة رقمًا محجوزًا تلقائيًا.
 
-**مرتبط بالتنفيذ:** [خطة التصنيع المتقدمة — إغلاق فجوات المحرك/الواجهة](../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) · [Known Limitations](./PROCESS_COSTING_LIMITATIONS.md)
+## التصنيع وتكلفة المراحل
 
-### ⏳ قيد المراجعة (Proposed)
+- [`../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md`](../features/manufacturing/ADVANCED_MANUFACTURING_ROADMAP.md) — خارطة `MFG-P*`; حالتها التنفيذية الحالية تُقرأ من `EXECUTION_LEDGER.md`.
+- [`PROCESS_COSTING_LIMITATIONS.md`](./PROCESS_COSTING_LIMITATIONS.md) — الحدود المعروفة.
+- [`EUP_IMPLEMENTATION_SUMMARY.md`](./EUP_IMPLEMENTATION_SUMMARY.md) — سجل تطبيق EUP.
+- [`FIFO_METHOD_SUMMARY.md`](./FIFO_METHOD_SUMMARY.md) — سجل FIFO.
+- [`PROCESS_COSTING_COMPLETE_SUMMARY.md`](./PROCESS_COSTING_COMPLETE_SUMMARY.md) — ملخص تاريخي لطبقة المحرك؛ لا يُفسر على أنه اكتمال لمسار UI/GL الحالي.
 
-_لا يوجد حالياً_
+## هيكل التطبيق والانتقال المعماري
 
-### ❌ مرفوضة (Rejected)
+- [`DOMAIN_IMPORTS_AUDIT.md`](./DOMAIN_IMPORTS_AUDIT.md) — تدقيق imports للطبقات.
+- [`LEGACY_SERVICES_MIGRATION.md`](./LEGACY_SERVICES_MIGRATION.md) — سجل/خطة انتقال الخدمات القديمة.
+- [`INVENTORY_VALUATION_REFACTORING.md`](./INVENTORY_VALUATION_REFACTORING.md) — توثيق إعادة هيكلة تقييم المخزون.
 
-_لا يوجد حالياً_
+## مبادئ حاكمة للعمل الحالي
 
-### 🔄 مستبدلة (Superseded)
+1. **DB-first للعقود الحساسة:** RPC/Schema/RLS قبل واجهة تعتمد عليها، مع Production apply/verify مستقل.
+2. **PostgreSQL هو حد التفويض النهائي:** Product Catalog أو Sidebar يحددان الظهور وتجربة المستخدم، ولا يمنحان صلاحية أمنية.
+3. **لا Big Bang:** التنظيم والنقل يتمان عبر PRs صغيرة، ولا يُخلط rename مع إعادة كتابة منطق.
+4. **التاريخ لا يُحذف:** الوثائق القديمة تبقى مرجعًا تاريخيًا لكن تُوسم إذا أصبحت Superseded.
+5. **الحالة التنفيذية المتغيرة في سجل واحد:** `EXECUTION_LEDGER.md` هو checkpoint الدائم؛ GitHub Issues/PRs توفر الدليل التفصيلي الحي.
 
-_لا يوجد حالياً_
+## كيف تضيف قرارًا معماريًا جديدًا
 
----
-
-## تنسيق ADR
-
-كل ADR يجب أن يحتوي على:
-
-```markdown
-# ADR-XXX: عنوان القرار
-
-**التاريخ:** YYYY-MM-DD
-**الحالة:** ✅ مقبول | ⏳ مقترح | ❌ مرفوض | 🔄 مستبدل
-**صاحب القرار:** اسم الفريق/الشخص
-**مرتبط بـ:** [ADR-YYY](./ADR-YYY.md)
-
----
-
-## السياق والمشكلة
-
-ما هي المشكلة التي نحاول حلها؟
-
-## القرار
-
-ما القرار الذي اتخذناه؟
-
-## البدائل المدروسة
-
-### البديل 1
-- المزايا
-- العيوب
-
-### البديل 2
-- المزايا
-- العيوب
-
-## النتائج
-
-### الإيجابيات
-- ...
-
-### السلبيات
-- ...
-
-## المراجع
-
-- روابط خارجية
-```
-
----
-
-## إرشادات كتابة ADR
-
-### ✅ ما يجب فعله:
-
-1. **اكتب بوضوح**: استخدم لغة بسيطة
-2. **اذكر السياق**: لماذا احتجنا هذا القرار؟
-3. **قارن البدائل**: ما الخيارات الأخرى؟
-4. **كن صريحاً**: اذكر العيوب أيضاً
-5. **أضف أمثلة**: كود توضيحي
-
-### ❌ ما يجب تجنبه:
-
-1. لا تكتب ADR للقرارات التافهة
-2. لا تعدّل ADRs القديمة (أنشئ واحد جديد)
-3. لا تحذف ADRs (mark as superseded)
-
----
-
-## متى نكتب ADR؟
-
-اكتب ADR عندما:
-
-- ✅ تغيير في المعمارية الأساسية
-- ✅ اختيار Framework/Library رئيسي
-- ✅ قرار يصعب عكسه لاحقاً
-- ✅ قرار يؤثر على الفريق بأكمله
-- ✅ قرار مكلف (وقت أو مال)
-
-**أمثلة:**
-- ✅ تبني Clean Architecture
-- ✅ اختيار CQRS
-- ✅ اختيار قاعدة بيانات
-- ✅ استراتيجية Testing
-- ✅ CI/CD Pipeline
-
-لا تكتب ADR لـ:
-- ❌ اختيار CSS Framework
-- ❌ تغيير اسم متغير
-- ❌ إضافة feature بسيطة
-
----
-
-## ADRs القادمة (Backlog)
-
-1. **ADR-003**: Event Sourcing Strategy
-2. **ADR-004**: Multi-Tenancy Implementation
-3. **ADR-005**: Cache Strategy (Redis vs In-Memory)
-4. **ADR-006**: Testing Strategy (Unit/Integration/E2E)
-5. **ADR-007**: Deployment Strategy (Docker/K8s)
-
----
-
-## المساهمة
-
-### لإضافة ADR جديد:
-
-1. انسخ Template من الأعلى
-2. أنشئ ملف `ADR-XXX-YourTitle.md`
-3. املأ جميع الأقسام
-4. أضف رابط في هذا الملف
-5. أنشئ PR للمراجعة
-
-### للطعن في ADR موجود:
-
-1. افتح Discussion في GitHub
-2. إذا تم قبول التغيير، أنشئ ADR جديد يستبدل القديم
-3. حدث الـ Status للقديم إلى `🔄 Superseded by ADR-XXX`
-
----
-
-## الحالة الحالية
-
-**Total ADRs:** 3  
-**Accepted:** 3  
-**Proposed:** 0  
-**Rejected:** 0  
-**Superseded:** 0  
-
-**Architecture Compliance:** 95% ✅
-
----
-
-## 🏭 Manufacturing Services Tests (25 ديسمبر 2025)
-
-تم إضافة **154 اختبار** شامل لخدمات التصنيع:
-
-- ✅ Order Management (23 tests)
-- ✅ Helper Functions (43 tests)
-- ✅ BOM Alternative Service (22 tests)
-- ✅ BOM Costing Service (22 tests)
-- ✅ BOM Routing Service (19 tests)
-- ✅ BOM Tree Service (25 tests)
-
-**النتائج:**
-- جميع الاختبارات تمر بنجاح (100%)
-- التغطية المتوقعة: ~50%+ (من 0%)
-- متوافق مع معايير SonarQube
-
-للمزيد من التفاصيل، راجع [`docs/testing/MANUFACTURING_TESTS_SUMMARY.md`](../testing/MANUFACTURING_TESTS_SUMMARY.md)
-
----
-
-## 🎯 Process Costing Implementation (25 ديسمبر 2025)
-
-تم بنجاح تطبيق نظام **Process Costing** متكامل يتبع أفضل الممارسات المحاسبية:
-
-### ✅ المراحل المكتملة:
-
-1. **المرحلة 1: التثبيت والتهيئة** ✅
-   - Migration 66: إضافة حقول WIP
-   - تهيئة البنية لـ EUP implementation
-
-2. **المرحلة 2: تطبيق EUP (Weighted-Average)** ✅
-   - Migration 67: تطبيق EUP calculation
-   - 7 اختبارات EUP جديدة (22 إجمالي)
-
-3. **المرحلة 3: Scrap Accounting** ✅
-   - Migration 68: تطبيق Normal vs Abnormal scrap
-   - 7 اختبارات Scrap Accounting جديدة (29 إجمالي)
-
-4. **المرحلة 4: FIFO Method** ✅
-   - Migration 69: تطبيق FIFO costing method
-   - 7 اختبارات FIFO جديدة (36 إجمالي)
-
-### 📊 الإحصائيات:
-- **Migrations:** 4 (66, 67, 68, 69)
-- **الاختبارات:** 36 (جميعها نجحت)
-- **الحقول الجديدة:** 18 حقل
-- **الميزات:** EUP + Scrap Accounting + FIFO
-
-### 📚 التوثيق:
-- [`PROCESS_COSTING_IMPROVEMENT_PLAN.md`](./PROCESS_COSTING_IMPROVEMENT_PLAN.md) - خطة التحسين
-- [`PROCESS_COSTING_LIMITATIONS.md`](./PROCESS_COSTING_LIMITATIONS.md) - Known Limitations & Roadmap
-- [`EUP_IMPLEMENTATION_SUMMARY.md`](./EUP_IMPLEMENTATION_SUMMARY.md) - ملخص EUP
-- [`SCRAP_ACCOUNTING_SUMMARY.md`](./SCRAP_ACCOUNTING_SUMMARY.md) - ملخص Scrap Accounting
-- [`FIFO_METHOD_SUMMARY.md`](./FIFO_METHOD_SUMMARY.md) - ملخص FIFO Method
-- [`PROCESS_COSTING_COMPLETE_SUMMARY.md`](./PROCESS_COSTING_COMPLETE_SUMMARY.md) - ملخص شامل
-
----
-
-**آخر تحديث:** 25 ديسمبر 2025
+أنشئ ADR عندما يكون القرار واسع الأثر أو يصعب عكسه، مثل سياسة Product Catalog/IA أو سياسة Stage→GL. يجب أن يحتوي على: السياق، القرار، البدائل، العواقب، الاختبارات/القبول، ومراجع التنفيذ. لا تُعدّل ADR تاريخيًا لإخفاء قرار سابق؛ عند الاستبدال أنشئ ADR جديدًا واربط القديم به.
