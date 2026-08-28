@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PRODUCT_CATALOG,
   getVisibleProductNavigation,
+  moduleItem,
   type ProductCatalogAccessContext,
 } from '../product-catalog';
 
@@ -155,6 +156,30 @@ describe('product catalog navigation', () => {
       expect(settings).toBeDefined();
       expect(settings?.children).toEqual([]);
       expect(settings?.landingHref).toBe('/settings');
+    });
+
+    it('does not surface a parent whose only requirement comes from a hidden child (moduleItem childRequirements regression guard)', () => {
+      // 'synthetic' has no registered route contract (resolveRoutePermission
+      // returns undefined for it), so moduleItem's rootRequirements is empty —
+      // any visibility has to come from a renderable child's requirements.
+      const hiddenChild = {
+        key: 'hidden-child',
+        labelKey: 'navigation.overview',
+        href: '/synthetic/hidden',
+        moduleCode: 'synthetic',
+        requirements: [{ key: 'synthetic.hidden.read' }],
+        status: 'hidden' as const,
+      };
+      const synthetic = moduleItem('synthetic', 'synthetic-parent', '/synthetic', 'Settings', [hiddenChild]);
+
+      // A hidden child's requirement must not leak into the parent's own
+      // requirements — that's exactly what would let a permission attached
+      // to a not-yet-shipped feature silently surface an otherwise-empty
+      // parent for a caller who can see nothing underneath it.
+      expect(synthetic.requirements).toEqual([]);
+
+      const visible = getVisibleProductNavigation(context(['synthetic.hidden.read']), [synthetic]);
+      expect(visible).toEqual([]);
     });
 
     it('every visible group either satisfies its own root or has a visible child to land on', () => {

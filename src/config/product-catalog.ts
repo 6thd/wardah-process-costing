@@ -83,7 +83,8 @@ function child(
   };
 }
 
-function moduleItem(
+/** Exported for the moduleItem-aggregation regression test in product-catalog.test.ts. */
+export function moduleItem(
   moduleCode: string,
   key: string,
   href: string,
