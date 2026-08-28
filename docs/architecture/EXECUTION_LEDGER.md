@@ -2,7 +2,7 @@
 
 **Purpose:** durable restart checkpoint for active and unfinished product, security, financial-reporting, manufacturing, and repository-alignment work.
 
-**Current anchor:** `main@cdbe648cb2c64d9c4cbcf39daf4dcc7b24376e01` (after PR #194; repository cutoff 182, Production cutoff 181)
+**Current anchor:** `main@21b9bbfc92a00ff29776a4c418f54d6a3ecab97f` (after PR #196; repository cutoff 182, Production cutoff 181)
 
 > This file is the live execution checkpoint. Historical plans keep their original phase names and evidence, but new work must use the namespaced IDs below. A phase is not considered complete because a chat or old plan says so; completion requires repository/PR/migration/test evidence recorded here.
 
@@ -28,10 +28,10 @@
 
 ## Current focus
 
-1. `ALIGN-P0` — PR #192 is ready for review, synchronized with `main@cdbe648c`, and establishes the truthful product/repository map and live documentation checkpoint.
+1. `ALIGN-P0` — PR #192 is ready for review, synchronized with `main@21b9bbf`, and establishes the truthful product/repository map and live documentation checkpoint.
 2. `ALIGN-P1` — **DONE.** PR #193 merged to `main` as `6811ca1`; see the inventory row below.
 3. PR #194 — **DONE (repository only).** Merged as `cdbe648c` under an explicit sequencing exception; Migration 182 is not applied to Production.
-4. PR #196 records the complete read-only pre-182 Production snapshot and postflight contract; Issue #195 tracks orphan historical account references separately.
+4. PR #196 — **DONE.** The complete read-only pre-182 Production snapshot and postflight contract are merged as `21b9bbf`; Issue #195 tracks orphan historical account references separately.
 5. Security prerequisite wave before financial statements: `SEC-172` as Migration 183 on top of 182, then `SEC-162`, `SEC-161`, and `SEC-171` if scope remains focused.
 6. Reconcile `FINREP-SPEC` against the current DB/repository baseline.
 7. `FINREP-1` — authoritative financial reporting round.
@@ -42,19 +42,35 @@ No Production mutation is authorized by this ledger.
 
 | ID | Status | Evidence / current truth | Next action / gate |
 |---|---|---|---|
-| `ALIGN-P0` | ACTIVE | PR #192 is ready for review and contains the product-alignment plan, durable ledger, historical pre-`ALIGN-P1` route×Sidebar×permission inventory with its post-#193 reconciliation, live docs index, and a superseded marker on the old repository reorganization plan. Its branch has current `main@cdbe648c...` merged in. | Review #192. No file moves/runtime changes. After normal merge authorization, this checkpoint is closed. |
+| `ALIGN-P0` | ACTIVE | PR #192 is ready for review and contains the product-alignment plan, durable ledger, historical pre-`ALIGN-P1` route×Sidebar×permission inventory with its post-#193 reconciliation, live docs index, and a superseded marker on the old repository reorganization plan. Its branch has current `main@21b9bbf...` merged in. | Review #192. No file moves/runtime changes. After normal merge authorization, this checkpoint is closed. |
 | `ALIGN-P1` | DONE | PR #193 (`feat/align-p1-product-catalog`) merged to `main` as `6811ca196dfea8e460b2ac0104dbe8c917ca8e04`. Delivered `src/config/product-catalog.ts` as the single navigation source of truth, `src/components/layout/sidebar.tsx` driven from it (655 lines of hand-maintained item list/`MODULE_CODES` duplication/`hasModuleAccess()` module-prefix check removed), decorative badges removed, `inventory.categories`/`manufacturing.routing`/`quality` correctly `hidden`/`planned` instead of GA. Independent review caught two functional-authorization dead ends after the first pass (collapsed-sidebar icon linking a permission-only group to a root the caller couldn't enter; a childless-but-visible group rendering as a dead button) — both closed via `landingHref`, which mirrors `ModuleGuard`'s own root check and falls back to the first visible child. Covered by DOM-level tests (`sidebar-landing-href.test.tsx`), a catalog invariant test across 8 permission scenarios, and a regression guard on the `moduleItem` hidden-child requirement filter. | None. Sidebar navigation is now driven by the same exact route-permission contracts as `ModuleGuard`, closing a recurring "visible-but-forbidden" class of bug from earlier RBAC rounds. |
 | PR `#190` | DONE | Production/Staging/Preview topology documentation merged to `main` as `608633c1b96f13df9fde9f2fbd1689dee3959695`. | Preserve its `CLAUDE.md` policy; no duplicate follow-up required unless CI/review finds a defect. |
 | PR `#193` | DONE | ALIGN-P1 application PR merged to `main` as `6811ca196dfea8e460b2ac0104dbe8c917ca8e04`. | See `ALIGN-P1` row above for scope/evidence. |
-| PR `#194` | DONE (repository) | Trial Balance correctness PR merged to `main` as `cdbe648cb2c64d9c4cbcf39daf4dcc7b24376e01` from reviewed head `8dc8f36e...`. It adds repository Migration 182, moves `rpc_get_trial_balance` to the legal ledger, honors configured fiscal-year fallback, and preserves the existing membership-only guard. The user explicitly approved landing 182 before `SEC-172` so the later security migration hardens the correct definition rather than being overwritten by it. Production ledger remains at 181. | Apply 182 only under separate Production authorization and run the authenticated postflight in PR #196's runbook update. |
-| PR `#196` | ACTIVE | One-file documentation PR records the complete read-only pre-182 Production snapshot, expected orphan-code metadata, postflight total, sequencing exception, and Issue #195. Head `6625406781bde36819e2c3d56978dfa1d6573e2d`; CI/CD, Sonar, Vercel, and Netlify are green. | Review and merge only under separate merge authorization; no Production mutation. |
+| PR `#194` | DONE (repository) | Trial Balance correctness PR merged to `main` as `cdbe648cb2c64d9c4cbcf39daf4dcc7b24376e01` from reviewed head `8dc8f36e...`. It adds repository Migration 182, moves `rpc_get_trial_balance` to the legal ledger, honors configured fiscal-year fallback, and preserves the existing membership-only guard. The user explicitly approved landing 182 before `SEC-172` so the later security migration hardens the correct definition rather than being overwritten by it. Production ledger remains at 181. | Apply 182 only under separate Production authorization and run the authenticated postflight now recorded on `main` by PR #196. |
+| PR `#196` | DONE | One-file documentation PR merged as `21b9bbfc92a00ff29776a4c418f54d6a3ecab97f`. It records the complete read-only pre-182 Production snapshot, expected orphan-code metadata, postflight total, sequencing exception, and Issue #195. | None. It does not authorize Production mutation. |
 | Issue `#195` | QUEUED | Production has historical posted legal-ledger lines whose NULL `account_id` and short codes do not resolve to the canonical six-digit `gl_accounts` catalog. Migration 182 restores their amounts but cannot repair their account linkage. | Establish an evidence-backed historical-to-canonical mapping and design a controlled backfill; no guessing and no monetary rewrite. |
-| `SEC-172` | QUEUED | Financial report RPC reads are tenant/member scoped without exact financial read permissions. Direct prerequisite for the financial-reporting round. | Implement as Migration 183 on top of Migration 182's legal-ledger definition; exact direct-RPC authorization acceptance is required. Production apply requires separate authorization. |
+| `SEC-172` | QUEUED | Financial report RPC reads are tenant/member scoped without exact financial read permissions. Direct prerequisite for the financial-reporting round. | Implement as Migration 183 on top of Migration 182's legal-ledger definition; preserve the composite contract below, require exact direct-RPC authorization acceptance, and create `TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md`. Production apply requires separate authorization. |
 | `SEC-162` | QUEUED | Fiscal-period generation/status mutation boundary lacks exact RBAC. | Design exact period permissions; DB-first migration/acceptance. |
 | `SEC-161` | QUEUED | `gl_accounts` mutations have broad org boundary and overlapping CoA permission families. | Decide canonical CoA permission family before changing RLS/RPCs. |
 | `SEC-171` | QUEUED | Client can insert into trusted audit stream. | Separate trusted server audit from client telemetry or close direct INSERT. |
 | `FINREP-SPEC` | AUDIT_REQUIRED | `docs/FINANCIAL_REPORTING_ENGINE_SPEC.md` still declares repository/Production cutoff 152 and migration numbering from that era, while the repository cutoff is now 182 and the verified Production cutoff remains 181. Its accounting design may remain useful, but its deployment sequence cannot be executed as written. | Before `FINREP-1`, reconcile the specification against current `main`, Production ledger, canonical GL model, fiscal-period state, and open security issues. Do not reuse old migration numbers. |
 | `FINREP-1` | BLOCKED | Trial balance/account statement/reconciliation UI already exists, but `SEC-172` and `FINREP-SPEC` reconciliation must be closed before treating report reads/design as a safe current product boundary. | After prerequisites: Trial Balance authority → GL/account statement → Income Statement → Balance Sheet → Cash Flow → comparison/export/print. |
+
+### Mandatory composite contract for Migration 183
+
+`rpc_get_trial_balance` will have a cumulative live contract, not a last-file-wins
+contract:
+
+1. Migration 182 owns the legal-ledger body, fiscal-year fallback, completeness
+   semantics, return shape, grants, and existing membership isolation.
+2. Migration 183 must reproduce that body and add the exact financial-read
+   permission required by `SEC-172`; it may not revert any 182 behavior.
+3. The existing Ledger Truth workflow watches `sql/migrations/**` and must remain
+   relevant to 183. LT-2 and Cases A–E are the regression net for accidental
+   replacement of the 182 body.
+4. The 183 PR must add `TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md`, following the
+   established 170–173 chain-document pattern. Any later `CREATE OR REPLACE` of
+   the function must restate both layers together.
 
 ## Reconstructed historical phase state
 
