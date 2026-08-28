@@ -41,9 +41,10 @@
 -- Fiscal-year-to-date. Opening = posted movement strictly before the start of
 -- the fiscal year containing p_as_of_date; period = posted movement from that
 -- start through p_as_of_date. The fiscal year is read from accounting_periods
--- for the organization; with no periods defined it falls back to the calendar
--- year of p_as_of_date. The signature carries no from-date, so this is derived
--- rather than passed — deliberately, to avoid a second overload.
+-- for the organization; with no covering period it is derived from the
+-- organization's configured fiscal_year_start month (January only when that
+-- setting is absent or invalid). The signature carries no from-date, so this is
+-- derived rather than passed — deliberately, to avoid a second overload.
 --
 -- Acceptance: .github/workflows/trial-balance-ledger-truth.yml with
 -- RPC_CONTRACT=enforced. Cases A–E in the acceptance script cover a balanced
@@ -75,8 +76,9 @@ SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-    v_org      uuid;
-    v_fy_start date;
+    v_org            uuid;
+    v_fy_start       date;
+    v_fy_start_month integer;
 BEGIN
     -- [120] Guard: p_tenant must be the caller's organization; NULL derives it
     -- from active membership. Preserved verbatim from the previous definition.
@@ -91,8 +93,9 @@ BEGIN
     PERFORM public.wardah_assert_org_member(v_org);
 
     -- Fiscal-year start for the opening/period split. accounting_periods is
-    -- org-scoped and carries fiscal_year; fall back to the calendar year when
-    -- the organization has no periods defined.
+    -- authoritative when it covers the requested date. Otherwise honor the
+    -- organization's configured start month, including the preceding calendar
+    -- year when p_as_of_date falls before that month.
     SELECT MIN(p2.start_date)
     INTO v_fy_start
     FROM accounting_periods p1
@@ -103,7 +106,25 @@ BEGIN
       AND p_as_of_date BETWEEN p1.start_date AND p1.end_date;
 
     IF v_fy_start IS NULL THEN
-        v_fy_start := date_trunc('year', p_as_of_date)::date;
+        SELECT CASE
+                   WHEN o.fiscal_year_start BETWEEN 1 AND 12
+                   THEN o.fiscal_year_start
+                   ELSE 1
+               END
+        INTO v_fy_start_month
+        FROM organizations o
+        WHERE o.id = v_org;
+
+        v_fy_start_month := COALESCE(v_fy_start_month, 1);
+        v_fy_start := make_date(
+            CASE
+                WHEN EXTRACT(MONTH FROM p_as_of_date)::integer < v_fy_start_month
+                THEN EXTRACT(YEAR FROM p_as_of_date)::integer - 1
+                ELSE EXTRACT(YEAR FROM p_as_of_date)::integer
+            END,
+            v_fy_start_month,
+            1
+        );
     END IF;
 
     RETURN QUERY

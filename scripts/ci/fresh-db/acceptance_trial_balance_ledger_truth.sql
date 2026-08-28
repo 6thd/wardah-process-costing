@@ -259,7 +259,29 @@ BEGIN
       'LEDGER_TRUTH_CASE_B_FAIL: period debit = %, expected 2000.00 — prior-year '
       'movement must not leak into the current period', v_dr;
   END IF;
-  RAISE NOTICE 'Case B OK: opening dr=% period dr=%', v_open_dr, v_dr;
+  RAISE NOTICE 'Case B periods OK: opening dr=% period dr=%', v_open_dr, v_dr;
+
+  -- With no covering accounting_period, the organization setting remains the
+  -- source of truth. June 2026 belongs to the fiscal year that began 2025-07-01,
+  -- so the November 2025 entry is period movement, not opening. A January-only
+  -- fallback would report opening=300 and period=2000 and fail this assertion.
+  DELETE FROM public.accounting_periods WHERE org_id = v_org;
+  UPDATE public.organizations SET fiscal_year_start = 7 WHERE id = v_org;
+
+  SELECT COALESCE(SUM(opening_debit), 0), COALESCE(SUM(period_debit), 0)
+  INTO v_open_dr, v_dr
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-06-30');
+
+  IF abs(v_open_dr) >= 0.01 OR abs(v_dr - 2300.00) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_B_FAIL: configured July fallback produced opening=% '
+      'period=%, expected opening=0.00 period=2300.00 from 2025-07-01',
+      v_open_dr, v_dr;
+  END IF;
+
+  UPDATE public.organizations SET fiscal_year_start = 1 WHERE id = v_org;
+  RAISE NOTICE
+    'Case B OK: accounting periods and configured July fallback both respected';
 
   -- ---- Case C: tenant isolation -------------------------------------------
   -- A second organization with its own posted entry must be invisible here,
