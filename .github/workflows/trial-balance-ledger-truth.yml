@@ -12,7 +12,7 @@ name: Trial Balance Ledger Truth
 #
 #   enforced  — ACTIVE since Migration 182 moved the RPC onto the legal ledger.
 #               Moving any reporting surface back to journal_* now fails this
-#               gate, as do regression cases A–D.
+#               gate, as do regression cases A–E.
 #
 # Both states were exercised locally before shipping, in all four combinations
 # of RPC state x mode. See docs/ai-simulation-lab/ for the audit, the consumer
@@ -116,7 +116,7 @@ jobs:
           # been skipped. A skip line here would mean the cases proved nothing.
           MODE="${{ github.event.inputs.rpc_contract || env.RPC_CONTRACT }}"
           if [ "$MODE" = 'enforced' ]; then
-            for c in A B C D; do
+            for c in A B C D E; do
               grep -q "Case $c OK" /tmp/ledger-truth.out \
                 || { echo "Case $c did not run under enforced mode"; exit 1; }
             done

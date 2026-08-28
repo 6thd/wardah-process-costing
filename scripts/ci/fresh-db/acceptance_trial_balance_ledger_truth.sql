@@ -178,7 +178,7 @@ END;
 $do$;
 
 -- ---------------------------------------------------------------------------
--- Regression cases A–D. These describe what the repaired RPC must do, so they
+-- Regression cases A–E. These describe what the repaired RPC must do, so they
 -- only run once the contract is enforced; under 'pending' the RPC returns
 -- nothing and the cases would report a defect already covered by LT-2.
 -- ---------------------------------------------------------------------------
@@ -191,9 +191,10 @@ DECLARE
   v_cr        numeric;
   v_open_dr   numeric;
   v_rows      integer;
+  v_name_ar   text;
 BEGIN
   IF v_mode <> 'enforced' THEN
-    RAISE NOTICE 'Cases A-D skipped: rpc_contract=% (they describe the repaired RPC)', v_mode;
+    RAISE NOTICE 'Cases A-E skipped: rpc_contract=% (they describe the repaired RPC)', v_mode;
     RETURN;
   END IF;
 
@@ -218,7 +219,16 @@ BEGIN
   RAISE NOTICE 'Case A OK: closing dr=% cr=% balanced', v_dr, v_cr;
 
   -- ---- Case B: real opening balances --------------------------------------
-  -- A posted entry in the prior fiscal year must land in opening, not period.
+  -- A posted entry before a configured, non-calendar fiscal year must land in
+  -- opening, not period. This makes the accounting_periods dependency itself
+  -- observable; a calendar-year-only implementation would fail this case.
+  INSERT INTO public.accounting_periods
+    (org_id, period_code, period_name, period_type, start_date, end_date,
+     fiscal_year, status)
+  VALUES
+    (v_org, 'LT-FY26', 'Ledger Truth FY 2026', 'year', DATE '2026-02-01',
+     DATE '2027-01-31', 2026, 'open');
+
   INSERT INTO public.gl_entries
     (id, org_id, entry_number, entry_date, entry_type, description,
      total_debit, total_credit, status, journal_origin)
@@ -346,6 +356,54 @@ BEGIN
   END IF;
 
   RAISE NOTICE 'Case D OK: legacy journal row present but inert (% unchanged)', v_cr;
+
+  -- ---- Case E: completeness and localized account metadata ----------------
+  -- Historical legal lines may predate account_id, and accounts may be
+  -- deactivated after carrying movement. Neither condition may erase their
+  -- balances. The Arabic return column must also use name_ar, not name_en.
+  UPDATE public.gl_accounts
+  SET allow_posting = false,
+      is_active = false
+  WHERE id = '7b1a0000-2222-4000-8000-000000000001';
+
+  INSERT INTO public.gl_entries
+    (id, org_id, entry_number, entry_date, entry_type, description,
+     total_debit, total_credit, status, journal_origin)
+  VALUES
+    ('7b1a0000-3333-4000-8000-000000000004', v_org, 'LT-NULL-ACCOUNT-ID',
+     DATE '2026-03-20', 'sale', 'Historical account-code fallback',
+     125.00, 125.00, 'posted', 'system');
+
+  INSERT INTO public.gl_entry_lines
+    (org_id, entry_id, line_number, account_id, account_code, account_name,
+     debit, credit, currency_code)
+  VALUES
+    (v_org, '7b1a0000-3333-4000-8000-000000000004', 1, NULL, '1101',
+     'Cash fallback', 125.00, 0, 'SAR'),
+    (v_org, '7b1a0000-3333-4000-8000-000000000004', 2, NULL, '4101',
+     'Revenue fallback', 0, 125.00, 'SAR');
+
+  v_dr := NULL;
+  v_name_ar := NULL;
+  SELECT closing_debit, account_name_ar
+  INTO v_dr, v_name_ar
+  FROM public.rpc_get_trial_balance(v_org, DATE '2026-12-31')
+  WHERE account_code = '1101';
+
+  IF v_dr IS NULL OR abs(v_dr - 2425.00) >= 0.01 THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_E_FAIL: deactivated-account closing debit = %, expected '
+      '2425.00 including the NULL-account_id line matched by account_code', v_dr;
+  END IF;
+  IF v_name_ar IS DISTINCT FROM 'النقدية' THEN
+    RAISE EXCEPTION
+      'LEDGER_TRUTH_CASE_E_FAIL: account_name_ar = [%], expected [النقدية]',
+      v_name_ar;
+  END IF;
+
+  RAISE NOTICE
+    'Case E OK: inactive account retained, NULL account_id matched, Arabic name=%',
+    v_name_ar;
 END;
 $cases$;
 
@@ -377,8 +435,8 @@ BEGIN
 
   ALTER TABLE public.gl_entry_lines ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
-  v_ledger := pg_temp.legal_ledger_total();   -- 2500.00
-  v_view   := pg_temp.view_total();           -- still 2000.00
+  v_ledger := pg_temp.legal_ledger_total();   -- 2925.00
+  v_view   := pg_temp.view_total();           -- still 2425.00
 
   IF abs(v_view - v_ledger) >= 0.01 THEN
     v_caught := true;

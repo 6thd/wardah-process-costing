@@ -46,9 +46,10 @@
 -- rather than passed — deliberately, to avoid a second overload.
 --
 -- Acceptance: .github/workflows/trial-balance-ledger-truth.yml with
--- RPC_CONTRACT=enforced. Cases A–D in the acceptance script cover a balanced
--- ledger, opening balances, tenant isolation, and proof that journal_lines rows
--- no longer influence the result.
+-- RPC_CONTRACT=enforced. Cases A–E in the acceptance script cover a balanced
+-- ledger, fiscal-year opening balances, tenant isolation, proof that
+-- journal_lines rows no longer influence the result, and completeness for
+-- inactive accounts / historical lines whose account_id is NULL.
 
 BEGIN;
 

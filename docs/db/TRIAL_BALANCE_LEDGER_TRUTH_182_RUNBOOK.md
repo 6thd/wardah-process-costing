@@ -95,10 +95,11 @@ run_chain                      → PASS=1 FAIL=0 NOT_RUN=0 TOTAL=1
 | LT-1 العرض = الدفتر القانوني | `view=2000.00 ledger=2000.00 aligned` ✅ |
 | LT-2 الـRPC = الدفتر القانوني | `rpc=2000.0000 ledger=2000.00 aligned` ✅ |
 | Case A ميزان متوازن | `closing dr=2000.0000 cr=2000.0000 balanced` ✅ |
-| Case B أرصدة افتتاحية حقيقية | `opening dr=300.0000 period dr=2000.0000` ✅ |
+| Case B أرصدة افتتاحية حقيقية من سنة مالية غير ميلادية | `opening dr=300.0000 period dr=2000.0000` ✅ |
 | Case C عزل المستأجرين | `foreign org invisible and refused` ✅ |
 | Case D الدفتر التاريخي بلا أثر | `legacy journal row present but inert (2300.0000 unchanged)` ✅ |
-| LT-3 إثبات احمرار LT-1 | `injected stale mirror → view=2300.00 ledger=2800.00 drift detected` ✅ |
+| Case E اكتمال الحساب/السطر والاسم العربي | `inactive account retained, NULL account_id matched, Arabic name=النقدية` ✅ |
+| LT-3 إثبات احمرار LT-1 | `injected stale mirror → view=2425.00 ledger=2925.00 drift detected` ✅ |
 
 ### 5.3 السقّاطة — الحالات الأربع مُختبَرة
 
@@ -119,7 +120,7 @@ run_chain                      → PASS=1 FAIL=0 NOT_RUN=0 TOTAL=1
 | دفتر قانوني صحيح لكن الافتتاحي مثبَّت على 0 (العطل القديم) | LT-1، LT-2، Case A | ❌ `CASE_B_FAIL: opening debit = 0, expected 300.00` |
 | دفتر قانوني وافتتاحي صحيحان لكن **بلا حارس عضوية** | LT-1، LT-2، Case A، Case B | ❌ `CASE_C_FAIL: reading another organization's trial balance was permitted` |
 
-ثم أُعيدت 182 وعادت السبعة خضراء.
+ثم أُعيدت 182 وعادت الثمانية خضراء.
 
 ### 5.5 بوابات المستودع
 
@@ -218,8 +219,10 @@ WHERE name = '182_trial_balance_ledger_truth';
 - [x] Case B — أرصدة افتتاحية تظهر، + إثبات احمرار منفَّذ
 - [x] Case C — عزل المستأجرين (إخفاء + رفض `NOT_ORG_MEMBER`)، + إثبات احمرار منفَّذ
 - [x] Case D — صفوف `journal_lines` بلا أثر على النتيجة
+- [x] Case E — الحساب المعطَّل لا يفقد رصيده، و`account_id = NULL` يُطابَق
+      بالكود، و`account_name_ar` يعيد الاسم العربي
 - [x] تحويل البوابة إلى `RPC_CONTRACT=enforced`
-- [x] خطوة CI ترفض تشغيلًا تُتخطّى فيه الحالات A–D
+- [x] خطوة CI ترفض تشغيلًا تُتخطّى فيه الحالات A–E
 - [x] السقّاطة مُختبَرة في الحالات الأربع
 - [x] بوابات المستودع كلها خضراء (§5.5)
 
