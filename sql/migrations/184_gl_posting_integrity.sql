@@ -47,6 +47,7 @@ EXECUTE FUNCTION public.check_balance_before_post();
 CREATE OR REPLACE FUNCTION public.wardah_184_assert_posted_entry_integrity()
 RETURNS trigger
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
@@ -134,13 +135,17 @@ REVOKE ALL ON FUNCTION public.wardah_184_assert_posted_entry_integrity()
   FROM PUBLIC, anon, authenticated, service_role;
 
 COMMENT ON FUNCTION public.wardah_184_assert_posted_entry_integrity() IS
-  'Deferred constraint trigger: every touched posted GL entry has at least two '
-  'legal lines whose debit/credit sums balance and equal the header totals.';
+  'Deferred SECURITY DEFINER constraint trigger: every touched posted GL entry '
+  'has at least two legal lines whose debit/credit sums balance and equal the '
+  'header totals. SECURITY DEFINER is required so commit-time checks cannot be '
+  'silently filtered by tenant RLS after a SECURITY DEFINER posting RPC returns.';
 
 DO $postflight$
 DECLARE
   v_header_type integer;
   v_constraint_count integer;
+  v_integrity_security_definer boolean;
+  v_trigger_helper_execute_leak boolean;
 BEGIN
   SELECT t.tgtype INTO v_header_type
   FROM pg_trigger t
@@ -167,6 +172,33 @@ BEGIN
   IF v_constraint_count <> 2 THEN
     RAISE EXCEPTION
       'GL_184_DEFERRED_CONSTRAINT_TRIGGERS_INVALID: %', v_constraint_count;
+  END IF;
+
+  SELECT p.prosecdef INTO v_integrity_security_definer
+  FROM pg_proc p
+  WHERE p.oid = 'public.wardah_184_assert_posted_entry_integrity()'::regprocedure;
+
+  IF v_integrity_security_definer IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GL_184_INTEGRITY_TRIGGER_MUST_BE_SECURITY_DEFINER';
+  END IF;
+
+  SELECT
+    has_function_privilege(
+      'anon', 'public.check_balance_before_post()', 'EXECUTE')
+    OR has_function_privilege(
+      'authenticated', 'public.check_balance_before_post()', 'EXECUTE')
+    OR has_function_privilege(
+      'service_role', 'public.check_balance_before_post()', 'EXECUTE')
+    OR has_function_privilege(
+      'anon', 'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
+    OR has_function_privilege(
+      'authenticated', 'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
+    OR has_function_privilege(
+      'service_role', 'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
+  INTO v_trigger_helper_execute_leak;
+
+  IF v_trigger_helper_execute_leak THEN
+    RAISE EXCEPTION 'GL_184_TRIGGER_HELPER_EXECUTE_LEAK';
   END IF;
 END;
 $postflight$;

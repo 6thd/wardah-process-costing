@@ -175,13 +175,124 @@ SELECT pg_temp.expect_184_error(
     WHERE id='99184184-2000-0000-0000-000000000005'$$,
   'POSTED_ENTRY_LINES_UNBALANCED', 'line imbalance');
 
-DO $$
+-- PostgreSQL 17 fires deferred triggers under the role active at evaluation.
+-- Reproduce the real multi-org/RLS boundary: authenticated has two memberships,
+-- no org claim, and therefore RLS resolves to the oldest membership (org A).
+-- A SECURITY DEFINER posting helper writes an invalid posted header into org B,
+-- then returns to authenticated before deferred constraints are forced. The
+-- integrity trigger must still see the RLS-hidden row and fail closed.
+INSERT INTO public.organizations (id, name, code)
+VALUES ('99184184-0000-0000-0000-000000000001', 'GL 184 RLS Primary', 'GL184-RLS-A');
+
+INSERT INTO auth.users (id, email)
+VALUES ('99184184-9999-0000-0000-000000000001', 'gl184-rls@example.test');
+
+INSERT INTO public.user_organizations
+  (user_id, org_id, is_active, is_org_admin, created_at)
+VALUES
+  ('99184184-9999-0000-0000-000000000001',
+   '99184184-0000-0000-0000-000000000001', true, false, TIMESTAMPTZ '2026-01-01 00:00:00+00'),
+  ('99184184-9999-0000-0000-000000000001',
+   '99184184-0000-0000-0000-000000000002', true, false, TIMESTAMPTZ '2026-01-02 00:00:00+00');
+
+CREATE OR REPLACE FUNCTION pg_temp.seed_hidden_invalid_posted_entry()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $$
 BEGIN
+  INSERT INTO public.gl_entries
+    (id, org_id, entry_number, entry_date, entry_type, description,
+     total_debit, total_credit, status, journal_origin)
+  VALUES
+    ('99184184-2000-0000-0000-000000000006',
+     '99184184-0000-0000-0000-000000000002',
+     'GL184-RLS-HIDDEN-NO-LINES', CURRENT_DATE, 'manual',
+     'RLS-hidden deferred integrity regression fixture',
+     33, 33, 'posted', 'system');
+END;
+$$;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config('request.jwt.claim.sub',
+  '99184184-9999-0000-0000-000000000001', true);
+SELECT set_config(
+  'request.jwt.claims',
+  '{"sub":"99184184-9999-0000-0000-000000000001","role":"authenticated"}',
+  true);
+
+DO $rls$
+DECLARE
+  v_visible bigint;
+  v_caught boolean := false;
+BEGIN
+  IF public.get_current_tenant_id()
+     IS DISTINCT FROM '99184184-0000-0000-0000-000000000001'::uuid THEN
+    RAISE EXCEPTION 'GL_184_RLS_FIXTURE_BAD_FALLBACK: tenant=%',
+      public.get_current_tenant_id();
+  END IF;
+
+  PERFORM pg_temp.seed_hidden_invalid_posted_entry();
+
+  SELECT COUNT(*) INTO v_visible
+  FROM public.gl_entries
+  WHERE id = '99184184-2000-0000-0000-000000000006';
+
+  IF v_visible <> 0 THEN
+    RAISE EXCEPTION
+      'GL_184_RLS_FIXTURE_NOT_HIDDEN: org B row visible under org A fallback';
+  END IF;
+
+  BEGIN
+    SET CONSTRAINTS ALL IMMEDIATE;
+  EXCEPTION WHEN OTHERS THEN
+    IF SQLERRM NOT LIKE '%POSTED_ENTRY_LINES_MISSING%' THEN
+      RAISE EXCEPTION
+        'GL_184_RLS_GUARD_UNEXPECTED_ERROR: expected POSTED_ENTRY_LINES_MISSING, got [%]',
+        SQLERRM;
+    END IF;
+    v_caught := true;
+  END;
+
+  IF NOT v_caught THEN
+    RAISE EXCEPTION
+      'GL_184_RLS_FAIL_OPEN: deferred guard skipped an RLS-hidden posted entry';
+  END IF;
+
+  RAISE NOTICE
+    'GL_184_RLS_FAIL_CLOSED_OK: hidden org B posting rejected after definer returned';
+END;
+$rls$;
+
+RESET ROLE;
+SET CONSTRAINTS ALL DEFERRED;
+
+DO $$
+DECLARE
+  v_security_definer boolean;
+BEGIN
+  SELECT prosecdef INTO v_security_definer
+  FROM pg_proc
+  WHERE oid = 'public.wardah_184_assert_posted_entry_integrity()'::regprocedure;
+
+  IF v_security_definer IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GL_184_INTEGRITY_TRIGGER_MUST_BE_SECURITY_DEFINER';
+  END IF;
+
   IF has_function_privilege(
        'authenticated',
        'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
      OR has_function_privilege(
-       'anon', 'public.check_balance_before_post()', 'EXECUTE') THEN
+       'anon', 'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
+     OR has_function_privilege(
+       'service_role', 'public.wardah_184_assert_posted_entry_integrity()', 'EXECUTE')
+     OR has_function_privilege(
+       'authenticated', 'public.check_balance_before_post()', 'EXECUTE')
+     OR has_function_privilege(
+       'anon', 'public.check_balance_before_post()', 'EXECUTE')
+     OR has_function_privilege(
+       'service_role', 'public.check_balance_before_post()', 'EXECUTE') THEN
     RAISE EXCEPTION 'GL_184_TRIGGER_HELPER_EXECUTE_LEAK';
   END IF;
 END;

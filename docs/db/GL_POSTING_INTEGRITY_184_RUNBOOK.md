@@ -19,6 +19,14 @@
 أولًا ثم السطور داخل المعاملة نفسها. المسودات قد تبقى ناقصة أثناء التحرير؛ العقد
 يبدأ عند `posted`.
 
+دالة الحارس المؤجل `wardah_184_assert_posted_entry_integrity()` تعمل
+`SECURITY DEFINER` مع `search_path` مثبت. هذا مقصود ومحدود بحماية سلامة البيانات:
+في PostgreSQL 17 قد يُقيّم الحدث المؤجل بعد عودة RPC ذات `SECURITY DEFINER` إلى
+`authenticated`، وعندها يمكن لـRLS أن تخفي قيد مؤسسة أخرى عن دالة `SECURITY
+INVOKER`. الحارس يجب أن يرى الحقيقة الفيزيائية للرأس والسطور حتى لا يتحول
+`NOT FOUND` إلى تجاوز صامت للعقد. لا يملك `PUBLIC/anon/authenticated/service_role`
+تنفيذ دالتي trigger مباشرة.
+
 ## ما لا تفعله 184
 
 - لا تمسح الصفوف التاريخية عند الإنشاء، ولا تعيد كتابة بيانات Production.
@@ -40,6 +48,13 @@
 - **بعد 184:** تثبت أن مسودة ناقصة مسموحة، وأن الرأس-أولًا مع سطور صحيحة في
   المعاملة نفسها مسموح، بينما غياب السطور واختلاف الرأس وعدم توازن السطور
   مرفوضة. كما تفحص أحداث trigger والمنح.
+- **RLS/deferred regression:** مستخدم `authenticated` عضو في مؤسستين وبدون
+  `org_id/tenant_id` claim يسقط إلى أقدم عضوية. fixture test-only ذات
+  `SECURITY DEFINER` تنشئ رأسًا مرحّلًا معيبًا في المؤسسة الثانية ثم تعود إلى
+  `authenticated` قبل forcing القيود. يثبت الاختبار أولًا أن RLS تخفي الرأس،
+  ثم يطلب `SET CONSTRAINTS ALL IMMEDIATE` ويشترط ظهور
+  `POSTED_ENTRY_LINES_MISSING`. بذلك لا يكفي اللون الأخضر إذا عاد الحارس إلى
+  `SECURITY INVOKER` أو صار fail-open عبر RLS.
 
 ## التطبيق والتحقق
 
@@ -55,8 +70,10 @@
 - `check_balance_before_post_trigger` يحمل INSERT وUPDATE وBEFORE.
 - constraint trigger على الرأس وآخر على السطور، وكلاهما deferred/initially
   deferred.
-- لا يملك `anon/authenticated/service_role` تنفيذ دالتي trigger مباشرة.
+- `wardah_184_assert_posted_entry_integrity()` يظهر `prosecdef = true`.
+- لا يملك `PUBLIC/anon/authenticated/service_role` تنفيذ دالتي trigger مباشرة.
 - smoke test داخل معاملة ملغاة يثبت قبول الرأس والسطور الصحيحين ورفض الحالات
-  الثلاث، دون ترك بيانات.
+  الثلاث، إضافة إلى إثبات fail-closed تحت `authenticated` عندما تخفي RLS
+  مؤسسة القيد عن المتصل.
 
 ثم تُشغّل Security وPerformance advisors وتُوثق أي ملاحظة جديدة بدل طيها.
