@@ -6,6 +6,18 @@ BEGIN;
 INSERT INTO public.organizations (id, name, code)
 VALUES ('99184184-0000-0000-0000-000000000001', 'GL 184 Red', 'GL184-RED');
 
+INSERT INTO public.gl_accounts
+  (id, org_id, code, name, category, subtype, normal_balance,
+   allow_posting, is_active)
+VALUES
+  ('99184184-1100-0000-0000-000000000001',
+   '99184184-0000-0000-0000-000000000001',
+   '184100', 'GL 184 Red Debit', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true),
+  ('99184184-2100-0000-0000-000000000001',
+   '99184184-0000-0000-0000-000000000001',
+   '184200', 'GL 184 Red Credit', 'LIABILITY', 'CURRENT_LIABILITY', 'CREDIT',
+   true, true);
+
 -- Before 184, a posted INSERT with no lines commits its constraints cleanly.
 INSERT INTO public.gl_entries
   (id, org_id, entry_number, entry_date, entry_type, description,
@@ -27,15 +39,14 @@ VALUES
    100, 100, 'posted', 'system');
 
 INSERT INTO public.gl_entry_lines
-  (org_id, entry_id, line_number, account_code, account_name,
-   debit, credit, currency_code)
+  (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
 VALUES
   ('99184184-0000-0000-0000-000000000001',
    '99184184-1000-0000-0000-000000000002', 1,
-   'GL184-D', 'Red debit', 80, 0, 'SAR'),
+   '99184184-1100-0000-0000-000000000001', 80, 0, 'SAR'),
   ('99184184-0000-0000-0000-000000000001',
    '99184184-1000-0000-0000-000000000002', 2,
-   'GL184-C', 'Red credit', 0, 80, 'SAR');
+   '99184184-2100-0000-0000-000000000001', 0, 80, 'SAR');
 
 SET CONSTRAINTS ALL IMMEDIATE;
 
