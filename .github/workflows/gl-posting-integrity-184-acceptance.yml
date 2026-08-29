@@ -1,0 +1,120 @@
+name: GL Posting Integrity 184 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "sql/migrations/184_gl_posting_integrity.sql"
+      - "scripts/ci/fresh-db/acceptance_184_gl_posting_integrity.sql"
+      - "scripts/ci/fresh-db/acceptance_184_gl_posting_integrity_red.sql"
+      - ".github/workflows/gl-posting-integrity-184-acceptance.yml"
+      - "sql/baseline/**"
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Posted header and legal-line sums stay atomic
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and migration order
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+          grep -q '^184_gl_posting_integrity.sql$' /tmp/chain_order.txt
+
+      - name: Red proof — reproduce pre-184 posting gaps
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$REFERENCE" -q
+          sed '/^184_gl_posting_integrity.sql$/d' /tmp/chain_order.txt \
+            > /tmp/red_order.txt
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_184_gl_posting_integrity_red.sql \
+            2>&1 | tee /tmp/gl-posting-integrity-184-red.out
+          grep -q 'GL_POSTING_INTEGRITY_184_RED_PROOF_OK' \
+            /tmp/gl-posting-integrity-184-red.out
+
+      - name: Build fresh database through 184
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 184 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_184_gl_posting_integrity.sql \
+            2>&1 | tee /tmp/gl-posting-integrity-184.out
+          grep -q 'GL_POSTING_INTEGRITY_184_ACCEPTANCE_PASS' \
+            /tmp/gl-posting-integrity-184.out
+
+      - name: Confirm both proof directions executed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'posted no-lines and header mismatch accepted before 184' \
+            /tmp/gl-posting-integrity-184-red.out
+          grep -q 'GL_POSTING_INTEGRITY_184_ACCEPTANCE_PASS' \
+            /tmp/gl-posting-integrity-184.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gl-posting-integrity-184-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/gl-posting-integrity-184.out
+            /tmp/gl-posting-integrity-184-red.out
+          retention-days: 30
