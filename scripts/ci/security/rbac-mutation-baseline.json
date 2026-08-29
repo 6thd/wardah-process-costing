@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "scanner_schema_version": 2,
-  "candidate_count": 359,
-  "signature_count": 332,
-  "signature_sha256": "e6e94fa1924e9935d83cff3357d3da5e50588a5cd0351908818c66db473e01f2",
-  "note": "Reviewed #189 supplier-invoice atomic UI migration: the active form retires its legacy direct supplier-invoice/line, PO-status and GL write paths. The generated inventory for the changed production surface contains only the two canonical RPC calls rpc_list_supplier_invoice_candidates and rpc_create_matched_supplier_invoice; no new direct table mutation was introduced. This pins the reduced mutation surface after explicit artifact review."
+  "candidate_count": 358,
+  "signature_count": 331,
+  "signature_sha256": "69be2874070be8c454339bc27f2e7e21c8477f824b6af991c2bd1cb451259219",
+  "note": "Reviewed #200 trial-balance single-source migration: two direct rpc_get_trial_balance call sites in useTrialBalance and PostingService were removed and replaced by one canonical call in trial-balance-rpc.ts. No new table mutation or RPC target was introduced; the net reduction is one candidate and one signature."
 }
