@@ -71,7 +71,9 @@ jobs:
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
-          sed '/^184_gl_posting_integrity.sql$/d' /tmp/red_chain_order.txt \
+          # Stop before the target so future migrations can never leak into the
+          # pre-184 red database when this gate outlives Migration 184.
+          sed '/^184_gl_posting_integrity.sql$/,$d' /tmp/red_chain_order.txt \
             > /tmp/red_order.txt
           REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh \
