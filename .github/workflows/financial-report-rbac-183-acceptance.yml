@@ -63,7 +63,7 @@ jobs:
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$BASELINE" -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$REFERENCE" -q
-          grep -v '^183_financial_report_read_rbac.sql$' /tmp/chain_order.txt \
+          sed '/^183_financial_report_read_rbac.sql$/d' /tmp/chain_order.txt \
             > /tmp/red_order.txt
           REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh \
