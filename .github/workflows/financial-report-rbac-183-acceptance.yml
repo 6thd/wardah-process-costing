@@ -1,0 +1,120 @@
+name: Financial Report RBAC 183 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "sql/migrations/183_financial_report_read_rbac.sql"
+      - "scripts/ci/fresh-db/acceptance_183_financial_report_read_rbac.sql"
+      - "scripts/ci/fresh-db/acceptance_183_financial_report_read_rbac_red.sql"
+      - ".github/workflows/financial-report-rbac-183-acceptance.yml"
+      - "sql/baseline/**"
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Exact financial-read permissions at the direct RPC boundary
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and migration order
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+          grep -q '^183_financial_report_read_rbac.sql$' /tmp/chain_order.txt
+
+      - name: Red proof — reproduce membership-only reads before 183
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$REFERENCE" -q
+          grep -v '^183_financial_report_read_rbac.sql$' /tmp/chain_order.txt \
+            > /tmp/red_order.txt
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_183_financial_report_read_rbac_red.sql \
+            2>&1 | tee /tmp/financial-report-rbac-183-red.out
+          grep -q 'FINANCIAL_REPORT_RBAC_183_RED_PROOF_OK' \
+            /tmp/financial-report-rbac-183-red.out
+
+      - name: Build fresh database through 183
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 183 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_183_financial_report_read_rbac.sql \
+            2>&1 | tee /tmp/financial-report-rbac-183.out
+          grep -q 'FINANCIAL_REPORT_RBAC_183_ACCEPTANCE_PASS' \
+            /tmp/financial-report-rbac-183.out
+
+      - name: Confirm both proof directions executed
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'membership-only access reproduced' \
+            /tmp/financial-report-rbac-183-red.out
+          grep -q 'FINANCIAL_REPORT_RBAC_183_ACCEPTANCE_PASS' \
+            /tmp/financial-report-rbac-183.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: financial-report-rbac-183-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/financial-report-rbac-183.out
+            /tmp/financial-report-rbac-183-red.out
+          retention-days: 30
