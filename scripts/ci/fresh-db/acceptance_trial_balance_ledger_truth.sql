@@ -294,7 +294,9 @@ BEGIN
      allow_posting, is_active)
   VALUES
     ('7b1a0000-2222-4000-8000-000000000009', v_other_org, '1101', 'Cash',
-     'النقدية', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true);
+     'النقدية', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true),
+    ('7b1a0000-2222-4000-8000-000000000010', v_other_org, '4101', 'Revenue',
+     'الإيرادات', 'REVENUE', 'OPERATING', 'CREDIT', true, true);
 
   INSERT INTO public.gl_entries
     (id, org_id, entry_number, entry_date, entry_type, description,
@@ -308,7 +310,9 @@ BEGIN
     (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
   VALUES
     (v_other_org, '7b1a0000-3333-4000-8000-000000000009', 1,
-     '7b1a0000-2222-4000-8000-000000000009', 9999.00, 0, 'SAR');
+     '7b1a0000-2222-4000-8000-000000000009', 9999.00, 0, 'SAR'),
+    (v_other_org, '7b1a0000-3333-4000-8000-000000000009', 2,
+     '7b1a0000-2222-4000-8000-000000000010', 0, 9999.00, 'SAR');
 
   SELECT COALESCE(SUM(closing_debit), 0)
   INTO v_dr
@@ -388,6 +392,12 @@ BEGIN
       is_active = false
   WHERE id = '7b1a0000-2222-4000-8000-000000000001';
 
+  -- Migration 184 adds deferred integrity events; flush the already-valid
+  -- fixtures before ALTER TABLE, which PostgreSQL otherwise rejects while a
+  -- trigger event is pending.
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL DEFERRED;
+
   INSERT INTO public.gl_entries
     (id, org_id, entry_number, entry_date, entry_type, description,
      total_debit, total_credit, status, journal_origin)
@@ -412,8 +422,12 @@ BEGIN
     (v_org, '7b1a0000-3333-4000-8000-000000000004', 2, NULL, '4101',
      'Revenue fallback', 0, 125.00, 0, 125.00, 'SAR');
 
+  -- The historical fixture still satisfies 184's header/line invariant, so its
+  -- deferred events can be evaluated before restoring the compatibility guard.
+  SET CONSTRAINTS ALL IMMEDIATE;
   ALTER TABLE public.gl_entry_lines
     ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
+  SET CONSTRAINTS ALL DEFERRED;
 
   v_dr := NULL;
   v_name_ar := NULL;
@@ -454,6 +468,10 @@ DECLARE
   v_view   numeric;
   v_caught boolean := false;
 BEGIN
+  -- Flush all valid 184 events before changing trigger state.
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL DEFERRED;
+
   ALTER TABLE public.gl_entry_lines DISABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
   -- Legal columns say 500; the historical mirror the view reads says 0.
@@ -465,7 +483,10 @@ BEGIN
      3, '7b1a0000-2222-4000-8000-000000000001', '1101',
      500.00, 0, 0, 0, 'SAR');
 
-  ALTER TABLE public.gl_entry_lines ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
+  -- Do not re-enable inside this transaction: the deliberately divergent line
+  -- also violates 184's header/line total invariant, so forcing its deferred
+  -- event would correctly reject the red-proof fixture. The enclosing ROLLBACK
+  -- restores the trigger state and discards the row atomically.
 
   v_ledger := pg_temp.legal_ledger_total();   -- 2925.00
   v_view   := pg_temp.view_total();           -- still 2425.00
