@@ -648,6 +648,14 @@ REVOKE ALL ON FUNCTION public.get_gl_accounts_by_category(uuid, text)
 GRANT EXECUTE ON FUNCTION public.get_gl_accounts_by_category(uuid, text)
   TO authenticated, service_role;
 
+-- The former client-side fast path exposed the same report through a
+-- SECURITY INVOKER view. Tenant RLS prevents cross-org reads, but it is not the
+-- exact reports.financial.read contract. Keep the view available to trusted
+-- server jobs only; authenticated clients must use rpc_get_trial_balance.
+REVOKE ALL ON TABLE public.v_trial_balance
+  FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON TABLE public.v_trial_balance TO service_role;
+
 DO $postflight$
 DECLARE
   v_def text;
@@ -708,6 +716,15 @@ BEGIN
   ) <> 1 THEN
     RAISE EXCEPTION
       'FINANCIAL_REPORT_RBAC_183_TRIAL_BALANCE_OVERLOAD_DRIFT';
+  END IF;
+
+  IF has_table_privilege('anon', 'public.v_trial_balance', 'SELECT')
+     OR has_table_privilege(
+          'authenticated', 'public.v_trial_balance', 'SELECT')
+     OR NOT has_table_privilege(
+          'service_role', 'public.v_trial_balance', 'SELECT') THEN
+    RAISE EXCEPTION
+      'FINANCIAL_REPORT_RBAC_183_TRIAL_BALANCE_VIEW_BYPASS_OPEN';
   END IF;
 END;
 $postflight$;
