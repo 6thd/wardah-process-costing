@@ -71,7 +71,9 @@ jobs:
             -f scripts/ci/fresh-db/supabase_shim.sql -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
           psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
-          sed '/^183_financial_report_read_rbac.sql$/d' /tmp/red_chain_order.txt \
+          # Stop before the target. Deleting only 183 would leave 184 and make
+          # the claimed pre-183 database depend on a later migration.
+          sed '/^183_financial_report_read_rbac.sql$/,$d' /tmp/red_chain_order.txt \
             > /tmp/red_order.txt
           REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh \
