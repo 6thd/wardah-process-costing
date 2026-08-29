@@ -30,12 +30,15 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 الحالة الحية الموثقة بعد Baseline المولد في 2026-08-26:
 
 - Baseline الحالي: `000_schema_baseline_20260826_131415.sql`, cutoff 181.
-- Production: مطبقة حتى 182 (`182_trial_balance_ledger_truth`، تحقق `20260828214043`).
+- Production: مطبقة حتى 182 (`182_trial_balance_ledger_truth`).
 - Repository: أعلى migration مرقمة هي 182.
-- Fresh DB: يطبق Migration 182 بعد Baseline ذي cutoff 181، وعقد Ledger Truth
-  مفروض بوضع `RPC_CONTRACT=enforced`.
+- Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
+
+الكتلة أعلاه مملوكة بالكامل لـ`scripts/ci/update_baseline_docs.py` وتُستبدل عند كل
+توليد Baseline. أي تحقق أو فجوة لاحقة للّقطة يجب أن تُسجّل في المراجع خارج الماركرين
+حتى لا يمحوها التشغيل التالي بصمت.
 
 استثناءات سجل Production التاريخية محفوظة دون تعديل في:
 `sql/migrations/migration_ledger_exceptions.json`:
@@ -122,6 +125,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   يساوي `SUM(LEAST(debit, credit))` داخل الحسابات. تحذير Supabase Advisor من
   `SECURITY DEFINER` الممنوحة لـ`authenticated` هو **SEC-172** نفسه: Migration 183
   يجب أن تضيف صلاحية القراءة المالية الدقيقة مع إعادة تثبيت جسم 182 كاملًا.
+  الـBaseline الحالي ما زال cutoff 181، لذلك يطبق Fresh DB Migration 182 بعده،
+  وبوابة Ledger Truth مفروضة بوضع `RPC_CONTRACT=enforced` حتى توليد Baseline 182
+  وتحديث هذه الكتلة آليًا.
 
 ## Baseline
 
