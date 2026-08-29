@@ -381,7 +381,7 @@ BEGIN
     RAISE EXCEPTION 'LEDGER_TRUTH_CASE_D_FIXTURE_BROKEN: legacy row not seeded (%)', v_rows;
   END IF;
 
-  RAISE NOTICE 'Case D OK: legacy journal row present but inert (%)', v_cr;
+  RAISE NOTICE 'Case D OK: legacy journal row present but inert (% unchanged)', v_cr;
 
   -- ---- Case E: completeness and localized account metadata ----------------
   -- Historical legal lines may predate account_id, and accounts may be
