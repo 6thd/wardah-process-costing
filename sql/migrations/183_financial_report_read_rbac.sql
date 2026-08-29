@@ -143,15 +143,15 @@ BEGIN
     -- [120] تأهيل الأعمدة lwb.* — كانت غامضة مع معاملات الإخراج (علة أصلية:
     -- الدالة كانت تنهار بـ 42702 عند أي حساب موجود والواجهة تتحايل بمسار بديل)
     SELECT
-        lwb.entry_date,
-        lwb.entry_number,
-        lwb.description,
-        lwb.debit,
-        lwb.credit,
-        v_opening_balance + SUM(lwb.balance_change) OVER (
+        lwb.entry_date::date,
+        lwb.entry_number::text,
+        lwb.description::text,
+        lwb.debit::numeric,
+        lwb.credit::numeric,
+        (v_opening_balance + SUM(lwb.balance_change) OVER (
             ORDER BY lwb.entry_date, lwb.entry_number
             ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
-        ) as running_balance
+        ))::numeric as running_balance
     FROM lines_with_balance lwb;
 END;
 $function$;
