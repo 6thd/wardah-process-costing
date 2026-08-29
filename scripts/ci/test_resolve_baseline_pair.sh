@@ -143,11 +143,47 @@ set +e; bash "$RESOLVER" "$DIR" >/dev/null 2>&1; RC=$?; set -e
 check "يقبل طابع YYYYMMDD" 0 "$RC"
 rm -rf "$DIR"
 
-# 10. المستودع الحقيقي يجب أن يُحَل زوجه.
+# 10. اختيار أحدث زوج سابق لهدف مطوي يحفظ Red Proof بعد تجديد الـBaseline.
+DIR=$(setup_dir)
+make_baseline  "$DIR" 20260717 121
+make_reference "$DIR" 20260717 121
+make_baseline  "$DIR" 20260828_120000 182
+make_reference "$DIR" 20260828_120000 182
+make_baseline  "$DIR" 20260829_120000 184
+make_reference "$DIR" 20260829_120000 184
+set +e; OUT=$(bash "$RESOLVER" "$DIR" 184 2>/dev/null); RC=$?; set -e
+EXTRA=ok
+echo "$OUT" | grep -q 'BASELINE_CUTOFF=182' || EXTRA="لم يختر أعلى cutoff سابق: $OUT"
+check "يختار أحدث زوج قبل cutoff الهدف" 0 "$RC" "$EXTRA"
+rm -rf "$DIR"
+
+# 11. لا يصنع Red Proof أجوفًا إذا لم توجد لقطة سابقة للهدف.
+DIR=$(setup_dir)
+make_baseline  "$DIR" 20260829_120000 184
+make_reference "$DIR" 20260829_120000 184
+set +e; bash "$RESOLVER" "$DIR" 184 >/dev/null 2>&1; RC=$?; set -e
+check "يميّز غياب زوج سابق للهدف" 3 "$RC"
+rm -rf "$DIR"
+
+# 12. before_cutoff مدخل في المقارنات العددية، فيُرفض غير الرقمي قبل استعماله.
+DIR=$(setup_dir)
+make_baseline  "$DIR" 20260828_120000 182
+make_reference "$DIR" 20260828_120000 182
+set +e; bash "$RESOLVER" "$DIR" '184x' >/dev/null 2>&1; RC=$?; set -e
+check "يرفض before_cutoff غير الرقمي" 1 "$RC"
+rm -rf "$DIR"
+
+# 13. المستودع الحقيقي يجب أن يُحَل زوجه.
 set +e; OUT=$(bash "$RESOLVER" sql/baseline 2>&1); RC=$?; set -e
 EXTRA=ok
 [ $RC -eq 0 ] || EXTRA="$OUT"
 check "زوج المستودع الحالي مُحَل وسليم" 0 "$RC" "$EXTRA"
+
+# 14. والمستودع يحتفظ بزوج سابق لـ183 لتشغيل الإثبات الأحمر بعد طي 183/184.
+set +e; OUT=$(bash "$RESOLVER" sql/baseline 183 2>&1); RC=$?; set -e
+EXTRA=ok
+echo "$OUT" | grep -q 'BASELINE_CUTOFF=182' || EXTRA="$OUT"
+check "زوج المستودع السابق لـ183 متاح" 0 "$RC" "$EXTRA"
 
 echo "── ${PASS} ناجح، ${FAIL} فاشل ──"
 [ "$FAIL" -eq 0 ]

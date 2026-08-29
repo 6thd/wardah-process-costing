@@ -11,7 +11,10 @@
 # الملفات هو الوضع الطبيعي لا حالة نادرة.
 #
 # الاستعمال:
-#   eval "$(scripts/ci/fresh-db/resolve_baseline_pair.sh [baseline_dir])"
+#   eval "$(scripts/ci/fresh-db/resolve_baseline_pair.sh [baseline_dir] [before_cutoff])"
+#
+# before_cutoff اختياري، ويختار أحدث زوج ذي cutoff أصغر منه. يُستخدم لإعادة
+# إثبات الحالة الحمراء السابقة لـmigration حتى بعد أن يطويها Baseline أحدث.
 #
 # يطبع أسطر KEY=VALUE على stdout والتشخيص على stderr.
 #
@@ -23,12 +26,38 @@
 set -Eeuo pipefail
 
 DIR=${1:-sql/baseline}
+BEFORE_CUTOFF=${2:-}
 
-BASELINE_PATH=$(find "$DIR" -maxdepth 1 -type f \
-  -name '000_schema_baseline_*.sql' | sort | tail -1)
+read_cutoff() {
+  grep -oE '^-- migration_cutoff: [0-9]+' "$1" | grep -oE '[0-9]+$' | head -1
+}
+
+if [ -n "$BEFORE_CUTOFF" ] && ! printf '%s' "$BEFORE_CUTOFF" | grep -qE '^[0-9]+$'; then
+  echo "❌ before_cutoff غير قانوني: '$BEFORE_CUTOFF' — المطلوب أرقام فقط" >&2
+  exit 1
+fi
+
+if [ -z "$BEFORE_CUTOFF" ]; then
+  BASELINE_PATH=$(find "$DIR" -maxdepth 1 -type f \
+    -name '000_schema_baseline_*.sql' | sort | tail -1)
+else
+  BASELINE_PATH=''
+  while IFS= read -r CANDIDATE; do
+    CANDIDATE_CUTOFF=$(read_cutoff "$CANDIDATE" || true)
+    if printf '%s' "$CANDIDATE_CUTOFF" | grep -qE '^[0-9]+$' \
+       && [ "$CANDIDATE_CUTOFF" -lt "$BEFORE_CUTOFF" ]; then
+      BASELINE_PATH=$CANDIDATE
+    fi
+  done < <(find "$DIR" -maxdepth 1 -type f \
+    -name '000_schema_baseline_*.sql' | sort)
+fi
 
 if [ -z "$BASELINE_PATH" ]; then
-  echo "لا schema baseline في $DIR" >&2
+  if [ -n "$BEFORE_CUTOFF" ]; then
+    echo "لا schema baseline في $DIR قبل cutoff $BEFORE_CUTOFF" >&2
+  else
+    echo "لا schema baseline في $DIR" >&2
+  fi
   exit 3
 fi
 
@@ -62,10 +91,6 @@ if [ ! -f "$REFERENCE_PATH" ]; then
   } >&2
   exit 1
 fi
-
-read_cutoff() {
-  grep -oE '^-- migration_cutoff: [0-9]+' "$1" | grep -oE '[0-9]+$' | head -1
-}
 
 BASELINE_CUTOFF=$(read_cutoff "$BASELINE_PATH")
 REFERENCE_CUTOFF=$(read_cutoff "$REFERENCE_PATH")

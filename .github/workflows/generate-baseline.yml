@@ -349,7 +349,10 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          BRANCH="automation/baseline-cutoff-${CUTOFF}-${GITHUB_RUN_ID}"
+          # A workflow re-run keeps GITHUB_RUN_ID. Production may advance between
+          # attempts, so the attempt must be part of the identity; otherwise one
+          # run can leave multiple indistinguishable cutoff branches behind.
+          BRANCH="automation/baseline-cutoff-${CUTOFF}-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
           git switch -c "$BRANCH"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
