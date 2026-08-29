@@ -400,6 +400,12 @@ BEGIN
   -- a pre-153 historical row by bypassing only the compatibility trigger inside
   -- this rollback-only fixture. Keep the legacy mirror columns synchronized so
   -- LT-3 below remains the sole deliberate view/ledger divergence.
+  -- Migration 184 adds deferred integrity events; flush the already-valid
+  -- fixtures before ALTER TABLE, which PostgreSQL otherwise rejects while a
+  -- trigger event is pending.
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL DEFERRED;
+
   ALTER TABLE public.gl_entry_lines
     DISABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
@@ -412,8 +418,12 @@ BEGIN
     (v_org, '7b1a0000-3333-4000-8000-000000000004', 2, NULL, '4101',
      'Revenue fallback', 0, 125.00, 0, 125.00, 'SAR');
 
+  -- The historical fixture still satisfies 184's header/line invariant, so its
+  -- deferred events can be evaluated before restoring the compatibility guard.
+  SET CONSTRAINTS ALL IMMEDIATE;
   ALTER TABLE public.gl_entry_lines
     ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
+  SET CONSTRAINTS ALL DEFERRED;
 
   v_dr := NULL;
   v_name_ar := NULL;
@@ -454,6 +464,10 @@ DECLARE
   v_view   numeric;
   v_caught boolean := false;
 BEGIN
+  -- Flush all valid 184 events before changing trigger state.
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL DEFERRED;
+
   ALTER TABLE public.gl_entry_lines DISABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
   -- Legal columns say 500; the historical mirror the view reads says 0.
@@ -465,7 +479,10 @@ BEGIN
      3, '7b1a0000-2222-4000-8000-000000000001', '1101',
      500.00, 0, 0, 0, 'SAR');
 
-  ALTER TABLE public.gl_entry_lines ENABLE TRIGGER trg_wardah_gl_line_legal_compat;
+  -- Do not re-enable inside this transaction: the deliberately divergent line
+  -- also violates 184's header/line total invariant, so forcing its deferred
+  -- event would correctly reject the red-proof fixture. The enclosing ROLLBACK
+  -- restores the trigger state and discards the row atomically.
 
   v_ledger := pg_temp.legal_ledger_total();   -- 2925.00
   v_view   := pg_temp.view_total();           -- still 2425.00
