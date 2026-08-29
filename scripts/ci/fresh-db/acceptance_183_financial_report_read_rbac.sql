@@ -272,9 +272,17 @@ BEGIN
      OR v_def NOT LIKE '%account_id IS NULL%' THEN
     RAISE EXCEPTION 'FINANCIAL_REPORT_RBAC_183_182_LAYER_REGRESSED';
   END IF;
+
+  IF has_table_privilege('anon', 'public.v_trial_balance', 'SELECT')
+     OR has_table_privilege(
+          'authenticated', 'public.v_trial_balance', 'SELECT')
+     OR NOT has_table_privilege(
+          'service_role', 'public.v_trial_balance', 'SELECT') THEN
+    RAISE EXCEPTION
+      'FINANCIAL_REPORT_RBAC_183_TRIAL_BALANCE_VIEW_BYPASS_OPEN';
+  END IF;
 END;
 $$;
 
 \echo 'FINANCIAL_REPORT_RBAC_183_ACCEPTANCE_PASS'
 ROLLBACK;
-
