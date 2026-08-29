@@ -104,6 +104,8 @@ jobs:
           set -Eeuo pipefail
           grep -q 'posted no-lines and header mismatch accepted before 184' \
             /tmp/gl-posting-integrity-184-red.out
+          grep -q 'GL_184_RLS_FAIL_CLOSED_OK' \
+            /tmp/gl-posting-integrity-184.out
           grep -q 'GL_POSTING_INTEGRITY_184_ACCEPTANCE_PASS' \
             /tmp/gl-posting-integrity-184.out
 
