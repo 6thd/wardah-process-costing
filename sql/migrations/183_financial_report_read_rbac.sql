@@ -106,13 +106,13 @@ BEGIN
                     COALESCE(SUM(credit_amount - debit_amount), 0)
             END
         INTO v_opening_balance
-        FROM gl_entry_lines
-        WHERE account_code = p_account_code
-        AND entry_id IN (
-            SELECT id FROM gl_entries
-            WHERE org_id = v_org_id
-            AND entry_date < p_from_date
-            AND status = 'POSTED'
+        FROM gl_entry_lines gel
+        WHERE gel.account_code = p_account_code
+        AND gel.entry_id IN (
+            SELECT ge.id FROM gl_entries ge
+            WHERE ge.org_id = v_org_id
+            AND ge.entry_date < p_from_date
+            AND ge.status = 'POSTED'
         );
     END IF;
 
