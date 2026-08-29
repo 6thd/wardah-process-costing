@@ -1,9 +1,20 @@
 name: Baseline PR Publication Guard
 
+# This guard validates a completed baseline-generation lifecycle.
+# No pull_request trigger is intentional: PR events do not carry the source
+# Generate Schema Baseline run identity, so they cannot produce a meaningful
+# verdict for this contract.
+
 on:
   workflow_run:
     workflows: ["Generate Schema Baseline"]
     types: [completed]
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Generate Schema Baseline workflow run id to validate"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -12,17 +23,22 @@ permissions:
 jobs:
   require-review-pr:
     name: Require generated baseline review PR
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: >-
+      ${{ (github.event_name == 'workflow_run'
+           && github.event.workflow_run.conclusion == 'success')
+          || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - name: Resolve generated branch and require PR
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id || github.event.workflow_run.id }}
         shell: bash
         run: |
           set -Eeuo pipefail
+
+          echo "source run: ${SOURCE_RUN_ID} (event: ${GITHUB_EVENT_NAME})"
 
           BRANCHES=$(gh api --paginate "repos/${REPO}/branches?per_page=100" \
             --jq ".[].name | select(test(\"^automation/baseline-cutoff-[0-9]+-${SOURCE_RUN_ID}$\"))")
@@ -39,9 +55,11 @@ jobs:
 
           if [ "$PR_COUNT" -ne 1 ]; then
             echo "❌ generated baseline branch ${BRANCH} has ${PR_COUNT} open review PRs"
+            echo "   source run: ${SOURCE_RUN_ID} (event: ${GITHUB_EVENT_NAME})"
             echo "   A green baseline generation is not sufficient until the generated branch is published for review."
             exit 1
           fi
 
           PR_NUMBER=$(gh pr list --repo "$REPO" --state open --head "$BRANCH" --json number --jq '.[0].number')
+          echo "✅ source run: ${SOURCE_RUN_ID} (event: ${GITHUB_EVENT_NAME})"
           echo "✅ generated baseline branch ${BRANCH} is published as PR #${PR_NUMBER}"
