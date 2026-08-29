@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import i18next from 'i18next';
+import { toast } from 'sonner';
 import { supabase, getTenantId } from '@/lib/supabase';
-import { trialBalanceService } from '@/services/supabase-service';
+import { fetchTrialBalanceRpc } from '@/services/accounting/trial-balance-rpc';
 import { PerformanceMonitor } from '@/lib/performance-monitor';
 import type { TrialBalanceRow } from '../types';
-import { fetchTrialBalanceManual } from '../services/trialBalanceService';
 
 export function useTrialBalance(fromDate: string, asOfDate: string) {
   const [balances, setBalances] = useState<TrialBalanceRow[]>([]);
@@ -15,66 +16,13 @@ export function useTrialBalance(fromDate: string, asOfDate: string) {
       try {
         console.log('🔍 Fetching trial balance from:', fromDate, 'to:', asOfDate);
 
-        try {
-          console.log('📊 Calling trialBalanceService.get()...');
-          const data = await trialBalanceService.get(fromDate, asOfDate);
-          console.log('✅ Loaded from trialBalanceService:', data?.length, 'accounts');
-
-          if (!data || data.length === 0) {
-            console.warn('⚠️ No data returned from trialBalanceService');
-            throw new Error('No data');
-          }
-
-          const formattedData = data.map((account: any) => ({
-            account_code: account.account_code,
-            account_name: account.account_name || account.account_code,
-            account_name_ar: account.account_name_ar || account.account_name || account.account_code,
-            account_type: 'ASSET',
-            opening_debit: 0,
-            opening_credit: 0,
-            period_debit: account.debit,
-            period_credit: account.credit,
-            closing_debit: Math.max(0, account.debit - account.credit),
-            closing_credit: Math.max(0, account.credit - account.debit)
-          }));
-
-          console.log('✅ Formatted data ready:', formattedData.length, 'accounts');
-          setBalances(formattedData);
-          return;
-        } catch (newError: any) {
-          console.warn('⚠️ New service error:', newError?.message || newError);
-          console.warn('Trying RPC fallback...');
-        }
-
-        // هوية المؤسسة تُشتق من عضوية المستخدم الحالي، ولا تُثبَّت في الكود.
-        // معرّف افتراضي هنا كان سيعرض أرقام مؤسسة أخرى داخل شاشة المستخدم فور
-        // وجود أكثر من مؤسسة. بلا هوية ⇒ فشل مغلق إلى الحساب اليدوي، لا افتراض.
         const orgId = await getTenantId();
-        if (!orgId) {
-          console.warn('⚠️ No active organization for caller — using manual fallback');
-          const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
-          setBalances(manualData);
-          return;
-        }
-
-        const { data, error } = await supabase
-          .rpc('rpc_get_trial_balance', {
-            p_tenant: orgId,
-            p_as_of_date: asOfDate
-          });
-
-        if (error) {
-          console.error('❌ RPC Error, falling back to manual:', error);
-          const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
-          setBalances(manualData);
-        } else {
-          console.log('✅ RPC Data received:', data?.length, 'rows');
-          setBalances(data || []);
-        }
+        const rows = await fetchTrialBalanceRpc(supabase, orgId, asOfDate);
+        setBalances(rows);
       } catch (error) {
-        console.error('❌ Exception, falling back to manual:', error);
-        const manualData = await fetchTrialBalanceManual(fromDate, asOfDate);
-        setBalances(manualData);
+        console.error('❌ Trial balance RPC failed:', error);
+        toast.error(i18next.t('accounting.trialBalance.fetchError'));
+        setBalances([]);
       } finally {
         setLoading(false);
       }
@@ -92,4 +40,3 @@ export function useTrialBalance(fromDate: string, asOfDate: string) {
     fetchTrialBalance
   };
 }
-

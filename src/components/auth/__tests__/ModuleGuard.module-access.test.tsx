@@ -119,8 +119,16 @@ describe('ModuleGuard — per-route permission contract (P1: module access is no
     expect(screen.getByText('auth.accessDenied')).toBeInTheDocument();
   });
 
-  it('accounting: an entries grant reaches /accounting/trial-balance', () => {
+  it('accounting: an entries grant does not bypass financial-report permission', () => {
     mockPermissions(['accounting.entries.read']);
+
+    renderAt('/accounting/trial-balance', 'accounting');
+    expect(screen.queryByText('guarded-content')).not.toBeInTheDocument();
+    expect(screen.getByText('auth.accessDenied')).toBeInTheDocument();
+  });
+
+  it('accounting: reports.financial.read reaches /accounting/trial-balance', () => {
+    mockPermissions(['reports.financial.read']);
 
     renderAt('/accounting/trial-balance', 'accounting');
     expect(screen.getByText('guarded-content')).toBeInTheDocument();

@@ -278,7 +278,7 @@ const ACCOUNTING_ROUTES: RoutePattern[] = [
   { pattern: '/', requirement: ACCOUNTING_OVERVIEW },
   { pattern: '/overview', requirement: ACCOUNTING_OVERVIEW },
   { pattern: '/journal-entries', requirement: { key: 'accounting.journals.read' } },
-  { pattern: '/trial-balance', requirement: { anyOf: ['accounting.entries.read', 'accounting.accounts.read'] } },
+  { pattern: '/trial-balance', requirement: { key: 'reports.financial.read' } },
   // نفس مكوّن general_ledger.account_statement — يُقبل مفتاحها أيضًا.
   {
     pattern: '/account-statement',

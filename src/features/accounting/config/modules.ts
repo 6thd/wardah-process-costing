@@ -49,7 +49,7 @@ export const accountingModules: AccountingModule[] = [
     bgColor: 'bg-green-50',
     featuresAr: ['أرصدة افتتاحية وختامية', 'حركة الفترة', 'تصدير Excel/PDF', 'فلترة متقدمة'],
     featuresEn: ['Opening & closing balances', 'Period movement', 'Export Excel/PDF', 'Advanced filtering'],
-    requiredKeys: ['accounting.entries.read', 'accounting.accounts.read'],
+    requiredKeys: ['reports.financial.read'],
   },
   {
     titleAr: 'كشف حساب',

@@ -27,6 +27,7 @@ vi.mock('@/lib/supabase', () => ({
     rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
   },
   getEffectiveTenantId: vi.fn(() => Promise.resolve('org-test-1')),
+  getTenantId: vi.fn(() => Promise.resolve('org-test-1')),
 }))
 
 // Mock PerformanceMonitor
@@ -503,70 +504,46 @@ describe('Integration: Accounting Service', () => {
   // getTrialBalance Tests
   // ============================================
   describe('getTrialBalance', () => {
-    it('should generate balanced trial balance', async () => {
-      const mockAccounts = [
-        { account_code: '1101', account_name: 'Cash', account_type: 'Asset' },
-        { account_code: '2101', account_name: 'Accounts Payable', account_type: 'Liability' },
-      ]
+    it('uses the canonical RPC and returns balanced closing totals', async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: [
+          {
+            account_code: '1101', account_name: 'Cash', account_name_ar: 'النقدية',
+            account_type: 'ASSET', opening_debit: 0, opening_credit: 0,
+            period_debit: 7000, period_credit: 0, closing_debit: 7000, closing_credit: 0,
+          },
+          {
+            account_code: '2101', account_name: 'Accounts Payable', account_name_ar: 'الدائنون',
+            account_type: 'LIABILITY', opening_debit: 0, opening_credit: 0,
+            period_debit: 0, period_credit: 7000, closing_debit: 0, closing_credit: 7000,
+          },
+        ],
+        error: null,
+      } as any)
 
-      const mockEntries1101 = [
-        { debit: 10000, credit: 0 },
-        { debit: 0, credit: 3000 },
-      ]
-
-      const mockEntries2101 = [
-        { debit: 0, credit: 7000 },
-      ]
-
-      // Create mock for gl_accounts
-      const accountsChainable: any = {
-        then: (resolve: any) => Promise.resolve({ data: mockAccounts, error: null }).then(resolve)
-      }
-      accountsChainable.select = vi.fn().mockReturnValue(accountsChainable)
-      accountsChainable.order = vi.fn().mockReturnValue(accountsChainable)
-
-      // Create mock for gl_entries
-      const entriesChainable: any = {}
-      entriesChainable.select = vi.fn().mockReturnValue(entriesChainable)
-      entriesChainable.eq = vi.fn().mockImplementation((field: string, value: string) => {
-        const result: any = {
-          then: (resolve: any) => {
-            if (value === '1101') {
-              return Promise.resolve({ data: mockEntries1101, error: null }).then(resolve)
-            } else if (value === '2101') {
-              return Promise.resolve({ data: mockEntries2101, error: null }).then(resolve)
-            }
-            return Promise.resolve({ data: [], error: null }).then(resolve)
-          }
-        }
-        return result
-      })
-
-      vi.mocked(supabase.from).mockImplementation((table: string) => {
-        if (table === 'gl_accounts') return accountsChainable
-        return entriesChainable
-      })
-
-      const result = await getTrialBalance()
+      const result = await getTrialBalance(undefined, '2026-08-31')
 
       expect(result.success).toBe(true)
-      expect(result.balances).toBeDefined()
-      expect(result.totals).toBeDefined()
-      expect(result.isBalanced).toBeDefined()
+      if (!('totals' in result)) throw new Error('expected a successful trial balance')
+      expect(result.totals).toEqual({ totalDebit: 7000, totalCredit: 7000 })
+      expect(result.isBalanced).toBe(true)
+      expect(supabase.rpc).toHaveBeenCalledWith('rpc_get_trial_balance', {
+        p_tenant: 'org-test-1',
+        p_as_of_date: '2026-08-31',
+      })
+      expect(supabase.from).not.toHaveBeenCalled()
     })
 
-    it('should handle database error', async () => {
-      const chainable: any = {
-        then: (resolve: any) => Promise.resolve({ data: null, error: { message: 'DB Error' } }).then(resolve)
-      }
-      chainable.select = vi.fn().mockReturnValue(chainable)
-      chainable.order = vi.fn().mockReturnValue(chainable)
-
-      vi.mocked(supabase.from).mockReturnValue(chainable)
+    it('returns failure on RPC error without querying legacy tables', async () => {
+      vi.mocked(supabase.rpc).mockResolvedValue({
+        data: null,
+        error: { message: 'PERMISSION_DENIED: reports.financial.read' },
+      } as any)
 
       const result = await getTrialBalance()
 
       expect(result.success).toBe(false)
+      expect(supabase.from).not.toHaveBeenCalled()
     })
   })
 

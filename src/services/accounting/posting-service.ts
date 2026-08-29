@@ -1,4 +1,5 @@
-import { supabase as _supabase } from '@/lib/supabase'
+import { getTenantId, supabase as _supabase } from '@/lib/supabase'
+import { fetchTrialBalanceRpc } from './trial-balance-rpc'
 const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 /**
@@ -140,13 +141,8 @@ export class PostingService {
    */
   static async getTrialBalance(request: TrialBalanceRequest): Promise<any[]> {
     if (!supabase) throw new Error('Supabase client not initialized')
-    const { data, error } = await supabase.rpc('rpc_get_trial_balance', {
-      p_tenant: request.tenantId || null,
-      p_as_of_date: request.asOfDate || null
-    })
-
-    if (error) throw new Error(error.message)
-    return data as any[]
+    const orgId = request.tenantId || await getTenantId()
+    return fetchTrialBalanceRpc(supabase, orgId, request.asOfDate)
   }
 }
 
