@@ -381,7 +381,7 @@ BEGIN
     RAISE EXCEPTION 'LEDGER_TRUTH_CASE_D_FIXTURE_BROKEN: legacy row not seeded (%)', v_rows;
   END IF;
 
-  RAISE NOTICE 'Case D OK: legacy journal row present but inert (% unchanged)', v_cr;
+  RAISE NOTICE 'Case D OK: legacy journal row present but inert (%)', v_cr;
 
   -- ---- Case E: completeness and localized account metadata ----------------
   -- Historical legal lines may predate account_id, and accounts may be
@@ -391,6 +391,12 @@ BEGIN
   SET allow_posting = false,
       is_active = false
   WHERE id = '7b1a0000-2222-4000-8000-000000000001';
+
+  -- Migration 184 adds deferred integrity events; flush the already-valid
+  -- fixtures before ALTER TABLE, which PostgreSQL otherwise rejects while a
+  -- trigger event is pending.
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SET CONSTRAINTS ALL DEFERRED;
 
   INSERT INTO public.gl_entries
     (id, org_id, entry_number, entry_date, entry_type, description,
@@ -404,12 +410,6 @@ BEGIN
   -- a pre-153 historical row by bypassing only the compatibility trigger inside
   -- this rollback-only fixture. Keep the legacy mirror columns synchronized so
   -- LT-3 below remains the sole deliberate view/ledger divergence.
-  -- Migration 184 adds deferred integrity events; flush the already-valid
-  -- fixtures before ALTER TABLE, which PostgreSQL otherwise rejects while a
-  -- trigger event is pending.
-  SET CONSTRAINTS ALL IMMEDIATE;
-  SET CONSTRAINTS ALL DEFERRED;
-
   ALTER TABLE public.gl_entry_lines
     DISABLE TRIGGER trg_wardah_gl_line_legal_compat;
 
