@@ -1,6 +1,6 @@
 # Wardah AI Simulation Lab — فهرس التوثيق
 
-**الحالة العامة:** 🟡 مرحلة ما قبل المختبر قيد الإغلاق: Round 1 مكتملة، وRound 2 منفذة في PR #201 وتنتظر الدمج/التطبيق
+**الحالة العامة:** 🟡 مرحلة ما قبل المختبر قيد الإغلاق: Round 1 وRound 2 مكتملتان، وRound 3 هي الجولة التالية
 **تاريخ الإصدار الأول:** 2026-08-28
 **آخر تحديث للحالة:** 2026-08-29
 **النطاق:** Phase 0 → Phase 3 فقط (البيئة، محرك الحمل، الكتالوجات، التحقق بالثوابت)
@@ -15,8 +15,8 @@
 | الجولة | الحالة | الدليل الحالي |
 |---|---|---|
 | **Round 1 — Accounting Truth Alignment** | ✅ مكتملة | Migration 182 نقلت `rpc_get_trial_balance` إلى `gl_entries/gl_entry_lines`؛ Migration 183 أغلقت قراءة العرض المباشرة وألزمت RBAC؛ PR #200 جعلت الـRPC مصدر العميل الوحيد لميزان المراجعة |
-| **Round 2 — GL Posting Integrity** | 🟡 منفذة ومثبتة في PR #201، غير مدموجة/غير مطبقة بعد | Migration 184 تضيف حارسًا مؤجلًا يربط الرأس بالسطور القانونية؛ exact-head acceptance تثبت red proof قبل 184، الحالات السليمة/المعيبة بعد 184، وfail-closed عبر RLS تحت `authenticated` |
-| **Round 3 — Inventory Integrity** | ⏳ لم تبدأ | تبقى بعد إغلاق Round 2 |
+| **Round 2 — GL Posting Integrity** | ✅ مكتملة | PR #201 مدموجة؛ Migration 184 مطبقة على Production ومثبتة postflight؛ الحارس المؤجل RLS-proof عبر `SECURITY DEFINER` مع EXECUTE مغلق عن أدوار العميل |
+| **Round 3 — Inventory Integrity** | ⏳ لم تبدأ | الجولة التالية قبل Phase 0 |
 | **Phase 0 — Simulation Environment** | ⏳ مؤجلة | تبدأ بعد إغلاق جولات الحقيقة/السلامة السابقة |
 
 ### ما أُغلق فعليًا
@@ -27,24 +27,21 @@
   الفترات/بداية السنة المالية، ثم أضيف له حارس `reports.financial.read`.
 - قراءة `v_trial_balance` المباشرة سُحبت من `authenticated/anon`، وبقيت
   `service_role` فقط.
-- Round 2 صُممت على قاعدة «كل posted entry تم لمسه يجب أن ينتهي بسطرين قانونيين
+- Round 2 أغلقت قاعدة «كل posted entry تم لمسه يجب أن ينتهي بسطرين قانونيين
   على الأقل، متوازنَين، ومجموعهما يطابق الرأس» دون مسح أو اختلاق تاريخ Production.
 - أثناء مراجعة #201 كُشف fail-open خاص بـPostgreSQL 17: trigger مؤجل من نوع
   `SECURITY INVOKER` قد يُقيَّم بعد عودة RPC إلى `authenticated` فتخفي RLS صف
-  مؤسسة أخرى. الإصلاح داخل 184 جعل حارس integrity الداخلي `SECURITY DEFINER`
-  مع `search_path` مثبت وEXECUTE مسحوب من الأدوار العامة، وأضيف اختبار multi-org
-  حقيقي يثبت أن الصف مخفي عن المتصل ومع ذلك يرفضه الحارس عند forcing القيود.
+  مؤسسة أخرى. Migration 184 جعلت حارس integrity الداخلي `SECURITY DEFINER`
+  مع `search_path` مثبت وEXECUTE مسحوب من الأدوار العامة؛ Production postflight
+  أثبت `prosecdef=true` والمالك `postgres` وصفر mismatch للقيود المرحّلة ذات السطور.
 
 ### ما يزال متبقيًا
 
-- **PR #201:** لا يُعد Round 2 مغلقًا نهائيًا إلا بعد مراجعة exact-head ثم الدمج
-  بتفويض مستقل، ثم تطبيق نص 184 المدموج على Production بتفويض Production مستقل
-  وفحوص runbook قبل/بعد.
-- **Baseline:** الزوج الحالي cutoff 182 بينما Production وصلت إلى 183؛ يلزم
-  تجديد lineage بعد استقرار 184 وفق حوكمة baseline المعتمدة.
+- **Baseline:** زوج cutoff 184 مولّد من Production ومدفوع على فرع المراجعة؛ PR #202 مفتوحة لمراجعته قبل أن يصبح هو الزوج المحلول على `main`.
+- **Baseline CI governance:** المولّد أخفى فشل `gh pr create` كتحذير. PR #204 تضيف anti-vacuity guard مستقلًا حتى لا يكون نجاح التوليد بلا PR مراجعة حالة خضراء كافية.
 - **Issue #195:** مطابقة أكواد الحسابات القانونية التاريخية ذات `account_id IS NULL`
   تبقى مسار بيانات مستقلًا؛ لا تخمين ولا backfill بلا مصدر محاسبي موثوق.
-- **Round 3:** سلامة المخزون ما زالت الجولة التالية قبل Phase 0.
+- **Round 3:** سلامة المخزون هي الجولة التالية قبل Phase 0.
 
 > **حد تاريخي:** الوثيقتان
 > [`PRODUCTION_INTEGRITY_AUDIT_20260828.md`](./PRODUCTION_INTEGRITY_AUDIT_20260828.md)
@@ -88,7 +85,7 @@
 | [`TRIAL_BALANCE_CONSUMER_INVENTORY.md`](./TRIAL_BALANCE_CONSUMER_INVENTORY.md) | Snapshot لجرد مسارات ميزان المراجعة قبل توحيدها؛ superseded بعد 182 و#200 |
 
 **الترتيب المعتمد حاليًا:**
-Round 1 محاذاة الحقيقة المحاسبية ✅ → Round 2 سلامة الترحيل 🟡 → Round 3 سلامة المخزون
+Round 1 محاذاة الحقيقة المحاسبية ✅ → Round 2 سلامة الترحيل ✅ → Round 3 سلامة المخزون
 → ثم Phase 0 للمختبر.
 
 ---
@@ -101,7 +98,7 @@ Round 1 محاذاة الحقيقة المحاسبية ✅ → Round 2 سلام�
 
 | # | الاكتشاف الأصلي | الحالة الحالية |
 |---|---|---|
-| 1 | لا قيد ولا trigger يربط مجموع `gl_entry_lines` برأس `gl_entries` | 🟡 **قيد الإغلاق في Migration 184 / PR #201**؛ acceptance على PostgreSQL 17 تثبت العقد وRLS fail-closed، ولم تُطبق على Production بعد |
+| 1 | لا قيد ولا trigger يربط مجموع `gl_entry_lines` برأس `gl_entries` | ✅ **مغلق في Migration 184 / PR #201**؛ Production postflight يثبت trigger contract و`SECURITY DEFINER`/RLS fail-closed، مع بقاء الثلاثة التاريخية خارج الإصلاح الآلي |
 | 2 | سطح العميل 182 دالة لا 64 | ⏳ مسار أمني مستقل؛ راجع `OQ-08` ولا تفترض أن الأرقام القديمة تمثل baseline الحالي |
 | 3 | تكلفة أمر التصنيع مواد فقط | ⏳ مفتوح — `OQ-01` |
 | 4 | PostgREST معاملة لكل طلب | ✅ قرار معماري ثابت — استوجب الناقل الثاني في ADR-SIM-003 |
