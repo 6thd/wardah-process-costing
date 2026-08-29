@@ -113,6 +113,12 @@ BEGIN
 END;
 $function$;
 
+-- Keep the PUBLIC revoke adjacent to the SECURITY DEFINER definition. Besides
+-- closing the default EXECUTE grant immediately, this is the form enforced by
+-- scripts/ci/check_definer_guards.py for non-client-callable internal helpers.
+REVOKE ALL ON FUNCTION public.wardah_184_assert_posted_entry_integrity()
+  FROM PUBLIC, anon, authenticated, service_role;
+
 DROP TRIGGER IF EXISTS trg_wardah_184_posted_entry_integrity_header
   ON public.gl_entries;
 CREATE CONSTRAINT TRIGGER trg_wardah_184_posted_entry_integrity_header
@@ -130,8 +136,6 @@ FOR EACH ROW
 EXECUTE FUNCTION public.wardah_184_assert_posted_entry_integrity();
 
 REVOKE ALL ON FUNCTION public.check_balance_before_post()
-  FROM PUBLIC, anon, authenticated, service_role;
-REVOKE ALL ON FUNCTION public.wardah_184_assert_posted_entry_integrity()
   FROM PUBLIC, anon, authenticated, service_role;
 
 COMMENT ON FUNCTION public.wardah_184_assert_posted_entry_integrity() IS
