@@ -3,8 +3,9 @@
  * إدارة القيود المحاسبية والتكامل مع دليل الحسابات
  */
 
-import { supabase as _supabase } from '../lib/supabase';
+import { getTenantId, supabase as _supabase } from '../lib/supabase';
 import { PerformanceMonitor } from '../lib/performance-monitor';
+import { fetchTrialBalanceRpc, toTrialBalanceData } from './accounting/trial-balance-rpc';
 const supabase = _supabase as import('@supabase/supabase-js').SupabaseClient
 
 // ===== TYPES =====
@@ -173,66 +174,13 @@ export async function calculateAccountBalance(
 export async function getTrialBalance(fromDate?: string, toDate?: string) {
   return PerformanceMonitor.measure('Trial Balance', async () => {
     try {
-      // 1. الحصول على جميع الحسابات
-      const { data: accounts, error: accountsError } = await supabase
-        .from('gl_accounts')
-        .select('account_code, account_name, account_type')
-        .order('account_code');
-
-      if (accountsError) throw accountsError;
-
-      // 2. حساب رصيد كل حساب
-      const balances = [];
-
-      for (const account of accounts || []) {
-        let query = supabase
-          .from('gl_entries')
-          .select('debit, credit')
-          .eq('account_code', account.account_code);
-
-        if (fromDate) {
-          query = query.gte('transaction_date', fromDate);
-        }
-        if (toDate) {
-          query = query.lte('transaction_date', toDate);
-        }
-
-        const { data: entries } = await query;
-
-        let totalDebit = 0;
-        let totalCredit = 0;
-
-        entries?.forEach(entry => {
-          totalDebit += entry.debit;
-          totalCredit += entry.credit;
-        });
-
-        if (totalDebit !== 0 || totalCredit !== 0) {
-          balances.push({
-            account_code: account.account_code,
-            account_name: account.account_name,
-            account_type: account.account_type,
-            debit: totalDebit,
-            credit: totalCredit,
-            balance: totalDebit - totalCredit,
-          });
-        }
-      }
-
-      // 3. حساب الإجماليات
-      const totals = balances.reduce(
-        (acc, curr) => ({
-          totalDebit: acc.totalDebit + curr.debit,
-          totalCredit: acc.totalCredit + curr.credit,
-        }),
-        { totalDebit: 0, totalCredit: 0 }
-      );
+      void fromDate;
+      const rows = await fetchTrialBalanceRpc(supabase, await getTenantId(), toDate);
+      const result = toTrialBalanceData(rows);
 
       return {
         success: true,
-        balances,
-        totals,
-        isBalanced: Math.abs(totals.totalDebit - totals.totalCredit) < 0.01,
+        ...result,
       };
     } catch (error) {
       console.error('Error generating trial balance:', error);
