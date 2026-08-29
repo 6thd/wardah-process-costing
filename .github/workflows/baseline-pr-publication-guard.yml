@@ -1,0 +1,47 @@
+name: Baseline PR Publication Guard
+
+on:
+  workflow_run:
+    workflows: ["Generate Schema Baseline"]
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  require-review-pr:
+    name: Require generated baseline review PR
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve generated branch and require PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          BRANCHES=$(gh api --paginate "repos/${REPO}/branches?per_page=100" \
+            --jq ".[].name | select(test(\"^automation/baseline-cutoff-[0-9]+-${SOURCE_RUN_ID}$\"))")
+          COUNT=$(printf '%s\n' "$BRANCHES" | sed '/^$/d' | wc -l)
+
+          if [ "$COUNT" -ne 1 ]; then
+            echo "❌ expected exactly one generated baseline branch for workflow run ${SOURCE_RUN_ID}; found ${COUNT}"
+            printf '%s\n' "$BRANCHES"
+            exit 1
+          fi
+
+          BRANCH=$(printf '%s\n' "$BRANCHES" | sed '/^$/d')
+          PR_COUNT=$(gh pr list --repo "$REPO" --state open --head "$BRANCH" --json number --jq 'length')
+
+          if [ "$PR_COUNT" -ne 1 ]; then
+            echo "❌ generated baseline branch ${BRANCH} has ${PR_COUNT} open review PRs"
+            echo "   A green baseline generation is not sufficient until the generated branch is published for review."
+            exit 1
+          fi
+
+          PR_NUMBER=$(gh pr list --repo "$REPO" --state open --head "$BRANCH" --json number --jq '.[0].number')
+          echo "✅ generated baseline branch ${BRANCH} is published as PR #${PR_NUMBER}"
