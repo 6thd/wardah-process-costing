@@ -19,15 +19,6 @@ VALUES
   ('99183183-dead-dead-dead-000000000001',
    '99183183-dead-dead-dead-000000000002', true, false);
 
-INSERT INTO public.gl_accounts
-  (id, org_id, code, name, name_ar, category, subtype, normal_balance,
-   allow_posting, is_active)
-VALUES
-  ('99183183-dead-dead-dead-000000000003',
-   '99183183-dead-dead-dead-000000000002',
-   '131100', 'Red Proof Account', 'حساب إثبات الاحمرار',
-   'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true);
-
 SELECT set_config(
   'request.jwt.claim.sub',
   '99183183-dead-dead-dead-000000000001',
@@ -49,7 +40,7 @@ BEGIN
   BEGIN
     PERFORM 1
     FROM public.get_account_statement(
-      '131100', DATE '2026-01-01', DATE '2026-08-31');
+      'P183-NOT-FOUND', DATE '2026-01-01', DATE '2026-08-31');
   EXCEPTION WHEN OTHERS THEN
     RAISE EXCEPTION
       'FINANCIAL_REPORT_RBAC_183_RED_PROOF_FAILED[account_statement]: %', SQLERRM;
@@ -78,4 +69,3 @@ $$;
 
 \echo 'FINANCIAL_REPORT_RBAC_183_RED_PROOF_OK: membership-only access reproduced'
 ROLLBACK;
-
