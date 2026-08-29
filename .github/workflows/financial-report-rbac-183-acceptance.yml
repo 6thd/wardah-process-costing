@@ -52,7 +52,15 @@ jobs:
           CUTOFF=${CUTOFF:-0}
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > /tmp/chain_order.txt
-          grep -q '^183_financial_report_read_rbac.sql$' /tmp/chain_order.txt
+
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 183)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order.txt
+          grep -q '^183_financial_report_read_rbac.sql$' /tmp/red_chain_order.txt
 
       - name: Red proof — reproduce membership-only reads before 183
         shell: bash
@@ -61,9 +69,9 @@ jobs:
           createdb wardah_red
           psql -v ON_ERROR_STOP=1 -d wardah_red \
             -f scripts/ci/fresh-db/supabase_shim.sql -q
-          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$BASELINE" -q
-          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$REFERENCE" -q
-          sed '/^183_financial_report_read_rbac.sql$/d' /tmp/chain_order.txt \
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
+          sed '/^183_financial_report_read_rbac.sql$/d' /tmp/red_chain_order.txt \
             > /tmp/red_order.txt
           REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh \
