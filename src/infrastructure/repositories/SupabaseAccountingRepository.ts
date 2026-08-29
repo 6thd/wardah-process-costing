@@ -4,8 +4,9 @@
  * تنفيذ Repository Pattern للمحاسبة باستخدام Supabase
  */
 
-import { supabase as _supabase } from '@/lib/supabase'
+import { getTenantId, supabase as _supabase } from '@/lib/supabase'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { fetchTrialBalanceRpc, toTrialBalanceData } from '@/services/accounting/trial-balance-rpc'
 import type {
   IAccountingRepository,
   GLAccountData,
@@ -225,53 +226,9 @@ export class SupabaseAccountingRepository implements IAccountingRepository {
   // ===== Financial Reports =====
 
   async getTrialBalance(fromDate?: string, toDate?: string): Promise<TrialBalanceData> {
-    const accounts = await this.getAccounts({ active: true })
-    const balances: TrialBalanceData['balances'] = []
-
-    for (const account of accounts) {
-      let query = supabase
-        .from('gl_entries')
-        .select('debit, credit')
-        .eq('account_code', account.accountCode)
-
-      if (fromDate) query = query.gte('transaction_date', fromDate)
-      if (toDate) query = query.lte('transaction_date', toDate)
-
-      const { data } = await query
-
-      let debit = 0
-      let credit = 0
-
-      data?.forEach(entry => {
-        debit += entry.debit || 0
-        credit += entry.credit || 0
-      })
-
-      if (debit !== 0 || credit !== 0) {
-        balances.push({
-          accountCode: account.accountCode,
-          accountName: account.accountName,
-          accountType: account.accountType,
-          debit,
-          credit,
-          balance: debit - credit,
-        })
-      }
-    }
-
-    const totals = balances.reduce(
-      (acc, curr) => ({
-        totalDebit: acc.totalDebit + curr.debit,
-        totalCredit: acc.totalCredit + curr.credit,
-      }),
-      { totalDebit: 0, totalCredit: 0 }
-    )
-
-    return {
-      balances,
-      totals,
-      isBalanced: Math.abs(totals.totalDebit - totals.totalCredit) < 0.01,
-    }
+    void fromDate
+    const rows = await fetchTrialBalanceRpc(supabase, await getTenantId(), toDate)
+    return toTrialBalanceData(rows)
   }
 
   async getIncomeStatement(fromDate: string, toDate: string): Promise<IncomeStatementData> {
