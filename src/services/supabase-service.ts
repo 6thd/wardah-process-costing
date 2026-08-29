@@ -33,13 +33,6 @@ import {
   attachCustomersToOrders
 } from './sales/sales-helpers'
 import {
-  fetchTrialBalanceFromView,
-  fetchPostedEntries,
-  fetchEntryLines,
-  fetchAccountNames,
-  calculateTrialBalanceTotals
-} from './accounting/trial-balance-helpers'
-import {
   calculateTotalAmount,
   updateSalesOrderWithFallback
 } from './sales/sales-order-helpers'
@@ -760,39 +753,6 @@ export const journalEntriesService = {
 
     if (error) throw error
     return data
-  }
-}
-
-// Trial Balance Service
-export const trialBalanceService = {
-  get: async (startDate?: string, endDate?: string) => {
-    return PerformanceMonitor.measure('Trial Balance Service Get', async () => {
-      const supabase = await getClient();
-      const orgId = await getTenantId();
-
-      // Try using the optimized view first
-      const viewResult = await fetchTrialBalanceFromView(supabase, orgId);
-      if (viewResult) {
-        return viewResult;
-      }
-
-      // Fallback: Manual calculation
-      const entries = await fetchPostedEntries(supabase, startDate, endDate);
-      if (entries.length === 0) {
-        return [];
-      }
-
-      const entryIds = entries.map(e => e.id);
-      const lines = await fetchEntryLines(supabase, entryIds);
-      if (lines.length === 0) {
-        return [];
-      }
-
-      const accountCodes = [...new Set(lines.map(line => line.account_code))];
-      const accountNamesMap = await fetchAccountNames(supabase, accountCodes);
-
-      return calculateTrialBalanceTotals(lines, accountNamesMap);
-    });
   }
 }
 
