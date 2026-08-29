@@ -6,6 +6,18 @@ BEGIN;
 INSERT INTO public.organizations (id, name, code)
 VALUES ('99184184-0000-0000-0000-000000000002', 'GL 184 Green', 'GL184-GREEN');
 
+INSERT INTO public.gl_accounts
+  (id, org_id, code, name, category, subtype, normal_balance,
+   allow_posting, is_active)
+VALUES
+  ('99184184-1100-0000-0000-000000000002',
+   '99184184-0000-0000-0000-000000000002',
+   '184101', 'GL 184 Green Debit', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true),
+  ('99184184-2100-0000-0000-000000000002',
+   '99184184-0000-0000-0000-000000000002',
+   '184201', 'GL 184 Green Credit', 'LIABILITY', 'CURRENT_LIABILITY', 'CREDIT',
+   true, true);
+
 CREATE OR REPLACE FUNCTION pg_temp.expect_184_error(
   p_sql text, p_fragment text, p_label text
 )
@@ -65,15 +77,14 @@ SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 
 INSERT INTO public.gl_entry_lines
-  (org_id, entry_id, line_number, account_code, account_name,
-   debit, credit, currency_code)
+  (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
 VALUES
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000001', 1,
-   'GL184-D', 'Debit', 100, 0, 'SAR'),
+   '99184184-1100-0000-0000-000000000002', 100, 0, 'SAR'),
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000001', 2,
-   'GL184-C', 'Credit', 0, 100, 'SAR');
+   '99184184-2100-0000-0000-000000000002', 0, 100, 'SAR');
 
 UPDATE public.gl_entries
 SET status = 'posted'
@@ -93,15 +104,14 @@ VALUES
    50, 50, 'posted', 'system');
 
 INSERT INTO public.gl_entry_lines
-  (org_id, entry_id, line_number, account_code, account_name,
-   debit, credit, currency_code)
+  (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
 VALUES
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000002', 1,
-   'GL184-D', 'Debit', 50, 0, 'SAR'),
+   '99184184-1100-0000-0000-000000000002', 50, 0, 'SAR'),
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000002', 2,
-   'GL184-C', 'Credit', 0, 50, 'SAR');
+   '99184184-2100-0000-0000-000000000002', 0, 50, 'SAR');
 SET CONSTRAINTS ALL IMMEDIATE;
 SET CONSTRAINTS ALL DEFERRED;
 
@@ -129,15 +139,14 @@ VALUES
    'GL184-MISMATCH', CURRENT_DATE, 'manual', 'invalid fixture',
    100, 100, 'draft', 'system');
 INSERT INTO public.gl_entry_lines
-  (org_id, entry_id, line_number, account_code, account_name,
-   debit, credit, currency_code)
+  (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
 VALUES
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000004', 1,
-   'GL184-D', 'Debit', 80, 0, 'SAR'),
+   '99184184-1100-0000-0000-000000000002', 80, 0, 'SAR'),
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000004', 2,
-   'GL184-C', 'Credit', 0, 80, 'SAR');
+   '99184184-2100-0000-0000-000000000002', 0, 80, 'SAR');
 SELECT pg_temp.expect_184_error(
   $$UPDATE public.gl_entries SET status='posted'
     WHERE id='99184184-2000-0000-0000-000000000004'$$,
@@ -153,15 +162,14 @@ VALUES
    'GL184-LINES-UNBALANCED', CURRENT_DATE, 'manual', 'invalid fixture',
    100, 100, 'draft', 'system');
 INSERT INTO public.gl_entry_lines
-  (org_id, entry_id, line_number, account_code, account_name,
-   debit, credit, currency_code)
+  (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
 VALUES
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000005', 1,
-   'GL184-D', 'Debit', 100, 0, 'SAR'),
+   '99184184-1100-0000-0000-000000000002', 100, 0, 'SAR'),
   ('99184184-0000-0000-0000-000000000002',
    '99184184-2000-0000-0000-000000000005', 2,
-   'GL184-C', 'Credit', 0, 90, 'SAR');
+   '99184184-2100-0000-0000-000000000002', 0, 90, 'SAR');
 SELECT pg_temp.expect_184_error(
   $$UPDATE public.gl_entries SET status='posted'
     WHERE id='99184184-2000-0000-0000-000000000005'$$,
