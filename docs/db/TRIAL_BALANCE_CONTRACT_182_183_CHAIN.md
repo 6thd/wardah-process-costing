@@ -15,6 +15,8 @@ Migration 183 تصحح حدود الوصول: عضوية المؤسسة وحده
 الـRPC مباشرة. بعد حارس العضوية تطلب الدالة
 `reports.financial.read` عبر `wardah_178_assert_permission`، وهو يغلف
 `wardah_has_exact_permission` ويحافظ على عقد RBAC المركزي.
+كما تسحب القراءة المباشرة من `v_trial_balance` من `authenticated/anon`، حتى
+لا يصبح عرض `SECURITY INVOKER` مسارًا موازيًا يكتفي بعزل المستأجر.
 
 لو أُعيد جسم 182 بلا طبقة 183 عاد التسريب الأمني. ولو أُعيدت طبقة 183 فوق جسم
 قديم عاد التقرير إلى دفتر تاريخي خاطئ. لذلك العقد الصحيح هو اتحادهما.
@@ -68,6 +70,9 @@ PERFORM public.wardah_178_assert_permission(
 `service_role`. المنحة الأخيرة لا تتجاوز التحقق: الاستدعاء يحتاج هوية مستخدم
 في `auth.uid()` وفق عقد المساعد المركزي.
 
+أما `v_trial_balance` فيُسحب `SELECT` عليه من `PUBLIC/anon/authenticated` ويظل
+لـ`service_role` فقط. عقد العميل الوحيد هو `rpc_get_trial_balance`.
+
 ## شبكة القبول
 
 `financial-report-rbac-183-acceptance.yml` تبني قاعدتين من الزوج الحالي
@@ -88,6 +93,7 @@ PERFORM public.wardah_178_assert_permission(
 - مؤسسة أخرى: `NOT_ORG_MEMBER`.
 - Org Admin النشط: يبقى مطابقًا لعقد RBAC المركزي.
 - `anon`: لا EXECUTE.
+- `authenticated/anon`: لا `SELECT` مباشر على `v_trial_balance`.
 
 وبالتوازي، بوابة Ledger Truth تُطلق على أي تغيير في
 `sql/migrations/**`. حالات LT-2 وA–E تحرس جسم 182، بما فيها سنة يوليو،
@@ -106,5 +112,6 @@ PERFORM public.wardah_178_assert_permission(
 6. حل `account_id IS NULL` والاسم العربي باقيان.
 7. التوقيع وشكل الإرجاع وعدد الـoverloads والمنح لم تتغير.
 8. بوابتا Financial RBAC وLedger Truth خضراوان مع إثبات الاحمرار.
+9. لا تُعاد منحة `v_trial_balance` للعملاء؛ مصدر العميل الوحيد هو الـRPC.
 
 لا يجوز نسخ 182 وحدها أو إضافة حارس 183 إلى نسخة أقدم من جسم الدالة.
