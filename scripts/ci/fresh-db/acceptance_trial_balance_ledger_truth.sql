@@ -294,7 +294,9 @@ BEGIN
      allow_posting, is_active)
   VALUES
     ('7b1a0000-2222-4000-8000-000000000009', v_other_org, '1101', 'Cash',
-     'النقدية', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true);
+     'النقدية', 'ASSET', 'CURRENT_ASSET', 'DEBIT', true, true),
+    ('7b1a0000-2222-4000-8000-000000000010', v_other_org, '4101', 'Revenue',
+     'الإيرادات', 'REVENUE', 'OPERATING', 'CREDIT', true, true);
 
   INSERT INTO public.gl_entries
     (id, org_id, entry_number, entry_date, entry_type, description,
@@ -308,7 +310,9 @@ BEGIN
     (org_id, entry_id, line_number, account_id, debit, credit, currency_code)
   VALUES
     (v_other_org, '7b1a0000-3333-4000-8000-000000000009', 1,
-     '7b1a0000-2222-4000-8000-000000000009', 9999.00, 0, 'SAR');
+     '7b1a0000-2222-4000-8000-000000000009', 9999.00, 0, 'SAR'),
+    (v_other_org, '7b1a0000-3333-4000-8000-000000000009', 2,
+     '7b1a0000-2222-4000-8000-000000000010', 0, 9999.00, 'SAR');
 
   SELECT COALESCE(SUM(closing_debit), 0)
   INTO v_dr
