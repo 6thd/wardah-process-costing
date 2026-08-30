@@ -15,6 +15,7 @@ on:
       - 'scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure_red.sql'
       - '.github/workflows/stock-write-surface-185-acceptance.yml'
       - 'sql/baseline/**'
+      - 'sql/migrations/**'
   workflow_dispatch:
 
 jobs:
@@ -60,6 +61,29 @@ jobs:
             > /tmp/chain_order.txt
           grep -q '^185_stock_write_surface_closure.sql$' /tmp/chain_order.txt
 
+          # The red proof must stay buildable even after a future Baseline
+          # regeneration folds 185 (and anything numbered after it) into the
+          # schema snapshot — at that point 185 would vanish from the chain
+          # built off the latest Baseline above, and reusing that same
+          # Baseline for the "pre-185" database would bake the fix in before
+          # the probe ever runs. Pin the red pair to the newest Baseline
+          # strictly before cutoff 185 instead, independent of whatever the
+          # latest Baseline currently is.
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 185)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          RED_CUTOFF=${RED_CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order_full.txt
+          # Cut the chain at 185 itself, not just that one line: any
+          # migration numbered after 185 must never reach the red database
+          # either, or a future addition could silently leak into what is
+          # supposed to be the pre-fix proof.
+          sed '/^185_stock_write_surface_closure.sql$/,$d' \
+            /tmp/red_chain_order_full.txt > /tmp/red_order.txt
+
       - name: Build fresh database through 185
         shell: bash
         run: |
@@ -86,10 +110,8 @@ jobs:
           set -Eeuo pipefail
           createdb wardah_red
           psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
-          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$BASELINE" -q
-          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$REFERENCE" -q
-          sed '/^185_stock_write_surface_closure.sql$/d' /tmp/chain_order.txt \
-            > /tmp/red_order.txt
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
           REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
             bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/red_order.txt
 

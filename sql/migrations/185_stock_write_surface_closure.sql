@@ -45,10 +45,11 @@
 -- regardless of caller. update_warehouse_gl_mapping is also SECURITY
 -- INVOKER with no guard of its own; its UPDATE on warehouses and INSERT
 -- into warehouse_gl_mapping both currently no-op/fail under RLS for lack of
--- a write policy on either table, for any role. Removing the unused anon
--- EXECUTE grant now is defense in depth against either of those RLS gaps
--- being closed later while the stale anon grant is forgotten — it is not a
--- claim that either function is safe to call.
+-- a write policy on either table, for roles subject to RLS (service_role
+-- bypasses RLS entirely and is not covered by this claim). Removing the
+-- unused anon EXECUTE grant now is defense in depth against either of
+-- those RLS gaps being closed later while the stale anon grant is
+-- forgotten — it is not a claim that either function is safe to call.
 --
 -- Scope: table grants + two anon-executable function grants only. No RLS
 -- policy is added or changed, no RPC signature changes, no data is scanned
@@ -137,8 +138,9 @@ BEGIN
   END LOOP;
 
   -- warehouses is deliberately untouched by this migration. Prove the
-  -- pre-185 grant shape is exactly unchanged, so a future edit here cannot
-  -- silently widen this migration's scope.
+  -- specific pre-185 grants this migration must not touch are still in
+  -- place (this checks those four privileges, not full ACL equivalence),
+  -- so a future edit here cannot silently widen this migration's scope.
   IF NOT (has_table_privilege('authenticated', 'public.warehouses', 'INSERT')
           AND has_table_privilege('authenticated', 'public.warehouses', 'UPDATE')
           AND has_table_privilege('authenticated', 'public.warehouses', 'DELETE')
@@ -154,6 +156,15 @@ BEGIN
   IF NOT has_function_privilege('authenticated', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
      OR NOT has_function_privilege('authenticated', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOCK_185_AUTHENTICATED_FUNCTION_EXECUTE_MUST_REMAIN';
+  END IF;
+
+  -- The header names service_role as untouched by this migration; only the
+  -- REVOKE ... FROM PUBLIC, anon statements above were run, so service_role
+  -- must still hold EXECUTE through its own separate grant. Prove that
+  -- claim instead of leaving it asserted only in prose.
+  IF NOT has_function_privilege('service_role', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOCK_185_SERVICE_ROLE_FUNCTION_EXECUTE_MUST_REMAIN';
   END IF;
 END
 $postflight$;

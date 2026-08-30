@@ -55,6 +55,13 @@ BEGIN
     RAISE EXCEPTION 'STOCK_185_ACCEPTANCE_ANON_FUNCTION_EXECUTE_REMAINS';
   END IF;
 
+  -- The migration's contract is that only PUBLIC/anon lost EXECUTE;
+  -- service_role's own separate grant must be untouched.
+  IF NOT has_function_privilege('service_role', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
+     OR NOT has_function_privilege('service_role', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOCK_185_ACCEPTANCE_SERVICE_ROLE_FUNCTION_EXECUTE_MISSING';
+  END IF;
+
   RAISE NOTICE 'STOCK_185_GRANTS_OK';
 END
 $grants$;
