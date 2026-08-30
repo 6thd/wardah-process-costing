@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import { X, Trash2, PackageOpen } from 'lucide-react'
+import { X, Trash2, PackageOpen, AlertCircle } from 'lucide-react'
 import { PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
 import { itemsService, categoriesService, stockMovementsService } from '@/services/supabase-service'
@@ -1861,20 +1861,27 @@ function StockMovements() {
   const canRead = hasPermissionKey('inventory.stock_moves.read')
   const [movements, setMovements] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!canRead) {
       setMovements([])
+      setLoadError(null)
       setLoading(false)
       return
     }
     const loadMovements = async () => {
+      setLoadError(null)
       try {
         const data = await stockMovementsService.getAll()
         setMovements(data || [])
       } catch (error) {
         console.error('Error loading stock movements:', error)
         toast.error('خطأ في تحميل حركات المخزون')
+        // A failed read is not the same fact as "zero movements exist" —
+        // surface it explicitly instead of falling through to the empty
+        // state, which would tell the user the ledger has nothing in it.
+        setLoadError('تعذّر تحميل حركات المخزون. تحقق من الاتصال وحاول مرة أخرى.')
       } finally {
         setLoading(false)
       }
@@ -1897,10 +1904,18 @@ function StockMovements() {
 
       <div className="bg-card rounded-lg border">
         <div className="p-4 border-b">
-          <h3 className="font-semibold">حركات المخزون ({movements.length})</h3>
+          <h3 className="font-semibold">
+            حركات المخزون {loadError ? '' : `(${movements.length})`}
+          </h3>
         </div>
         <div className="divide-y">
-          {movements.length === 0 ? (
+          {loadError ? (
+            <EmptyState
+              icon={<AlertCircle className="text-destructive/60" />}
+              title="تعذّر تحميل حركات المخزون"
+              description={loadError}
+            />
+          ) : movements.length === 0 ? (
             <EmptyState
               title="لا توجد حركات مخزون بعد"
               description="تظهر الحركات هنا تلقائياً مع أول استلام أو صرف أو تسوية"
