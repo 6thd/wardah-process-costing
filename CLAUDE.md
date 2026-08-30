@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-28
+**آخر تحديث موثق:** 2026-08-30
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -123,11 +123,38 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   `authenticated` أعاد 12 حسابًا متوازنة وصفر اختلافات عن الحساب القانوني المستقل؛
   دوران الدفتر `30,805.00` لكل جانب وصافي أرصدته `27,685.00`، والفرق `3,120.00`
   يساوي `SUM(LEAST(debit, credit))` داخل الحسابات. تحذير Supabase Advisor من
-  `SECURITY DEFINER` الممنوحة لـ`authenticated` هو **SEC-172** نفسه: Migration 183
-  يجب أن تضيف صلاحية القراءة المالية الدقيقة مع إعادة تثبيت جسم 182 كاملًا.
-  الـBaseline الحالي ما زال cutoff 181، لذلك يطبق Fresh DB Migration 182 بعده،
-  وبوابة Ledger Truth مفروضة بوضع `RPC_CONTRACT=enforced` حتى توليد Baseline 182
-  وتحديث هذه الكتلة آليًا.
+  `SECURITY DEFINER` الممنوحة لـ`authenticated` هو **SEC-172** نفسه، وقد أغلقته
+  Migration 183 لاحقًا. بوابة `Trial Balance Ledger Truth` مفروضة بوضع
+  `RPC_CONTRACT=enforced`.
+- `docs/db/TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md` — **182 و183 مجتمعتان**:
+  الـmigrationان تستبدلان **الدالة نفسها** `rpc_get_trial_balance(uuid, date)`،
+  فالعقد الحي هو اتحادهما لا آخرهما — جسم الدفتر القانوني من 182 وطبقة صلاحية
+  القراءة المالية من 183. إعادة جسم 182 وحده تعيد فتح التسريب الأمني، وإعادة طبقة
+  183 فوق جسم قديم تعيد التقرير إلى الدفتر التاريخي الخاطئ. اقرأ هذا الملف قبل أي
+  `CREATE OR REPLACE` لاحق على الدالة، تمامًا كسلسلة 170–173.
+- `docs/db/FINANCIAL_REPORT_READ_RBAC_183_RUNBOOK.md` +
+  `scripts/ci/fresh-db/acceptance_183_financial_report_read_rbac.sql` +
+  `.github/workflows/financial-report-rbac-183-acceptance.yml` — **Migration 183
+  (مطبّقة على Production، `20260829105053`)**: تحسم SEC-172 بتشديد أربعة حدود قراءة
+  مالية عبر `wardah_178_assert_permission` بمفاتيح موجودة في كتالوج RBAC، وتشترط
+  `reports.financial.read` بعد حارس العضوية، وتسحب القراءة المباشرة من
+  `v_trial_balance` عن `authenticated` و`anon` فلا يبقى عرض `SECURITY INVOKER`
+  مسارًا موازيًا يكتفي بعزل المستأجر. تعيد إنتاج جسم 182 كاملًا؛ لا تقرأها منفردة.
+- `docs/db/GL_POSTING_INTEGRITY_184_RUNBOOK.md` +
+  `scripts/ci/fresh-db/acceptance_184_gl_posting_integrity.sql` +
+  `.github/workflows/gl-posting-integrity-184-acceptance.yml` — **Migration 184
+  (مطبّقة على Production، `20260829133146`)**: كل قيد لمسته المعاملة وحالته
+  `posted` يجب أن ينهيها بسطرين قانونيين على الأقل، متوازنين، ومساويين لإجمالي
+  الرأس. توسّع `check_balance_before_post` إلى `BEFORE INSERT OR UPDATE`، وتضيف
+  **أول `CREATE CONSTRAINT TRIGGER` في المخطط** (`DEFERRABLE INITIALLY DEFERRED`
+  على `gl_entries` و`gl_entry_lines`) ليمر المسار الذري رأسًا-أولًا. دالة الحارس
+  `SECURITY DEFINER` **عمدًا**: الحدث المؤجل يُقيَّم عند `COMMIT` بعد عودة الـRPC
+  إلى `authenticated`، فلو بقيت `SECURITY INVOKER` لأخفت RLS قيد مؤسسة أخرى
+  وتحوّل `NOT FOUND` إلى تجاوز صامت للعقد — والقبول يثبت ذلك حيًا بمستخدم عضو في
+  مؤسستين بلا claim. لا تعالج القيود التاريخية الثلاثة المرحّلة بلا أسطر
+  (`JE-2025-11-0001/2/3`، 9,955.00 لكل جانب)؛ وبعد 184 صار أي `UPDATE` منفرد على
+  أحد رؤوسها يُرفض بـ`POSTED_ENTRY_LINES_MISSING`، فأي معالجة لاحقة تُدخل الأسطر
+  الموثوقة والتعديل داخل المعاملة الذرية نفسها.
 
 ## Baseline
 
@@ -150,7 +177,11 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 العقد في `sql/baseline/system_reference_manifest.yml`: allowlist صريحة بـpredicate صريح لكل جدول، وأعمدة متوقعة، وترتيب تصدير حسب المفاتيح الأجنبية، ومفاتيح ترتيب، وحدود دنيا. `pg_dump --data-only` مرفوض: `uoms` و`uom_aliases` تحملان صفوف مؤسسات مخصصة لا مكان لها في لقطة عامة.
 
-النطاق: `modules` (10) · `permissions` (166) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 258 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
+النطاق عند لقطة cutoff 184: `modules` (10) · `permissions` (171) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 263 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
+
+**هذه الأعداد لقطة لا ثابت، وقد شاخت هنا فعلًا.** `permissions` صار 171 اعتبارًا من لقطة `001_system_reference_data_20260826_131415.sql` وبقي كذلك في لقطتَي 182 و184، بينما ظل هذا السطر يقول 166 و258 حتى 2026-08-30 — ثلاث دورات توليد. ولم تكشفه بوابة: الـmanifest يفرض **حدودًا دنيا** وبصمة محتوى، فارتفاع العدد يمر بحكم التصميم، والنص هنا نثر بشري خارج ماركري `DATABASE_STATE` فلا يلمسه المولّد. أي مقارنة تعتمد هذا السطر تحتاج تحقّقًا من اللقطة الفعلية ومن `sql/baseline/system_reference_manifest.yml` أولًا، وأي لقطة جديدة توجب تحديثه يدويًا في PR الـBaseline نفسه.
+
+(المفاتيح الخمسة الزائدة لم تأتِ من 182 أو 183 أو 184 — لا واحدة منها تُدرج صفًا في `permissions`؛ 183 تشترط مفاتيح موجودة فقط. مصدرها أسبق ولم يُثبت هنا، فلا تُنسب إلى migration بعينها دون تدقيق.)
 
 الحراسة ثلاث طبقات: حدّ أدنى لكل جدول (يكشف الفراغ لا التبديل)، وبصمة محتوى لكل جدول (تكشف تبديل صف بعدد ثابت؛ أعمدة الزمن مستثناة من البصمة لا من التصدير)، واختبارات دلالية تثبت السلوك المعتمد على البيانات لا وجودها. التفاصيل في `sql/baseline/README.md`.
 
