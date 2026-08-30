@@ -2,7 +2,9 @@
 
 **Purpose:** current-state ledger for the accounting integrity work that must precede Simulation Lab Phase 0.
 
-**Historical evidence:** `PRODUCTION_INTEGRITY_AUDIT_20260828.md` and `TRIAL_BALANCE_CONSUMER_INVENTORY.md` are preserved as discovery-time snapshots. Their descriptions of the live code/database are superseded where this ledger records a completed remediation.
+**Last updated:** 2026-08-30.
+
+**Historical evidence:** `PRODUCTION_INTEGRITY_AUDIT_20260828.md` and `TRIAL_BALANCE_CONSUMER_INVENTORY.md` remain discovery-time snapshots. They are not the current Production state.
 
 ---
 
@@ -11,61 +13,32 @@
 | Workstream | State | Current evidence |
 |---|---|---|
 | Round 1 — Trial Balance truth alignment | ✅ Complete | Migration 182 + Migration 183 + PR #200 |
-| Round 2 — Posted GL header/line integrity | 🟡 Implemented and verified in PR #201; not merged/applied | Migration 184 exact-head CI and PostgreSQL 17 acceptance |
+| Round 2 — Posted GL header/line integrity | ✅ Complete | PR #201 merged; Migration 184 applied and postflight-verified on Production |
 | Historical account-code reconciliation | ⏳ Open independently | Issue #195; authoritative mapping required before any backfill |
-| Baseline lineage | ⚠️ Lagging | Current baseline cutoff 182 while Production migration ledger is at 183 |
-| Round 3 — Inventory integrity | ⏳ Not started | Next integrity round after Round 2 closes |
-| Simulation Lab Phase 0 | ⏳ Deferred | Starts only after prerequisite integrity rounds are closed |
+| Baseline lineage | ✅ Complete | Cutoff 184 pair merged through PR #202; `main`, repository, and Production all resolve to 184 |
+| Baseline publication / Red Proof governance | ✅ Complete | PRs #204–#206; live positive/negative guard proof plus folded-migration acceptance gates |
+| Round 3 — Inventory integrity | ⏳ Not started | Next integrity round |
+| Simulation Lab Phase 0 | ⏳ Deferred | Starts after prerequisite integrity rounds are closed |
 
 ---
 
 ## Round 1 — Trial Balance truth alignment
 
-### Migration 182 — legal-ledger truth
+Migration 182 moved `rpc_get_trial_balance` to the legal ledger `gl_entries/gl_entry_lines`. Migration 183 hardened the financial-report read boundary and removed direct authenticated/anon access to `v_trial_balance`. PR #200 made the canonical Trial Balance RPC the sole browser-side source.
 
-`rpc_get_trial_balance` was moved from the retired `journal_entries/journal_lines` path to the legal ledger `gl_entries/gl_entry_lines`.
-
-The repaired contract includes:
-
-- legal posted GL lines as the reporting source;
-- opening balances derived from configured accounting periods / fiscal-year start;
-- historical `account_id IS NULL` lines matched by `account_code` so existing legal movement is not erased;
-- inactive/non-postable accounts retained when they carry historical movement;
-- localized account name returned from `name_ar` when available.
-
-Ledger Truth acceptance now runs in enforced mode and proves reconciliation against the legal ledger, fiscal-year opening behavior, tenant isolation, retired-ledger inertness, historical NULL-account fallback, and a deliberate LT-3 red proof showing the gate can detect stale mirror columns.
-
-### Migration 183 — report-read RBAC
-
-Migration 183 hardened the reporting boundary after 182:
-
-- financial report RPCs require the exact report-read permission;
-- direct `SELECT` on `v_trial_balance` was removed from `authenticated` and `anon`;
-- `service_role` retained the intended privileged access;
-- the 182 legal-ledger implementation remained the source behind the RPC.
-
-Production migration ledger was independently verified with 183 as the latest applied migration at the time of this document update.
-
-### PR #200 — one client source of truth
-
-PR #200 completed the browser-side consolidation:
-
-- canonical `fetchTrialBalanceRpc` is the client data source;
-- screen hook, legacy accounting service, repository adapter, and PostingService delegate to it;
-- direct view/manual-table fallback implementations were removed from the client path;
-- the source-contract test verifies RPC name, organization/date parameters, returned totals, error propagation, and **zero `supabase.from(...)` table/view reads**.
-
-**Result:** the old consumer-inventory statement describing six competing Trial Balance implementations is historical evidence, not the current architecture.
+**Result:** the old split between legal-ledger truth, reporting RPCs, and client fallbacks is closed.
 
 ---
 
 ## Round 2 — Migration 184 posted GL integrity
 
-**PR:** #201 — `fix(accounting): enforce posted header-line integrity`
+**PR #201:** merged.
 
-**Current status:** implemented and exact-head verified, but intentionally **not merged and not applied to Production** pending a separate merge decision and a separate Production authorization.
+**Production migration:** `20260829133146 / 184_gl_posting_integrity`.
 
-### Contract
+**Current status:** ✅ merged, applied, and independently postflight-verified.
+
+### Live contract
 
 At transaction end, every touched `posted` GL entry must have:
 
@@ -73,88 +46,90 @@ At transaction end, every touched `posted` GL entry must have:
 2. legal debit sum equal to legal credit sum within tolerance `< 0.01`;
 3. legal debit/credit sums equal to `gl_entries.total_debit/total_credit` within the same tolerance.
 
-The guard is `DEFERRABLE INITIALLY DEFERRED`, allowing a valid atomic transaction to create the posted header first and its lines afterward before constraint evaluation.
+The integrity check uses deferred constraint triggers so a valid atomic transaction may create the posted header before its lines. `check_balance_before_post_trigger` covers row-level BEFORE INSERT and UPDATE.
 
-The migration does **not** scan, rewrite, guess, or delete historical Production rows. The three known historical posted header-only entries remain separate remediation evidence.
+### PostgreSQL 17 / RLS closure
 
-### Fixture correction discovered during integration
+Exact-head review before merge found a real fail-open risk: a deferred `SECURITY INVOKER` trigger evaluated after a SECURITY DEFINER posting RPC could run under `authenticated`, where tenant RLS might hide the touched row. The repaired `wardah_184_assert_posted_entry_integrity()` is `SECURITY DEFINER`, owned by `postgres`, with fixed `search_path`, and direct EXECUTE revoked from `anon`, `authenticated`, and `service_role`.
 
-The Trial Balance Ledger Truth fixture originally forced all deferred events **after** inserting the Case E posted header but **before** inserting its two lines. Migration 184 correctly rejected that transient invalid state with:
+This is physical-integrity visibility, not an authorization bypass: authorization remains at the RPC/RLS boundary, while the deferred invariant must see the actual ledger row.
 
-`POSTED_ENTRY_LINES_MISSING: entry=LT-NULL-ACCOUNT-ID line_count=0`
+### Production postflight — 2026-08-29
 
-The fix moved the `SET CONSTRAINTS ALL IMMEDIATE / DEFERRED` flush to before Case E creates its posted header. No 182/184 assertion was weakened and Case E values/metadata expectations remained unchanged.
+Read-only verification after application confirmed:
 
-### PostgreSQL 17 deferred-trigger / RLS fail-open found before merge
+- migration ledger latest row: `20260829133146 / 184_gl_posting_integrity`;
+- migration name occurs exactly once;
+- `check_balance_before_post_trigger` has `tgtype = 23` (ROW + BEFORE + INSERT + UPDATE);
+- two integrity constraint triggers are deferred as designed;
+- deferred integrity guard has `prosecdef = true` and owner `postgres`;
+- direct EXECUTE is absent for `anon`, `authenticated`, and `service_role` on both internal trigger helpers;
+- 19 GL headers, 12 posted, and the same 3 historical posted header-only rows remain;
+- the historical three still total SAR 9,955.00 debit and SAR 9,955.00 credit;
+- posted entries with header/line mismatch: 0;
+- rollback-only Production smoke left 0 `GL184%` entries and 0 smoke organizations.
 
-Substantive exact-head review found a second, security-relevant issue before 184 was merged:
+The Production application did **not** rewrite or invent historical ledger data.
 
-- `gl_entries` and `gl_entry_lines` use RLS and are not `FORCE ROW LEVEL SECURITY`;
-- authenticated read policies scope rows to `wardah_org_id(NULL)`;
-- without a valid tenant/org claim, `get_current_tenant_id()` deterministically falls back to the caller's oldest active membership;
-- PostgreSQL 17 can evaluate a deferred trigger after the posting `SECURITY DEFINER` RPC has returned to the `authenticated` caller context;
-- the original `wardah_184_assert_posted_entry_integrity()` was `SECURITY INVOKER` and used `NOT FOUND ... CONTINUE`, so RLS could hide the touched posted entry and silently skip the integrity contract.
+### Historical boundary
 
-### Fix inside Migration 184
+The three pre-existing posted header-only entries remain evidence requiring authoritative remediation. After 184, touching one while it still lacks legal lines fails closed with `POSTED_ENTRY_LINES_MISSING`; remediation must add authoritative legal lines and any necessary header change in the same atomic transaction.
 
-Before merge/application, the internal deferred integrity trigger function was changed to:
-
-- `SECURITY DEFINER`;
-- fixed `search_path` (`public`, `pg_temp`);
-- no parameters, no dynamic SQL, read-only integrity inspection plus exception raising;
-- direct EXECUTE revoked from `PUBLIC`, `anon`, `authenticated`, and `service_role`;
-- migration postflight asserts `pg_proc.prosecdef = true` and detects any execute-surface leak.
-
-This use of `SECURITY DEFINER` is intentionally limited to **physical integrity visibility**, not authorization. Authorization remains at the RPC/RLS boundary; the deferred trigger must see the actual touched ledger row even when tenant RLS hides it from the caller at commit-time evaluation.
-
-### RLS regression acceptance
-
-Migration 184 acceptance now includes a PostgreSQL 17 multi-organization regression:
-
-1. an `authenticated` user is a member of Org A and Org B;
-2. no `tenant_id`/`org_id` claim is supplied, so normal RLS resolves to older Org A;
-3. a test-only `SECURITY DEFINER` posting helper creates an invalid `posted` header in Org B;
-4. execution returns to `authenticated`;
-5. the test first proves the Org B row is invisible to the caller through ordinary RLS;
-6. `SET CONSTRAINTS ALL IMMEDIATE` is forced;
-7. Migration 184 must still raise `POSTED_ENTRY_LINES_MISSING`.
-
-The exact-head artifact contains the explicit proof marker:
-
-`GL_184_RLS_FAIL_CLOSED_OK: hidden org B posting rejected after definer returned`
-
-The same workflow also retains the pre-184 red proof and the normal post-184 valid/invalid cases. Therefore the gate proves both that the defect existed before 184 and that the repaired invariant is not vacuous.
-
----
-
-## Known historical data boundary
-
-Migration 184 deliberately does not repair the three historical posted headers with no legal lines. Their authoritative source data must be recovered separately; inventing balancing lines would destroy auditability.
-
-Issue #195 remains separate as well. It records legal-ledger rows with historical four-digit account codes / `account_id IS NULL`. Candidate six-digit accounts are semantic hints only, not approved mappings. Any remediation must address both historical rows and legacy producer paths so the condition cannot recur.
+Issue #195 remains independent: historical four-digit account codes / `account_id IS NULL` require an authoritative Finance/source-system mapping, not inferred backfill.
 
 ---
 
 ## Baseline lineage
 
-The generated baseline pair is currently at migration cutoff **182**. Production has already applied **183**.
+The previous reviewed pair was cutoff **182**. Production, the repository ledger,
+and the pair resolved on `main` are now all cutoff **184**.
 
-This gap is known and should be reconciled only after the current Round 2 merge/application sequence is settled according to baseline governance. Do not silently edit baseline history or use the baseline as evidence that Production is still at 182.
+The governed `Generate Schema Baseline` workflow completed successfully against the live 184 ledger and generated/pushed:
+
+- `sql/baseline/000_schema_baseline_20260829_135152.sql`
+- `sql/baseline/001_system_reference_data_20260829_135152.sql`
+- branch `automation/baseline-cutoff-184-33236502184`
+
+The workflow's GitHub token could not create a pull request because repository Actions are not permitted to create/approve PRs. That failure was emitted only as a warning, so the workflow remained green despite completing only the branch-push half of its review-publication contract.
+
+PR #202 was opened explicitly from the generated branch, reviewed on its exact
+head, and merged. The resolved pair on `main` now contains 263 system-reference
+rows (10 modules, 171 permissions, 6 UoM categories, 17 system UoMs, and 59
+aliases). The 183 and 184 acceptance gates both passed after those migrations
+were folded into the cutoff-184 baseline.
+
+---
+
+## Governance closure
+
+The original generator could push a branch, fail to create its PR, and remain
+green. That anti-vacuity gap is closed without permitting generated output to
+land directly on `main`:
+
+1. PR #204 added an independent guard requiring exactly one open review PR into
+   `main` for the generated source branch and validating `source_run_id` before
+   using it in selection logic.
+2. PR #205 made reruns unambiguous with attempt-qualified branch names, retained
+   a monotonic highest-cutoff rule for legacy branches, and granted the guard
+   only the `actions: read` permission it needs.
+3. The guard was proved live in both directions: run `33270868815` passed while
+   #202 was open; run `33270900714` failed with zero open review PRs while #202
+   was temporarily closed, after which #202 was reopened.
+4. PR #206 taught the 183/184 acceptance workflows to use a historical pre-target
+   baseline pair for Red Proof and the current pair for green proof. This prevents
+   baseline folding from turning a real regression test into a vacuous one.
 
 ---
 
 ## What remains before Simulation Lab Phase 0
 
-1. Finish exact-head review of PR #201 after all CI/status checks complete.
-2. Merge #201 only with explicit merge authorization.
-3. Apply the merged `184_gl_posting_integrity.sql` blob to Production only with separate explicit Production authorization and execute the runbook pre/post checks.
-4. Reconcile baseline lineage after the applied cutoff is stable.
-5. Keep Issue #195 as an independent evidence-driven data remediation path.
-6. Execute Round 3 inventory integrity.
-7. Only then begin Simulation Lab Phase 0 environment/bootstrap work.
+1. Keep Issue #195 as an independent evidence-driven data-remediation path; do
+   not infer Finance mappings from code similarity.
+2. Execute Round 3 inventory integrity.
+3. Then begin Simulation Lab Phase 0 environment/bootstrap work.
 
 ---
 
 ## Governance note
 
-Repository edits, merge authorization, and Production database authorization are separate decisions. Documentation in this directory records observed state; it does not itself authorize merge or Production writes.
+Repository edits, PR merge authorization, and Production database authorization remain separate decisions. This document records observed state; it does not itself authorize a future merge or Production write.

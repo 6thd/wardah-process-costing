@@ -1,8 +1,8 @@
 # كتالوج الثوابت — ما لا يجوز أن ينكسر
 
-**مشتقّ من:** `sql/baseline/000_schema_baseline_20260826_131415.sql` (cutoff 181)
-**تاريخ الاشتقاق:** 2026-08-28
-**الإجمالي:** 32 ثابتًا — **13 سندها `NONE`** (لا يكشفها إلا هذا المختبر)
+**مشتقّ من:** `sql/baseline/000_schema_baseline_20260829_135152.sql` (cutoff 184)
+**تاريخ الاشتقاق:** 2026-08-30
+**الإجمالي:** 32 ثابتًا — **11 سندها `NONE`** (لا يكشفها إلا هذا المختبر)
 
 > اقرأ [ADR-SIM-004](./ADR-SIM-004-invariant-based-validation.md) قبل تعديل أي
 > ثابت هنا. **إضعاف مِسبار لإنجاحه ممنوع.** المعرّفات دائمة ولا يُعاد استخدامها.
@@ -39,13 +39,13 @@ WHERE org_id = :org AND abs(total_debit - total_credit) >= 0.01;
 ---
 
 ### INV-GL-02 — مجموع الأسطر يساوي إجمالي الرأس ⭐
-**سند:** `NONE` · **خطورة:** S0 · **نقطة:** CONT
+**سند:** `DB` (Migration 184) · **خطورة:** S0 · **نقطة:** CONT
 
-**لماذا `NONE`:** `gl_entries_balanced` يقارن `total_debit` بـ`total_credit` داخل
-الرأس، و`check_balance_before_post()` يعيد الفحص نفسه عند الانتقال إلى `posted`.
-**ولا واحد منهما يقرأ `gl_entry_lines` إطلاقًا.** فقيد مرحَّل برأس متوازن وأسطر
-لا تجمع إليه يمر من كل الحراس القائمة. هذا أوضح مثال على ثابت لا يكشفه إلا
-المختبر.
+الحارسان المؤجلان في Migration 184 يعيدان حساب الأسطر القانونية لكل قيد `posted`
+تم لمسه، ويرفضان عدم تطابق مجموعها مع الرأس عند نهاية المعاملة. يبقى الاستعلام
+أدناه مِسبار ارتداد مستقلًا، ولا يصلح وجود الحارس مبررًا لحذفه. الصفوف التاريخية
+السابقة لـ184 لا تُخترع لها أسطر آليًا؛ إذا مُسَّت وجب إصلاحها ذريًا ببيانات
+موثوقة وإلا تفشل مغلقة.
 
 ```sql
 SELECT e.id, e.entry_number, e.entry_type, e.journal_origin,
@@ -88,7 +88,7 @@ WHERE l.org_id = :org
 ---
 
 ### INV-GL-04 — لا قيد مرحَّل بلا أسطر
-**سند:** `NONE` · **خطورة:** S0 · **نقطة:** CONT
+**سند:** `DB` (Migration 184) · **خطورة:** S0 · **نقطة:** CONT
 
 ```sql
 SELECT e.id, e.entry_number, e.entry_type, e.total_debit
@@ -97,8 +97,9 @@ WHERE e.org_id = :org AND e.status = 'posted'
   AND NOT EXISTS (SELECT 1 FROM gl_entry_lines l WHERE l.entry_id = e.id);
 ```
 
-قيد برأس بمبلغ وبلا أسطر يضخّم إجماليات التقارير دون أثر على أي حساب — فساد صامت
-نموذجي.
+الحارس المؤجل يرفض أي قيد `posted` تم لمسه إن كان بلا سطرين قانونيين على الأقل.
+قيد تاريخي سابق لـ184 قد يبقى كما هو إلى أن يُمس؛ لذلك يظل المِسبار ضروريًا
+لجرد الإرث، بينما كل قيد تنشئه المحاكاة أو تلمسه محميّ بعقد قاعدة البيانات.
 
 ---
 
@@ -539,7 +540,7 @@ UNION ALL SELECT 'material_consumption', count(*) FROM material_consumption WHER
 ### INV-SEC-05 — السطح التاريخي القابل للكتابة لا ينمو ولا يلتف ⭐
 **سند:** `DB` (منح) · **خطورة:** S0 · **نقطة:** CONT
 
-**ما وُجد:** 182 دالة `public` ممنوحة لـ`authenticated`، منها 118 خارج تسمية
+**ما وُجد:** 181 دالة `public` ممنوحة لـ`authenticated`، منها 117 خارج تسمية
 `rpc_`، ومنها **24 على الأقل قادرة على الكتابة** — بينها توأم مباشر
 `create_mo_with_reservation` بجوار `rpc_create_mo_with_reservation`، و
 `start_operation`/`complete_operation` الكاتبتان لـ`labor_time_tracking`، و
@@ -589,12 +590,14 @@ ORDER BY 1;
 SELECT 'uoms' AS t, count(*) FROM uoms WHERE org_id IS NULL          -- متوقع 17
 UNION ALL SELECT 'uom_aliases', count(*) FROM uom_aliases WHERE org_id IS NULL  -- 59
 UNION ALL SELECT 'uom_categories', count(*) FROM uom_categories      -- 6
-UNION ALL SELECT 'permissions', count(*) FROM permissions            -- 166
+UNION ALL SELECT 'permissions', count(*) FROM permissions            -- 171
 UNION ALL SELECT 'modules', count(*) FROM modules;                   -- 10
 ```
 
 قاعدة بلا هذه الصفوف تقلب حراس UoM إلى **fail-open** فتمر المحاكاة على حراس
-معطّلين. الأعداد من `sql/baseline/system_reference_manifest.yml` (258 صفًا).
+معطّلين. الأعداد الفعلية من
+`001_system_reference_data_20260829_135152.sql` (263 صفًا)؛ حدود الـmanifest
+الدنيا ليست بديلًا عن مطابقة بصمة اللقطة.
 
 ---
 
@@ -602,8 +605,8 @@ UNION ALL SELECT 'modules', count(*) FROM modules;                   -- 10
 
 | السند | العدد | الدلالة |
 |---|---|---|
-| `NONE` | 13 | **لا يكشفها إلا هذا المختبر** — مبرر وجوده |
-| `DB` | 10 | كواشف ارتداد؛ فشلها يعني خللًا في البيئة |
+| `NONE` | 11 | **لا يكشفها إلا هذا المختبر** — مبرر وجوده |
+| `DB` | 12 | كواشف ارتداد؛ فشلها يعني خللًا في البيئة |
 | `CONTRACT` | 4 | الصيد المستهدف: ثغرات العقود |
 | جزئي | 1 | `INV-SEC-04` — القيد قائم على بعض الجداول لا كلها |
 | حوكمة ذاتية للمختبر | 4 | صلاحية التشغيلة نفسها |
