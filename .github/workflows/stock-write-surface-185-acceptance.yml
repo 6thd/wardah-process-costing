@@ -1,0 +1,156 @@
+name: Stock Write Surface 185 Acceptance
+
+# Round 3 (inventory integrity) PR-3A. Contract: stock_ledger_entries and
+# bins are writable only through the SECURITY DEFINER RPC surface; the
+# table-level grants that used to make that a matter of RLS-policy luck are
+# revoked. See sql/migrations/185_stock_write_surface_closure.sql for the
+# full rationale.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/185_stock_write_surface_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure_red.sql'
+      - '.github/workflows/stock-write-surface-185-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Ledger and bins are writable only through the RPC surface
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve Baseline pair and migration order
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+
+          # No guard against 185 being absent from this GREEN chain: once a
+          # future Baseline regeneration folds 185 into the schema snapshot,
+          # 185 legitimately vanishes from the chain built off the latest
+          # Baseline above — the fresh database still ends up with 185's
+          # effects, just via the Baseline instead of a separate migration
+          # step, and that is a correct outcome for GREEN, not a failure.
+
+          # The red proof must stay buildable in that same future: reusing
+          # this same Baseline for the "pre-185" database would bake the fix
+          # in before the probe ever runs. Pin the red pair to the newest
+          # Baseline strictly before cutoff 185 instead, independent of
+          # whatever the latest Baseline currently is.
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 185)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          RED_CUTOFF=${RED_CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order_full.txt
+          # This is where the "185 might be missing" guard actually belongs:
+          # the red chain is pinned to a pre-185 Baseline by construction, so
+          # 185 must always appear here for the cut below to mean anything.
+          # If it doesn't, the sed is a no-op and the red database silently
+          # becomes identical to green instead of reproducing the pre-fix
+          # state.
+          grep -q '^185_stock_write_surface_closure.sql$' /tmp/red_chain_order_full.txt
+
+          # Cut the chain at 185 itself, not just that one line: any
+          # migration numbered after 185 must never reach the red database
+          # either, or a future addition could silently leak into what is
+          # supposed to be the pre-fix proof.
+          sed '/^185_stock_write_surface_closure.sql$/,$d' \
+            /tmp/red_chain_order_full.txt > /tmp/red_order.txt
+
+      - name: Build fresh database through 185
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Run Migration 185 acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure.sql \
+            2>&1 | tee /tmp/stock-185.out
+          grep -q 'STOCK_185_ACCEPTANCE_PASS' /tmp/stock-185.out
+
+      - name: Red proof — reproduce the pre-185 write surface
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure_red.sql \
+            2>&1 | tee /tmp/stock-185-red.out
+          grep -q 'STOCK_185_RED_PROOF_PASS' /tmp/stock-185-red.out
+
+      - name: Confirm both proof directions actually ran
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'STOCK_185_GRANTS_OK' /tmp/stock-185.out
+          grep -q 'STOCK_185_RPC_SMOKE_OK' /tmp/stock-185.out
+          grep -q 'STOCK_185_GREEN_PROBE_OK' /tmp/stock-185.out
+          grep -q 'STOCK_185_ACCEPTANCE_PASS' /tmp/stock-185.out
+          grep -q 'STOCK_185_RED_PRECONDITION_OK' /tmp/stock-185-red.out
+          grep -q 'STOCK_185_RED_PROOF_OK' /tmp/stock-185-red.out
+          grep -q 'STOCK_185_RED_PROOF_PASS' /tmp/stock-185-red.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-write-surface-185-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/stock-185.out
+            /tmp/stock-185-red.out
+          retention-days: 30
