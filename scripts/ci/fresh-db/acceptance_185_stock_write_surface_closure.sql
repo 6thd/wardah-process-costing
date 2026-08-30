@@ -45,10 +45,13 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  IF NOT (has_table_privilege('authenticated', 'public.warehouses', 'INSERT')
-          AND has_table_privilege('anon', 'public.warehouses', 'INSERT')) THEN
-    RAISE EXCEPTION 'STOCK_185_ACCEPTANCE_WAREHOUSES_SCOPE_VIOLATION';
-  END IF;
+  -- warehouses is intentionally NOT checked here. This script is a
+  -- permanent gate re-triggered by any sql/migrations/** change, but
+  -- warehouses' write surface is documented deferred future work (see the
+  -- migration header) — pinning its pre-185 grants here would make closing
+  -- that surface later fail this gate forever for doing the intended
+  -- follow-up. That 185 itself did not touch warehouses is proven once, at
+  -- migration time, in 185's own postflight — not re-asserted permanently.
 
   IF has_function_privilege('anon', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
      OR has_function_privilege('anon', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
@@ -56,7 +59,13 @@ BEGIN
   END IF;
 
   -- The migration's contract is that only PUBLIC/anon lost EXECUTE;
-  -- service_role's own separate grant must be untouched.
+  -- authenticated's and service_role's own separate grants must be
+  -- untouched.
+  IF NOT has_function_privilege('authenticated', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
+     OR NOT has_function_privilege('authenticated', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'STOCK_185_ACCEPTANCE_AUTHENTICATED_FUNCTION_EXECUTE_MISSING';
+  END IF;
+
   IF NOT has_function_privilege('service_role', 'public.consume_materials_for_mo(uuid,uuid,jsonb[])', 'EXECUTE')
      OR NOT has_function_privilege('service_role', 'public.update_warehouse_gl_mapping(uuid,uuid,uuid,uuid,uuid,uuid,uuid)', 'EXECUTE') THEN
     RAISE EXCEPTION 'STOCK_185_ACCEPTANCE_SERVICE_ROLE_FUNCTION_EXECUTE_MISSING';

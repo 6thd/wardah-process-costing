@@ -59,16 +59,19 @@ jobs:
           CUTOFF=${CUTOFF:-0}
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
             > /tmp/chain_order.txt
-          grep -q '^185_stock_write_surface_closure.sql$' /tmp/chain_order.txt
 
-          # The red proof must stay buildable even after a future Baseline
-          # regeneration folds 185 (and anything numbered after it) into the
-          # schema snapshot — at that point 185 would vanish from the chain
-          # built off the latest Baseline above, and reusing that same
-          # Baseline for the "pre-185" database would bake the fix in before
-          # the probe ever runs. Pin the red pair to the newest Baseline
-          # strictly before cutoff 185 instead, independent of whatever the
-          # latest Baseline currently is.
+          # No guard against 185 being absent from this GREEN chain: once a
+          # future Baseline regeneration folds 185 into the schema snapshot,
+          # 185 legitimately vanishes from the chain built off the latest
+          # Baseline above — the fresh database still ends up with 185's
+          # effects, just via the Baseline instead of a separate migration
+          # step, and that is a correct outcome for GREEN, not a failure.
+
+          # The red proof must stay buildable in that same future: reusing
+          # this same Baseline for the "pre-185" database would bake the fix
+          # in before the probe ever runs. Pin the red pair to the newest
+          # Baseline strictly before cutoff 185 instead, independent of
+          # whatever the latest Baseline currently is.
           RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 185)
           red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
           echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
@@ -77,6 +80,14 @@ jobs:
           RED_CUTOFF=${RED_CUTOFF:-0}
           python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
             > /tmp/red_chain_order_full.txt
+          # This is where the "185 might be missing" guard actually belongs:
+          # the red chain is pinned to a pre-185 Baseline by construction, so
+          # 185 must always appear here for the cut below to mean anything.
+          # If it doesn't, the sed is a no-op and the red database silently
+          # becomes identical to green instead of reproducing the pre-fix
+          # state.
+          grep -q '^185_stock_write_surface_closure.sql$' /tmp/red_chain_order_full.txt
+
           # Cut the chain at 185 itself, not just that one line: any
           # migration numbered after 185 must never reach the red database
           # either, or a future addition could silently leak into what is
