@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 // This deliberately pins the discovery snapshot. A follow-up that retires or
@@ -7,9 +7,23 @@ const read = (path: string) => readFileSync(path, 'utf8')
 
 const count = (source: string, token: string) => source.split(token).length - 1
 
+// Mirrors scripts/ci/fresh-db/resolve_baseline_pair.sh's no-cutoff-arg
+// selection (`find ... -name '000_schema_baseline_*.sql' | sort | tail -1`):
+// once another Baseline pair is generated, this test must inspect the
+// current one, not the dated file recorded when it was written.
+const resolveLatestBaseline = () => {
+  const dir = 'sql/baseline'
+  const latest = readdirSync(dir)
+    .filter((name) => /^000_schema_baseline_.*\.sql$/.test(name))
+    .sort()
+    .at(-1)
+  if (!latest) throw new Error(`no 000_schema_baseline_*.sql found in ${dir}`)
+  return `${dir}/${latest}`
+}
+
 describe('Round 3 inventory consumer snapshot', () => {
   const generatedTypes = read('src/types/database.generated.ts')
-  const currentBaseline = read('sql/baseline/000_schema_baseline_20260830_083021.sql')
+  const currentBaseline = read(resolveLatestBaseline())
 
   it('pins the canonical relations and bins valuation column', () => {
     expect(generatedTypes).not.toMatch(/^      stock_movements: \{/m)

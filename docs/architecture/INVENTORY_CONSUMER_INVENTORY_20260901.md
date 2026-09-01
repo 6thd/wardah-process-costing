@@ -93,6 +93,27 @@ barrel التطبيق، ولا يوجد feature أو route يستدعي عملي
 migration إضافية واختبارات قبول، ثم تطبيق Production منفصل وفق ترتيب النشر
 الموثق.
 
+### 4.3 ملفات SQL محلية غير مطبَّقة تحت `src/features/reports/sql/`
+
+بحث مستودعي إضافي كشف ملفين لم يظهرا في 4.1 أو 4.2 لأنهما ليسا كود عميل ولا
+دوال Production تم فحصها عبر `pg_proc`؛ هما مصدر SQL خام في المستودع لا يقع تحت
+`sql/migrations/` ولا يحمل اسمًا قانونيًا، ولا يستهلكه أي كود TypeScript أو
+workflow أو سكربت CI — بحث مستودعي شامل عن اسمي الملفين لم يعثر على أي مرجع
+إليهما:
+
+| المعرّف | الملف | الوصول إلى `stock_moves` | الحالة |
+|---|---|---|---|
+| SM-06 | `src/features/reports/sql/wip-view.sql:31` | `LEFT JOIN stock_moves` داخل `CREATE OR REPLACE VIEW wip_by_stage` | غير مطبَّق؛ إنشاء View يتطلب وجود العلاقة وقت التنفيذ، فمحاولة تطبيقه على المخطط الحالي تفشل بـ`relation "stock_moves" does not exist` |
+| SM-07 | `src/features/reports/sql/variance-functions.sql:32` | `LEFT JOIN stock_moves` غير محروس داخل `CREATE OR REPLACE FUNCTION calculate_material_variances` | نسخة مصدر محلية تسبق الحارس؛ **تُغاير** نسخة Production الحية لنفس الدالة الموثقة في 4.2 (SELECT ديناميكي محروس بـ`to_regclass`) — إعادة تطبيق هذا الملف حرفيًا تُعيد فتح فشل `stock_moves` الذي أغلقه الحارس الحي |
+
+الدالة الثانية في `variance-functions.sql` (`calculate_labor_variances`) لا تشير
+إلى `stock_moves` ولا تدخل هذا الجرد.
+
+هذا PR لا يعدّل أو يحذف الملفين ولا يسجلهما migration؛ هما بقايا SQL تطويرية
+مصنَّفة هنا كخامدة وغير موصولة بأي مسار تطبيق، على غرار stack الجافاسكربت
+القديم في 4.1. أي قرار لاحق (حذف، أو مواءمة مع الحارس الحي، أو تحويل إلى
+migration قانونية) هو DB/tooling follow-up مستقل، لا جزء من هذا الجرد التوثيقي.
+
 ## 5. `avg_rate` — فصل الخطأ عن العقد الصحيح
 
 ### 5.1 drift غير صالح
