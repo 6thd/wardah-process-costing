@@ -407,7 +407,7 @@ export const stockMovementsService = {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('stock_ledger_entries')
-      .select('*, item:products(name, code, unit_of_measure)')
+      .select('*, item:products(name, code)')
       .order('posting_date', { ascending: false })
       .order('posting_time', { ascending: false })
 
@@ -419,7 +419,7 @@ export const stockMovementsService = {
     const supabase = await getClient()
     const { data, error } = await supabase
       .from('stock_ledger_entries')
-      .select('*, item:products(name, code, unit_of_measure)')
+      .select('*, item:products(name, code)')
       .eq('product_id', productId)
       .order('posting_date', { ascending: false })
       .order('posting_time', { ascending: false })

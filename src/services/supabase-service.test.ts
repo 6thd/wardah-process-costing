@@ -466,5 +466,40 @@ describe('supabase-service customersService', () => {
   })
 })
 
+describe('supabase-service stockMovementsService query contract (INV-11)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('uses only real product columns for all-ledger and product-filtered reads', async () => {
+    const { getSupabase } = await import('../lib/supabase')
+    const { stockMovementsService } = await import('./supabase-service')
+
+    const movements = [{ id: 'sle-1', item: { name: 'Widget', code: 'WID-1' } }]
+    const postingTimeOrder = vi.fn().mockResolvedValue({ data: movements, error: null })
+    const postingDateOrder = vi.fn(() => ({ order: postingTimeOrder }))
+    const productFilter = vi.fn(() => ({ order: postingDateOrder }))
+    const select = vi.fn(() => ({ eq: productFilter, order: postingDateOrder }))
+    const from = vi.fn(() => ({ select }))
+
+    ;(getSupabase as unknown as GetSupabaseMock).mockReturnValue({ from })
+
+    await expect(stockMovementsService.getAll()).resolves.toEqual(movements)
+    await expect(stockMovementsService.getByItemId('product-1')).resolves.toEqual(movements)
+
+    expect(from).toHaveBeenCalledTimes(2)
+    expect(from).toHaveBeenNthCalledWith(1, 'stock_ledger_entries')
+    expect(from).toHaveBeenNthCalledWith(2, 'stock_ledger_entries')
+    expect(select).toHaveBeenCalledTimes(2)
+    expect(select).toHaveBeenNthCalledWith(1, '*, item:products(name, code)')
+    expect(select).toHaveBeenNthCalledWith(2, '*, item:products(name, code)')
+    expect(productFilter).toHaveBeenCalledOnce()
+    expect(productFilter).toHaveBeenCalledWith('product_id', 'product-1')
+    expect(postingDateOrder).toHaveBeenCalledTimes(2)
+    expect(postingDateOrder).toHaveBeenCalledWith('posting_date', { ascending: false })
+    expect(postingTimeOrder).toHaveBeenCalledTimes(2)
+    expect(postingTimeOrder).toHaveBeenCalledWith('posting_time', { ascending: false })
+  })
+})
 
 
