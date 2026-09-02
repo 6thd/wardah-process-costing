@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-08-30
+**آخر تحديث موثق:** 2026-09-02
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -155,6 +155,18 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   (`JE-2025-11-0001/2/3`، 9,955.00 لكل جانب)؛ وبعد 184 صار أي `UPDATE` منفرد على
   أحد رؤوسها يُرفض بـ`POSTED_ENTRY_LINES_MISSING`، فأي معالجة لاحقة تُدخل الأسطر
   الموثوقة والتعديل داخل المعاملة الذرية نفسها.
+- `sql/migrations/185_stock_write_surface_closure.sql` +
+  `scripts/ci/fresh-db/acceptance_185_stock_write_surface_closure.sql` +
+  `.github/workflows/stock-write-surface-185-acceptance.yml` — **Migration 185
+  (مطبّقة على Production، `20260830081533`)**: تغلق كتابة العميل المباشرة على
+  `stock_ledger_entries` و`bins` مع إبقاء قراءة `authenticated` ومسارات الـRPC
+  الذرية، وتسحب `anon/PUBLIC` من `consume_materials_for_mo` و
+  `update_warehouse_gl_mapping`. لا تشمل `warehouses` ولا تصلح بيانات تاريخية.
+- `docs/architecture/INVENTORY_CONSUMER_INVENTORY_20260901.md` و
+  `docs/ai-simulation-lab/INVENTORY_INTEGRITY_PROGRESS_20260902.md` — جرد Round 3
+  الحالي وحدود الانتقال إلى Phase 0. يثبت الجرد أن `stock_moves` و
+  `stock_movements` غير موجودين، ويفصل `bins.avg_rate` القديم عن حقل
+  `simulate_cogs.avg_rate` الصحيح. وجود هذه المراجع لا يفوض PR-1R أو Production.
 
 ## Baseline
 
@@ -177,11 +189,11 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 العقد في `sql/baseline/system_reference_manifest.yml`: allowlist صريحة بـpredicate صريح لكل جدول، وأعمدة متوقعة، وترتيب تصدير حسب المفاتيح الأجنبية، ومفاتيح ترتيب، وحدود دنيا. `pg_dump --data-only` مرفوض: `uoms` و`uom_aliases` تحملان صفوف مؤسسات مخصصة لا مكان لها في لقطة عامة.
 
-النطاق عند لقطة cutoff 184: `modules` (10) · `permissions` (171) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 263 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
+النطاق عند لقطة cutoff 185: `modules` (10) · `permissions` (171) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 263 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
 
-**هذه الأعداد لقطة لا ثابت، وقد شاخت هنا فعلًا.** `permissions` صار 171 اعتبارًا من لقطة `001_system_reference_data_20260826_131415.sql` وبقي كذلك في لقطتَي 182 و184، بينما ظل هذا السطر يقول 166 و258 حتى 2026-08-30 — ثلاث دورات توليد. ولم تكشفه بوابة: الـmanifest يفرض **حدودًا دنيا** وبصمة محتوى، فارتفاع العدد يمر بحكم التصميم، والنص هنا نثر بشري خارج ماركري `DATABASE_STATE` فلا يلمسه المولّد. أي مقارنة تعتمد هذا السطر تحتاج تحقّقًا من اللقطة الفعلية ومن `sql/baseline/system_reference_manifest.yml` أولًا، وأي لقطة جديدة توجب تحديثه يدويًا في PR الـBaseline نفسه.
+**هذه الأعداد لقطة لا ثابت، وقد شاخت هنا فعلًا.** `permissions` صار 171 اعتبارًا من لقطة `001_system_reference_data_20260826_131415.sql` وبقي كذلك في لقطات 182 و184 و185، بينما ظل هذا السطر يقول 166 و258 حتى 2026-08-30 — ثلاث دورات توليد. ولم تكشفه بوابة: الـmanifest يفرض **حدودًا دنيا** وبصمة محتوى، فارتفاع العدد يمر بحكم التصميم، والنص هنا نثر بشري خارج ماركري `DATABASE_STATE` فلا يلمسه المولّد. أي مقارنة تعتمد هذا السطر تحتاج تحقّقًا من اللقطة الفعلية ومن `sql/baseline/system_reference_manifest.yml` أولًا، وأي لقطة جديدة توجب تحديثه يدويًا في PR الـBaseline نفسه.
 
-(المفاتيح الخمسة الزائدة لم تأتِ من 182 أو 183 أو 184 — لا واحدة منها تُدرج صفًا في `permissions`؛ 183 تشترط مفاتيح موجودة فقط. مصدرها أسبق ولم يُثبت هنا، فلا تُنسب إلى migration بعينها دون تدقيق.)
+(المفاتيح الخمسة الزائدة لم تأتِ من 182 أو 183 أو 184 أو 185 — لا واحدة منها تُدرج صفًا في `permissions`؛ 183 تشترط مفاتيح موجودة فقط. مصدرها أسبق ولم يُثبت هنا، فلا تُنسب إلى migration بعينها دون تدقيق.)
 
 الحراسة ثلاث طبقات: حدّ أدنى لكل جدول (يكشف الفراغ لا التبديل)، وبصمة محتوى لكل جدول (تكشف تبديل صف بعدد ثابت؛ أعمدة الزمن مستثناة من البصمة لا من التصدير)، واختبارات دلالية تثبت السلوك المعتمد على البيانات لا وجودها. التفاصيل في `sql/baseline/README.md`.
 

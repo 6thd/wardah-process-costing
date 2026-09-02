@@ -57,8 +57,8 @@
 
 ### 2.3 اكتشاف حاسم: ست RPCs خارج سطح العميل
 
-اشتقاق المنح من لقطة cutoff 184
-`000_schema_baseline_20260829_135152.sql` يعطي **70 دالة
+اشتقاق المنح من لقطة cutoff 185
+`000_schema_baseline_20260830_083021.sql` يعطي **70 دالة
 `rpc_*`، منها 64 ممنوحة لـ`authenticated` و6 غير ممنوحة**:
 
 | RPC | لماذا هي خارج السطح |
@@ -86,6 +86,10 @@
 `backflush_materials`، `release_manufacturing_order`، وحتى توأم مباشر باسم
 `create_mo_with_reservation` بجوار `rpc_create_mo_with_reservation`). التفصيل في
 [`CATALOG_RPC_SURFACE.md` §17](./CATALOG_RPC_SURFACE.md).
+
+Migration 185 لم تغيّر هذه الأعداد أو سطح `authenticated` الدالي؛ غيّرت منح
+جدولي SLE/bins وسحبت `anon/PUBLIC` من دالتين تاريخيتين. لذلك يبقى قرار الـ64 كما
+هو، بينما تُسجَّل مشكلة `stock_moves` التي كشفها جرد consumers في `OQ-09`.
 
 **هذا لا ينقض القرار، بل يشدّده ويوضّح صياغته:**
 

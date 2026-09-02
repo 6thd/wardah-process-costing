@@ -125,7 +125,7 @@ FROM material_consumption WHERE mo_id = v_mo_id AND org_id = v_org;
 
 ### OQ-08 — سطح تاريخي واسع ممنوح للعميل خارج تسمية `rpc_` ⭐⭐
 
-**ما وُجد:** إعادة اشتقاق المنح من baseline cutoff 184 تعطي **181 دالة `public` ممنوحة
+**ما وُجد:** إعادة اشتقاق المنح من baseline cutoff 185 تعطي **181 دالة `public` ممنوحة
 لـ`authenticated`**:
 
 | | العدد |
@@ -161,10 +161,48 @@ FROM material_consumption WHERE mo_id = v_mo_id AND org_id = v_org;
 لا بعده. هذا سؤال أمني على المنتج أثاره المختبر، وقيمته لا تنتظر بناء المختبر.
 
 الفرق عن لقطة 2026-08-26 هو سحب `check_balance_before_post()` من
-`authenticated` في Migration 184؛ الحد الأدنى الكاتِب لم يتغير.
+`authenticated` في Migration 184. Migration 185 سحبت `anon/PUBLIC` من
+`consume_materials_for_mo` و`update_warehouse_gl_mapping` وأغلقت الكتابة المباشرة
+على SLE/bins، لكنها أبقت منح الدالتين الصريحة لـ`authenticated` و`service_role`؛
+لذلك أعداد سطح `authenticated` والحد الأدنى الكاتِب لم تتغير.
 
 **حتى الحسم:** المحاكاة تكتب عبر الـ64 فقط، وتحمل `INV-SEC-05` جردًا ثابتًا يرصد
 أي نمو في السطح، و`SC-RACE-08` يختبر التوأم المباشر.
+
+---
+
+### OQ-09 — ما العقد القانوني البديل عن `stock_moves` الغائبة؟ ⭐⭐
+
+**ما وُجد:** جرد consumers في PR #211 أثبت أن `public.stock_moves` غير موجودة في
+Production ولا في Baseline cutoff 185، بينما دوال حية ما زالت تتعامل معها:
+
+| الدالة | الحالة الحالية |
+|---|---|
+| `rpc_create_mo_with_reservation` | SELECT مباشر عند مواد غير فارغة؛ يفشل بـ42P01 |
+| `consume_materials_for_mo` | INSERT مباشر؛ يفشل عند الاستدعاء، وما زالت ممنوحة لـ`authenticated` |
+| `validate_stock_balance` | SELECT مباشر؛ مكسورة وممنوحة عبر `PUBLIC`/أدوار العميل |
+| `comprehensive_data_integrity_check` | يرث فشل `validate_stock_balance` |
+| `rpc_complete_manufacturing_order` | INSERT مشروط بـ`to_regclass`؛ يتجاوز المرآة الغائبة |
+| `calculate_material_variances` | SELECT ديناميكي محروس؛ يعيد فارغًا عند غيابها |
+
+كما توجد نسختا SQL خامدتان تحت `src/features/reports/sql/` وadapter/JavaScript
+قديمان، لكن خمول المستهلك لا يقرر العقد المستقبلي.
+
+**الأثر على المختبر:** `SC-DAY-01` يبدأ بإنشاء MO مع حجز المواد، و
+`SC-RACE-08` يقارن العقد القانوني بتوأمه التاريخي. كلاهما غير صالح للتنفيذ ما دام
+العقد القانوني نفسه يصل إلى relation غائبة. اعتبار 42P01 رفضًا متوقعًا سيحوّل
+خللًا معروفًا إلى أخضر كاذب.
+
+**السؤال:** هل تُقاعد الدوال/الفروع التاريخية، أم يعاد توجيه المنطق إلى
+`stock_ledger_entries` و`bins` وعقود الحجز الحالية؟ وهل وظيفة `stock_moves` كانت
+مرآة تدقيق أم سجلًا قانونيًا ثانيًا يجب رفض إحيائه؟
+
+**ما يحسمه:** PR-1R مستقل DB-first يبدأ بجرد التواقيع والمنح والمستدعين، ثم
+Red Proof على الفرع المكسور، وmigration إضافية، وFresh DB/acceptance. أي إصلاح
+بيانات Production أو تطبيق migration قرار منفصل بعد الدمج.
+
+**حتى الحسم:** لا تستدعي المحاكاة الدوال التاريخية بديلًا، ولا تشغّل
+`SC-DAY-01`/`SC-RACE-08` بصيغة تدّعي النجاح. يبقيان `BLOCKED` صراحةً.
 
 ---
 
