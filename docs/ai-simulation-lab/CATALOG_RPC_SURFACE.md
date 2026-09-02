@@ -1,7 +1,7 @@
 # كتالوج سطح الـRPC — ما يجوز للمحاكاة استدعاؤه
 
-**مشتقّ من:** `sql/baseline/000_schema_baseline_20260829_135152.sql` (cutoff 184)
-**تاريخ الاشتقاق:** 2026-08-30
+**مشتقّ من:** `sql/baseline/000_schema_baseline_20260830_083021.sql` (cutoff 185)
+**تاريخ الاشتقاق:** 2026-09-02
 **الإجمالي:** 70 دالة `rpc_*` — **64 ممنوحة لـ`authenticated`** · **6 داخلية**
 **وسطح العميل الكامل أوسع:** 181 دالة ممنوحة لـ`authenticated`، منها 117 خارج
 تسمية `rpc_` و24 منها على الأقل قادرة على الكتابة — انظر §17 قبل تصميم أي سيناريو.
@@ -123,7 +123,7 @@ ORDER BY 1;
 
 | RPC | توقيع | منح | دور | ممثل |
 |---|---|:--:|---|---|
-| `rpc_create_mo_with_reservation` | `(p_order jsonb, p_materials jsonb, p_tenant?)` | ✅ | write | Production Planner |
+| `rpc_create_mo_with_reservation` | `(p_order jsonb, p_materials jsonb, p_tenant?)` | ✅ | ⚠️ write؛ محجوبة حاليًا عند مواد غير فارغة (`OQ-09`) | Production Planner |
 | `rpc_transition_mo_status` | `(p_mo_id, p_status, p_notes?, p_tenant?)` | ✅ | write | Production Supervisor |
 | `rpc_consume_reserved_materials_v2` | `(p_mo_id, p_stage_id, p_consumptions jsonb)` | ✅ | write | Operator |
 | `rpc_consume_reserved_materials` | `(p_mo_id, p_consumptions jsonb)` | ✅ | ⚠️ legacy | — |
@@ -144,6 +144,9 @@ ORDER BY 1;
    نقطة التقاء مثالية لسباق مصمَّم بين أمرَي تصنيع لنفس المنتج.
 4. ترحّل داخليًا `MATERIAL_ISSUE` ثم `FG_RECEIPT` بالمبلغ نفسه عبر
    `rpc_post_event_journal` (الداخلية) بمفتاح idempotency لكل منهما.
+5. `rpc_create_mo_with_reservation` ما زالت تقرأ `stock_moves` الغائبة عندما تكون
+   `p_materials` غير فارغة. وجود المنحة لا يساوي قابلية التشغيل؛ لا تدخل سيناريو
+   اليوم قبل حسم `OQ-09`/PR-1R.
 
 ## 9. الدفتر العام (GL)
 
@@ -273,9 +276,12 @@ ORDER BY 1;
 | منها **غير** `rpc_*` (سطح تاريخي) | **117** |
 | من الـ117: قادرة على الكتابة (INSERT/UPDATE/DELETE في جسمها) | **≥ 24** |
 
-الفرق الوحيد في أسماء المنح عن cutoff 181 هو سحب
-`check_balance_before_post()` من `authenticated` في Migration 184؛ مجموعة
-الـ70 `rpc_*` نفسها لم تتغير، وكذلك قائمة الحد الأدنى الكاتبة أدناه.
+الفرق في سطح `authenticated` عن cutoff 181 هو سحب
+`check_balance_before_post()` في Migration 184؛ Migration 185 لم تغيّر أعداد
+`authenticated` (`181 = 64 + 117`) ولا مجموعة الـ70 `rpc_*`. أثر 185 يقع على
+منح جدولي المخزون وعلى سحب `anon/PUBLIC` من `consume_materials_for_mo` و
+`update_warehouse_gl_mapping`، مع بقاء المنح الصريحة لـ`authenticated` و
+`service_role`. قائمة الحد الأدنى الكاتبة أدناه لذلك لم تتغير.
 
 ### الأربع والعشرون القادرة على الكتابة
 
