@@ -4,7 +4,10 @@ set -Eeuo pipefail
 : "${PGDATABASE:?PGDATABASE must be set}"
 
 PSQL=(psql -X -v ON_ERROR_STOP=1 -qAt)
-tmp_prefix=/tmp/stock-186
+# Keep worker evidence separate from the workflow-level tee target
+# (/tmp/stock-186-concurrency.out). The cleanup below must never unlink the
+# outer evidence file while tee still has it open.
+tmp_prefix=/tmp/stock-186-race
 org_id='51856186-2000-0000-0000-000000000001'
 material_id='51856186-2000-0000-0000-000000000002'
 finished_id='51856186-2000-0000-0000-000000000003'
