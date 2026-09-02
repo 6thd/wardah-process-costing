@@ -119,6 +119,7 @@ jobs:
           grep -q 'STOCK_186_GREEN_CONTRACT_SHAPE_OK' /tmp/stock-186-green.out
           grep -q 'STOCK_186_GREEN_BALANCE_MISMATCH_OK' /tmp/stock-186-green.out
           grep -q 'STOCK_186_GREEN_RESERVATION_CONTRACT_OK' /tmp/stock-186-green.out
+          grep -q 'STOCK_186_GREEN_OUTFLOW_RESERVATION_FLOOR_OK' /tmp/stock-186-green.out
           grep -q 'STOCK_186_GREEN_ACCEPTANCE_PASS' /tmp/stock-186-green.out
           grep -q 'STOCK_186_RESERVATION_CONCURRENCY_PASS' /tmp/stock-186-concurrency.out
           grep -q 'STOCK_186_RED_BALANCE_42P01_OK' /tmp/stock-186-red.out

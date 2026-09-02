@@ -17,9 +17,10 @@ with no table DDL, fixture, backfill, or historical-data repair.
 
 | Routine | Decision in 186 | Preserved boundary |
 |---|---|---|
-| `rpc_create_mo_with_reservation` | Rewire availability to canonical bins minus bin reservations and active manufacturing reservations; resolve item→product; aggregate duplicate demand; lock bins before deciding | Same signature, result fields, `SECURITY DEFINER`, membership guard, and authenticated/service-role ACL |
+| `rpc_create_mo_with_reservation` | Rewire availability to canonical bins minus bin reservations and active manufacturing reservations; resolve item→product; aggregate aliases by resolved product; lock bins before deciding | Same signature, result fields, `SECURITY DEFINER`, membership guard, and authenticated/service-role ACL |
+| `wardah_apply_stock_outgoing` | Lock every bin for the product and reject any canonical outflow that would consume active MO reservations; material consumption may use only its referenced MO's reservation | Same signature, valuation/ledger behavior, internal-only ACL, and org guard |
 | `consume_materials_for_mo` | Compatibility wrapper over `rpc_consume_reserved_materials`; verify MO/org consistency and propagate atomic-path errors | Same legacy signature, `SECURITY INVOKER`, and post-185 ACL; no direct stock write |
-| `validate_stock_balance` | Compare posted, non-cancelled SLE quantity with bin quantity | Same signature; output aliases `item_id`/`location_id` now explicitly mean product/warehouse |
+| `validate_stock_balance` | Compare every posted SLE row with bin quantity, so a cancelled original and its posted reversal net to zero as one event pair | Same signature; output aliases `item_id`/`location_id` now explicitly mean product/warehouse |
 | `validate_reservations` | Replace absent `stock_quants` with product-scoped bin availability and aggregate all active MO reservations | Same signature and invoker/RLS boundary |
 | `comprehensive_data_integrity_check` | Point its inventory catalog entries and indirect validators at the legal relations | Wider legacy semantics and RBAC remain separate work |
 | `rpc_complete_manufacturing_order` | Remove the conditional write to an absent mirror | Existing product projection, costing, zero-cost guard, GL posting, signature, and ACL remain unchanged; no finished-goods warehouse is invented |
@@ -42,7 +43,7 @@ contract and application acceptance.
 | Evidence | What it proves |
 |---|---|
 | `acceptance_186_stock_moves_contract_red.sql` | On a database through 185, six live routine bodies retain the absent relation; reservation and balance calls fail with `42P01`; legacy consumption masks that failure; variance returns a false empty success |
-| `acceptance_186_stock_moves_contract.sql` | On the green chain, no live routine body retains the old relation; SLE/bin mismatches are detected; matched balances are quiet; duplicate reservation demand is aggregated; a legal reservation is written with `product_id`; the compatibility org guard and comprehensive wrapper work |
+| `acceptance_186_stock_moves_contract.sql` | On the green chain, no live routine body retains the old relation; cancellation pairs net correctly; item/product aliases aggregate by resolved product; a legal reservation is written with `product_id`; later canonical outflows cannot consume it; the compatibility org guard and comprehensive wrapper work |
 | `acceptance_186_reservation_concurrency.sh` | Two authenticated callers requesting 6 units from 10 are forced behind the same bin lock; exactly one succeeds, one receives `INSUFFICIENT_STOCK`, and final reserved quantity/order count is `6/1` |
 | `stock-moves-contract-186-acceptance.yml` | Builds separate green and pre-186 databases from the governed Baseline pair, executes both proof directions, and uploads raw outputs |
 

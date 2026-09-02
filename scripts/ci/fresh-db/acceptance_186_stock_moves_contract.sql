@@ -58,6 +58,30 @@ FROM public.uoms u
 WHERE u.org_id IS NULL AND u.is_active AND NOT u.is_product_specific
 LIMIT 1;
 
+INSERT INTO public.items (
+  id, org_id, code, name, base_uom_id, uom_migration_status
+)
+SELECT
+  '51856186-1000-0000-0000-000000000011',
+  '51856186-1000-0000-0000-000000000001',
+  'STK186-MAT-ITEM',
+  'Stock 186 Material Item Alias',
+  u.id,
+  'MAPPED'
+FROM public.uoms u
+WHERE u.org_id IS NULL AND u.is_active AND NOT u.is_product_specific
+LIMIT 1;
+
+INSERT INTO public.item_product_map (
+  org_id, item_id, product_id, mapping_source
+)
+VALUES (
+  '51856186-1000-0000-0000-000000000001',
+  '51856186-1000-0000-0000-000000000011',
+  '51856186-1000-0000-0000-000000000002',
+  'MANUAL'
+);
+
 INSERT INTO public.products (id, org_id, code, name, is_stockable, base_uom_id)
 SELECT
   '51856186-1000-0000-0000-000000000003',
@@ -78,6 +102,10 @@ BEGIN
   ) OR NOT EXISTS (
     SELECT 1 FROM public.products
     WHERE id = '51856186-1000-0000-0000-000000000003'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.item_product_map
+    WHERE item_id = '51856186-1000-0000-0000-000000000011'
+      AND product_id = '51856186-1000-0000-0000-000000000002'
   ) THEN
     RAISE EXCEPTION 'STOCK_186_GREEN_NO_SYSTEM_UOM_SEEDED';
   END IF;
@@ -121,6 +149,39 @@ VALUES (
   false, 1,
   '51856186-1000-0000-0000-000000000001'
 );
+
+-- A cancelled original remains part of the legal event stream alongside its
+-- posted inverse. Both rows must net to zero; excluding only the original
+-- would manufacture a +3 mismatch.
+INSERT INTO public.stock_ledger_entries (
+  voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
+  posting_date, actual_qty, qty_after_transaction, incoming_rate, outgoing_rate,
+  valuation_rate, stock_value, stock_value_difference, stock_queue,
+  is_cancelled, docstatus, org_id
+)
+VALUES
+  (
+    'Stock Adjustment',
+    '51856186-1000-0000-0000-000000000012',
+    'STK186-CANCELLED',
+    '51856186-1000-0000-0000-000000000002',
+    '51856186-1000-0000-0000-000000000004',
+    CURRENT_DATE, -3, 7, NULL, 2, 2, 14, -6,
+    '[{"qty":7,"rate":2}]'::jsonb,
+    true, 1,
+    '51856186-1000-0000-0000-000000000001'
+  ),
+  (
+    'Stock Adjustment Reversal',
+    '51856186-1000-0000-0000-000000000012',
+    'CANCEL-STK186-CANCELLED',
+    '51856186-1000-0000-0000-000000000002',
+    '51856186-1000-0000-0000-000000000004',
+    CURRENT_DATE, 3, 10, 2, NULL, 2, 20, 6,
+    '[{"qty":10,"rate":2}]'::jsonb,
+    false, 1,
+    '51856186-1000-0000-0000-000000000001'
+  );
 
 DO $balance_mismatch$
 DECLARE
@@ -206,9 +267,12 @@ DECLARE
   v_count integer;
   v_qty numeric;
   v_product uuid;
+  v_bin_qty numeric;
+  v_outflow_caught boolean := false;
 BEGIN
   -- On-hand 10 - bin reserved 1 - existing MO reservation 2 = 7.
-  -- Two duplicate lines totalling 8 must be assessed as one demand and fail.
+  -- The mapped item UUID and its product UUID are aliases for one material.
+  -- Their combined demand 8 must be assessed after resolution and fail.
   BEGIN
     PERFORM public.rpc_create_mo_with_reservation(
       jsonb_build_object(
@@ -218,7 +282,7 @@ BEGIN
         'quantity', 1
       ),
       jsonb_build_array(
-        jsonb_build_object('item_id', '51856186-1000-0000-0000-000000000002', 'quantity', 4),
+        jsonb_build_object('item_id', '51856186-1000-0000-0000-000000000011', 'quantity', 4),
         jsonb_build_object('item_id', '51856186-1000-0000-0000-000000000002', 'quantity', 4)
       ),
       NULL
@@ -250,7 +314,7 @@ BEGIN
       'quantity', 1
     ),
     jsonb_build_array(jsonb_build_object(
-      'item_id', '51856186-1000-0000-0000-000000000002',
+      'item_id', '51856186-1000-0000-0000-000000000011',
       'quantity', 7
     )),
     NULL
@@ -271,7 +335,34 @@ BEGIN
     RAISE EXCEPTION 'STOCK_186_GREEN_CANONICAL_RESERVATION_WRONG: qty=% product=%', v_qty, v_product;
   END IF;
 
+  -- The committed 2 + 7 MO reservations leave only one unit unreserved.
+  -- A later canonical manual outflow of two must fail and leave the bin intact.
+  BEGIN
+    PERFORM public.rpc_manual_stock_movement_v2(jsonb_build_object(
+      'product_id', '51856186-1000-0000-0000-000000000002',
+      'warehouse_id', '51856186-1000-0000-0000-000000000004',
+      'quantity', 2,
+      'movement_type', 'out'
+    ));
+  EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM LIKE 'INSUFFICIENT_UNRESERVED_STOCK:%' THEN
+      v_outflow_caught := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
+
+  SELECT actual_qty INTO v_bin_qty
+  FROM public.bins
+  WHERE id = '51856186-1000-0000-0000-000000000005';
+  IF NOT v_outflow_caught OR v_bin_qty IS DISTINCT FROM 10::numeric THEN
+    RAISE EXCEPTION
+      'STOCK_186_GREEN_OUTFLOW_CONSUMED_RESERVED_STOCK: caught=% bin=%',
+      v_outflow_caught, v_bin_qty;
+  END IF;
+
   RAISE NOTICE 'STOCK_186_GREEN_RESERVATION_CONTRACT_OK';
+  RAISE NOTICE 'STOCK_186_GREEN_OUTFLOW_RESERVATION_FLOOR_OK';
 END
 $reservation_contract$;
 

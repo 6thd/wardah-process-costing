@@ -120,9 +120,10 @@ migration قانونية) هو DB/tooling follow-up مستقل، لا جزء م�
 
 | الدالة | القرار |
 |---|---|
-| `rpc_create_mo_with_reservation` | إعادة توجيه إلى `bins` والحجوزات النشطة بعد item→product resolution، مع قفل bins وتجميع السطور المكررة قبل قرار التوفر |
+| `rpc_create_mo_with_reservation` | إعادة توجيه إلى `bins` والحجوزات النشطة بعد item→product resolution، مع قفل bins وتجميع كل aliases حسب المنتج المحلول قبل قرار التوفر |
+| `wardah_apply_stock_outgoing` | فرض أرضية حجوزات التصنيع على كل outflow قانوني بعد قفل bins للمنتج؛ استهلاك المواد يستثني حجز أمره نفسه فقط |
 | `consume_materials_for_mo` | غلاف توافق يستدعي `rpc_consume_reserved_materials` القانوني ويوقف إخفاء الأخطاء داخل `success=false` |
-| `validate_stock_balance` | مقارنة `stock_ledger_entries` المرحّلة غير الملغاة مع `bins` مع إبقاء أسماء حقول الإرجاع القديمة للتوافق |
+| `validate_stock_balance` | مقارنة كل `stock_ledger_entries` المرحّلة مع `bins`؛ أصل الإلغاء وعكسه المرحّل يتعادلان، مع إبقاء أسماء حقول الإرجاع القديمة للتوافق |
 | `validate_reservations` | إعادة توجيه التحقق من `stock_quants` الغائب إلى توفر bins الكلي مقابل مجموع الحجوزات النشطة |
 | `comprehensive_data_integrity_check` | تحديث أسماء العلاقات واعتماد validatorين القانونيين، مع بقاء تنظيفه الأوسع/RBAC خارج النطاق |
 | `rpc_complete_manufacturing_order` | حذف كتابة المرآة المشروطة فقط؛ لا اختراع warehouse/bin للمنتج التام |

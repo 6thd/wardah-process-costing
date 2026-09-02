@@ -20,17 +20,219 @@ BEGIN
   END IF;
 
   IF to_regprocedure('public.rpc_consume_reserved_materials(uuid,jsonb)') IS NULL
-     OR to_regprocedure('public.wardah_resolve_product_id(uuid,uuid,timestamp with time zone)') IS NULL THEN
+     OR to_regprocedure('public.wardah_resolve_product_id(uuid,uuid,timestamp with time zone)') IS NULL
+     OR to_regprocedure('public.wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date)') IS NULL THEN
     RAISE EXCEPTION 'STOCK_186_CANONICAL_HELPERS_MISSING';
   END IF;
 END
 $preflight$;
 
+-- Every canonical outflow converges here. Lock every bin for the product before
+-- checking the product-wide manufacturing reservation floor, so outflows from
+-- different warehouses cannot race each other below committed reservations.
+-- A material-consumption outflow may consume the reservation owned by its own
+-- manufacturing order; all other active reservations remain protected.
+CREATE OR REPLACE FUNCTION public.wardah_apply_stock_outgoing(
+  p_org uuid,
+  p_product uuid,
+  p_warehouse uuid,
+  p_qty numeric,
+  p_voucher_type text,
+  p_voucher_id uuid,
+  p_voucher_number text,
+  p_posting_date date
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_method text;
+  v_prev_qty numeric;
+  v_prev_value numeric;
+  v_prev_queue jsonb;
+  v_new_qty numeric;
+  v_new_value numeric;
+  v_new_rate numeric;
+  v_new_queue jsonb;
+  v_remaining numeric;
+  v_take numeric;
+  v_batch_qty numeric;
+  v_batch_rate numeric;
+  v_cogs numeric := 0;
+  v_idx integer;
+  v_len integer;
+  v_prod_qty numeric;
+  v_prod_value numeric;
+  v_prod_rate numeric;
+  v_total_on_hand numeric;
+  v_other_mo_reserved numeric;
+BEGIN
+  PERFORM public.wardah_assert_org_member(p_org);
+
+  IF p_product IS NULL OR p_warehouse IS NULL OR p_qty IS NULL OR p_qty <= 0 THEN
+    RAISE EXCEPTION 'INVALID_STOCK_OUT_PARAMETERS';
+  END IF;
+
+  SELECT COALESCE(valuation_method::text, 'Weighted Average')
+  INTO v_method
+  FROM public.products
+  WHERE id = p_product AND org_id = p_org;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'PRODUCT_NOT_FOUND_OR_WRONG_ORG';
+  END IF;
+
+  PERFORM 1
+  FROM public.bins
+  WHERE org_id = p_org AND product_id = p_product
+  ORDER BY warehouse_id, id
+  FOR UPDATE;
+
+  SELECT COALESCE(SUM(actual_qty), 0)
+  INTO v_total_on_hand
+  FROM public.bins
+  WHERE org_id = p_org AND product_id = p_product;
+
+  SELECT COALESCE(SUM(GREATEST(
+    quantity_reserved - COALESCE(quantity_consumed, 0) - COALESCE(quantity_released, 0),
+    0
+  )), 0)
+  INTO v_other_mo_reserved
+  FROM public.material_reservations
+  WHERE org_id = p_org
+    AND product_id = p_product
+    AND status = 'reserved'
+    AND NOT (
+      lower(COALESCE(p_voucher_type, '')) = 'material consumption'
+      AND p_voucher_id IS NOT NULL
+      AND mo_id = p_voucher_id
+    );
+
+  IF v_total_on_hand - p_qty < v_other_mo_reserved THEN
+    RAISE EXCEPTION
+      'INSUFFICIENT_UNRESERVED_STOCK: on_hand=%, protected_mo=%, requested=%',
+      v_total_on_hand, v_other_mo_reserved, p_qty;
+  END IF;
+
+  SELECT COALESCE(actual_qty, 0), COALESCE(stock_value, 0),
+         COALESCE(stock_queue, '[]'::jsonb)
+  INTO v_prev_qty, v_prev_value, v_prev_queue
+  FROM public.bins
+  WHERE org_id = p_org AND product_id = p_product AND warehouse_id = p_warehouse
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'BIN_NOT_FOUND';
+  END IF;
+  IF v_prev_qty < p_qty THEN
+    RAISE EXCEPTION 'INSUFFICIENT_STOCK: available=%, required=%', v_prev_qty, p_qty;
+  END IF;
+
+  v_new_qty := v_prev_qty - p_qty;
+  v_new_queue := v_prev_queue;
+
+  IF v_method IN ('FIFO', 'LIFO') AND jsonb_array_length(v_new_queue) > 0 THEN
+    v_remaining := p_qty;
+    WHILE v_remaining > 0 LOOP
+      v_len := jsonb_array_length(v_new_queue);
+      IF v_len = 0 THEN
+        RAISE EXCEPTION 'STOCK_QUEUE_INSUFFICIENT';
+      END IF;
+      v_idx := CASE WHEN v_method = 'FIFO' THEN 0 ELSE v_len - 1 END;
+      v_batch_qty := COALESCE((v_new_queue -> v_idx ->> 'qty')::numeric, 0);
+      v_batch_rate := COALESCE((v_new_queue -> v_idx ->> 'rate')::numeric, 0);
+      IF v_batch_qty <= 0 THEN
+        v_new_queue := v_new_queue - v_idx;
+        CONTINUE;
+      END IF;
+      v_take := LEAST(v_remaining, v_batch_qty);
+      v_cogs := v_cogs + (v_take * v_batch_rate);
+      v_remaining := v_remaining - v_take;
+      IF v_take = v_batch_qty THEN
+        v_new_queue := v_new_queue - v_idx;
+      ELSE
+        v_new_queue := jsonb_set(
+          v_new_queue,
+          ARRAY[v_idx::text, 'qty'],
+          to_jsonb(v_batch_qty - v_take),
+          false
+        );
+      END IF;
+    END LOOP;
+    v_new_value := GREATEST(v_prev_value - v_cogs, 0);
+    IF v_new_qty = 0 THEN
+      v_new_rate := 0;
+      v_new_queue := '[]'::jsonb;
+    ELSE
+      v_len := jsonb_array_length(v_new_queue);
+      v_idx := CASE WHEN v_method = 'FIFO' THEN 0 ELSE v_len - 1 END;
+      v_new_rate := COALESCE((v_new_queue -> v_idx ->> 'rate')::numeric, 0);
+    END IF;
+  ELSE
+    v_batch_rate := CASE WHEN v_prev_qty > 0 THEN v_prev_value / v_prev_qty ELSE 0 END;
+    v_cogs := p_qty * v_batch_rate;
+    v_new_value := GREATEST(v_prev_value - v_cogs, 0);
+    v_new_rate := CASE WHEN v_new_qty > 0 THEN v_new_value / v_new_qty ELSE 0 END;
+    v_new_queue := CASE WHEN v_new_qty > 0
+      THEN jsonb_build_array(jsonb_build_object('qty', v_new_qty, 'rate', v_new_rate))
+      ELSE '[]'::jsonb END;
+  END IF;
+
+  INSERT INTO public.stock_ledger_entries (
+    voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
+    posting_date, actual_qty, qty_after_transaction, outgoing_rate,
+    valuation_rate, stock_value, stock_value_difference, stock_queue,
+    is_cancelled, docstatus, org_id, created_by
+  ) VALUES (
+    p_voucher_type, p_voucher_id, p_voucher_number, p_product, p_warehouse,
+    COALESCE(p_posting_date, CURRENT_DATE), -p_qty, v_new_qty,
+    CASE WHEN p_qty > 0 THEN v_cogs / p_qty ELSE 0 END,
+    v_new_rate, v_new_value, -v_cogs, v_new_queue,
+    false, 1, p_org, auth.uid()
+  );
+
+  UPDATE public.bins
+  SET actual_qty = v_new_qty,
+      valuation_rate = v_new_rate,
+      stock_value = v_new_value,
+      stock_queue = v_new_queue,
+      updated_at = now()
+  WHERE org_id = p_org AND product_id = p_product AND warehouse_id = p_warehouse;
+
+  SELECT COALESCE(SUM(actual_qty), 0), COALESCE(SUM(stock_value), 0)
+  INTO v_prod_qty, v_prod_value
+  FROM public.bins
+  WHERE org_id = p_org AND product_id = p_product;
+  v_prod_rate := CASE WHEN v_prod_qty > 0 THEN v_prod_value / v_prod_qty ELSE 0 END;
+
+  UPDATE public.products
+  SET stock_quantity = v_prod_qty,
+      stock_value = v_prod_value,
+      cost_price = CASE WHEN v_prod_qty > 0 THEN v_prod_rate ELSE cost_price END,
+      updated_at = now()
+  WHERE id = p_product AND org_id = p_org;
+
+  RETURN jsonb_build_object(
+    'applied', true,
+    'new_qty', v_new_qty,
+    'new_rate', round(v_new_rate, 6),
+    'new_value', round(v_new_value, 6),
+    'cogs', round(v_cogs, 6),
+    'method', v_method
+  );
+END;
+$function$;
+
+COMMENT ON FUNCTION public.wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date) IS
+  'Canonical valued stock outflow. Locks product bins and refuses any outflow that would consume active manufacturing reservations other than the referenced MO own reservation.';
+
 -- The client contract still names material identifiers item_id. Resolve each
 -- identifier through the legal item/product bridge, lock the canonical bins in
 -- deterministic order, and reserve only the quantity that remains after both
--- bin-level and manufacturing reservations. Duplicate material lines are
--- aggregated before the availability decision.
+-- bin-level and manufacturing reservations. Item/product aliases are resolved
+-- first and then aggregated by canonical product before the availability
+-- decision.
 CREATE OR REPLACE FUNCTION public.rpc_create_mo_with_reservation(
   p_order jsonb,
   p_materials jsonb DEFAULT '[]'::jsonb,
@@ -47,6 +249,7 @@ DECLARE
   v_mo_number text;
   v_mat jsonb;
   v_item_id uuid;
+  v_item_ids jsonb;
   v_product_id uuid;
   v_uom_id uuid;
   v_qty numeric;
@@ -82,14 +285,26 @@ BEGIN
     END IF;
   END LOOP;
 
-  FOR v_item_id, v_qty IN
-    SELECT (entry ->> 'item_id')::uuid, SUM((entry ->> 'quantity')::numeric)
-    FROM jsonb_array_elements(p_materials) AS materials(entry)
-    GROUP BY (entry ->> 'item_id')::uuid
-    ORDER BY (entry ->> 'item_id')::uuid
+  FOR v_product_id, v_qty, v_item_ids IN
+    WITH resolved_demand AS (
+      SELECT
+        (entry ->> 'item_id')::uuid AS item_id,
+        public.wardah_resolve_product_id(
+          v_org,
+          (entry ->> 'item_id')::uuid,
+          now()
+        ) AS product_id,
+        (entry ->> 'quantity')::numeric AS quantity
+      FROM jsonb_array_elements(p_materials) AS materials(entry)
+    )
+    SELECT
+      product_id,
+      SUM(quantity),
+      to_jsonb(array_agg(DISTINCT item_id ORDER BY item_id))
+    FROM resolved_demand
+    GROUP BY product_id
+    ORDER BY product_id
   LOOP
-    v_product_id := public.wardah_resolve_product_id(v_org, v_item_id, now());
-
     -- The canonical stock writers lock bins before updating them. Taking the
     -- same locks and order here serializes reservation-vs-stock and concurrent
     -- reservation decisions without introducing the opposite lock order.
@@ -119,7 +334,7 @@ BEGIN
     v_avail := v_on_hand - v_bin_reserved - v_mo_reserved;
     IF v_avail < v_qty THEN
       v_insufficient := v_insufficient || jsonb_build_object(
-        'item_id', v_item_id,
+        'item_ids', v_item_ids,
         'product_id', v_product_id,
         'required', v_qty,
         'available', v_avail
@@ -233,8 +448,10 @@ COMMENT ON FUNCTION public.consume_materials_for_mo(uuid,uuid,jsonb[]) IS
 
 -- Preserve the historical output names for the dormant validator consumer.
 -- item_id now means product_id and location_id means warehouse_id. The
--- calculated side is the posted, non-cancelled legal ledger; the actual side
--- is the canonical bin projection.
+-- calculated side is every posted legal-ledger row. Cancellation writes both
+-- the cancelled original and a posted inverse row, so including the pair makes
+-- its net effect zero exactly once. The actual side is the canonical bin
+-- projection.
 CREATE OR REPLACE FUNCTION public.validate_stock_balance(p_org_id uuid)
 RETURNS TABLE(
   item_id uuid,
@@ -253,7 +470,6 @@ AS $function$
     FROM public.stock_ledger_entries
     WHERE org_id = p_org_id
       AND docstatus = 1
-      AND COALESCE(is_cancelled, false) = false
     GROUP BY product_id, warehouse_id
   ),
   bin_balance AS (
@@ -274,7 +490,7 @@ AS $function$
 $function$;
 
 COMMENT ON FUNCTION public.validate_stock_balance(uuid) IS
-  'Reports quantity mismatches between posted non-cancelled stock_ledger_entries and bins. Compatibility output aliases map item/location to product/warehouse.';
+  'Reports quantity mismatches between all posted stock_ledger_entries and bins; cancelled originals plus posted reversal rows net to zero. Compatibility output aliases map item/location to product/warehouse.';
 
 -- comprehensive_data_integrity_check also depends on this validator. Its
 -- historical source used the equally absent stock_quants relation, so move the
@@ -627,6 +843,15 @@ BEGIN
 
   IF v_legacy_functions IS NOT NULL THEN
     RAISE EXCEPTION 'STOCK_186_LIVE_LEGACY_ROUTINES_REMAIN: %', v_legacy_functions;
+  END IF;
+
+  SELECT p.prosrc INTO v_src
+  FROM pg_proc p
+  WHERE p.oid = 'public.wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date)'::regprocedure;
+  IF v_src !~ 'public\.material_reservations'
+     OR v_src !~ 'v_other_mo_reserved'
+     OR v_src !~ 'FOR UPDATE' THEN
+    RAISE EXCEPTION 'STOCK_186_OUTFLOW_RESERVATION_FLOOR_NOT_INSTALLED';
   END IF;
 
   SELECT p.prosrc INTO v_src
