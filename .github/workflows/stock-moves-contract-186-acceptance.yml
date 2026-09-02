@@ -1,0 +1,143 @@
+name: Stock Moves Contract 186 Acceptance
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/186_stock_moves_contract_repair.sql'
+      - 'scripts/ci/fresh-db/acceptance_186_stock_moves_contract.sql'
+      - 'scripts/ci/fresh-db/acceptance_186_stock_moves_contract_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_186_reservation_concurrency.sh'
+      - '.github/workflows/stock-moves-contract-186-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Canonical inventory contracts and reservation race
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve green and pre-186 chains
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+
+          RED_PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 186)
+          red_pair_field() { printf '%s\n' "$RED_PAIR" | sed -n "s/^$1=//p"; }
+          echo "RED_BASELINE=$(red_pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "RED_REFERENCE=$(red_pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          RED_CUTOFF=$(red_pair_field BASELINE_CUTOFF)
+          RED_CUTOFF=${RED_CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$RED_CUTOFF" \
+            > /tmp/red_chain_order_full.txt
+          grep -q '^186_stock_moves_contract_repair.sql$' /tmp/red_chain_order_full.txt
+          sed '/^186_stock_moves_contract_repair.sql$/,$d' \
+            /tmp/red_chain_order_full.txt > /tmp/red_order.txt
+
+      - name: Build fresh green database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_fresh
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh -f "$REFERENCE" -q
+          REPORT=/tmp/chain_report.txt PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/chain_order.txt
+
+      - name: Green acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 -d wardah_fresh \
+            -f scripts/ci/fresh-db/acceptance_186_stock_moves_contract.sql \
+            2>&1 | tee /tmp/stock-186-green.out
+          grep -q 'STOCK_186_GREEN_ACCEPTANCE_PASS' /tmp/stock-186-green.out
+
+      - name: Deterministic concurrent reservation proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PGDATABASE=wardah_fresh \
+            bash scripts/ci/fresh-db/acceptance_186_reservation_concurrency.sh \
+            2>&1 | tee /tmp/stock-186-concurrency.out
+          grep -q 'STOCK_186_RESERVATION_CONCURRENCY_PASS' /tmp/stock-186-concurrency.out
+
+      - name: Build pre-186 red database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb wardah_red
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -d wardah_red -f "$RED_REFERENCE" -q
+          REPORT=/tmp/red_chain_report.txt PGDATABASE=wardah_red \
+            bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/red_order.txt
+
+          psql -v ON_ERROR_STOP=1 -d wardah_red \
+            -f scripts/ci/fresh-db/acceptance_186_stock_moves_contract_red.sql \
+            2>&1 | tee /tmp/stock-186-red.out
+          grep -q 'STOCK_186_RED_PROOF_PASS' /tmp/stock-186-red.out
+
+      - name: Confirm every proof direction ran
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'STOCK_186_GREEN_CONTRACT_SHAPE_OK' /tmp/stock-186-green.out
+          grep -q 'STOCK_186_GREEN_BALANCE_MISMATCH_OK' /tmp/stock-186-green.out
+          grep -q 'STOCK_186_GREEN_RESERVATION_CONTRACT_OK' /tmp/stock-186-green.out
+          grep -q 'STOCK_186_GREEN_ACCEPTANCE_PASS' /tmp/stock-186-green.out
+          grep -q 'STOCK_186_RESERVATION_CONCURRENCY_PASS' /tmp/stock-186-concurrency.out
+          grep -q 'STOCK_186_RED_BALANCE_42P01_OK' /tmp/stock-186-red.out
+          grep -q 'STOCK_186_RED_RESERVATION_42P01_OK' /tmp/stock-186-red.out
+          grep -q 'STOCK_186_RED_LEGACY_CONSUMPTION_MASKED_ERROR_OK' /tmp/stock-186-red.out
+          grep -q 'STOCK_186_RED_VARIANCE_FALSE_EMPTY_OK' /tmp/stock-186-red.out
+          grep -q 'STOCK_186_RED_PROOF_PASS' /tmp/stock-186-red.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-moves-contract-186-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/red_chain_report.txt
+            /tmp/stock-186-green.out
+            /tmp/stock-186-concurrency.out
+            /tmp/stock-186-red.out
+            /tmp/stock-186-*.out
+            /tmp/stock-186-*.err
+          retention-days: 30
