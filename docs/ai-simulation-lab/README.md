@@ -16,7 +16,7 @@
 |---|---|---|
 | **Round 1 — Accounting Truth Alignment** | ✅ مكتملة | Migration 182 نقلت `rpc_get_trial_balance` إلى `gl_entries/gl_entry_lines`؛ Migration 183 أغلقت قراءة العرض المباشرة وألزمت RBAC؛ PR #200 جعلت الـRPC مصدر العميل الوحيد لميزان المراجعة |
 | **Round 2 — GL Posting Integrity** | ✅ مكتملة | PR #201 مدموجة؛ Migration 184 مطبقة على Production ومثبتة postflight؛ الحارس المؤجل RLS-proof عبر `SECURITY DEFINER` مع EXECUTE مغلق عن أدوار العميل |
-| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migration 185 وPR #210 أُغلقتا؛ PR #211 مكتمل فنيًا وغير مدموج؛ PR-1R وبقية S0/S1 ما زالت مفتوحة |
+| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migration 185 وPR #210 وPR #211 أُغلقت؛ PR #212 توثيق قيد المراجعة، وPR-1R وبقية S0/S1 ما زالت مفتوحة |
 | **Phase 0 — Simulation Environment** | ⏳ مؤجلة | تبدأ بعد إغلاق جولات الحقيقة/السلامة السابقة |
 
 ### ما أُغلق فعليًا
@@ -40,8 +40,8 @@
 - PR #210 أغلقت `INV-11`: قراءة شاشة الحركات لم تعد تطلب عمودًا غير موجود، وفشل
   القراءة لم يعد يُعرض كدفتر فارغ `(0)`.
 - PR #211 حفظ جرد consumers وميّز `bins.avg_rate` غير الصالح عن
-  `simulate_cogs.avg_rate` الصالح. هو evidence-complete عند `a74c06f` لكنه غير
-  مدموج، ولذلك لا يُسجَّل كإغلاق نهائي بعد.
+  `simulate_cogs.avg_rate` الصالح. دُمج الرأس المراجع `a74c06f` عند merge commit
+  `c4ffc44` بعد 11/11 checks وحل الخيطين.
 
 ### ما أُغلق في Baseline وحوكمته
 
@@ -58,8 +58,8 @@
 
 - **Issue #195:** مطابقة أكواد الحسابات القانونية التاريخية ذات `account_id IS NULL`
   مسار بيانات مستقل ينتظر مصدر Finance موثوقًا؛ لا تخمين ولا backfill استنتاجي.
-- **Round 3:** دمج PR #211 يحتاج تفويضًا منفصلًا؛ بعده PR-1R لإصلاح عقود
-  `stock_moves` الحية، ثم إغلاقات S0/S1 المتبقية حسب
+- **Round 3:** PR #211 مدموج؛ PR #212 يزامن هذا التوثيق على `main`، وبعده PR-1R
+  لإصلاح عقود `stock_moves` الحية، ثم إغلاقات S0/S1 المتبقية حسب
   [`INVENTORY_INTEGRITY_PROGRESS_20260902.md`](./INVENTORY_INTEGRITY_PROGRESS_20260902.md).
 - **Phase 0:** يبدأ بعد إغلاق Round 3، بينما يبقى #195 مسار معالجة مستقلًا
   لا يُختلق حله لتسريع بناء المختبر.
