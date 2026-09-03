@@ -16,7 +16,7 @@
 |---|---|---|
 | **Round 1 — Accounting Truth Alignment** | ✅ مكتملة | Migration 182 نقلت `rpc_get_trial_balance` إلى `gl_entries/gl_entry_lines`؛ Migration 183 أغلقت قراءة العرض المباشرة وألزمت RBAC؛ PR #200 جعلت الـRPC مصدر العميل الوحيد لميزان المراجعة |
 | **Round 2 — GL Posting Integrity** | ✅ مكتملة | PR #201 مدموجة؛ Migration 184 مطبقة على Production ومثبتة postflight؛ الحارس المؤجل RLS-proof عبر `SECURITY DEFINER` مع EXECUTE مغلق عن أدوار العميل |
-| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migrations 185–186 وPRs #210–#214 أُغلقت و186 مطبقة postflight وBaseline 186 منشور؛ بقية S0/S1 ما زالت مفتوحة |
+| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migrations 185–186 وPRs #210–#215 أُغلقت؛ 187 مقترحة في المستودع فقط لمعالجة INV-02 بعقد prospective ولم تُدمج أو تُطبق؛ بقية S0/S1 ما زالت مفتوحة |
 | **Phase 0 — Simulation Environment** | ⏳ مؤجلة | تبدأ بعد إغلاق جولات الحقيقة/السلامة السابقة |
 
 ### ما أُغلق فعليًا
@@ -47,6 +47,10 @@
   لـ`stock_moves` وثبات مجاميع المخزون والتقاعد الصريح بـ`0A000`. run
   `33734325356` أعاد بناء Baseline cutoff 186 بنجاح، ونشره PR #214 المدموج عند
   `3ce8b295`.
+- اقتراح Migration 187 ينقّح `INV-02`: لا يفرض المفتاح العالمي على حركات قانونية
+  متعددة الأسطر، بل يربط Stock Adjustment مستقبلًا بسطر المصدر ويثبت الحد بسباق
+  حتمي. الاقتراح غير مدموج وغير مطبق على Production، والتكرار التاريخي لا يُحذف
+  ولا يُعاد نسبه تخمينيًا.
 
 ### ما أُغلق في Baseline وحوكمته
 
@@ -63,7 +67,8 @@
 
 - **Issue #195:** مطابقة أكواد الحسابات القانونية التاريخية ذات `account_id IS NULL`
   مسار بيانات مستقل ينتظر مصدر Finance موثوقًا؛ لا تخمين ولا backfill استنتاجي.
-- **Round 3:** PRs #211–#213 مدموجة وMigration 186 مطبقة؛ التالي إغلاقات
+- **Round 3:** PRs #211–#215 مدموجة وMigration 186 مطبقة؛ Migration 187 مقترحة
+  وغير مطبقة، ثم تتبعها بقية إغلاقات
   S0/S1 المتبقية حسب
   [`INVENTORY_INTEGRITY_PROGRESS_20260902.md`](./INVENTORY_INTEGRITY_PROGRESS_20260902.md).
 - **Phase 0:** يبدأ بعد إغلاق Round 3، بينما يبقى #195 مسار معالجة مستقلًا

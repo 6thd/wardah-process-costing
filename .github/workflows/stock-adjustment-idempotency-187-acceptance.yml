@@ -1,0 +1,144 @@
+name: Stock adjustment idempotency 187
+
+on:
+  pull_request:
+    paths:
+      - 'sql/migrations/187_stock_adjustment_ledger_idempotency.sql'
+      - 'scripts/ci/fresh-db/setup_187_stock_adjustment_idempotency.sql'
+      - 'scripts/ci/fresh-db/acceptance_187_stock_adjustment_idempotency.sql'
+      - 'scripts/ci/fresh-db/acceptance_187_stock_adjustment_idempotency_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_187_stock_adjustment_concurrency.sh'
+      - '.github/workflows/stock-adjustment-idempotency-187-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Prospective ledger uniqueness and deterministic race
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_187
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve cutoff-186 upgrade chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 187)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/stock-187-order-full.txt
+          grep -q '^187_stock_adjustment_ledger_idempotency.sql$' \
+            /tmp/stock-187-order-full.txt
+          sed '/^187_stock_adjustment_ledger_idempotency.sql$/,$d' \
+            /tmp/stock-187-order-full.txt > /tmp/stock-187-pre-order.txt
+
+      - name: Build pre-187 database and seed historical duplicate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+          REPORT=/tmp/stock-187-pre-chain.txt \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/stock-187-pre-order.txt
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/setup_187_stock_adjustment_idempotency.sql \
+            2>&1 | tee /tmp/stock-187-setup.out
+          grep -q 'STOCK_187_SETUP_PASS' /tmp/stock-187-setup.out
+
+      - name: Red proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_187_stock_adjustment_idempotency_red.sql \
+            2>&1 | tee /tmp/stock-187-red.out
+          grep -q 'STOCK_187_RED_PROOF_PASS' /tmp/stock-187-red.out
+
+      - name: Apply Migration 187 over historical duplicate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/187_stock_adjustment_ledger_idempotency.sql \
+            2>&1 | tee /tmp/stock-187-migration.out
+
+      - name: Green acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_187_stock_adjustment_idempotency.sql \
+            2>&1 | tee /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_ACCEPTANCE_PASS' /tmp/stock-187-green.out
+
+      - name: Deterministic concurrency proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/fresh-db/acceptance_187_stock_adjustment_concurrency.sh \
+            2>&1 | tee /tmp/stock-187-concurrency.out
+          grep -q 'STOCK_187_CONCURRENCY_PASS' /tmp/stock-187-concurrency.out
+
+      - name: Confirm every proof direction ran
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          grep -q 'STOCK_187_RED_CONTRACT_ABSENT_OK' /tmp/stock-187-red.out
+          grep -q 'STOCK_187_RED_DUPLICATE_REPRODUCED_OK' /tmp/stock-187-red.out
+          grep -q 'STOCK_187_GREEN_CONTRACT_SHAPE_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_HISTORY_PRESERVED_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_NULL_SOURCE_REJECTED_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_SOURCE_RELATION_REJECTED_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_TABLE_SOURCE_REJECTED_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_VALID_RECEIPT_LINES_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_RPC_REPLAY_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_SOURCE_PROPAGATED_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_GREEN_UNIQUE_BOUNDARY_OK' /tmp/stock-187-green.out
+          grep -q 'STOCK_187_CONCURRENCY_PASS' /tmp/stock-187-concurrency.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-adjustment-idempotency-187-${{ github.run_id }}
+          path: |
+            /tmp/stock-187-pre-chain.txt
+            /tmp/stock-187-setup.out
+            /tmp/stock-187-red.out
+            /tmp/stock-187-migration.out
+            /tmp/stock-187-green.out
+            /tmp/stock-187-concurrency.out
+            /tmp/stock-187-race-*.out
+            /tmp/stock-187-race-*.err
+          retention-days: 30

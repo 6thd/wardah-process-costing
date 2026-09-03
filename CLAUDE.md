@@ -176,6 +176,12 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   فارغة مضللة. postflight الحي أثبت صفر مراجع `stock_moves`، وثبات بيانات
   المخزون، وSQLSTATE `0A000` للتقاعد؛ زوج Baseline cutoff 186 وُلد في run
   `33734325356` ونُشر عبر PR #214 المدموج عند `3ce8b295`.
+- `sql/migrations/187_stock_adjustment_ledger_idempotency.sql` +
+  `docs/db/STOCK_ADJUSTMENT_IDEMPOTENCY_187_RUNBOOK.md` — **اقتراح repository
+  فقط؛ غير مدموج وغير مطبق على Production**: يصحح تعريف `INV-02` من قيد عالمي
+  غير قانوني إلى حد prospective خاص بـStock Adjustment، يربط الحركة بسطر
+  `stock_adjustment_items`، ويترك تكرار `ADJ-000001` التاريخي ذي المصدر المجهول
+  دون حذف أو backfill تخميني. يحتاج قرار دمج مستقل ثم تفويض Production مستقل.
 
 ## Baseline
 
