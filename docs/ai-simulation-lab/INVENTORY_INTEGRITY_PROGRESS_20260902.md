@@ -3,7 +3,8 @@
 **الغرض:** سجل الحالة الحالية لـRound 3 قبل Simulation Lab Phase 0.
 
 **مصدر الحقيقة:** Baseline cutoff 185، سجل Production حتى Migration 185، تدقيق
-المخزون read-only في 2026-08-30، ونتائج PRs #208–#211.
+المخزون read-only في 2026-08-30، ونتائج PRs #208–#212، وعقد Migration 186
+المقترح في PR-1R.
 
 **حد السلطة:** هذا المستند لا يفوض دمج PR، ولا تطبيق migration، ولا كتابة أو
 إصلاح بيانات على Production.
@@ -21,7 +22,7 @@ Round 3 **بدأت ولم تُغلق**. أُنجزت إغلاقات ومخرجا
 | إغلاق الكتابة المباشرة على SLE/bins | ✅ مدموج ومطبق | Migration 185 / PR #208؛ postflight وRed/Green؛ Baseline cutoff 185 في PR #209 |
 | خطأ شاشة حركات المخزون | ✅ مدموج | PR #210؛ query contract + حالة خطأ صريحة + RTL Red/Green + smoke على Staging |
 | جرد `stock_movements`/`stock_moves`/`avg_rate` | ✅ مدموج | PR #211 عند `a74c06f`؛ 11/11 checks والخيطان محلولان؛ merge commit `c4ffc44` |
-| إصلاح عقود `stock_moves` الحية | ⏳ لم يبدأ | PR-1R؛ يحتاج قرار تقاعد/إعادة توجيه واختبارات DB مستقلة |
+| إصلاح عقود `stock_moves` الحية | 🟡 منفذ وينتظر المراجعة | PR-1R / Migration 186: إعادة توجيه العقود القانونية + تقاعد صريح للvariance + Red/Green/Fresh DB وسباق حجوزات؛ غير مطبق على Production |
 | بقية عيوب S0/S1 | ⏳ مفتوحة | `INV-01`/`INV-02`/`INV-03`/`INV-04`، ثم البنود الأقل خطورة |
 | Simulation Lab Phase 0 | ⏳ مؤجلة | لا تبدأ لمجرد خضرة UI أو CI؛ تبدأ بعد إغلاق بوابة Round 3 أدناه |
 
@@ -112,9 +113,10 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
 لا تنتقل الحالة إلى ✅ ولا يبدأ Phase 0 إلا بعد توفر أدلة مستقلة على:
 
 1. ✅ دُمج PR #211 بتفويض المالك عند `c4ffc44` دون drift عن الرأس المراجع.
-2. مزامنة وثائق المختبر في PR #212 تُراجع على `main` وتُدمج بتفويض مستقل.
-3. PR-1R يحسم دوال `stock_moves` الحية: تقاعد موثق أو إعادة توجيه إلى
-   `stock_ledger_entries`/`bins` عبر migration إضافية، مع Red/Green وFresh DB.
+2. ✅ دُمجت مزامنة وثائق المختبر في PR #212 عند `4e63a55` بتفويض مستقل.
+3. Migration 186 في PR-1R تحسم دوال المخزون الحية، لكن الإغلاق لا يصبح ✅ إلا
+   بعد مراجعة الرأس نفسه ونجاح Red/Green/Fresh DB وقرار دمج مستقل؛ ولا يعني ذلك
+   تطبيقها على Production.
 4. `rpc_create_mo_with_reservation` يعمل بمواد غير فارغة عبر العقد القانوني، أو
    يُزال من سيناريو اليوم بقرار منتج موثق؛ لا fallback تاريخي.
 5. إغلاق `INV-02` باختبار idempotency/سباق حتمي قبل فرض قيد على Production.
@@ -132,8 +134,8 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
 | الترتيب | العمل | نوعه | شرط البدء/الخروج |
 |---:|---|---|---|
 | 1 | جرد consumers في PR #211 | evidence/docs | ✅ مدموج عند `c4ffc44` |
-| 2 | تثبيت مزامنة الوثائق في PR #212 على `main` | docs-only | فحص drift وCI الكامل، ثم قرار دمج مستقل؛ لا يغيّر قاعدة البيانات |
-| 3 | PR-1R لعقود `stock_moves` | DB-first | preflight → migration إضافية → Red/Green → Fresh DB؛ لا Production apply ضمن PR |
+| 2 | تثبيت مزامنة الوثائق في PR #212 على `main` | docs-only | ✅ مدموج عند `4e63a55`؛ لم يغيّر قاعدة البيانات |
+| 3 | PR-1R / Migration 186 لعقود المخزون القديمة | DB-first | 🟡 منفذ على فرع المراجعة؛ يحتاج CI ومراجعة وقرار دمج مستقل؛ لا Production apply ضمن PR |
 | 4 | idempotency للمخزون (`INV-02`) | DB | duplicate preflight + سباق حتمي + قيد قانوني |
 | 5 | bin/continuity (`INV-01`/`INV-03`) | DB/data split | عقد مستقبلي منفصل عن remediation التاريخي |
 | 6 | projection والهوية (`INV-04`/`INV-06`) | DB/application حسب القرار | مصدر حقيقة واحد واختبار مستهلك |

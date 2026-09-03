@@ -114,6 +114,26 @@ workflow أو سكربت CI — بحث مستودعي شامل عن اسمي ا�
 القديم في 4.1. أي قرار لاحق (حذف، أو مواءمة مع الحارس الحي، أو تحويل إلى
 migration قانونية) هو DB/tooling follow-up مستقل، لا جزء من هذا الجرد التوثيقي.
 
+### 4.4 قرار PR-1R / Migration 186
+
+حسمت Migration 186 العقد دون إحياء الجدول الغائب:
+
+| الدالة | القرار |
+|---|---|
+| `rpc_create_mo_with_reservation` | إعادة توجيه إلى `bins` والحجوزات النشطة بعد item→product resolution، مع قفل bins وتجميع كل aliases حسب المنتج المحلول قبل قرار التوفر |
+| `wardah_apply_stock_outgoing` | فرض أرضية حجوزات التصنيع على كل outflow قانوني بعد قفل bins للمنتج؛ استهلاك المواد يستثني حجز أمره نفسه فقط |
+| `consume_materials_for_mo` | غلاف توافق يستدعي `rpc_consume_reserved_materials` القانوني ويوقف إخفاء الأخطاء داخل `success=false` |
+| `validate_stock_balance` | مقارنة كل `stock_ledger_entries` المرحّلة مع `bins`؛ أصل الإلغاء وعكسه المرحّل يتعادلان، مع إبقاء أسماء حقول الإرجاع القديمة للتوافق |
+| `validate_reservations` | إعادة توجيه التحقق من `stock_quants` الغائب إلى توفر bins الكلي مقابل مجموع الحجوزات النشطة |
+| `comprehensive_data_integrity_check` | تحديث أسماء العلاقات واعتماد validatorين القانونيين، مع بقاء تنظيفه الأوسع/RBAC خارج النطاق |
+| `rpc_complete_manufacturing_order` | حذف كتابة المرآة المشروطة فقط؛ لا اختراع warehouse/bin للمنتج التام |
+| `calculate_material_variances` | تقاعد صريح بـ`0A000` إلى أن يوجد component standard-cost snapshot قانوني؛ لا إرجاع فارغ مضلل ولا حساب تخميني |
+
+تفاصيل القرار، أدلة Red/Green، واختبار السباق في
+[`../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md`](../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md).
+Migration 186 تبقى repository-only إلى أن تُراجع وتُدمج ثم يصدر تفويض Production
+منفصل؛ هذا التحديث لا يغيّر لقطة Production الموثقة أعلاه.
+
 ## 5. `avg_rate` — فصل الخطأ عن العقد الصحيح
 
 ### 5.1 drift غير صالح
@@ -153,9 +173,9 @@ migration قانونية) هو DB/tooling follow-up مستقل، لا جزء م�
 1. **هذا PR:** يحفظ الجرد واختبار snapshot فقط، بلا تغيير سلوك.
 2. **مزامنة AI Simulation Lab:** بعد دمج هذا الجرد، تُحدّث حالة Round 3 والكتالوجات
    اعتمادًا عليه بدل إعادة الاكتشاف.
-3. **PR-1R / DB follow-up:** يحسم الدوال الحية التي تشير إلى `stock_moves` الغائب
-   (إعادة توجيه إلى `stock_ledger_entries`/`bins` أو تقاعد وسحب المنح) في migration
-   مستقلة مع Red/Green وFresh DB.
+3. **PR-1R / DB follow-up:** القرار منفذ في Migration 186 على فرع المراجعة:
+   إعادة توجيه العقود القابلة للحفظ، وتقاعد صريح للعقد الذي يفتقد standard-cost
+   snapshot، مع Red/Green وFresh DB واختبار سباق. لا يعد مطبقًا على Production.
 4. **Application follow-up مستقل:** تقاعد `SupabaseInventoryRepository` القديم أو
    مواءمته كاملةً؛ لا يخلط مع DB/security ولا مع UI cleanup.
 5. **Issue #173:** يبقى مسار تشديد صلاحيات read RPCs، ومنها `simulate_cogs` و

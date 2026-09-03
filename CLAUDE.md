@@ -167,6 +167,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   الحالي وحدود الانتقال إلى Phase 0. يثبت الجرد أن `stock_moves` و
   `stock_movements` غير موجودين، ويفصل `bins.avg_rate` القديم عن حقل
   `simulate_cogs.avg_rate` الصحيح. وجود هذه المراجع لا يفوض PR-1R أو Production.
+- `sql/migrations/186_stock_moves_contract_repair.sql` +
+  `docs/db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md` — **Migration 186 المقترحة
+  (repository-only، غير مطبقة على Production وقت كتابة هذا السطر)**: لا تعيد
+  إنشاء الجداول القديمة؛ تعيد توجيه الحجز والتحقق والاستهلاك إلى
+  `stock_ledger_entries`/`bins` والـRPC الذري، تزيل المرآة الخاملة من إتمام
+  التصنيع، وتجعل تقرير انحراف المواد غير القابل للحساب يفشل صراحةً بدل نتيجة
+  فارغة مضللة. لها Red/Green وFresh DB وسباق حجوزات حتمي؛ الدمج والتطبيق
+  يحتاجان تفويضين منفصلين.
 
 ## Baseline
 

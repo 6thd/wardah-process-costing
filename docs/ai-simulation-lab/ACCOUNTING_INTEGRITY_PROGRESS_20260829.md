@@ -17,7 +17,7 @@
 | Historical account-code reconciliation | ⏳ Open independently | Issue #195; authoritative mapping required before any backfill |
 | Baseline lineage | ✅ Current through 185 | Cutoff 184 was the accounting checkpoint; Migration 185 and its generated pair were merged through PRs #208–#209, so `main`, repository, and Production resolve to 185 |
 | Baseline publication / Red Proof governance | ✅ Complete | PRs #204–#206; live positive/negative guard proof plus folded-migration acceptance gates |
-| Round 3 — Inventory integrity | 🟡 In progress | Migration 185 and PRs #210–#211 closed; PR #212 docs review, PR-1R, and remaining S0/S1 follow |
+| Round 3 — Inventory integrity | 🟡 In progress | Migration 185 and PRs #210–#212 closed; PR-1R / Migration 186 is implemented for review but not applied, and remaining S0/S1 follow |
 | Simulation Lab Phase 0 | ⏳ Deferred | Starts after prerequisite integrity rounds are closed |
 
 ---
@@ -136,8 +136,8 @@ land directly on `main`:
 1. Keep Issue #195 as an independent evidence-driven data-remediation path; do
    not infer Finance mappings from code similarity.
 2. Finish Round 3 using the explicit gate in
-   `INVENTORY_INTEGRITY_PROGRESS_20260902.md`: PR #212 documentation sync,
-   PR-1R, then the remaining S0/S1 integrity scopes.
+   `INVENTORY_INTEGRITY_PROGRESS_20260902.md`: review PR-1R / Migration 186,
+   then complete the remaining S0/S1 integrity scopes.
 3. Begin Simulation Lab Phase 0 environment/bootstrap work only after that gate
    is evidence-complete.
 
