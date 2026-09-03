@@ -11713,33 +11713,64 @@ export type Database = {
         Args: { p_lines: Json; p_org: string }
         Returns: undefined
       }
-      wardah_apply_stock_incoming: {
-        Args: {
-          p_org: string
-          p_posting_date: string
-          p_product: string
-          p_qty: number
-          p_rate: number
-          p_voucher_id: string
-          p_voucher_number: string
-          p_voucher_type: string
-          p_warehouse: string
-        }
-        Returns: Json
-      }
-      wardah_apply_stock_outgoing: {
-        Args: {
-          p_org: string
-          p_posting_date: string
-          p_product: string
-          p_qty: number
-          p_voucher_id: string
-          p_voucher_number: string
-          p_voucher_type: string
-          p_warehouse: string
-        }
-        Returns: Json
-      }
+      wardah_apply_stock_incoming:
+        | {
+            Args: {
+              p_org: string
+              p_posting_date: string
+              p_product: string
+              p_qty: number
+              p_rate: number
+              p_source_line_id: string
+              p_voucher_id: string
+              p_voucher_number: string
+              p_voucher_type: string
+              p_warehouse: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_org: string
+              p_posting_date: string
+              p_product: string
+              p_qty: number
+              p_rate: number
+              p_voucher_id: string
+              p_voucher_number: string
+              p_voucher_type: string
+              p_warehouse: string
+            }
+            Returns: Json
+          }
+      wardah_apply_stock_outgoing:
+        | {
+            Args: {
+              p_org: string
+              p_posting_date: string
+              p_product: string
+              p_qty: number
+              p_voucher_id: string
+              p_voucher_number: string
+              p_voucher_type: string
+              p_warehouse: string
+            }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_org: string
+              p_posting_date: string
+              p_product: string
+              p_qty: number
+              p_source_line_id: string
+              p_voucher_id: string
+              p_voucher_number: string
+              p_voucher_type: string
+              p_warehouse: string
+            }
+            Returns: Json
+          }
       wardah_assert_org_admin: { Args: { p_org: string }; Returns: undefined }
       wardah_assert_org_member: { Args: { p_org: string }; Returns: undefined }
       wardah_create_posted_voucher_gl: {

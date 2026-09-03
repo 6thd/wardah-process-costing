@@ -4,7 +4,8 @@
 
 **مصدر الحقيقة:** سجل Production حتى Migration 186، زوج Baseline cutoff 186
 المولّد في run `33734325356` والمنشور عبر PR #214 عند `3ce8b295`، تدقيق المخزون
-read-only في 2026-08-30، ونتائج PRs #208–#213 وpostflight تطبيق 186.
+read-only في 2026-08-30، إعادة فحص INV-02 read-only في 2026-09-03، ونتائج
+PRs #208–#213 وpostflight تطبيق 186.
 
 **حد السلطة:** هذا المستند لا يفوض دمج PR، ولا تطبيق migration، ولا كتابة أو
 إصلاح بيانات على Production.
@@ -23,7 +24,7 @@ Round 3 **بدأت ولم تُغلق**. أُنجزت إغلاقات ومخرجا
 | خطأ شاشة حركات المخزون | ✅ مدموج | PR #210؛ query contract + حالة خطأ صريحة + RTL Red/Green + smoke على Staging |
 | جرد `stock_movements`/`stock_moves`/`avg_rate` | ✅ مدموج | PR #211 عند `a74c06f`؛ 11/11 checks والخيطان محلولان؛ merge commit `c4ffc44` |
 | إصلاح عقود `stock_moves` الحية | ✅ مدموج ومطبق | PR #213 / Migration 186؛ merge `956011a`؛ Production ledger `20260903083010`؛ صفر مراجع `stock_moves` وبيانات المخزون ثابتة و`0A000` مثبتة |
-| بقية عيوب S0/S1 | ⏳ مفتوحة | `INV-01`/`INV-02`/`INV-03`/`INV-04`، ثم البنود الأقل خطورة |
+| بقية عيوب S0/S1 | ⏳ مفتوحة | `INV-01`/`INV-03`/`INV-04` مفتوحة؛ Migration 187 تقترح عقدًا prospective لـ`INV-02` ولم تُدمج أو تُطبق |
 | Simulation Lab Phase 0 | ⏳ مؤجلة | لا تبدأ لمجرد خضرة UI أو CI؛ تبدأ بعد إغلاق بوابة Round 3 أدناه |
 
 لا يجوز اختزال النتيجة إلى «Round 3 مكتملة»: Migration 185 أغلقت **سطح كتابة**،
@@ -66,7 +67,7 @@ Round 3 **بدأت ولم تُغلق**. أُنجزت إغلاقات ومخرجا
 | ID | الخطورة | الاكتشاف | الحالة في 2026-09-02 |
 |---|---|---|---|
 | `INV-01` | S0 | حركة PP810837 بكمية 400 وقيمة 10,000 بلا bin | مفتوح؛ لا backfill تخميني |
-| `INV-02` | S0 | غياب idempotency فريد على `(voucher_type, voucher_id, product_id, warehouse_id)` | مفتوح؛ يحتاج migration واختبار سباق |
+| `INV-02` | S0 | غياب idempotency race-safe للتسويات؛ صياغة القيد العالمي الأصلية غير قانونية لأن مستندات أخرى تسمح بأسطر متكررة لنفس المنتج/المخزن | قيد التنفيذ في Migration 187: حد prospective خاص بـStock Adjustment + source line + سباق حتمي؛ غير مدموج وغير مطبق |
 | `INV-03` | S1 | انقطاع `qty_after_transaction` في ADJ-000001 | مفتوح؛ يرتبط بعقد التسلسل/التزامن |
 | `INV-04` | S1 | `products.stock_quantity/value` لا يتطابق دائمًا مع SLE/bins | مفتوح؛ يجب حسم كونه projection مشتقًا قبل فرضه |
 | `INV-05` | S1 | منح كتابة مباشرة على `stock_ledger_entries` و`bins` | ✅ مغلق في Migration 185 |
@@ -80,6 +81,19 @@ Round 3 **بدأت ولم تُغلق**. أُنجزت إغلاقات ومخرجا
 اللقطة التي أنتجت هذه النتائج كانت: 5 صفوف SLE مرحّلة، صفا bins، 118 منتجًا
 stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحالة الحالية» دون قراءة جديدة
 مؤرخة؛ قيمتها أنها دليل اكتشاف محفوظ.
+
+### 3.1 تنقيح عقد INV-02 في 2026-09-03
+
+إعادة الفحص read-only أثبتت أن صفوف SLE الخمسة كلها بلا `source_line_id`، وأن
+مجموعة تكرار تاريخية واحدة تخص `ADJ-000001`. لكنه أثبت أيضًا من عقود writers أن
+القيد العالمي المقترح أولًا سيمنع حركات قانونية: Goods Receipt وDelivery Note قد
+يحملان سطرين مستقلين لنفس المنتج/المخزن، واستهلاك التصنيع قد يكون جزئيًا.
+
+لذلك Migration 187 المقترحة لا تعيد كتابة التاريخ ولا تفرض هذا المفتاح على كل
+voucher. تفرض مستقبلًا فقط حركة Stock Adjustment واحدة لكل
+`(org_id,voucher_id,product_id,warehouse_id)` عندما يكون `source_line_id` معلومًا،
+وتلزم RPC التسوية بتمرير `stock_adjustment_items.id`. يبقى `INV-02` مفتوحًا حتى
+تُراجع وتُدمج وتُطبق migration بتفويضات منفصلة ويُحفظ postflight الحي.
 
 ---
 
@@ -119,7 +133,9 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
    Baseline cutoff 186 نُشر عبر PR #214 المدموج عند `3ce8b295`.
 4. `rpc_create_mo_with_reservation` يعمل بمواد غير فارغة عبر العقد القانوني، أو
    يُزال من سيناريو اليوم بقرار منتج موثق؛ لا fallback تاريخي.
-5. إغلاق `INV-02` باختبار idempotency/سباق حتمي قبل فرض قيد على Production.
+5. إغلاق `INV-02`: Migration 187 المقترحة تمر Red/Green والسباق الحتمي، ثم قرار
+   دمج مستقل، ثم تطبيق Production/postflight بتفويض مستقل. لا يُفرض القيد
+   العالمي المرفوض ولا تُعالج صفوف `NULL source_line_id` تخمينيًا.
 6. إغلاق `INV-01` و`INV-03` بعقد bin/continuity قابل للفرض، مع فصل إصلاح البيانات
    التاريخية عن تغيير المخطط.
 7. حسم `INV-04` كـprojection قانوني أو مرجع غير ملزم، ثم تعديل الثابت وفق القرار.
@@ -136,7 +152,7 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
 | 1 | جرد consumers في PR #211 | evidence/docs | ✅ مدموج عند `c4ffc44` |
 | 2 | تثبيت مزامنة الوثائق في PR #212 على `main` | docs-only | ✅ مدموج عند `4e63a55`؛ لم يغيّر قاعدة البيانات |
 | 3 | PR-1R / Migration 186 لعقود المخزون القديمة | DB-first | ✅ PR #213 مدموج، Production مطبق ومثبت postflight؛ Baseline cutoff 186 منشور عبر PR #214 عند `3ce8b295` |
-| 4 | idempotency للمخزون (`INV-02`) | DB | duplicate preflight + سباق حتمي + قيد قانوني |
+| 4 | idempotency للمخزون (`INV-02`) | DB | 🟡 Migration 187 مقترحة: duplicate preflight + Red/Green + سباق حتمي + قيد Stock Adjustment prospective؛ لا Production apply بعد |
 | 5 | bin/continuity (`INV-01`/`INV-03`) | DB/data split | عقد مستقبلي منفصل عن remediation التاريخي |
 | 6 | projection والهوية (`INV-04`/`INV-06`) | DB/application حسب القرار | مصدر حقيقة واحد واختبار مستهلك |
 | 7 | UoM/org/provenance (`INV-07`/`INV-08`/`INV-10`) | follow-ups محددة | بلا backfill استنتاجي |
