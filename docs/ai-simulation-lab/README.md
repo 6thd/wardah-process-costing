@@ -110,6 +110,7 @@
 | [`PRODUCTION_INTEGRITY_AUDIT_20260828.md`](./PRODUCTION_INTEGRITY_AUDIT_20260828.md) | Snapshot قراءة فقط على Production عند cutoff 181؛ أصل سلسلة إصلاحات 182–184، وليس وصفًا للحالة الحالية |
 | [`TRIAL_BALANCE_CONSUMER_INVENTORY.md`](./TRIAL_BALANCE_CONSUMER_INVENTORY.md) | Snapshot لجرد مسارات ميزان المراجعة قبل توحيدها؛ superseded بعد 182 و#200 |
 | [`INVENTORY_INTEGRITY_PROGRESS_20260902.md`](./INVENTORY_INTEGRITY_PROGRESS_20260902.md) | سجل Round 3 الحالي: ما أُغلق، ما بقي، وأثر consumer inventory على بوابة Phase 0 |
+| [`DOCS_REVIEW_20260903.md`](./DOCS_REVIEW_20260903.md) | مراجعة توثيق المجلد مقابل Baseline cutoff 186؛ بلاغ دقة واتساق، لا تفويض تشغيل |
 
 **الترتيب المعتمد حاليًا:**
 Round 1 محاذاة الحقيقة المحاسبية ✅ → Round 2 سلامة الترحيل ✅ → Round 3 سلامة المخزون 🟡

@@ -1,6 +1,6 @@
 # Wardah ERP — Documentation Index
 
-**آخر تحديث:** 2026-08-27  
+**آخر تحديث:** 2026-09-03  
 **الحالة:** فهرس حي — الروابط أدناه تشير فقط إلى موارد موجودة في المستودع وقت التحديث.
 
 > المرجع التشغيلي لقاعدة البيانات وCI هو [`CLAUDE.md`](../CLAUDE.md).  
@@ -12,6 +12,8 @@
 - [`architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md`](./architecture/PRODUCT_SHAPE_ALIGNMENT_PLAN_20260826.md) — خطة مواءمة خريطة المنتج والتنقّل والمستودع.
 - [`architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md`](./architecture/PRODUCT_ROUTE_PERMISSION_GAP_INVENTORY_20260827.md) — جرد تاريخي قبل `ALIGN-P1` مع نتيجة PR #193؛ لا يُعامل كقائمة عمل حالية.
 - [`architecture/README.md`](./architecture/README.md) — ADRs والمرجع المعماري.
+- [`ai-simulation-lab/README.md`](./ai-simulation-lab/README.md) — فهرس مختبر المحاكاة (Phase 0 مؤجلة حتى إغلاق Round 3).
+- [`ai-simulation-lab/DOCS_REVIEW_20260903.md`](./ai-simulation-lab/DOCS_REVIEW_20260903.md) — مراجعة توثيق المختبر مقابل Baseline cutoff 186.
 
 ## قاعدة البيانات والحوكمة
 
