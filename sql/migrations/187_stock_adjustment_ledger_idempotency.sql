@@ -362,6 +362,21 @@ BEGIN
 END;
 $function$;
 
+-- Keep the service-only ACL adjacent to the DEFINER body so repository guards
+-- can prove the helper is not client-callable before inspecting later objects.
+REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
+  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
+) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
+  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
+) FROM anon;
+REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
+  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
+) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.wardah_apply_stock_incoming(
+  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
+) TO service_role;
+
 -- Source-aware outgoing overload. Its valuation, reservation-floor, bin, and
 -- product-projection behavior is the exact Migration 186 contract; only source
 -- validation/storage is added.
@@ -616,19 +631,6 @@ BEGIN
   );
 END;
 $function$;
-
-REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
-  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
-) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
-  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
-) FROM anon;
-REVOKE ALL ON FUNCTION public.wardah_apply_stock_incoming(
-  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
-) FROM authenticated;
-GRANT EXECUTE ON FUNCTION public.wardah_apply_stock_incoming(
-  uuid, uuid, uuid, numeric, numeric, text, uuid, text, date, uuid
-) TO service_role;
 
 REVOKE ALL ON FUNCTION public.wardah_apply_stock_outgoing(
   uuid, uuid, uuid, numeric, text, uuid, text, date, uuid

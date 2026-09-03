@@ -120,6 +120,66 @@ VALUES (
   'Stock 186 Warehouse'
 );
 
+INSERT INTO auth.users (id, email)
+VALUES ('51856186-1000-0000-0000-000000000009', 'stock186-green@example.test');
+
+INSERT INTO public.user_organizations (user_id, org_id, is_active)
+VALUES (
+  '51856186-1000-0000-0000-000000000009',
+  '51856186-1000-0000-0000-000000000001',
+  true
+);
+
+-- Migration 187 requires every prospective Stock Adjustment ledger row to
+-- carry legal source provenance. Keep this Migration 186 fixture representative
+-- of the current contract while preserving its original balance assertions.
+INSERT INTO public.stock_adjustments (
+  id, organization_id, org_id, adjustment_number, adjustment_date,
+  posting_date, adjustment_type, reason, warehouse_id, status, created_by
+)
+VALUES
+  (
+    '51856186-1000-0000-0000-000000000006',
+    '51856186-1000-0000-0000-000000000001',
+    '51856186-1000-0000-0000-000000000001',
+    'STK186-OPEN', CURRENT_DATE, CURRENT_DATE, 'OTHER',
+    'Migration 186 open-ledger fixture',
+    '51856186-1000-0000-0000-000000000004', 'SUBMITTED',
+    '51856186-1000-0000-0000-000000000009'
+  ),
+  (
+    '51856186-1000-0000-0000-000000000012',
+    '51856186-1000-0000-0000-000000000001',
+    '51856186-1000-0000-0000-000000000001',
+    'STK186-CANCELLED', CURRENT_DATE, CURRENT_DATE, 'OTHER',
+    'Migration 186 cancelled-ledger fixture',
+    '51856186-1000-0000-0000-000000000004', 'CANCELLED',
+    '51856186-1000-0000-0000-000000000009'
+  );
+
+INSERT INTO public.stock_adjustment_items (
+  id, adjustment_id, organization_id, product_id, warehouse_id,
+  current_qty, new_qty, difference_qty, current_rate, new_rate,
+  value_difference
+)
+VALUES
+  (
+    '51856186-1000-0000-0000-000000000013',
+    '51856186-1000-0000-0000-000000000006',
+    '51856186-1000-0000-0000-000000000001',
+    '51856186-1000-0000-0000-000000000002',
+    '51856186-1000-0000-0000-000000000004',
+    0, 10, 10, 2, 2, 20
+  ),
+  (
+    '51856186-1000-0000-0000-000000000014',
+    '51856186-1000-0000-0000-000000000012',
+    '51856186-1000-0000-0000-000000000001',
+    '51856186-1000-0000-0000-000000000002',
+    '51856186-1000-0000-0000-000000000004',
+    10, 7, -3, 2, 2, -6
+  );
+
 INSERT INTO public.bins (
   id, org_id, product_id, warehouse_id, actual_qty, reserved_qty,
   valuation_rate, stock_value, stock_queue
@@ -136,7 +196,7 @@ INSERT INTO public.stock_ledger_entries (
   voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
   posting_date, actual_qty, qty_after_transaction, incoming_rate,
   valuation_rate, stock_value, stock_value_difference, stock_queue,
-  is_cancelled, docstatus, org_id
+  is_cancelled, docstatus, org_id, source_line_id
 )
 VALUES (
   'Stock Adjustment',
@@ -147,7 +207,8 @@ VALUES (
   CURRENT_DATE, 10, 10, 2, 2, 20, 20,
   '[{"qty":10,"rate":2}]'::jsonb,
   false, 1,
-  '51856186-1000-0000-0000-000000000001'
+  '51856186-1000-0000-0000-000000000001',
+  '51856186-1000-0000-0000-000000000013'
 );
 
 -- A cancelled original remains part of the legal event stream alongside its
@@ -157,7 +218,7 @@ INSERT INTO public.stock_ledger_entries (
   voucher_type, voucher_id, voucher_number, product_id, warehouse_id,
   posting_date, actual_qty, qty_after_transaction, incoming_rate, outgoing_rate,
   valuation_rate, stock_value, stock_value_difference, stock_queue,
-  is_cancelled, docstatus, org_id
+  is_cancelled, docstatus, org_id, source_line_id
 )
 VALUES
   (
@@ -169,7 +230,8 @@ VALUES
     CURRENT_DATE, -3, 7, NULL, 2, 2, 14, -6,
     '[{"qty":7,"rate":2}]'::jsonb,
     true, 1,
-    '51856186-1000-0000-0000-000000000001'
+    '51856186-1000-0000-0000-000000000001',
+    '51856186-1000-0000-0000-000000000014'
   ),
   (
     'Stock Adjustment Reversal',
@@ -180,7 +242,8 @@ VALUES
     CURRENT_DATE, 3, 10, 2, NULL, 2, 20, 6,
     '[{"qty":10,"rate":2}]'::jsonb,
     false, 1,
-    '51856186-1000-0000-0000-000000000001'
+    '51856186-1000-0000-0000-000000000001',
+    NULL
   );
 
 DO $balance_mismatch$
@@ -240,16 +303,6 @@ VALUES (
   '51856186-1000-0000-0000-000000000002',
   2,
   'reserved'
-);
-
-INSERT INTO auth.users (id, email)
-VALUES ('51856186-1000-0000-0000-000000000009', 'stock186-green@example.test');
-
-INSERT INTO public.user_organizations (user_id, org_id, is_active)
-VALUES (
-  '51856186-1000-0000-0000-000000000009',
-  '51856186-1000-0000-0000-000000000001',
-  true
 );
 
 SET LOCAL ROLE authenticated;
