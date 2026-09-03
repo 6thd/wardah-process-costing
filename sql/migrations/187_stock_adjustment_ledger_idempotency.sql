@@ -896,11 +896,6 @@ BEGIN
   END IF;
 
   IF has_function_privilege(
-       'PUBLIC',
-       'public.wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)',
-       'EXECUTE'
-     )
-     OR has_function_privilege(
        'anon',
        'public.wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)',
        'EXECUTE'
@@ -913,11 +908,6 @@ BEGIN
      OR NOT has_function_privilege(
        'service_role',
        'public.wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)',
-       'EXECUTE'
-     )
-     OR has_function_privilege(
-       'PUBLIC',
-       'public.wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date,uuid)',
        'EXECUTE'
      )
      OR has_function_privilege(
@@ -947,11 +937,6 @@ BEGIN
   END IF;
 
   IF has_function_privilege(
-       'PUBLIC',
-       'public.rpc_submit_stock_adjustment(uuid)',
-       'EXECUTE'
-     )
-     OR has_function_privilege(
        'anon',
        'public.rpc_submit_stock_adjustment(uuid)',
        'EXECUTE'
