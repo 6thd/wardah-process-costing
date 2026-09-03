@@ -60,7 +60,7 @@ IF EXISTS (SELECT 1 FROM uom_aliases WHERE org_id IS NULL AND alias_normalized =
 
 | الملف | تاريخ التوليد | migration_cutoff | الحجم |
 |---|---|---|---|
-| `000_schema_baseline_20260830_083021.sql` | 2026-08-30 | 185 | 1267 KB / 35,771 سطر |
+| `000_schema_baseline_20260903_083805.sql` | 2026-09-03 | 186 | 1268 KB / 35,857 سطر |
 
 المحتوى المتحقق بعد إعادة البناء: 133 جدول · 259 دالة · 318 policy
 
@@ -68,7 +68,7 @@ IF EXISTS (SELECT 1 FROM uom_aliases WHERE org_id IS NULL AND alias_normalized =
 
 | الملف | migration_cutoff | الجداول | الصفوف |
 |---|---|---|---|
-| `001_system_reference_data_20260830_083021.sql` | 185 | 5 | 263 |
+| `001_system_reference_data_20260903_083805.sql` | 186 | 5 | 263 |
 
 | الجدول | الحدّ | predicate |
 |---|---|---|
