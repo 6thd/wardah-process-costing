@@ -208,9 +208,9 @@ FROM material_consumption WHERE mo_id = v_mo_id AND org_id = v_org;
 
 **حالة الحسم:** دُمج PR #213 عند `956011a`، وطُبقت Migration 186 على Production
 كسجل `20260903083010`. أثبت postflight صفر مراجع `stock_moves` وثبات بيانات
-المخزون وSQLSTATE `0A000`، وولد run `33734325356` Baseline cutoff 186 في Draft
-PR #214. يبقى `SC-DAY-01`/`SC-RACE-08` بحالة `BLOCKED` فقط حتى تجهيز بيئة
-المختبر وإغلاق بقية بوابة Round 3؛ إصلاح البيانات التاريخية قرار مستقل آخر.
+المخزون وSQLSTATE `0A000`، وولد run `33734325356` Baseline cutoff 186 الذي نشره
+PR #214 عند `3ce8b295`. يبقى `SC-DAY-01`/`SC-RACE-08` بحالة `BLOCKED` فقط حتى
+تجهيز بيئة المختبر وإغلاق بقية بوابة Round 3؛ إصلاح البيانات التاريخية قرار مستقل آخر.
 
 ---
 

@@ -3,8 +3,8 @@
 **الغرض:** سجل الحالة الحالية لـRound 3 قبل Simulation Lab Phase 0.
 
 **مصدر الحقيقة:** سجل Production حتى Migration 186، زوج Baseline cutoff 186
-المولّد في run `33734325356` (Draft PR #214)، تدقيق المخزون read-only في
-2026-08-30، ونتائج PRs #208–#213 وpostflight تطبيق 186.
+المولّد في run `33734325356` والمنشور عبر PR #214 عند `3ce8b295`، تدقيق المخزون
+read-only في 2026-08-30، ونتائج PRs #208–#213 وpostflight تطبيق 186.
 
 **حد السلطة:** هذا المستند لا يفوض دمج PR، ولا تطبيق migration، ولا كتابة أو
 إصلاح بيانات على Production.
@@ -116,7 +116,7 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
 2. ✅ دُمجت مزامنة وثائق المختبر في PR #212 عند `4e63a55` بتفويض مستقل.
 3. ✅ دُمج PR #213 عند `956011a` بعد نجاح Red/Green/Fresh DB والسباق، وطُبقت
    Migration 186 على Production كسجل `20260903083010` مع postflight حي؛ زوج
-   Baseline cutoff 186 مولّد ويُراجع في Draft PR #214.
+   Baseline cutoff 186 نُشر عبر PR #214 المدموج عند `3ce8b295`.
 4. `rpc_create_mo_with_reservation` يعمل بمواد غير فارغة عبر العقد القانوني، أو
    يُزال من سيناريو اليوم بقرار منتج موثق؛ لا fallback تاريخي.
 5. إغلاق `INV-02` باختبار idempotency/سباق حتمي قبل فرض قيد على Production.
@@ -135,7 +135,7 @@ stockable، و4 مخازن. وهي لا تُعاد صياغتها كـ«الحا
 |---:|---|---|---|
 | 1 | جرد consumers في PR #211 | evidence/docs | ✅ مدموج عند `c4ffc44` |
 | 2 | تثبيت مزامنة الوثائق في PR #212 على `main` | docs-only | ✅ مدموج عند `4e63a55`؛ لم يغيّر قاعدة البيانات |
-| 3 | PR-1R / Migration 186 لعقود المخزون القديمة | DB-first | ✅ PR #213 مدموج، Production مطبق ومثبت postflight؛ Baseline cutoff 186 في Draft PR #214 |
+| 3 | PR-1R / Migration 186 لعقود المخزون القديمة | DB-first | ✅ PR #213 مدموج، Production مطبق ومثبت postflight؛ Baseline cutoff 186 منشور عبر PR #214 عند `3ce8b295` |
 | 4 | idempotency للمخزون (`INV-02`) | DB | duplicate preflight + سباق حتمي + قيد قانوني |
 | 5 | bin/continuity (`INV-01`/`INV-03`) | DB/data split | عقد مستقبلي منفصل عن remediation التاريخي |
 | 6 | projection والهوية (`INV-04`/`INV-06`) | DB/application حسب القرار | مصدر حقيقة واحد واختبار مستهلك |

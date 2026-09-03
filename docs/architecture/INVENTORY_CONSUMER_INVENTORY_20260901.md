@@ -133,7 +133,8 @@ migration قانونية) هو DB/tooling follow-up مستقل، لا جزء م�
 [`../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md`](../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md).
 دُمجت Migration 186 عبر PR #213 عند `956011a` وطُبقت على Production كسجل
 `20260903083010`. postflight أثبت صفر مراجع `stock_moves` وثبات بيانات المخزون؛
-زوج Baseline cutoff 186 مولّد في run `33734325356` وينتظر مراجعة Draft PR #214.
+زوج Baseline cutoff 186 المولّد في run `33734325356` نُشر عبر PR #214 المدموج
+عند `3ce8b295`.
 
 ## 5. `avg_rate` — فصل الخطأ عن العقد الصحيح
 

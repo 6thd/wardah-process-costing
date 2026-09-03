@@ -175,7 +175,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   التصنيع، وتجعل تقرير انحراف المواد غير القابل للحساب يفشل صراحةً بدل نتيجة
   فارغة مضللة. postflight الحي أثبت صفر مراجع `stock_moves`، وثبات بيانات
   المخزون، وSQLSTATE `0A000` للتقاعد؛ زوج Baseline cutoff 186 وُلد في run
-  `33734325356` ويُراجع مستقلًا في PR #214.
+  `33734325356` ونُشر عبر PR #214 المدموج عند `3ce8b295`.
 
 ## Baseline
 

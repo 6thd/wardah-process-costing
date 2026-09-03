@@ -111,7 +111,7 @@ The following checklist was executed only after separate Production authorizatio
   cutoff-186 pair `000_schema_baseline_20260903_083805.sql` +
   `001_system_reference_data_20260903_083805.sql`; clean rebuild measured 133
   tables, 259 functions, and 318 policies, and matched all 263 reference rows.
-  Publication remains a separate review decision in Draft PR #214.
+  Publication completed through merged PR #214 at `3ce8b295`.
 
 ## Recovery
 

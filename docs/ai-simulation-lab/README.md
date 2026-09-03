@@ -16,7 +16,7 @@
 |---|---|---|
 | **Round 1 — Accounting Truth Alignment** | ✅ مكتملة | Migration 182 نقلت `rpc_get_trial_balance` إلى `gl_entries/gl_entry_lines`؛ Migration 183 أغلقت قراءة العرض المباشرة وألزمت RBAC؛ PR #200 جعلت الـRPC مصدر العميل الوحيد لميزان المراجعة |
 | **Round 2 — GL Posting Integrity** | ✅ مكتملة | PR #201 مدموجة؛ Migration 184 مطبقة على Production ومثبتة postflight؛ الحارس المؤجل RLS-proof عبر `SECURITY DEFINER` مع EXECUTE مغلق عن أدوار العميل |
-| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migrations 185–186 وPRs #210–#213 أُغلقت و186 مطبقة postflight؛ Baseline 186 في Draft PR #214، وبقية S0/S1 ما زالت مفتوحة |
+| **Round 3 — Inventory Integrity** | 🟡 قيد التنفيذ | Migrations 185–186 وPRs #210–#214 أُغلقت و186 مطبقة postflight وBaseline 186 منشور؛ بقية S0/S1 ما زالت مفتوحة |
 | **Phase 0 — Simulation Environment** | ⏳ مؤجلة | تبدأ بعد إغلاق جولات الحقيقة/السلامة السابقة |
 
 ### ما أُغلق فعليًا
@@ -45,7 +45,8 @@
 - PR #213 أصلح عقود `stock_moves` دون إحياء المرآة الغائبة؛ Migration 186
   طُبقت على Production كسجل `20260903083010`. postflight أثبت صفر مراجع حية
   لـ`stock_moves` وثبات مجاميع المخزون والتقاعد الصريح بـ`0A000`. run
-  `33734325356` أعاد بناء Baseline cutoff 186 بنجاح وفتح Draft PR #214.
+  `33734325356` أعاد بناء Baseline cutoff 186 بنجاح، ونشره PR #214 المدموج عند
+  `3ce8b295`.
 
 ### ما أُغلق في Baseline وحوكمته
 
