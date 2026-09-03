@@ -2,7 +2,7 @@
 
 **Purpose:** current-state ledger for the accounting integrity work that must precede Simulation Lab Phase 0.
 
-**Last updated:** 2026-09-02.
+**Last updated:** 2026-09-03.
 
 **Historical evidence:** `PRODUCTION_INTEGRITY_AUDIT_20260828.md` and `TRIAL_BALANCE_CONSUMER_INVENTORY.md` remain discovery-time snapshots. They are not the current Production state. Round 3 current state is tracked separately in `INVENTORY_INTEGRITY_PROGRESS_20260902.md`.
 
@@ -15,9 +15,9 @@
 | Round 1 — Trial Balance truth alignment | ✅ Complete | Migration 182 + Migration 183 + PR #200 |
 | Round 2 — Posted GL header/line integrity | ✅ Complete | PR #201 merged; Migration 184 applied and postflight-verified on Production |
 | Historical account-code reconciliation | ⏳ Open independently | Issue #195; authoritative mapping required before any backfill |
-| Baseline lineage | ✅ Current through 185 | Cutoff 184 was the accounting checkpoint; Migration 185 and its generated pair were merged through PRs #208–#209, so `main`, repository, and Production resolve to 185 |
+| Baseline lineage | ✅ Published through 186 | Production and repository resolve to 186; run `33734325356` generated and clean-rebuilt the cutoff-186 pair, published by PR #214 at `3ce8b295` |
 | Baseline publication / Red Proof governance | ✅ Complete | PRs #204–#206; live positive/negative guard proof plus folded-migration acceptance gates |
-| Round 3 — Inventory integrity | 🟡 In progress | Migration 185 and PRs #210–#212 closed; PR-1R / Migration 186 is implemented for review but not applied, and remaining S0/S1 follow |
+| Round 3 — Inventory integrity | 🟡 In progress | PR #213 merged and Migration 186 applied/postflight-verified; PR #214 published the generated baseline, and remaining S0/S1 follow |
 | Simulation Lab Phase 0 | ⏳ Deferred | Starts after prerequisite integrity rounds are closed |
 
 ---
@@ -104,9 +104,11 @@ and merged the generated cutoff-185 pair through PR #209:
 - `sql/baseline/000_schema_baseline_20260830_083021.sql`
 - `sql/baseline/001_system_reference_data_20260830_083021.sql`
 
-The current resolved state is therefore **185**, not 184. The reference-data total
-remains 263; the material delta is the inventory table/function grant closure
-recorded in `INVENTORY_INTEGRITY_PROGRESS_20260902.md`.
+Migration 186 (`186_stock_moves_contract_repair`) was then applied and
+postflight-verified. Run `33734325356` generated and clean-rebuilt the cutoff-186
+pair, which PR #214 published at `3ce8b295`. The current resolved state is
+therefore **186**. The reference-data total remains 263; the material deltas from
+185 and 186 are recorded in `INVENTORY_INTEGRITY_PROGRESS_20260902.md`.
 
 ---
 
@@ -136,8 +138,8 @@ land directly on `main`:
 1. Keep Issue #195 as an independent evidence-driven data-remediation path; do
    not infer Finance mappings from code similarity.
 2. Finish Round 3 using the explicit gate in
-   `INVENTORY_INTEGRITY_PROGRESS_20260902.md`: review PR-1R / Migration 186,
-   then complete the remaining S0/S1 integrity scopes.
+   `INVENTORY_INTEGRITY_PROGRESS_20260902.md`: complete the remaining S0/S1
+   integrity scopes after the published cutoff-186 baseline.
 3. Begin Simulation Lab Phase 0 environment/bootstrap work only after that gate
    is evidence-complete.
 

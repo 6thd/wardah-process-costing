@@ -4,8 +4,11 @@
 
 **Repository migration:** `186_stock_moves_contract_repair`
 
-**Production state while this runbook was written:** cutoff 185; Migration 186 is not applied
-**Authority boundary:** this runbook does not authorize a PR merge, a Staging/Production migration, or any data write
+**Production state:** applied 2026-09-03 as
+`20260903083010 / 186_stock_moves_contract_repair`.
+
+**Authority boundary:** this runbook does not authorize a PR merge, a
+Staging/Production migration, or any data write.
 
 ## Outcome
 
@@ -63,13 +66,13 @@ canonical wrapper.
 5. Confirm no migration or fixture was applied to Production as part of PR
    review.
 
-## Production deployment — requires separate explicit authorization
+## Production deployment checklist — completed 2026-09-03
 
-If and only if a later Production authorization is given:
+The following checklist was executed only after separate Production authorization:
 
 1. Recheck the migration ledger still ends at 185 and the legacy relations are
    still absent.
-2. Recheck the seven target signatures, `prosecdef` values, owners, search paths,
+2. Recheck the eight target signatures, `prosecdef` values, owners, search paths,
    and ACLs; stop on drift.
 3. Apply `186_stock_moves_contract_repair` once through the governed Supabase
    migration path.
@@ -77,6 +80,38 @@ If and only if a later Production authorization is given:
 5. Do not create a manufacturing order, reservation, consumption, or historical
    repair on Production for smoke testing. Behavioral smoke belongs to an
    isolated environment.
+
+## Production application evidence — 2026-09-03
+
+- Project: `uutfztmqvajmsxnrqeiv` (`Manufacturing Process`), PostgreSQL 17.6;
+  Staging project `bhomjavdkzcvjyymzyla` was not targeted.
+- Preflight ledger ended at
+  `20260830081533 / 185_stock_write_surface_closure`; `stock_moves` and
+  `stock_quants` relations were absent, the canonical relations/helpers were
+  present, and all eight target routine signatures, owners, security modes,
+  search paths, and ACLs matched the reviewed contract.
+- Applied the exact file merged by PR #213 from `main@956011a` (source head
+  `4358c11`; SHA-256
+  `d96ec20356852f26f9a423bc35b4d26c6249b82fe738f525795239f3edc9ffb9`).
+- Ledger readback ends at
+  `20260903083010 / 186_stock_moves_contract_repair`.
+- Catalog readback found all eight replacement bodies, zero public function
+  bodies referencing `stock_moves`, canonical product resolution and atomic
+  consumption markers, the reservation floor, and the expected ACLs. The two
+  dormant historical routines that still reference absent `stock_quants` are
+  tracked separately; neither is part of the repaired legal path.
+- Direct read-only invocation of `calculate_material_variances(NULL,NULL,NULL)`
+  raised SQLSTATE `0A000` with `MATERIAL_VARIANCE_SOURCE_RETIRED`, as designed.
+- Data invariance before/after: SLE `5` rows / quantity `1400` / value delta
+  `14250`; bins `2` rows / quantity `1000` / value `4250`; reservations `0`;
+  manufacturing orders `3`. No count or aggregate changed.
+- Supabase advisors were unchanged: security `94`, performance `549`, with zero
+  newly introduced finding in either set.
+- Generate Schema Baseline run `33734325356` passed every step and produced
+  cutoff-186 pair `000_schema_baseline_20260903_083805.sql` +
+  `001_system_reference_data_20260903_083805.sql`; clean rebuild measured 133
+  tables, 259 functions, and 318 policies, and matched all 263 reference rows.
+  Publication completed through merged PR #214 at `3ce8b295`.
 
 ## Recovery
 
