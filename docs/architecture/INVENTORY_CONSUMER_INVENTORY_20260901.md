@@ -131,8 +131,9 @@ migration قانونية) هو DB/tooling follow-up مستقل، لا جزء م�
 
 تفاصيل القرار، أدلة Red/Green، واختبار السباق في
 [`../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md`](../db/STOCK_MOVES_CONTRACT_186_RUNBOOK.md).
-Migration 186 تبقى repository-only إلى أن تُراجع وتُدمج ثم يصدر تفويض Production
-منفصل؛ هذا التحديث لا يغيّر لقطة Production الموثقة أعلاه.
+دُمجت Migration 186 عبر PR #213 عند `956011a` وطُبقت على Production كسجل
+`20260903083010`. postflight أثبت صفر مراجع `stock_moves` وثبات بيانات المخزون؛
+زوج Baseline cutoff 186 مولّد في run `33734325356` وينتظر مراجعة Draft PR #214.
 
 ## 5. `avg_rate` — فصل الخطأ عن العقد الصحيح
 
@@ -173,9 +174,9 @@ Migration 186 تبقى repository-only إلى أن تُراجع وتُدمج ث�
 1. **هذا PR:** يحفظ الجرد واختبار snapshot فقط، بلا تغيير سلوك.
 2. **مزامنة AI Simulation Lab:** بعد دمج هذا الجرد، تُحدّث حالة Round 3 والكتالوجات
    اعتمادًا عليه بدل إعادة الاكتشاف.
-3. **PR-1R / DB follow-up:** القرار منفذ في Migration 186 على فرع المراجعة:
+3. **PR-1R / DB follow-up:** القرار منفذ في Migration 186 المدموجة والمطبقة:
    إعادة توجيه العقود القابلة للحفظ، وتقاعد صريح للعقد الذي يفتقد standard-cost
-   snapshot، مع Red/Green وFresh DB واختبار سباق. لا يعد مطبقًا على Production.
+   snapshot، مع Red/Green وFresh DB واختبار سباق وpostflight حي.
 4. **Application follow-up مستقل:** تقاعد `SupabaseInventoryRepository` القديم أو
    مواءمته كاملةً؛ لا يخلط مع DB/security ولا مع UI cleanup.
 5. **Issue #173:** يبقى مسار تشديد صلاحيات read RPCs، ومنها `simulate_cogs` و

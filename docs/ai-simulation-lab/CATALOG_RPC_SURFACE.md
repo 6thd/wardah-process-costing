@@ -123,7 +123,7 @@ ORDER BY 1;
 
 | RPC | توقيع | منح | دور | ممثل |
 |---|---|:--:|---|---|
-| `rpc_create_mo_with_reservation` | `(p_order jsonb, p_materials jsonb, p_tenant?)` | ✅ | 🟡 write؛ أعيد توجيهها في Migration 186 المقترحة وتنتظر مراجعة/دمج PR-1R | Production Planner |
+| `rpc_create_mo_with_reservation` | `(p_order jsonb, p_materials jsonb, p_tenant?)` | ✅ | write؛ أعادت Migration 186 المطبقة توجيهها إلى bins والحجوزات القانونية | Production Planner |
 | `rpc_transition_mo_status` | `(p_mo_id, p_status, p_notes?, p_tenant?)` | ✅ | write | Production Supervisor |
 | `rpc_consume_reserved_materials_v2` | `(p_mo_id, p_stage_id, p_consumptions jsonb)` | ✅ | write | Operator |
 | `rpc_consume_reserved_materials` | `(p_mo_id, p_consumptions jsonb)` | ✅ | ⚠️ legacy | — |
@@ -144,9 +144,10 @@ ORDER BY 1;
    نقطة التقاء مثالية لسباق مصمَّم بين أمرَي تصنيع لنفس المنتج.
 4. ترحّل داخليًا `MATERIAL_ISSUE` ثم `FG_RECEIPT` بالمبلغ نفسه عبر
    `rpc_post_event_journal` (الداخلية) بمفتاح idempotency لكل منهما.
-5. `rpc_create_mo_with_reservation` في cutoff 185 تقرأ العلاقة الغائبة عندما تكون
-   `p_materials` غير فارغة. Migration 186 المقترحة تستبدل ذلك بـbins والحجوزات
-   النشطة مع قفل؛ لا تدخل سيناريو اليوم قبل نجاح ودمج PR-1R وتجهيز بيئة المختبر.
+5. تعريف `rpc_create_mo_with_reservation` التاريخي في cutoff 185 كان يقرأ
+   العلاقة الغائبة عند مواد غير فارغة. Migration 186 المطبقة استبدلته بـbins
+   والحجوزات النشطة مع قفل؛ الكتالوج يبقي أصل الاكتشاف ظاهرًا ويفصل عنه overlay
+   Production الحالي. تشغيل سيناريو اليوم ينتظر بيئة المختبر لا إصلاح العقد.
 
 ## 9. الدفتر العام (GL)
 
