@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-09-03
+**آخر تحديث موثق:** 2026-09-04
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -177,11 +177,15 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   المخزون، وSQLSTATE `0A000` للتقاعد؛ زوج Baseline cutoff 186 وُلد في run
   `33734325356` ونُشر عبر PR #214 المدموج عند `3ce8b295`.
 - `sql/migrations/187_stock_adjustment_ledger_idempotency.sql` +
-  `docs/db/STOCK_ADJUSTMENT_IDEMPOTENCY_187_RUNBOOK.md` — **اقتراح repository
-  فقط؛ غير مدموج وغير مطبق على Production**: يصحح تعريف `INV-02` من قيد عالمي
-  غير قانوني إلى حد prospective خاص بـStock Adjustment، يربط الحركة بسطر
-  `stock_adjustment_items`، ويترك تكرار `ADJ-000001` التاريخي ذي المصدر المجهول
-  دون حذف أو backfill تخميني. يحتاج قرار دمج مستقل ثم تفويض Production مستقل.
+  `docs/db/STOCK_ADJUSTMENT_IDEMPOTENCY_187_RUNBOOK.md` — **Migration 187
+  (مدموجة عبر PR #216 عند `e2b6a075` ومطبقة على Production،
+  `20260903202341`)**: تصحح تعريف `INV-02` من قيد عالمي غير قانوني إلى حد
+  prospective خاص بـStock Adjustment، وتربط الحركة بسطر
+  `stock_adjustment_items`. أثبت postflight أن الفهرس الجزئي valid/ready وأن
+  الـtrigger مفعّل وأن الـRPC يمرر `v_item.id`، مع بقاء صفوف SLE الخمسة
+  والتكرار التاريخي `ADJ-000001` ذي المصدر المجهول دون حذف أو backfill
+  تخميني. هذا يغلق الحد المستقبلي فقط؛ remediation التاريخي قرار بيانات منفصل.
+  نُشر زوج Baseline cutoff 187 عبر PR #217 عند `3917231b`.
 
 ## Baseline
 
@@ -204,9 +208,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 
 العقد في `sql/baseline/system_reference_manifest.yml`: allowlist صريحة بـpredicate صريح لكل جدول، وأعمدة متوقعة، وترتيب تصدير حسب المفاتيح الأجنبية، ومفاتيح ترتيب، وحدود دنيا. `pg_dump --data-only` مرفوض: `uoms` و`uom_aliases` تحملان صفوف مؤسسات مخصصة لا مكان لها في لقطة عامة.
 
-النطاق عند لقطة cutoff 186: `modules` (10) · `permissions` (171) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 263 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
+النطاق عند لقطة cutoff 187: `modules` (10) · `permissions` (171) · `uom_categories` (6) · `uoms` (17، `org_id IS NULL`) · `uom_aliases` (59، `org_id IS NULL`) = 263 صفًا. و`journals` و`manufacturing_stages` و`roles` مستبعدة لأنها org-scoped، ومصدرها onboarding لا الـBaseline.
 
-**هذه الأعداد لقطة لا ثابت، وقد شاخت هنا فعلًا.** `permissions` صار 171 اعتبارًا من لقطة `001_system_reference_data_20260826_131415.sql` وبقي كذلك في لقطات 182 و184 و185 و186، بينما ظل هذا السطر يقول 166 و258 حتى 2026-08-30 — ثلاث دورات توليد. ولم تكشفه بوابة: الـmanifest يفرض **حدودًا دنيا** وبصمة محتوى، فارتفاع العدد يمر بحكم التصميم، والنص هنا نثر بشري خارج ماركري `DATABASE_STATE` فلا يلمسه المولّد. أي مقارنة تعتمد هذا السطر تحتاج تحقّقًا من اللقطة الفعلية ومن `sql/baseline/system_reference_manifest.yml` أولًا، وأي لقطة جديدة توجب تحديثه يدويًا في PR الـBaseline نفسه.
+**هذه الأعداد لقطة لا ثابت، وقد شاخت هنا فعلًا.** `permissions` صار 171 اعتبارًا من لقطة `001_system_reference_data_20260826_131415.sql` وبقي كذلك في لقطات 182 و184 و185 و186 و187، بينما ظل هذا السطر يقول 166 و258 حتى 2026-08-30 — ثلاث دورات توليد. ولم تكشفه بوابة: الـmanifest يفرض **حدودًا دنيا** وبصمة محتوى، فارتفاع العدد يمر بحكم التصميم، والنص هنا نثر بشري خارج ماركري `DATABASE_STATE` فلا يلمسه المولّد. أي مقارنة تعتمد هذا السطر تحتاج تحقّقًا من اللقطة الفعلية ومن `sql/baseline/system_reference_manifest.yml` أولًا، وأي لقطة جديدة توجب تحديثه يدويًا في PR الـBaseline نفسه.
 
 (المفاتيح الخمسة الزائدة لم تأتِ من 182 أو 183 أو 184 أو 185 أو 186 — لا واحدة منها تُدرج صفًا في `permissions`؛ 183 تشترط مفاتيح موجودة فقط. مصدرها أسبق ولم يُثبت هنا، فلا تُنسب إلى migration بعينها دون تدقيق.)
 
