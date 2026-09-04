@@ -1,6 +1,9 @@
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { setDayStatusFallback } from './attendance-service';
-import { getHrPolicies, type HrPolicies } from './policies-service';
+import {
+  getHrPoliciesReadOnly,
+  type HrPolicies,
+} from './policies-service';
 
 export interface LeaveRequest {
   id: string;
@@ -237,72 +240,108 @@ export async function rejectLeaveRequest(
 
 /**
  * Compute the leave balance for an employee.
- * Reference date = hire_date (or last approved settlement's service_end if earlier).
+ * Reference date = hire_date (or the latest approved settlement's service_end if later).
  * Accrual is prorated; used days = total_days of approved paid leaves since referenceDate.
  */
-export async function getLeaveBalance(
-  employeeId: string,
-): Promise<LeaveBalanceResult> {
-  const orgId = await getEffectiveTenantId();
+type LeaveBalanceRow = {
+  employee_id: string;
+  start_date: string;
+  total_days: number;
+  leave_type: { is_paid: boolean } | Array<{ is_paid: boolean }> | null;
+};
+
+export async function listLeaveBalances(
+  employeeIds: string[],
+  suppliedOrgId?: string,
+): Promise<Map<string, LeaveBalanceResult>> {
+  if (!employeeIds.length) return new Map();
+
+  const orgId = suppliedOrgId ?? await getEffectiveTenantId();
   if (!orgId) throw new Error('Organization not found.');
 
-  const [{ data: emp }, { data: settl }, { data: usedRows }, policies] =
+  const [employeesResult, settlementsResult, leavesResult, policies] =
     await Promise.all([
       supabase
         .from('employees')
-        .select('hire_date')
-        .eq('id', employeeId)
+        .select('id, hire_date')
         .eq('org_id', orgId)
-        .maybeSingle(),
-      // Last approved EOS settlement gives the watermark
+        .in('id', employeeIds),
       supabase
         .from('hr_settlements')
-        .select('service_end')
-        .eq('employee_id', employeeId)
+        .select('employee_id, service_end')
         .eq('org_id', orgId)
-        .eq('status', 'approved')
-        .order('service_end', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .in('employee_id', employeeIds)
+        .eq('status', 'approved'),
       supabase
         .from('employee_leaves')
-        .select(
-          `total_days, leave_type:leave_types(is_paid)`,
-        )
-        .eq('employee_id', employeeId)
+        .select('employee_id, start_date, total_days, leave_type:leave_types(is_paid)')
         .eq('org_id', orgId)
+        .in('employee_id', employeeIds)
         .eq('status', 'approved'),
-      getHrPolicies(),
+      getHrPoliciesReadOnly(orgId),
     ]);
 
-  const hireDate = emp?.hire_date ? new Date(emp.hire_date) : new Date();
-  const watermark: Date = settl?.service_end
-    ? new Date(settl.service_end)
-    : hireDate;
-  const referenceDate = watermark > hireDate ? watermark : hireDate;
+  if (employeesResult.error) throw new Error(employeesResult.error.message);
+  if (settlementsResult.error) throw new Error(settlementsResult.error.message);
+  if (leavesResult.error) throw new Error(leavesResult.error.message);
+
+  const latestSettlementByEmployee = new Map<string, Date>();
+  for (const settlement of settlementsResult.data ?? []) {
+    if (!settlement.service_end) continue;
+    const serviceEnd = new Date(settlement.service_end);
+    const current = latestSettlementByEmployee.get(settlement.employee_id);
+    if (!current || serviceEnd > current) {
+      latestSettlementByEmployee.set(settlement.employee_id, serviceEnd);
+    }
+  }
+
+  const leavesByEmployee = new Map<string, LeaveBalanceRow[]>();
+  for (const leave of (leavesResult.data ?? []) as LeaveBalanceRow[]) {
+    const rows = leavesByEmployee.get(leave.employee_id) ?? [];
+    rows.push(leave);
+    leavesByEmployee.set(leave.employee_id, rows);
+  }
 
   const now = new Date();
-  const yearsOfService =
-    (now.getTime() - hireDate.getTime()) / (365.25 * 86_400_000);
-  const entitlementPerYear = computeLeaveEntitlement(yearsOfService, policies);
-  const accrued = computeLeaveAccrual(referenceDate, now, entitlementPerYear);
+  const balances = new Map<string, LeaveBalanceResult>();
+  for (const employee of employeesResult.data ?? []) {
+    const hireDate = new Date(employee.hire_date);
+    const settlementWatermark = latestSettlementByEmployee.get(employee.id);
+    const referenceDate = settlementWatermark && settlementWatermark > hireDate
+      ? settlementWatermark
+      : hireDate;
+    const yearsOfService =
+      (now.getTime() - hireDate.getTime()) / (365.25 * 86_400_000);
+    const entitlementPerYear = computeLeaveEntitlement(yearsOfService, policies);
+    const accrued = computeLeaveAccrual(referenceDate, now, entitlementPerYear);
+    const used = (leavesByEmployee.get(employee.id) ?? []).reduce((sum, leave) => {
+      const leaveType = Array.isArray(leave.leave_type)
+        ? leave.leave_type[0]
+        : leave.leave_type;
+      const startsOnOrAfterReference = new Date(leave.start_date) >= referenceDate;
+      return leaveType?.is_paid && startsOnOrAfterReference
+        ? sum + leave.total_days
+        : sum;
+    }, 0);
 
-  // Sum approved paid leave days since referenceDate
-  const usedDays = ((usedRows ?? []) as Array<{
-    total_days: number;
-    leave_type: { is_paid: boolean } | Array<{ is_paid: boolean }> | null;
-  }>).reduce((sum, r) => {
-    const lt = Array.isArray(r.leave_type) ? r.leave_type[0] : r.leave_type;
-    return lt?.is_paid ? sum + r.total_days : sum;
-  }, 0);
+    balances.set(employee.id, {
+      entitlementPerYear,
+      accrued,
+      used,
+      balance: computeLeaveBalance(accrued, used),
+      referenceDate: referenceDate.toISOString().split('T')[0],
+    });
+  }
 
-  return {
-    entitlementPerYear,
-    accrued,
-    used: usedDays,
-    balance: computeLeaveBalance(accrued, usedDays),
-    referenceDate: referenceDate.toISOString().split('T')[0],
-  };
+  return balances;
+}
+
+export async function getLeaveBalance(
+  employeeId: string,
+): Promise<LeaveBalanceResult> {
+  const balance = (await listLeaveBalances([employeeId])).get(employeeId);
+  if (!balance) throw new Error('Employee not found.');
+  return balance;
 }
 
 // ─── Kept from original ────────────────────────────────────────────────────

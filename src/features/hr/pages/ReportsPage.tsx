@@ -1,183 +1,317 @@
-// src/features/hr/pages/ReportsPage.tsx
-// بسم الله الرحمن الرحيم
-// صفحة تقارير الموارد البشرية
-
-import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  BarChart3,
-  PieChart,
-  TrendingUp,
-  Users,
-  Calendar,
-  DollarSign,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  Clock,
-  Building2,
-  UserCheck,
+  BarChart3, Building2, Calendar, Clock, DollarSign, Download,
+  FileSpreadsheet, FileText, PieChart, TrendingUp, UserCheck, Users,
   type LucideIcon,
 } from 'lucide-react';
-import { getEmployees, getPayrollRuns } from '@/services/hr/hr-service';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useToast } from '@/components/ui/use-toast';
+import { useAuth } from '@/contexts/AuthContext';
 import { usePermissions } from '@/hooks/usePermissions';
+import { getEffectiveTenantId } from '@/lib/supabase';
+import { listAttendanceForPeriod } from '@/services/hr/attendance-service';
+import { listLeaveBalances } from '@/services/hr/leave-service';
+import {
+  listEmployeesForReports,
+  listPayrollRunsForReport,
+} from '@/services/hr/reports-service';
 import { useHrTranslation } from '../i18n';
 import '../translations/reports';
+import {
+  buildAttendanceSummaryReport,
+  buildDepartmentAnalysis,
+  buildEmployeeListReport,
+  buildLeaveBalanceReport,
+  buildPayrollSummaryReport,
+  buildTurnoverReport,
+  exportReportToExcel,
+  UNASSIGNED_DEPARTMENT,
+  type BuiltReport,
+  type ReportValue,
+  type ResolvedReportColumn,
+} from './reports/report-builders';
+
+type ReportId =
+  | 'employee_list'
+  | 'attendance_summary'
+  | 'payroll_summary'
+  | 'department_analysis'
+  | 'turnover_report'
+  | 'leave_balance';
 
 type ReportDefinition = {
-  id: string;
+  id: ReportId;
   nameKey: string;
   descriptionKey: string;
   icon: LucideIcon;
-  category: string;
+};
+
+type SubmittedReport = {
+  reportType: ReportId;
+  orgId: string;
+  dateFrom: string;
+  dateTo: string;
+  attendanceMonth: string;
+  department: string;
 };
 
 const REPORT_TYPES: ReportDefinition[] = [
-  {
-    id: 'employee_list',
-    nameKey: 'reports.types.employeeList.name',
-    descriptionKey: 'reports.types.employeeList.description',
-    icon: Users,
-    category: 'employees',
-  },
-  {
-    id: 'attendance_summary',
-    nameKey: 'reports.types.attendanceSummary.name',
-    descriptionKey: 'reports.types.attendanceSummary.description',
-    icon: Clock,
-    category: 'attendance',
-  },
-  {
-    id: 'payroll_summary',
-    nameKey: 'reports.types.payrollSummary.name',
-    descriptionKey: 'reports.types.payrollSummary.description',
-    icon: DollarSign,
-    category: 'payroll',
-  },
-  {
-    id: 'department_analysis',
-    nameKey: 'reports.types.departmentAnalysis.name',
-    descriptionKey: 'reports.types.departmentAnalysis.description',
-    icon: Building2,
-    category: 'analytics',
-  },
-  {
-    id: 'turnover_report',
-    nameKey: 'reports.types.turnoverReport.name',
-    descriptionKey: 'reports.types.turnoverReport.description',
-    icon: TrendingUp,
-    category: 'analytics',
-  },
-  {
-    id: 'leave_balance',
-    nameKey: 'reports.types.leaveBalance.name',
-    descriptionKey: 'reports.types.leaveBalance.description',
-    icon: Calendar,
-    category: 'leaves',
-  },
+  { id: 'employee_list', nameKey: 'reports.types.employeeList.name', descriptionKey: 'reports.types.employeeList.description', icon: Users },
+  { id: 'attendance_summary', nameKey: 'reports.types.attendanceSummary.name', descriptionKey: 'reports.types.attendanceSummary.description', icon: Clock },
+  { id: 'payroll_summary', nameKey: 'reports.types.payrollSummary.name', descriptionKey: 'reports.types.payrollSummary.description', icon: DollarSign },
+  { id: 'department_analysis', nameKey: 'reports.types.departmentAnalysis.name', descriptionKey: 'reports.types.departmentAnalysis.description', icon: Building2 },
+  { id: 'turnover_report', nameKey: 'reports.types.turnoverReport.name', descriptionKey: 'reports.types.turnoverReport.description', icon: TrendingUp },
+  { id: 'leave_balance', nameKey: 'reports.types.leaveBalance.name', descriptionKey: 'reports.types.leaveBalance.description', icon: Calendar },
 ];
 
-const DEPARTMENT_DISTRIBUTION = [
-  { key: 'production', count: 45, percentage: 35 },
-  { key: 'finance', count: 20, percentage: 15 },
-  { key: 'humanResources', count: 10, percentage: 8 },
-  { key: 'sales', count: 25, percentage: 19 },
-  { key: 'informationTechnology', count: 15, percentage: 12 },
-  { key: 'administration', count: 14, percentage: 11 },
-];
+const REPORT_PERMISSIONS: Record<ReportId, readonly string[]> = {
+  employee_list: ['hr.employees.read'],
+  department_analysis: ['hr.employees.read'],
+  turnover_report: ['hr.employees.read'],
+  payroll_summary: ['hr.payroll.read'],
+  attendance_summary: ['hr.employees.read', 'hr.attendance.read'],
+  leave_balance: ['hr.employees.read', 'hr.leaves.read', 'hr.payroll.read'],
+};
+
+const now = new Date();
+const DEFAULT_TO_DATE = now.toISOString().slice(0, 10);
+const DEFAULT_FROM_DATE = `${now.getUTCFullYear()}-01-01`;
+const DEFAULT_ATTENDANCE_MONTH = DEFAULT_TO_DATE.slice(0, 7);
+const dashboardFromDate = new Date(Date.UTC(
+  now.getUTCFullYear(), now.getUTCMonth() - 5, 1,
+)).toISOString().slice(0, 10);
+
+const DATE_FILTER_REPORTS = new Set<ReportId>([
+  'employee_list', 'payroll_summary', 'turnover_report',
+]);
+const DEPARTMENT_FILTER_REPORTS = new Set<ReportId>([
+  'employee_list', 'department_analysis',
+]);
+
+const reportIsPermitted = (
+  reportId: ReportId,
+  hasPermissionKey: (key: string) => boolean,
+) => REPORT_PERMISSIONS[reportId].every(hasPermissionKey);
+
+const formatReportValue = (value: ReportValue, numberLocale: string) =>
+  typeof value === 'number' ? value.toLocaleString(numberLocale) : value;
 
 export const ReportsPage: React.FC = () => {
   const { t, i18n } = useHrTranslation();
-  const [selectedReport, setSelectedReport] = useState<string>('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const { toast } = useToast();
+  const { currentOrgId } = useAuth();
+  const { hasPermissionKey } = usePermissions();
+  const queryClient = useQueryClient();
+  const [selectedReport, setSelectedReport] = useState<ReportId | ''>('');
+  const [dateFrom, setDateFrom] = useState(DEFAULT_FROM_DATE);
+  const [dateTo, setDateTo] = useState(DEFAULT_TO_DATE);
+  const [attendanceMonth, setAttendanceMonth] = useState(DEFAULT_ATTENDANCE_MONTH);
   const [selectedDepartment, setSelectedDepartment] = useState('all');
+  const [submittedReport, setSubmittedReport] = useState<SubmittedReport | null>(null);
+  const [generation, setGeneration] = useState(0);
+
   const isRtl = i18n.dir() === 'rtl';
   const numberLocale = isRtl ? 'ar-SA' : 'en-US';
-  const { hasPermissionKey } = usePermissions();
-  // دخول الشاشة نفسه anyOf بين مفاتيح hr الأربعة (route-permissions.ts)، فمن
-  // يدخل بمفتاح آخر (كـ hr.leaves.read وحده) لا يجب أن يرى تجميعات الموظفين
-  // أو الرواتب — كل استعلام يُحكَم بمفتاح قراءة مورده الفعلي هنا أيضًا.
   const canReadEmployees = hasPermissionKey('hr.employees.read');
   const canReadPayroll = hasPermissionKey('hr.payroll.read');
 
   const { data: rawEmployees = [] } = useQuery({
-    queryKey: ['hr', 'employees'],
-    queryFn: getEmployees,
-    enabled: canReadEmployees,
+    queryKey: ['hr', 'reports', 'employees', currentOrgId],
+    queryFn: () => listEmployeesForReports({ orgId: currentOrgId ?? undefined }),
+    enabled: canReadEmployees && Boolean(currentOrgId),
   });
 
   const { data: rawPayrollRuns = [] } = useQuery({
-    queryKey: ['hr', 'payroll-runs'],
-    queryFn: () => getPayrollRuns(12),
-    enabled: canReadPayroll,
+    queryKey: ['hr', 'reports', 'payroll-trends', currentOrgId],
+    queryFn: () => listPayrollRunsForReport({
+      orgId: currentOrgId ?? undefined,
+      from: dashboardFromDate,
+      to: DEFAULT_TO_DATE,
+    }),
+    enabled: canReadPayroll && Boolean(currentOrgId),
   });
 
-  // Re-gated here, not just via `enabled` above: TanStack Query keeps a
-  // query's last successful result cached after `enabled` flips to false,
-  // and a request already in flight when permission is revoked still
-  // resolves into that cache. A revoked user must not keep seeing rows
-  // loaded before the revocation just because the cache still holds them.
-  const employees = React.useMemo(
-    () => (canReadEmployees ? rawEmployees : []),
+  const employees = useMemo(
+    () => canReadEmployees ? rawEmployees : [],
     [canReadEmployees, rawEmployees],
   );
-  const payrollRuns = React.useMemo(
-    () => (canReadPayroll ? rawPayrollRuns : []),
+  const payrollRuns = useMemo(
+    () => canReadPayroll ? rawPayrollRuns : [],
     [canReadPayroll, rawPayrollRuns],
   );
 
-  const quickStats = React.useMemo(() => {
-    const activeCount = employees.filter((employee: any) => employee.status === 'active').length;
-    const totalPayroll = payrollRuns.reduce(
-      (sum: number, run: any) => sum + (run.totalNet || 0),
-      0,
-    );
-    const avgSalary = activeCount > 0 ? totalPayroll / activeCount : 0;
+  const reportTypes = useMemo(
+    () => REPORT_TYPES
+      .filter((report) => reportIsPermitted(report.id, hasPermissionKey))
+      .map((report) => ({
+        ...report,
+        name: t(report.nameKey),
+        description: t(report.descriptionKey),
+      })),
+    [hasPermissionKey, t],
+  );
 
+  const departmentDistribution = useMemo(() => {
+    const report = buildDepartmentAnalysis(employees);
+    return report.rows.map((row) => ({
+      key: String(row.department),
+      name: row.department === UNASSIGNED_DEPARTMENT
+        ? t('reports.unassignedDepartment')
+        : String(row.department),
+      count: Number(row.count),
+      percentage: Number(row.percentage),
+    }));
+  }, [employees, t]);
+
+  const quickStats = useMemo(() => {
+    const activeEmployees = employees.filter((employee) => employee.status === 'active').length;
+    const totalPayroll = payrollRuns.reduce(
+      (sum, run) => sum + Number(run.total_net ?? 0), 0,
+    );
     return {
       totalEmployees: employees.length,
-      activeEmployees: activeCount,
+      activeEmployees,
       totalPayroll,
-      avgSalary,
+      avgSalary: activeEmployees ? totalPayroll / activeEmployees : 0,
     };
   }, [employees, payrollRuns]);
 
-  const reportTypes = React.useMemo(
-    () => REPORT_TYPES.map((report) => ({
-      ...report,
-      name: t(report.nameKey),
-      description: t(report.descriptionKey),
+  const submittedAllowed = submittedReport
+    ? reportIsPermitted(submittedReport.reportType, hasPermissionKey)
+    : false;
+  const selectedAllowed = selectedReport
+    ? reportIsPermitted(selectedReport, hasPermissionKey)
+    : true;
+
+  useEffect(() => {
+    const selectionRevoked = Boolean(selectedReport) && !selectedAllowed;
+    const resultRevoked = Boolean(submittedReport) && !submittedAllowed;
+    if (!selectionRevoked && !resultRevoked) return;
+
+    if (selectionRevoked) setSelectedReport('');
+    setSubmittedReport(null);
+    void queryClient.cancelQueries({ queryKey: ['hr-report'] });
+    queryClient.removeQueries({ queryKey: ['hr-report'] });
+  }, [queryClient, selectedAllowed, selectedReport, submittedAllowed, submittedReport]);
+
+  useEffect(() => {
+    if (!submittedReport || submittedReport.orgId === currentOrgId) return;
+    setSubmittedReport(null);
+    void queryClient.cancelQueries({ queryKey: ['hr-report'] });
+    queryClient.removeQueries({ queryKey: ['hr-report'] });
+  }, [currentOrgId, queryClient, submittedReport]);
+
+  const reportQuery = useQuery<BuiltReport>({
+    queryKey: ['hr-report', submittedReport?.orgId, generation, submittedReport],
+    enabled: Boolean(submittedReport && submittedAllowed),
+    queryFn: async () => {
+      if (!submittedReport) throw new Error('Report criteria were not submitted.');
+      const { reportType, orgId } = submittedReport;
+
+      if (reportType === 'payroll_summary') {
+        const runs = await listPayrollRunsForReport({
+          orgId,
+          from: submittedReport.dateFrom,
+          to: submittedReport.dateTo,
+        });
+        return buildPayrollSummaryReport(runs);
+      }
+
+      const reportEmployees = await listEmployeesForReports({ orgId });
+      if (reportType === 'employee_list') {
+        return buildEmployeeListReport(reportEmployees, {
+          from: submittedReport.dateFrom,
+          to: submittedReport.dateTo,
+          department: submittedReport.department,
+        });
+      }
+      if (reportType === 'department_analysis') {
+        return buildDepartmentAnalysis(reportEmployees, submittedReport.department);
+      }
+      if (reportType === 'turnover_report') {
+        return buildTurnoverReport(reportEmployees, {
+          from: submittedReport.dateFrom,
+          to: submittedReport.dateTo,
+        });
+      }
+      if (reportType === 'attendance_summary') {
+        const [year, month] = submittedReport.attendanceMonth.split('-').map(Number);
+        const attendance = await listAttendanceForPeriod(
+          reportEmployees.map((employee) => employee.id), year, month,
+        );
+        return buildAttendanceSummaryReport(reportEmployees, attendance);
+      }
+
+      const balances = await listLeaveBalances(
+        reportEmployees.map((employee) => employee.id), orgId,
+      );
+      return buildLeaveBalanceReport(reportEmployees, balances);
+    },
+  });
+
+  const resolvedColumns: ResolvedReportColumn[] = useMemo(
+    () => (submittedAllowed ? reportQuery.data?.columns ?? [] : []).map((column) => ({
+      ...column,
+      label: t(column.labelKey),
     })),
-    [t],
+    [reportQuery.data?.columns, submittedAllowed, t],
   );
 
-  const departmentDistribution = React.useMemo(
-    () => DEPARTMENT_DISTRIBUTION.map((department) => ({
-      ...department,
-      name: t(`reports.departments.${department.key}`),
-    })),
-    [t],
+  const displayRows = useMemo(
+    () => (submittedAllowed ? reportQuery.data?.rows ?? [] : []).map((row) =>
+      Object.fromEntries(Object.entries(row).map(([key, value]) => [
+        key,
+        value === UNASSIGNED_DEPARTMENT ? t('reports.unassignedDepartment') : value,
+      ])) as Record<string, ReportValue>),
+    [reportQuery.data?.rows, submittedAllowed, t],
   );
 
-  const handleGenerateReport = () => {
-    if (!selectedReport) return;
-    // TODO: Implement report generation
-    console.log('Generating report:', selectedReport, { dateFrom, dateTo, selectedDepartment });
+  const handleGenerateReport = async () => {
+    if (!selectedReport || !selectedAllowed) return;
+    const orgId = await getEffectiveTenantId();
+    if (!orgId) {
+      toast({ title: t('reports.errors.organizationMissing'), variant: 'destructive' });
+      return;
+    }
+
+    setSubmittedReport({
+      reportType: selectedReport,
+      orgId,
+      dateFrom,
+      dateTo,
+      attendanceMonth,
+      department: selectedDepartment,
+    });
+    setGeneration((value) => value + 1);
   };
 
+  const handleExport = async () => {
+    if (!reportQuery.data || !submittedAllowed || !displayRows.length) return;
+    try {
+      await exportReportToExcel(
+        resolvedColumns, displayRows, reportQuery.data.filenamePrefix,
+      );
+      toast({ title: t('reports.export.success') });
+    } catch (error) {
+      console.error('Failed to export HR report:', error);
+      toast({ title: t('reports.export.failure'), variant: 'destructive' });
+    }
+  };
+
+  const showDateFilters = selectedReport
+    ? DATE_FILTER_REPORTS.has(selectedReport)
+    : false;
+  const showDepartmentFilter = selectedReport
+    ? DEPARTMENT_FILTER_REPORTS.has(selectedReport)
+    : false;
   const iconSpacing = isRtl ? 'ml-2' : 'mr-2';
   const wideIconSpacing = isRtl ? 'ml-3' : 'mr-3';
 
@@ -189,232 +323,153 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       <div className="grid gap-4 md:grid-cols-4">
-        <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-blue-100 text-sm">{t('reports.stats.totalEmployees')}</p>
-                <p className="text-3xl font-bold">{quickStats.totalEmployees.toLocaleString(numberLocale)}</p>
-              </div>
-              <Users className="h-10 w-10 text-blue-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-emerald-100 text-sm">{t('reports.stats.activeEmployees')}</p>
-                <p className="text-3xl font-bold">{quickStats.activeEmployees.toLocaleString(numberLocale)}</p>
-              </div>
-              <UserCheck className="h-10 w-10 text-emerald-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-purple-100 text-sm">{t('reports.stats.totalPayroll')}</p>
-                <p className="text-2xl font-bold">{quickStats.totalPayroll.toLocaleString(numberLocale)}</p>
-                <p className="text-xs text-purple-200">{t('reports.currencyShort')}</p>
-              </div>
-              <DollarSign className="h-10 w-10 text-purple-200" />
-            </div>
-          </CardContent>
-        </Card>
-        <Card className="bg-gradient-to-br from-amber-500 to-amber-600 text-white">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-amber-100 text-sm">{t('reports.stats.averageSalary')}</p>
-                <p className="text-2xl font-bold">{Math.round(quickStats.avgSalary).toLocaleString(numberLocale)}</p>
-                <p className="text-xs text-amber-200">{t('reports.currencyShort')}</p>
-              </div>
-              <TrendingUp className="h-10 w-10 text-amber-200" />
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard color="blue" label={t('reports.stats.totalEmployees')} value={quickStats.totalEmployees.toLocaleString(numberLocale)} icon={Users} />
+        <StatCard color="emerald" label={t('reports.stats.activeEmployees')} value={quickStats.activeEmployees.toLocaleString(numberLocale)} icon={UserCheck} />
+        <StatCard color="purple" label={t('reports.stats.totalPayroll')} value={quickStats.totalPayroll.toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={DollarSign} />
+        <StatCard color="amber" label={t('reports.stats.averageSalary')} value={Math.round(quickStats.avgSalary).toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={TrendingUp} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileSpreadsheet className="h-5 w-5 text-teal-600" />
-              {t('reports.generator.title')}
-            </CardTitle>
+            <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-600" />{t('reports.generator.title')}</CardTitle>
             <CardDescription>{t('reports.generator.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
-                <Label>{t('reports.generator.reportType')}</Label>
-                <Select value={selectedReport} onValueChange={setSelectedReport}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={t('reports.generator.selectReportType')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {reportTypes.map((report) => (
-                      <SelectItem key={report.id} value={report.id}>
-                        <div className="flex items-center gap-2">
-                          <report.icon className="h-4 w-4" />
-                          {report.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
+                <Label htmlFor="hr-report-type">{t('reports.generator.reportType')}</Label>
+                <Select value={selectedReport} onValueChange={(value) => setSelectedReport(value as ReportId)}>
+                  <SelectTrigger id="hr-report-type"><SelectValue placeholder={t('reports.generator.selectReportType')} /></SelectTrigger>
+                  <SelectContent>{reportTypes.map((report) => <SelectItem key={report.id} value={report.id}><div className="flex items-center gap-2"><report.icon className="h-4 w-4" />{report.name}</div></SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>{t('reports.generator.department')}</Label>
-                <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">{t('common.allDepartments')}</SelectItem>
-                    {departmentDistribution.map((department) => (
-                      <SelectItem key={department.key} value={department.key}>{department.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {showDepartmentFilter && (
+                <div className="space-y-2">
+                  <Label htmlFor="hr-report-department">{t('reports.generator.department')}</Label>
+                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                    <SelectTrigger id="hr-report-department"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">{t('common.allDepartments')}</SelectItem>
+                      {departmentDistribution.map((department) => <SelectItem key={department.key} value={department.key}>{department.name}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label>{t('reports.generator.fromDate')}</Label>
-                <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+            {showDateFilters && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2"><Label htmlFor="hr-report-from">{t('reports.generator.fromDate')}</Label><Input id="hr-report-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></div>
+                <div className="space-y-2"><Label htmlFor="hr-report-to">{t('reports.generator.toDate')}</Label><Input id="hr-report-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
               </div>
-              <div className="space-y-2">
-                <Label>{t('reports.generator.toDate')}</Label>
-                <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
-              </div>
-            </div>
+            )}
+            {selectedReport === 'attendance_summary' && (
+              <div className="space-y-2"><Label htmlFor="hr-report-month">{t('reports.generator.month')}</Label><Input id="hr-report-month" type="month" value={attendanceMonth} onChange={(event) => setAttendanceMonth(event.target.value)} /></div>
+            )}
             <div className="flex gap-3">
-              <Button
-                className="flex-1 bg-teal-600 hover:bg-teal-700"
-                onClick={handleGenerateReport}
-                disabled={!selectedReport}
-              >
-                <FileText className={`h-4 w-4 ${iconSpacing}`} />
-                {t('reports.generator.generate')}
+              <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={() => void handleGenerateReport()} disabled={!selectedReport || !selectedAllowed || reportQuery.isFetching}>
+                <FileText className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.generate')}
               </Button>
-              <Button variant="outline">
-                <Download className={`h-4 w-4 ${iconSpacing}`} />
-                {t('reports.generator.exportExcel')}
+              <Button variant="outline" onClick={() => void handleExport()} disabled={!submittedAllowed || reportQuery.isFetching || !displayRows.length}>
+                <Download className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.exportExcel')}
               </Button>
             </div>
           </CardContent>
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">{t('reports.quickReports')}</CardTitle>
-          </CardHeader>
+          <CardHeader><CardTitle className="text-lg">{t('reports.quickReports')}</CardTitle></CardHeader>
           <CardContent className="space-y-2">
             {reportTypes.slice(0, 4).map((report) => (
-              <Button
-                key={report.id}
-                variant="outline"
-                className="w-full justify-start h-auto py-3"
-                onClick={() => setSelectedReport(report.id)}
-              >
+              <Button key={report.id} variant="outline" className="w-full justify-start h-auto py-3" onClick={() => setSelectedReport(report.id)}>
                 <report.icon className={`h-4 w-4 ${wideIconSpacing} text-muted-foreground`} />
-                <div className={isRtl ? 'text-right' : 'text-left'}>
-                  <p className="font-medium">{report.name}</p>
-                  <p className="text-xs text-muted-foreground">{report.description}</p>
-                </div>
+                <div className={isRtl ? 'text-right' : 'text-left'}><p className="font-medium">{report.name}</p><p className="text-xs text-muted-foreground">{report.description}</p></div>
               </Button>
             ))}
           </CardContent>
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <PieChart className="h-5 w-5 text-blue-600" />
-            {t('reports.departmentDistribution')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {departmentDistribution.map((department, index) => {
-              const colors = [
-                'bg-blue-500', 'bg-emerald-500', 'bg-purple-500',
-                'bg-amber-500', 'bg-rose-500', 'bg-cyan-500',
-              ];
-              return (
-                <div
-                  key={department.key}
-                  className="flex items-center gap-4 rounded-lg border p-4 hover:bg-muted/50 transition-colors"
-                >
-                  <div className={`h-12 w-12 rounded-lg ${colors[index % colors.length]} flex items-center justify-center text-white`}>
-                    <Building2 className="h-6 w-6" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{department.name}</span>
-                      <Badge variant="secondary">{department.count.toLocaleString(numberLocale)}</Badge>
-                    </div>
-                    <div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${colors[index % colors.length]}`}
-                        style={{ width: `${department.percentage}%` }}
-                      />
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">{department.percentage.toLocaleString(numberLocale)}%</p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-emerald-600" />
-            {t('reports.payrollTrends')}
-          </CardTitle>
-          <CardDescription>{t('reports.payrollTrendsDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {payrollRuns.slice(0, 6).map((run: any, index: number) => {
-              const maxAmount = Math.max(...payrollRuns.map((item: any) => item.totalNet || 0));
-              const percentage = maxAmount > 0 ? ((run.totalNet || 0) / maxAmount) * 100 : 0;
-
-              return (
-                <div key={run.id || index} className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium">
-                      {run.periodCode || t('reports.fallbackMonth', { count: index + 1 })}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {(run.totalNet || 0).toLocaleString(numberLocale)} {t('reports.currencyShort')}
-                    </span>
-                  </div>
-                  <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-500"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
-            {payrollRuns.length === 0 && (
-              <div className="text-center py-8 text-muted-foreground">
-                <BarChart3 className="h-12 w-12 mx-auto text-slate-300 mb-3" />
-                <p>{t('reports.noPayrollData')}</p>
-              </div>
+      {submittedReport && submittedAllowed && (
+        <Card data-testid="report-results">
+          <CardHeader><CardTitle>{t('reports.results.title')}</CardTitle><CardDescription>{t('reports.results.description')}</CardDescription></CardHeader>
+          <CardContent>
+            {reportQuery.isFetching && <div className="space-y-3"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>}
+            {!reportQuery.isFetching && reportQuery.isError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">{t('reports.results.error')}: {reportQuery.error instanceof Error ? reportQuery.error.message : ''}</div>}
+            {!reportQuery.isFetching && reportQuery.isSuccess && !displayRows.length && <div className="py-10 text-center text-muted-foreground">{t('reports.results.empty')}</div>}
+            {!reportQuery.isFetching && displayRows.length > 0 && (
+              <div className="overflow-x-auto"><Table><TableHeader><TableRow>{resolvedColumns.map((column) => <TableHead key={column.key}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{displayRows.map((row, index) => <TableRow key={`${submittedReport.reportType}-${index}`}>{resolvedColumns.map((column) => <TableCell key={column.key}>{formatReportValue(row[column.key] ?? '', numberLocale)}</TableCell>)}</TableRow>)}</TableBody></Table></div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+
+      <DepartmentDistributionCard distribution={departmentDistribution} numberLocale={numberLocale} emptyLabel={t('reports.results.empty')} title={t('reports.departmentDistribution')} />
+      <PayrollTrendsCard payrollRuns={payrollRuns} numberLocale={numberLocale} currency={t('reports.currencyShort')} title={t('reports.payrollTrends')} description={t('reports.payrollTrendsDescription')} emptyLabel={t('reports.noPayrollData')} />
     </div>
+  );
+};
+
+type StatCardProps = {
+  color: 'blue' | 'emerald' | 'purple' | 'amber';
+  label: string;
+  value: string;
+  suffix?: string;
+  icon: LucideIcon;
+};
+
+const statColors = {
+  blue: ['from-blue-500 to-blue-600', 'text-blue-100', 'text-blue-200'],
+  emerald: ['from-emerald-500 to-emerald-600', 'text-emerald-100', 'text-emerald-200'],
+  purple: ['from-purple-500 to-purple-600', 'text-purple-100', 'text-purple-200'],
+  amber: ['from-amber-500 to-amber-600', 'text-amber-100', 'text-amber-200'],
+} as const;
+
+const StatCard = ({ color, label, value, suffix, icon: Icon }: StatCardProps) => {
+  const [gradient, muted, iconColor] = statColors[color];
+  return <Card className={`bg-gradient-to-br ${gradient} text-white`}><CardContent className="p-4"><div className="flex items-center justify-between"><div><p className={`${muted} text-sm`}>{label}</p><p className="text-2xl font-bold">{value}</p>{suffix && <p className={`text-xs ${muted}`}>{suffix}</p>}</div><Icon className={`h-10 w-10 ${iconColor}`} /></div></CardContent></Card>;
+};
+
+type DepartmentDistribution = { key: string; name: string; count: number; percentage: number };
+
+const DepartmentDistributionCard = ({ distribution, numberLocale, emptyLabel, title }: { distribution: DepartmentDistribution[]; numberLocale: string; emptyLabel: string; title: string }) => (
+  <Card>
+    <CardHeader><CardTitle className="flex items-center gap-2"><PieChart className="h-5 w-5 text-blue-600" />{title}</CardTitle></CardHeader>
+    <CardContent>
+      {distribution.length ? <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">{distribution.map((department, index) => {
+        const colors = ['bg-blue-500', 'bg-emerald-500', 'bg-purple-500', 'bg-amber-500', 'bg-rose-500', 'bg-cyan-500'];
+        return <div key={department.key} className="flex items-center gap-4 rounded-lg border p-4 hover:bg-muted/50 transition-colors"><div className={`h-12 w-12 rounded-lg ${colors[index % colors.length]} flex items-center justify-center text-white`}><Building2 className="h-6 w-6" /></div><div className="flex-1"><div className="flex items-center justify-between"><span className="font-medium">{department.name}</span><Badge variant="secondary">{department.count.toLocaleString(numberLocale)}</Badge></div><div className="mt-2 h-2 rounded-full bg-slate-100 overflow-hidden"><div className={`h-full rounded-full ${colors[index % colors.length]}`} style={{ width: `${department.percentage}%` }} /></div><p className="text-xs text-muted-foreground mt-1">{department.percentage.toLocaleString(numberLocale)}%</p></div></div>;
+      })}</div> : <p className="py-8 text-center text-muted-foreground">{emptyLabel}</p>}
+    </CardContent>
+  </Card>
+);
+
+type PayrollTrendsProps = {
+  payrollRuns: Awaited<ReturnType<typeof listPayrollRunsForReport>>;
+  numberLocale: string;
+  currency: string;
+  title: string;
+  description: string;
+  emptyLabel: string;
+};
+
+const PayrollTrendsCard = ({ payrollRuns, numberLocale, currency, title, description, emptyLabel }: PayrollTrendsProps) => {
+  let maxAmount = 0;
+  for (const run of payrollRuns) {
+    maxAmount = Math.max(maxAmount, Number(run.total_net ?? 0));
+  }
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5 text-emerald-600" />{title}</CardTitle><CardDescription>{description}</CardDescription></CardHeader>
+      <CardContent><div className="space-y-4">
+        {payrollRuns.slice(0, 6).map((run) => {
+        const amount = Number(run.total_net ?? 0);
+        const percentage = maxAmount > 0 ? (amount / maxAmount) * 100 : 0;
+        return <div key={run.id} className="space-y-2"><div className="flex items-center justify-between text-sm"><span className="font-medium">{run.run_date}</span><span className="text-muted-foreground">{amount.toLocaleString(numberLocale)} {currency}</span></div><div className="h-3 rounded-full bg-slate-100 overflow-hidden"><div className="h-full rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600 transition-all duration-500" style={{ width: `${percentage}%` }} /></div></div>;
+        })}
+        {!payrollRuns.length && <div className="text-center py-8 text-muted-foreground"><BarChart3 className="h-12 w-12 mx-auto text-slate-300 mb-3" /><p>{emptyLabel}</p></div>}
+      </div></CardContent>
+    </Card>
   );
 };
