@@ -108,6 +108,17 @@ const formatReportValue = (value: ReportValue, numberLocale: string) =>
 
 type Translate = (key: string) => string;
 
+async function generatePayrollReport(
+  submittedReport: SubmittedReport,
+): Promise<BuiltReport> {
+  const runs = await listPayrollRunsForReport({
+    orgId: submittedReport.orgId,
+    from: submittedReport.dateFrom,
+    to: submittedReport.dateTo,
+  });
+  return buildPayrollSummaryReport(runs);
+}
+
 async function generateSubmittedReport(
   submittedReport: SubmittedReport | null,
 ): Promise<BuiltReport> {
@@ -115,12 +126,7 @@ async function generateSubmittedReport(
   const { reportType, orgId } = submittedReport;
 
   if (reportType === 'payroll_summary') {
-    const runs = await listPayrollRunsForReport({
-      orgId,
-      from: submittedReport.dateFrom,
-      to: submittedReport.dateTo,
-    });
-    return buildPayrollSummaryReport(runs);
+    return generatePayrollReport(submittedReport);
   }
 
   const employees = await listEmployeesForReports({ orgId });
@@ -436,16 +442,11 @@ type ReportGeneratorCardProps = {
   onExport: () => Promise<void>;
 };
 
-const ReportGeneratorCard = (props: ReportGeneratorCardProps) => {
+const ReportFilterFields = (props: ReportGeneratorCardProps) => {
   const { t, reportTypes, selectedReport, setSelectedReport, showDepartmentFilter,
     selectedDepartment, setSelectedDepartment, departmentDistribution, showDateFilters,
-    dateFrom, setDateFrom, dateTo, setDateTo, attendanceMonth, setAttendanceMonth,
-    selectedAllowed, submittedAllowed, isFetching, hasRows, iconSpacing,
-    onGenerate, onExport } = props;
-  return <Card className="lg:col-span-2"><CardHeader>
-    <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-600" />{t('reports.generator.title')}</CardTitle>
-    <CardDescription>{t('reports.generator.description')}</CardDescription>
-  </CardHeader><CardContent className="space-y-4">
+    dateFrom, setDateFrom, dateTo, setDateTo, attendanceMonth, setAttendanceMonth } = props;
+  return <>
     <div className="grid gap-4 md:grid-cols-2"><div className="space-y-2">
       <Label htmlFor="hr-report-type">{t('reports.generator.reportType')}</Label>
       <Select value={selectedReport} onValueChange={(value) => setSelectedReport(value as ReportId)}><SelectTrigger id="hr-report-type"><SelectValue placeholder={t('reports.generator.selectReportType')} /></SelectTrigger><SelectContent>{reportTypes.map((report) => <SelectItem key={report.id} value={report.id}><div className="flex items-center gap-2"><report.icon className="h-4 w-4" />{report.name}</div></SelectItem>)}</SelectContent></Select>
@@ -458,6 +459,17 @@ const ReportGeneratorCard = (props: ReportGeneratorCardProps) => {
       <div className="space-y-2"><Label htmlFor="hr-report-to">{t('reports.generator.toDate')}</Label><Input id="hr-report-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
     </div>}
     {selectedReport === 'attendance_summary' && <div className="space-y-2"><Label htmlFor="hr-report-month">{t('reports.generator.month')}</Label><Input id="hr-report-month" type="month" value={attendanceMonth} onChange={(event) => setAttendanceMonth(event.target.value)} /></div>}
+  </>;
+};
+
+const ReportGeneratorCard = (props: ReportGeneratorCardProps) => {
+  const { t, selectedReport, selectedAllowed, submittedAllowed, isFetching,
+    hasRows, iconSpacing, onGenerate, onExport } = props;
+  return <Card className="lg:col-span-2"><CardHeader>
+    <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-600" />{t('reports.generator.title')}</CardTitle>
+    <CardDescription>{t('reports.generator.description')}</CardDescription>
+  </CardHeader><CardContent className="space-y-4">
+    <ReportFilterFields {...props} />
     <div className="flex gap-3">
       <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={() => void onGenerate()} disabled={!selectedReport || !selectedAllowed || isFetching}><FileText className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.generate')}</Button>
       <Button variant="outline" onClick={() => void onExport()} disabled={!submittedAllowed || isFetching || !hasRows}><Download className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.exportExcel')}</Button>
@@ -478,6 +490,9 @@ type ReportResultsCardProps = {
   error: unknown;
 };
 
+const reportErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : '';
+
 const ReportResultsCard = (props: ReportResultsCardProps) => {
   const { visible, reportType, t, numberLocale, columns, rows,
     isFetching, isError, isSuccess, error } = props;
@@ -486,7 +501,7 @@ const ReportResultsCard = (props: ReportResultsCardProps) => {
     <CardHeader><CardTitle>{t('reports.results.title')}</CardTitle><CardDescription>{t('reports.results.description')}</CardDescription></CardHeader>
     <CardContent>
       {isFetching && <div className="space-y-3"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>}
-      {!isFetching && isError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">{t('reports.results.error')}: {error instanceof Error ? error.message : ''}</div>}
+      {!isFetching && isError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">{t('reports.results.error')}: {reportErrorMessage(error)}</div>}
       {!isFetching && isSuccess && !rows.length && <div className="py-10 text-center text-muted-foreground">{t('reports.results.empty')}</div>}
       {!isFetching && rows.length > 0 && <div className="overflow-x-auto"><Table><TableHeader><TableRow>{columns.map((column) => <TableHead key={column.key}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.map((row, index) => <TableRow key={`${reportType}-${index}`}>{columns.map((column) => <TableCell key={column.key}>{formatReportValue(row[column.key] ?? '', numberLocale)}</TableCell>)}</TableRow>)}</TableBody></Table></div>}
     </CardContent>

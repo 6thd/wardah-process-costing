@@ -260,6 +260,25 @@ type LeaveSettlementRow = {
   service_end: string | null;
 };
 
+async function loadLeaveBalanceSources(employeeIds: string[], orgId: string) {
+  const [employees, settlements, leaves, policies] = await Promise.all([
+    supabase.from('employees').select('id, hire_date')
+      .eq('org_id', orgId).in('id', employeeIds),
+    supabase.from('hr_settlements').select('employee_id, service_end')
+      .eq('org_id', orgId).in('employee_id', employeeIds).eq('status', 'approved'),
+    supabase.from('employee_leaves')
+      .select('employee_id, start_date, total_days, leave_type:leave_types(is_paid)')
+      .eq('org_id', orgId).in('employee_id', employeeIds).eq('status', 'approved'),
+    getHrPoliciesReadOnly(orgId),
+  ]);
+  if (employees.error) throw new Error(employees.error.message);
+  if (settlements.error) throw new Error(settlements.error.message);
+  if (leaves.error) throw new Error(leaves.error.message);
+  return { employees: (employees.data ?? []) as LeaveBalanceEmployee[],
+    settlements: (settlements.data ?? []) as LeaveSettlementRow[],
+    leaves: (leaves.data ?? []) as LeaveBalanceRow[], policies };
+}
+
 function latestSettlementsByEmployee(
   settlements: LeaveSettlementRow[],
 ): Map<string, Date> {
@@ -326,43 +345,14 @@ export async function listLeaveBalances(
 
   const orgId = suppliedOrgId ?? await getEffectiveTenantId();
   if (!orgId) throw new Error('Organization not found.');
-
-  const [employeesResult, settlementsResult, leavesResult, policies] =
-    await Promise.all([
-      supabase
-        .from('employees')
-        .select('id, hire_date')
-        .eq('org_id', orgId)
-        .in('id', employeeIds),
-      supabase
-        .from('hr_settlements')
-        .select('employee_id, service_end')
-        .eq('org_id', orgId)
-        .in('employee_id', employeeIds)
-        .eq('status', 'approved'),
-      supabase
-        .from('employee_leaves')
-        .select('employee_id, start_date, total_days, leave_type:leave_types(is_paid)')
-        .eq('org_id', orgId)
-        .in('employee_id', employeeIds)
-        .eq('status', 'approved'),
-      getHrPoliciesReadOnly(orgId),
-    ]);
-
-  if (employeesResult.error) throw new Error(employeesResult.error.message);
-  if (settlementsResult.error) throw new Error(settlementsResult.error.message);
-  if (leavesResult.error) throw new Error(leavesResult.error.message);
-
-  const latestSettlement = latestSettlementsByEmployee(
-    (settlementsResult.data ?? []) as LeaveSettlementRow[],
-  );
-  const indexedLeaves = leavesByEmployee(
-    (leavesResult.data ?? []) as LeaveBalanceRow[],
-  );
+  const { employees, settlements, leaves, policies } =
+    await loadLeaveBalanceSources(employeeIds, orgId);
+  const latestSettlement = latestSettlementsByEmployee(settlements);
+  const indexedLeaves = leavesByEmployee(leaves);
 
   const now = new Date();
   const balances = new Map<string, LeaveBalanceResult>();
-  for (const employee of (employeesResult.data ?? []) as LeaveBalanceEmployee[]) {
+  for (const employee of employees) {
     balances.set(employee.id, calculateEmployeeLeaveBalance(
       employee,
       latestSettlement.get(employee.id),
