@@ -22,6 +22,8 @@ import { listLeaveBalances } from '@/services/hr/leave-service';
 import {
   listEmployeesForReports,
   listPayrollRunsForReport,
+  type ReportEmployee,
+  type ReportPayrollRun,
 } from '@/services/hr/reports-service';
 import { useHrTranslation } from '../i18n';
 import '../translations/reports';
@@ -104,12 +106,55 @@ const reportIsPermitted = (
 const formatReportValue = (value: ReportValue, numberLocale: string) =>
   typeof value === 'number' ? value.toLocaleString(numberLocale) : value;
 
-export const ReportsPage: React.FC = () => {
-  const { t, i18n } = useHrTranslation();
-  const { toast } = useToast();
-  const { currentOrgId } = useAuth();
-  const { hasPermissionKey } = usePermissions();
-  const queryClient = useQueryClient();
+type Translate = (key: string) => string;
+
+async function generateSubmittedReport(
+  submittedReport: SubmittedReport | null,
+): Promise<BuiltReport> {
+  if (!submittedReport) throw new Error('Report criteria were not submitted.');
+  const { reportType, orgId } = submittedReport;
+
+  if (reportType === 'payroll_summary') {
+    const runs = await listPayrollRunsForReport({
+      orgId,
+      from: submittedReport.dateFrom,
+      to: submittedReport.dateTo,
+    });
+    return buildPayrollSummaryReport(runs);
+  }
+
+  const employees = await listEmployeesForReports({ orgId });
+  if (reportType === 'employee_list') {
+    return buildEmployeeListReport(employees, {
+      from: submittedReport.dateFrom,
+      to: submittedReport.dateTo,
+      department: submittedReport.department,
+    });
+  }
+  if (reportType === 'department_analysis') {
+    return buildDepartmentAnalysis(employees, submittedReport.department);
+  }
+  if (reportType === 'turnover_report') {
+    return buildTurnoverReport(employees, {
+      from: submittedReport.dateFrom,
+      to: submittedReport.dateTo,
+    });
+  }
+  if (reportType === 'attendance_summary') {
+    const [year, month] = submittedReport.attendanceMonth.split('-').map(Number);
+    const attendance = await listAttendanceForPeriod(
+      employees.map((employee) => employee.id), year, month,
+    );
+    return buildAttendanceSummaryReport(employees, attendance);
+  }
+
+  const balances = await listLeaveBalances(
+    employees.map((employee) => employee.id), orgId,
+  );
+  return buildLeaveBalanceReport(employees, balances);
+}
+
+function useReportState() {
   const [selectedReport, setSelectedReport] = useState<ReportId | ''>('');
   const [dateFrom, setDateFrom] = useState(DEFAULT_FROM_DATE);
   const [dateTo, setDateTo] = useState(DEFAULT_TO_DATE);
@@ -117,187 +162,121 @@ export const ReportsPage: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [submittedReport, setSubmittedReport] = useState<SubmittedReport | null>(null);
   const [generation, setGeneration] = useState(0);
+  return { selectedReport, setSelectedReport, dateFrom, setDateFrom, dateTo, setDateTo,
+    attendanceMonth, setAttendanceMonth, selectedDepartment, setSelectedDepartment,
+    submittedReport, setSubmittedReport, generation, setGeneration };
+}
 
-  const isRtl = i18n.dir() === 'rtl';
-  const numberLocale = isRtl ? 'ar-SA' : 'en-US';
+function useReportDashboard(
+  currentOrgId: string | null,
+  hasPermissionKey: (key: string) => boolean,
+  t: Translate,
+) {
   const canReadEmployees = hasPermissionKey('hr.employees.read');
   const canReadPayroll = hasPermissionKey('hr.payroll.read');
-
   const { data: rawEmployees = [] } = useQuery({
     queryKey: ['hr', 'reports', 'employees', currentOrgId],
     queryFn: () => listEmployeesForReports({ orgId: currentOrgId ?? undefined }),
     enabled: canReadEmployees && Boolean(currentOrgId),
   });
-
   const { data: rawPayrollRuns = [] } = useQuery({
     queryKey: ['hr', 'reports', 'payroll-trends', currentOrgId],
     queryFn: () => listPayrollRunsForReport({
-      orgId: currentOrgId ?? undefined,
-      from: dashboardFromDate,
-      to: DEFAULT_TO_DATE,
+      orgId: currentOrgId ?? undefined, from: dashboardFromDate, to: DEFAULT_TO_DATE,
     }),
     enabled: canReadPayroll && Boolean(currentOrgId),
   });
-
   const employees = useMemo(
-    () => canReadEmployees ? rawEmployees : [],
-    [canReadEmployees, rawEmployees],
+    () => canReadEmployees ? rawEmployees : [], [canReadEmployees, rawEmployees],
   );
   const payrollRuns = useMemo(
-    () => canReadPayroll ? rawPayrollRuns : [],
-    [canReadPayroll, rawPayrollRuns],
+    () => canReadPayroll ? rawPayrollRuns : [], [canReadPayroll, rawPayrollRuns],
   );
-
-  const reportTypes = useMemo(
-    () => REPORT_TYPES
-      .filter((report) => reportIsPermitted(report.id, hasPermissionKey))
-      .map((report) => ({
-        ...report,
-        name: t(report.nameKey),
-        description: t(report.descriptionKey),
-      })),
-    [hasPermissionKey, t],
+  const reportTypes = useMemo(() => REPORT_TYPES
+    .filter((report) => reportIsPermitted(report.id, hasPermissionKey))
+    .map((report) => ({ ...report, name: t(report.nameKey),
+      description: t(report.descriptionKey) })), [hasPermissionKey, t]);
+  const departmentDistribution = useMemo(
+    () => toDepartmentDistribution(employees, t), [employees, t],
   );
+  const quickStats = useMemo(
+    () => calculateQuickStats(employees, payrollRuns), [employees, payrollRuns],
+  );
+  return { payrollRuns, reportTypes, departmentDistribution, quickStats };
+}
 
-  const departmentDistribution = useMemo(() => {
-    const report = buildDepartmentAnalysis(employees);
-    return report.rows.map((row) => ({
-      key: String(row.department),
-      name: row.department === UNASSIGNED_DEPARTMENT
-        ? t('reports.unassignedDepartment')
-        : String(row.department),
-      count: Number(row.count),
-      percentage: Number(row.percentage),
-    }));
-  }, [employees, t]);
-
-  const quickStats = useMemo(() => {
-    const activeEmployees = employees.filter((employee) => employee.status === 'active').length;
-    const totalPayroll = payrollRuns.reduce(
-      (sum, run) => sum + Number(run.total_net ?? 0), 0,
-    );
-    return {
-      totalEmployees: employees.length,
-      activeEmployees,
-      totalPayroll,
-      avgSalary: activeEmployees ? totalPayroll / activeEmployees : 0,
-    };
-  }, [employees, payrollRuns]);
-
-  const submittedAllowed = submittedReport
-    ? reportIsPermitted(submittedReport.reportType, hasPermissionKey)
-    : false;
-  const selectedAllowed = selectedReport
-    ? reportIsPermitted(selectedReport, hasPermissionKey)
-    : true;
-
+function useReportLifecycle(
+  state: ReturnType<typeof useReportState>,
+  currentOrgId: string | null,
+  selectedAllowed: boolean,
+  submittedAllowed: boolean,
+) {
+  const queryClient = useQueryClient();
   useEffect(() => {
-    const selectionRevoked = Boolean(selectedReport) && !selectedAllowed;
-    const resultRevoked = Boolean(submittedReport) && !submittedAllowed;
+    const selectionRevoked = Boolean(state.selectedReport) && !selectedAllowed;
+    const resultRevoked = Boolean(state.submittedReport) && !submittedAllowed;
     if (!selectionRevoked && !resultRevoked) return;
-
-    if (selectionRevoked) setSelectedReport('');
-    setSubmittedReport(null);
+    if (selectionRevoked) state.setSelectedReport('');
+    state.setSubmittedReport(null);
     void queryClient.cancelQueries({ queryKey: ['hr-report'] });
     queryClient.removeQueries({ queryKey: ['hr-report'] });
-  }, [queryClient, selectedAllowed, selectedReport, submittedAllowed, submittedReport]);
-
+  }, [queryClient, selectedAllowed, state, submittedAllowed]);
   useEffect(() => {
-    if (!submittedReport || submittedReport.orgId === currentOrgId) return;
-    setSubmittedReport(null);
+    if (!state.submittedReport || state.submittedReport.orgId === currentOrgId) return;
+    state.setSubmittedReport(null);
     void queryClient.cancelQueries({ queryKey: ['hr-report'] });
     queryClient.removeQueries({ queryKey: ['hr-report'] });
-  }, [currentOrgId, queryClient, submittedReport]);
+  }, [currentOrgId, queryClient, state]);
+}
 
-  const reportQuery = useQuery<BuiltReport>({
-    queryKey: ['hr-report', submittedReport?.orgId, generation, submittedReport],
-    enabled: Boolean(submittedReport && submittedAllowed),
-    queryFn: async () => {
-      if (!submittedReport) throw new Error('Report criteria were not submitted.');
-      const { reportType, orgId } = submittedReport;
-
-      if (reportType === 'payroll_summary') {
-        const runs = await listPayrollRunsForReport({
-          orgId,
-          from: submittedReport.dateFrom,
-          to: submittedReport.dateTo,
-        });
-        return buildPayrollSummaryReport(runs);
-      }
-
-      const reportEmployees = await listEmployeesForReports({ orgId });
-      if (reportType === 'employee_list') {
-        return buildEmployeeListReport(reportEmployees, {
-          from: submittedReport.dateFrom,
-          to: submittedReport.dateTo,
-          department: submittedReport.department,
-        });
-      }
-      if (reportType === 'department_analysis') {
-        return buildDepartmentAnalysis(reportEmployees, submittedReport.department);
-      }
-      if (reportType === 'turnover_report') {
-        return buildTurnoverReport(reportEmployees, {
-          from: submittedReport.dateFrom,
-          to: submittedReport.dateTo,
-        });
-      }
-      if (reportType === 'attendance_summary') {
-        const [year, month] = submittedReport.attendanceMonth.split('-').map(Number);
-        const attendance = await listAttendanceForPeriod(
-          reportEmployees.map((employee) => employee.id), year, month,
-        );
-        return buildAttendanceSummaryReport(reportEmployees, attendance);
-      }
-
-      const balances = await listLeaveBalances(
-        reportEmployees.map((employee) => employee.id), orgId,
-      );
-      return buildLeaveBalanceReport(reportEmployees, balances);
-    },
+function useReportOutput(
+  state: ReturnType<typeof useReportState>,
+  submittedAllowed: boolean,
+  t: Translate,
+) {
+  const query = useQuery<BuiltReport>({
+    queryKey: ['hr-report', state.submittedReport?.orgId, state.generation,
+      state.submittedReport],
+    enabled: Boolean(state.submittedReport && submittedAllowed),
+    queryFn: () => generateSubmittedReport(state.submittedReport),
   });
-
-  const resolvedColumns: ResolvedReportColumn[] = useMemo(
-    () => (submittedAllowed ? reportQuery.data?.columns ?? [] : []).map((column) => ({
-      ...column,
-      label: t(column.labelKey),
-    })),
-    [reportQuery.data?.columns, submittedAllowed, t],
+  const columns: ResolvedReportColumn[] = useMemo(
+    () => (submittedAllowed ? query.data?.columns ?? [] : [])
+      .map((column) => ({ ...column, label: t(column.labelKey) })),
+    [query.data?.columns, submittedAllowed, t],
   );
-
-  const displayRows = useMemo(
-    () => (submittedAllowed ? reportQuery.data?.rows ?? [] : []).map((row) =>
-      Object.fromEntries(Object.entries(row).map(([key, value]) => [
-        key,
-        value === UNASSIGNED_DEPARTMENT ? t('reports.unassignedDepartment') : value,
-      ])) as Record<string, ReportValue>),
-    [reportQuery.data?.rows, submittedAllowed, t],
+  const rows = useMemo(
+    () => localizeReportRows(submittedAllowed ? query.data?.rows ?? [] : [], t),
+    [query.data?.rows, submittedAllowed, t],
   );
+  return { query, columns, rows };
+}
 
-  const handleGenerateReport = async () => {
-    if (!selectedReport || !selectedAllowed) return;
+function useReportActions(
+  state: ReturnType<typeof useReportState>,
+  output: ReturnType<typeof useReportOutput>,
+  selectedAllowed: boolean,
+  submittedAllowed: boolean,
+  t: Translate,
+) {
+  const { toast } = useToast();
+  const generate = async () => {
+    if (!state.selectedReport || !selectedAllowed) return;
     const orgId = await getEffectiveTenantId();
     if (!orgId) {
       toast({ title: t('reports.errors.organizationMissing'), variant: 'destructive' });
       return;
     }
-
-    setSubmittedReport({
-      reportType: selectedReport,
-      orgId,
-      dateFrom,
-      dateTo,
-      attendanceMonth,
-      department: selectedDepartment,
-    });
-    setGeneration((value) => value + 1);
+    state.setSubmittedReport({ reportType: state.selectedReport, orgId,
+      dateFrom: state.dateFrom, dateTo: state.dateTo,
+      attendanceMonth: state.attendanceMonth, department: state.selectedDepartment });
+    state.setGeneration((value) => value + 1);
   };
-
-  const handleExport = async () => {
-    if (!reportQuery.data || !submittedAllowed || !displayRows.length) return;
+  const exportReport = async () => {
+    if (!output.query.data || !submittedAllowed || !output.rows.length) return;
     try {
       await exportReportToExcel(
-        resolvedColumns, displayRows, reportQuery.data.filenamePrefix,
+        output.columns, output.rows, output.query.data.filenamePrefix,
       );
       toast({ title: t('reports.export.success') });
     } catch (error) {
@@ -305,109 +284,213 @@ export const ReportsPage: React.FC = () => {
       toast({ title: t('reports.export.failure'), variant: 'destructive' });
     }
   };
+  return { generate, exportReport };
+}
 
-  const showDateFilters = selectedReport
-    ? DATE_FILTER_REPORTS.has(selectedReport)
-    : false;
-  const showDepartmentFilter = selectedReport
-    ? DEPARTMENT_FILTER_REPORTS.has(selectedReport)
-    : false;
-  const iconSpacing = isRtl ? 'ml-2' : 'mr-2';
-  const wideIconSpacing = isRtl ? 'ml-3' : 'mr-3';
+function toDepartmentDistribution(
+  employees: ReportEmployee[],
+  t: Translate,
+): DepartmentDistribution[] {
+  return buildDepartmentAnalysis(employees).rows.map((row) => ({
+    key: String(row.department),
+    name: row.department === UNASSIGNED_DEPARTMENT
+      ? t('reports.unassignedDepartment')
+      : String(row.department),
+    count: Number(row.count),
+    percentage: Number(row.percentage),
+  }));
+}
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-bold tracking-tight">{t('reports.title')}</h1>
-        <p className="text-muted-foreground">{t('reports.subtitle')}</p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatCard color="blue" label={t('reports.stats.totalEmployees')} value={quickStats.totalEmployees.toLocaleString(numberLocale)} icon={Users} />
-        <StatCard color="emerald" label={t('reports.stats.activeEmployees')} value={quickStats.activeEmployees.toLocaleString(numberLocale)} icon={UserCheck} />
-        <StatCard color="purple" label={t('reports.stats.totalPayroll')} value={quickStats.totalPayroll.toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={DollarSign} />
-        <StatCard color="amber" label={t('reports.stats.averageSalary')} value={Math.round(quickStats.avgSalary).toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={TrendingUp} />
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-600" />{t('reports.generator.title')}</CardTitle>
-            <CardDescription>{t('reports.generator.description')}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="hr-report-type">{t('reports.generator.reportType')}</Label>
-                <Select value={selectedReport} onValueChange={(value) => setSelectedReport(value as ReportId)}>
-                  <SelectTrigger id="hr-report-type"><SelectValue placeholder={t('reports.generator.selectReportType')} /></SelectTrigger>
-                  <SelectContent>{reportTypes.map((report) => <SelectItem key={report.id} value={report.id}><div className="flex items-center gap-2"><report.icon className="h-4 w-4" />{report.name}</div></SelectItem>)}</SelectContent>
-                </Select>
-              </div>
-              {showDepartmentFilter && (
-                <div className="space-y-2">
-                  <Label htmlFor="hr-report-department">{t('reports.generator.department')}</Label>
-                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                    <SelectTrigger id="hr-report-department"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">{t('common.allDepartments')}</SelectItem>
-                      {departmentDistribution.map((department) => <SelectItem key={department.key} value={department.key}>{department.name}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-            {showDateFilters && (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2"><Label htmlFor="hr-report-from">{t('reports.generator.fromDate')}</Label><Input id="hr-report-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></div>
-                <div className="space-y-2"><Label htmlFor="hr-report-to">{t('reports.generator.toDate')}</Label><Input id="hr-report-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
-              </div>
-            )}
-            {selectedReport === 'attendance_summary' && (
-              <div className="space-y-2"><Label htmlFor="hr-report-month">{t('reports.generator.month')}</Label><Input id="hr-report-month" type="month" value={attendanceMonth} onChange={(event) => setAttendanceMonth(event.target.value)} /></div>
-            )}
-            <div className="flex gap-3">
-              <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={() => void handleGenerateReport()} disabled={!selectedReport || !selectedAllowed || reportQuery.isFetching}>
-                <FileText className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.generate')}
-              </Button>
-              <Button variant="outline" onClick={() => void handleExport()} disabled={!submittedAllowed || reportQuery.isFetching || !displayRows.length}>
-                <Download className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.exportExcel')}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader><CardTitle className="text-lg">{t('reports.quickReports')}</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            {reportTypes.slice(0, 4).map((report) => (
-              <Button key={report.id} variant="outline" className="w-full justify-start h-auto py-3" onClick={() => setSelectedReport(report.id)}>
-                <report.icon className={`h-4 w-4 ${wideIconSpacing} text-muted-foreground`} />
-                <div className={isRtl ? 'text-right' : 'text-left'}><p className="font-medium">{report.name}</p><p className="text-xs text-muted-foreground">{report.description}</p></div>
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-      </div>
-
-      {submittedReport && submittedAllowed && (
-        <Card data-testid="report-results">
-          <CardHeader><CardTitle>{t('reports.results.title')}</CardTitle><CardDescription>{t('reports.results.description')}</CardDescription></CardHeader>
-          <CardContent>
-            {reportQuery.isFetching && <div className="space-y-3"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>}
-            {!reportQuery.isFetching && reportQuery.isError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">{t('reports.results.error')}: {reportQuery.error instanceof Error ? reportQuery.error.message : ''}</div>}
-            {!reportQuery.isFetching && reportQuery.isSuccess && !displayRows.length && <div className="py-10 text-center text-muted-foreground">{t('reports.results.empty')}</div>}
-            {!reportQuery.isFetching && displayRows.length > 0 && (
-              <div className="overflow-x-auto"><Table><TableHeader><TableRow>{resolvedColumns.map((column) => <TableHead key={column.key}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{displayRows.map((row, index) => <TableRow key={`${submittedReport.reportType}-${index}`}>{resolvedColumns.map((column) => <TableCell key={column.key}>{formatReportValue(row[column.key] ?? '', numberLocale)}</TableCell>)}</TableRow>)}</TableBody></Table></div>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      <DepartmentDistributionCard distribution={departmentDistribution} numberLocale={numberLocale} emptyLabel={t('reports.results.empty')} title={t('reports.departmentDistribution')} />
-      <PayrollTrendsCard payrollRuns={payrollRuns} numberLocale={numberLocale} currency={t('reports.currencyShort')} title={t('reports.payrollTrends')} description={t('reports.payrollTrendsDescription')} emptyLabel={t('reports.noPayrollData')} />
-    </div>
+function calculateQuickStats(
+  employees: ReportEmployee[],
+  payrollRuns: ReportPayrollRun[],
+) {
+  const activeEmployees = employees.filter((employee) => employee.status === 'active').length;
+  const totalPayroll = payrollRuns.reduce(
+    (sum, run) => sum + Number(run.total_net ?? 0), 0,
   );
+  return { totalEmployees: employees.length, activeEmployees, totalPayroll,
+    avgSalary: activeEmployees ? totalPayroll / activeEmployees : 0 };
+}
+
+function localizeReportRows(
+  rows: Array<Record<string, ReportValue>>,
+  t: Translate,
+): Array<Record<string, ReportValue>> {
+  return rows.map((row) => Object.fromEntries(
+    Object.entries(row).map(([key, value]) => [
+      key,
+      value === UNASSIGNED_DEPARTMENT ? t('reports.unassignedDepartment') : value,
+    ]),
+  ) as Record<string, ReportValue>);
+}
+
+export const ReportsPage: React.FC = () => {
+  const { t, i18n } = useHrTranslation();
+  const { currentOrgId } = useAuth();
+  const { hasPermissionKey } = usePermissions();
+  const state = useReportState();
+  const isRtl = i18n.dir() === 'rtl';
+  const numberLocale = isRtl ? 'ar-SA' : 'en-US';
+  const dashboard = useReportDashboard(currentOrgId, hasPermissionKey, t);
+  const submittedAllowed = state.submittedReport
+    ? reportIsPermitted(state.submittedReport.reportType, hasPermissionKey)
+    : false;
+  const selectedAllowed = state.selectedReport
+    ? reportIsPermitted(state.selectedReport, hasPermissionKey)
+    : true;
+  useReportLifecycle(state, currentOrgId, selectedAllowed, submittedAllowed);
+  const output = useReportOutput(state, submittedAllowed, t);
+  const actions = useReportActions(state, output, selectedAllowed, submittedAllowed, t);
+  return <ReportsPageLayout t={t} isRtl={isRtl} numberLocale={numberLocale}
+    state={state} dashboard={dashboard} output={output} actions={actions}
+    selectedAllowed={selectedAllowed} submittedAllowed={submittedAllowed} />;
+};
+
+type ReportsPageLayoutProps = {
+  t: Translate;
+  isRtl: boolean;
+  numberLocale: string;
+  state: ReturnType<typeof useReportState>;
+  dashboard: ReturnType<typeof useReportDashboard>;
+  output: ReturnType<typeof useReportOutput>;
+  actions: ReturnType<typeof useReportActions>;
+  selectedAllowed: boolean;
+  submittedAllowed: boolean;
+};
+
+const ReportsPageLayout = (props: ReportsPageLayoutProps) => {
+  const { t, isRtl, numberLocale, state, dashboard, output, actions,
+    selectedAllowed, submittedAllowed } = props;
+  const showDates = Boolean(state.selectedReport
+    && DATE_FILTER_REPORTS.has(state.selectedReport));
+  const showDepartment = Boolean(state.selectedReport
+    && DEPARTMENT_FILTER_REPORTS.has(state.selectedReport));
+  const iconSpacing = isRtl ? 'ml-2' : 'mr-2';
+  return <div className="space-y-6">
+    <div className="flex flex-col gap-2"><h1 className="text-3xl font-bold tracking-tight">{t('reports.title')}</h1><p className="text-muted-foreground">{t('reports.subtitle')}</p></div>
+    <div className="grid gap-4 md:grid-cols-4">
+      <StatCard color="blue" label={t('reports.stats.totalEmployees')} value={dashboard.quickStats.totalEmployees.toLocaleString(numberLocale)} icon={Users} />
+      <StatCard color="emerald" label={t('reports.stats.activeEmployees')} value={dashboard.quickStats.activeEmployees.toLocaleString(numberLocale)} icon={UserCheck} />
+      <StatCard color="purple" label={t('reports.stats.totalPayroll')} value={dashboard.quickStats.totalPayroll.toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={DollarSign} />
+      <StatCard color="amber" label={t('reports.stats.averageSalary')} value={Math.round(dashboard.quickStats.avgSalary).toLocaleString(numberLocale)} suffix={t('reports.currencyShort')} icon={TrendingUp} />
+    </div>
+    <div className="grid gap-6 lg:grid-cols-3"><ReportGeneratorCard t={t}
+      reportTypes={dashboard.reportTypes} selectedReport={state.selectedReport}
+      setSelectedReport={state.setSelectedReport} showDepartmentFilter={showDepartment}
+      selectedDepartment={state.selectedDepartment} setSelectedDepartment={state.setSelectedDepartment}
+      departmentDistribution={dashboard.departmentDistribution} showDateFilters={showDates}
+      dateFrom={state.dateFrom} setDateFrom={state.setDateFrom} dateTo={state.dateTo}
+      setDateTo={state.setDateTo} attendanceMonth={state.attendanceMonth}
+      setAttendanceMonth={state.setAttendanceMonth} selectedAllowed={selectedAllowed}
+      submittedAllowed={submittedAllowed} isFetching={output.query.isFetching}
+      hasRows={Boolean(output.rows.length)} iconSpacing={iconSpacing}
+      onGenerate={actions.generate} onExport={actions.exportReport} />
+      <QuickReportsCard t={t} reports={dashboard.reportTypes} isRtl={isRtl}
+        onSelect={state.setSelectedReport} />
+    </div>
+    <ReportResultsCard visible={Boolean(state.submittedReport && submittedAllowed)}
+      reportType={state.submittedReport?.reportType} t={t} numberLocale={numberLocale}
+      columns={output.columns} rows={output.rows} isFetching={output.query.isFetching}
+      isError={output.query.isError} isSuccess={output.query.isSuccess}
+      error={output.query.error} />
+    <DepartmentDistributionCard distribution={dashboard.departmentDistribution} numberLocale={numberLocale} emptyLabel={t('reports.results.empty')} title={t('reports.departmentDistribution')} />
+    <PayrollTrendsCard payrollRuns={dashboard.payrollRuns} numberLocale={numberLocale} currency={t('reports.currencyShort')} title={t('reports.payrollTrends')} description={t('reports.payrollTrendsDescription')} emptyLabel={t('reports.noPayrollData')} />
+  </div>;
+};
+
+const QuickReportsCard = ({ t, reports, isRtl, onSelect }: {
+  t: Translate;
+  reports: Array<ReportDefinition & { name: string; description: string }>;
+  isRtl: boolean;
+  onSelect: React.Dispatch<React.SetStateAction<ReportId | ''>>;
+}) => <Card><CardHeader><CardTitle className="text-lg">{t('reports.quickReports')}</CardTitle></CardHeader><CardContent className="space-y-2">
+  {reports.slice(0, 4).map((report) => <Button key={report.id} variant="outline" className="w-full justify-start h-auto py-3" onClick={() => onSelect(report.id)}>
+    <report.icon className={`h-4 w-4 ${isRtl ? 'ml-3' : 'mr-3'} text-muted-foreground`} />
+    <div className={isRtl ? 'text-right' : 'text-left'}><p className="font-medium">{report.name}</p><p className="text-xs text-muted-foreground">{report.description}</p></div>
+  </Button>)}
+</CardContent></Card>;
+
+type ReportGeneratorCardProps = {
+  t: (key: string) => string;
+  reportTypes: Array<ReportDefinition & { name: string; description: string }>;
+  selectedReport: ReportId | '';
+  setSelectedReport: React.Dispatch<React.SetStateAction<ReportId | ''>>;
+  showDepartmentFilter: boolean;
+  selectedDepartment: string;
+  setSelectedDepartment: React.Dispatch<React.SetStateAction<string>>;
+  departmentDistribution: DepartmentDistribution[];
+  showDateFilters: boolean;
+  dateFrom: string;
+  setDateFrom: React.Dispatch<React.SetStateAction<string>>;
+  dateTo: string;
+  setDateTo: React.Dispatch<React.SetStateAction<string>>;
+  attendanceMonth: string;
+  setAttendanceMonth: React.Dispatch<React.SetStateAction<string>>;
+  selectedAllowed: boolean;
+  submittedAllowed: boolean;
+  isFetching: boolean;
+  hasRows: boolean;
+  iconSpacing: string;
+  onGenerate: () => Promise<void>;
+  onExport: () => Promise<void>;
+};
+
+const ReportGeneratorCard = (props: ReportGeneratorCardProps) => {
+  const { t, reportTypes, selectedReport, setSelectedReport, showDepartmentFilter,
+    selectedDepartment, setSelectedDepartment, departmentDistribution, showDateFilters,
+    dateFrom, setDateFrom, dateTo, setDateTo, attendanceMonth, setAttendanceMonth,
+    selectedAllowed, submittedAllowed, isFetching, hasRows, iconSpacing,
+    onGenerate, onExport } = props;
+  return <Card className="lg:col-span-2"><CardHeader>
+    <CardTitle className="flex items-center gap-2"><FileSpreadsheet className="h-5 w-5 text-teal-600" />{t('reports.generator.title')}</CardTitle>
+    <CardDescription>{t('reports.generator.description')}</CardDescription>
+  </CardHeader><CardContent className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-2"><div className="space-y-2">
+      <Label htmlFor="hr-report-type">{t('reports.generator.reportType')}</Label>
+      <Select value={selectedReport} onValueChange={(value) => setSelectedReport(value as ReportId)}><SelectTrigger id="hr-report-type"><SelectValue placeholder={t('reports.generator.selectReportType')} /></SelectTrigger><SelectContent>{reportTypes.map((report) => <SelectItem key={report.id} value={report.id}><div className="flex items-center gap-2"><report.icon className="h-4 w-4" />{report.name}</div></SelectItem>)}</SelectContent></Select>
+    </div>{showDepartmentFilter && <div className="space-y-2">
+      <Label htmlFor="hr-report-department">{t('reports.generator.department')}</Label>
+      <Select value={selectedDepartment} onValueChange={setSelectedDepartment}><SelectTrigger id="hr-report-department"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">{t('common.allDepartments')}</SelectItem>{departmentDistribution.map((department) => <SelectItem key={department.key} value={department.key}>{department.name}</SelectItem>)}</SelectContent></Select>
+    </div>}</div>
+    {showDateFilters && <div className="grid gap-4 md:grid-cols-2">
+      <div className="space-y-2"><Label htmlFor="hr-report-from">{t('reports.generator.fromDate')}</Label><Input id="hr-report-from" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} /></div>
+      <div className="space-y-2"><Label htmlFor="hr-report-to">{t('reports.generator.toDate')}</Label><Input id="hr-report-to" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} /></div>
+    </div>}
+    {selectedReport === 'attendance_summary' && <div className="space-y-2"><Label htmlFor="hr-report-month">{t('reports.generator.month')}</Label><Input id="hr-report-month" type="month" value={attendanceMonth} onChange={(event) => setAttendanceMonth(event.target.value)} /></div>}
+    <div className="flex gap-3">
+      <Button className="flex-1 bg-teal-600 hover:bg-teal-700" onClick={() => void onGenerate()} disabled={!selectedReport || !selectedAllowed || isFetching}><FileText className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.generate')}</Button>
+      <Button variant="outline" onClick={() => void onExport()} disabled={!submittedAllowed || isFetching || !hasRows}><Download className={`h-4 w-4 ${iconSpacing}`} />{t('reports.generator.exportExcel')}</Button>
+    </div>
+  </CardContent></Card>;
+};
+
+type ReportResultsCardProps = {
+  visible: boolean;
+  reportType?: ReportId;
+  t: (key: string) => string;
+  numberLocale: string;
+  columns: ResolvedReportColumn[];
+  rows: Array<Record<string, ReportValue>>;
+  isFetching: boolean;
+  isError: boolean;
+  isSuccess: boolean;
+  error: unknown;
+};
+
+const ReportResultsCard = (props: ReportResultsCardProps) => {
+  const { visible, reportType, t, numberLocale, columns, rows,
+    isFetching, isError, isSuccess, error } = props;
+  if (!visible) return null;
+  return <Card data-testid="report-results">
+    <CardHeader><CardTitle>{t('reports.results.title')}</CardTitle><CardDescription>{t('reports.results.description')}</CardDescription></CardHeader>
+    <CardContent>
+      {isFetching && <div className="space-y-3"><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-full" /></div>}
+      {!isFetching && isError && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-destructive">{t('reports.results.error')}: {error instanceof Error ? error.message : ''}</div>}
+      {!isFetching && isSuccess && !rows.length && <div className="py-10 text-center text-muted-foreground">{t('reports.results.empty')}</div>}
+      {!isFetching && rows.length > 0 && <div className="overflow-x-auto"><Table><TableHeader><TableRow>{columns.map((column) => <TableHead key={column.key}>{column.label}</TableHead>)}</TableRow></TableHeader><TableBody>{rows.map((row, index) => <TableRow key={`${reportType}-${index}`}>{columns.map((column) => <TableCell key={column.key}>{formatReportValue(row[column.key] ?? '', numberLocale)}</TableCell>)}</TableRow>)}</TableBody></Table></div>}
+    </CardContent>
+  </Card>;
 };
 
 type StatCardProps = {
