@@ -2,9 +2,11 @@
 
 ## Status and authority boundary
 
-Migration 187 is a repository proposal. It is not merged and has not been
-applied to Production. This runbook does not authorize a merge, a Production
-migration, or historical data repair. Each requires its own explicit decision.
+Migration 187 was merged through PR #216 at `e2b6a075` and applied to
+Production as `20260903202341 / 187_stock_adjustment_ledger_idempotency`.
+Baseline cutoff 187 was then published through PR #217 at `3917231b`. This
+runbook records those completed decisions; it does not authorize historical
+data repair or any later Production change.
 
 The migration is additive and transactional. It creates one partial unique
 index, one source/identity guard, two source-aware helper overloads, and replaces the
@@ -105,33 +107,42 @@ The race is deterministic rather than two merely backgrounded calls: a blocker
 transaction holds the bin row, the script polls `pg_stat_activity` until both
 callers are waiting on a lock, and only then releases contention.
 
-## Pre-Production review
+## Executed pre-Production review
 
-Before any separately authorized Production apply:
+Before the separately authorized Production apply, the reviewed process:
 
-1. merge only the exact reviewed PR head;
-2. require the full Fresh DB chain and the dedicated v187 acceptance workflow;
-3. re-run the read-only duplicate and source-line audit;
-4. confirm the migration ledger still ends at 186;
-5. confirm no non-NULL-source duplicate would violate the partial index;
-6. record row counts, stock quantity/value totals, and the known historical IDs;
-7. confirm `rpc_submit_stock_adjustment` and both historical helpers still match
+1. merged only the exact reviewed PR head;
+2. required the full Fresh DB chain and the dedicated v187 acceptance workflow;
+3. re-ran the read-only duplicate and source-line audit;
+4. confirmed the migration ledger still ended at 186;
+5. confirmed no non-NULL-source duplicate would violate the partial index;
+6. recorded row counts, stock quantity/value totals, and the known historical IDs;
+7. confirmed `rpc_submit_stock_adjustment` and both historical helpers matched
    their reviewed definitions; and
-8. use the repository-first Production workflow, not an ad-hoc dashboard edit.
+8. used the repository-first Production workflow, not an ad-hoc dashboard edit.
 
-## Postflight after a separately authorized apply
+## Production postflight evidence
 
-Record raw query output proving:
+The separately authorized apply and its read-only postflight proved:
 
-- Migration 187 is present exactly once in the ledger;
-- the partial unique index is valid and ready;
-- the trigger is enabled for INSERT and identity/source-column UPDATE events;
-- the source-aware overloads exist with the reviewed ACLs;
-- the submission RPC contains `v_item.id` propagation;
-- the five historical rows and the two known duplicate IDs are unchanged;
-- stock row counts and quantity/value totals are unchanged by migration apply;
-- no non-NULL-source Stock Adjustment duplicate exists; and
+- Migration 187 is present exactly once as `20260903202341`;
+- `uq_sle_stock_adjustment_voucher_product_warehouse_v187` is valid and ready;
+- `trg_sle_stock_adjustment_source_line_v187` is enabled for INSERT and updates
+  to the identity/source columns;
+- both source-aware overloads exist and are executable only by `service_role`
+  (besides the owner);
+- `rpc_submit_stock_adjustment(uuid)` contains `v_item.id` propagation and
+  remains executable by `authenticated` and `service_role`, not `PUBLIC`/`anon`;
+- all five historical SLE rows and the two known duplicate IDs are unchanged;
+- the preserved totals are quantity `1400` and value difference `14250`;
+- zero non-NULL-source Stock Adjustment duplicate groups exist;
+- the one historical NULL-source duplicate group remains outside the prospective
+  index by design; and
 - no unexpected Supabase security or performance advisor regression appeared.
+
+A read-only recheck on 2026-09-04 reconfirmed the ledger entry, index, trigger,
+ACLs, RPC propagation, five-row history, both known IDs, zero source-aware rows,
+zero source-aware duplicate groups, and the single historical NULL-source group.
 
 ## Recovery
 
