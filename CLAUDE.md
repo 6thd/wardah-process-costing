@@ -1,6 +1,6 @@
 # Wardah Process Costing — Project Manifest
 
-**آخر تحديث موثق:** 2026-09-03
+**آخر تحديث موثق:** 2026-09-05
 **Repository:** `6thd/wardah-process-costing`  
 **Supabase project:** `uutfztmqvajmsxnrqeiv`
 
@@ -184,12 +184,14 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   دون حذف أو backfill تخميني. نُشر زوج الـBaseline عبر PR #217 المدموج عند
   `3917231`، وراجعت وثائق المختبر عبر PR #218 المدموج عند `8e26fc8`.
 - `sql/migrations/188_hr_multi_org_rls.sql` +
-  `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md` — **اقتراح repository فقط؛ غير مدموج
-  وغير مطبق على Production**: يغلق Issue #222 عبر استبدال 75 سياسة HR قديمة على
+  `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md` — **Migration 188 مدموجة عبر PR #223
+  ومطبقة على Production (`20260905070642`)**: تعالج Issue #222 عبر استبدال 75 سياسة HR قديمة على
   19 جدولًا كانت إمّا تنهار مع عضويتين نشطتين، أو تختار `LIMIT 1` بلا ترتيب، أو
   تقاطع المؤسسة الصريحة مع fallback `wardah_org_id(NULL)`. يحافظ على سرية P13
-  وبوابات `admin/manager` الحالية، ولا يطوي ترحيل RBAC المتابع في #156. يحتاج
-  قرار دمج مستقل ثم تفويض Production مستقل.
+  وبوابات `admin/manager` الحالية، ولا يطوي ترحيل RBAC المتابع في #156 ولا قناة
+  اختيار المؤسسة FU-6. postflight الحي أثبت 75 policy، كلها `authenticated`، وصفر
+  legacy selector أو policy بلا حارس. ولّد run `33952026388` زوج Baseline cutoff
+  188 في Draft PR #224؛ نشره إلى `main` يبقى قرار مراجعة ودمج مستقلًا.
 
 ## Baseline
 
