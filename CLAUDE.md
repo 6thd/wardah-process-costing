@@ -29,9 +29,9 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
 <!-- DATABASE_STATE_START -->
 الحالة الحية الموثقة بعد Baseline المولد في 2026-09-05:
 
-- Baseline الحالي: `000_schema_baseline_20260905_071549.sql`, cutoff 188.
-- Production: مطبقة حتى 188 (`188_hr_multi_org_rls`).
-- Repository: أعلى migration مرقمة هي 188.
+- Baseline الحالي: `000_schema_baseline_20260905_184634.sql`, cutoff 189.
+- Production: مطبقة حتى 189 (`189_hr_read_rbac_alignment`).
+- Repository: أعلى migration مرقمة هي 189.
 - Fresh DB: لا توجد migrations معلقة بعد cutoff عند لحظة التوليد.
 - لا تعدّ أي migration مطبقة حيًا لمجرد نجاح Fresh DB؛ سجل Production هو المرجع.
 <!-- DATABASE_STATE_END -->
