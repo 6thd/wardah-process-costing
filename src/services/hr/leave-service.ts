@@ -1,6 +1,9 @@
 import { supabase, getEffectiveTenantId } from '@/lib/supabase';
 import { setDayStatusFallback } from './attendance-service';
-import { getHrPolicies, type HrPolicies } from './policies-service';
+import {
+  getHrPoliciesReadOnly,
+  type HrPolicies,
+} from './policies-service';
 
 export interface LeaveRequest {
   id: string;
@@ -237,75 +240,171 @@ export async function rejectLeaveRequest(
 
 /**
  * Compute the leave balance for an employee.
- * Reference date = hire_date (or last approved settlement's service_end if earlier).
+ * Reference date = hire_date (or the latest approved settlement's service_end if later).
  * Accrual is prorated; used days = total_days of approved paid leaves since referenceDate.
  */
-export async function getLeaveBalance(
-  employeeId: string,
-): Promise<LeaveBalanceResult> {
-  const orgId = await getEffectiveTenantId();
-  if (!orgId) throw new Error('Organization not found.');
+type LeaveBalanceRow = {
+  employee_id: string;
+  start_date: string;
+  total_days: number;
+  leave_type: { is_paid: boolean } | Array<{ is_paid: boolean }> | null;
+};
 
-  const [{ data: emp }, { data: settl }, { data: usedRows }, policies] =
-    await Promise.all([
-      supabase
-        .from('employees')
-        .select('hire_date')
-        .eq('id', employeeId)
-        .eq('org_id', orgId)
-        .maybeSingle(),
-      // Last approved EOS settlement gives the watermark
-      supabase
-        .from('hr_settlements')
-        .select('service_end')
-        .eq('employee_id', employeeId)
-        .eq('org_id', orgId)
-        .eq('status', 'approved')
-        .order('service_end', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from('employee_leaves')
-        .select(
-          `total_days, leave_type:leave_types(is_paid)`,
-        )
-        .eq('employee_id', employeeId)
-        .eq('org_id', orgId)
-        .eq('status', 'approved'),
-      getHrPolicies(),
-    ]);
+type LeaveBalanceEmployee = {
+  id: string;
+  hire_date: string;
+};
 
-  const hireDate = emp?.hire_date ? new Date(emp.hire_date) : new Date();
-  const watermark: Date = settl?.service_end
-    ? new Date(settl.service_end)
+type LeaveSettlementRow = {
+  employee_id: string;
+  service_end: string | null;
+};
+
+async function loadLeaveBalanceSources(employeeIds: string[], orgId: string) {
+  const [employees, settlements, leaves, policies] = await Promise.all([
+    supabase.from('employees').select('id, hire_date')
+      .eq('org_id', orgId).in('id', employeeIds),
+    supabase.from('hr_settlements').select('employee_id, service_end')
+      .eq('org_id', orgId).in('employee_id', employeeIds).eq('status', 'approved'),
+    supabase.from('employee_leaves')
+      .select('employee_id, start_date, total_days, leave_type:leave_types(is_paid)')
+      .eq('org_id', orgId).in('employee_id', employeeIds).eq('status', 'approved'),
+    getHrPoliciesReadOnly(orgId),
+  ]);
+  if (employees.error) throw new Error(employees.error.message);
+  if (settlements.error) throw new Error(settlements.error.message);
+  if (leaves.error) throw new Error(leaves.error.message);
+  return { employees: (employees.data ?? []) as LeaveBalanceEmployee[],
+    settlements: (settlements.data ?? []) as LeaveSettlementRow[],
+    leaves: (leaves.data ?? []) as LeaveBalanceRow[], policies };
+}
+
+function latestSettlementsByEmployee(
+  settlements: LeaveSettlementRow[],
+): Map<string, Date> {
+  const latest = new Map<string, Date>();
+  for (const settlement of settlements) {
+    if (!settlement.service_end) continue;
+    const serviceEnd = new Date(settlement.service_end);
+    const current = latest.get(settlement.employee_id);
+    if (!current || serviceEnd > current) latest.set(settlement.employee_id, serviceEnd);
+  }
+  return latest;
+}
+
+function leavesByEmployee(
+  leaves: LeaveBalanceRow[],
+): Map<string, LeaveBalanceRow[]> {
+  const indexed = new Map<string, LeaveBalanceRow[]>();
+  for (const leave of leaves) {
+    const rows = indexed.get(leave.employee_id) ?? [];
+    rows.push(leave);
+    indexed.set(leave.employee_id, rows);
+  }
+  return indexed;
+}
+
+function calculateEmployeeLeaveBalance(
+  employee: LeaveBalanceEmployee,
+  settlementWatermark: Date | undefined,
+  leaves: LeaveBalanceRow[],
+  policies: HrPolicies,
+  now: Date,
+): LeaveBalanceResult {
+  const hireDate = new Date(employee.hire_date);
+  const referenceDate = settlementWatermark && settlementWatermark > hireDate
+    ? settlementWatermark
     : hireDate;
-  const referenceDate = watermark > hireDate ? watermark : hireDate;
-
-  const now = new Date();
   const yearsOfService =
     (now.getTime() - hireDate.getTime()) / (365.25 * 86_400_000);
   const entitlementPerYear = computeLeaveEntitlement(yearsOfService, policies);
   const accrued = computeLeaveAccrual(referenceDate, now, entitlementPerYear);
-
-  // Sum approved paid leave days since referenceDate
-  const usedDays = ((usedRows ?? []) as Array<{
-    total_days: number;
-    leave_type: { is_paid: boolean } | Array<{ is_paid: boolean }> | null;
-  }>).reduce((sum, r) => {
-    const lt = Array.isArray(r.leave_type) ? r.leave_type[0] : r.leave_type;
-    return lt?.is_paid ? sum + r.total_days : sum;
+  const used = leaves.reduce((sum, leave) => {
+    const leaveType = Array.isArray(leave.leave_type)
+      ? leave.leave_type[0]
+      : leave.leave_type;
+    return leaveType?.is_paid && new Date(leave.start_date) >= referenceDate
+      ? sum + leave.total_days
+      : sum;
   }, 0);
 
   return {
     entitlementPerYear,
     accrued,
-    used: usedDays,
-    balance: computeLeaveBalance(accrued, usedDays),
+    used,
+    balance: computeLeaveBalance(accrued, used),
     referenceDate: referenceDate.toISOString().split('T')[0],
   };
 }
 
+export async function listLeaveBalances(
+  employeeIds: string[],
+  suppliedOrgId?: string,
+): Promise<Map<string, LeaveBalanceResult>> {
+  if (!employeeIds.length) return new Map();
+
+  const orgId = suppliedOrgId ?? await getEffectiveTenantId();
+  if (!orgId) throw new Error('Organization not found.');
+  const { employees, settlements, leaves, policies } =
+    await loadLeaveBalanceSources(employeeIds, orgId);
+  const latestSettlement = latestSettlementsByEmployee(settlements);
+  const indexedLeaves = leavesByEmployee(leaves);
+
+  const now = new Date();
+  const balances = new Map<string, LeaveBalanceResult>();
+  for (const employee of employees) {
+    balances.set(employee.id, calculateEmployeeLeaveBalance(
+      employee,
+      latestSettlement.get(employee.id),
+      indexedLeaves.get(employee.id) ?? [],
+      policies,
+      now,
+    ));
+  }
+
+  return balances;
+}
+
+export async function getLeaveBalance(
+  employeeId: string,
+): Promise<LeaveBalanceResult> {
+  const balance = (await listLeaveBalances([employeeId])).get(employeeId);
+  if (!balance) throw new Error('Employee not found.');
+  return balance;
+}
+
 // ─── Kept from original ────────────────────────────────────────────────────
+
+type AttendanceSyncLeave = {
+  employee_id: string;
+  start_date: string;
+  end_date: string;
+  status: string;
+  leave_type: { code?: string | null } | Array<{ code?: string | null }> | null;
+};
+
+function leaveAttendanceReason(leave: AttendanceSyncLeave): string {
+  const leaveType = Array.isArray(leave.leave_type)
+    ? leave.leave_type[0]
+    : leave.leave_type;
+  return (leaveType?.code ?? '').toUpperCase().includes('SICK') ? 'sick' : 'annual';
+}
+
+function inclusiveDateRange(startDate: string, endDate: string): string[] {
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    throw new Error('Invalid leave dates.');
+  }
+
+  const dates: string[] = [];
+  const current = new Date(start);
+  while (current <= end) {
+    dates.push(current.toISOString().split('T')[0]);
+    current.setUTCDate(current.getUTCDate() + 1);
+  }
+  return dates;
+}
 
 export async function applyApprovedLeaveToAttendance(leaveId: string) {
   const orgId = await getEffectiveTenantId();
@@ -338,33 +437,13 @@ export async function applyApprovedLeaveToAttendance(leaveId: string) {
     return;
   }
 
-  const leaveType = Array.isArray(leave.leave_type)
-    ? leave.leave_type[0]
-    : leave.leave_type;
-  const leaveCode: string = (leaveType?.code ?? '') || '';
-  const normalized = leaveCode.toUpperCase();
-  const status = 'leave';
-  let reason = 'annual';
-  if (normalized.includes('SICK')) {
-    reason = 'sick';
-  }
-
-  const start = new Date(leave.start_date);
-  const end = new Date(leave.end_date);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    throw new Error('Invalid leave dates.');
-  }
-
-  const dates: string[] = [];
-  const current = new Date(start);
-  while (current <= end) {
-    dates.push(current.toISOString().split('T')[0]);
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
+  const approvedLeave = leave as AttendanceSyncLeave;
+  const reason = leaveAttendanceReason(approvedLeave);
+  const dates = inclusiveDateRange(approvedLeave.start_date, approvedLeave.end_date);
 
   for (const date of dates) {
-    await setDayStatusFallback(leave.employee_id, date, {
-      status,
+    await setDayStatusFallback(approvedLeave.employee_id, date, {
+      status: 'leave',
       notes: `leave-request:${reason}`,
       source: 'leave-request',
     });
