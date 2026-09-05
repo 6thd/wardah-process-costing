@@ -1,0 +1,119 @@
+name: HR exact read RBAC 189
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/189_hr_read_rbac_alignment.sql'
+      - 'scripts/ci/fresh-db/setup_189_hr_read_rbac.sql'
+      - 'scripts/ci/fresh-db/acceptance_189_hr_read_rbac_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_189_hr_read_rbac.sql'
+      - '.github/workflows/hr-read-rbac-189-acceptance.yml'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Prove exact HR read permissions Red then Green
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_189
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve cutoff-188 upgrade chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 189)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/hr-189-order-full.txt
+          grep -q '^189_hr_read_rbac_alignment.sql$' /tmp/hr-189-order-full.txt
+          sed '/^189_hr_read_rbac_alignment.sql$/,$d' \
+            /tmp/hr-189-order-full.txt > /tmp/hr-189-pre-order.txt
+
+      - name: Build pre-189 database and fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+          REPORT=/tmp/hr-189-pre-chain.txt \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/hr-189-pre-order.txt
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/setup_189_hr_read_rbac.sql \
+            2>&1 | tee /tmp/hr-189-setup.out
+          grep -q 'HR_189_SETUP_PASS' /tmp/hr-189-setup.out
+
+      - name: Red proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_189_hr_read_rbac_red.sql \
+            2>&1 | tee /tmp/hr-189-red.out
+          grep -q 'HR_189_RED_PROOF_PASS' /tmp/hr-189-red.out
+          grep -q 'HR_189_RED_ACCEPTANCE_PASS' /tmp/hr-189-red.out
+
+      - name: Apply Migration 189
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/189_hr_read_rbac_alignment.sql \
+            2>&1 | tee /tmp/hr-189-migration.out
+          grep -q 'HR_189_POSTFLIGHT_PASS' /tmp/hr-189-migration.out
+
+      - name: Green acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_189_hr_read_rbac.sql \
+            2>&1 | tee /tmp/hr-189-green.out
+          grep -q 'HR_189_GREEN_CATALOG_OK' /tmp/hr-189-green.out
+          grep -q 'HR_189_GREEN_ACCEPTANCE_PASS' /tmp/hr-189-green.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-read-rbac-189-${{ github.run_id }}
+          path: |
+            /tmp/hr-189-order-full.txt
+            /tmp/hr-189-pre-order.txt
+            /tmp/hr-189-pre-chain.txt
+            /tmp/hr-189-setup.out
+            /tmp/hr-189-red.out
+            /tmp/hr-189-migration.out
+            /tmp/hr-189-green.out
+          retention-days: 30
