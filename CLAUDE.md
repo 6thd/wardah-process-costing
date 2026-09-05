@@ -191,7 +191,7 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   وبوابات `admin/manager` الحالية، ولا يطوي ترحيل RBAC المتابع في #156 ولا قناة
   اختيار المؤسسة FU-6. postflight الحي أثبت 75 policy، كلها `authenticated`، وصفر
   legacy selector أو policy بلا حارس. ولّد run `33952026388` زوج Baseline cutoff
-  188 في Draft PR #224؛ نشره إلى `main` يبقى قرار مراجعة ودمج مستقلًا.
+  188، ونشره PR #224 عند merge commit `20746954`.
 
 ## Baseline
 
