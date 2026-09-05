@@ -6,12 +6,12 @@
 
 ## الجوهر المطبَّق على قاعدة البيانات الحية ✅
 
-> **Repository-only:** Migration **177** (
-> `177_goods_receipt_number_sequence.sql`) تصلح تصادم مولّد أرقام سندات الاستلام
-> الذي كشفه Pilot لـIssue #45. لا تُعد مطبقة حيًا حتى دمج PR قاعدة البيانات ثم
-> تطبيقها والتحقق وفق
-> `docs/db/GOODS_RECEIPT_NUMBER_SEQUENCE_177_RUNBOOK.md`. Migration 176 ما زالت
-> محجوزة لمسار RBAC ولا يشغلها هذا الإصلاح.
+> **Repository-only بعد Production cutoff 187:** Migration **188**
+> (`188_hr_multi_org_rls.sql`) تعالج Issue #222 في PR قاعدة بيانات مستقل. تستبدل
+> محددات المؤسسة غير الآمنة/غير الحتمية في 75 سياسة على 19 جدول HR مع الحفاظ
+> على مستويات الوصول الحالية. لا تُعد مطبقة حيًا حتى دمج PR ثم صدور تفويض
+> Production منفصل والتحقق وفق
+> `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md`.
 
 | Migration | الغرض | الحالة |
 |---|---|---|
