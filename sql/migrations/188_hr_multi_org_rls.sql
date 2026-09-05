@@ -68,6 +68,8 @@ DECLARE
     ARRAY[v_employee_table] || v_dimension_tables || v_p12_tables || v_p13_tables;
   v_scalar_tables CONSTANT text[] := ARRAY[v_employee_table] || v_dimension_tables;
   v_standard_tables CONSTANT text[] := v_dimension_tables || v_p12_tables;
+  v_public_schema CONSTANT text := 'public';
+  v_drop_policy_sql CONSTANT text := 'DROP POLICY IF EXISTS %I ON public.%I';
   v_admin_role CONSTANT text := 'admin';
   v_manager_role CONSTANT text := 'manager';
   v_missing text;
@@ -86,7 +88,7 @@ BEGIN
   SELECT string_agg(table_name, ', ' ORDER BY table_name)
   INTO v_missing
   FROM unnest(v_all_tables) AS required(table_name)
-  WHERE to_regclass('public.' || table_name) IS NULL;
+  WHERE to_regclass(format('%I.%I', v_public_schema, table_name)) IS NULL;
 
   IF v_missing IS NOT NULL THEN
     RAISE EXCEPTION 'HR_188_REQUIRED_TABLE_MISSING: %', v_missing;
@@ -99,7 +101,7 @@ BEGIN
   SELECT count(*)
   INTO v_policy_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_all_tables);
 
   IF v_policy_count <> 75 THEN
@@ -111,7 +113,7 @@ BEGIN
   SELECT count(*)
   INTO v_scalar_policy_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_scalar_tables)
     AND (coalesce(qual, '') || coalesce(with_check, ''))
       ~* 'org_id\s*=\s*\(\s*SELECT';
@@ -125,7 +127,7 @@ BEGIN
   SELECT count(*)
   INTO v_limit_policy_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_p12_tables)
     AND (coalesce(qual, '') || coalesce(with_check, '')) ~* '\mLIMIT\s+1\M';
 
@@ -138,7 +140,7 @@ BEGIN
   SELECT count(*)
   INTO v_fallback_policy_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_p13_tables)
     AND (coalesce(qual, '') || coalesce(with_check, ''))
       LIKE '%wardah_org_id%';
@@ -208,7 +210,7 @@ BEGIN
   -- 2. Legacy dimensions and P12 tables share the same member-read and
   --    admin/manager-mutation contract, so generate them through one loop.
   FOREACH t IN ARRAY v_standard_tables LOOP
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_del_m', t);
+    EXECUTE format(v_drop_policy_sql, t || '_del_m', t);
     EXECUTE format(
       $policy$
         CREATE POLICY %I ON public.%I FOR DELETE TO authenticated
@@ -223,7 +225,7 @@ BEGIN
       t || '_del_m', t, t, v_admin_role, v_manager_role
     );
 
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_ins_m', t);
+    EXECUTE format(v_drop_policy_sql, t || '_ins_m', t);
     EXECUTE format(
       $policy$
         CREATE POLICY %I ON public.%I FOR INSERT TO authenticated
@@ -238,7 +240,7 @@ BEGIN
       t || '_ins_m', t, t, v_admin_role, v_manager_role
     );
 
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_sel_m', t);
+    EXECUTE format(v_drop_policy_sql, t || '_sel_m', t);
     EXECUTE format(
       $policy$
         CREATE POLICY %I ON public.%I FOR SELECT TO authenticated
@@ -252,7 +254,7 @@ BEGIN
       t || '_sel_m', t, t
     );
 
-    EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t || '_upd_m', t);
+    EXECUTE format(v_drop_policy_sql, t || '_upd_m', t);
     EXECUTE format(
       $policy$
         CREATE POLICY %I ON public.%I FOR UPDATE TO authenticated
@@ -284,7 +286,7 @@ BEGIN
     is_confidential := table_position <= 5;
 
     EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
+      v_drop_policy_sql,
       CASE WHEN is_confidential
         THEN t || '_wardah_admin_select'
         ELSE t || '_wardah_select'
@@ -315,7 +317,7 @@ BEGIN
     END IF;
 
     EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
+      v_drop_policy_sql,
       t || '_wardah_admin_insert', t
     );
     EXECUTE format(
@@ -327,7 +329,7 @@ BEGIN
     );
 
     EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
+      v_drop_policy_sql,
       t || '_wardah_admin_update', t
     );
     EXECUTE format(
@@ -340,7 +342,7 @@ BEGIN
     );
 
     EXECUTE format(
-      'DROP POLICY IF EXISTS %I ON public.%I',
+      v_drop_policy_sql,
       t || '_wardah_admin_delete', t
     );
     EXECUTE format(
@@ -356,7 +358,7 @@ BEGIN
   SELECT count(*)
   INTO v_policy_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_all_tables);
 
   IF v_policy_count <> 75 THEN
@@ -366,7 +368,7 @@ BEGIN
   SELECT count(*)
   INTO v_bad_role_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_all_tables)
     AND roles IS DISTINCT FROM ARRAY['authenticated']::name[];
 
@@ -378,7 +380,7 @@ BEGIN
   SELECT count(*)
   INTO v_legacy_selector_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_all_tables)
     AND (
       (coalesce(qual, '') || coalesce(with_check, ''))
@@ -395,7 +397,7 @@ BEGIN
   SELECT count(*)
   INTO v_unguarded_count
   FROM pg_policies
-  WHERE schemaname = 'public'
+  WHERE schemaname = v_public_schema
     AND tablename = ANY (v_all_tables)
     AND (coalesce(qual, '') || coalesce(with_check, '')) NOT LIKE '%wardah_is_org_member%'
     AND (coalesce(qual, '') || coalesce(with_check, '')) NOT LIKE '%wardah_is_org_admin%'
