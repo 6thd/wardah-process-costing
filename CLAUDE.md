@@ -177,11 +177,19 @@ React 18 + TypeScript + Vite، shadcn/ui + Tailwind، Zustand + TanStack Query،
   المخزون، وSQLSTATE `0A000` للتقاعد؛ زوج Baseline cutoff 186 وُلد في run
   `33734325356` ونُشر عبر PR #214 المدموج عند `3ce8b295`.
 - `sql/migrations/187_stock_adjustment_ledger_idempotency.sql` +
-  `docs/db/STOCK_ADJUSTMENT_IDEMPOTENCY_187_RUNBOOK.md` — **اقتراح repository
-  فقط؛ غير مدموج وغير مطبق على Production**: يصحح تعريف `INV-02` من قيد عالمي
+  `docs/db/STOCK_ADJUSTMENT_IDEMPOTENCY_187_RUNBOOK.md` — **Migration 187 مدموجة
+  ومطبقة على Production، ومنشورة في Baseline cutoff 187**: صححت تعريف `INV-02` من قيد عالمي
   غير قانوني إلى حد prospective خاص بـStock Adjustment، يربط الحركة بسطر
   `stock_adjustment_items`، ويترك تكرار `ADJ-000001` التاريخي ذي المصدر المجهول
-  دون حذف أو backfill تخميني. يحتاج قرار دمج مستقل ثم تفويض Production مستقل.
+  دون حذف أو backfill تخميني. نُشر زوج الـBaseline عبر PR #217 المدموج عند
+  `3917231`، وراجعت وثائق المختبر عبر PR #218 المدموج عند `8e26fc8`.
+- `sql/migrations/188_hr_multi_org_rls.sql` +
+  `docs/db/HR_MULTI_ORG_RLS_188_RUNBOOK.md` — **اقتراح repository فقط؛ غير مدموج
+  وغير مطبق على Production**: يغلق Issue #222 عبر استبدال 75 سياسة HR قديمة على
+  19 جدولًا كانت إمّا تنهار مع عضويتين نشطتين، أو تختار `LIMIT 1` بلا ترتيب، أو
+  تقاطع المؤسسة الصريحة مع fallback `wardah_org_id(NULL)`. يحافظ على سرية P13
+  وبوابات `admin/manager` الحالية، ولا يطوي ترحيل RBAC المتابع في #156. يحتاج
+  قرار دمج مستقل ثم تفويض Production مستقل.
 
 ## Baseline
 

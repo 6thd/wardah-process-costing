@@ -1,0 +1,119 @@
+name: HR multi-organization RLS 188
+
+on:
+  pull_request:
+    paths:
+      - 'sql/migrations/188_hr_multi_org_rls.sql'
+      - 'scripts/ci/fresh-db/setup_188_hr_multi_org_rls.sql'
+      - 'scripts/ci/fresh-db/acceptance_188_hr_multi_org_rls_red.sql'
+      - 'scripts/ci/fresh-db/acceptance_188_hr_multi_org_rls.sql'
+      - '.github/workflows/hr-multi-org-rls-188-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Prove multi-org HR isolation Red then Green
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_188
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve cutoff-187 upgrade chain
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 188)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          CUTOFF=${CUTOFF:-0}
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/hr-188-order-full.txt
+          grep -q '^188_hr_multi_org_rls.sql$' /tmp/hr-188-order-full.txt
+          sed '/^188_hr_multi_org_rls.sql$/,$d' \
+            /tmp/hr-188-order-full.txt > /tmp/hr-188-pre-order.txt
+
+      - name: Build pre-188 database and fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+          REPORT=/tmp/hr-188-pre-chain.txt \
+            bash scripts/ci/fresh-db/run_chain.sh \
+              sql/migrations /tmp/hr-188-pre-order.txt
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/setup_188_hr_multi_org_rls.sql \
+            2>&1 | tee /tmp/hr-188-setup.out
+          grep -q 'HR_188_SETUP_PASS' /tmp/hr-188-setup.out
+
+      - name: Red proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_188_hr_multi_org_rls_red.sql \
+            2>&1 | tee /tmp/hr-188-red.out
+          grep -q 'HR_188_RED_LEGACY_POLICY_SHAPES_OK' /tmp/hr-188-red.out
+          grep -q 'HR_188_RED_PROOF_PASS' /tmp/hr-188-red.out
+
+      - name: Apply Migration 188
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/188_hr_multi_org_rls.sql \
+            2>&1 | tee /tmp/hr-188-migration.out
+          grep -q 'HR_188_POSTFLIGHT_PASS' /tmp/hr-188-migration.out
+
+      - name: Green acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_188_hr_multi_org_rls.sql \
+            2>&1 | tee /tmp/hr-188-green.out
+          grep -q 'HR_188_GREEN_CATALOG_OK' /tmp/hr-188-green.out
+          grep -q 'HR_188_GREEN_ACCEPTANCE_PASS' /tmp/hr-188-green.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hr-multi-org-rls-188-${{ github.run_id }}
+          path: |
+            /tmp/hr-188-order-full.txt
+            /tmp/hr-188-pre-order.txt
+            /tmp/hr-188-pre-chain.txt
+            /tmp/hr-188-setup.out
+            /tmp/hr-188-red.out
+            /tmp/hr-188-migration.out
+            /tmp/hr-188-green.out
+          retention-days: 30
