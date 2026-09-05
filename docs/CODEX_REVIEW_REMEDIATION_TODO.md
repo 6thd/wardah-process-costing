@@ -376,7 +376,7 @@ radius غير مبرَّر الآن (نُقل إلى متابعة FU-1 أدنا�
 | FU-3 | fresh-db: تعريف خدمة Postgres + تمرير cutoff إلى `build_apply_order.py` + استخدام `BASELINE_TS` | P1 | ضمن T3 عمليًا |
 | FU-4 | خطوة CI تولّد `database.generated.ts` وتقارنه (`git diff --exit-code`) بدل فحص عدد الأسطر | P2 | تحتاج secret على staging |
 | FU-5 ◐ | إصلاح **SonarQube Quality Gate** الفاشل على `main` وعلى PRs (شرط «0% تغطية على الكود الجديد ≥80%») | P1 | **معالجة جزئية (2026-07-18)**: `sonar.coverage.exclusions` وُسِّع لـ54 ملف واجهة T6 م3 (18 نمط glob في `sonar-project.properties`)؛ تعليق `sonarqube.yml` صُحِّح ليعكس `qualitygate.wait=true` الفعلي. الـ13 code issue المتبقية غير معروفة بدون لوحة Sonar |
-| FU-6 | قناة اختيار المؤسسة لمتعدد المؤسسات: الواجهة تمرّر المؤسسة المختارة إلى الخادم (JWT claim أو session GUC مُتحقَّق من العضوية) بدل الاعتماد على fallback الأقدم الحتمي | P2 | بعد 121 لا يفقد متعدد المؤسسات الوصول (fallback حتمي)، لكن اختيار الواجهة لا يُحترم في RLS بعد |
+| FU-6 | قناة اختيار المؤسسة لمتعدد المؤسسات: الواجهة تمرّر المؤسسة المختارة إلى الخادم (JWT claim أو session GUC مُتحقَّق من العضوية) بدل الاعتماد على fallback الأقدم الحتمي | P2 | Migration 188 أزالت اختيار العضوية الواحدة من 75 سياسة HR وربطت كل صف بمؤسسته؛ لكنها لا تنقل اختيار الواجهة إلى الخادم، لذلك تبقى FU-6 مفتوحة للـRPCs والجداول التي تستخدم effective-org resolver |
 
 **حالة CI الحقيقية (2026-07-17)**: **CI/CD Pipeline أخضر** على `main` (`084577c`
 بعد PR #23): TypeScript + ESLint + 3602 اختبار + i18n gate (0/0) + فحص SQL +

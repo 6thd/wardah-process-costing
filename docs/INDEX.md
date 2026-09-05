@@ -1,6 +1,6 @@
 # Wardah ERP — Documentation Index
 
-**آخر تحديث:** 2026-09-03  
+**آخر تحديث:** 2026-09-05
 **الحالة:** فهرس حي — الروابط أدناه تشير فقط إلى موارد موجودة في المستودع وقت التحديث.
 
 > المرجع التشغيلي لقاعدة البيانات وCI هو [`CLAUDE.md`](../CLAUDE.md).  
@@ -14,6 +14,8 @@
 - [`architecture/README.md`](./architecture/README.md) — ADRs والمرجع المعماري.
 - [`ai-simulation-lab/README.md`](./ai-simulation-lab/README.md) — فهرس مختبر المحاكاة (Phase 0 مؤجلة حتى إغلاق Round 3).
 - [`ai-simulation-lab/DOCS_REVIEW_20260903.md`](./ai-simulation-lab/DOCS_REVIEW_20260903.md) — مراجعة توثيق المختبر مقابل Baseline cutoff 186.
+- [`ai-simulation-lab/DOCS_REVIEW_20260904.md`](./ai-simulation-lab/DOCS_REVIEW_20260904.md) — متابعة بعد تطبيق ونشر cutoff 187.
+- [`ai-simulation-lab/DOCS_REVIEW_20260905.md`](./ai-simulation-lab/DOCS_REVIEW_20260905.md) — متابعة Migration 188 وBaseline cutoff 188 المنشور واعتماديات HR المفتوحة.
 
 ## قاعدة البيانات والحوكمة
 
