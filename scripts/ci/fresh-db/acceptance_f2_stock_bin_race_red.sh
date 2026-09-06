@@ -13,6 +13,13 @@
 #   empty state. The loser's `ON CONFLICT DO UPDATE` overwrites the winner's
 #   insert with its own (stale) EXCLUDED values instead of the sum of both.
 #
+#   This is behaviorally reproduced below only on the 9-argument overload
+#   (Migration 94/97). The 10-argument source-aware overload (Migration 187,
+#   used by stock adjustments) is not called here; instead a Fresh-DB static
+#   contract assertion proves, via pg_get_functiondef, that it carries the
+#   exact same FOR UPDATE / ON CONFLICT and unlocked-aggregate patterns, so a
+#   fix that only touches one overload cannot silently pass this proof.
+#
 # RED-B: product-aggregate race across two warehouses for one product —
 #   surfaced while building #228's own required "two warehouses, one
 #   product" regression check (acceptance item 6), not part of the original
@@ -38,9 +45,19 @@
 # first to commit. This makes both outcomes deterministic across repeated
 # runs, not probabilistic.
 #
+# Both races freeze quantity AND value evidence: SLE actual_qty/stock_value_
+# difference sums, bins.stock_value, and the product projection (stock_
+# quantity, cost_price, and their implied aggregate value). RED-B uses a
+# different incoming rate per warehouse so the lost weighted-average rate is
+# not masked by both sides happening to agree on the same number.
+#
 # Two control scenarios bound RED-A precisely:
 #   - an existing bin (the FOR UPDATE lock has a row to protect => correct)
 #   - incoming vs outgoing lock ordering on an existing bin (no deadlock)
+# Both controls use the same file-based release handshake as the RED races
+# (lock -> signal ready -> wait for release, released only once the expected
+# waiter count is observed) rather than a fixed sleep, so they cannot become
+# flaky on a slow CI runner.
 #
 # Any failure below is reported with a STOCK_F2_RED_FAIL prefix and a
 # non-zero exit code; a clean run prints STOCK_F2_RED_PROOF_PASS.
@@ -58,6 +75,13 @@ rm -f "${tmp_prefix}"-*.ready "${tmp_prefix}"-*.release \
 fail() {
   echo "STOCK_F2_RED_FAIL: $1" >&2
   exit 1
+}
+
+# Numeric equality that tolerates differing decimal scale/precision across
+# columns (quantity columns are numeric(18,6), value/price columns are
+# numeric(20,4)/numeric(12,2)) instead of brittle exact-string comparison.
+num_eq() {
+  awk -v a="$1" -v b="$2" 'BEGIN { exit (a == b) ? 0 : 1 }'
 }
 
 # Waits until $1 exists, polling every 50ms up to $2 (default 200) tries.
@@ -219,39 +243,118 @@ SELECT
    WHERE product_id = '$a_product' AND warehouse_id = '$a_wh')::text || '|' ||
   (SELECT COALESCE(actual_qty, -1)::text FROM public.bins
    WHERE product_id = '$a_product' AND warehouse_id = '$a_wh') || '|' ||
+  (SELECT COALESCE(stock_value, -1)::text FROM public.bins
+   WHERE product_id = '$a_product' AND warehouse_id = '$a_wh') || '|' ||
   (SELECT count(*) FROM public.stock_ledger_entries
    WHERE product_id = '$a_product' AND warehouse_id = '$a_wh'
      AND voucher_id IN ('$a_voucher_1', '$a_voucher_2'))::text || '|' ||
+  (SELECT COALESCE(SUM(actual_qty), -1)::text FROM public.stock_ledger_entries
+   WHERE product_id = '$a_product' AND warehouse_id = '$a_wh'
+     AND voucher_id IN ('$a_voucher_1', '$a_voucher_2')) || '|' ||
+  (SELECT COALESCE(SUM(stock_value_difference), -1)::text
+   FROM public.stock_ledger_entries
+   WHERE product_id = '$a_product' AND warehouse_id = '$a_wh'
+     AND voucher_id IN ('$a_voucher_1', '$a_voucher_2')) || '|' ||
   (SELECT COALESCE(stock_quantity, -1)::text FROM public.products
+   WHERE id = '$a_product') || '|' ||
+  (SELECT COALESCE(cost_price, -1)::text FROM public.products
    WHERE id = '$a_product')
 SQL
 )
-IFS='|' read -r a_bin_count a_bin_qty a_sle_count a_product_qty <<<"$a_state"
+IFS='|' read -r a_bin_count a_bin_qty a_bin_value a_sle_count a_sle_qty_sum \
+  a_sle_value_sum a_product_qty a_product_cost <<<"$a_state"
 
 [[ "$a_bin_count" == '1' ]] \
   || fail "RED-A: expected exactly one bin row for the racing key; got $a_bin_count"
 [[ "$a_sle_count" == '2' ]] \
   || fail "RED-A: expected both stock-ledger effects to survive; got $a_sle_count rows"
-if [[ "$a_bin_qty" == '12' || "$a_bin_qty" == '12.000000' ]]; then
+num_eq "$a_sle_qty_sum" 12 \
+  || fail "RED-A: stock-ledger quantity effects did not both survive correctly; expected SUM(actual_qty)=12, got $a_sle_qty_sum"
+num_eq "$a_sle_value_sum" 120 \
+  || fail "RED-A: stock-ledger value effects did not both survive correctly; expected SUM(stock_value_difference)=120 (5*10+7*10), got $a_sle_value_sum"
+if num_eq "$a_bin_qty" 12; then
   fail "RED-A: bin quantity equals the correct sum (12) - the lost-update defect did NOT reproduce. Do not treat F2-A as confirmed; re-examine the race before proposing any fix."
 fi
-if [[ "$a_bin_qty" != '5' && "$a_bin_qty" != '5.000000' \
-   && "$a_bin_qty" != '7' && "$a_bin_qty" != '7.000000' ]]; then
+if ! num_eq "$a_bin_qty" 5 && ! num_eq "$a_bin_qty" 7; then
   fail "RED-A: bin quantity ($a_bin_qty) is neither input value nor their sum - unexpected corruption shape, not the documented lost-update signature"
 fi
-[[ "$a_product_qty" == "$a_bin_qty" ]] \
-  || fail "RED-A: product aggregate ($a_product_qty) diverged from its own single bin ($a_bin_qty), a defect beyond the lost update itself"
+if num_eq "$a_bin_value" 120; then
+  fail "RED-A: bin stock_value equals the correct sum (120) - the lost-update defect did NOT reproduce in the valuation. Do not treat F2-A as confirmed; re-examine the race before proposing any fix."
+fi
+if ! num_eq "$a_bin_value" 50 && ! num_eq "$a_bin_value" 70; then
+  fail "RED-A: bin stock_value ($a_bin_value) is neither input value (5*10=50 or 7*10=70) nor their sum - unexpected corruption shape"
+fi
+num_eq "$a_product_qty" "$a_bin_qty" \
+  || fail "RED-A: product aggregate quantity ($a_product_qty) diverged from its own single bin ($a_bin_qty), a defect beyond the lost update itself"
+num_eq "$a_product_cost" 10 \
+  || fail "RED-A: product cost_price ($a_product_cost) diverged from the shared incoming rate (10) even though both increments used the same rate - a defect beyond the lost update itself"
 
-echo "STOCK_F2_REDA_REPRODUCED_OK bin_qty=$a_bin_qty (sum of both effects would be 12; both SLE rows survived; both calls reported success)"
+echo "STOCK_F2_REDA_REPRODUCED_OK bin_qty=$a_bin_qty bin_value=$a_bin_value product_qty=$a_product_qty product_cost=$a_product_cost (correct sum would be qty=12/value=120; both SLE rows survived with correct qty/value; both calls reported success)"
+
+echo '--- Static contract: both wardah_apply_stock_incoming overloads share the vulnerable pattern ---'
+
+"${PSQL[@]}" <<'SQL'
+DO $contract$
+DECLARE
+  v_def_9 text;
+  v_def_10 text;
+BEGIN
+  SELECT pg_get_functiondef(
+    'public.wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date)'::regprocedure
+  ) INTO v_def_9;
+  SELECT pg_get_functiondef(
+    'public.wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)'::regprocedure
+  ) INTO v_def_10;
+
+  IF v_def_9 IS NULL OR v_def_10 IS NULL THEN
+    RAISE EXCEPTION 'STOCK_F2_STATIC_CONTRACT_OVERLOAD_MISSING';
+  END IF;
+
+  -- RED-A shape: locks the bin row (if any) then upserts blindly on conflict.
+  -- Matched with whitespace-tolerant regexes: pg_get_functiondef preserves
+  -- each function's original column-aligned spacing verbatim (the live
+  -- 9-arg body pads "actual_qty     = EXCLUDED.actual_qty" for alignment,
+  -- the 10-arg body does not), so a fixed-spacing substring match would be
+  -- fragile and overfit to one overload's formatting.
+  IF v_def_9 !~ 'product_id\s*=\s*p_product\s+AND\s+warehouse_id\s*=\s*p_warehouse'
+     OR position('FOR UPDATE' in v_def_9) = 0
+     OR v_def_9 !~ 'ON CONFLICT\s*\(product_id,\s*warehouse_id\)\s+DO UPDATE SET'
+     OR v_def_9 !~ 'actual_qty\s*=\s*EXCLUDED\.actual_qty' THEN
+    RAISE EXCEPTION 'STOCK_F2_STATIC_CONTRACT_9ARG_REDA_PATTERN_MISSING';
+  END IF;
+  IF v_def_10 !~ 'product_id\s*=\s*p_product\s+AND\s+warehouse_id\s*=\s*p_warehouse'
+     OR position('FOR UPDATE' in v_def_10) = 0
+     OR v_def_10 !~ 'ON CONFLICT\s*\(product_id,\s*warehouse_id\)\s+DO UPDATE SET'
+     OR v_def_10 !~ 'actual_qty\s*=\s*EXCLUDED\.actual_qty' THEN
+    RAISE EXCEPTION 'STOCK_F2_STATIC_CONTRACT_10ARG_REDA_PATTERN_MISSING';
+  END IF;
+
+  -- RED-B shape: unlocked SUM(bins) feeding a blind UPDATE products.
+  IF v_def_9 !~ 'COALESCE\(SUM\(actual_qty\),\s*0\)'
+     OR v_def_9 !~ 'INTO\s+v_prod_qty,\s*v_prod_rate'
+     OR v_def_9 !~ 'UPDATE\s+(public\.)?products\s+SET\s+stock_quantity\s*=\s*v_prod_qty' THEN
+    RAISE EXCEPTION 'STOCK_F2_STATIC_CONTRACT_9ARG_REDB_PATTERN_MISSING';
+  END IF;
+  IF v_def_10 !~ 'COALESCE\(SUM\(actual_qty\),\s*0\)'
+     OR v_def_10 !~ 'INTO\s+v_prod_qty,\s*v_prod_rate'
+     OR v_def_10 !~ 'UPDATE\s+(public\.)?products\s+SET\s+stock_quantity\s*=\s*v_prod_qty' THEN
+    RAISE EXCEPTION 'STOCK_F2_STATIC_CONTRACT_10ARG_REDB_PATTERN_MISSING';
+  END IF;
+
+  RAISE NOTICE 'STOCK_F2_STATIC_CONTRACT_BOTH_OVERLOADS_OK: 9-arg and 10-arg wardah_apply_stock_incoming both carry the unlocked bin-creation upsert (RED-A) and unlocked product-aggregate update (RED-B) patterns';
+END
+$contract$;
+SQL
 
 echo '--- Control 1 (bounds RED-A): existing-bin race, single (product, warehouse) key ---'
 
 ctl1_blocker_ready="${tmp_prefix}-ctl1-blocker.ready"
+ctl1_blocker_release="${tmp_prefix}-ctl1-blocker.release"
 "${PSQL[@]}" >"${tmp_prefix}-ctl1-blocker.out" 2>"${tmp_prefix}-ctl1-blocker.err" <<SQL &
 BEGIN;
 SELECT id FROM public.bins WHERE id = '$ctl1_bin' FOR UPDATE;
 \! touch $ctl1_blocker_ready
-SELECT pg_sleep(2);
+\! bash -c 'while [ ! -f "$ctl1_blocker_release" ]; do sleep 0.05; done'
 COMMIT;
 SQL
 ctl1_pid_blocker=$!
@@ -284,6 +387,7 @@ ctl1_pid_2=$!
 waiting=$(wait_for_lock_waiters 2 "'stock-f2-ctl1-1','stock-f2-ctl1-2'") \
   || fail "control 1: expected two callers waiting on the pre-existing bin lock; got $waiting"
 
+touch "$ctl1_blocker_release"
 wait "$ctl1_pid_blocker"
 status_ctl1_1=0
 status_ctl1_2=0
@@ -313,6 +417,9 @@ b1_release="${tmp_prefix}-b1.release"
 # uncommitted row lock on the products row), forcing the second call to
 # block there rather than on any bins key (the two warehouses do not
 # collide, so there is nothing for the bins upsert itself to contend on).
+# The two warehouses use different incoming rates (10 vs 20) so the lost
+# weighted-average cost_price is not masked by both sides agreeing on the
+# same number: the correct combined rate would be 240/15 = 16.
 PGAPPNAME='stock-f2-redb-1' "${PSQL[@]}" \
   >"${tmp_prefix}-b1.out" 2>"${tmp_prefix}-b1.err" <<SQL &
 BEGIN;
@@ -333,7 +440,7 @@ PGAPPNAME='stock-f2-redb-2' "${PSQL[@]}" \
   >"${tmp_prefix}-b2.out" 2>"${tmp_prefix}-b2.err" <<SQL &
 BEGIN;
 SELECT public.wardah_apply_stock_incoming(
-  '$org_id', '$b_product', '$b_wh_2', 9, 10,
+  '$org_id', '$b_product', '$b_wh_2', 9, 20,
   'Goods Receipt', '$b_voucher_2', 'STKF2-REDB-2', CURRENT_DATE
 );
 COMMIT;
@@ -358,43 +465,69 @@ b_state=$("${PSQL[@]}" <<SQL
 SELECT
   (SELECT COALESCE(actual_qty, -1) FROM public.bins
    WHERE product_id = '$b_product' AND warehouse_id = '$b_wh_1')::text || '|' ||
+  (SELECT COALESCE(stock_value, -1) FROM public.bins
+   WHERE product_id = '$b_product' AND warehouse_id = '$b_wh_1')::text || '|' ||
   (SELECT COALESCE(actual_qty, -1) FROM public.bins
+   WHERE product_id = '$b_product' AND warehouse_id = '$b_wh_2')::text || '|' ||
+  (SELECT COALESCE(stock_value, -1) FROM public.bins
    WHERE product_id = '$b_product' AND warehouse_id = '$b_wh_2')::text || '|' ||
   (SELECT count(*) FROM public.stock_ledger_entries
    WHERE product_id = '$b_product'
      AND voucher_id IN ('$b_voucher_1', '$b_voucher_2'))::text || '|' ||
+  (SELECT COALESCE(SUM(actual_qty), -1) FROM public.stock_ledger_entries
+   WHERE product_id = '$b_product'
+     AND voucher_id IN ('$b_voucher_1', '$b_voucher_2'))::text || '|' ||
+  (SELECT COALESCE(SUM(stock_value_difference), -1)
+   FROM public.stock_ledger_entries
+   WHERE product_id = '$b_product'
+     AND voucher_id IN ('$b_voucher_1', '$b_voucher_2'))::text || '|' ||
   (SELECT COALESCE(stock_quantity, -1) FROM public.products
+   WHERE id = '$b_product')::text || '|' ||
+  (SELECT COALESCE(cost_price, -1) FROM public.products
    WHERE id = '$b_product')::text
 SQL
 )
-IFS='|' read -r b_bin_1_qty b_bin_2_qty b_sle_count b_product_qty <<<"$b_state"
+IFS='|' read -r b_bin_1_qty b_bin_1_value b_bin_2_qty b_bin_2_value b_sle_count \
+  b_sle_qty_sum b_sle_value_sum b_product_qty b_product_cost <<<"$b_state"
 
-if [[ "$b_bin_1_qty" != '6' && "$b_bin_1_qty" != '6.000000' ]]; then
-  fail "RED-B: expected warehouse 1's own bin to correctly hold 6 regardless of the aggregate race; got $b_bin_1_qty"
-fi
-if [[ "$b_bin_2_qty" != '9' && "$b_bin_2_qty" != '9.000000' ]]; then
-  fail "RED-B: expected warehouse 2's own bin to correctly hold 9 regardless of the aggregate race; got $b_bin_2_qty"
-fi
+num_eq "$b_bin_1_qty" 6 \
+  || fail "RED-B: expected warehouse 1's own bin to correctly hold qty 6 regardless of the aggregate race; got $b_bin_1_qty"
+num_eq "$b_bin_1_value" 60 \
+  || fail "RED-B: expected warehouse 1's own bin to correctly hold value 60 (6*10) regardless of the aggregate race; got $b_bin_1_value"
+num_eq "$b_bin_2_qty" 9 \
+  || fail "RED-B: expected warehouse 2's own bin to correctly hold qty 9 regardless of the aggregate race; got $b_bin_2_qty"
+num_eq "$b_bin_2_value" 180 \
+  || fail "RED-B: expected warehouse 2's own bin to correctly hold value 180 (9*20) regardless of the aggregate race; got $b_bin_2_value"
 [[ "$b_sle_count" == '2' ]] \
   || fail "RED-B: expected both stock-ledger effects to survive; got $b_sle_count rows"
-if [[ "$b_product_qty" == '15' || "$b_product_qty" == '15.000000' ]]; then
-  fail "RED-B: product aggregate equals the correct sum (15) - the product-aggregate lost-update defect did NOT reproduce. Do not treat F2-B as confirmed; re-examine the race before proposing any fix."
+num_eq "$b_sle_qty_sum" 15 \
+  || fail "RED-B: stock-ledger quantity effects did not both survive correctly; expected SUM(actual_qty)=15, got $b_sle_qty_sum"
+num_eq "$b_sle_value_sum" 240 \
+  || fail "RED-B: stock-ledger value effects did not both survive correctly; expected SUM(stock_value_difference)=240 (6*10+9*20), got $b_sle_value_sum"
+if num_eq "$b_product_qty" 15; then
+  fail "RED-B: product aggregate quantity equals the correct sum (15) - the product-aggregate lost-update defect did NOT reproduce. Do not treat F2-B as confirmed; re-examine the race before proposing any fix."
 fi
-if [[ "$b_product_qty" != '6' && "$b_product_qty" != '6.000000' \
-   && "$b_product_qty" != '9' && "$b_product_qty" != '9.000000' ]]; then
-  fail "RED-B: product aggregate ($b_product_qty) is neither per-warehouse input value nor their sum - unexpected corruption shape, not the documented lost-update signature"
+if ! num_eq "$b_product_qty" 6 && ! num_eq "$b_product_qty" 9; then
+  fail "RED-B: product aggregate quantity ($b_product_qty) is neither per-warehouse input value nor their sum - unexpected corruption shape, not the documented lost-update signature"
+fi
+if num_eq "$b_product_cost" 16; then
+  fail "RED-B: product cost_price equals the correct combined weighted rate (240/15=16) - the stale-valuation defect did NOT reproduce. Do not treat F2-B's valuation impact as confirmed; re-examine the race before proposing any fix."
+fi
+if ! num_eq "$b_product_cost" 10 && ! num_eq "$b_product_cost" 20; then
+  fail "RED-B: product cost_price ($b_product_cost) is neither per-warehouse input rate (10 or 20) nor the correct combined rate (16) - unexpected corruption shape"
 fi
 
-echo "STOCK_F2_REDB_REPRODUCED_OK bin_1=$b_bin_1_qty bin_2=$b_bin_2_qty product=$b_product_qty (both bins individually correct; sum would be 15; both SLE rows survived; both calls reported success)"
+echo "STOCK_F2_REDB_REPRODUCED_OK bin_1=$b_bin_1_qty/$b_bin_1_value bin_2=$b_bin_2_qty/$b_bin_2_value product_qty=$b_product_qty product_cost=$b_product_cost (both bins individually correct; correct combined would be qty=15/value=240/rate=16; both SLE rows survived with correct qty/value; both calls reported success)"
 
 echo '--- Control 2 (bounds RED-A): incoming vs outgoing lock ordering, existing bin ---'
 
 ctl2_blocker_ready="${tmp_prefix}-ctl2-blocker.ready"
+ctl2_blocker_release="${tmp_prefix}-ctl2-blocker.release"
 "${PSQL[@]}" >"${tmp_prefix}-ctl2-blocker.out" 2>"${tmp_prefix}-ctl2-blocker.err" <<SQL &
 BEGIN;
 SELECT id FROM public.bins WHERE id = '$ctl2_bin' FOR UPDATE;
 \! touch $ctl2_blocker_ready
-SELECT pg_sleep(2);
+\! bash -c 'while [ ! -f "$ctl2_blocker_release" ]; do sleep 0.05; done'
 COMMIT;
 SQL
 ctl2_pid_blocker=$!
@@ -428,6 +561,7 @@ ctl2_pid_out=$!
 waiting=$(wait_for_lock_waiters 2 "'stock-f2-ctl2-in','stock-f2-ctl2-out'") \
   || fail "control 2: expected incoming and outgoing to both queue on the pre-existing bin lock; got $waiting"
 
+touch "$ctl2_blocker_release"
 wait "$ctl2_pid_blocker"
 status_ctl2_in=0
 status_ctl2_out=0
@@ -451,5 +585,7 @@ fi
 
 echo "STOCK_F2_CONTROL2_INCOMING_VS_OUTGOING_OK bin_qty=$ctl2_bin_qty statuses=$status_ctl2_in,$status_ctl2_out"
 
-printf 'STOCK_F2_RED_PROOF_PASS reda_bin=%s ctl1_bin=%s redb_bin1=%s redb_bin2=%s redb_product=%s ctl2_bin=%s\n' \
-  "$a_bin_qty" "$ctl1_bin_qty" "$b_bin_1_qty" "$b_bin_2_qty" "$b_product_qty" "$ctl2_bin_qty"
+printf 'STOCK_F2_RED_PROOF_PASS reda_bin=%s/%s reda_product=%s/%s ctl1_bin=%s redb_bin1=%s/%s redb_bin2=%s/%s redb_product=%s/%s ctl2_bin=%s\n' \
+  "$a_bin_qty" "$a_bin_value" "$a_product_qty" "$a_product_cost" "$ctl1_bin_qty" \
+  "$b_bin_1_qty" "$b_bin_1_value" "$b_bin_2_qty" "$b_bin_2_value" \
+  "$b_product_qty" "$b_product_cost" "$ctl2_bin_qty"

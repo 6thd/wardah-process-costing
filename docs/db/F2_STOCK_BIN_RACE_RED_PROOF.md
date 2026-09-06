@@ -42,13 +42,31 @@ not a coincidence of timing — and once the first commits, the second's
 instead of the sum of both.
 
 **Reproduced deterministically:** two Goods Receipt vouchers for the same
-`(org, product, warehouse)` with no pre-existing bin, quantities 5 and 7 (sum 12).
-Both calls report `applied: true` (this defect is silent — no exception, no error
-path). Both stock-ledger effects survive (2 rows). Exactly one bin row exists. Its
-`actual_qty` is deterministically **7** (the second/blocked caller's own value) across
-every local run — never 12, and never a value outside `{5, 7}`. `products.stock_quantity`
-mirrors the same wrong single bin, so the product aggregate is internally consistent
-with its own (wrong) bin in this single-warehouse case.
+`(org, product, warehouse)` with no pre-existing bin, quantities 5 and 7 at the same
+rate 10 (sum 12, value 120). Both calls report `applied: true` (this defect is silent —
+no exception, no error path). Both stock-ledger effects survive with correct values:
+`SUM(stock_ledger_entries.actual_qty) = 12` and
+`SUM(stock_ledger_entries.stock_value_difference) = 120` across the two rows — the
+ledger itself is never wrong. Exactly one bin row exists. Its `actual_qty` is
+deterministically **7** and its `stock_value` **70** (the second/blocked caller's own
+values) across every local run — never the correct sum (12 / 120), and never a value
+outside the two individual inputs. `products.stock_quantity` (7) and `cost_price` (10)
+mirror the same wrong single bin exactly, so the product aggregate is internally
+consistent with its own (wrong) bin in this single-warehouse case — `cost_price` alone
+does not reveal the defect here because both increments happened to share one rate;
+RED-B below removes that coincidence.
+
+**Overload coverage.** This is behaviorally reproduced only on the 9-argument
+`wardah_apply_stock_incoming` overload (Migration 94/97 — the receipt/manual-movement
+path). The 10-argument source-aware overload (Migration 187 — the stock-adjustment
+path) is not called in this scenario. Instead, a Fresh-DB static contract assertion
+(`pg_get_functiondef` on both overloads, matched with whitespace-tolerant regexes
+since the live 9-arg body carries different column-aligned spacing than the 10-arg
+body) proves both overloads carry the identical `FOR UPDATE` / `ON CONFLICT ... DO
+UPDATE SET actual_qty = EXCLUDED.actual_qty` shape (RED-A) and the identical unlocked
+`SUM(actual_qty)` → `UPDATE products` shape (RED-B). A fix that touches only one
+overload cannot silently pass this proof, even though only the 9-arg path is
+behaviorally exercised end-to-end.
 
 ## RED-B — product-aggregate race across two warehouses for one product
 
@@ -84,12 +102,19 @@ precomputed (partial) sum, overwriting the first's contribution instead of the t
 total surviving.
 
 **Reproduced deterministically:** two Goods Receipt vouchers for the same product
-across two distinct warehouses, quantities 6 and 9 (sum 15), starting with no bin in
-either warehouse. Both calls report `applied: true`. Both stock-ledger effects survive
-(2 rows). Both bins are individually and correctly 6 and 9 — the per-warehouse write
-path is not at fault. `products.stock_quantity` is deterministically **9** (the
-second/blocked caller's own partial sum) across every local run — never 15, and never
-a value outside `{6, 9}`.
+across two distinct warehouses, quantities 6 and 9 — deliberately at *different* rates,
+10 and 20, so the correct combined result (qty 15, value 240, weighted rate 16) cannot
+be mistaken for either side's own number. Both calls report `applied: true`. Both
+stock-ledger effects survive with correct values:
+`SUM(stock_ledger_entries.actual_qty) = 15` and
+`SUM(stock_ledger_entries.stock_value_difference) = 240`. Both bins are individually
+and correctly `qty=6/value=60` and `qty=9/value=180` — the per-warehouse write path is
+not at fault. `products.stock_quantity` is deterministically **9** and `cost_price`
+**20** (the second/blocked caller's own partial qty and its own rate) across every
+local run — never the correct combined result (15 / 240 / 16), and never a value this
+scenario did not directly produce. The wrong `cost_price` (20, not 16) is the clearest
+signal that this is a genuine aggregate corruption and not just a rounding artifact of
+matching rates.
 
 ## Determinism, not probability
 
@@ -99,36 +124,50 @@ complete its RPC call and then hold its transaction open via a file-based rendez
 the second backend is only started once the first has returned; the script then polls
 `pg_stat_activity` for `wait_event_type = 'Lock'` on the second backend specifically,
 proving genuine lock contention between two independent PostgreSQL backends before
-releasing the first to commit. Verified stable across 5 consecutive local runs against
-PostgreSQL 17 with identical outcomes every time (RED-A → 7; RED-B → 9).
+releasing the first to commit. The two control scenarios' blocker transactions use the
+same handshake (lock the row, signal ready, wait for an explicit release file) rather
+than a fixed `pg_sleep` window, so a slow CI runner cannot cause either racer to be
+released before it is actually observed waiting — the earlier draft of this proof used
+`pg_sleep(2)` for the controls, which risked a false failure on a heavily loaded
+runner; that gap is closed. Verified stable across 5 consecutive local runs against
+PostgreSQL 17 with identical outcomes every time (RED-A → qty 7/value 70/cost 10;
+RED-B → qty 9/value split 60+180/cost 20).
 
 ## Control scenarios (bound RED-A; do not by themselves imply RED-B is fixed)
 
 1. **Existing bin, same race shape as RED-A.** A bin is pre-seeded (qty 20). An
-   external blocker transaction holds `FOR UPDATE` on it; two concurrent incoming
-   calls (qty 3 and 4) both queue behind the real row lock, confirmed via
-   `pg_stat_activity`. Result: bin correctly sums to 27 (20+3+4). This shows the
-   `FOR UPDATE` lock is sufficient once the row exists — RED-A is precisely bounded to
-   the bin-creation window, not a general failure of the locking strategy.
+   external blocker transaction holds `FOR UPDATE` on it, signals ready, and waits for
+   an explicit release; two concurrent incoming calls (qty 3 and 4) both queue behind
+   the real row lock, confirmed via `pg_stat_activity`, before the blocker is released.
+   Result: bin correctly sums to 27 (20+3+4). This shows the `FOR UPDATE` lock is
+   sufficient once the row exists — RED-A is precisely bounded to the bin-creation
+   window, not a general failure of the locking strategy.
 2. **Incoming vs outgoing lock ordering, existing bin.** A bin is pre-seeded (qty 50).
-   One incoming (qty 8) and one outgoing (qty 10, requiring
-   `wardah_assert_org_member` via an active `user_organizations` row) are forced to
-   both queue on the same pre-existing bin lock. Result: no deadlock, both calls
-   succeed, bin nets to 48 (50+8-10) correctly. This is a pre-fix baseline for lock
-   ordering, not a defect — useful as a regression fence for whatever locking
-   strategy the eventual fix chooses.
+   The same lock/ready/release blocker handshake is used; one incoming (qty 8) and one
+   outgoing (qty 10, requiring `wardah_assert_org_member` via an active
+   `user_organizations` row) are forced to both queue on the same pre-existing bin
+   lock, confirmed via `pg_stat_activity`, before the blocker is released. Result: no
+   deadlock, both calls succeed, bin nets to 48 (50+8-10) correctly. This is a pre-fix
+   baseline for lock ordering, not a defect — useful as a regression fence for
+   whatever locking strategy the eventual fix chooses.
 
 ## Deterministic RED acceptance
 
-`scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh` runs all four scenarios
-above against a cutoff-189 Fresh DB (the live functions already exist at this cutoff;
-no migration is applied before or during this script) and fails loudly
-(`STOCK_F2_RED_FAIL: ...`) if either race fails to reproduce its documented signature,
-if a control scenario stops matching its expected correct result (which would mean a
-second, unrelated defect), or if the two racing backends are never observed genuinely
-blocked on each other (which would mean the script degenerated into simulated
-sequential execution instead of real concurrency). A clean run prints
-`STOCK_F2_RED_PROOF_PASS` with every scenario's final numbers.
+`scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh` runs RED-A, the static
+overload contract assertion, both controls, and RED-B (in that order) against a
+cutoff-189 Fresh DB (the live functions already exist at this cutoff; no migration is
+applied before or during this script) and fails loudly (`STOCK_F2_RED_FAIL: ...`, or a
+`STOCK_F2_STATIC_CONTRACT_..._MISSING` exception for the contract step) if either race
+fails to reproduce its documented quantity/value signature, if a control scenario
+stops matching its expected correct result (which would mean a second, unrelated
+defect), if the two racing backends are never observed genuinely blocked on each other
+(which would mean the script degenerated into simulated sequential execution instead
+of real concurrency), or if either overload stops carrying the vulnerable pattern the
+contract assertion checks for. Numeric comparisons use a scale-tolerant `num_eq`
+helper (`awk`-based) rather than exact-string matching, since quantity columns are
+`numeric(18,6)` while value/price columns are `numeric(20,4)`/`numeric(12,2)`. A clean
+run prints `STOCK_F2_RED_PROOF_PASS` with every scenario's final quantity/value
+numbers.
 
 ## What this RED proof does not claim
 

@@ -67,6 +67,7 @@ jobs:
           bash scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh \
             2>&1 | tee /tmp/f2-stock-bin-race-red.out
           grep -q 'STOCK_F2_REDA_REPRODUCED_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_STATIC_CONTRACT_BOTH_OVERLOADS_OK' /tmp/f2-stock-bin-race-red.out
           grep -q 'STOCK_F2_CONTROL1_EXISTING_BIN_OK' /tmp/f2-stock-bin-race-red.out
           grep -q 'STOCK_F2_REDB_REPRODUCED_OK' /tmp/f2-stock-bin-race-red.out
           grep -q 'STOCK_F2_CONTROL2_INCOMING_VS_OUTGOING_OK' /tmp/f2-stock-bin-race-red.out
