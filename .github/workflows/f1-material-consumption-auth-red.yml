@@ -1,0 +1,79 @@
+name: F1 material consumption auth RED
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_f1_material_consumption_auth_red.sql'
+      - '.github/workflows/f1-material-consumption-auth-red.yml'
+      - 'docs/db/F1_MATERIAL_CONSUMPTION_AUTH_RED_PROOF.md'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  red-proof:
+    name: Prove current material-consumption authorization gap
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_f1_red
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve current baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          test "$CUTOFF" = "189"
+
+      - name: Build cutoff-189 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+      - name: RED contract proof
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_f1_material_consumption_auth_red.sql \
+            2>&1 | tee /tmp/f1-material-consumption-red.out
+          grep -q 'F1_RED_PROOF_PASS' /tmp/f1-material-consumption-red.out
+          grep -q 'F1_RED_ACCEPTANCE_PASS' /tmp/f1-material-consumption-red.out
+
+      - name: Upload RED evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f1-material-consumption-auth-red-${{ github.run_id }}
+          path: /tmp/f1-material-consumption-red.out
+          retention-days: 30
