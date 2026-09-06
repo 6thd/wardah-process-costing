@@ -459,6 +459,48 @@ This document chooses the remediation shape. It does not implement it.
 > §7's standalone helper-order mutant row is corrected below; §9's reject-list
 > gained a matching bullet.
 
+> **Eleventh correction (found in review): the tenth correction's own GREEN
+> proof didn't discriminate correct from buggy — it proved blocking, not order.**
+>
+> The tenth correction's GREEN construction held transaction 1's call locking
+> **both** `A` and `B` (via `ARRAY[A,B]`), then showed transaction 2 (calling with
+> `ARRAY[B,A]`) is blocked by transaction 1 via `pg_blocking_pids()`. That proves
+> transaction 2 is blocked by transaction 1 — it does not prove *which* product
+> transaction 2 tried to lock first, because transaction 1 holds both. A helper
+> that instead respects the caller's own input order verbatim (locks `B` first
+> because the array lists `B` first) would be blocked by the same transaction 1
+> for the same reason, and `pg_blocking_pids()` would return the identical
+> result. Verified empirically: built a "buggy" helper that locks products in
+> literal input-array order (no re-sort), ran it as transaction 2 against
+> transaction 1 holding both `A` and `B` — `pg_blocking_pids()` returned
+> transaction 1's pid regardless, even though the buggy helper's own `NOTICE`
+> log showed it was attempting `B` (not `A`) first. The construction could not
+> tell a correct helper from a wrong one; it was a livelock/liveness check
+> wearing an ordering proof's clothes.
+>
+> Fix: give each product an *independent* single-row blocker instead of one
+> transaction holding both. `blocker_A` locks only `A` (`FOR NO KEY UPDATE`,
+> its own transaction, held open); `blocker_B` locks only `B`, independently.
+> Transaction 2 then calls the real helper with `ARRAY[B, A]`. Before releasing
+> anything, `pg_blocking_pids(<transaction 2's pid>)` must equal
+> `{<blocker_A's pid>}` **only** — proving transaction 2's *first* lock attempt
+> landed on `A`, not `B`, despite `B` being listed first in its input.
+> Releasing `blocker_A` alone must move `pg_blocking_pids(<transaction 2's
+> pid>)` to `{<blocker_B's pid>}` — proving transaction 2 then attempted `B`
+> next, i.e. the acquisition sequence really is `A` then `B`, not merely "blocked
+> by something." Releasing `blocker_B` lets transaction 2 complete. Verified
+> empirically against a live PostgreSQL 17 instance, run twice: against the
+> real (correct) helper, `pg_blocking_pids()` showed `{blocker_A}` then
+> `{blocker_B}` in that order, exactly as specified; against the same "buggy",
+> input-order-preserving helper used to reproduce the flaw, `pg_blocking_pids()`
+> showed `{blocker_B}` immediately and releasing `blocker_A` had **no effect**
+> on it (still `{blocker_B}`, confirming transaction 2 was never waiting on `A`
+> at all) — the corrected construction cleanly separates the two cases the
+> previous one could not.
+>
+> §7's standalone helper-order mutant GREEN row and prose are corrected below;
+> §9's reject-list gained a matching bullet.
+
 ---
 
 ## 1. Decision
@@ -1540,7 +1582,7 @@ numeric helpers, with inverted assertions:
 | New: incoming vs cancellation, existing bin | no deadlock; if cancellation wins the product lock first, cancellation completes then incoming applies and both effects reconcile; if incoming commits first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; no partial reversal in either ordering |
 | New: outgoing vs cancellation, existing bin | no deadlock; if cancellation serializes first, cancellation then outgoing may both complete subject to normal stock checks; if outgoing becomes a later movement first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; `bins`/`products`/SLE remain reconciled. This is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
 | New: `wardah_lock_products_for_stock_write` standalone helper-order mutant, RED (ordering-removed) run | call the ordering-removed helper mutant directly with literal `ARRAY[A,B]` and `ARRAY[B,A]` (the test harness supplies the crossed order itself — no RPC's own collection logic in between to lose it), driven through the advisory-lock gate barrier (per the eighth/ninth corrections — this build's own code calls the gate). Must reproduce a genuine deadlock — both backends observed via `pg_stat_activity` waiting on each other's row, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts |
-| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant, GREEN (real helper) run | **not** the same barrier as the RED run — the real, unmodified helper has no advisory-lock call in its body to gate on (per the tenth correction above). Instead: transaction 1 calls the real helper with `ARRAY[A,B]`, gets both products locked, and holds its transaction open; transaction 2, started only after transaction 1's call has returned, calls the real helper with `ARRAY[B,A]`. Transaction 2's call must not return at all while transaction 1 is open — confirmed via `pg_blocking_pids(<transaction 2's backend pid>)` returning `{<transaction 1's backend pid>}` (PostgreSQL's own documented blocking-relationship check), corroborated by `wait_event_type = 'Lock'`, `wait_event = 'transactionid'` — proving transaction 2 is stuck acquiring the *first* product in ascending order (`A`) despite its own array listing `B` first. Committing transaction 1 must let transaction 2 immediately complete, locking `A` then `B`, with no deadlock. Together with the RED run above, this is the sole basis for the global-ordering claim; neither run depends on any caller (Fix C included) producing a particular array order |
+| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant, GREEN (real helper) run | **not** the same barrier as the RED run — the real, unmodified helper has no advisory-lock call in its body to gate on (per the tenth correction above) — **and not one transaction holding both products either**, which cannot distinguish a correct helper from one that respects the caller's own input order verbatim (per the eleventh correction above: both would show the same `pg_blocking_pids()` result, since a single blocker holding both products blocks a second caller regardless of which one it tries first). Use two *independent* single-row blockers instead: `blocker_A` locks only `A` (its own held-open transaction), `blocker_B` locks only `B`, independently. Transaction 2 then calls the real helper with `ARRAY[B, A]`. Before releasing anything, `pg_blocking_pids(<transaction 2's pid>)` must equal `{<blocker_A's pid>}` **only** — proving transaction 2's first lock attempt landed on `A` despite `B` being listed first in its input. Releasing `blocker_A` alone must move `pg_blocking_pids(<transaction 2's pid>)` to `{<blocker_B's pid>}` — proving the acquisition sequence is genuinely `A` then `B`, not merely "blocked by something." Releasing `blocker_B` lets transaction 2 complete with no deadlock. Together with the RED run above, this is the sole basis for the global-ordering claim; neither run depends on any caller (Fix C included) producing a particular array order |
 | New: cancellation vs cancellation, overlapping multi-product adjustments (real-path control, not an ordering proof) | two `SUBMITTED` adjustments sharing two products, run under genuine forced concurrency against the real, unmodified Fix C and helper — no attempt to force or assert which product either adjustment's own array lists first, since Fix C's collection step (distinct product_ids from the SLEs being reversed) has no specified order and nothing should depend on one. Asserts business correctness only: no deadlock regardless of which adjustment's transaction starts first, and both `products` rows end up equal to the sum of their own bins. The lock-ordering guarantee itself comes from the standalone helper-order mutant above plus the static contract requiring the helper call before the first `UPDATE bins` — both apply to Fix C regardless of its own array order, so this control does not need to reproduce a pre-fix deadlock to be meaningful |
 | New: manual movement vs incoming/outgoing/cancellation, existing bin | no deadlock; whichever serializes second sees the other's committed state and applies normally (single-product case, no `LATER_STOCK_MOVEMENT_EXISTS` interaction unless racing cancellation specifically, in which case the same rule as incoming/outgoing-vs-cancellation applies) |
 | New: two different multi-line callers (e.g. one `rpc_post_goods_receipt`, one `rpc_post_delivery_note`), overlapping products in reversed line order, no pre-existing bins for one side | no deadlock regardless of which call's `wardah_lock_products_for_stock_write` commits first; run once against a build with Fix E omitted (must reproduce a real deadlock) and once with Fix E (must not) |
@@ -1632,23 +1674,40 @@ The GREEN (real-helper) run must **not** reuse this same gate — the real,
 unmodified helper has no `pg_advisory_lock` call anywhere in its body (it is
 production code, not the test mutant), so a coordinator waiting for two
 `wait_event = 'advisory'` waiters would wait for one that can never appear
-and simply hang forever (the tenth correction above). Ordinary row-lock
-waiting, the same primitive RED-A/RED-B already use, is enough on its own:
-transaction 1 calls the real helper with the literal `ARRAY['<A>','<B>']`
-and gets both products back, then holds its transaction open (no `COMMIT`
-yet). Transaction 2, started only after transaction 1's call has already
-returned, calls the real helper with `ARRAY['<B>','<A>']`. Verified
-empirically against a live PostgreSQL 17 instance: transaction 2's call does
-not return at all while transaction 1's transaction stays open — no partial
-progress — and `pg_blocking_pids(<transaction 2's backend pid>)` returns
-`{<transaction 1's backend pid>}` (PostgreSQL's documented mechanism for
-proving one backend is genuinely blocked by another), corroborated by
-`wait_event_type = 'Lock'`, `wait_event = 'transactionid'`. This proves
-transaction 2 is stuck acquiring the *same* lower-`id` product first (`A`)
-despite its own array listing `B` first — both calls converge on the same
-acquisition order regardless of which literal array either used. Committing
-transaction 1 must let transaction 2 immediately proceed to lock `A` then
-`B` and return successfully; must not deadlock.
+and simply hang forever (the tenth correction above).
+
+It also must **not** hold both products in one blocking transaction (an
+earlier revision of this design tried exactly that, per the eleventh
+correction above): a transaction that already holds `A` *and* `B` blocks a
+second caller regardless of which of the two that caller tries to lock
+first, so `pg_blocking_pids()` against a single such blocker cannot tell a
+correct helper (`A` then `B`, always) from a broken one that respects the
+caller's own input order verbatim (`B` then `A`, when the input lists `B`
+first) — both produce the identical observable blocking relationship.
+Verified empirically: a helper mutated to lock its input array positionally
+(no re-sort) was blocked by a single two-product-holding transaction exactly
+as if it were the correct helper, even though its own log showed it
+attempting `B`, not `A`, first.
+
+Use two *independent* single-row blockers instead, the same primitive
+RED-A/RED-B already use for genuine row-lock waiting: `blocker_A` locks only
+`A` (`FOR NO KEY UPDATE`, its own transaction, held open); `blocker_B` locks
+only `B`, independently and separately. Transaction 2, started after both
+blockers are confirmed holding their locks, calls the real helper with the
+literal `ARRAY['<B>','<A>']`. Before releasing anything,
+`pg_blocking_pids(<transaction 2's pid>)` must equal `{<blocker_A's pid>}`
+**only** — proving transaction 2's first lock attempt landed on `A` despite
+`B` being listed first in its input, which a same-input-order-respecting
+helper could not produce (it would show `{<blocker_B's pid>}` instead).
+Releasing `blocker_A` alone must move `pg_blocking_pids(<transaction 2's
+pid>)` to `{<blocker_B's pid>}` — proving the acquisition sequence is
+genuinely `A` then `B`, not merely "blocked by something on the first
+check." Releasing `blocker_B` lets transaction 2 complete. Verified
+empirically against a live PostgreSQL 17 instance, run both ways: the real
+helper produced `{blocker_A}` then `{blocker_B}` in that order exactly as
+specified; the same input-order-respecting mutant used to reproduce the
+flaw produced `{blocker_B}` immediately, and releasing `blocker_A` had **no
+effect** on it — confirming the two cases are now cleanly distinguishable.
 
 **2. Cancellation-vs-cancellation real-path control.** Two `SUBMITTED`
 adjustments, each with lines touching the *same* two products A and B, with
@@ -1960,10 +2019,18 @@ Reviewers should reject the implementation PR if:
   RED run's advisory-lock gate barrier instead of plain row-lock waiting —
   the real, unmodified helper has no `pg_advisory_lock` call in its body for
   a coordinator to detect, so a barrier built around it hangs waiting for a
-  gate signal that never appears; the GREEN run must instead hold
-  transaction 1's call open after it returns and prove transaction 2 blocks
-  on it via `pg_blocking_pids()` (or the corroborating `wait_event_type =
-  'Lock'`, `wait_event = 'transactionid'`), the tenth correction above
+  gate signal that never appears (the tenth correction above)
+- the standalone helper-order mutant's GREEN (real-helper) run holds both
+  products in a single blocking transaction and treats
+  `pg_blocking_pids(<the caller under test>) = {<that one blocker>}` as proof
+  of acquisition order — it isn't: a transaction holding both `A` and `B`
+  blocks a second caller regardless of which product that caller tries to
+  lock first, so this cannot distinguish the real, correctly-ordered helper
+  from one that respects the caller's own (wrong) input order verbatim; use
+  two *independent* single-product blockers instead, and require the
+  blocked-pid to change from `{blocker_A}` to `{blocker_B}` specifically
+  when `blocker_A` alone is released, not merely that some blocking exists
+  (the eleventh correction above)
 - the static contract for `wardah_lock_products_for_stock_write` checks only
   that dedup/normalization is sorted (`ARRAY(SELECT DISTINCT ... ORDER BY
   ...)`) without also asserting `ORDER BY` on `id` in the query that carries
