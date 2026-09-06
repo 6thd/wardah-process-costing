@@ -762,6 +762,59 @@ This document chooses the remediation shape. It does not implement it.
 > phrasing is corrected in both places it appears (§4, thirteenth correction
 > and Fix F sections) for point 3.
 
+> **Fifteenth correction (found in review): the consumption superset lock's own
+> per-line loop still takes a bare `FOR UPDATE` on `material_reservations`, and
+> the claim that this is "a no-op wait" is wrong.**
+>
+> The live Migration 190 body's per-line loop selects the reservation to
+> consume in one of two branches — `reservation_id` given (lines 143–145) or
+> derived from `item_id` (lines 147–150, `ORDER BY created_at, id LIMIT 1`) —
+> and both lock it with a bare `FOR UPDATE`. An earlier revision of this
+> design left both untouched, reasoning that since the superset lock already
+> holds `FOR NO KEY UPDATE` on every reservation for the MO, the loop's later
+> `FOR UPDATE` on the same row "re-acquires a lock this call already holds (a
+> no-op wait)."
+>
+> That is not how a lock-mode *upgrade* behaves. Verified empirically against
+> a live PostgreSQL 17 instance: a transaction holding `FOR NO KEY UPDATE` on
+> a row, with a second, independent transaction concurrently holding `FOR KEY
+> SHARE` on the same row (via an `INSERT` into a child table with an FK to
+> it — exactly the shape of an `INSERT INTO material_consumption` referencing
+> a reservation), then requesting `FOR UPDATE` on that row itself — genuinely
+> blocks, confirmed via `pg_blocking_pids()` showing the upgrading transaction
+> blocked by the `FOR KEY SHARE` holder, until that holder commits. A lock
+> request is evaluated against every other transaction's currently-held locks
+> at the moment it is made, not only against what this same transaction
+> already holds; `FOR UPDATE` conflicts with `FOR KEY SHARE` where `FOR NO KEY
+> UPDATE` does not, per the same conflict table this design already used to
+> justify `FOR NO KEY UPDATE` on `products`. So the per-line loop's bare `FOR
+> UPDATE` reintroduces exactly the conflict the superset lock was chosen to
+> avoid, the instant any concurrent transaction holds `FOR KEY SHARE` on that
+> reservation — which the fourteenth correction's own point 3 already
+> established is possible via either write path (`rpc_consume_reserved_materials_v2`
+> itself, or the direct `mesService.consumeMaterial()` insert once it is
+> extended to set `reservation_id`, or any other future FK-referencing
+> insert).
+>
+> Fix: both per-line branches change from `FOR UPDATE` to `FOR NO KEY UPDATE`.
+> With that change, "re-acquires a lock this call already holds" becomes
+> literally true — same mode, on a row the superset lock already holds — and
+> is a genuine no-op, verified by the same empirical test with both sides
+> using `FOR NO KEY UPDATE`: no block. Business semantics are unaffected: the
+> per-line `UPDATE`s that follow touch `status`, `quantity_*`, `product_id`,
+> `uom_id`, and timestamps — never a reservation's own `id` or anything
+> another table's FK depends on staying fixed — exactly the class of column
+> `FOR NO KEY UPDATE` is for, the same argument already made for the superset
+> lock and for Fix F.
+>
+> §4, §7, and §9 are corrected below: the per-line lock mode; a static
+> contract requirement that **no** bare `FOR UPDATE` on `material_reservations`
+> exists anywhere in `rpc_consume_reserved_materials_v2` after 191, not only in
+> the pre-loop superset lock; a dynamic mutant proving the mechanism (a
+> concurrent `FOR KEY SHARE` holder forces a bare-`FOR UPDATE` build to wait,
+> and does not force the real, `FOR NO KEY UPDATE` build to wait); and a
+> matching reject-list bullet.
+
 ---
 
 ## 1. Decision
@@ -1428,9 +1481,24 @@ item_id, now()))` for every `'reserved'` row in the locked snapshot — the
 identical expression the loop uses — and lock *that* set, not `product_id`
 filtered for `NOT NULL`.
 
-Then `wardah_lock_products_for_stock_write`. The existing loop's own per-row
-`SELECT ... FOR UPDATE` on `material_reservations` re-acquires a lock this
-call already holds (a no-op wait) and is otherwise unchanged.
+Then `wardah_lock_products_for_stock_write`. The existing loop's own two
+per-row reservation locks — confirmed against the live Migration 190 body,
+lines 143–145 (the `reservation_id` branch) and 147–150 (the `item_id ...
+ORDER BY created_at, id LIMIT 1` branch) — must also change from `FOR UPDATE`
+to `FOR NO KEY UPDATE` (the fifteenth correction, below): a bare `FOR UPDATE`
+here does **not** merely "re-acquire a lock this call already holds" as an
+earlier revision of this design claimed. A lock-mode *upgrade* on a row this
+same transaction already holds a weaker lock on is not a no-op — it is
+re-evaluated against every other transaction's currently-held locks on that
+row, and `FOR UPDATE` conflicts with `FOR KEY SHARE` where `FOR NO KEY
+UPDATE` does not. So a bare `FOR UPDATE` in the per-line loop reintroduces
+exactly the conflict the superset lock's `FOR NO KEY UPDATE` was chosen to
+avoid, the moment any concurrent transaction holds `FOR KEY SHARE` on that
+reservation (an `INSERT INTO material_consumption` referencing it, from
+either write path — see the fourteenth correction, point 3). Changed to `FOR
+NO KEY UPDATE` in both branches, "re-acquires a lock this call already
+holds" becomes accurate: same mode, on a row already locked by the superset
+lock, genuinely a no-op.
 
 **The guard, generalized:** for delivery note and adjustment submit, locking
 the referenced rows up front is structurally sufficient — there is no
@@ -2014,6 +2082,7 @@ numeric helpers, with inverted assertions:
 | New: Fix F, deterministic RED mutant — consume-shaped `[A,B]` lock vs release-shaped `[B,A]` lock on the same two reservation rows | **not** a planner/scan-order-dependent fixture — two `reserved`, expired reservations for one MO are locked directly by literal id: a test-only mutant that locks the pair in literal `[B, A]` order (mimicking a scan visiting them opposite to `id` order) run concurrently against a caller locking `[A, B]` (consume's real, ascending order), both through the same advisory-lock gate barrier already verified for the standalone `products` helper-order mutant (§7). Must reproduce a genuine `deadlock detected` (`40P01`), with both backends observed on their gate beforehand — confirmed empirically against a live PostgreSQL 17 instance before this row was written |
 | New: Fix F, real-helper GREEN run | identical fixture, both sides using the real, unmodified bodies — consume's superset lock and Fix F's locking loop, both `ORDER BY id FOR NO KEY UPDATE`. Forced overlap (ordinary row-lock waiting, not a gate — both real bodies converge on the same ascending order so there is no mid-loop point to gate on, the same reasoning as the `products` standalone mutant's GREEN run) must complete both without deadlock: consumption proceeds normally, and a `release_expired_reservations` call either completes before or after consumption locks the shared row, never interleaved with it |
 | New: Fix F business-correctness control | a reservation partially consumed by one line of an in-flight `rpc_consume_reserved_materials_v2` call remains `'reserved'` (uncommitted) for the duration of that call, so a concurrent `release_expired_reservations` call must not expire it out from under the consumption in progress — it either queues behind consumption's lock and finds the row no longer eligible (if consumption fully consumed it) or expires it correctly afterward (if consumption left it `'reserved'` with remaining quantity); run once, then run `release_expired_reservations` again after the first call commits to confirm anything still eligible is picked up on the next sweep — a release call is not required to catch a row that becomes eligible only after it has already locked and returned |
+| New: `rpc_consume_reserved_materials_v2` per-line reservation lock-mode check (fifteenth correction) | a third, independent transaction holds `FOR KEY SHARE` on the reservation row consumption is about to process (via an `INSERT INTO material_consumption` row referencing it, or directly by taking `FOR KEY SHARE` on it in a test-only session — either establishes the same lock). **Against a build with the per-line branches left as bare `FOR UPDATE`:** consumption's own upgrade attempt on that already-`FOR NO KEY UPDATE`-locked row must block, confirmed via `pg_blocking_pids()` showing it waiting on the `FOR KEY SHARE` holder — not a hypothetical, an empirically confirmed PostgreSQL lock-upgrade conflict. **Against real 191** (both branches `FOR NO KEY UPDATE`): the identical fixture must not block at all — the per-line lock is a true no-op re-acquisition of a mode already compatible with the concurrent `FOR KEY SHARE` holder |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
@@ -2021,7 +2090,7 @@ numeric helpers, with inverted assertions:
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
-| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop |
+| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop; **no bare `FOR UPDATE` on `material_reservations` appears anywhere in the function body** — this includes both per-line branches (`reservation_id` given, and `item_id`-derived `ORDER BY created_at, id LIMIT 1`), not only the pre-loop superset lock (the fifteenth correction: an earlier revision left these two as `FOR UPDATE`, wrongly reasoning the upgrade from the superset's `FOR NO KEY UPDATE` was a no-op) |
 | Static contract, `release_expired_reservations` (Fix F) | locks `ORDER BY id FOR NO KEY UPDATE` in the same query, before any `UPDATE material_reservations`; a bare `FOR UPDATE` or an `UPDATE` with no preceding ordered lock is **absent**; `FOR UPDATE SKIP LOCKED` is **absent** (not adopted in 191 — see the thirteenth correction, point 1); `SECURITY INVOKER` and the existing `anon`/`authenticated`/`service_role` ACL are unchanged; `quantity_released = quantity_reserved - quantity_consumed` has no `COALESCE` added (unchanged from the live body — see the thirteenth correction, point 3) |
 | Static contract, all four Fix E functions | the `PRODUCT_NOT_PRELOCKED` guard (or equivalent `= ANY(locked set)` assertion) appears at least once per function, after product resolution and before any `bins`/`products` write for that line |
 
@@ -2638,3 +2707,13 @@ Reviewers should reject the implementation PR if:
   `reservation_id`" — `mesService.consumeMaterial()` is a second, direct
   client-insert path Migration 190 deliberately left in place (the
   fourteenth correction above)
+- `rpc_consume_reserved_materials_v2`'s per-line reservation lock (either
+  the `reservation_id` branch or the `item_id`-derived branch) is left as a
+  bare `FOR UPDATE`, on the reasoning that it "re-acquires" the superset
+  lock's `FOR NO KEY UPDATE` as a no-op — a lock-mode *upgrade* is evaluated
+  against every other transaction's currently-held locks at the moment it is
+  requested, not only against what the same transaction already holds, and
+  `FOR UPDATE` conflicts with `FOR KEY SHARE` where `FOR NO KEY UPDATE` does
+  not; confirmed empirically that this upgrade genuinely blocks against a
+  concurrent `FOR KEY SHARE` holder (the fifteenth correction above) — both
+  branches must be `FOR NO KEY UPDATE`
