@@ -188,6 +188,48 @@ This document chooses the remediation shape. It does not implement it.
 > functions uniformly — reworded to "no superset/source-row lock needed; the uniform
 > guard still applies here too."
 
+> **Sixth correction (found in review): the fifth correction's own fix still had a
+> real gap and a placement error, both confirmed against the live Migration 190 and
+> 134 bodies.**
+>
+> 1. **Effective product, not the bare column.** `material_reservations.product_id`
+>    is nullable (confirmed against the live table definition — `product_id uuid`,
+>    no `NOT NULL`), and the loop never trusts it alone: it computes `v_product :=
+>    COALESCE(v_res.product_id, wardah_resolve_product_id(v_org, v_res.item_id,
+>    now()))`. The superset fix as previously written derived its locked product set
+>    from `product_id` directly, and the shared helper's own input-normalization
+>    drops `NULL`s — so a reservation with a `NULL` `product_id` (resolvable only
+>    through `item_id`) would never be locked, and the loop would later hit its real,
+>    valid, resolved product outside the locked set. Corrected to derive the locked
+>    set using the identical `COALESCE(...)` expression the loop uses, and made the
+>    `PRODUCT_NOT_PRELOCKED` guard explicitly `NULL`-safe (`v_product IS NULL OR NOT
+>    COALESCE(v_product = ANY(v_locked_products), false)` — a bare `IF NOT v_product =
+>    ANY(...)` silently lets a `NULL` product through, since `NULL = ANY(...)`
+>    evaluates to `NULL`, not `false`).
+> 2. **Fix D's lock came one read too late.** `rpc_manual_stock_movement_v2` has an
+>    earlier, *unlocked* `bins` read than the one this design's Fix D targeted: when
+>    the caller omits `warehouse_id`, an inference query
+>    (`SELECT count(*), min(warehouse_id) FROM bins WHERE ... product_id = v_product`)
+>    runs before the locked read Fix D was placed in front of. Corrected to take the
+>    products lock before that inference query, not just before the later `FOR
+>    UPDATE` read — otherwise a concurrent transaction could create a second bin for
+>    the product in a different warehouse between inference and lock, making the
+>    already-inferred warehouse stale.
+> 3. **A GREEN mutant fixture didn't actually test what it claimed to.** The
+>    guard-regression mutant 2 (§7) used the same `mo_id` for both concurrent
+>    `rpc_consume_reserved_materials_v2` calls. Since this function's first statement
+>    locks `manufacturing_orders WHERE id = p_mo_id FOR UPDATE`, two calls on the same
+>    MO fully serialize there and never reach product-level contention — the mutant
+>    would pass by construction, proving nothing. Corrected to require two different
+>    MOs. The adjacent superset-lock fixture had the same class of gap (two
+>    reservations that could coincidentally share one product, letting a buggy
+>    prelock pass by luck) and is now required to use genuinely different effective
+>    products.
+>
+> §4 and §7 updated for all three; the reject-list in §9 gained matching bullets so a
+> future implementation that reintroduces any of these three specific errors is
+> caught by the checklist, not only by re-deriving the reasoning above.
+
 ---
 
 ## 1. Decision
@@ -697,13 +739,25 @@ Not a RED-A/RED-B remediation, and not a multi-product function — this is the
 single-product caller-level inversion described in the second gap note.
 Today it does `SELECT … FROM bins … FOR UPDATE` (to read the current quantity
 for its `'adjustment'` movement-type delta) *before* calling
-`wardah_apply_stock_incoming`/`outgoing`. Fix: call
-`PERFORM public.wardah_lock_products_for_stock_write(v_org, ARRAY[v_product])`
-(or an inline single-row equivalent) immediately before that existing `bins`
-read — nothing else in the function changes. The `'in'`/`'out'` movement
-types don't even use the bins read for their math, only `'adjustment'` does,
-so this is strictly additive: one new lock, acquired one statement earlier
-than the existing one, with the same downstream logic.
+`wardah_apply_stock_incoming`/`outgoing`. But that is not the first `bins`
+read in the live function: when the caller omits `warehouse_id`, an earlier,
+*unlocked* statement infers one — `SELECT count(*), min(warehouse_id) INTO
+v_count, v_warehouse FROM public.bins WHERE org_id = v_org AND product_id =
+v_product` — and only requires exactly one existing bin for the product to
+succeed. Placing the products lock immediately before the later, locked
+`bins` read (the naive reading of "before the existing bins read") still
+leaves this inference unlocked: a concurrent transaction could create a
+second bin for the same product in a different warehouse between the
+inference read and the products lock, making the already-inferred warehouse
+stale by the time this call actually acts on it. Fix: take the products
+lock — `PERFORM public.wardah_lock_products_for_stock_write(v_org, ARRAY[v_product])`
+(or an inline single-row equivalent) — immediately after resolving `v_org`
+and validating `v_qty_entered`, **before** the `IF v_warehouse IS NULL THEN`
+block, i.e. before *any* statement that reads `bins` for this product, not
+just before the one that locks it. Nothing else in the function changes; the
+`'in'`/`'out'` movement types don't even use the later locked-bin read for
+their math, only `'adjustment'` does, but the warehouse-inference read runs
+regardless of movement type, so the lock must precede it unconditionally.
 
 ### Fix E — transaction-wide product locking for multi-line callers
 
@@ -823,10 +877,26 @@ every *existing* row (any status) against direct client mutation, which the
 MO lock alone does not cover (an `UPDATE` to an existing child row's own
 columns does not re-touch its FK parent).
 
-Derive the distinct product set from the locked snapshot's `'reserved'`
-rows, then `wardah_lock_products_for_stock_write`. The existing loop's own
-per-row `SELECT ... FOR UPDATE` on `material_reservations` re-acquires a
-lock this call already holds (a no-op wait) and is otherwise unchanged.
+**Deriving the product set must use the same effective-product expression the
+loop uses, not the bare column.** `material_reservations.product_id` is
+nullable (`product_id uuid`, no `NOT NULL` — confirmed against the live
+table definition), and the existing loop never trusts it alone: it computes
+`v_product := COALESCE(v_res.product_id, public.wardah_resolve_product_id(v_org,
+v_res.item_id, now()))` (Migration 190, live). A prelock that derives its
+product set from `product_id` directly — the way `wardah_lock_products_for_stock_write`'s
+own input-normalization drops `NULL`s — would silently omit the effective
+product of any reservation whose `product_id` happens to be `NULL`, lock
+everything else, and then hit the reservation with the resolved (real, valid)
+product not in the locked set. That is not a corner case to leave to the
+guard; it is a wrong prelock hitting its own guard on legitimate, unexceptional
+data. Fix: compute `COALESCE(product_id, public.wardah_resolve_product_id(v_org,
+item_id, now()))` for every `'reserved'` row in the locked snapshot — the
+identical expression the loop uses — and lock *that* set, not `product_id`
+filtered for `NOT NULL`.
+
+Then `wardah_lock_products_for_stock_write`. The existing loop's own per-row
+`SELECT ... FOR UPDATE` on `material_reservations` re-acquires a lock this
+call already holds (a no-op wait) and is otherwise unchanged.
 
 **The guard, generalized:** for delivery note and adjustment submit, locking
 the referenced rows up front is structurally sufficient — there is no
@@ -837,12 +907,17 @@ a state (`status = 'reserved'`) that this call's own processing changes, so
 it is worth a defense-in-depth check even though the superset lock should
 make it unreachable: keep the locked array (`wardah_lock_products_for_stock_write`'s
 return value) in a variable, and inside the loop, immediately after
-resolving each line's `v_product`, assert `v_product = ANY(v_locked_products)`
-— `RAISE EXCEPTION 'PRODUCT_NOT_PRELOCKED: %', v_product` if not. Apply the
-same guard to all four Fix E functions uniformly rather than reasoning
-per-function about which ones structurally need it: it is cheap, it turns
-any future edit that reintroduces per-line resolution drift (in any of the
-four, including ones judged safe today) into a loud, immediate, fail-closed
+resolving each line's `v_product`, assert it is both non-`NULL` and a member
+of that array — `IF v_product IS NULL OR NOT COALESCE(v_product = ANY(v_locked_products),
+false) THEN RAISE EXCEPTION 'PRODUCT_NOT_PRELOCKED: %', v_product; END IF;`
+(the explicit `NULL`/`COALESCE` handling matters: `v_product = ANY(array)`
+itself evaluates to `NULL`, not `false`, when `v_product` is `NULL`, and `IF
+NULL THEN ...` silently does not raise — a bare `IF NOT v_product = ANY(...)`
+would let a `NULL` effective product through instead of failing closed on
+it). Apply the same guard to all four Fix E functions uniformly rather than
+reasoning per-function about which ones structurally need it: it is cheap, it
+turns any future edit that reintroduces per-line resolution drift (in any of
+the four, including ones judged safe today) into a loud, immediate, fail-closed
 error instead of a silent transaction-level race, and it means a reviewer
 checking "does this function protect against resolving outside its locked
 set" never has to re-derive the per-function argument above — the guard is
@@ -1240,14 +1315,14 @@ numeric helpers, with inverted assertions:
 | New: two different multi-line callers (e.g. one `rpc_post_goods_receipt`, one `rpc_post_delivery_note`), overlapping products in reversed line order, no pre-existing bins for one side | no deadlock regardless of which call's `wardah_lock_products_for_stock_write` commits first; run once against a build with Fix E omitted (must reproduce a real deadlock) and once with Fix E (must not) |
 | New: `rpc_submit_stock_adjustment` vs `rpc_consume_reserved_materials_v2`, overlapping products in reversed order | no deadlock; both fully apply or one fails on its own pre-existing business rules (insufficient reservation, insufficient stock), never a hang |
 | New: incoming vs `rpc_create_mo_with_reservation`, same product with an existing bin | run against a build with the products lock as `FOR UPDATE` first — must deadlock; run against real 191 (`FOR NO KEY UPDATE`) — must not; bin and reservation both correct regardless of which serializes first |
-| New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | second line resolves to the second reservation (existing behavior, unchanged) and both reservations' products were locked by the upfront superset query — assert this by checking both reservations' products appear in the locked set, not just that the call succeeds, since a narrower (buggy) pre-pass could still coincidentally succeed here if both reservations share one product |
+| New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | the two reservations for that `item_id` must be built with genuinely different effective products (different `product_id`, or one `NULL` `product_id` resolving via `wardah_resolve_product_id` to a different product than the other's explicit `product_id` — not two reservations that happen to share one product). Second line resolves to the second reservation (existing behavior, unchanged) and *both* distinct effective products were locked by the upfront superset query — assert this by checking both products appear in the locked set, not just that the call succeeds; a narrower (buggy) pre-pass, or one that derives from the bare `product_id` column instead of the effective-product expression, could otherwise pass this fixture by coincidence |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 1 — narrowed superset, guard present | superset query deliberately narrowed to only the specific reservations named by `p_consumptions` (the earlier, wrong pre-pass shape) instead of the full per-MO lock; guard left in place. A fixture whose second line resolves to a reservation outside that narrowed set must raise `PRODUCT_NOT_PRELOCKED` — proves the guard is reachable, not dead code |
-| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — narrowed superset, guard removed, reversed-order concurrency | same narrowed superset, guard also removed, run as two concurrent calls whose product sets overlap in reversed order (the same shape as the multi-line-caller-vs-multi-line-caller control). This must be able to reproduce a genuine transaction-level deadlock, not a silent wrong value in a single run — that is the actual failure mode the missing guard/narrow lock allows, and the control must demonstrate that specific mode, not an assumed one |
+| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — narrowed superset, guard removed, reversed-order concurrency | same narrowed superset, guard also removed, run as two concurrent calls **on two different manufacturing orders** whose product sets overlap in reversed order (the same shape as the multi-line-caller-vs-multi-line-caller control). Two different MOs is required, not incidental: this function's first statement locks `manufacturing_orders WHERE id = p_mo_id FOR UPDATE`, so two calls on the *same* MO would already fully serialize there and never reach product-level contention at all — the mutant would pass by construction without exercising anything. This must be able to reproduce a genuine transaction-level deadlock, not a silent wrong value in a single run — that is the actual failure mode the missing guard/narrow lock allows, and the control must demonstrate that specific mode, not an assumed one |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 3 — real 191 | full per-MO superset lock (any status, filtered to `'reserved'` from the locked snapshot) plus the guard, both as specified. Neither the guard nor a deadlock should be reachable under normal operation — the guard exists as a backstop, not as an expected code path |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
-| Static contract, `rpc_manual_stock_movement_v2` | a products `FOR NO KEY UPDATE` lock appears before the existing `bins ... FOR UPDATE` |
+| Static contract, `rpc_manual_stock_movement_v2` | a products `FOR NO KEY UPDATE` lock appears before the *first* `bins` reference in the function body — the unlocked warehouse-inference `SELECT ... FROM bins` when `warehouse_id` is omitted, not only the later `bins ... FOR UPDATE` |
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present) |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
@@ -1490,11 +1565,35 @@ Reviewers should reject the implementation PR if:
 - `wardah_lock_products_for_stock_write` is missing its own `search_path`
   or references `products` without the `public.` qualifier
 - `rpc_consume_reserved_materials_v2`'s Fix E locks only the specific
-  reservations resolved by `p_consumptions` instead of the full
-  `status = 'reserved'` superset for the MO — this is the shape that looks
-  like Fix E but doesn't actually close the race, because the loop's own
-  per-line resolution is stateful within the same call and can select a
-  reservation the narrower pre-pass never locked
+  reservations resolved by `p_consumptions`, or filters on `status =
+  'reserved'` *inside* the locking query, instead of locking every
+  reservation row for the MO regardless of status and deriving the
+  `'reserved'` subset from the frozen locked snapshot afterward — either
+  narrower shape looks like Fix E but doesn't actually close the race: the
+  first can miss a reservation the loop's stateful per-line resolution
+  later selects, and the second can miss a row that flips from
+  `released`/`expired`/`cancelled` back to `'reserved'` mid-transaction,
+  since nothing in the schema prevents that transition
+- `rpc_consume_reserved_materials_v2`'s Fix E derives its locked product set
+  from the bare `material_reservations.product_id` column instead of the
+  same `COALESCE(product_id, wardah_resolve_product_id(...))` expression the
+  loop actually uses — `product_id` is nullable, so this would drop any
+  reservation whose product is only resolvable through `item_id` and lock a
+  set the loop's real product resolution doesn't match
+- the `PRODUCT_NOT_PRELOCKED` guard is not `NULL`-safe (a bare `IF NOT
+  v_product = ANY(v_locked_products)` lets a `NULL` effective product through
+  instead of failing closed on it, since `NULL = ANY(...)` evaluates to
+  `NULL`, not `false`, and `IF NULL THEN` does not raise)
+- Fix D's products lock is placed before the *locked* `bins ... FOR UPDATE`
+  read but after the earlier, *unlocked* warehouse-inference read
+  (`rpc_manual_stock_movement_v2`'s `SELECT ... FROM bins` when
+  `warehouse_id` is omitted) — the lock must precede the first `bins`
+  reference in the function, not only the one that takes `FOR UPDATE`
+- the mutant-2 guard-regression fixture (§7) uses the same `mo_id` for both
+  concurrent `rpc_consume_reserved_materials_v2` calls — this cannot exercise
+  product-level contention at all, since both calls would fully serialize on
+  the function's first statement (`manufacturing_orders ... FOR UPDATE`)
+  before reaching any product lock
 - any of the four Fix E functions is missing the `PRODUCT_NOT_PRELOCKED` (or
   equivalent) guard after per-line product resolution — required uniformly
   on all four per this design, not only on the ones judged structurally
