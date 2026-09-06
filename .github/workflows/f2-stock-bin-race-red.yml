@@ -1,0 +1,85 @@
+name: F2 stock bin race RED
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh'
+      - '.github/workflows/f2-stock-bin-race-red.yml'
+      - 'docs/db/F2_STOCK_BIN_RACE_RED_PROOF.md'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  red-proof:
+    name: Prove current stock-bin lost-update races (RED-A and RED-B)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_f2_red
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve current baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          test "$CUTOFF" = "189"
+
+      - name: Build cutoff-189 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+      - name: RED proof (RED-A + RED-B + controls)
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh \
+            2>&1 | tee /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_REDA_REPRODUCED_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_STATIC_CONTRACT_BOTH_OVERLOADS_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_CONTROL1_EXISTING_BIN_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_REDB_REPRODUCED_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_CONTROL2_INCOMING_VS_OUTGOING_OK' /tmp/f2-stock-bin-race-red.out
+          grep -q 'STOCK_F2_RED_PROOF_PASS' /tmp/f2-stock-bin-race-red.out
+
+      - name: Upload RED evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: f2-stock-bin-race-red-${{ github.run_id }}
+          path: |
+            /tmp/f2-stock-bin-race-red.out
+            /tmp/stock-f2-race-*.out
+            /tmp/stock-f2-race-*.err
+          retention-days: 30
