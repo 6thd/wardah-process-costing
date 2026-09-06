@@ -414,6 +414,51 @@ This document chooses the remediation shape. It does not implement it.
 > mutant, and the cancellation-vs-cancellation row/prose reframed as a real-path
 > control. §9's reject-list gained a matching bullet.
 
+> **Tenth correction (found in review): the standalone helper-order mutant's own
+> GREEN (real-helper) run reused a barrier the real function cannot participate
+> in.**
+>
+> The ninth correction's mutant description said to "run the identical
+> literal-array fixture once more against the real, unmodified helper" — reusing
+> the *same* advisory-lock-gate barrier as the RED (ordering-removed) run. That
+> does not work: the advisory-lock gate call (`PERFORM pg_advisory_lock(<gate>)`
+> immediately after the first row lock) is code the RED mutant is instrumented
+> with for the test; the real, unmodified `wardah_lock_products_for_stock_write`
+> has no such call anywhere in its body (production code has no reason to call a
+> test-only synchronization primitive). With the real helper, both calls resolve
+> `ARRAY[A,B]`/`ARRAY[B,A]` to the same ascending-`id` order and both attempt to
+> lock `A` first — so the second call would block *before* ever reaching a gate
+> that only the mutant's own code calls. A coordinator waiting for two
+> `wait_event = 'advisory'` waiters, one of which can never appear, hangs
+> forever; the GREEN run described this way would never actually complete, let
+> alone prove anything.
+>
+> Fix: the GREEN (real-helper) run does not need a gate at all — ordinary row-lock
+> waiting, the same primitive RED-A/RED-B already uses, is enough. Transaction 1
+> calls the real helper with `ARRAY[A,B]`, gets both products back, and holds its
+> transaction open (no `COMMIT` yet). Transaction 2, started only after
+> transaction 1's call has already returned, calls the real helper with
+> `ARRAY[B,A]`. Verified empirically against a live PostgreSQL 17 instance:
+> transaction 2's call does not return at all while transaction 1's transaction
+> is open — no partial progress, confirming it is blocked trying to acquire the
+> *first* product in ascending order (`A`) despite its own array listing `B`
+> first — and `pg_blocking_pids(<transaction 2's pid>)` returns
+> `{<transaction 1's pid>}`, PostgreSQL's own documented, precise mechanism for
+> proving one backend is genuinely blocked by another (more direct than parsing
+> `wait_event`/`wait_event_type` alone, though those corroborate: `Lock` /
+> `transactionid`). Committing transaction 1 lets transaction 2 immediately
+> proceed to lock `A` then `B` and return successfully — no deadlock. This
+> directly demonstrates the real helper's `ORDER BY id` converges both callers on
+> the same acquisition order regardless of the caller's own array order, using
+> only mechanisms present in the real, uninstrumented function.
+>
+> The RED (ordering-removed) run of the standalone mutant is unchanged — the
+> advisory-lock gate is correct there, because that build's own code is the one
+> instrumented with the gate call.
+>
+> §7's standalone helper-order mutant row is corrected below; §9's reject-list
+> gained a matching bullet.
+
 ---
 
 ## 1. Decision
@@ -1494,7 +1539,8 @@ numeric helpers, with inverted assertions:
 | New: first-bin incoming vs outgoing | no deadlock; outgoing is either applied after the bin exists or `BIN_NOT_FOUND`, never a hang |
 | New: incoming vs cancellation, existing bin | no deadlock; if cancellation wins the product lock first, cancellation completes then incoming applies and both effects reconcile; if incoming commits first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; no partial reversal in either ordering |
 | New: outgoing vs cancellation, existing bin | no deadlock; if cancellation serializes first, cancellation then outgoing may both complete subject to normal stock checks; if outgoing becomes a later movement first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; `bins`/`products`/SLE remain reconciled. This is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
-| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant | call the ordering-removed helper mutant directly with literal `ARRAY[A,B]` and `ARRAY[B,A]` (the test harness supplies the crossed order itself — no RPC's own collection logic in between to lose it), driven through the advisory-lock gate barrier (per the eighth/ninth corrections). Must reproduce a genuine deadlock — both backends observed via `pg_stat_activity` waiting on each other's row, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts. Run once against the ordering-removed mutant (must deadlock) and once against the real helper, `ORDER BY id` intact, same literal opposite arrays (must not — both attempt the same lower-`id` product first regardless of array order). This is the sole basis for the global-ordering claim; it does not depend on any caller (Fix C included) producing a particular array order |
+| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant, RED (ordering-removed) run | call the ordering-removed helper mutant directly with literal `ARRAY[A,B]` and `ARRAY[B,A]` (the test harness supplies the crossed order itself — no RPC's own collection logic in between to lose it), driven through the advisory-lock gate barrier (per the eighth/ninth corrections — this build's own code calls the gate). Must reproduce a genuine deadlock — both backends observed via `pg_stat_activity` waiting on each other's row, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts |
+| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant, GREEN (real helper) run | **not** the same barrier as the RED run — the real, unmodified helper has no advisory-lock call in its body to gate on (per the tenth correction above). Instead: transaction 1 calls the real helper with `ARRAY[A,B]`, gets both products locked, and holds its transaction open; transaction 2, started only after transaction 1's call has returned, calls the real helper with `ARRAY[B,A]`. Transaction 2's call must not return at all while transaction 1 is open — confirmed via `pg_blocking_pids(<transaction 2's backend pid>)` returning `{<transaction 1's backend pid>}` (PostgreSQL's own documented blocking-relationship check), corroborated by `wait_event_type = 'Lock'`, `wait_event = 'transactionid'` — proving transaction 2 is stuck acquiring the *first* product in ascending order (`A`) despite its own array listing `B` first. Committing transaction 1 must let transaction 2 immediately complete, locking `A` then `B`, with no deadlock. Together with the RED run above, this is the sole basis for the global-ordering claim; neither run depends on any caller (Fix C included) producing a particular array order |
 | New: cancellation vs cancellation, overlapping multi-product adjustments (real-path control, not an ordering proof) | two `SUBMITTED` adjustments sharing two products, run under genuine forced concurrency against the real, unmodified Fix C and helper — no attempt to force or assert which product either adjustment's own array lists first, since Fix C's collection step (distinct product_ids from the SLEs being reversed) has no specified order and nothing should depend on one. Asserts business correctness only: no deadlock regardless of which adjustment's transaction starts first, and both `products` rows end up equal to the sum of their own bins. The lock-ordering guarantee itself comes from the standalone helper-order mutant above plus the static contract requiring the helper call before the first `UPDATE bins` — both apply to Fix C regardless of its own array order, so this control does not need to reproduce a pre-fix deadlock to be meaningful |
 | New: manual movement vs incoming/outgoing/cancellation, existing bin | no deadlock; whichever serializes second sees the other's committed state and applies normally (single-product case, no `LATER_STOCK_MOVEMENT_EXISTS` interaction unless racing cancellation specifically, in which case the same rule as incoming/outgoing-vs-cancellation applies) |
 | New: two different multi-line callers (e.g. one `rpc_post_goods_receipt`, one `rpc_post_delivery_note`), overlapping products in reversed line order, no pre-existing bins for one side | no deadlock regardless of which call's `wardah_lock_products_for_stock_write` commits first; run once against a build with Fix E omitted (must reproduce a real deadlock) and once with Fix E (must not) |
@@ -1580,12 +1626,29 @@ instant. Confirmed empirically: this reproduces a real `deadlock detected`
 waiting on each other's row (`Process … waits for ShareLock on transaction
 …; blocked by process …`, symmetric in both directions) immediately
 beforehand. A "hang until timeout" without that live
-`pg_stat_activity`/`40P01` proof is not sufficient evidence. Run the
-identical literal-array fixture once more against the real, unmodified
-helper (`ORDER BY id` in the locking query itself) — both calls now attempt
-the *same* lower-`id` product first regardless of which literal array
-either used, so one simply queues behind the other for that single row and
-neither can hold one product while waiting on the other; must not deadlock.
+`pg_stat_activity`/`40P01` proof is not sufficient evidence.
+
+The GREEN (real-helper) run must **not** reuse this same gate — the real,
+unmodified helper has no `pg_advisory_lock` call anywhere in its body (it is
+production code, not the test mutant), so a coordinator waiting for two
+`wait_event = 'advisory'` waiters would wait for one that can never appear
+and simply hang forever (the tenth correction above). Ordinary row-lock
+waiting, the same primitive RED-A/RED-B already use, is enough on its own:
+transaction 1 calls the real helper with the literal `ARRAY['<A>','<B>']`
+and gets both products back, then holds its transaction open (no `COMMIT`
+yet). Transaction 2, started only after transaction 1's call has already
+returned, calls the real helper with `ARRAY['<B>','<A>']`. Verified
+empirically against a live PostgreSQL 17 instance: transaction 2's call does
+not return at all while transaction 1's transaction stays open — no partial
+progress — and `pg_blocking_pids(<transaction 2's backend pid>)` returns
+`{<transaction 1's backend pid>}` (PostgreSQL's documented mechanism for
+proving one backend is genuinely blocked by another), corroborated by
+`wait_event_type = 'Lock'`, `wait_event = 'transactionid'`. This proves
+transaction 2 is stuck acquiring the *same* lower-`id` product first (`A`)
+despite its own array listing `B` first — both calls converge on the same
+acquisition order regardless of which literal array either used. Committing
+transaction 1 must let transaction 2 immediately proceed to lock `A` then
+`B` and return successfully; must not deadlock.
 
 **2. Cancellation-vs-cancellation real-path control.** Two `SUBMITTED`
 adjustments, each with lines touching the *same* two products A and B, with
@@ -1893,6 +1956,14 @@ Reviewers should reject the implementation PR if:
   mutant plus the static contract requiring `ORDER BY id` in the locking
   query, neither of which depends on that caller's own array order (the
   ninth correction above)
+- the standalone helper-order mutant's GREEN (real-helper) run reuses the
+  RED run's advisory-lock gate barrier instead of plain row-lock waiting —
+  the real, unmodified helper has no `pg_advisory_lock` call in its body for
+  a coordinator to detect, so a barrier built around it hangs waiting for a
+  gate signal that never appears; the GREEN run must instead hold
+  transaction 1's call open after it returns and prove transaction 2 blocks
+  on it via `pg_blocking_pids()` (or the corroborating `wait_event_type =
+  'Lock'`, `wait_event = 'transactionid'`), the tenth correction above
 - the static contract for `wardah_lock_products_for_stock_write` checks only
   that dedup/normalization is sorted (`ARRAY(SELECT DISTINCT ... ORDER BY
   ...)`) without also asserting `ORDER BY` on `id` in the query that carries
