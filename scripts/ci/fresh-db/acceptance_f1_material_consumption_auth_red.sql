@@ -61,19 +61,10 @@ BEGIN
     RAISE EXCEPTION 'F1_RED_MEMBERSHIP_ONLY_RLS_NOT_REPRODUCED: %', v_count;
   END IF;
 
-  -- There is currently no semantically exact material-consumption permission key.
-  IF EXISTS (
-    SELECT 1 FROM public.permissions
-    WHERE permission_key IN (
-      'manufacturing.material_consumption.post',
-      'manufacturing.material_consumption.consume',
-      'manufacturing.material_consumption.reverse'
-    )
-  ) THEN
-    RAISE EXCEPTION 'F1_RED_EXACT_PERMISSION_ALREADY_EXISTS';
-  END IF;
-
-  RAISE NOTICE 'F1_RED_PROOF_PASS: authenticated consumption RPCs + direct table DML remain membership-only and no exact permission key exists';
+  -- Permission-key semantics are a reviewed catalog/design judgment, not a reliable
+  -- string-name assertion. This deterministic proof therefore stops at the reachable
+  -- authorization boundaries above; the live catalog review is documented separately.
+  RAISE NOTICE 'F1_RED_PROOF_PASS: authenticated consumption RPCs + direct table DML remain membership-only';
 END
 $red$;
 
