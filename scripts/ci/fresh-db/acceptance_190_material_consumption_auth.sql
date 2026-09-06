@@ -115,8 +115,9 @@ RESET ROLE;
 -- Explicit active grant: authorization passes. v2/legacy reach the next
 -- payload-validation gate. The compatibility wrapper receives a non-empty
 -- payload, delegates, passes authorization and reaches the next stage/WIP gate.
--- Backflush reaches its legal empty-BOM result, and compatibility direct INSERT
--- succeeds. UPDATE/DELETE remain unsupported.
+-- Legacy backflush passes authorization then fails explicitly as retired until
+-- #234 provides a canonical implementation. Direct INSERT succeeds while
+-- UPDATE/DELETE remain unsupported.
 -- ---------------------------------------------------------------------------
 SELECT set_config('request.jwt.claim.sub', '19019019-0000-4000-8000-000000000003', true);
 SELECT set_config('request.jwt.claims', '{"sub":"19019019-0000-4000-8000-000000000003","role":"authenticated"}', true);
@@ -127,7 +128,7 @@ DECLARE
   v_v2_passed_auth boolean := false;
   v_legacy_passed_auth boolean := false;
   v_compat_passed_auth boolean := false;
-  v_backflush_count integer;
+  v_backflush_retired boolean := false;
   v_update_denied boolean := false;
   v_delete_denied boolean := false;
 BEGIN
@@ -180,14 +181,17 @@ BEGIN
     END IF;
   END;
 
-  SELECT count(*) INTO v_backflush_count
-  FROM public.backflush_materials(
-    '19019019-1000-4000-8000-000000000040', 1
-  );
-
-  IF v_backflush_count <> 0 THEN
-    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_EMPTY_BOM_BACKFLUSH_WRONG: %', v_backflush_count;
-  END IF;
+  BEGIN
+    PERFORM 1 FROM public.backflush_materials(
+      '19019019-1000-4000-8000-000000000040', 1
+    );
+  EXCEPTION WHEN feature_not_supported THEN
+    IF SQLERRM='BACKFLUSH_RETIRED_PENDING_CANONICAL_REIMPLEMENTATION' THEN
+      v_backflush_retired := true;
+    ELSE
+      RAISE;
+    END IF;
+  END;
 
   INSERT INTO public.material_consumption(
     id, org_id, work_order_id, mo_id, item_id,
@@ -216,15 +220,17 @@ BEGIN
     v_delete_denied := true;
   END;
 
-  IF NOT (v_v2_passed_auth AND v_legacy_passed_auth AND v_compat_passed_auth)
+  IF NOT (v_v2_passed_auth AND v_legacy_passed_auth AND v_compat_passed_auth
+          AND v_backflush_retired)
      OR NOT v_update_denied OR NOT v_delete_denied THEN
     RAISE EXCEPTION
-      'MATERIAL_CONSUMPTION_190_EXPLICIT_GRANT_PATH_WRONG: v2=% legacy=% compat=% update_denied=% delete_denied=%',
+      'MATERIAL_CONSUMPTION_190_EXPLICIT_GRANT_PATH_WRONG: v2=% legacy=% compat=% backflush_retired=% update_denied=% delete_denied=%',
       v_v2_passed_auth,v_legacy_passed_auth,v_compat_passed_auth,
-      v_update_denied,v_delete_denied;
+      v_backflush_retired,v_update_denied,v_delete_denied;
   END IF;
 
   RAISE NOTICE 'MATERIAL_CONSUMPTION_190_EXPLICIT_GRANT_OK';
+  RAISE NOTICE 'MATERIAL_CONSUMPTION_190_BACKFLUSH_QUARANTINED_OK';
   RAISE NOTICE 'MATERIAL_CONSUMPTION_190_DIRECT_UPDATE_DELETE_CLOSED_OK';
 END
 $granted$;
@@ -405,12 +411,14 @@ RESET ROLE;
 -- insert remain; unsupported direct mutations and anon mutation grants are gone.
 -- Compatibility wrappers may preserve legacy validation ordering, but they must
 -- remain delegate-only and must not perform DML before reaching the v2 guard.
+-- The broken automatic backflush trigger must remain absent until #234.
 -- ---------------------------------------------------------------------------
 DO $surface$
 DECLARE
   v_insert_policies integer;
   v_compat_src text;
   v_legacy_src text;
+  v_backflush_src text;
   v_compat_security_definer boolean;
 BEGIN
   IF NOT has_table_privilege('authenticated','public.material_consumption','SELECT')
@@ -444,6 +452,27 @@ BEGIN
   IF v_legacy_src !~ 'rpc_consume_reserved_materials_v2'
      OR v_legacy_src ~* '\m(INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\M' THEN
     RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_LEGACY_WRAPPER_NOT_DELEGATE_ONLY';
+  END IF;
+
+  SELECT p.prosrc INTO v_backflush_src
+  FROM pg_proc p
+  WHERE p.oid='public.backflush_materials(uuid,numeric)'::regprocedure;
+
+  IF v_backflush_src !~ 'manufacturing.material_consumption.consume'
+     OR v_backflush_src !~ 'BACKFLUSH_RETIRED_PENDING_CANONICAL_REIMPLEMENTATION'
+     OR v_backflush_src ~* '\mINSERT\s+INTO\s+(public\.)?material_consumption\M' THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_BACKFLUSH_QUARANTINE_DRIFT';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public' AND c.relname='work_orders'
+      AND t.tgname='trigger_auto_backflush' AND NOT t.tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_AUTO_BACKFLUSH_TRIGGER_REOPENED';
   END IF;
 
   SELECT count(*) INTO v_insert_policies
