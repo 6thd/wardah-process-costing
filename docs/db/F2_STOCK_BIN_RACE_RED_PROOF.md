@@ -177,9 +177,11 @@ numbers.
 - It does not claim RED-A and RED-B share a fix, or that fixing one fixes the other —
   RED-A is a `bins` unique-key insert race; RED-B is a `products` row update race with
   no shared lock between them today.
-- It does not extend to every stock-mutating RPC in the codebase — only the two
-  `wardah_apply_stock_incoming` overloads and their interaction with
-  `wardah_apply_stock_outgoing` were exercised.
+- It does not extend to every stock-mutating RPC in the codebase — only
+  `wardah_apply_stock_incoming` and its interaction with
+  `wardah_apply_stock_outgoing` were exercised, and only the 9-arg
+  `wardah_apply_stock_incoming` overload behaviorally; the 10-arg overload is
+  covered by the static contract assertion only, not by a live race.
 - It does not close #228.
 
 ## FIX PR gate
