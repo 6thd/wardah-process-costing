@@ -646,12 +646,24 @@ This document chooses the remediation shape. It does not implement it.
 >    design (§4, "Lock mode"): inserting a `material_consumption` row takes an
 >    implicit `FOR KEY SHARE` lock on the referenced `material_reservations` row,
 >    which conflicts with a bare `FOR UPDATE` there but not with `FOR NO KEY
->    UPDATE`. `rpc_consume_reserved_materials_v2` is the only current writer of
->    `material_consumption`, so this is not a live deadlock today, but the
->    principle this design already applies to `products` ("no bare `FOR UPDATE` on
->    a referenced parent row without a specific reason") applies identically here,
->    and there is no reason `material_reservations` needs the stronger lock: the
->    columns Fix E's guard and Fix F's `UPDATE` touch (`status`, `quantity_*`,
+>    UPDATE`. `rpc_consume_reserved_materials_v2` is the only current writer that
+>    populates `material_consumption.reservation_id`
+>    (`src/services/manufacturing/mesService.ts`'s `consumeMaterial()` also
+>    inserts `material_consumption` rows directly from the client, but never
+>    sets `reservation_id` — a separate, `NULL`-`reservation_id` write path
+>    this correction is not about), so this is not a live deadlock today via
+>    the FK this paragraph concerns. The principle this design already
+>    applies to `products` ("no bare `FOR UPDATE` on a referenced parent row
+>    without a specific reason") applies identically here regardless — and
+>    the existence of that second, direct-insert write path is itself a
+>    reason to prefer the weaker lock, not a reason it's safe to skip: an
+>    authenticated client with ordinary `material_consumption` write access
+>    is not structurally prevented from supplying a `reservation_id` of its
+>    own, so nothing here should assume `rpc_consume_reserved_materials_v2`
+>    is the only possible source of an FK-referencing insert going forward,
+>    only that it is today's. There is no reason `material_reservations`
+>    needs the stronger lock either way: the columns Fix E's guard and Fix
+>    F's `UPDATE` touch (`status`, `quantity_*`,
 >    `released_at`, `updated_at`) are exactly the kind of non-key columns `FOR NO
 >    KEY UPDATE` is for. Both the consumption superset lock and Fix F now specify
 >    `ORDER BY id FOR NO KEY UPDATE`.
@@ -689,6 +701,66 @@ This document chooses the remediation shape. It does not implement it.
 > `pg_cron` installed; and a residual-risk paragraph documents unmediated
 > multi-row client writes on `products`/`material_reservations` as an F1/write-surface
 > concern this migration does not and should not attempt to close.
+
+> **Fourteenth correction (found in review): two P1s in the thirteenth
+> correction's own text, plus a P2 wording imprecision, all confirmed and
+> fixed.**
+>
+> 1. **The `cron.job` "guard" in §9's preflight does not guard anything.**
+>    `SELECT ... FROM cron.job WHERE to_regclass('cron.job') IS NOT NULL AND
+>    ...` still fails with `relation "cron.job" does not exist` on an
+>    environment without `pg_cron` — confirmed against a live PostgreSQL 17
+>    instance without the extension. PostgreSQL resolves the `FROM cron.job`
+>    reference while planning the query, before the `WHERE` clause is
+>    evaluated against any row, so a `to_regclass` condition inside `WHERE`
+>    cannot prevent the failure; it only ever would have filtered rows from a
+>    query that already failed to plan. Fixed: replaced with a `DO $$ ... $$`
+>    block that only reaches a dynamic `EXECUTE` of the `cron.job` query
+>    inside an `IF to_regclass('cron.job') IS NOT NULL THEN` branch — real
+>    control flow, confirmed empirically to skip cleanly (`RAISE NOTICE
+>    'pg_cron not installed...'`) on an instance without `pg_cron`, rather
+>    than a `WHERE`-clause condition that can never run early enough to help.
+> 2. **No explicit precondition that Migration 190 is applied before 191.**
+>    191's replace of `rpc_consume_reserved_materials_v2` is built on top of
+>    the Migration 190 body (§5's own rollback bullet already says so), which
+>    means 191 carries forward 190's `manufacturing.material_consumption.consume`
+>    permission-key guard (confirmed: lines 111–116 of the live 190 body)
+>    unconditionally — regardless of whether 190 itself has ever been applied
+>    to the target database. Production is confirmed at cutoff 189 as of this
+>    design (190 merged, not yet applied). Applying 191 directly to such a
+>    database would deploy the guard's *code* without 190's own `INSERT` ever
+>    having created the permission-key row the guard checks — silently
+>    denying every non-org-admin caller of consumption
+>    (`MATERIAL_CONSUMPTION_PERMISSION_DENIED`) the moment 191 lands, since
+>    `has_permission()`'s org-admin override bypasses the key check entirely
+>    but an ordinary granted role does not. Fixed: §9's preflight now
+>    hard-asserts, before proceeding — 190 in the Production ledger; the
+>    permission row's exact module/resource/action shape; that the *current*
+>    `rpc_consume_reserved_materials_v2` body already contains the M190
+>    guard (proving 191 would be replacing the M190 body, not an earlier
+>    one); and 190's own quarantine postflight invariants
+>    (`backflush_materials` retired, `trigger_auto_backflush` absent) still
+>    hold. This makes the dependency this design already assumed into a
+>    checked gate instead of an implicit one — the same `repository-first`/
+>    `DB-first` ordering principle `CLAUDE.md` already states generally, now
+>    a specific, verifiable precondition for this migration.
+> 3. **P2 — "the only current writer of `material_consumption`" is imprecise.**
+>    `src/services/manufacturing/mesService.ts`'s `consumeMaterial()` also
+>    inserts `material_consumption` rows directly from the client (confirmed:
+>    a plain `.insert()`, `consumption_type: 'MANUAL'`), and Migration 190
+>    deliberately left this path in place. It does not set `reservation_id`,
+>    so it does not collide with the FK this design's lock-mode argument
+>    concerns — but the claim as written overstated exclusivity. Corrected
+>    to "the only current writer that populates `reservation_id`," and noted
+>    that the existence of a second, direct-insert write path is itself a
+>    reason `FOR NO KEY UPDATE` (not `FOR UPDATE`) is the right choice, not a
+>    reason the FK conflict is safe to ignore: an authenticated client with
+>    ordinary write access to `material_consumption` is not structurally
+>    prevented from supplying its own `reservation_id`.
+>
+> §9's preflight is corrected below for points 1 and 2; the "only writer"
+> phrasing is corrected in both places it appears (§4, thirteenth correction
+> and Fix F sections) for point 3.
 
 ---
 
@@ -1480,13 +1552,16 @@ superset lock specified earlier in this section (§4, Fix E) is written as
 `ORDER BY id FOR UPDATE`. For the identical FK reason just given
 (`material_consumption.reservation_id → material_reservations(id)`), it
 should read `ORDER BY id FOR NO KEY UPDATE` — `rpc_consume_reserved_materials_v2`
-is the only current writer of `material_consumption`, so this is not a live
-deadlock today, but the same "no bare `FOR UPDATE` on a referenced parent row
-without a specific reason" principle this design already applies to
-`products` applies here too, and the columns the superset lock and its guard
-touch are the same non-key columns Fix F's `UPDATE` touches. Every mention of
-this lock's mode elsewhere in this document (§6's lock graph, §7's static
-contract) is corrected to `FOR NO KEY UPDATE` to match.
+is the only current writer that populates `reservation_id` (a direct client
+insert path exists via `mesService.consumeMaterial()`, but it never sets
+`reservation_id`; see the thirteenth correction, point 2), so this is not a
+live deadlock today via this specific FK, but the same "no bare `FOR UPDATE`
+on a referenced parent row without a specific reason" principle this design
+already applies to `products` applies here regardless, and the columns the
+superset lock and its guard touch are the same non-key columns Fix F's
+`UPDATE` touches. Every mention of this lock's mode elsewhere in this
+document (§6's lock graph, §7's static contract) is corrected to `FOR NO KEY
+UPDATE` to match.
 
 ### Why a product-row lock is the right shared prefix
 
@@ -2219,17 +2294,74 @@ Do not write SQL until this design is accepted. Then, in
    `has_function_privilege()` is `false` for `anon`/`authenticated` and
    `true` for `service_role` on the four stock-write signatures, plus a
    static lock-order assertion on each of the other seven per §7's contract
-   rows. Preflight also runs, guarded so it does not fail on an environment
-   without `pg_cron` installed:
+   rows. Preflight also records (not blocks on) how many rows are currently
+   exposed to the pre-fix race and whether a scheduled job calls this
+   function in Production, since neither is knowable from the repository
+   alone:
    ```sql
    SELECT count(*) FROM material_reservations
      WHERE expires_at IS NOT NULL AND status = 'reserved';
-   SELECT jobid, schedule, command FROM cron.job
-     WHERE to_regclass('cron.job') IS NOT NULL AND command ILIKE '%release_expired%';
+
+   DO $$
+   DECLARE r record;
+   BEGIN
+     IF to_regclass('cron.job') IS NOT NULL THEN
+       FOR r IN EXECUTE
+         $q$SELECT jobid, schedule, command FROM cron.job
+            WHERE command ILIKE '%release_expired%'$q$
+       LOOP
+         RAISE NOTICE 'cron job: % % %', r.jobid, r.schedule, r.command;
+       END LOOP;
+     ELSE
+       RAISE NOTICE 'pg_cron not installed; skipping cron.job check';
+     END IF;
+   END $$;
    ```
-   — recording (not blocking on) how many rows are currently exposed to the
-   pre-fix race and whether a scheduled job calls this function in Production,
-   since neither is knowable from the repository alone.
+   A plain `SELECT ... FROM cron.job WHERE to_regclass('cron.job') IS NOT
+   NULL AND ...` is **not** a guard — confirmed against a live PostgreSQL 17
+   instance without `pg_cron`: PostgreSQL resolves the `FROM cron.job`
+   relation reference before the `WHERE` clause is ever evaluated, so the
+   query fails with `relation "cron.job" does not exist` regardless of the
+   `to_regclass` condition. Only genuine control flow — a `DO` block that
+   never reaches the dynamic `EXECUTE` unless the schema exists — actually
+   skips the query (the fourteenth correction above).
+
+   **Hard precondition: Migration 190 must already be applied and its
+   invariants verified, before 191 may be applied to Production** (the
+   fourteenth correction above). 191's replace of `rpc_consume_reserved_materials_v2`
+   is built on top of the Migration 190 body (§5's rollback bullet already
+   restores to that body) — it carries forward 190's
+   `manufacturing.material_consumption.consume` permission-key guard (lines
+   111–116 of the live 190 body) unconditionally. Applying 191 to a database
+   still at cutoff 189 (190 unapplied — the actual state of Production as of
+   this design) would deploy that guard's *code* without 190's own DML ever
+   having inserted the permission-key row it checks, silently denying every
+   non-org-admin caller of consumption with `MATERIAL_CONSUMPTION_PERMISSION_DENIED`
+   the moment 191 lands (`has_permission()`'s org-admin override bypasses the
+   key entirely — `CLAUDE.md`, "Security model", "عقد `has_permission()` الحي
+   بعد 173" — but an ordinary granted role would not). 191's preflight must
+   therefore assert, and refuse to proceed if any fails:
+   - `190_material_consumption_authorization_boundary` appears in the
+     Production migration ledger;
+   - the permission row exists with the exact shape 190's own preflight
+     requires: `permission_key = 'manufacturing.material_consumption.consume'`
+     joined to a module named `manufacturing`, `resource = 'material_consumption'`,
+     `action = 'consume'`;
+   - the *current* (pre-191) body of `rpc_consume_reserved_materials_v2`
+     already contains the M190 guard (`pg_get_functiondef` matched against
+     the `has_permission(..., 'manufacturing.material_consumption.consume')`
+     pattern) — proving 191 is replacing the M190 body, not the M189-or-earlier
+     one;
+   - M190's own quarantine invariants still hold: `backflush_materials` is
+     still the retired, permission-gated stub (not reverted), and
+     `trigger_auto_backflush` does not exist on `work_orders` — re-running
+     190's own postflight checks (its file, lines ~350–390) rather than
+     inventing new ones.
+   This is the same "repository-first for the migration, DB-first for
+   anything that depends on it" ordering `CLAUDE.md` already states
+   generally, made an explicit, checked gate for this specific dependency
+   rather than an assumed one — the same standard this design already holds
+   itself to for its own sweeps (§9 item 3).
 3. Before writing any of it, re-run both sweeps from this design — every
    direct writer of `products.stock_quantity`, and every caller of
    `wardah_apply_stock_incoming`/`outgoing` — against `main` at implementation
@@ -2484,3 +2616,25 @@ Reviewers should reject the implementation PR if:
   as an F1/write-surface-audit input — a direct client `PATCH` never goes
   through an RPC's atomicity guarantee at all, so "safe to retry" understates
   what is actually open here
+- the `cron.job` preflight check is a plain `SELECT ... FROM cron.job WHERE
+  to_regclass('cron.job') IS NOT NULL AND ...` instead of a `DO $$ ... $$`
+  block that only reaches a dynamic `EXECUTE` of the `cron.job` query when
+  the schema exists — PostgreSQL resolves the `FROM` clause before
+  evaluating `WHERE`, so the former still fails outright on any environment
+  without `pg_cron` installed (confirmed empirically; the fourteenth
+  correction above)
+- 191 is applied to Production, or its preflight omits asserting, without
+  first confirming Migration 190 (`190_material_consumption_authorization_boundary`)
+  is already in the Production ledger, its permission row exists with the
+  exact shape 190's own preflight requires, the current
+  `rpc_consume_reserved_materials_v2` body already contains the M190
+  permission guard, and M190's quarantine postflight invariants
+  (`backflush_materials` retired, `trigger_auto_backflush` absent) still
+  hold — 191 silently carries the M190 guard's code regardless, and applying
+  it to a database still at cutoff 189 would deny every non-org-admin
+  consumption caller the moment 191 lands (the fourteenth correction above)
+- any claim that `rpc_consume_reserved_materials_v2` is "the only writer of
+  `material_consumption`" without qualifying "that populates
+  `reservation_id`" — `mesService.consumeMaterial()` is a second, direct
+  client-insert path Migration 190 deliberately left in place (the
+  fourteenth correction above)
