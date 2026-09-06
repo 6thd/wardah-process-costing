@@ -15,10 +15,12 @@ This document chooses the remediation shape. It does not implement it.
 > section asserted the 9-arg `wardah_apply_stock_incoming` overload is currently
 > `GRANT EXECUTE`-able by `authenticated`. That is wrong. Checked directly against
 > `sql/baseline/000_schema_baseline_20260905_184634.sql` (cutoff 189, the live schema
-> `main` is currently at): all four functions this design touches —
+> `main` is currently at): the four stock-write helpers this design replaces —
 > `wardah_apply_stock_incoming` 9-arg and 10-arg, `wardah_apply_stock_outgoing` 9-arg
 > and 10-arg — carry the identical live ACL `REVOKE ALL FROM PUBLIC; GRANT ALL TO
-> service_role;`. None of the four grant `authenticated` anything today.
+> service_role;`. None of the four grant `authenticated` anything today. (A fifth
+> function this design also touches, `rpc_cancel_stock_adjustment`, has a different,
+> unrelated ACL — see the gap note and §5 below; it is not part of this correction.)
 >
 > The full history is worse than "97 granted it": Migration 94 granted the 9-arg
 > overload `GRANT EXECUTE ... TO authenticated`; Migration 95 closed it
@@ -33,19 +35,42 @@ This document chooses the remediation shape. It does not implement it.
 > re-issues the revoke/grant and verifies it with `has_function_privilege()` in
 > postflight, so the invariant is re-proven, not silently inherited.
 
+> **Gap note (found in review, not silently patched around):** the prior revision of
+> this design covered exactly four functions (`wardah_apply_stock_incoming` 9/10-arg,
+> `wardah_apply_stock_outgoing` 9/10-arg) and treated that as the complete set of
+> `products`-mutating stock helpers. It wasn't. A systematic sweep of the live schema
+> for every writer of `products.stock_quantity` turns up six functions, not four:
+> the same four, plus `rpc_cancel_stock_adjustment`
+> (`sql/migrations/124_atomic_stock_adjustments_and_material_consumption.sql`,
+> still the live definition — no later migration replaces it) and
+> `rpc_complete_manufacturing_order`. The second one is confirmed harmless (verified:
+> its body never references `bins` at all, so it cannot invert lock order against
+> anything — it stays out of scope exactly as originally assessed). The first one is
+> not harmless: `rpc_cancel_stock_adjustment` updates `bins` (line 428) *before*
+> updating `products` (line 458) for each affected line — the exact opposite of this
+> design's products-then-bins order. A concurrent incoming/outgoing call holding
+> `products` and waiting on `bins`, racing against a cancellation holding that `bins`
+> row and waiting on `products`, is a real circular wait — the precise failure mode
+> this design exists to prevent. §4, §5, §6, §7, and §9 below now cover
+> `rpc_cancel_stock_adjustment` as a fifth function this migration must touch, not as
+> a documented exception — an exception would still leave the deadlock live.
+
 ---
 
 ## 1. Decision
 
-**One additive migration. One PR. Two independent fixes bundled for locality.**
+**One additive migration. One PR. Two independent defect fixes plus one
+lock-order compatibility update, bundled for locality.**
 
 Not two PRs. Not two successive migrations that each `CREATE OR REPLACE` the
 same functions.
 
 The runbook must say, in those words, that RED-A and RED-B are independent
-defects that both live in the two incoming overloads, that outgoing is
-touched only for lock-order compatibility, and that they are bundled so
-the lock-order contract is installed once.
+defects that both live in the two incoming overloads, that outgoing and
+`rpc_cancel_stock_adjustment` are touched only for lock-order compatibility,
+and that they are bundled so the lock-order contract is installed once,
+consistently, across every function that mutates `products` for a stock
+movement.
 
 ### Why not two PRs
 
@@ -58,8 +83,9 @@ They still share a locality problem:
 
 - both bugs sit in the 9-arg and 10-arg `wardah_apply_stock_incoming` bodies
 - any lock-order change on incoming that takes the `products` row **before**
-  `bins` deadlocks with live `wardah_apply_stock_outgoing` unless outgoing is
-  updated in the **same** replace
+  `bins` deadlocks with live `wardah_apply_stock_outgoing` **and** live
+  `rpc_cancel_stock_adjustment` (confirmed: it updates `bins` before
+  `products` today) unless both are updated in the **same** replace
 - a second migration immediately after the first would replace the same
   functions again
 
@@ -73,11 +99,12 @@ wrong ledger. See `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` and
 `docs/db/TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md`.
 
 Splitting RED-A and RED-B across two numbered migrations would recreate that
-chain on four stock helpers (`incoming` 9-arg, `incoming` 10-arg,
-`outgoing` 9-arg, `outgoing` 10-arg) for no operational gain. Rollback of a
-`CREATE OR REPLACE` is "put the previous bodies back." One replace rolls both
-fixes back together; two replaces leave a window where incoming is half-fixed
-and lock order vs outgoing is undefined.
+chain on five stock helpers (`incoming` 9-arg, `incoming` 10-arg,
+`outgoing` 9-arg, `outgoing` 10-arg, `rpc_cancel_stock_adjustment`) for no
+operational gain. Rollback of a `CREATE OR REPLACE` is "put the previous
+bodies back." One replace rolls both fixes back together; two replaces leave
+a window where incoming is half-fixed and lock order vs outgoing and
+cancellation is undefined.
 
 ### What "bundled for locality" is not
 
@@ -168,7 +195,7 @@ projects. That does **not** close RED-B for incoming first-bins: an empty
 `FOR UPDATE` set is a no-op. RED-B needs a lock target that exists before
 any bin row exists — the `products` row.
 
-### Overload coverage on `main`
+### Function coverage on `main`
 
 | Body | Last `CREATE OR REPLACE` | RED-A/B live? | Behavioral proof? |
 |---|---|---|---|
@@ -176,9 +203,15 @@ any bin row exists — the `products` row.
 | `wardah_apply_stock_incoming` 10-arg | Migration 187 | yes (static `pg_get_functiondef`) | no — adjustment path only |
 | `wardah_apply_stock_outgoing` 9-arg | Migration 186 | not these two races; lock-order peer | Control-2 vs incoming |
 | `wardah_apply_stock_outgoing` 10-arg | Migration 187 | same as 9-arg outgoing | static |
+| `rpc_cancel_stock_adjustment` | Migration 124 | not RED-A/B; lock-order peer, currently **inverted** (bins before products) | new control required (see §6) |
 
-A fix that replaces only one incoming overload cannot pass the existing
-static contract, and cannot be the whole remediation.
+A fix that replaces only the incoming overloads — or the four stock-write
+helpers without `rpc_cancel_stock_adjustment` — cannot pass the existing
+static contract or the new cancellation controls (§6, §7), and cannot be the
+whole remediation. A systematic sweep for every function that writes
+`products.stock_quantity` on `main` turns up exactly six: these five plus
+`rpc_complete_manufacturing_order`, which never touches `bins` (confirmed by
+reading its full body) and stays out of scope per §5.
 
 ---
 
@@ -188,7 +221,14 @@ static contract, and cannot be the whole remediation.
 
 Every stock-mutating helper this migration replaces acquires, in this order:
 
-1. **Product row** — `SELECT … FROM products WHERE id = p_product AND org_id = p_org FOR UPDATE`
+1. **Product row(s)** — `SELECT … FROM products WHERE id = p_product AND org_id = p_org FOR UPDATE`.
+   For helpers that only ever touch one product per call (incoming, outgoing)
+   this is a single row. For a helper that can touch several products in one
+   call (`rpc_cancel_stock_adjustment` — one adjustment can have lines across
+   multiple products), this is the *distinct set* of affected products,
+   locked in ascending `id` order (see Fix C) — the same "acquire in one
+   deterministic global order" discipline the Migration 186 bins lock already
+   uses, extended to cover locking more than one row of the same table.
 2. **Existing bins for that product** — the Migration 186 outgoing order,
    `ORDER BY warehouse_id, id FOR UPDATE` (no-op when none exist)
 3. **Target bin** — `SELECT … FOR UPDATE` on `(product, warehouse)`, then
@@ -197,15 +237,20 @@ Every stock-mutating helper this migration replaces acquires, in this order:
    holding (1)
 
 Outgoing already does (2) then (3) then (4) without (1). Incoming today does
-a single-bin (3) then an unlocked (4). Putting (1) on incoming alone
-deadlocks with outgoing:
+a single-bin (3) then an unlocked (4). `rpc_cancel_stock_adjustment` today
+does (3)-equivalent (a plain `UPDATE bins`, which row-locks implicitly) then
+(4)-equivalent, also without (1) — and it can do this for several different
+products across the lines of one adjustment. Putting (1) on incoming alone
+deadlocks with outgoing, and separately with cancellation:
 
 - incoming holds `products`, waits for `bins`
 - outgoing holds `bins`, waits for `products`
+- cancellation holds a `bins` row (from its `UPDATE bins`), waits for
+  `products` (its later `UPDATE products`) — same shape as the outgoing case
 
-So outgoing 9-arg and 10-arg must take (1) **before** (2) in the same
-migration. That is lock-order compatibility, not a claim that outgoing has
-RED-A or RED-B.
+So outgoing 9-arg/10-arg and `rpc_cancel_stock_adjustment` must all take (1)
+**before** (2) in the same migration. That is lock-order compatibility, not a
+claim that outgoing or cancellation have RED-A or RED-B.
 
 ```text
 incoming/outgoing (after 191)
@@ -213,6 +258,10 @@ incoming/outgoing (after 191)
   bins*     FOR UPDATE ORDER BY warehouse_id, id
   bins[wh]  FOR UPDATE / insert from locked snapshot
   SUM bins → UPDATE products    ← recompute under the product lock
+
+rpc_cancel_stock_adjustment (after 191)
+  DISTINCT product_id FOR UPDATE ORDER BY id  ← every product this adjustment touches, locked up front
+  (existing per-line loop, unchanged: SLE cancel + reversal, bins UPDATE, re-SUM, products UPDATE)
 ```
 
 ### Fix A — RED-A (bins)
@@ -258,15 +307,54 @@ leaves RED-B intact (the wait serializes the `UPDATE`, not the `SUM`).
 Locking all existing bins, as outgoing does, leaves RED-B intact when both
 warehouses are creating their first bin (empty lock set).
 
+### Fix C — lock-order compatibility for `rpc_cancel_stock_adjustment`
+
+Not a RED-A/RED-B remediation — cancellation has neither defect today, since
+it only ever operates on bins that already exist (it is reversing a
+previously-posted adjustment) and its per-line `SUM`/`UPDATE products` is not
+racing a first-bin creation. This is purely a lock-order change so
+cancellation cannot deadlock against the newly-fixed incoming/outgoing.
+
+Mechanically, before the existing per-line loop (which is otherwise
+untouched):
+
+- collect the distinct `product_id`s referenced by the non-cancelled SLEs
+  this call is about to reverse (the same set the existing loop already
+  iterates over, just gathered up front instead of discovered line by line)
+- `SELECT … FROM products WHERE id = ANY(...) AND org_id = v_adj.org_id
+  ORDER BY id FOR UPDATE` — lock all of them, in ascending `id` order, before
+  touching any `bins` row
+- run the existing loop exactly as today (cancel SLE, reverse SLE, `UPDATE
+  bins`, re-`SUM`, `UPDATE products`) — every product it touches is already
+  locked, so this is not a new correctness change, only a new precondition
+
+The `ORDER BY id` matters for a second reason beyond incoming/outgoing
+compatibility: two concurrent cancellations whose adjustments share more than
+one product, locked in different orders, would deadlock against *each other*
+even with the new prefix. A single deterministic order removes that
+regardless of which adjustment a given cancellation call is processing.
+
+This does not touch the adjustment-header lock (`stock_adjustments … FOR
+UPDATE`, unrelated resource, unchanged), the `wardah_assert_org_admin` gate,
+the `LATER_STOCK_MOVEMENT_EXISTS` fail-closed check, or the reversal SLE
+shape (`'Stock Adjustment Reversal'`, negated quantities, restored
+`qty_after_transaction`/`valuation_rate`/`stock_value`/`stock_queue` from the
+prior surviving entry).
+
+`rpc_complete_manufacturing_order` is the sixth `products`-writer found in the
+sweep and needs none of this: its body has zero references to `bins`
+anywhere, so it has no `bins` lock to invert against the new order. It stays
+out of scope (§5).
+
 ### Why a product-row lock is the right shared prefix
 
-| Candidate | RED-A | RED-B | Outgoing compatibility | Notes |
+| Candidate | RED-A | RED-B | Outgoing/cancellation compatibility | Notes |
 |---|---|---|---|---|
-| Product `FOR UPDATE` at start + re-SUM | yes | yes | yes, if outgoing takes it first | Lock target exists before any bin |
-| Outgoing-style "lock all bins" only | no (no row) | no (no rows) | already live | Empty `FOR UPDATE` is a no-op |
-| Advisory lock on `(org, product)` only | yes | yes | extra lock space next to row locks | Works, but diverges from the 186 row-lock style already on outgoing |
+| Product `FOR UPDATE` at start + re-SUM | yes | yes | yes, if outgoing and cancellation take it first, cancellation in a deterministic multi-row order | Lock target exists before any bin |
+| Outgoing-style "lock all bins" only | no (no row) | no (no rows) | already live for outgoing; does not help cancellation's order at all | Empty `FOR UPDATE` is a no-op |
+| Advisory lock on `(org, product)` only | yes | yes | extra lock space next to row locks; still needs a deterministic multi-key order for cancellation | Works, but diverges from the 186 row-lock style already on outgoing |
 | `SERIALIZABLE` on the RPC | maybe | maybe | session default is READ COMMITTED; SSI aborts are a new client contract | Rejected |
-| Relative `ON CONFLICT` upsert only | only if queue is re-derived | no | n/a | Does not touch `products` |
+| Relative `ON CONFLICT` upsert only | only if queue is re-derived | no | n/a | Does not touch `products`; does not touch cancellation's order at all |
 | Global SLE uniqueness | forbidden by #228 | n/a | n/a | Would break legal multi-line receipts |
 
 Advisory locks are a valid alternative and would also exist before the bin
@@ -288,14 +376,17 @@ and `wardah_apply_stock_outgoing`, not a novel locking primitive.
 Proposed number: **191** (190 is already on `main` for F1 material
 consumption). Confirm at implementation time that 191 is still free.
 
-Replace, in one file, all four bodies:
+Replace, in one file, all five bodies:
 
 1. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date)` — 9-arg, receipts / manual movement
 2. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)` — 10-arg, stock adjustment
 3. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date)` — 9-arg
 4. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date,uuid)` — 10-arg
+5. `rpc_cancel_stock_adjustment(uuid,text)` — lock-order prefix only (Fix C); no RED-A/RED-B logic change
 
-Carry forward, verbatim except for the two fixes and the lock-order prefix:
+Carry forward, verbatim except for the two fixes and the lock-order prefix
+(items 1–4 below apply to the four stock-write helpers; `rpc_cancel_stock_adjustment`
+carries forward everything listed in Fix C above, changing only its lock order):
 
 - Valuation: FIFO / LIFO / weighted average, including queue rewrite
 - SLE insert (incoming positive qty; outgoing negative qty and COGS)
@@ -306,7 +397,14 @@ Carry forward, verbatim except for the two fixes and the lock-order prefix:
 - 9-arg incoming early `NO_WAREHOUSE_OR_QTY` JSON return
 - `search_path`: 9-arg incoming is `public`; 10-arg incoming and both
   outgoing overloads are `'public', 'pg_temp'` — keep each as it is
-- **ACL: all four bodies are currently `service_role`-only in effect**
+- **`rpc_cancel_stock_adjustment`'s ACL is unrelated to the rule below and must
+  not change:** it is `GRANT ALL ... TO authenticated` and `TO service_role`
+  today (it is a legitimate client-facing, `wardah_assert_org_admin`-gated
+  RPC, not an internal helper). Fix C touches only its lock order, never its
+  grants. The ACL discussion immediately below is scoped to the four
+  stock-write helpers only.
+- **ACL (the four stock-write helpers only): all four bodies are currently
+  `service_role`-only in effect**
   (confirmed by the live-schema baseline dump in §2, which renders the
   resulting state as `REVOKE ALL FROM PUBLIC; GRANT ALL TO service_role` —
   that rendering is pg_dump's normalized summary of the *effective* ACL, not
@@ -391,6 +489,36 @@ not deadlock: outgoing still waits on `products`, then either sees the
 new bin or raises `BIN_NOT_FOUND` after incoming commits. Add this as a
 control; do not weaken `BIN_NOT_FOUND`.
 
+### Incoming vs cancellation (new control)
+
+Before 191: not exercised by the RED proof or any existing acceptance script
+— a genuine gap, not a scenario that was checked and found safe. After 191:
+both take `products` first (cancellation locks the distinct product set it
+will touch, incoming locks its one product). Whichever acquires the shared
+product row first proceeds through its own bins/SLE work; the other queues
+on `products`, never on `bins`. No circular wait is possible because neither
+function acquires a `bins` lock before its `products` lock anymore.
+
+### Outgoing vs cancellation (new control)
+
+Same shape as incoming vs cancellation: both take `products` first (outgoing
+locks its one product before its `ORDER BY warehouse_id, id` bins lock;
+cancellation locks its distinct product set before its per-line bins
+`UPDATE`s). This is the scenario the Codex review on #236 identified as
+missing and the reason Fix C exists — before Fix C, outgoing holding
+`products` and waiting on `bins` while cancellation held a `bins` row and
+waited on `products` was a genuine circular wait, not a hypothetical one.
+
+### Cancellation vs cancellation (new control)
+
+Two concurrent cancellations whose adjustments share more than one product
+each lock their own distinct product set in ascending `id` order (Fix C).
+Two sets sharing elements, both ordered the same way, cannot form a cycle —
+the standard proof for lock-ordering deadlock avoidance. This control exists
+specifically to catch a regression if a future edit locks cancellation's
+product set in adjustment-line order (arbitrary, whatever order the SLEs
+happen to iterate in) instead of a fixed order like `id`.
+
 ### Incoming vs reservation (`rpc_create_mo_with_reservation`)
 
 Verified: this RPC locks bins in `warehouse_id, id` order
@@ -434,14 +562,26 @@ numeric helpers, with inverted assertions:
 | Control-1 existing bin (20+3+4) | 27 (unchanged) |
 | Control-2 incoming vs outgoing (50+8−10) | 48, no deadlock (unchanged) |
 | New: first-bin incoming vs outgoing | no deadlock; outgoing is either applied after the bin exists or `BIN_NOT_FOUND`, never a hang |
+| New: incoming vs cancellation, existing bin | no deadlock; cancellation's reversal and incoming's addition both land; `bins`/`products` reflect both effects in whichever order they actually applied |
+| New: outgoing vs cancellation, existing bin | no deadlock — this is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
+| New: cancellation vs cancellation, overlapping multi-product adjustments | no deadlock regardless of which adjustment's transaction starts first; both `products` rows end up correctly reversed |
 | Static contract, both incoming overloads | product `FOR UPDATE` appears before bins `FOR UPDATE`; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR UPDATE` appears before the all-bins `FOR UPDATE` |
+| Static contract, `rpc_cancel_stock_adjustment` | a `products ... FOR UPDATE ... ORDER BY id` (or equivalent ordered multi-row lock) appears before the first `UPDATE bins` in the function body |
 
 10-arg incoming is Production's stock-adjustment path. The red proof only
 covered it statically. GREEN should add **one** behavioral 10-arg first-bin
 race (adjustment qty pair with distinct `source_line_id`s) so a 9-arg-only
 fix cannot ship. If that forces too much adjustment-header fixture, say so
 in the implementation PR and keep a named gap; do not silently skip it.
+
+The outgoing-vs-cancellation and cancellation-vs-cancellation scenarios need
+a multi-line stock-adjustment fixture (at least one adjustment touching two
+products) to actually exercise the ordered multi-row product lock in Fix C —
+a single-product adjustment cancellation would pass even with an unordered
+or missing lock, the same way RED-B's two-warehouse shape was needed to catch
+what a single-warehouse fixture couldn't. Do not settle for a single-product
+cancellation fixture and call this control covered.
 
 CI: a new workflow on the green script against cutoff+191, plus the
 existing red workflow still running against a database **without** 191
@@ -453,32 +593,40 @@ existing red workflow still running against a database **without** 191
 
 The 191 runbook is not a "stock incoming lock upgrade." It is:
 
-> Two independent remediations, bundled because both live in the same
-> incoming overloads and because incoming lock-order must be installed
-> together with outgoing.
+> Two independent remediations plus one lock-order compatibility update,
+> bundled because all three live in functions that share the same
+> `products`/`bins` state and because the lock order must be installed
+> everywhere at once or it isn't a real invariant.
 >
 > - Fix A closes RED-A (`bins` unique-key insert / stale `EXCLUDED`).
 > - Fix B closes RED-B (`products` aggregate from an unlocked `SUM`).
+> - Fix C reorders `rpc_cancel_stock_adjustment`'s locking (products before
+>   bins, in a deterministic multi-row order) so it cannot deadlock against
+>   the newly-fixed incoming/outgoing — it has neither RED-A nor RED-B, this
+>   is compatibility only.
 > - Outgoing 9-arg and 10-arg take the same product-row lock first so
 >   incoming vs outgoing cannot deadlock.
 
 It must also record:
 
 - additive only; no history rewrite; no `ADJ-000001` repair
-- rollback = restore the four previous bodies from Migrations 97, 186, and
-  187 (cite the files). That restores **both** defects. There is no
-  supported "roll back Fix A, keep Fix B"
-- The *effective* permission (all four bodies `service_role`-only) is
-  unchanged by this migration, but 191 must still explicitly re-issue
-  `REVOKE ALL ... FROM PUBLIC, anon, authenticated` +
-  `GRANT EXECUTE ... TO service_role` for each of the four signatures, and
+- rollback = restore the five previous bodies from Migrations 97, 124, 186,
+  and 187 (cite the files). That restores **all three** changes together —
+  RED-A, RED-B, and cancellation's lock order all revert as one unit. There
+  is no supported "roll back Fix A, keep Fix B" or "keep Fix C but not A/B"
+- The *effective* permission on the four stock-write helpers
+  (`service_role`-only) is unchanged by this migration, but 191 must still
+  explicitly re-issue `REVOKE ALL ... FROM PUBLIC, anon, authenticated` +
+  `GRANT EXECUTE ... TO service_role` for each of those four signatures, and
   verify with `has_function_privilege()` in postflight — per §5, this is not
   a grant change, it is re-proving an invariant that a prior `CREATE OR
-  REPLACE` (97) already broke silently once
+  REPLACE` (97) already broke silently once. `rpc_cancel_stock_adjustment`'s
+  ACL (`authenticated` + `service_role`) is untouched — Fix C is a body-only,
+  lock-order-only change
 - Production apply requires a separate authorization, preflight (ledger
-  head, four signatures, ACLs, search_path), apply-once, postflight
-  (`pg_get_functiondef` contract), and **no** Production concurrency test
-  against live vouchers
+  head, all five signatures, ACLs on the four stock-write helpers,
+  search_path), apply-once, postflight (`pg_get_functiondef` contract on all
+  five), and **no** Production concurrency test against live vouchers
 - Merging 191 onto `main` does not close the Production gap; 170 sat
   merged-but-unapplied (`PERMISSION_HARDENING_170_173_CHAIN.md` §6)
 
@@ -490,13 +638,20 @@ Do not write SQL until this design is accepted. Then, in
 `wardah-process-costing`, in a new tracking issue:
 
 1. Open the issue (do not reopen #228 as if the proof were missing).
-2. Add `sql/migrations/191_…sql` with preflight, four replaces, explicit ACL
-   restatement (`REVOKE ALL FROM PUBLIC, anon, authenticated` + `GRANT
-   EXECUTE TO service_role` per signature — not granting anything new, but
-   not silently inherited either), and an in-migration postflight that
-   asserts `has_function_privilege()` is `false` for `anon`/`authenticated`
-   and `true` for `service_role` on all four signatures.
-3. Add the green acceptance script + workflow; leave the red proof intact.
+2. Add `sql/migrations/191_…sql` with preflight, **five** replaces (incoming
+   9/10-arg, outgoing 9/10-arg, `rpc_cancel_stock_adjustment`), explicit ACL
+   restatement on the four stock-write helpers only (`REVOKE ALL FROM
+   PUBLIC, anon, authenticated` + `GRANT EXECUTE TO service_role` per
+   signature — not granting anything new, but not silently inherited
+   either; `rpc_cancel_stock_adjustment`'s existing `authenticated` +
+   `service_role` grants are left alone), and an in-migration postflight
+   that asserts `has_function_privilege()` is `false` for
+   `anon`/`authenticated` and `true` for `service_role` on the four stock-
+   write signatures, plus a static lock-order assertion on
+   `rpc_cancel_stock_adjustment` (per §7's contract row).
+3. Add the green acceptance script + workflow, including the three new
+   cancellation controls (§6, §7) with a multi-product adjustment fixture;
+   leave the red proof intact.
 4. Runbook as §8.
 5. No Production.
 
@@ -517,3 +672,19 @@ Reviewers should reject the implementation PR if:
   explicitly re-issuing the revoke/grant, or omits the `has_function_privilege()`
   postflight — the 94→95→97→101 history is the reason this is required, not
   a stylistic preference
+- it ships Fix A/B without also fixing `rpc_cancel_stock_adjustment`'s lock
+  order (Fix C) — this is the exact gap Codex found in review; leaving it
+  out reintroduces the incoming/outgoing-vs-cancellation deadlock this whole
+  migration exists to prevent
+- it locks `rpc_cancel_stock_adjustment`'s affected products in adjustment-
+  line order (or any order not fixed and deterministic, e.g. `ORDER BY id`)
+  instead of a stable global order — this passes a single-product fixture
+  and deadlocks on a real multi-product adjustment or against a concurrent
+  cancellation
+- it changes `rpc_cancel_stock_adjustment`'s ACL (it must stay `authenticated`
+  + `service_role` — Fix C is lock-order only) or any of its existing
+  behavior (`wardah_assert_org_admin`, `LATER_STOCK_MOVEMENT_EXISTS`,
+  reversal SLE shape)
+- its green acceptance for cancellation uses only a single-product
+  adjustment fixture, which cannot distinguish an ordered lock from an
+  unordered or missing one
