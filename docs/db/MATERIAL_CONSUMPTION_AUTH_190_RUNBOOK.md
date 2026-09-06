@@ -37,15 +37,20 @@ design.
 ### RPC paths
 
 The following client-facing paths remain executable by `authenticated`, but all legal
-consumption reaches an exact-permission guard before business mutation:
+material-consumption mutation reaches an exact-permission guard before any inventory,
+reservation, WIP-cost, or `material_consumption` write:
 
-- `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` — guarded directly
-- `rpc_consume_reserved_materials(uuid,jsonb)` — delegates to v2
-- `consume_materials_for_mo(uuid,uuid,jsonb[])` — validates MO/org then delegates to v2
-- `backflush_materials(uuid,numeric)` — guarded directly
+- `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` — guarded directly after org membership and before consumption business processing;
+- `rpc_consume_reserved_materials(uuid,jsonb)` — delegate-only wrapper to v2;
+- `consume_materials_for_mo(uuid,uuid,jsonb[])` — compatibility wrapper that reads the MO to validate the supplied organization and rejects an empty payload before delegating; it performs no mutation itself, and all mutation remains behind the v2 guard;
+- `backflush_materials(uuid,numeric)` — guarded directly before its insert loop.
 
-The guard is placed after the existing organization-membership check and before payload
-processing or inserts.
+The compatibility wrapper intentionally preserves its pre-existing validation ordering.
+Therefore an unauthorized caller that supplies an empty `p_consumptions` array may receive
+`CONSUMPTIONS_REQUIRED` before reaching the canonical permission denial. This is not an
+authorization bypass: the wrapper is `SECURITY INVOKER`, performs no DML, and delegates all
+mutation to the guarded canonical path. The security contract is **no unauthorized side
+effect / no alternate mutation path**, not identical error precedence for malformed input.
 
 ### Direct table path
 
@@ -76,7 +81,7 @@ Sequence:
 
 GREEN actors/contracts:
 
-- active same-org member without permission → denied on all four entry points;
+- active same-org member without permission → denied on all four entry points when supplied an input shape that reaches the authorization boundary;
 - active same-org user with exact grant → passes authorization;
 - revoked role permission → denied;
 - expired assignment → denied;
@@ -86,13 +91,16 @@ GREEN actors/contracts:
 - active Org Admin → allowed under central ordinary-key semantics;
 - direct INSERT without permission → denied by RLS;
 - direct INSERT with permission → preserved compatibility path;
-- direct UPDATE/DELETE → denied even for a permitted caller.
+- direct UPDATE/DELETE → denied even for a permitted caller;
+- compatibility wrappers remain delegate-only and contain no INSERT/UPDATE/DELETE/MERGE/TRUNCATE before the guarded canonical mutator.
 
-For v2/compatibility positive authorization, the fixture intentionally supplies an empty
+For v2/legacy positive authorization, the fixture intentionally supplies an empty
 consumption list. Success is proven by reaching the next legal validation error
-`CONSUMPTIONS_REQUIRED`, rather than by building an unrelated inventory/WIP scenario.
-`backflush_materials` uses an empty-BOM work order and returns zero rows after passing the
-authorization gate. Inventory/cost arithmetic remains covered by its existing contracts.
+`CONSUMPTIONS_REQUIRED`. For `consume_materials_for_mo`, the fixture supplies one
+shape-valid row so execution passes its compatibility validation, delegates, and then
+reaches the next post-authorization stage/WIP validation. `backflush_materials` uses an
+empty-BOM work order and returns zero rows after passing the authorization gate.
+Inventory/cost arithmetic remains covered by its existing contracts.
 
 ## Production rollout gate
 
@@ -115,6 +123,7 @@ After an authorized Production apply, required readback:
 - ledger cutoff advanced to 190;
 - permission key exists exactly once with expected metadata;
 - both guarded function bodies contain the exact key;
+- compatibility wrappers remain delegate-only;
 - authenticated keeps SELECT + INSERT on `material_consumption` but not UPDATE/DELETE;
 - anon has no material-consumption mutation privilege;
 - INSERT RLS is authenticated-only and exact-permission based;
@@ -132,4 +141,5 @@ Migration 190 does not:
 - change tenant-selection identity (F5/FU-6);
 - create reversal semantics for material consumption;
 - auto-grant the permission to existing ordinary roles;
+- normalize legacy validation-error precedence;
 - touch historical `material_consumption` rows.
