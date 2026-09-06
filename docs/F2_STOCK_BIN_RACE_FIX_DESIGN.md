@@ -499,6 +499,18 @@ product row first proceeds through its own bins/SLE work; the other queues
 on `products`, never on `bins`. No circular wait is possible because neither
 function acquires a `bins` lock before its `products` lock anymore.
 
+This is a deadlock-avoidance guarantee, not a claim that both operations
+always succeed: cancellation's own `LATER_STOCK_MOVEMENT_EXISTS` check
+(unchanged by Fix C) means that whichever of the two *commits* second still
+has to pass its existing business rules against what the first one just
+committed. If cancellation serializes first, incoming applies normally
+afterward. If incoming serializes first, its new SLE row becomes a later
+movement on that `(product, warehouse)` key, and cancellation correctly
+fails closed with `LATER_STOCK_MOVEMENT_EXISTS` — not a deadlock, not a
+silent partial reversal, and not a new behavior; this is the guard doing
+exactly what it already does today, now reachable in a race instead of only
+sequentially.
+
 ### Outgoing vs cancellation (new control)
 
 Same shape as incoming vs cancellation: both take `products` first (outgoing
@@ -508,6 +520,13 @@ cancellation locks its distinct product set before its per-line bins
 missing and the reason Fix C exists — before Fix C, outgoing holding
 `products` and waiting on `bins` while cancellation held a `bins` row and
 waited on `products` was a genuine circular wait, not a hypothetical one.
+Outcome-wise this follows the same rule as incoming vs cancellation above:
+whichever serializes second is subject to the other's now-committed state —
+outgoing after a completed cancellation just sees the reversed stock and
+applies its normal `INSUFFICIENT_STOCK`/reservation checks; cancellation
+after a completed outgoing sees a later movement on that
+`(product, warehouse)` key and fails closed with
+`LATER_STOCK_MOVEMENT_EXISTS`, exactly as it does today outside of any race.
 
 ### Cancellation vs cancellation (new control)
 
@@ -562,9 +581,9 @@ numeric helpers, with inverted assertions:
 | Control-1 existing bin (20+3+4) | 27 (unchanged) |
 | Control-2 incoming vs outgoing (50+8−10) | 48, no deadlock (unchanged) |
 | New: first-bin incoming vs outgoing | no deadlock; outgoing is either applied after the bin exists or `BIN_NOT_FOUND`, never a hang |
-| New: incoming vs cancellation, existing bin | no deadlock; cancellation's reversal and incoming's addition both land; `bins`/`products` reflect both effects in whichever order they actually applied |
-| New: outgoing vs cancellation, existing bin | no deadlock — this is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
-| New: cancellation vs cancellation, overlapping multi-product adjustments | no deadlock regardless of which adjustment's transaction starts first; both `products` rows end up correctly reversed |
+| New: incoming vs cancellation, existing bin | no deadlock; if cancellation wins the product lock first, cancellation completes then incoming applies and both effects reconcile; if incoming commits first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; no partial reversal in either ordering |
+| New: outgoing vs cancellation, existing bin | no deadlock; if cancellation serializes first, cancellation then outgoing may both complete subject to normal stock checks; if outgoing becomes a later movement first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; `bins`/`products`/SLE remain reconciled. This is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
+| New: cancellation vs cancellation, overlapping multi-product adjustments | no deadlock regardless of which adjustment's transaction starts first; both `products` rows end up equal to the sum of their own bins |
 | Static contract, both incoming overloads | product `FOR UPDATE` appears before bins `FOR UPDATE`; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR UPDATE` appears before the all-bins `FOR UPDATE` |
 | Static contract, `rpc_cancel_stock_adjustment` | a `products ... FOR UPDATE ... ORDER BY id` (or equivalent ordered multi-row lock) appears before the first `UPDATE bins` in the function body |
@@ -576,12 +595,33 @@ fix cannot ship. If that forces too much adjustment-header fixture, say so
 in the implementation PR and keep a named gap; do not silently skip it.
 
 The outgoing-vs-cancellation and cancellation-vs-cancellation scenarios need
-a multi-line stock-adjustment fixture (at least one adjustment touching two
-products) to actually exercise the ordered multi-row product lock in Fix C —
-a single-product adjustment cancellation would pass even with an unordered
-or missing lock, the same way RED-B's two-warehouse shape was needed to catch
-what a single-warehouse fixture couldn't. Do not settle for a single-product
-cancellation fixture and call this control covered.
+a multi-line stock-adjustment fixture to actually exercise the ordered
+multi-row product lock in Fix C — a single-product adjustment cancellation
+would pass even with an unordered or missing lock, the same way RED-B's
+two-warehouse shape was needed to catch what a single-warehouse fixture
+couldn't. Do not settle for a single-product cancellation fixture and call
+this control covered.
+
+For cancellation-vs-cancellation specifically, one multi-product adjustment
+is not enough either — it doesn't force the two transactions to actually
+contend for the same two products in opposite order. The fixture must be:
+two `SUBMITTED` adjustments, each with lines touching the *same* two
+products A and B, but with reversed line/traversal order between them (one
+adjustment's loop reaches A then B, the other's reaches B then A) — this is
+what would deadlock without `ORDER BY id`, and is what the control is
+actually there to catch. Put A and B on a *different* warehouse/bin per
+adjustment (so adjustment 1's line for product A is in warehouse X,
+adjustment 2's line for product A is in warehouse Y, and similarly for B) —
+this keeps the two cancellations' reversal `SLE` rows off each other's
+`(product_id, warehouse_id)` key, so neither cancellation's own
+`LATER_STOCK_MOVEMENT_EXISTS` check can be tripped by the other's reversal
+entries. Without that separation, a run that happens to abort one
+cancellation could look like a passing control when it's actually the
+unrelated business-rule guard firing, not proof the lock order is correct.
+Run this fixture once against a build with the ascending-`id` ordering
+removed — it must be able to reproduce a genuine deadlock/cycle — and once
+against the real Fix C, where both cancellations must complete without
+deadlock and each product's aggregate must equal the sum of its own bins.
 
 CI: a new workflow on the green script against cutoff+191, plus the
 existing red workflow still running against a database **without** 191
