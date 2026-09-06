@@ -14,6 +14,10 @@ INSERT INTO auth.users (id, email) VALUES
   ('19019019-0000-4000-8000-000000000007', 'f1-inactive-member@example.test'),
   ('19019019-0000-4000-8000-000000000008', 'f1-cross-org@example.test');
 
+-- Every user who receives a user_roles row starts with an active membership.
+-- Migration 175 enforces that invariant at INSERT time. The inactive-member
+-- actor is deactivated only after its role assignment exists, matching the
+-- supported reversible membership-toggle contract documented by Migration 175.
 INSERT INTO public.user_organizations
   (user_id, org_id, role, is_active, is_org_admin)
 VALUES
@@ -23,7 +27,7 @@ VALUES
   ('19019019-0000-4000-8000-000000000004', '19019019-1000-4000-8000-000000000001', 'user', true, false),
   ('19019019-0000-4000-8000-000000000005', '19019019-1000-4000-8000-000000000001', 'user', true, false),
   ('19019019-0000-4000-8000-000000000006', '19019019-1000-4000-8000-000000000001', 'user', true, false),
-  ('19019019-0000-4000-8000-000000000007', '19019019-1000-4000-8000-000000000001', 'user', false, false),
+  ('19019019-0000-4000-8000-000000000007', '19019019-1000-4000-8000-000000000001', 'user', true, false),
   ('19019019-0000-4000-8000-000000000008', '19019019-2000-4000-8000-000000000001', 'user', true, false);
 
 INSERT INTO public.roles (id, org_id, name, name_ar, is_active) VALUES
@@ -52,6 +56,11 @@ INSERT INTO public.user_roles (user_id, role_id, org_id, expires_at) VALUES
   ('19019019-0000-4000-8000-000000000005', '19019019-3000-4000-8000-000000000003', '19019019-1000-4000-8000-000000000001', now() - interval '1 day'),
   ('19019019-0000-4000-8000-000000000006', '19019019-3000-4000-8000-000000000004', '19019019-1000-4000-8000-000000000001', NULL),
   ('19019019-0000-4000-8000-000000000007', '19019019-3000-4000-8000-000000000005', '19019019-1000-4000-8000-000000000001', NULL);
+
+UPDATE public.user_organizations
+SET is_active=false, updated_at=now()
+WHERE user_id='19019019-0000-4000-8000-000000000007'::uuid
+  AND org_id='19019019-1000-4000-8000-000000000001'::uuid;
 
 INSERT INTO public.items (id, org_id, code, name)
 VALUES (
@@ -102,17 +111,14 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (
-    SELECT 1 FROM public.has_permission(
-      '19019019-0000-4000-8000-000000000003'::uuid,
-      '19019019-1000-4000-8000-000000000001'::uuid,
-      'manufacturing.material_consumption.consume'
-    ) AS allowed
-    WHERE allowed
+    SELECT 1
+    FROM public.user_roles ur
+    JOIN public.user_organizations uo
+      ON uo.user_id=ur.user_id AND uo.org_id=ur.org_id
+    WHERE ur.user_id='19019019-0000-4000-8000-000000000007'::uuid
+      AND uo.is_active IS FALSE
   ) THEN
-    -- has_permission is caller-identity guarded, so this direct postgres call
-    -- is expected to be false. The authenticated acceptance below proves the
-    -- actual actor path; only fixture existence is asserted here.
-    NULL;
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_SETUP_INACTIVE_MEMBER_FIXTURE_WRONG';
   END IF;
 
   RAISE NOTICE 'MATERIAL_CONSUMPTION_190_SETUP_PASS';
