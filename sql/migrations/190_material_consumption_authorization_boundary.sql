@@ -1,13 +1,16 @@
 -- 190_material_consumption_authorization_boundary
 --
 -- Astra audit F1 / S0. Closes the material-consumption authorization gap
--- proven by PR #232 without changing inventory/costing semantics.
+-- proven by PR #232 without changing canonical inventory/costing semantics.
 --
 -- Contract:
 --   * one ordinary exact permission: manufacturing.material_consumption.consume
 --   * org-admin semantics remain those of the central has_permission() contract
---   * all authenticated consumption RPC entry points are protected transitively
---     by guarding rpc_consume_reserved_materials_v2 and backflush_materials
+--   * canonical consumption RPCs are protected by an exact permission guard
+--   * the legacy backflush RPC is permission-gated then explicitly retired until
+--     issue #234 reimplements it on the canonical BOM + inventory contract
+--   * the broken auto-backflush trigger is removed so it cannot bypass the same
+--     authorization boundary via direct material_consumption writes
 --   * direct INSERT remains as a compatibility path for mesService.consumeMaterial,
 --     but RLS now requires the same exact permission
 --   * direct UPDATE/DELETE are unsupported and their grants/policies are removed
@@ -237,6 +240,11 @@ BEGIN
 END;
 $function$;
 
+-- Legacy backflush is not a legal canonical consumption implementation: the
+-- current body references the retired manufacturing_orders.bom_id column and
+-- writes material_consumption directly without the reservation/ledger/WIP
+-- atomic contract. Keep the published entry point only as a guarded, explicit
+-- retirement until #234 reimplements backflush on the canonical path.
 CREATE OR REPLACE FUNCTION public.backflush_materials(
   p_work_order_id uuid,
   p_quantity_produced numeric
@@ -244,56 +252,41 @@ CREATE OR REPLACE FUNCTION public.backflush_materials(
 RETURNS SETOF material_consumption
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path TO 'public'
+SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-    v_work_order RECORD;
-    v_mo RECORD;
-    v_bom_line RECORD;
+  v_org uuid;
 BEGIN
-    SELECT wo.*, mo.bom_id, mo.org_id as mo_org_id
-    INTO v_work_order
-    FROM work_orders wo
-    JOIN manufacturing_orders mo ON wo.mo_id = mo.id
-    WHERE wo.id = p_work_order_id;
+  SELECT mo.org_id INTO v_org
+  FROM public.work_orders wo
+  JOIN public.manufacturing_orders mo ON mo.id=wo.mo_id
+  WHERE wo.id=p_work_order_id;
 
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Work order not found: %', p_work_order_id;
-    END IF;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'WORK_ORDER_NOT_FOUND';
+  END IF;
 
-    PERFORM public.wardah_assert_org_member(v_work_order.mo_org_id);
-    IF NOT public.has_permission(
-      auth.uid(), v_work_order.mo_org_id,
-      'manufacturing.material_consumption.consume'
-    ) THEN
-      RAISE EXCEPTION 'MATERIAL_CONSUMPTION_PERMISSION_DENIED';
-    END IF;
+  PERFORM public.wardah_assert_org_member(v_org);
+  IF NOT public.has_permission(
+    auth.uid(), v_org, 'manufacturing.material_consumption.consume'
+  ) THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_PERMISSION_DENIED';
+  END IF;
 
-    FOR v_bom_line IN
-        SELECT bl.*, i.name as item_name
-        FROM bom_lines bl
-        JOIN items i ON bl.item_id = i.id
-        WHERE bl.bom_id = v_work_order.bom_id
-        AND bl.item_type IN ('RAW_MATERIAL', 'COMPONENT')
-    LOOP
-        RETURN QUERY
-        INSERT INTO material_consumption (
-            org_id, work_order_id, mo_id, item_id,
-            planned_quantity, consumed_quantity, consumption_type,
-            unit_cost, total_cost, status, consumption_date, created_by
-        ) VALUES (
-            v_work_order.mo_org_id, p_work_order_id, v_work_order.mo_id, v_bom_line.item_id,
-            v_bom_line.quantity * (v_work_order.planned_quantity),
-            v_bom_line.quantity * p_quantity_produced,
-            'BACKFLUSH',
-            v_bom_line.unit_cost,
-            v_bom_line.unit_cost * v_bom_line.quantity * p_quantity_produced,
-            'PENDING', NOW(), auth.uid()
-        )
-        RETURNING *;
-    END LOOP;
+  RAISE EXCEPTION 'BACKFLUSH_RETIRED_PENDING_CANONICAL_REIMPLEMENTATION'
+    USING ERRCODE='0A000',
+          HINT='Tracked in GitHub issue #234; use rpc_consume_reserved_materials_v2 for canonical material consumption.';
 END;
 $function$;
+
+COMMENT ON FUNCTION public.backflush_materials(uuid,numeric) IS
+  'Permission-gated retired legacy backflush. The former implementation referenced manufacturing_orders.bom_id and bypassed canonical reservation/ledger/WIP consumption. Tracked by #234.';
+
+-- The automatic trigger had the same retired bom_id dependency and performed a
+-- direct material_consumption INSERT outside the exact-permission boundary.
+-- Disable the trigger fail-closed until #234 defines canonical automatic
+-- execution and system-actor authorization semantics.
+DROP TRIGGER IF EXISTS trigger_auto_backflush ON public.work_orders;
 
 -- Compatibility direct INSERT remains, but only for callers holding the exact
 -- material-consumption permission. SELECT remains unchanged.
@@ -353,8 +346,23 @@ BEGIN
     'public.backflush_materials(uuid,numeric)'::regprocedure
   ) INTO v_def;
   IF position('manufacturing.material_consumption.consume' in v_def)=0
-     OR position('has_permission' in v_def)=0 THEN
-    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_BACKFLUSH_GUARD_MISSING';
+     OR position('has_permission' in v_def)=0
+     OR position('BACKFLUSH_RETIRED_PENDING_CANONICAL_REIMPLEMENTATION' in v_def)=0
+     OR v_def ~* '\mINSERT\s+INTO\s+(public\.)?material_consumption\M' THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_BACKFLUSH_QUARANTINE_MISSING';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid=t.tgrelid
+    JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='public'
+      AND c.relname='work_orders'
+      AND t.tgname='trigger_auto_backflush'
+      AND NOT t.tgisinternal
+  ) THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_AUTO_BACKFLUSH_TRIGGER_REMAINS';
   END IF;
 
   IF NOT has_function_privilege(
