@@ -126,6 +126,18 @@ export function usePermissions(): UserPermissions & {
   // no longer cares about, and must not overwrite the newer state.
   const latestRequestKeyRef = useRef<string | null>(null);
 
+  // Whether a trusted snapshot has already been obtained for the CURRENT
+  // identity. `loading` means "no trusted snapshot exists yet" — true only
+  // until the first successful (or cache-hit) read for this (user, org)
+  // pair. A later re-read of an identity that already has one — the
+  // visibilitychange listener below, or an explicit refreshPermissions() —
+  // is a background revalidation, not an initial load, and must not flip
+  // `loading` back to true: every ModuleGuard/PermissionGuard/withPermission
+  // consumer swaps `children` out for a loading screen while `loading` is
+  // true, which would unmount an already-rendered page — and any
+  // component-local state it held — for the duration of the re-check.
+  const hasLoadedSnapshotRef = useRef(false);
+
   // Detecting an org/user switch here, during render, is deliberate rather
   // than doing it in its own useEffect. An effect runs after the mount/reload
   // effect below in the same commit, so it would wipe out a result that
@@ -158,6 +170,9 @@ export function usePermissions(): UserPermissions & {
   if (lastRenderedKeyRef.current !== renderRequestKey) {
     lastRenderedKeyRef.current = renderRequestKey;
     latestRequestKeyRef.current = renderRequestKey;
+    // A genuinely new identity has no trusted snapshot yet — back to an
+    // initial, fail-closed load for it.
+    hasLoadedSnapshotRef.current = false;
     reset();
     setError(null);
     setLoading(renderRequestKey !== null);
@@ -205,10 +220,17 @@ export function usePermissions(): UserPermissions & {
       setIsOrgAdmin(permissionCache.isOrgAdmin);
       setIsSuperAdmin(permissionCache.isSuperAdmin);
       setLoading(false);
+      hasLoadedSnapshotRef.current = true;
       return;
     }
 
-    setLoading(true);
+    // Only the first read for this identity blocks. A trusted snapshot
+    // already exists past this point on a background revalidation, so
+    // `loading` stays false while the RPC round-trip is in flight — see the
+    // ref's declaration above for why.
+    if (!hasLoadedSnapshotRef.current) {
+      setLoading(true);
+    }
     setError(null);
 
     const { snapshot, error: snapshotError } = await fetchPermissionSnapshot(requestKey, orgIdToCheck);
@@ -260,6 +282,7 @@ export function usePermissions(): UserPermissions & {
     setSensitivePermissionKeys(sensitive);
     setIsOrgAdmin(!!snapshot.is_org_admin);
     setIsSuperAdmin(!!snapshot.is_super_admin);
+    hasLoadedSnapshotRef.current = true;
 
     permissionCache = {
       orgId: orgIdToCheck,
@@ -279,6 +302,7 @@ export function usePermissions(): UserPermissions & {
       loadPermissions();
     } else {
       latestRequestKeyRef.current = null;
+      hasLoadedSnapshotRef.current = false;
       reset();
       setLoading(false);
     }
