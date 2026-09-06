@@ -815,6 +815,44 @@ This document chooses the remediation shape. It does not implement it.
 > and does not force the real, `FOR NO KEY UPDATE` build to wait); and a
 > matching reject-list bullet.
 
+> **Sixteenth correction (found in review): the fifteenth correction's own
+> §7 mutant offered a real `INSERT INTO material_consumption` as one way to
+> build the `FOR KEY SHARE` blocker — that option risks blocking on the
+> wrong resource, not the one this check exists to test.**
+>
+> `material_consumption` (confirmed against the live baseline) carries FKs
+> to `work_order_id`, `mo_id`, `product_id`, `reservation_id`, and `stage_id`,
+> at minimum. An `INSERT` into it takes an implicit `FOR KEY SHARE` on *every*
+> referenced row simultaneously — not only the reservation. `rpc_consume_reserved_materials_v2`'s
+> own first statement is `manufacturing_orders ... FOR UPDATE`. If the blocker
+> transaction's `INSERT` references the *same* MO the consumption call under
+> test is about to process, the consumption backend can block on the MO lock
+> before it ever reaches the per-line reservation lock this check exists to
+> test — genuine blocking, confirmed via `pg_blocking_pids()`, but attributed
+> to the wrong resource. A test that passes for that reason proves nothing
+> about the reservation lock mode at all, and a test-writer who builds the MO
+> row to avoid this collision has just built the isolated fixture below by
+> another name, while a fixture description that presents the `INSERT` as an
+> equally valid option invites exactly the version that doesn't.
+>
+> Fix: the blocker in this specific mutant must be a `FOR KEY SHARE` taken
+> **directly and only** on the reservation row —
+> `SELECT id FROM material_reservations WHERE id = <R> FOR KEY SHARE;`, held
+> open in its own transaction, touching no other table. Verified empirically
+> against a live PostgreSQL 17 instance, run both ways with this isolated
+> blocker: against a bare-`FOR UPDATE` build, `pg_blocking_pids(<consumption's
+> pid>)` returns exactly `{<the blocker's pid>}`; against the real,
+> `FOR NO KEY UPDATE` build, the identical fixture returns `{}` — no
+> blocking at all. A real `INSERT INTO material_consumption` remains valid as
+> supporting evidence that this `FOR KEY SHARE` conflict is a genuine,
+> naturally-occurring shape in this schema (not a test artifact) — it is just
+> not the isolation mechanism for *this* mutant, which must attribute the
+> block (or its absence) to the reservation lock specifically, asserted via
+> the exact blocking pid, not merely `wait_event_type = 'Lock'`.
+>
+> §7's per-line reservation lock-mode mutant is corrected below to require
+> the isolated, reservation-only blocker.
+
 ---
 
 ## 1. Decision
@@ -2082,7 +2120,7 @@ numeric helpers, with inverted assertions:
 | New: Fix F, deterministic RED mutant — consume-shaped `[A,B]` lock vs release-shaped `[B,A]` lock on the same two reservation rows | **not** a planner/scan-order-dependent fixture — two `reserved`, expired reservations for one MO are locked directly by literal id: a test-only mutant that locks the pair in literal `[B, A]` order (mimicking a scan visiting them opposite to `id` order) run concurrently against a caller locking `[A, B]` (consume's real, ascending order), both through the same advisory-lock gate barrier already verified for the standalone `products` helper-order mutant (§7). Must reproduce a genuine `deadlock detected` (`40P01`), with both backends observed on their gate beforehand — confirmed empirically against a live PostgreSQL 17 instance before this row was written |
 | New: Fix F, real-helper GREEN run | identical fixture, both sides using the real, unmodified bodies — consume's superset lock and Fix F's locking loop, both `ORDER BY id FOR NO KEY UPDATE`. Forced overlap (ordinary row-lock waiting, not a gate — both real bodies converge on the same ascending order so there is no mid-loop point to gate on, the same reasoning as the `products` standalone mutant's GREEN run) must complete both without deadlock: consumption proceeds normally, and a `release_expired_reservations` call either completes before or after consumption locks the shared row, never interleaved with it |
 | New: Fix F business-correctness control | a reservation partially consumed by one line of an in-flight `rpc_consume_reserved_materials_v2` call remains `'reserved'` (uncommitted) for the duration of that call, so a concurrent `release_expired_reservations` call must not expire it out from under the consumption in progress — it either queues behind consumption's lock and finds the row no longer eligible (if consumption fully consumed it) or expires it correctly afterward (if consumption left it `'reserved'` with remaining quantity); run once, then run `release_expired_reservations` again after the first call commits to confirm anything still eligible is picked up on the next sweep — a release call is not required to catch a row that becomes eligible only after it has already locked and returned |
-| New: `rpc_consume_reserved_materials_v2` per-line reservation lock-mode check (fifteenth correction) | a third, independent transaction holds `FOR KEY SHARE` on the reservation row consumption is about to process (via an `INSERT INTO material_consumption` row referencing it, or directly by taking `FOR KEY SHARE` on it in a test-only session — either establishes the same lock). **Against a build with the per-line branches left as bare `FOR UPDATE`:** consumption's own upgrade attempt on that already-`FOR NO KEY UPDATE`-locked row must block, confirmed via `pg_blocking_pids()` showing it waiting on the `FOR KEY SHARE` holder — not a hypothetical, an empirically confirmed PostgreSQL lock-upgrade conflict. **Against real 191** (both branches `FOR NO KEY UPDATE`): the identical fixture must not block at all — the per-line lock is a true no-op re-acquisition of a mode already compatible with the concurrent `FOR KEY SHARE` holder |
+| New: `rpc_consume_reserved_materials_v2` per-line reservation lock-mode check (fifteenth/sixteenth corrections) | a **reservation-only** blocker session takes `SELECT id FROM material_reservations WHERE id = <R> FOR KEY SHARE;` and holds the transaction open — not a real `INSERT INTO material_consumption`, whose own FK set (`work_order_id`, `mo_id`, `product_id`, `reservation_id`, `stage_id`, at minimum) would take implicit `FOR KEY SHARE` on `manufacturing_orders` too, and consumption's own first statement is `manufacturing_orders ... FOR UPDATE` — an `INSERT`-based blocker risks the consumption backend blocking on the *MO* lock instead of ever reaching the reservation lock this check exists to test, a false attribution the fixture must not risk. The isolated `FOR KEY SHARE`-only blocker touches no other table. **Against a build with the per-line branches left as bare `FOR UPDATE`:** `pg_blocking_pids(<consumption's pid>)` must equal `{<the reservation-only blocker's pid>}` specifically — not merely `wait_event_type = 'Lock'` — confirmed empirically against a live PostgreSQL 17 instance. **Against real 191** (both branches `FOR NO KEY UPDATE`): the identical fixture, same blocker, must show `pg_blocking_pids(<consumption's pid>) = {}` — confirmed empirically, no block at all. A real `INSERT INTO material_consumption` demonstrating that an FK-driven `FOR KEY SHARE` is a genuine, naturally-occurring lock in this schema (not just a test artifact) is worth keeping as separate supporting evidence, but is not itself this fixture |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
@@ -2717,3 +2755,15 @@ Reviewers should reject the implementation PR if:
   not; confirmed empirically that this upgrade genuinely blocks against a
   concurrent `FOR KEY SHARE` holder (the fifteenth correction above) — both
   branches must be `FOR NO KEY UPDATE`
+- the per-line reservation lock-mode mutant's `FOR KEY SHARE` blocker is
+  built via a real `INSERT INTO material_consumption` instead of a
+  reservation-only `SELECT ... FOR KEY SHARE` — the `INSERT`'s own FK set
+  (`work_order_id`, `mo_id`, `product_id`, `reservation_id`, `stage_id`)
+  takes implicit `FOR KEY SHARE` on all of them at once, and since
+  consumption's own first statement locks `manufacturing_orders FOR UPDATE`,
+  a blocker referencing the same MO can make the consumption backend block
+  on the *MO* lock before it ever reaches the reservation lock this mutant
+  exists to test — real blocking, attributed to the wrong resource (the
+  sixteenth correction above); the blocker must be isolated to the
+  reservation row alone, and the assertion must check the exact blocking
+  pid via `pg_blocking_pids()`, not merely that some lock wait occurred
