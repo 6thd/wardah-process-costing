@@ -123,7 +123,8 @@ BEGIN
     v_stage:=NULLIF(p_consumptions->0->>'stage_id','')::uuid;
   END IF;
   IF v_stage IS NULL THEN
-    SELECT count(*),min(stage_id) INTO v_count,v_stage
+    SELECT count(*),(array_agg(stage_id ORDER BY stage_id))[1]
+      INTO v_count,v_stage
     FROM public.stage_wip_log
     WHERE org_id=v_org AND mo_id=p_mo_id AND COALESCE(is_closed,false)=false
       AND CURRENT_DATE BETWEEN period_start AND period_end;
@@ -171,7 +172,8 @@ BEGIN
 
     v_warehouse:=NULLIF(v_row->>'warehouse_id','')::uuid;
     IF v_warehouse IS NULL THEN
-      SELECT count(*),min(warehouse_id) INTO v_count,v_warehouse
+      SELECT count(*),(array_agg(warehouse_id ORDER BY warehouse_id))[1]
+        INTO v_count,v_warehouse
       FROM public.bins
       WHERE org_id=v_org AND product_id=v_product AND actual_qty>=v_qty_base;
       IF v_count<>1 THEN RAISE EXCEPTION 'WAREHOUSE_REQUIRED_FOR_CONSUMPTION'; END IF;
@@ -179,7 +181,8 @@ BEGIN
 
     v_work_order:=NULLIF(v_row->>'work_order_id','')::uuid;
     IF v_work_order IS NULL THEN
-      SELECT count(*),min(id) INTO v_count,v_work_order
+      SELECT count(*),(array_agg(id ORDER BY id))[1]
+        INTO v_count,v_work_order
       FROM public.work_orders
       WHERE org_id=v_org AND mo_id=p_mo_id AND status NOT IN ('COMPLETED','CANCELLED');
       IF v_count<>1 THEN RAISE EXCEPTION 'WORK_ORDER_REQUIRED_FOR_CONSUMPTION'; END IF;
@@ -340,6 +343,15 @@ BEGIN
   IF position('manufacturing.material_consumption.consume' in v_def)=0
      OR position('has_permission' in v_def)=0 THEN
     RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_V2_GUARD_MISSING';
+  END IF;
+
+  -- PostgreSQL has no built-in min(uuid) aggregate. The pre-190 body used it
+  -- for stage, warehouse and work-order singleton selection, making otherwise
+  -- valid canonical requests fail before their intended cardinality gates.
+  IF v_def ~* 'min\s*\(\s*stage_id\s*\)'
+     OR v_def ~* 'min\s*\(\s*warehouse_id\s*\)'
+     OR v_def ~* 'select\s+count\s*\(\s*\*\s*\)\s*,\s*min\s*\(\s*id\s*\)' THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_UUID_MIN_AGGREGATE_REMAINS';
   END IF;
 
   SELECT pg_get_functiondef(
