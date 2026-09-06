@@ -88,6 +88,16 @@ INSERT INTO public.manufacturing_orders (
   'draft'
 );
 
+-- work_orders has a load-maintenance trigger that calls wardah_assert_org_member.
+-- Run this fixture insert with the explicit test Org Admin identity instead of
+-- disabling or bypassing the trigger.
+SELECT set_config('request.jwt.claim.sub', '19019019-0000-4000-8000-000000000001', false);
+SELECT set_config(
+  'request.jwt.claims',
+  '{"sub":"19019019-0000-4000-8000-000000000001","role":"authenticated"}',
+  false
+);
+
 INSERT INTO public.work_orders (
   id, org_id, mo_id, work_center_id, work_order_number,
   operation_sequence, operation_name, planned_quantity, status
@@ -102,6 +112,9 @@ INSERT INTO public.work_orders (
   1,
   'READY'
 );
+
+SELECT set_config('request.jwt.claim.sub', '', false);
+SELECT set_config('request.jwt.claims', '{}', false);
 
 DO $setup_check$
 BEGIN
