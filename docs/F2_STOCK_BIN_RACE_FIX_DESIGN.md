@@ -1032,6 +1032,64 @@ This document chooses the remediation shape. It does not implement it.
 > §7's multi-line-caller row is corrected below; §9's reject-list gained a
 > matching bullet.
 
+> **Twenty-first correction (found by a fresh Codex review requested on
+> `2b09ce2`, one P1): Fix E's `rpc_post_delivery_note` design proposed
+> caching the upfront prelock read and reusing it in the per-line loop —
+> that silently changes business behavior when the same
+> `sales_invoice_line_id` appears more than once in one payload.**
+>
+> Confirmed directly against the live Migration 133 body: the existing loop
+> does `SELECT id, product_id, quantity, unit_price, COALESCE(delivered_quantity,
+> 0) AS delivered INTO v_inv_line FROM sales_invoice_lines WHERE id = ... FOR
+> UPDATE` **fresh, every iteration** — not once up front — and then `UPDATE
+> sales_invoice_lines SET delivered_quantity = v_inv_line.delivered +
+> v_qty_base, unit_cost_at_sale = round((v_inv_line.delivered *
+> COALESCE(unit_cost_at_sale, 0) + v_line_cogs) / (v_inv_line.delivered +
+> v_qty_base), 6) WHERE id = v_inv_line.id`. The live code's own comment
+> states why: *"Cumulative weighted average across partial deliveries, so
+> the generated invoice-line cogs equals the exact summed delivery COGS once
+> fully delivered."* If the same line id appears twice in one payload (a
+> real, unvalidated possibility — nothing rejects a duplicate
+> `sales_invoice_line_id`), the live behavior is: iteration 1 reads
+> `delivered = 0`, applies its quantity, writes `delivered = 6`; iteration 2
+> re-reads the *same row*, now correctly sees `delivered = 6` (read-your-own-
+> writes within the transaction), and either raises `OVER_DELIVERY` if the
+> combined total exceeds `quantity`, or accumulates correctly and computes a
+> correct weighted-average `unit_cost_at_sale` across both deliveries.
+>
+> An earlier revision of this design's Fix E proposed locking
+> `sales_invoice_lines` once up front and "reusing that locked read in the
+> subsequent loop (instead of re-querying)." Doing that would make both
+> iterations of a duplicated line read the *same* stale `delivered = 0` and
+> the *same* stale `unit_cost_at_sale`, both compute against that stale
+> base, and the second `UPDATE` would overwrite the first's result instead of
+> accumulating onto it — silently under-counting `delivered_quantity` by
+> however much the duplicate line shipped, permitting stock to be decremented
+> beyond what the invoice line records as delivered, corrupting the
+> cumulative weighted-average COGS, and defeating the `OVER_DELIVERY` guard
+> for exactly the payload shape it exists to catch. This is a real
+> business-behavior change, not merely a lock-order one — precisely what
+> Fix E is supposed to never be (§1: "no business-behavior change" is the
+> standing rule for every Fix E function).
+>
+> Fix: the upfront batched lock on `sales_invoice_lines` exists *only* to
+> resolve and lock the row identities early enough to build the product-lock
+> set before the per-line loop starts — it takes `product_id` (and only
+> `product_id`) from that read. It changes nothing about the existing loop,
+> which keeps its own fresh `SELECT ... FOR UPDATE` and read of `delivered`/
+> `unit_cost_at_sale`/etc. on every iteration, byte-for-byte as today. Both
+> locks target the identical row (payload-fixed `sales_invoice_line_id`), so
+> the loop's own lock is a same-mode, same-transaction, no-op re-acquisition
+> — never a value cache. The upfront lock still closes the concurrency gap
+> this design is about: once locked (upfront), a concurrent client cannot
+> change that row's `product_id` out from under the resolved lock set,
+> because the row stays locked continuously from the upfront batch through
+> the loop's own re-acquisition of it.
+>
+> §4's `rpc_post_delivery_note` description and the adjacent guard-generalization
+> paragraph are corrected below; §7 gains a duplicate-line-id regression row;
+> §9's reject-list gained a matching bullet.
+
 ---
 
 ## 1. Decision
@@ -1598,11 +1656,29 @@ per-line `FOR UPDATE` (which currently runs too late, after the point where
 products would need to already be locked): `SELECT product_id FROM
 sales_invoice_lines WHERE id = ANY(<line ids from payload>) AND invoice_id =
 v_invoice_id AND org_id = v_org FOR UPDATE`, take `DISTINCT product_id` from
-that locked read, then `wardah_lock_products_for_stock_write`. Because the
-referenced line ids are fixed by the payload (not a dynamic "find whichever
-matches" query), locking them once up front and reusing that locked read in
-the subsequent loop (instead of re-querying) removes the drift window
-entirely — no runtime guard is structurally necessary, but see below.
+that locked read, then `wardah_lock_products_for_stock_write`.
+
+**This upfront read supplies only `product_id`, for building the lock set —
+it does not replace anything the existing loop does (the twenty-first
+correction above).** The existing loop's own `SELECT ... FOR UPDATE` — which
+also reads `quantity`, `unit_price`, and `COALESCE(delivered_quantity, 0)`,
+fresh, on every iteration — is unchanged, byte-for-byte. Reusing that value
+across iterations instead of re-reading it, as an earlier revision of this
+design proposed, would break a real, live behavior: the live body computes a
+cumulative weighted-average `unit_cost_at_sale` and running `delivered_quantity`
+across repeated deliveries of the *same* line within one call (its own
+comment: "Cumulative weighted average across partial deliveries, so the
+generated invoice-line cogs equals the exact summed delivery COGS once fully
+delivered") — nothing rejects the same `sales_invoice_line_id` appearing more
+than once in one payload, and the second occurrence must see the first's
+update within the same transaction to compute `OVER_DELIVERY` and the
+weighted average correctly. Both the upfront lock and the loop's own lock
+target the identical, payload-fixed row, so the loop's re-acquisition is a
+same-mode, same-transaction no-op — the upfront lock still closes the
+concurrency gap (a concurrent client cannot move `product_id` once the row is
+continuously locked from the upfront batch onward), without touching how the
+loop reads or accumulates its own business state. No runtime guard is
+structurally necessary for the identity concern, but see below.
 
 **`rpc_submit_stock_adjustment`** — `v_item.product_id` comes from
 `stock_adjustment_items`, resolved by `adjustment_id` — a query that returns
@@ -1718,10 +1794,15 @@ holds" becomes accurate: same mode, on a row already locked by the superset
 lock, genuinely a no-op.
 
 **The guard, generalized:** for delivery note and adjustment submit, locking
-the referenced rows up front is structurally sufficient — there is no
-plausible way the existing loop resolves a product outside what was just
-locked, because it consumes the exact rows already locked rather than
-re-querying. Material consumption's loop *is* a fresh per-line query against
+the referenced rows up front is structurally sufficient for the *identity*
+concern — there is no plausible way the existing loop resolves a product
+outside what was just locked, because both the upfront lock and the loop's
+own lock target the identical, payload-fixed row set; the row's `product_id`
+cannot drift once it is locked continuously from the upfront batch onward
+(the twenty-first correction above: delivery note's loop still re-queries
+its own *business* fields — `delivered_quantity`, `unit_cost_at_sale` — on
+every iteration, unchanged, which is a correctness requirement, not a gap
+this guard needs to cover). Material consumption's loop *is* a fresh per-line query against
 a state (`status = 'reserved'`) that this call's own processing changes, so
 it is worth a defense-in-depth check even though the superset lock should
 make it unreachable: keep the locked array (`wardah_lock_products_for_stock_write`'s
@@ -2305,6 +2386,7 @@ numeric helpers, with inverted assertions:
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
 | Static contract, `rpc_manual_stock_movement_v2` | a products `FOR NO KEY UPDATE` lock appears before the *first* `bins` reference in the function body — the unlocked warehouse-inference `SELECT ... FROM bins` when `warehouse_id` is omitted, not only the later `bins ... FOR UPDATE` |
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
+| New: `rpc_post_delivery_note` duplicate-line-id regression (twenty-first correction) | one payload lists the *same* `sales_invoice_line_id` twice (e.g. an invoice line with `quantity = 10`, two payload entries each delivering `6`). Must hold identically before and after 191: the first occurrence sees `delivered = 0` and applies; the second occurrence's own `SELECT ... FOR UPDATE` must see the *updated* `delivered = 6` from the first occurrence within the same transaction (read-your-own-writes), not the upfront prelock's stale snapshot — so `6 + 6 > 10` correctly raises `OVER_DELIVERY` (or, with `v_allow_over` set, both apply and `unit_cost_at_sale` reflects the correct cumulative weighted average across both, not two independent computations against the same stale base). A build that caches the upfront prelock's read and reuses it in the loop (rather than re-querying every iteration) fails this row — both occurrences would compute against `delivered = 0`, silently under-recording total `delivered_quantity` and corrupting the weighted-average `unit_cost_at_sale` |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
 | Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop; **no bare `FOR UPDATE` on `material_reservations` appears anywhere in the function body** — this includes both per-line branches (`reservation_id` given, and `item_id`-derived `ORDER BY created_at, id LIMIT 1`), not only the pre-loop superset lock (the fifteenth correction: an earlier revision left these two as `FOR UPDATE`, wrongly reasoning the upgrade from the superset's `FOR NO KEY UPDATE` was a no-op) |
@@ -2990,3 +3072,16 @@ Reviewers should reject the implementation PR if:
   reaches the helper-lock edge the mutant exists to test — the same
   false-attribution shape the sixteenth correction already fixed for
   `material_reservations`, recurring here (the twentieth correction above)
+- `rpc_post_delivery_note`'s Fix E caches the upfront `sales_invoice_lines`
+  prelock read and reuses it in the per-line loop instead of leaving the
+  loop's own fresh `SELECT ... FOR UPDATE` (`delivered_quantity`,
+  `unit_cost_at_sale`) untouched — the live body's cumulative
+  weighted-average COGS and running `delivered_quantity` depend on each
+  occurrence of a repeated `sales_invoice_line_id` seeing the *previous*
+  occurrence's update within the same transaction; caching the prelock read
+  makes every occurrence compute against the same stale base, silently
+  under-recording delivered quantity, corrupting the weighted-average cost,
+  and defeating `OVER_DELIVERY` for exactly the payload shape it exists to
+  catch — a real business-behavior change, which Fix E must never be (the
+  twenty-first correction above). The upfront lock supplies only `product_id`
+  for the lock set; it must not replace anything else the loop reads
