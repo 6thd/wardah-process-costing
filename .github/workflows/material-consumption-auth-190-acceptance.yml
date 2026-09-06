@@ -1,0 +1,113 @@
+name: Material consumption auth 190
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/190_material_consumption_authorization_boundary.sql'
+      - 'scripts/ci/fresh-db/acceptance_f1_material_consumption_auth_red.sql'
+      - 'scripts/ci/fresh-db/setup_190_material_consumption_auth.sql'
+      - 'scripts/ci/fresh-db/acceptance_190_material_consumption_auth.sql'
+      - '.github/workflows/material-consumption-auth-190-acceptance.yml'
+      - 'docs/db/MATERIAL_CONSUMPTION_AUTH_190_RUNBOOK.md'
+      - 'sql/baseline/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Prove F1 RED then Migration 190 GREEN
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_190
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve cutoff-189 baseline
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline 190)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          test "$CUTOFF" = "189"
+
+      - name: Build cutoff-189 database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+
+      - name: RED proof on pre-190 contract
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_f1_material_consumption_auth_red.sql \
+            2>&1 | tee /tmp/f1-190-red.out
+          grep -q 'F1_RED_PROOF_PASS' /tmp/f1-190-red.out
+          grep -q 'F1_RED_ACCEPTANCE_PASS' /tmp/f1-190-red.out
+
+      - name: Apply Migration 190
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f sql/migrations/190_material_consumption_authorization_boundary.sql \
+            2>&1 | tee /tmp/f1-190-migration.out
+          grep -q 'MATERIAL_CONSUMPTION_190_POSTFLIGHT_PASS' /tmp/f1-190-migration.out
+
+      - name: Build behavioral fixtures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/setup_190_material_consumption_auth.sql \
+            2>&1 | tee /tmp/f1-190-setup.out
+          grep -q 'MATERIAL_CONSUMPTION_190_SETUP_PASS' /tmp/f1-190-setup.out
+
+      - name: GREEN behavioral acceptance
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_190_material_consumption_auth.sql \
+            2>&1 | tee /tmp/f1-190-green.out
+          grep -q 'MATERIAL_CONSUMPTION_190_GREEN_ACCEPTANCE_PASS' /tmp/f1-190-green.out
+
+      - name: Upload F1 190 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: material-consumption-auth-190-${{ github.run_id }}
+          path: |
+            /tmp/f1-190-red.out
+            /tmp/f1-190-migration.out
+            /tmp/f1-190-setup.out
+            /tmp/f1-190-green.out
+          retention-days: 30
