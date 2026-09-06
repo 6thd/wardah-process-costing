@@ -299,6 +299,62 @@ This document chooses the remediation shape. It does not implement it.
 > collapsed by, so reversed line order there does directly reverse the actual lock
 > sequence.
 
+> **Eighth correction (found in review): the seventh correction's own fix had a
+> mechanism gap and conflated two different invariants in one mutant.**
+>
+> 1. **The "signals"/"rendezvous" wording had no concrete, implementable mechanism.**
+>    The pause between a mutant transaction's first and second lock has to happen
+>    *inside* one running PL/pgSQL call (`wardah_lock_products_for_stock_write`,
+>    called once). The RED-A/RED-B file-touch/poll rendezvous pauses *between*
+>    a returned `SELECT rpc(...)` and the client's next statement — it has no way to
+>    reach a point mid-loop inside a single function call, and "signals" was never
+>    tied to an actual primitive. Corrected to a session-level advisory-lock gate: a
+>    coordinator session takes `pg_advisory_lock(1)` and `pg_advisory_lock(2)` before
+>    either mutant transaction starts; the mutant helper calls
+>    `PERFORM pg_advisory_lock(<its gate>)` immediately after its first row lock,
+>    which blocks because the coordinator holds it; the coordinator polls
+>    `pg_stat_activity` for both backends showing `wait_event_type = 'Lock'`,
+>    `wait_event = 'advisory'`, then releases both gates from its own session
+>    (advisory locks are session-scoped — only the acquiring session can release
+>    one). Verified empirically against a live PostgreSQL 17 instance: both
+>    backends reached the advisory wait as expected, and releasing both gates
+>    together produced a real `deadlock detected` (`40P01`) from PostgreSQL's own
+>    detector, with `pg_stat_activity` showing the symmetric wait
+>    (`Process A waits for … blocked by process B` / `Process B waits for … blocked
+>    by process A`) immediately before it fired.
+> 2. **Consumption guard mutant 2 tested the wrong invariant.** As previously
+>    written, both MOs' narrowed prelocks already covered the *complete* `{A, B}`
+>    set (just fed to the mutated, order-preserving helper in opposite array
+>    order) — so removing `PRODUCT_NOT_PRELOCKED` played no role in the deadlock;
+>    it was a second copy of the helper-ordering test wearing the guard mutant's
+>    name, and would deadlock identically whether the guard was present or absent
+>    (the guard only fires on a product *outside* the locked set, and every product
+>    here was inside it). Corrected to a genuinely different construction that
+>    isolates guard completeness from helper ordering: MO 1's superset lock covers
+>    only `{A}` (not `{A, B}`) and its per-line loop later resolves an item to the
+>    *un-prelocked* product `B`; MO 2's superset covers only `{B}` and its loop
+>    later needs `A`. This calls the real, unmodified
+>    `wardah_lock_products_for_stock_write` — no positional-loop mutation, no
+>    ordering mutation, because each upfront call locks only one product and there
+>    is nothing to reorder. The advisory-lock gate barrier moves to *after* the
+>    upfront (single-product) superset lock and *before* the per-line loop: MO 1
+>    locks `A`, gates on `1`; MO 2 locks `B`, gates on `2`; releasing both together
+>    lets both loops proceed to resolve their un-prelocked product at the same
+>    instant. With the guard present, each side must raise `PRODUCT_NOT_PRELOCKED`
+>    the instant its loop resolves the un-prelocked product — before ever
+>    attempting to lock it, so neither side can reach a blocking wait and no
+>    deadlock is possible. With the guard removed, each side's loop calls straight
+>    into the ordinary per-line `wardah_apply_stock_incoming`/`outgoing` path, which
+>    takes a plain single-row `FOR NO KEY UPDATE` on the un-prelocked product — `T1`
+>    holds `A` and waits on `B`, `T2` holds `B` and waits on `A`: a genuine
+>    deadlock caused specifically by the missing guard, with no helper-ordering
+>    mutation involved at all. Mutant 1 (narrowed superset, guard present,
+>    single-transaction) and mutant 3 (real 191) are unaffected by this
+>    correction.
+>
+> §7's cancellation-vs-cancellation construction and the consumption guard
+> mutant-2 row are both rewritten below; §9's reject-list gained matching bullets.
+
 ---
 
 ## 1. Decision
@@ -1386,7 +1442,7 @@ numeric helpers, with inverted assertions:
 | New: incoming vs `rpc_create_mo_with_reservation`, same product with an existing bin | run against a build with the products lock as `FOR UPDATE` first — must deadlock; run against real 191 (`FOR NO KEY UPDATE`) — must not; bin and reservation both correct regardless of which serializes first |
 | New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | the two reservations for that `item_id` must be built with genuinely different effective products (different `product_id`, or one `NULL` `product_id` resolving via `wardah_resolve_product_id` to a different product than the other's explicit `product_id` — not two reservations that happen to share one product). Second line resolves to the second reservation (existing behavior, unchanged) and *both* distinct effective products were locked by the upfront superset query — assert this by checking both products appear in the locked set, not just that the call succeeds; a narrower (buggy) pre-pass, or one that derives from the bare `product_id` column instead of the effective-product expression, could otherwise pass this fixture by coincidence |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 1 — narrowed superset, guard present | superset query deliberately narrowed to only the specific reservations named by `p_consumptions` (the earlier, wrong pre-pass shape) instead of the full per-MO lock; guard left in place. A fixture whose second line resolves to a reservation outside that narrowed set must raise `PRODUCT_NOT_PRELOCKED` — proves the guard is reachable, not dead code |
-| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — narrowed superset, guard removed, forced crossed lock order | same narrowed superset, guard also removed, run as two concurrent calls **on two different manufacturing orders** whose product sets are the same two products A and B. Two different MOs is required, not incidental: this function's first statement locks `manufacturing_orders WHERE id = p_mo_id FOR UPDATE`, so two calls on the *same* MO would already fully serialize there and never reach product-level contention at all. "Reversed-order concurrency" at the caller/reservation level is **not** the mechanism (per the seventh correction above): both calls still resolve their complete product set and call `wardah_lock_products_for_stock_write` once before any per-reservation work, so the helper's own `ORDER BY id` — not reservation or caller order — decides acquisition order. As with the cancellation-vs-cancellation mutant, this build must replace the helper's locking query with a positional loop over `p_product_ids` (no re-sort), feed the two calls arrays in explicitly opposite, test-controlled order (MO 1's derived array A-then-B, MO 2's B-then-A), and drive them through the same two-step rendezvous (each call locks only its first array element and signals before the other starts; both then attempt their second lock). This must reproduce a genuine transaction-level deadlock — both backends observed simultaneously via `pg_stat_activity.wait_event_type = 'Lock'`, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts — not a silent wrong value in a single run and not an inferred hang; that live proof is the actual failure mode the missing guard/narrow lock allows |
+| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — genuinely narrow per-MO superset (missing a product the loop will need), guard removed, forced concurrency | run as two concurrent calls **on two different manufacturing orders**. Two different MOs is required, not incidental: this function's first statement locks `manufacturing_orders WHERE id = p_mo_id FOR UPDATE`, so two calls on the *same* MO would already fully serialize there and never reach product-level contention at all. This is **not** the helper-ordering mutant — do not reuse the positional-loop helper mutation here (per the eighth correction above): if both MOs' superset already covered `{A, B}`, removing the guard would be irrelevant to any deadlock, since the guard only fires on a product outside the locked set. Instead, MO 1's superset lock (the real, unmodified `wardah_lock_products_for_stock_write`, called with `p_consumptions`-derived reservations only) covers **only `{A}`**, and its fixture is built so the per-line loop's second line resolves to the *un-prelocked* product `B`; MO 2's superset covers **only `{B}`**, with its loop needing `A`. A session-level advisory-lock gate barrier (verified mechanism, per the eighth correction) sits after the upfront superset lock and before the per-line loop: MO 1 locks `A` then gates on `1`, MO 2 locks `B` then gates on `2`; releasing both gates together lets both loops proceed to resolve their un-prelocked product at the same instant. With the guard removed, this must reproduce a genuine transaction-level deadlock — `T1` holds `A` and waits on `B` via the ordinary per-line `wardah_apply_stock_incoming`/`outgoing` lock, `T2` holds `B` and waits on `A` — proven via `pg_stat_activity` showing the symmetric wait on both backends, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts; not a silent wrong value in a single run and not an inferred hang |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 3 — real 191 | full per-MO superset lock (any status, filtered to `'reserved'` from the locked snapshot) plus the guard, both as specified. Neither the guard nor a deadlock should be reachable under normal operation — the guard exists as a backstop, not as an expected code path |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
@@ -1444,18 +1500,32 @@ Run this fixture twice:
   = p_org AND id = v_id FOR NO KEY UPDATE; ... END LOOP` (same verified shape
   as the seventh correction above) — that locks each element in the exact
   order the caller's array lists it, with no de-duplication or re-sort.
-  Drive it with an explicit two-step
-  rendezvous: adjustment 1's transaction locks only its first element
-  (product A, since its items were inserted A-then-B) and signals ready;
-  adjustment 2's transaction starts only after that signal, locks only its
-  own first element (product B, since its items were inserted B-then-A),
-  and signals ready; only once both signals are observed are both released
-  to attempt their second lock. This must produce a genuine circular wait —
-  both backends observed simultaneously in `pg_stat_activity` with
-  `wait_event_type = 'Lock'` (the same standard as RED-A/RED-B), or a
-  `deadlock detected` (`40P01`) surfacing on whichever side PostgreSQL's own
-  detector aborts. A "hang until timeout" without that live proof is not
-  sufficient evidence.
+
+  The pause between the first and second lock must happen **inside** that
+  running PL/pgSQL call — a file-touch/poll rendezvous at the psql-client
+  level (the RED-A/RED-B mechanism, which pauses *between* a returned
+  `SELECT rpc(...)` and the client's next statement) cannot reach a point
+  mid-loop inside one function call. Use a session-level advisory-lock gate
+  instead, verified against a live PostgreSQL 17 instance to block exactly
+  where needed and to surface in `pg_stat_activity`: a third, coordinator
+  session takes `pg_advisory_lock(1)` and `pg_advisory_lock(2)` *before*
+  either mutant transaction starts. The mutant helper, immediately after
+  locking its first element, calls `PERFORM pg_advisory_lock(<its own gate
+  id>)` — adjustment 1's transaction uses gate `1`, adjustment 2's uses gate
+  `2` — which blocks because the coordinator already holds it. The
+  coordinator polls `pg_stat_activity` for both backends showing
+  `wait_event_type = 'Lock'`, `wait_event = 'advisory'` (proving each has
+  locked its first element and reached the gate, not merely that some time
+  has passed), then calls `pg_advisory_unlock(1)` and `pg_advisory_unlock(2)`
+  from that same coordinator session (advisory locks are session-scoped:
+  only the session that took the lock can release it) — releasing both
+  gates together lets both mutant transactions proceed to their second lock
+  in the same instant. Confirmed empirically: this reproduces a real
+  `deadlock detected` (`40P01`) from PostgreSQL's own detector, with both
+  backends visibly waiting on each other's row (`Process … waits for
+  ShareLock on transaction …; blocked by process …`, symmetric in both
+  directions) immediately beforehand. A "hang until timeout" without that
+  live `pg_stat_activity`/`40P01` proof is not sufficient evidence.
 - **Real Fix C:** identical fixture, unmodified helper (`ORDER BY id` in the
   locking query itself, not only in the earlier deduplication step). Both
   transactions' arrays contain the same two products, so the real helper
@@ -1714,18 +1784,38 @@ Reviewers should reject the implementation PR if:
   that must be re-checked against whatever `main` looks like when 191 is
   actually written, not assumed from this document
 - `wardah_lock_products_for_stock_write`'s green acceptance for lock order
-  (cancellation-vs-cancellation, consumption guard mutant 2) relies on
-  "reversed line/traversal order" at the caller or reservation level instead
-  of an explicit positional-loop mutant plus a two-step rendezvous that
-  forces each side's *first* lock before the other starts — since Fix C and
-  Fix E both resolve the complete product set and call the helper once
-  before any per-line/per-reservation work, caller-side ordering never
-  reaches the helper's own locking query, so this cannot actually prove
-  anything about lock acquisition order (the seventh correction above; this
-  is the exact Codex finding on `64fdc35`)
+  (cancellation-vs-cancellation) relies on "reversed line/traversal order" at
+  the caller level instead of an explicit positional-loop mutant plus a
+  concrete pause mechanism that forces each side's *first* lock before the
+  other starts — since Fix C resolves the complete product set and calls the
+  helper once before any per-line work, caller-side ordering never reaches
+  the helper's own locking query, so this cannot actually prove anything
+  about lock acquisition order (the seventh correction above; this is the
+  exact Codex finding on `64fdc35`)
 - the static contract for `wardah_lock_products_for_stock_write` checks only
   that dedup/normalization is sorted (`ARRAY(SELECT DISTINCT ... ORDER BY
   ...)`) without also asserting `ORDER BY` on `id` in the query that carries
   `FOR NO KEY UPDATE` itself — a helper can satisfy the former and still lock
   rows in scan order, not id order, which is the property the whole
   deadlock-avoidance argument in §6/§7 actually depends on
+- the cancellation-vs-cancellation or consumption guard mutant-2 "ordering
+  removed"/"forced concurrency" fixture describes a pause between a mutant
+  transaction's first and second lock as a "signal"/"rendezvous" with no
+  concrete primitive, or reuses the RED-A/RED-B file-touch/poll rendezvous —
+  that mechanism pauses *between* a returned `SELECT rpc(...)` and the
+  client's next statement and cannot reach a point *inside* one running
+  PL/pgSQL call; the pause must be an in-function session-level advisory-lock
+  gate (`pg_advisory_lock`, held by a third coordinator session, released
+  from that same session only after `pg_stat_activity` confirms both
+  backends are waiting on it) — the eighth correction above verified this
+  empirically against a live PostgreSQL 17 instance
+- consumption guard mutant 2 uses a superset that already covers the
+  complete product set (e.g. both MOs' narrowed prelocks contain `{A, B}`,
+  just fed in opposite array order to a mutated ordering-helper) — removing
+  `PRODUCT_NOT_PRELOCKED` is then irrelevant to any deadlock that follows,
+  since the guard only fires on a product outside the locked set; this
+  re-tests helper ordering under the guard mutant's name instead of guard
+  completeness. The fixture must make each MO's superset genuinely narrower
+  than what its own loop will need (MO 1 locks only `{A}` but its loop later
+  needs `B`; MO 2 locks only `{B}` but needs `A`), using the real, unmodified
+  helper — no positional-loop mutation belongs in this mutant at all
