@@ -142,6 +142,52 @@ This document chooses the remediation shape. It does not implement it.
 > or the function coverage list changes — this correction is entirely about how the
 > already-identified fixes are implemented, not about which functions need them.
 
+> **Fifth correction (found in review): the fourth correction's own pseudocode did not
+> compile, and one of its invariants still didn't fully hold.** All four points below
+> were checked empirically against a real PostgreSQL 17 instance, not reasoned about
+> from documentation alone:
+>
+> 1. The shared helper combined `array_agg(...)` with `FOR NO KEY UPDATE` in one
+>    query. PostgreSQL rejects any locking clause combined with an aggregate or
+>    `DISTINCT` in the same query ("FOR UPDATE is not allowed with aggregate
+>    functions" / "... with DISTINCT clause" — confirmed by executing both against
+>    PostgreSQL 17), because the result rows can no longer be identified with
+>    individual table rows to lock. Corrected the helper to lock row-by-row in a
+>    `FOR ... LOOP`, collecting the locked ids into an array as it goes, instead of
+>    trying to lock and aggregate in one statement. Also corrected the id-normalizing
+>    subquery, which referenced an unaliased `unnest(...)` call by the bare name
+>    `unnest` in its own `WHERE` clause — confirmed this fails with `column "unnest"
+>    does not exist` — to `FROM unnest(...) AS u(id) WHERE u.id IS NOT NULL`.
+> 2. `rpc_submit_stock_adjustment`'s Fix E was specified as `SELECT DISTINCT
+>    product_id ... FOR UPDATE` — the same invalid `DISTINCT`-plus-locking-clause
+>    shape as point 1, confirmed the same way. Corrected to lock the plain,
+>    non-`DISTINCT` item rows (`SELECT id, product_id ... FOR UPDATE`) and derive
+>    `DISTINCT product_id` from the rows the lock already produced.
+> 3. The consumption superset fix from the fourth correction filtered on `status =
+>    'reserved'` *inside* the locking query and called that "the complete universe."
+>    It isn't: `material_reservations_status_check` only restricts `status` to five
+>    valid string values — nothing prevents a client with ordinary `org_id`-gated
+>    `UPDATE` access from flipping an existing `released`/`expired`/`cancelled` row
+>    back to `'reserved'` mid-transaction, and such a row was never `'reserved'` at
+>    lock time, so the status-filtered lock could miss it. Corrected to lock every
+>    row for the MO regardless of status first, then read `status` from the
+>    now-frozen locked snapshot to derive the `'reserved'` subset — the lock itself,
+>    not the filter, is what prevents the flip from mattering.
+> 4. The GREEN acceptance row for the `PRODUCT_NOT_PRELOCKED` guard asserted the
+>    wrong failure mode for its "guard removed" mutant ("a silent wrong result"). The
+>    actual failure mode a missing guard plus a narrowed lock allows is a
+>    transaction-level deadlock between two overlapping-product calls (the same shape
+>    as the multi-line-caller-vs-multi-line-caller control), not silent data
+>    corruption in a single run. Split into three explicit mutants in §7: narrowed
+>    lock with the guard present (must raise `PRODUCT_NOT_PRELOCKED`), narrowed lock
+>    with the guard removed under reversed-order concurrency (must be able to
+>    reproduce a genuine deadlock), and the real fix (neither).
+>
+> Also fixed the internal contradiction where the goods-receipt paragraph said "no
+> guard needed" immediately before the design required the guard on all four Fix E
+> functions uniformly — reworded to "no superset/source-row lock needed; the uniform
+> guard still applies here too."
+
 ---
 
 ## 1. Decision
@@ -388,14 +434,36 @@ internal helper:
 ```text
 wardah_lock_products_for_stock_write(p_org uuid, p_product_ids uuid[]) → uuid[]
   SET search_path TO 'public', 'pg_temp'
-  -- normalize: dedupe and drop NULLs before locking anything
-  v_wanted := ARRAY(SELECT DISTINCT unnest(p_product_ids) WHERE unnest IS NOT NULL);
-  -- FOR NO KEY UPDATE, not FOR UPDATE: see "Lock mode" below
-  SELECT array_agg(id ORDER BY id) FROM public.products
-  WHERE id = ANY(v_wanted) AND org_id = p_org
-  FOR NO KEY UPDATE
-  INTO v_locked;
-  IF v_locked IS NULL OR cardinality(v_locked) <> cardinality(v_wanted) THEN
+
+  -- normalize: dedupe, drop NULLs, fix a deterministic order — via
+  -- unnest(...) AS u(id), not a bare unnamed unnest() referenced by
+  -- function name in WHERE (that does not resolve: unnest() in the
+  -- target list is not addressable as a column called "unnest").
+  v_wanted := ARRAY(
+    SELECT DISTINCT u.id
+    FROM unnest(COALESCE(p_product_ids, '{}'::uuid[])) AS u(id)
+    WHERE u.id IS NOT NULL
+    ORDER BY u.id
+  );
+
+  -- Lock row-by-row via a loop, not a single aggregating SELECT: PostgreSQL
+  -- rejects any locking clause (FOR NO KEY UPDATE / FOR UPDATE / FOR SHARE /
+  -- FOR KEY SHARE) combined with DISTINCT, GROUP BY, or an aggregate in the
+  -- same query, because the result rows can no longer be identified with
+  -- individual table rows to lock. array_agg(...) ... FOR NO KEY UPDATE is
+  -- not valid SQL for this reason — confirmed against PostgreSQL 17
+  -- ("FOR UPDATE is not allowed with aggregate functions").
+  v_locked := '{}'::uuid[];
+  FOR v_id IN
+    SELECT p.id FROM public.products p
+    WHERE p.org_id = p_org AND p.id = ANY(v_wanted)
+    ORDER BY p.id
+    FOR NO KEY UPDATE  -- not FOR UPDATE: see "Lock mode" below
+  LOOP
+    v_locked := array_append(v_locked, v_id);
+  END LOOP;
+
+  IF cardinality(v_locked) <> cardinality(v_wanted) THEN
     RAISE EXCEPTION 'PRODUCT_NOT_FOUND_OR_WRONG_ORG: wanted=%, locked=%',
       v_wanted, v_locked;
   END IF;
@@ -655,8 +723,10 @@ identity for each line actually lives, which differs per function:
 separate stored table; nothing else in the system can mutate it mid-call.
 Pre-resolving is trivially safe here: `SELECT DISTINCT (value->>'product_id')::uuid
 FROM jsonb_array_elements(p_payload->c_lines_key)` before the loop, then
-`wardah_lock_products_for_stock_write`. No superset, no guard needed —
-there is no external state to drift.
+`wardah_lock_products_for_stock_write`. No superset or source-row lock is
+needed — there is no external state to drift — but the uniform
+`PRODUCT_NOT_PRELOCKED` guard below still applies here too, as defense in
+depth like the other three.
 
 **`rpc_post_delivery_note`** — `v_product` comes from `sales_invoice_lines`,
 resolved by `sales_invoice_line_id` values that are themselves fixed by the
@@ -680,11 +750,18 @@ entirely — no runtime guard is structurally necessary, but see below.
 `stock_adjustment_items`, resolved by `adjustment_id` — a query that returns
 a fixed row set regardless of processing state (unlike consumption's
 status-based selection below). `stock_adjustment_items` is likewise `GRANT
-ALL TO authenticated` with its own update policy. Fix: `SELECT DISTINCT
+ALL TO authenticated` with its own update policy. Fix: lock the item rows
+first, plainly, with no `DISTINCT` in the same statement — `SELECT id,
 product_id FROM stock_adjustment_items WHERE adjustment_id = v_adj.id ORDER
-BY id FOR UPDATE` before the loop — locking the actual item rows, not just
-reading their `product_id` — then `wardah_lock_products_for_stock_write` on
-the distinct set. As with delivery note, the row set itself is stable
+BY id FOR UPDATE`, collecting `DISTINCT product_id` from the *rows the loop
+already produces* rather than asking PostgreSQL to lock a `DISTINCT`
+projection directly (`SELECT DISTINCT product_id ... FOR UPDATE` is invalid:
+PostgreSQL rejects any locking clause combined with `DISTINCT` in the same
+query for the same reason it rejects one combined with an aggregate — the
+result rows are no longer identifiable with individual table rows to lock;
+confirmed against PostgreSQL 17, "FOR UPDATE is not allowed with DISTINCT
+clause"). Then `wardah_lock_products_for_stock_write` on the distinct set
+collected that way. As with delivery note, the row set itself is stable
 (determined by `adjustment_id`, not by anything that changes as the loop
 runs), so locking those specific rows up front and having the existing loop
 consume the already-locked rows removes the drift window structurally.
@@ -711,30 +788,45 @@ problems, both confirmed against the live Migration 190 body:
    reservation resolves to, between an unlocked pre-pass and the loop.
 
 Fix: lock the *entire relevant superset*, not the specific rows an unlocked
-pre-pass thinks it needs. Before the per-line loop: `SELECT product_id FROM
-material_reservations WHERE org_id = v_org AND mo_id = p_mo_id AND status =
-'reserved' ORDER BY id FOR UPDATE` — every currently-reserved row for this
-MO, not just the ones this call's lines will end up choosing. This is the
-complete universe the existing loop's own `status = 'reserved'` queries can
-possibly select from, so locking it removes both problems: locked rows can't
-be concurrently retargeted to a different product (closes problem 2), and
-the loop's own line-by-line selection, whatever it resolves to, resolves to
-a row that was already in the locked set (closes problem 1, since nothing
-outside that set could ever be chosen once it's locked and status can't
-change without this transaction's own consumption). This is not expensive
-beyond what the function already pays: `manufacturing_orders` is locked `FOR
-UPDATE` as this function's very first statement, and any concurrent `INSERT`
-of a *new* reservation for the same `mo_id` needs `FOR KEY SHARE` on that
-same MO row (the FK), which already blocks behind it — so no new reservation
-can appear for this MO while this transaction runs. The reservations lock
-above is what additionally freezes the *existing* ones against direct client
-mutation, which the MO lock alone does not cover (an `UPDATE` to an existing
-child row's own columns does not re-touch its FK parent).
+pre-pass thinks it needs, and not a `status = 'reserved'` filter applied
+*before* locking. An earlier revision of this design filtered on `status =
+'reserved'` in the same query that locks, and called that "the complete
+universe the loop can select from." It isn't: `material_reservations_status_check`
+only constrains `status` to five valid string values, and nothing —
+no trigger, no other constraint — prevents a client with ordinary `UPDATE`
+access (gated only by `org_id`) from setting an existing `released`,
+`expired`, or `cancelled` row's `status` back to `'reserved'` mid-transaction.
+Filtering on `status = 'reserved'` *before* taking the lock can miss exactly
+such a row: it wasn't `'reserved'` yet when the filter ran, so it was never
+locked, and it could still become `'reserved'` and get selected by the
+existing loop's own fresh per-line query — outside the set this call
+believes it locked.
 
-Derive the distinct product set from that locked read, then
-`wardah_lock_products_for_stock_write`. The existing loop's own per-row
-`SELECT ... FOR UPDATE` on `material_reservations` re-acquires a lock this
-call already holds (a no-op wait) and is otherwise unchanged.
+The fix locks first, filters after: `SELECT id, mo_id, item_id, product_id,
+status FROM material_reservations WHERE org_id = v_org AND mo_id = p_mo_id
+ORDER BY id FOR UPDATE` — every row for this MO regardless of current
+status, not filtered at all in the locking query. Only *after* every such
+row is locked does the function read `status` from the now-frozen snapshot
+to derive which of them are `'reserved'` (and therefore which products the
+loop's own selection can legitimately land on). This closes the gap the
+status-filtered version left open: once locked, no row's `status` can change
+until this transaction commits (the lock itself is what prevents the
+released-back-to-reserved flip, not the filter), so the `'reserved'` subset
+read from the locked snapshot is a true, closed universe for the duration of
+this call. This is not expensive beyond what the function already pays:
+`manufacturing_orders` is locked `FOR UPDATE` as this function's very first
+statement, and any concurrent `INSERT` of a *new* reservation for the same
+`mo_id` needs `FOR KEY SHARE` on that same MO row (the FK), which already
+blocks behind it — so no new reservation can appear for this MO while this
+transaction runs. The reservations lock above is what additionally freezes
+every *existing* row (any status) against direct client mutation, which the
+MO lock alone does not cover (an `UPDATE` to an existing child row's own
+columns does not re-touch its FK parent).
+
+Derive the distinct product set from the locked snapshot's `'reserved'`
+rows, then `wardah_lock_products_for_stock_write`. The existing loop's own
+per-row `SELECT ... FOR UPDATE` on `material_reservations` re-acquires a
+lock this call already holds (a no-op wait) and is otherwise unchanged.
 
 **The guard, generalized:** for delivery note and adjustment submit, locking
 the referenced rows up front is structurally sufficient — there is no
@@ -1149,7 +1241,9 @@ numeric helpers, with inverted assertions:
 | New: `rpc_submit_stock_adjustment` vs `rpc_consume_reserved_materials_v2`, overlapping products in reversed order | no deadlock; both fully apply or one fails on its own pre-existing business rules (insufficient reservation, insufficient stock), never a hang |
 | New: incoming vs `rpc_create_mo_with_reservation`, same product with an existing bin | run against a build with the products lock as `FOR UPDATE` first — must deadlock; run against real 191 (`FOR NO KEY UPDATE`) — must not; bin and reservation both correct regardless of which serializes first |
 | New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | second line resolves to the second reservation (existing behavior, unchanged) and both reservations' products were locked by the upfront superset query — assert this by checking both reservations' products appear in the locked set, not just that the call succeeds, since a narrower (buggy) pre-pass could still coincidentally succeed here if both reservations share one product |
-| New: `rpc_consume_reserved_materials_v2` guard regression check | with the `PRODUCT_NOT_PRELOCKED` guard temporarily removed and the superset query deliberately narrowed to only the first-resolved reservation per `item_id` (simulating the earlier, wrong pre-pass design), a two-reservation-same-`item_id` fixture must produce a *silent* wrong result (the transaction-level race, unguarded); with the guard restored, the same fixture must fail loudly with `PRODUCT_NOT_PRELOCKED` instead — proving the guard is reachable and not dead code |
+| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 1 — narrowed superset, guard present | superset query deliberately narrowed to only the specific reservations named by `p_consumptions` (the earlier, wrong pre-pass shape) instead of the full per-MO lock; guard left in place. A fixture whose second line resolves to a reservation outside that narrowed set must raise `PRODUCT_NOT_PRELOCKED` — proves the guard is reachable, not dead code |
+| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — narrowed superset, guard removed, reversed-order concurrency | same narrowed superset, guard also removed, run as two concurrent calls whose product sets overlap in reversed order (the same shape as the multi-line-caller-vs-multi-line-caller control). This must be able to reproduce a genuine transaction-level deadlock, not a silent wrong value in a single run — that is the actual failure mode the missing guard/narrow lock allows, and the control must demonstrate that specific mode, not an assumed one |
+| New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 3 — real 191 | full per-MO superset lock (any status, filtered to `'reserved'` from the locked snapshot) plus the guard, both as specified. Neither the guard nor a deadlock should be reachable under normal operation — the guard exists as a backstop, not as an expected code path |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
@@ -1157,7 +1251,7 @@ numeric helpers, with inverted assertions:
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present) |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
-| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters on `status = 'reserved'` for the whole `mo_id` (the superset), not on the specific `reservation_id`/`item_id` values referenced by `p_consumptions` (the earlier, wrong pre-pass shape); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop |
+| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status) with `FOR UPDATE` and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop |
 | Static contract, all four Fix E functions | the `PRODUCT_NOT_PRELOCKED` guard (or equivalent `= ANY(locked set)` assertion) appears at least once per function, after product resolution and before any `bins`/`products` write for that line |
 
 10-arg incoming is Production's stock-adjustment path. The red proof only
