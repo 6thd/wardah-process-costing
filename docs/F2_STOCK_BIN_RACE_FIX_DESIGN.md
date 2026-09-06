@@ -853,6 +853,43 @@ This document chooses the remediation shape. It does not implement it.
 > §7's per-line reservation lock-mode mutant is corrected below to require
 > the isolated, reservation-only blocker.
 
+> **Seventeenth correction (found in review): the sixteenth correction's own
+> GREEN criterion — a `{}` snapshot from `pg_blocking_pids()` — is not itself
+> race-free proof that the per-line lock statement was ever reached.**
+>
+> A test harness that starts the real-191 consumption call and, at some
+> point during its execution, checks `pg_blocking_pids(<consumption's pid>)
+> = {}` cannot distinguish "the per-line lock was attempted and did not
+> conflict" from "the harness sampled before the backend reached that
+> statement at all." An empty result is consistent with both. This is
+> exactly the class of timing-dependent, non-deterministic acceptance this
+> whole correction chain has been closing everywhere else (the RED-A/RED-B
+> `wait_event_type`/`pg_stat_activity` standard, the advisory-lock gates, the
+> `pg_blocking_pids()`-not-`wait_event_type`-alone tightening in the
+> sixteenth correction itself) — a one-time snapshot with no forcing
+> mechanism behind it doesn't meet that standard.
+>
+> Fix: do not release the reservation-only blocker at all during the GREEN
+> run. Start the real-191 consumption call while the blocker's `FOR KEY
+> SHARE` transaction is open and held, and require the consumption call to
+> **return successfully — with its expected business side effect visible
+> (a `material_consumption` row inserted / the reservation's
+> `quantity_consumed` advanced) — while the blocker is still open**. This is
+> race-free by construction: if the per-line `FOR NO KEY UPDATE` lock ever
+> conflicted with the still-held `FOR KEY SHARE`, the call could not return
+> at all until the blocker released (which it never does, in this run) — so
+> observed completion is unambiguous proof the lock attempt did not
+> conflict, with no dependency on sampling timing. `pg_blocking_pids() = {}`
+> may still be recorded as corroborating information, but is no longer the
+> pass/fail criterion; only after completion is observed does the blocker
+> get released, for cleanup. The RED run's assertion (exact blocking pid,
+> per the sixteenth correction) needs no change — a mutant that genuinely
+> blocks has no completion-timing ambiguity to close.
+>
+> §7's per-line reservation lock-mode mutant row is corrected below: the
+> GREEN success criterion changes from a `pg_blocking_pids() = {}` snapshot
+> to observed call completion before the blocker is released.
+
 ---
 
 ## 1. Decision
@@ -2120,7 +2157,7 @@ numeric helpers, with inverted assertions:
 | New: Fix F, deterministic RED mutant — consume-shaped `[A,B]` lock vs release-shaped `[B,A]` lock on the same two reservation rows | **not** a planner/scan-order-dependent fixture — two `reserved`, expired reservations for one MO are locked directly by literal id: a test-only mutant that locks the pair in literal `[B, A]` order (mimicking a scan visiting them opposite to `id` order) run concurrently against a caller locking `[A, B]` (consume's real, ascending order), both through the same advisory-lock gate barrier already verified for the standalone `products` helper-order mutant (§7). Must reproduce a genuine `deadlock detected` (`40P01`), with both backends observed on their gate beforehand — confirmed empirically against a live PostgreSQL 17 instance before this row was written |
 | New: Fix F, real-helper GREEN run | identical fixture, both sides using the real, unmodified bodies — consume's superset lock and Fix F's locking loop, both `ORDER BY id FOR NO KEY UPDATE`. Forced overlap (ordinary row-lock waiting, not a gate — both real bodies converge on the same ascending order so there is no mid-loop point to gate on, the same reasoning as the `products` standalone mutant's GREEN run) must complete both without deadlock: consumption proceeds normally, and a `release_expired_reservations` call either completes before or after consumption locks the shared row, never interleaved with it |
 | New: Fix F business-correctness control | a reservation partially consumed by one line of an in-flight `rpc_consume_reserved_materials_v2` call remains `'reserved'` (uncommitted) for the duration of that call, so a concurrent `release_expired_reservations` call must not expire it out from under the consumption in progress — it either queues behind consumption's lock and finds the row no longer eligible (if consumption fully consumed it) or expires it correctly afterward (if consumption left it `'reserved'` with remaining quantity); run once, then run `release_expired_reservations` again after the first call commits to confirm anything still eligible is picked up on the next sweep — a release call is not required to catch a row that becomes eligible only after it has already locked and returned |
-| New: `rpc_consume_reserved_materials_v2` per-line reservation lock-mode check (fifteenth/sixteenth corrections) | a **reservation-only** blocker session takes `SELECT id FROM material_reservations WHERE id = <R> FOR KEY SHARE;` and holds the transaction open — not a real `INSERT INTO material_consumption`, whose own FK set (`work_order_id`, `mo_id`, `product_id`, `reservation_id`, `stage_id`, at minimum) would take implicit `FOR KEY SHARE` on `manufacturing_orders` too, and consumption's own first statement is `manufacturing_orders ... FOR UPDATE` — an `INSERT`-based blocker risks the consumption backend blocking on the *MO* lock instead of ever reaching the reservation lock this check exists to test, a false attribution the fixture must not risk. The isolated `FOR KEY SHARE`-only blocker touches no other table. **Against a build with the per-line branches left as bare `FOR UPDATE`:** `pg_blocking_pids(<consumption's pid>)` must equal `{<the reservation-only blocker's pid>}` specifically — not merely `wait_event_type = 'Lock'` — confirmed empirically against a live PostgreSQL 17 instance. **Against real 191** (both branches `FOR NO KEY UPDATE`): the identical fixture, same blocker, must show `pg_blocking_pids(<consumption's pid>) = {}` — confirmed empirically, no block at all. A real `INSERT INTO material_consumption` demonstrating that an FK-driven `FOR KEY SHARE` is a genuine, naturally-occurring lock in this schema (not just a test artifact) is worth keeping as separate supporting evidence, but is not itself this fixture |
+| New: `rpc_consume_reserved_materials_v2` per-line reservation lock-mode check (fifteenth/sixteenth/seventeenth corrections) | a **reservation-only** blocker session takes `SELECT id FROM material_reservations WHERE id = <R> FOR KEY SHARE;` and holds the transaction open — not a real `INSERT INTO material_consumption`, whose own FK set (`work_order_id`, `mo_id`, `product_id`, `reservation_id`, `stage_id`, at minimum) would take implicit `FOR KEY SHARE` on `manufacturing_orders` too, and consumption's own first statement is `manufacturing_orders ... FOR UPDATE` — an `INSERT`-based blocker risks the consumption backend blocking on the *MO* lock instead of ever reaching the reservation lock this check exists to test, a false attribution the fixture must not risk. The isolated `FOR KEY SHARE`-only blocker touches no other table. **Against a build with the per-line branches left as bare `FOR UPDATE`:** `pg_blocking_pids(<consumption's pid>)` must equal `{<the reservation-only blocker's pid>}` specifically — not merely `wait_event_type = 'Lock'` — confirmed empirically against a live PostgreSQL 17 instance. **Against real 191** (both branches `FOR NO KEY UPDATE`): the blocker is **never released during the test** (the seventeenth correction, below) — the primary success criterion is that the consumption call **returns successfully, with the expected business side effect (consumption row inserted / reservation `quantity_consumed` advanced) visible, while the blocker's `FOR KEY SHARE` transaction is still open and uncommitted**. A snapshot of `pg_blocking_pids(<consumption's pid>) = {}` taken at an arbitrary moment during the call does not by itself prove the per-line lock statement was ever reached — the harness could sample before the backend gets there and see an empty result regardless; only the call's own successful completion, observed before the blocker is released, is a race-free proof that the lock attempt did not conflict. `pg_blocking_pids() = {}` may still be recorded as corroborating information, not as the pass/fail criterion. Only after the completion is observed should the blocker be released, for cleanup. A real `INSERT INTO material_consumption` demonstrating that an FK-driven `FOR KEY SHARE` is a genuine, naturally-occurring lock in this schema (not just a test artifact) is worth keeping as separate supporting evidence, but is not itself this fixture |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
@@ -2767,3 +2804,13 @@ Reviewers should reject the implementation PR if:
   sixteenth correction above); the blocker must be isolated to the
   reservation row alone, and the assertion must check the exact blocking
   pid via `pg_blocking_pids()`, not merely that some lock wait occurred
+- the per-line reservation lock-mode mutant's GREEN run treats a
+  `pg_blocking_pids() = {}` snapshot as sufficient proof the per-line lock
+  statement was reached and did not conflict — an empty result is equally
+  consistent with the harness sampling before the backend ever got there;
+  the GREEN run must instead hold the reservation-only blocker open for the
+  entire call and require the consumption RPC to return successfully, with
+  its expected business side effect visible, before the blocker is released
+  — completion observed while the conflicting lock is still held is
+  race-free proof; a point-in-time snapshot is not (the seventeenth
+  correction above)
