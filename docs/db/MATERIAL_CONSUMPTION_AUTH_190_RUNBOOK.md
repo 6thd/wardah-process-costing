@@ -50,6 +50,25 @@ authorization bypass: the wrapper is `SECURITY INVOKER`, performs no DML, and de
 mutation to the guarded canonical path. The security contract is **no unauthorized side
 effect / no alternate mutation path**, not identical error precedence for malformed input.
 
+### Canonical UUID singleton-selection repair
+
+Behavioral GREEN also exposed a pre-existing PostgreSQL defect inside the canonical
+`rpc_consume_reserved_materials_v2` body itself. Three optional inference branches used
+`min(uuid)`, but PostgreSQL has no built-in `min(uuid)` aggregate:
+
+- `min(stage_id)` when stage is omitted;
+- `min(warehouse_id)` when warehouse is omitted;
+- `min(id)` for work-order inference when work order is omitted.
+
+Because Migration 190 already replaces this canonical function to add the authorization
+guard, leaving those expressions unchanged would knowingly preserve a broken supported
+path. Migration 190 therefore repairs all three together using ordered UUID arrays:
+`(array_agg(<uuid> ORDER BY <uuid>))[1]`, while retaining the existing `count(*)` gate.
+The selected UUID is only consumed when the count is exactly one, so cardinality semantics
+remain unchanged; the repair only replaces an invalid aggregate implementation.
+
+Migration postflight explicitly rejects regression to the three `min(uuid)` patterns.
+
 ### Legacy backflush quarantine
 
 The F1 GREEN work uncovered a pre-existing defect in the legacy backflush surface:
@@ -114,7 +133,8 @@ GREEN actors/contracts:
 - direct INSERT with permission → preserved compatibility path;
 - direct UPDATE/DELETE → denied even for a permitted caller;
 - `trigger_auto_backflush` is absent after 190;
-- both compatibility wrappers remain delegate-only and contain no INSERT/UPDATE/DELETE/MERGE/TRUNCATE before the guarded canonical mutator.
+- both compatibility wrappers remain delegate-only and contain no INSERT/UPDATE/DELETE/MERGE/TRUNCATE before the guarded canonical mutator;
+- canonical v2 contains no `min(uuid)` singleton-selection regression for stage, warehouse, or work order.
 
 For v2/legacy positive authorization, the fixture intentionally supplies an empty
 consumption list. Success is proven by reaching the next legal validation error
@@ -135,7 +155,8 @@ Immediately before any apply, repeat read-only checks for:
 3. active ordinary users/roles that legitimately perform material consumption are
    identified and have an explicit rollout plan for the new key;
 4. active Org Admin behavior still matches the central RBAC contract;
-5. current `trigger_auto_backflush` / `backflush_materials` state is read back and compared with the quarantine assumptions.
+5. current `trigger_auto_backflush` / `backflush_materials` state is read back and compared with the quarantine assumptions;
+6. current v2 body is read back for the three UUID singleton-selection patterns before apply.
 
 A Production readback attempt on 2026-09-06 could not confirm the backflush defect live
 because the connected `Wardah-Prod` project was reported INACTIVE and the read-only SQL
@@ -147,6 +168,7 @@ After an authorized Production apply, required readback:
 - ledger cutoff advanced to 190;
 - permission key exists exactly once with expected metadata;
 - v2 and retired backflush bodies contain the exact permission key;
+- v2 no longer contains the three invalid `min(uuid)` singleton selectors;
 - retired backflush contains no direct `material_consumption` insert;
 - `trigger_auto_backflush` is absent;
 - compatibility wrappers remain delegate-only;
