@@ -1090,6 +1090,96 @@ This document chooses the remediation shape. It does not implement it.
 > paragraph are corrected below; §7 gains a duplicate-line-id regression row;
 > §9's reject-list gained a matching bullet.
 
+> **Twenty-second correction (found by a fresh Codex review requested on
+> `3b330a1`, one P2, plus a compounding risk this design found while fixing
+> it): `rpc_post_goods_receipt`'s Fix E pre-pass can reorder which line's
+> error the caller sees, and — checked while designing the fix — the naive
+> pre-pass shape can also throw a raw cast error before any business
+> validation runs at all.**
+>
+> Confirmed directly against the live Migration 177 body: the per-line loop
+> validates, in this fixed order, for each line in turn — `GR_LINE_OBJECT_REQUIRED`
+> (line 201-203), the `product_id` cast and `ITEM_NOT_FOUND` (line 205-211),
+> then `INVALID_QUALITY_STATUS` (line 213-216) — before moving to the next
+> line. A payload whose line 1 has an invalid `quality_status` and whose
+> line 2 has a well-formed but nonexistent `product_id` raises
+> `INVALID_QUALITY_STATUS: line=1` today, because the loop never reaches
+> line 2 first. Fix E's pre-pass — resolving every line's `product_id`
+> up front and handing the set to `wardah_lock_products_for_stock_write`
+> before the loop starts — reaches line 2's nonexistent product before the
+> loop ever gets to line 1, and the helper's own `PRODUCT_NOT_FOUND_OR_WRONG_ORG`
+> would fire first instead. That is a real business/error-behavior change,
+> the same class of violation the twenty-first correction just closed for
+> `rpc_post_delivery_note`.
+>
+> Checked while designing the fix: the risk compounds. A pre-pass built as
+> `SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`
+> — the literal shape this design specified — evaluates the cast for every
+> line as part of executing that one query; if *any* line's `product_id` is
+> not a syntactically valid UUID, PostgreSQL raises `invalid input syntax
+> for type uuid` for the whole pre-pass, before the loop runs at all, even
+> ahead of an earlier line's `INVALID_QUALITY_STATUS` or
+> `GR_LINE_OBJECT_REQUIRED`. Confirmed empirically against a live PostgreSQL
+> 17 instance: `SELECT DISTINCT (value->>'product_id')::uuid FROM
+> jsonb_array_elements('[{"quality_status":"bogus"},{"product_id":"not-a-uuid-at-all"}]')`
+> raises `invalid input syntax for type uuid: "not-a-uuid-at-all"` outright —
+> a raw Postgres error, not even one of this RPC's own exception codes,
+> replacing what should have been `INVALID_QUALITY_STATUS: line=1`.
+>
+> Fix: the pre-pass becomes a **non-throwing candidate extraction only**. It
+> must not decide `GR_LINE_OBJECT_REQUIRED`, `ITEM_NOT_FOUND`, or
+> `INVALID_QUALITY_STATUS` — those stay exactly where they are, decided by
+> the unchanged loop, in unchanged order — and it must not raise on a
+> malformed `product_id` string either. Guard the cast with a `CASE` whose
+> condition is a UUID-shape check, so the cast is only attempted on a
+> candidate that already matches the shape (PostgreSQL evaluates `CASE`
+> branches in order and only evaluates the matching branch — unlike a
+> `WHERE` predicate, whose evaluation order relative to a joined cast is not
+> guaranteed):
+>
+> ```sql
+> v_products := ARRAY(
+>   SELECT DISTINCT p.id
+>   FROM jsonb_array_elements(p_payload->c_lines_key) AS line(value)
+>   JOIN public.products p
+>     ON p.org_id = v_org
+>    AND p.id = CASE
+>                 WHEN line.value->>'product_id' ~
+>                   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+>                 THEN (line.value->>'product_id')::uuid
+>                 ELSE NULL
+>               END
+> );
+> ```
+>
+> Confirmed empirically against a live PostgreSQL 17 instance, same
+> malformed-and-valid mixed payload as above: this form raises nothing and
+> returns exactly the one genuinely resolvable product, silently excluding
+> the malformed and nonexistent candidates from the locked set — which is
+> correct, because the loop's own unchanged, sequential validation is what
+> must decide what happens with the lines that produced those candidates,
+> not the pre-pass.
+>
+> **Swept the other three Fix E pre-passes for the same defect class, not
+> only the one Codex named:** `rpc_post_delivery_note`'s pre-pass (twenty-first
+> correction) has the identical shape — resolving `sales_invoice_line_id`
+> strings from the payload — and needs the same `CASE`-guarded join, not an
+> `ANY(ARRAY(... ::uuid ...))` built by casting every payload id directly;
+> corrected below alongside it. `rpc_submit_stock_adjustment`'s pre-pass is
+> keyed by `adjustment_id`, an already-typed function parameter resolved
+> from an earlier lookup, not a per-line payload string — no raw cast over
+> payload data occurs, so this defect class does not reach it.
+> `rpc_consume_reserved_materials_v2`'s superset lock is keyed by `p_mo_id`,
+> likewise an already-typed parameter, not a payload-array cast — also
+> unaffected. Both were re-checked directly against this design's own text
+> for this correction, not assumed safe by category.
+>
+> §4's `rpc_post_goods_receipt` and `rpc_post_delivery_note` descriptions are
+> corrected below with the `CASE`-guarded extraction; §7 gains two regression
+> rows (validation-error ordering preserved; malformed-UUID-in-a-later-line
+> does not preempt an earlier line's own error); §9's reject-list gained
+> matching bullets.
+
 ---
 
 ## 1. Decision
@@ -1636,13 +1726,45 @@ identity for each line actually lives, which differs per function:
 
 **`rpc_post_goods_receipt`** — `v_product` is read directly from
 `p_payload->'lines'`. The payload is this call's own argument, not a
-separate stored table; nothing else in the system can mutate it mid-call.
-Pre-resolving is trivially safe here: `SELECT DISTINCT (value->>'product_id')::uuid
-FROM jsonb_array_elements(p_payload->c_lines_key)` before the loop, then
-`wardah_lock_products_for_stock_write`. No superset or source-row lock is
-needed — there is no external state to drift — but the uniform
-`PRODUCT_NOT_PRELOCKED` guard below still applies here too, as defense in
-depth like the other three.
+separate stored table; nothing else in the system can mutate it mid-call, so
+there is no *drift* concern here, unlike the other three. There is, however,
+an *ordering* one (the twenty-second correction above): a naive pre-pass
+that resolves every line's `product_id` before the loop starts can make the
+helper's own `PRODUCT_NOT_FOUND_OR_WRONG_ORG` fire for a later line before
+the loop ever reaches an earlier line's `GR_LINE_OBJECT_REQUIRED` /
+`ITEM_NOT_FOUND` / `INVALID_QUALITY_STATUS` — confirmed against the live
+Migration 177 body, which decides those in exactly that per-line order — and
+a pre-pass that casts every line's `product_id` to `uuid` in one query can
+raise a raw `invalid input syntax for type uuid` for a malformed later line
+before the loop reaches an earlier line's own validation at all (confirmed
+empirically against a live PostgreSQL 17 instance). Fix: a **non-throwing
+candidate extraction**, deciding nothing and raising nothing:
+
+```sql
+v_products := ARRAY(
+  SELECT DISTINCT p.id
+  FROM jsonb_array_elements(p_payload->c_lines_key) AS line(value)
+  JOIN public.products p
+    ON p.org_id = v_org
+   AND p.id = CASE
+                WHEN line.value->>'product_id' ~
+                  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                THEN (line.value->>'product_id')::uuid
+                ELSE NULL
+              END
+);
+```
+
+The `CASE` only attempts the cast on a candidate that already matches a
+UUID's shape (PostgreSQL evaluates `CASE` branches in order and only the
+matching branch's `THEN`, unlike a `WHERE` predicate's evaluation order
+relative to a joined cast, which is not guaranteed) — a malformed or
+nonexistent line's `product_id` is silently excluded from `v_products`
+rather than raised on, and the unchanged loop is what decides, in its own
+unchanged order, what happens with the line that produced it. No superset or
+source-row lock is needed beyond this — there is no external state to drift
+— but the uniform `PRODUCT_NOT_PRELOCKED` guard below still applies here
+too, as defense in depth like the other three.
 
 **`rpc_post_delivery_note`** — `v_product` comes from `sales_invoice_lines`,
 resolved by `sales_invoice_line_id` values that are themselves fixed by the
@@ -1653,10 +1775,44 @@ between an unlocked pre-pass read and the existing loop's own
 lock the referenced `sales_invoice_lines` rows themselves — batched, once,
 before resolving products — instead of relying on the loop's existing
 per-line `FOR UPDATE` (which currently runs too late, after the point where
-products would need to already be locked): `SELECT product_id FROM
-sales_invoice_lines WHERE id = ANY(<line ids from payload>) AND invoice_id =
-v_invoice_id AND org_id = v_org FOR UPDATE`, take `DISTINCT product_id` from
-that locked read, then `wardah_lock_products_for_stock_write`.
+products would need to already be locked). As with `rpc_post_goods_receipt`
+(twenty-second correction above), this must be a **non-throwing candidate
+extraction**: the live loop checks `LINE_REQUIRED` (empty
+`sales_invoice_line_id`) before its own cast, so a pre-pass built as
+`ANY(ARRAY(SELECT (value->>'sales_invoice_line_id')::uuid FROM
+jsonb_array_elements(...)))` has the identical raw-cast-ordering risk this
+correction already found and fixed for goods receipt — a malformed id in a
+later line would raise before an earlier line's own `LINE_REQUIRED` or
+`INVALID_INVOICE_LINE`. Guard it the same way:
+
+```sql
+v_products := ARRAY(
+  SELECT DISTINCT product_id FROM (
+    SELECT sil.product_id
+    FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+    JOIN public.sales_invoice_lines sil
+      ON sil.invoice_id = v_invoice_id
+     AND sil.org_id = v_org
+     AND sil.id = CASE
+                    WHEN line.value->>'sales_invoice_line_id' ~
+                      '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    THEN (line.value->>'sales_invoice_line_id')::uuid
+                    ELSE NULL
+                  END
+    FOR UPDATE OF sil
+  ) locked
+);
+```
+
+`DISTINCT` is applied in the *outer* query, over the already-locked rows the
+inner query produces — not combined with `FOR UPDATE` in the same query,
+which PostgreSQL rejects (confirmed against a live PostgreSQL 17 instance:
+"FOR UPDATE is not allowed with DISTINCT clause" — the exact same
+restriction this design already hit and worked around for
+`rpc_submit_stock_adjustment`'s pre-pass; an earlier draft of this
+correction made the identical mistake here before being caught against a
+live instance). Then `wardah_lock_products_for_stock_write` on the distinct
+product set this returns.
 
 **This upfront read supplies only `product_id`, for building the lock set —
 it does not replace anything the existing loop does (the twenty-first
@@ -2387,6 +2543,8 @@ numeric helpers, with inverted assertions:
 | Static contract, `rpc_manual_stock_movement_v2` | a products `FOR NO KEY UPDATE` lock appears before the *first* `bins` reference in the function body — the unlocked warehouse-inference `SELECT ... FROM bins` when `warehouse_id` is omitted, not only the later `bins ... FOR UPDATE` |
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
 | New: `rpc_post_delivery_note` duplicate-line-id regression (twenty-first correction) | one payload lists the *same* `sales_invoice_line_id` twice (e.g. an invoice line with `quantity = 10`, two payload entries each delivering `6`). Must hold identically before and after 191: the first occurrence sees `delivered = 0` and applies; the second occurrence's own `SELECT ... FOR UPDATE` must see the *updated* `delivered = 6` from the first occurrence within the same transaction (read-your-own-writes), not the upfront prelock's stale snapshot — so `6 + 6 > 10` correctly raises `OVER_DELIVERY` (or, with `v_allow_over` set, both apply and `unit_cost_at_sale` reflects the correct cumulative weighted average across both, not two independent computations against the same stale base). A build that caches the upfront prelock's read and reuses it in the loop (rather than re-querying every iteration) fails this row — both occurrences would compute against `delivered = 0`, silently under-recording total `delivered_quantity` and corrupting the weighted-average `unit_cost_at_sale` |
+| New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` line-error-ordering regression (twenty-second correction) | line 1 has an invalid `quality_status` (goods receipt) / a missing `sales_invoice_line_id` (delivery note); line 2 has a well-formed but nonexistent product/line reference. Must hold identically before and after 191: the error raised is line 1's own (`INVALID_QUALITY_STATUS: line=1` / `LINE_REQUIRED: line=1`), never a helper-level `PRODUCT_NOT_FOUND_OR_WRONG_ORG` or `INVALID_INVOICE_LINE` surfaced from line 2 ahead of it — the loop's existing per-line validation order is the sole source of which error a given payload produces, exactly as it is today; the pre-pass's own candidate resolution must never itself raise or preempt that order |
+| New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` malformed-later-line regression (twenty-second correction) | line 1 has an invalid `quality_status` / a missing `sales_invoice_line_id`; line 2's `product_id` / `sales_invoice_line_id` is a syntactically malformed (non-UUID-shaped) string. Must hold identically before and after 191: the error raised is still line 1's own; a pre-pass that casts every line's id to `uuid` in one query (`SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`, or an equivalent `ANY(ARRAY(...::uuid...))` for delivery note) fails this row — confirmed empirically to raise a raw `invalid input syntax for type uuid` before the loop ever runs, replacing line 1's own error with a Postgres-level exception that isn't even one of this RPC's own error codes |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
 | Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop; **no bare `FOR UPDATE` on `material_reservations` appears anywhere in the function body** — this includes both per-line branches (`reservation_id` given, and `item_id`-derived `ORDER BY created_at, id LIMIT 1`), not only the pre-loop superset lock (the fifteenth correction: an earlier revision left these two as `FOR UPDATE`, wrongly reasoning the upgrade from the superset's `FOR NO KEY UPDATE` was a no-op) |
@@ -3085,3 +3243,27 @@ Reviewers should reject the implementation PR if:
   catch — a real business-behavior change, which Fix E must never be (the
   twenty-first correction above). The upfront lock supplies only `product_id`
   for the lock set; it must not replace anything else the loop reads
+- `rpc_post_goods_receipt`'s or `rpc_post_delivery_note`'s Fix E pre-pass can
+  raise a helper-level error (`PRODUCT_NOT_FOUND_OR_WRONG_ORG`,
+  `INVALID_INVOICE_LINE`) for a later line before the loop's own unchanged,
+  sequential validation reaches an earlier line's own error — confirmed
+  against the live Migration 177 body, which decides `GR_LINE_OBJECT_REQUIRED`
+  / `ITEM_NOT_FOUND` / `INVALID_QUALITY_STATUS` strictly in per-line order;
+  the pre-pass must only extract non-throwing, silently-excludable candidates
+  and never decide or preempt an error the loop itself owns (the
+  twenty-second correction above)
+- either Fix E pre-pass casts every payload line's id to `uuid` in one query
+  (`SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`,
+  or `ANY(ARRAY(...::uuid...))`) instead of guarding the cast with a `CASE`
+  keyed on a UUID-shape check — confirmed empirically that the unguarded
+  form raises a raw `invalid input syntax for type uuid` for a malformed
+  later line before the loop ever runs, ahead of an earlier line's own
+  validation error (the twenty-second correction above)
+- `rpc_post_delivery_note`'s corrected pre-pass combines `DISTINCT` with a
+  locking clause in the same query (`SELECT DISTINCT sil.product_id ... FOR
+  UPDATE OF sil`) — PostgreSQL rejects this outright ("FOR UPDATE is not
+  allowed with DISTINCT clause", confirmed against a live PostgreSQL 17
+  instance — the exact restriction this design already hit once for
+  `rpc_submit_stock_adjustment`'s pre-pass); `DISTINCT` must be applied in an
+  outer query over the already-locked rows an inner, unlocked-`DISTINCT`
+  query produces (the twenty-second correction above)
