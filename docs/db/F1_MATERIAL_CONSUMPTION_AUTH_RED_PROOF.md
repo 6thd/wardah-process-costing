@@ -29,7 +29,8 @@ A Production metadata/function-body read on 2026-09-06 confirmed:
    `material_consumption`; `anon` also retains table DML grants, although the current
    membership predicate blocks unauthenticated row access.
 6. The live permission catalog contains `inventory.stock_moves.*` and broad
-   manufacturing keys, but no exact material-consumption execution permission.
+   manufacturing keys; review did not identify a semantically exact material-consumption
+   execution permission.
 7. Repository consumer `src/services/manufacturing/mesService.ts` still has two
    relevant mutation paths:
    - `backflushMaterials()` → `backflush_materials` RPC;
@@ -56,8 +57,11 @@ cutoff-189 Fresh DB that:
 - the two privileged write bodies remain membership-only and have no exact permission
   guard;
 - authenticated direct INSERT/UPDATE/DELETE on `material_consumption` is granted;
-- all three write RLS policies lack exact permission enforcement;
-- no semantically exact material-consumption permission key already exists.
+- all three write RLS policies lack exact permission enforcement.
+
+The permission-catalog conclusion above is deliberately kept as reviewed live evidence,
+not encoded as a brittle string-name assertion. A machine check of a few candidate key
+names cannot prove semantic absence.
 
 The workflow stores the output as a 30-day artifact.
 
