@@ -18,11 +18,20 @@ This document chooses the remediation shape. It does not implement it.
 > `main` is currently at): all four functions this design touches —
 > `wardah_apply_stock_incoming` 9-arg and 10-arg, `wardah_apply_stock_outgoing` 9-arg
 > and 10-arg — carry the identical live ACL `REVOKE ALL FROM PUBLIC; GRANT ALL TO
-> service_role;`. None of the four grant `authenticated` anything today. Migration 97
-> originally granted the 9-arg overload to `authenticated`; Migration 101 revoked it
-> (`P0-1: إعادة إغلاق ثغرة wardah_apply_stock_incoming`) and that closure is what's
+> service_role;`. None of the four grant `authenticated` anything today.
+>
+> The full history is worse than "97 granted it": Migration 94 granted the 9-arg
+> overload `GRANT EXECUTE ... TO authenticated`; Migration 95 closed it
+> (`REVOKE ALL FROM PUBLIC` + `REVOKE EXECUTE FROM authenticated`, "P0-2"); Migration
+> 97's `CREATE OR REPLACE FUNCTION` **silently reintroduced the same grant** as part
+> of an unrelated feature change; Migration 101 revoked it again, explicitly noting in
+> its own comment that it was reversing 97
+> ("إعادة إغلاق ثغرة wardah_apply_stock_incoming (عكستها 97)"). That closure is what's
 > still live. §5's ACL carry-forward list below reflects the corrected, verified
-> state — do not resurrect the 97 grant in Migration 191.
+> state, and — because a `CREATE OR REPLACE` has already reopened this hole once
+> without anyone intending it to — 191 does not just "leave ACL alone": it explicitly
+> re-issues the revoke/grant and verifies it with `has_function_privilege()` in
+> postflight, so the invariant is re-proven, not silently inherited.
 
 ---
 
@@ -297,11 +306,37 @@ Carry forward, verbatim except for the two fixes and the lock-order prefix:
 - 9-arg incoming early `NO_WAREHOUSE_OR_QTY` JSON return
 - `search_path`: 9-arg incoming is `public`; 10-arg incoming and both
   outgoing overloads are `'public', 'pg_temp'` — keep each as it is
-- **ACL: all four bodies are currently `service_role`-only**
-  (`REVOKE ALL FROM PUBLIC; GRANT ALL TO service_role`, verified in §2 above).
-  Migration 97 briefly granted the 9-arg overload to `authenticated`;
-  Migration 101 closed that. Keep all four `service_role`-only in 191 — do
-  not add an `authenticated` grant to any of them
+- **ACL: all four bodies are currently `service_role`-only in effect**
+  (confirmed by the live-schema baseline dump in §2, which renders the
+  resulting state as `REVOKE ALL FROM PUBLIC; GRANT ALL TO service_role` —
+  that rendering is pg_dump's normalized summary of the *effective* ACL, not
+  the literal historical DDL). The actual migrations that produced this state
+  use varied, non-uniform statements: Migration 94 granted the 9-arg overload
+  `GRANT EXECUTE ... TO authenticated`; Migration 95 closed it
+  (`REVOKE ALL ... FROM PUBLIC` + `REVOKE EXECUTE ... FROM authenticated`,
+  "P0-2"); Migration 97's `CREATE OR REPLACE` silently reintroduced the same
+  `GRANT EXECUTE ... TO authenticated` line; Migration 101 revoked it again,
+  explicitly noting in its own comment that it was reversing 97
+  ("إعادة إغلاق ثغرة wardah_apply_stock_incoming (عكستها 97)"). Migration 187's
+  10-arg overloads instead use three separate statements per function
+  (`REVOKE ALL ... FROM PUBLIC`, `REVOKE ALL ... FROM anon`,
+  `REVOKE ALL ... FROM authenticated`) plus `GRANT EXECUTE ... TO service_role`
+  — not a single collapsed `REVOKE ALL FROM PUBLIC`.
+
+  Given a grant was silently reintroduced by a `CREATE OR REPLACE` once
+  already (94→95 closed, then 97's replace reopened it), Migration 191 must
+  not treat "leave ACL alone" as implicit safety. `CREATE OR REPLACE
+  FUNCTION` does not itself reset an existing ACL, but 191 should not rely on
+  that as the only guarantee: it must **explicitly re-issue**, for all four
+  overloads, `REVOKE ALL ... FROM PUBLIC, anon, authenticated` followed by
+  `GRANT EXECUTE ... TO service_role`, and the migration's own postflight
+  must call `has_function_privilege('anon', ..., 'EXECUTE')`,
+  `has_function_privilege('authenticated', ..., 'EXECUTE')`, and
+  `has_function_privilege('service_role', ..., 'EXECUTE')` on each of the
+  four signatures, asserting `false, false, true`. This does not change any
+  currently-live permission — it makes 191 re-prove the invariant instead of
+  inheriting it silently, which is exactly what 101 had to do by hand after
+  97 broke it wordlessly.
 - Outgoing `wardah_assert_org_member`; do **not** add it to incoming 9-arg
 - Projection asymmetry: incoming sets `products.stock_quantity` and
   `cost_price` only; outgoing also sets `products.stock_value`. Do not
@@ -433,9 +468,13 @@ It must also record:
 - rollback = restore the four previous bodies from Migrations 97, 186, and
   187 (cite the files). That restores **both** defects. There is no
   supported "roll back Fix A, keep Fix B"
-- ACL is unchanged by this migration (all four bodies stay `service_role`-
-  only, per §5's corrected carry-forward) — 191 is a body-only replace, not
-  a grant change
+- The *effective* permission (all four bodies `service_role`-only) is
+  unchanged by this migration, but 191 must still explicitly re-issue
+  `REVOKE ALL ... FROM PUBLIC, anon, authenticated` +
+  `GRANT EXECUTE ... TO service_role` for each of the four signatures, and
+  verify with `has_function_privilege()` in postflight — per §5, this is not
+  a grant change, it is re-proving an invariant that a prior `CREATE OR
+  REPLACE` (97) already broke silently once
 - Production apply requires a separate authorization, preflight (ledger
   head, four signatures, ACLs, search_path), apply-once, postflight
   (`pg_get_functiondef` contract), and **no** Production concurrency test
@@ -451,9 +490,12 @@ Do not write SQL until this design is accepted. Then, in
 `wardah-process-costing`, in a new tracking issue:
 
 1. Open the issue (do not reopen #228 as if the proof were missing).
-2. Add `sql/migrations/191_…sql` with preflight, four replaces, ACL
-   restatement (asserting `service_role`-only, not granting anything new),
-   in-migration catalog postflight.
+2. Add `sql/migrations/191_…sql` with preflight, four replaces, explicit ACL
+   restatement (`REVOKE ALL FROM PUBLIC, anon, authenticated` + `GRANT
+   EXECUTE TO service_role` per signature — not granting anything new, but
+   not silently inherited either), and an in-migration postflight that
+   asserts `has_function_privilege()` is `false` for `anon`/`authenticated`
+   and `true` for `service_role` on all four signatures.
 3. Add the green acceptance script + workflow; leave the red proof intact.
 4. Runbook as §8.
 5. No Production.
@@ -471,3 +513,7 @@ Reviewers should reject the implementation PR if:
 - it grants `authenticated` (or any client role) execute on any of the four
   bodies — they are `service_role`-only today and this migration does not
   change that
+- it relies on `CREATE OR REPLACE` leaving the ACL alone instead of
+  explicitly re-issuing the revoke/grant, or omits the `has_function_privilege()`
+  postflight — the 94→95→97→101 history is the reason this is required, not
+  a stylistic preference
