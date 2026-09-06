@@ -355,6 +355,65 @@ This document chooses the remediation shape. It does not implement it.
 > §7's cancellation-vs-cancellation construction and the consumption guard
 > mutant-2 row are both rewritten below; §9's reject-list gained matching bullets.
 
+> **Ninth correction (found in review): the cancellation-vs-cancellation helper-order
+> mutant still assumed a caller-side ordering guarantee Fix C never makes.**
+>
+> The eighth correction fixed *how* the two mutant transactions pause mid-call, but
+> not *where their input arrays come from*. The fixture as written tried to control
+> `wardah_lock_products_for_stock_write`'s input order by inserting adjustment 1's
+> `stock_adjustment_items` rows A-then-B and adjustment 2's B-then-A. That controls
+> nothing: Fix C's own source is "collect the distinct `product_id`s referenced by
+> the non-cancelled SLEs this call is about to reverse" (§4, Fix C) — a different
+> table than `stock_adjustment_items`, gathered via an unordered `DISTINCT`/array
+> collection with no explicit `ORDER BY` specified anywhere in this design. Nothing
+> ties SLE scan order to item-insertion order, and nothing guarantees a `DISTINCT`
+> collection without `ORDER BY` returns rows in any particular, testable order at
+> all — the exact class of "implementation-defined order used as if it were
+> deterministic" error the seventh and eighth corrections already found elsewhere.
+> Forcing item-insertion order could have both callers hand the mutant helper `{A,
+> B}` in the *same* physical order by coincidence, and the mutant would pass GREEN
+> without the helper's ordering ever having been genuinely crossed — a live version
+> of exactly the false-negative risk this whole correction chain exists to close.
+>
+> Fix: stop trying to make a real RPC produce a specific array order at all. Split
+> into two independent tests, each proving exactly one thing:
+>
+> 1. **Standalone helper-order mutant** (new): call the ordering-removed
+>    `wardah_lock_products_for_stock_write` mutant directly, as its own test-only
+>    invocation, with literal `ARRAY['<A>','<B>']` and `ARRAY['<B>','<A>']` — the
+>    test harness supplies the crossed order itself, with no caller in between to
+>    lose it. Uses the same advisory-lock gate barrier verified in the eighth
+>    correction. This is now the *only* place the ordering-removed mutant runs; it
+>    proves the helper's ascending-`id` ordering is what prevents the deadlock,
+>    independent of any specific caller's collection logic — a property that then
+>    applies to every caller of the real, unmodified helper (Fix C included),
+>    regardless of what order that caller's own array happens to be built in.
+> 2. **Cancellation-vs-cancellation real-path control** (kept, reframed): the
+>    two-`SUBMITTED`-adjustments-sharing-two-products fixture, run against the real,
+>    unmodified Fix C and helper. It no longer tries to force or assert a specific
+>    lock-acquisition order — that is now the standalone mutant's job — and it no
+>    longer needs an "ordering-removed" build at all, since there is nothing this
+>    fixture can control that would make one meaningful. It asserts business
+>    correctness under genuine concurrency instead: no deadlock, and both products'
+>    aggregates equal the sum of their own bins. The separate-warehouse-per-product
+>    fixture shape (to keep each cancellation's own `LATER_STOCK_MOVEMENT_EXISTS`
+>    check from tripping on the other's reversal SLEs) is unchanged from before,
+>    since that requirement had nothing to do with array ordering.
+>
+> The global-ordering guarantee for Fix C specifically therefore rests on two things
+> together, neither of which depends on Fix C's own collection order: the standalone
+> mutant (dynamic proof that the shared helper's `ORDER BY id` is what prevents a
+> crossed-order deadlock) and the existing static contract row requiring
+> `wardah_lock_products_for_stock_write` to be called before `rpc_cancel_stock_adjustment`'s
+> first `UPDATE bins`. Fix C's own "collect the distinct product_ids" step needs no
+> `ORDER BY` added for correctness — the helper re-sorts ascending by `id`
+> regardless of the input array's order — only the *test* needed to stop pretending
+> otherwise.
+>
+> §7 is restructured below: a new GREEN table row for the standalone helper-order
+> mutant, and the cancellation-vs-cancellation row/prose reframed as a real-path
+> control. §9's reject-list gained a matching bullet.
+
 ---
 
 ## 1. Decision
@@ -1435,10 +1494,11 @@ numeric helpers, with inverted assertions:
 | New: first-bin incoming vs outgoing | no deadlock; outgoing is either applied after the bin exists or `BIN_NOT_FOUND`, never a hang |
 | New: incoming vs cancellation, existing bin | no deadlock; if cancellation wins the product lock first, cancellation completes then incoming applies and both effects reconcile; if incoming commits first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; no partial reversal in either ordering |
 | New: outgoing vs cancellation, existing bin | no deadlock; if cancellation serializes first, cancellation then outgoing may both complete subject to normal stock checks; if outgoing becomes a later movement first, cancellation fails atomically with `LATER_STOCK_MOVEMENT_EXISTS`; `bins`/`products`/SLE remain reconciled. This is the exact scenario Codex's review found missing pre-Fix-C; must be run against a pre-Fix-C build first and shown to deadlock/hang, then shown fixed post-191, so the control itself is proven to catch the regression it exists for |
-| New: cancellation vs cancellation, overlapping multi-product adjustments | no deadlock regardless of which adjustment's transaction starts first; both `products` rows end up equal to the sum of their own bins |
+| New: `wardah_lock_products_for_stock_write` standalone helper-order mutant | call the ordering-removed helper mutant directly with literal `ARRAY[A,B]` and `ARRAY[B,A]` (the test harness supplies the crossed order itself — no RPC's own collection logic in between to lose it), driven through the advisory-lock gate barrier (per the eighth/ninth corrections). Must reproduce a genuine deadlock — both backends observed via `pg_stat_activity` waiting on each other's row, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts. Run once against the ordering-removed mutant (must deadlock) and once against the real helper, `ORDER BY id` intact, same literal opposite arrays (must not — both attempt the same lower-`id` product first regardless of array order). This is the sole basis for the global-ordering claim; it does not depend on any caller (Fix C included) producing a particular array order |
+| New: cancellation vs cancellation, overlapping multi-product adjustments (real-path control, not an ordering proof) | two `SUBMITTED` adjustments sharing two products, run under genuine forced concurrency against the real, unmodified Fix C and helper — no attempt to force or assert which product either adjustment's own array lists first, since Fix C's collection step (distinct product_ids from the SLEs being reversed) has no specified order and nothing should depend on one. Asserts business correctness only: no deadlock regardless of which adjustment's transaction starts first, and both `products` rows end up equal to the sum of their own bins. The lock-ordering guarantee itself comes from the standalone helper-order mutant above plus the static contract requiring the helper call before the first `UPDATE bins` — both apply to Fix C regardless of its own array order, so this control does not need to reproduce a pre-fix deadlock to be meaningful |
 | New: manual movement vs incoming/outgoing/cancellation, existing bin | no deadlock; whichever serializes second sees the other's committed state and applies normally (single-product case, no `LATER_STOCK_MOVEMENT_EXISTS` interaction unless racing cancellation specifically, in which case the same rule as incoming/outgoing-vs-cancellation applies) |
 | New: two different multi-line callers (e.g. one `rpc_post_goods_receipt`, one `rpc_post_delivery_note`), overlapping products in reversed line order, no pre-existing bins for one side | no deadlock regardless of which call's `wardah_lock_products_for_stock_write` commits first; run once against a build with Fix E omitted (must reproduce a real deadlock) and once with Fix E (must not) |
-| New: `rpc_submit_stock_adjustment` vs `rpc_consume_reserved_materials_v2`, overlapping products in reversed order | no deadlock; both fully apply or one fails on its own pre-existing business rules (insufficient reservation, insufficient stock), never a hang |
+| New: `rpc_submit_stock_adjustment` vs `rpc_consume_reserved_materials_v2`, overlapping products (real-path control, not an ordering proof — same reasoning as the cancellation-vs-cancellation control) | no deadlock; both fully apply or one fails on its own pre-existing business rules (insufficient reservation, insufficient stock), never a hang. Does not require either call's own array to be in any particular order — the ordering guarantee comes from the standalone helper-order mutant and static contract, not from this fixture |
 | New: incoming vs `rpc_create_mo_with_reservation`, same product with an existing bin | run against a build with the products lock as `FOR UPDATE` first — must deadlock; run against real 191 (`FOR NO KEY UPDATE`) — must not; bin and reservation both correct regardless of which serializes first |
 | New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | the two reservations for that `item_id` must be built with genuinely different effective products (different `product_id`, or one `NULL` `product_id` resolving via `wardah_resolve_product_id` to a different product than the other's explicit `product_id` — not two reservations that happen to share one product). Second line resolves to the second reservation (existing behavior, unchanged) and *both* distinct effective products were locked by the upfront superset query — assert this by checking both products appear in the locked set, not just that the call succeeds; a narrower (buggy) pre-pass, or one that derives from the bare `product_id` column instead of the effective-product expression, could otherwise pass this fixture by coincidence |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 1 — narrowed superset, guard present | superset query deliberately narrowed to only the specific reservations named by `p_consumptions` (the earlier, wrong pre-pass shape) instead of the full per-MO lock; guard left in place. A fixture whose second line resolves to a reservation outside that narrowed set must raise `PRODUCT_NOT_PRELOCKED` — proves the guard is reachable, not dead code |
@@ -1468,17 +1528,66 @@ two-warehouse shape was needed to catch what a single-warehouse fixture
 couldn't. Do not settle for a single-product cancellation fixture and call
 this control covered.
 
-For cancellation-vs-cancellation specifically, one multi-product adjustment
-is not enough either — it doesn't force the two transactions to actually
-contend for the same two products in opposite order. As the seventh
-correction above explains, "reversed line/traversal order" cannot be the
-mechanism, because Fix C resolves each adjustment's complete distinct
-product set and calls `wardah_lock_products_for_stock_write` once, before
-either adjustment's per-line work runs — the helper's own `ORDER BY id`
-locking query discards whatever order the caller's set arrived in, so
-reversing adjustment-line order never reaches the actual lock acquisition.
+As the ninth correction above explains, cancellation-vs-cancellation cannot
+be used to prove the shared helper's lock-acquisition order, in any
+variant. Fix C's own array comes from "collect the distinct `product_id`s
+referenced by the non-cancelled SLEs this call is about to reverse" — a
+different table than `stock_adjustment_items`, gathered via an unordered
+`DISTINCT`/array collection with no `ORDER BY` specified. Nothing ties SLE
+scan order to item-insertion order, and nothing guarantees an unordered
+`DISTINCT` collection returns a testable, controllable order at all —
+trying to force it via item-insertion order (an earlier revision of this
+design tried exactly that) can produce the same physical array order in
+both adjustments by coincidence, in which case a mutant built on top of it
+would pass GREEN without the helper's ordering ever having actually been
+crossed.
 
-The fixture must instead force the crossed order directly. Two `SUBMITTED`
+The ordering proof is therefore split into two independent tests:
+
+**1. Standalone helper-order mutant.** Call the ordering-removed
+`wardah_lock_products_for_stock_write` mutant directly, as its own
+test-only invocation — not through `rpc_cancel_stock_adjustment` or any
+other RPC — with literal `ARRAY['<A>','<B>']` and `ARRAY['<B>','<A>']`. The
+test harness supplies the crossed order itself, so there is no caller
+collection step in between to lose it. The mutant is the same positional
+loop verified in the eighth correction:
+`FOR v_id IN SELECT u.id FROM unnest(p_product_ids) WITH ORDINALITY AS
+u(id, ord) ORDER BY u.ord LOOP PERFORM 1 FROM public.products WHERE org_id =
+p_org AND id = v_id FOR NO KEY UPDATE; ... END LOOP` — locks each element in
+the exact order the literal array lists it, no de-duplication or re-sort.
+
+The pause between the first and second lock must happen **inside** that
+running PL/pgSQL call — a file-touch/poll rendezvous at the psql-client
+level (the RED-A/RED-B mechanism, which pauses *between* a returned
+`SELECT rpc(...)` and the client's next statement) cannot reach a point
+mid-loop inside one function call. Use a session-level advisory-lock gate
+instead, verified against a live PostgreSQL 17 instance to block exactly
+where needed and to surface in `pg_stat_activity`: a third, coordinator
+session takes `pg_advisory_lock(1)` and `pg_advisory_lock(2)` *before*
+either mutant call starts. The mutant helper, immediately after locking its
+first element, calls `PERFORM pg_advisory_lock(<its own gate id>)` — the
+`ARRAY['<A>','<B>']` call uses gate `1`, the `ARRAY['<B>','<A>']` call uses
+gate `2` — which blocks because the coordinator already holds it. The
+coordinator polls `pg_stat_activity` for both backends showing
+`wait_event_type = 'Lock'`, `wait_event = 'advisory'` (proving each has
+locked its first element and reached the gate, not merely that some time
+has passed), then calls `pg_advisory_unlock(1)` and `pg_advisory_unlock(2)`
+from that same coordinator session (advisory locks are session-scoped: only
+the session that took the lock can release it) — releasing both gates
+together lets both mutant calls proceed to their second lock in the same
+instant. Confirmed empirically: this reproduces a real `deadlock detected`
+(`40P01`) from PostgreSQL's own detector, with both backends visibly
+waiting on each other's row (`Process … waits for ShareLock on transaction
+…; blocked by process …`, symmetric in both directions) immediately
+beforehand. A "hang until timeout" without that live
+`pg_stat_activity`/`40P01` proof is not sufficient evidence. Run the
+identical literal-array fixture once more against the real, unmodified
+helper (`ORDER BY id` in the locking query itself) — both calls now attempt
+the *same* lower-`id` product first regardless of which literal array
+either used, so one simply queues behind the other for that single row and
+neither can hold one product while waiting on the other; must not deadlock.
+
+**2. Cancellation-vs-cancellation real-path control.** Two `SUBMITTED`
 adjustments, each with lines touching the *same* two products A and B, with
 A and B on a *different* warehouse/bin per adjustment (adjustment 1's line
 for product A in warehouse X, adjustment 2's line for product A in
@@ -1487,54 +1596,18 @@ reversal `SLE` rows off each other's `(product_id, warehouse_id)` key, so
 neither cancellation's own `LATER_STOCK_MOVEMENT_EXISTS` check can be
 tripped by the other's reversal entries; without that separation, a run
 that happens to abort one cancellation could look like a passing control
-when it's actually the unrelated business-rule guard firing, not proof the
-lock order is correct. Build adjustment 1's items with product A inserted
-before B, and adjustment 2's with B inserted before A.
-
-Run this fixture twice:
-
-- **Ordering-removed build:** `wardah_lock_products_for_stock_write`'s
-  locking query is replaced with a positional loop —
-  `FOR v_id IN SELECT u.id FROM unnest(p_product_ids) WITH ORDINALITY AS
-  u(id, ord) ORDER BY u.ord LOOP PERFORM 1 FROM public.products WHERE org_id
-  = p_org AND id = v_id FOR NO KEY UPDATE; ... END LOOP` (same verified shape
-  as the seventh correction above) — that locks each element in the exact
-  order the caller's array lists it, with no de-duplication or re-sort.
-
-  The pause between the first and second lock must happen **inside** that
-  running PL/pgSQL call — a file-touch/poll rendezvous at the psql-client
-  level (the RED-A/RED-B mechanism, which pauses *between* a returned
-  `SELECT rpc(...)` and the client's next statement) cannot reach a point
-  mid-loop inside one function call. Use a session-level advisory-lock gate
-  instead, verified against a live PostgreSQL 17 instance to block exactly
-  where needed and to surface in `pg_stat_activity`: a third, coordinator
-  session takes `pg_advisory_lock(1)` and `pg_advisory_lock(2)` *before*
-  either mutant transaction starts. The mutant helper, immediately after
-  locking its first element, calls `PERFORM pg_advisory_lock(<its own gate
-  id>)` — adjustment 1's transaction uses gate `1`, adjustment 2's uses gate
-  `2` — which blocks because the coordinator already holds it. The
-  coordinator polls `pg_stat_activity` for both backends showing
-  `wait_event_type = 'Lock'`, `wait_event = 'advisory'` (proving each has
-  locked its first element and reached the gate, not merely that some time
-  has passed), then calls `pg_advisory_unlock(1)` and `pg_advisory_unlock(2)`
-  from that same coordinator session (advisory locks are session-scoped:
-  only the session that took the lock can release it) — releasing both
-  gates together lets both mutant transactions proceed to their second lock
-  in the same instant. Confirmed empirically: this reproduces a real
-  `deadlock detected` (`40P01`) from PostgreSQL's own detector, with both
-  backends visibly waiting on each other's row (`Process … waits for
-  ShareLock on transaction …; blocked by process …`, symmetric in both
-  directions) immediately beforehand. A "hang until timeout" without that
-  live `pg_stat_activity`/`40P01` proof is not sufficient evidence.
-- **Real Fix C:** identical fixture, unmodified helper (`ORDER BY id` in the
-  locking query itself, not only in the earlier deduplication step). Both
-  transactions' arrays contain the same two products, so the real helper
-  makes both of them attempt to lock the *same* lower-`id` product first
-  regardless of which order either adjustment's own array lists it in —
-  one transaction simply queues behind the other for that single row, and
-  neither can hold one product while waiting on the other. Both
-  cancellations must complete without deadlock and each product's aggregate
-  must equal the sum of its own bins.
+when it's actually the unrelated business-rule guard firing. Run the two
+cancellations under genuine forced concurrency (an ordinary RED-A/RED-B
+style rendezvous forcing real overlap is enough — there is no specific
+lock-acquisition order to force or assert here) against the real,
+unmodified Fix C and helper. Assert business correctness only: no deadlock
+regardless of which adjustment's transaction starts first, and each
+product's aggregate equals the sum of its own bins. This control does not
+need an "ordering-removed" build or a pre-fix deadlock to be meaningful —
+the ordering guarantee for Fix C comes entirely from (1) above plus the
+static contract requiring the helper call before the first `UPDATE bins`,
+both of which hold regardless of what order Fix C's own array happens to be
+built in.
 
 The same "one multi-product document is not enough, it must be two documents
 in reversed order" requirement applies to the Fix E control above: a single
@@ -1664,7 +1737,17 @@ Do not write SQL until this design is accepted. Then, in
 4. Add the green acceptance script + workflow, including all the new
    controls in §6/§7 (cancellation, manual movement, and the two
    multi-line-caller-vs-multi-line-caller scenarios) with the fixtures
-   specified there; leave the red proof intact.
+   specified there; leave the red proof intact. Test hygiene, non-blocking
+   for this design but worth getting right at implementation: namespace the
+   advisory-lock gate keys used by the §7 barriers (e.g. hash a
+   script-specific string rather than bare `1`/`2`, to avoid collision with
+   any other advisory lock use in the schema or test suite), and make sure
+   every coordinator/mutant session that takes one is guaranteed to release
+   or disconnect — session-level advisory locks (`pg_advisory_lock`, not the
+   `_xact_` variant) survive a transaction `ROLLBACK`; only ending the
+   session or an explicit `pg_advisory_unlock`/`pg_advisory_unlock_all()`
+   releases them, so a script that aborts mid-fixture can leak a held gate
+   into the next run.
 5. Runbook as §8.
 6. No Production.
 
@@ -1784,22 +1867,40 @@ Reviewers should reject the implementation PR if:
   that must be re-checked against whatever `main` looks like when 191 is
   actually written, not assumed from this document
 - `wardah_lock_products_for_stock_write`'s green acceptance for lock order
-  (cancellation-vs-cancellation) relies on "reversed line/traversal order" at
-  the caller level instead of an explicit positional-loop mutant plus a
-  concrete pause mechanism that forces each side's *first* lock before the
-  other starts — since Fix C resolves the complete product set and calls the
-  helper once before any per-line work, caller-side ordering never reaches
-  the helper's own locking query, so this cannot actually prove anything
-  about lock acquisition order (the seventh correction above; this is the
-  exact Codex finding on `64fdc35`)
+  relies on "reversed line/traversal order" at any caller's level (including
+  `rpc_cancel_stock_adjustment`/Fix C) instead of an explicit, standalone
+  helper-order mutant invoked directly with literal opposite arrays — since
+  Fix C (and Fix E) resolve the complete product set and call the helper
+  once before any per-line work, caller-side ordering never reaches the
+  helper's own locking query, so this cannot actually prove anything about
+  lock acquisition order (the seventh correction above; this is the exact
+  Codex finding on `64fdc35`)
+- the standalone helper-order mutant's crossed input arrays are derived from
+  a real RPC's own collection step (e.g. "insert `stock_adjustment_items` A
+  then B" to try to control `rpc_cancel_stock_adjustment`'s array order)
+  instead of literal, test-supplied arrays passed directly to the helper —
+  Fix C's actual source is an unordered `DISTINCT` collection over the SLEs
+  being reversed, a different table than `stock_adjustment_items`, with no
+  `ORDER BY` specified anywhere in this design; nothing ties one to the
+  other, so both calls could produce the same physical array order by
+  coincidence and the mutant would pass GREEN without the helper's ordering
+  ever having been genuinely crossed (the ninth correction above)
+- the cancellation-vs-cancellation control is run against an
+  "ordering-removed" build, or is expected to reproduce a pre-fix deadlock,
+  instead of being a real-path business-correctness check against the real,
+  unmodified Fix C and helper — the ordering guarantee for any caller of the
+  shared helper, Fix C included, comes from the standalone helper-order
+  mutant plus the static contract requiring `ORDER BY id` in the locking
+  query, neither of which depends on that caller's own array order (the
+  ninth correction above)
 - the static contract for `wardah_lock_products_for_stock_write` checks only
   that dedup/normalization is sorted (`ARRAY(SELECT DISTINCT ... ORDER BY
   ...)`) without also asserting `ORDER BY` on `id` in the query that carries
   `FOR NO KEY UPDATE` itself — a helper can satisfy the former and still lock
   rows in scan order, not id order, which is the property the whole
   deadlock-avoidance argument in §6/§7 actually depends on
-- the cancellation-vs-cancellation or consumption guard mutant-2 "ordering
-  removed"/"forced concurrency" fixture describes a pause between a mutant
+- the standalone helper-order mutant or the consumption guard mutant-2
+  "forced concurrency" fixture describes a pause between a mutant
   transaction's first and second lock as a "signal"/"rendezvous" with no
   concrete primitive, or reuses the RED-A/RED-B file-touch/poll rendezvous —
   that mechanism pauses *between* a returned `SELECT rpc(...)` and the
