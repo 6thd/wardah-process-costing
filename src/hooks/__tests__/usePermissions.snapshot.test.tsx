@@ -171,6 +171,31 @@ describe('usePermissions — backend snapshot is the only source of truth', () =
 
     expect(result.current.hasPermissionKey(SENSITIVE)).toBe(false);
   });
+
+  it('does not flip loading back to true for a background revalidation after tab refocus (#237)', async () => {
+    // A trusted snapshot already exists for this identity once the initial
+    // load settles. The visibilitychange listener below re-reads the backend
+    // (correct — a grant/revocation elsewhere must not go unnoticed), but
+    // that re-read must not make `loading` look like a fresh, blocking load:
+    // every ModuleGuard/PermissionGuard/withPermission consumer treats
+    // `loading` as "swap the page out for a spinner", which would unmount an
+    // already-rendered page and destroy any in-progress local state it held.
+    rpcMock.mockResolvedValueOnce(snapshot());
+    const { result } = renderHook(() => usePermissions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const revalidation = deferred<{ data: unknown; error: null }>();
+    rpcMock.mockImplementation(() => revalidation.promise);
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+
+    // The revalidation request is in flight right now — this is the exact
+    // window in which the pre-fix hook set loading back to true.
+    expect(result.current.loading).toBe(false);
+
+    act(() => { revalidation.resolve(snapshot({ permission_keys: [ORDINARY] })); });
+    await waitFor(() => expect(result.current.hasPermissionKey(ORDINARY)).toBe(true));
+    expect(result.current.loading).toBe(false);
+  });
 });
 
 describe('usePermissions — org-switch races and cross-consumer de-duplication', () => {
