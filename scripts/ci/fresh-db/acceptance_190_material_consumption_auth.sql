@@ -50,11 +50,17 @@ BEGIN
     END IF;
   END;
 
+  -- The compatibility wrapper intentionally validates non-empty input before
+  -- delegating. Supply one shape-valid row so this actor reaches the canonical
+  -- v2 authorization guard instead of stopping at CONSUMPTIONS_REQUIRED.
   BEGIN
     PERFORM public.consume_materials_for_mo(
       '19019019-1000-4000-8000-000000000001',
       '19019019-1000-4000-8000-000000000030',
-      ARRAY[]::jsonb[]
+      ARRAY[jsonb_build_object(
+        'item_id', '19019019-1000-4000-8000-000000000010',
+        'quantity', 1
+      )]::jsonb[]
     );
   EXCEPTION WHEN raise_exception THEN
     IF SQLERRM='MATERIAL_CONSUMPTION_PERMISSION_DENIED' THEN
@@ -106,9 +112,11 @@ $no_permission$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- Explicit active grant: authorization passes. v2/compatibility wrappers reach
--- the next input-validation gate, backflush reaches its legal empty-BOM result,
--- and compatibility direct INSERT succeeds. UPDATE/DELETE remain unsupported.
+-- Explicit active grant: authorization passes. v2/legacy reach the next
+-- payload-validation gate. The compatibility wrapper receives a non-empty
+-- payload, delegates, passes authorization and reaches the next stage/WIP gate.
+-- Backflush reaches its legal empty-BOM result, and compatibility direct INSERT
+-- succeeds. UPDATE/DELETE remain unsupported.
 -- ---------------------------------------------------------------------------
 SELECT set_config('request.jwt.claim.sub', '19019019-0000-4000-8000-000000000003', true);
 SELECT set_config('request.jwt.claims', '{"sub":"19019019-0000-4000-8000-000000000003","role":"authenticated"}', true);
@@ -159,10 +167,13 @@ BEGIN
     PERFORM public.consume_materials_for_mo(
       '19019019-1000-4000-8000-000000000001',
       '19019019-1000-4000-8000-000000000030',
-      ARRAY[]::jsonb[]
+      ARRAY[jsonb_build_object(
+        'item_id', '19019019-1000-4000-8000-000000000010',
+        'quantity', 1
+      )]::jsonb[]
     );
   EXCEPTION WHEN raise_exception THEN
-    IF SQLERRM='CONSUMPTIONS_REQUIRED' THEN
+    IF SQLERRM='STAGE_REQUIRED_FOR_MATERIAL_CONSUMPTION' THEN
       v_compat_passed_auth := true;
     ELSE
       RAISE;
@@ -390,11 +401,17 @@ $cross_org$;
 RESET ROLE;
 
 -- ---------------------------------------------------------------------------
--- ACL/policy invariants: authenticated read + guarded insert remain;
--- unsupported direct mutations and anon mutation grants are gone.
+-- ACL/policy and transitive-wrapper invariants: authenticated read + guarded
+-- insert remain; unsupported direct mutations and anon mutation grants are gone.
+-- Compatibility wrappers may preserve legacy validation ordering, but they must
+-- remain delegate-only and must not perform DML before reaching the v2 guard.
 -- ---------------------------------------------------------------------------
 DO $surface$
-DECLARE v_insert_policies integer;
+DECLARE
+  v_insert_policies integer;
+  v_compat_src text;
+  v_legacy_src text;
+  v_compat_security_definer boolean;
 BEGIN
   IF NOT has_table_privilege('authenticated','public.material_consumption','SELECT')
      OR NOT has_table_privilege('authenticated','public.material_consumption','INSERT') THEN
@@ -407,6 +424,26 @@ BEGIN
      OR has_table_privilege('anon','public.material_consumption','UPDATE')
      OR has_table_privilege('anon','public.material_consumption','DELETE') THEN
     RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_DIRECT_MUTATION_SURFACE_REOPENED';
+  END IF;
+
+  SELECT p.prosrc, p.prosecdef
+  INTO v_compat_src, v_compat_security_definer
+  FROM pg_proc p
+  WHERE p.oid='public.consume_materials_for_mo(uuid,uuid,jsonb[])'::regprocedure;
+
+  IF v_compat_security_definer
+     OR v_compat_src !~ 'rpc_consume_reserved_materials'
+     OR v_compat_src ~* '\m(INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\M' THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_COMPAT_WRAPPER_NOT_DELEGATE_ONLY';
+  END IF;
+
+  SELECT p.prosrc INTO v_legacy_src
+  FROM pg_proc p
+  WHERE p.oid='public.rpc_consume_reserved_materials(uuid,jsonb)'::regprocedure;
+
+  IF v_legacy_src !~ 'rpc_consume_reserved_materials_v2'
+     OR v_legacy_src ~* '\m(INSERT|UPDATE|DELETE|MERGE|TRUNCATE)\M' THEN
+    RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_LEGACY_WRAPPER_NOT_DELEGATE_ONLY';
   END IF;
 
   SELECT count(*) INTO v_insert_policies
@@ -426,6 +463,7 @@ BEGIN
     RAISE EXCEPTION 'MATERIAL_CONSUMPTION_190_UNSUPPORTED_POLICY_REOPENED';
   END IF;
 
+  RAISE NOTICE 'MATERIAL_CONSUMPTION_190_TRANSITIVE_WRAPPERS_OK';
   RAISE NOTICE 'MATERIAL_CONSUMPTION_190_SURFACE_OK';
 END
 $surface$;
