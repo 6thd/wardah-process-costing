@@ -247,6 +247,11 @@ export function usePermissions(): UserPermissions & {
       // Fail closed: an unreadable snapshot must not leave stale grants in place.
       reset();
       setLoading(false);
+      // reset() just cleared whatever trusted snapshot this identity had —
+      // there is no longer one to fall back on, so the NEXT attempt is an
+      // initial/recovery load again, not a background revalidation, and
+      // must block like one.
+      hasLoadedSnapshotRef.current = false;
       return;
     }
 
@@ -264,6 +269,9 @@ export function usePermissions(): UserPermissions & {
       setError('فشل تحميل الصلاحيات');
       reset();
       setLoading(false);
+      // Same reasoning as the read-failure branch above: no trusted
+      // snapshot survives this reset, so the next attempt must block again.
+      hasLoadedSnapshotRef.current = false;
       return;
     }
 

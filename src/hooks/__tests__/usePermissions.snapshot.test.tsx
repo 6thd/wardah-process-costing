@@ -196,6 +196,40 @@ describe('usePermissions — backend snapshot is the only source of truth', () =
     await waitFor(() => expect(result.current.hasPermissionKey(ORDINARY)).toBe(true));
     expect(result.current.loading).toBe(false);
   });
+
+  it('treats a failed background revalidation as no-trusted-snapshot again, so the next retry blocks like an initial load', async () => {
+    // PR #238 review: a background revalidation that fails calls reset(),
+    // which wipes the trusted snapshot this identity had — fail-closed,
+    // unchanged. But hasLoadedSnapshotRef must be wiped along with it. If it
+    // weren't, the NEXT attempt would still read as "already have a trusted
+    // snapshot, this is just a background refresh" and skip setting
+    // `loading`, even though there is nothing trusted left to fall back on
+    // while that next attempt is in flight.
+    rpcMock.mockResolvedValueOnce(snapshot({ permission_keys: [ORDINARY] }));
+    const { result } = renderHook(() => usePermissions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasPermissionKey(ORDINARY)).toBe(true);
+
+    // Tab refocus triggers a revalidation that fails (network blip, expired
+    // session, ...).
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await waitFor(() => expect(result.current.error).toBeTruthy());
+    // Fail-closed: the stale grant does not survive an unreadable snapshot.
+    expect(result.current.hasPermissionKey(ORDINARY)).toBe(false);
+
+    // The next attempt (another tab refocus) must block again — there is no
+    // trusted snapshot to lean on, so this is an initial/recovery load, not
+    // a silent background one.
+    const retry = deferred<{ data: unknown; error: null }>();
+    rpcMock.mockImplementation(() => retry.promise);
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(result.current.loading).toBe(true);
+
+    act(() => { retry.resolve(snapshot({ permission_keys: [ORDINARY] })); });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.hasPermissionKey(ORDINARY)).toBe(true);
+  });
 });
 
 describe('usePermissions — org-switch races and cross-consumer de-duplication', () => {
