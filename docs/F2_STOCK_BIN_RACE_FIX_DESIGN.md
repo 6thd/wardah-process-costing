@@ -523,6 +523,173 @@ This document chooses the remediation shape. It does not implement it.
 > literal UUID constants and record which one sorts lower directly in the test
 > file's comment) — a one-line guard, not a design change.
 
+> **Thirteenth correction (found in review): a twelfth live function,
+> `release_expired_reservations`, has the same counter-ordering shape as the
+> defects Fix C/E already close — but on `material_reservations`, not `products` —
+> and this design's own §6 "edge" definition was too narrow to have caught it.**
+>
+> Checked directly against the live baseline (cutoff 189; body unreplaced since
+> Migration 61, `search_path` added later out-of-band via
+> `FIX_SEARCH_PATH_WARNINGS`, not a numbered migration):
+>
+> ```sql
+> CREATE FUNCTION public.release_expired_reservations(p_org_id uuid DEFAULT NULL::uuid)
+>     RETURNS integer LANGUAGE plpgsql SET search_path TO 'public', 'pg_temp' AS $$
+> ...
+>     UPDATE material_reservations
+>     SET status = 'expired', released_at = NOW(),
+>         quantity_released = quantity_reserved - quantity_consumed, updated_at = NOW()
+>     WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at < NOW()
+>       AND (p_org_id IS NULL OR org_id = p_org_id);
+> ...
+> ```
+>
+> `SECURITY INVOKER`, `GRANT ALL TO anon, authenticated, service_role` (confirmed
+> against the live baseline) — any authenticated caller can invoke it directly. It
+> is a multi-row `UPDATE` with no `ORDER BY`/row-lock of its own: it locks whatever
+> order its scan visits (index or heap), not `id` order. Fix E's consumption
+> superset lock (§4) locks every reservation row for an MO `ORDER BY id`. Two
+> reservations `r1`/`r2` for the same MO, both `reserved` and expired, with
+> `id(r1) < id(r2)` but the scan reaching `r2` first: a consuming transaction
+> locking `r1` then waiting on `r2`, concurrent with a release locking `r2` (mid-scan)
+> then waiting on `r1`, is a real circular wait — confirmed by constructing the
+> exact shape (a deterministic mutant forcing the reversed order, not a
+> planner-dependent fixture; see below) and observing a genuine `deadlock detected`
+> (`40P01`) against a live PostgreSQL 17 instance.
+>
+> Two things about this needed correcting from how it was first raised:
+>
+> 1. **Not a new class of bug — a weaker version already exists on `main` today.**
+>    Live `rpc_consume_reserved_materials_v2` already locks reservations one at a
+>    time, in the *payload's* order (not `id` order), which also doesn't match
+>    `release_expired_reservations`'s scan order. 191 doesn't introduce this
+>    category; it makes consumption's reservation order deliberate and contractual
+>    (ascending `id`, the same discipline as `products`), which means
+>    `release_expired_reservations` becomes the **one remaining known exception to
+>    that contract on the same table** — exactly the "a lock order three functions
+>    follow and two don't is not an invariant, it's a trap for whichever caller is
+>    the exception" framing §8 already uses for `products`. The same standard
+>    applies here.
+> 2. **The gap was in §6's *criterion*, not its list.** §6 stated the edge test as
+>    a *table-to-table* lock-order reversal and cleared `release_expired_reservations`
+>    on the grounds that it "only reads/updates `material_reservations` — no
+>    `products`, no `bins`, no `manufacturing_orders` lock. No edge to conflict
+>    with." That is true of *inter-table* edges and irrelevant to this defect: two
+>    multi-row lockers on the *same* table, over a shared row set, in different
+>    orders, is exactly as much a cycle risk as two lockers on different tables in
+>    reversed order — Fix C and the cancellation-vs-cancellation control already
+>    rest on that exact principle for `products`. The criterion needed to say
+>    "table-to-table transition **or** multi-row lock on a shared row set of the
+>    *same* table in a non-identical order," not just the former.
+>
+> **Fix F** brings `release_expired_reservations` under the same lock discipline:
+>
+> ```sql
+> CREATE OR REPLACE FUNCTION public.release_expired_reservations(p_org_id uuid DEFAULT NULL::uuid)
+> RETURNS integer
+> LANGUAGE plpgsql
+> SET search_path TO 'public', 'pg_temp'
+> AS $$
+> DECLARE
+>   v_count integer;
+>   v_ids uuid[] := '{}'::uuid[];
+>   v_id uuid;
+> BEGIN
+>   FOR v_id IN
+>     SELECT id FROM public.material_reservations
+>     WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at < now()
+>       AND (p_org_id IS NULL OR org_id = p_org_id)
+>     ORDER BY id
+>     FOR NO KEY UPDATE
+>   LOOP
+>     v_ids := array_append(v_ids, v_id);
+>   END LOOP;
+>
+>   UPDATE public.material_reservations
+>   SET status = 'expired', released_at = now(),
+>       quantity_released = quantity_reserved - quantity_consumed, updated_at = now()
+>   WHERE id = ANY(v_ids);
+>
+>   GET DIAGNOSTICS v_count = ROW_COUNT;
+>   RETURN v_count;
+> END;
+> $$;
+> ```
+>
+> Confirmed to compile and behave correctly against a live PostgreSQL 17 instance:
+> locks the eligible set ascending by `id`, then updates exactly that frozen set —
+> a reservation with `quantity_consumed IS NULL` still produces
+> `quantity_released IS NULL` (the live function's existing behavior, unchanged;
+> see point 3 below), and a not-yet-expired row is left untouched.
+>
+> Three refinements to how this was first proposed, all adopted:
+>
+> 1. **No `SKIP LOCKED` in the primary design.** An earlier draft of Fix F added
+>    `FOR UPDATE SKIP LOCKED` reasoning that a release sweep should never wait and
+>    can safely defer a contended row to the next scheduled run. That is a genuine
+>    *semantic* change — from "process every eligible row, waiting if necessary" to
+>    "process what's immediately available, skip the rest" — not a lock-order-only
+>    change, and does not belong in a migration billed as lock-order compatibility
+>    only (the same standard already held Fix C/D to: ACL and business behavior
+>    unchanged, lock order only). `ORDER BY id FOR NO KEY UPDATE` alone is
+>    sufficient to remove the cycle with every function this design controls, and
+>    keeps `release_expired_reservations`'s existing blocking, complete-sweep
+>    behavior intact. `SKIP LOCKED` is not adopted; if it is wanted later as a
+>    best-effort cron-sweep optimization, it is a separate, explicitly-labeled
+>    semantic change with its own retry/next-run acceptance criteria, not folded
+>    into 191.
+> 2. **Reservation lock mode unified to `FOR NO KEY UPDATE`, not `FOR UPDATE`, in
+>    both Fix E's consumption superset lock and Fix F.** `material_consumption`
+>    (confirmed against the live baseline) carries `material_consumption_reservation_id_fkey
+>    FOREIGN KEY (reservation_id) REFERENCES material_reservations(id)` — the exact
+>    same shape that forced `FOR NO KEY UPDATE` on `products` earlier in this
+>    design (§4, "Lock mode"): inserting a `material_consumption` row takes an
+>    implicit `FOR KEY SHARE` lock on the referenced `material_reservations` row,
+>    which conflicts with a bare `FOR UPDATE` there but not with `FOR NO KEY
+>    UPDATE`. `rpc_consume_reserved_materials_v2` is the only current writer of
+>    `material_consumption`, so this is not a live deadlock today, but the
+>    principle this design already applies to `products` ("no bare `FOR UPDATE` on
+>    a referenced parent row without a specific reason") applies identically here,
+>    and there is no reason `material_reservations` needs the stronger lock: the
+>    columns Fix E's guard and Fix F's `UPDATE` touch (`status`, `quantity_*`,
+>    `released_at`, `updated_at`) are exactly the kind of non-key columns `FOR NO
+>    KEY UPDATE` is for. Both the consumption superset lock and Fix F now specify
+>    `ORDER BY id FOR NO KEY UPDATE`.
+> 3. **`quantity_released = quantity_reserved - quantity_consumed` is left exactly
+>    as the live function computes it, `NULL`-propagation included, deliberately not
+>    wrapped in `COALESCE(quantity_consumed, 0)`.** The live column is nullable with
+>    a `DEFAULT 0`, so a `NULL` here is possible but is a pre-existing data-semantics
+>    question independent of lock ordering — bundling an unrelated tightening into a
+>    lock-order-only migration is exactly the scope creep §1 already argues against
+>    for Fix C/D. Tracked as a named, separate follow-up; not part of 191.
+>
+> **RED for Fix F must be a deterministic mutant, not a planner-dependent
+> fixture.** An earlier proposal suggested constructing two `reserved`, expired
+> rows and relying on `expires_at` index/heap scan order differing from `id`
+> order — after the standalone helper-order mutant work (tenth/eleventh
+> corrections), this design does not accept "the planner will probably visit rows
+> in this order" as an acceptance mechanism again. Instead, mirroring the
+> standalone helper-order mutant exactly: a test-only mutant of the *locking loop*
+> (not the real function) explicitly locks two reservation rows in literal
+> `[B, A]` order with an advisory-lock gate after the first lock, run concurrently
+> against a caller locking `[A, B]` (consume's real, ascending order) with the same
+> gate mechanism. Confirmed empirically against a live PostgreSQL 17 instance:
+> this reproduces a genuine `deadlock detected` (`40P01`), with both backends
+> observed on their advisory gate beforehand exactly as the standalone
+> helper-order mutant already established for `products`. The real, unmodified
+> Fix F body, run under the same forced-overlap fixture, must not deadlock.
+>
+> §1/§4/§5/§6/§7/§8/§9 all gain matching content below: object count rises to
+> **twelve**; a new "Fix F" subsection follows Fix E; the lock graph and its edge
+> criterion are corrected; GREEN/RED rows and a static contract for
+> `release_expired_reservations` are added; the reservation lock mode changes to
+> `FOR NO KEY UPDATE` everywhere it appears; the rollback file/function count and
+> preflight are updated, with the `cron.job` check guarded
+> (`to_regclass('cron.job') IS NOT NULL`) since not every environment has
+> `pg_cron` installed; and a residual-risk paragraph documents unmediated
+> multi-row client writes on `products`/`material_reservations` as an F1/write-surface
+> concern this migration does not and should not attempt to close.
+
 ---
 
 ## 1. Decision
@@ -572,9 +739,10 @@ than "the two incoming overloads plus their nearest peers":
   other
 - a second migration immediately after the first would replace the same
   functions again, and — worse, given how this design's own scope grew across
-  three review passes — a second pass discovering a twelfth function later
-  would face the exact "which migration is the real contract" problem this
-  section already argues against
+  multiple review passes (four functions, then five, then eleven, then a
+  twelfth found by the thirteenth correction below) — a second pass
+  discovering a further function later would face the exact "which migration
+  is the real contract" problem this section already argues against
 
 That last point is the 170–173 / 182–183 pattern
 `CLAUDE.md` already flags. Migrations 170, 172, 173 each replaced
@@ -586,11 +754,12 @@ wrong ledger. See `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` and
 `docs/db/TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md`.
 
 Splitting RED-A and RED-B across two numbered migrations would recreate that
-chain on eleven objects now (`incoming` 9/10-arg, `outgoing` 9/10-arg,
+chain on twelve objects now (`incoming` 9/10-arg, `outgoing` 9/10-arg,
 `rpc_cancel_stock_adjustment`, `rpc_manual_stock_movement_v2`,
 `rpc_post_goods_receipt`, `rpc_post_delivery_note`,
-`rpc_submit_stock_adjustment`, `rpc_consume_reserved_materials_v2`, and the
-new shared lock helper) for no operational gain. Rollback of a `CREATE OR
+`rpc_submit_stock_adjustment`, `rpc_consume_reserved_materials_v2`,
+`release_expired_reservations` (Fix F, thirteenth correction), and the new
+shared lock helper) for no operational gain. Rollback of a `CREATE OR
 REPLACE` is "put the previous bodies back." One replace rolls every fix back
 together; splitting them leaves a window where some callers install the new
 lock order and others don't — which is worse than either state alone, since
@@ -1151,7 +1320,7 @@ believes it locked.
 
 The fix locks first, filters after: `SELECT id, mo_id, item_id, product_id,
 status FROM material_reservations WHERE org_id = v_org AND mo_id = p_mo_id
-ORDER BY id FOR UPDATE` — every row for this MO regardless of current
+ORDER BY id FOR NO KEY UPDATE` — every row for this MO regardless of current
 status, not filtered at all in the locking query. Only *after* every such
 row is locked does the function read `status` from the now-frozen snapshot
 to derive which of them are `'reserved'` (and therefore which products the
@@ -1228,6 +1397,97 @@ original sweep and needs none of this: its body has zero references to
 `bins` anywhere, so it has no `bins` lock to invert against the new order. It
 stays out of scope (§5).
 
+### Fix F — lock-order compatibility for `release_expired_reservations`
+
+Not a RED-A/RED-B remediation, and not a `products`/`bins` function at all —
+found by the thirteenth correction above via the same "no live function may
+acquire an edge of the lock graph in reverse" check §6 already applies, once
+that check's own criterion was corrected to cover same-table counter-ordering
+and not only inter-table reversal.
+
+Live `release_expired_reservations` does a single unordered, unlocked-by-`id`
+multi-row `UPDATE` on `material_reservations`. Fix E's consumption superset
+lock (above) locks every reservation row for an MO ascending by `id`. Two
+reservations for one MO, both `reserved` and expired, can have their `id`
+order disagree with whatever scan order the live release function's `UPDATE`
+happens to visit them in — the same shape as `rpc_cancel_stock_adjustment`
+locking `bins` before `products` while incoming/outgoing does the reverse,
+just within one table instead of across two.
+
+Mechanically, replace the body with a lock-then-update:
+
+```sql
+CREATE OR REPLACE FUNCTION public.release_expired_reservations(p_org_id uuid DEFAULT NULL::uuid)
+RETURNS integer
+LANGUAGE plpgsql
+SET search_path TO 'public', 'pg_temp'
+AS $$
+DECLARE
+  v_count integer;
+  v_ids uuid[] := '{}'::uuid[];
+  v_id uuid;
+BEGIN
+  FOR v_id IN
+    SELECT id FROM public.material_reservations
+    WHERE status = 'reserved' AND expires_at IS NOT NULL AND expires_at < now()
+      AND (p_org_id IS NULL OR org_id = p_org_id)
+    ORDER BY id
+    FOR NO KEY UPDATE
+  LOOP
+    v_ids := array_append(v_ids, v_id);
+  END LOOP;
+
+  UPDATE public.material_reservations
+  SET status = 'expired', released_at = now(),
+      quantity_released = quantity_reserved - quantity_consumed, updated_at = now()
+  WHERE id = ANY(v_ids);
+
+  GET DIAGNOSTICS v_count = ROW_COUNT;
+  RETURN v_count;
+END;
+$$;
+```
+
+`ORDER BY id FOR NO KEY UPDATE` on the locking loop, then an `UPDATE` scoped
+to exactly the already-locked, already-frozen `v_ids` set — the identical
+"lock first, act on the frozen snapshot" shape the consumption superset lock
+above already uses, so no row this function will touch can have its `status`
+change out from under it between the lock and the write. `FOR NO KEY UPDATE`,
+not `FOR UPDATE`, for the same reason the consumption superset lock uses it
+(below): `material_consumption.reservation_id` is a live FK to
+`material_reservations(id)`, so a bare `FOR UPDATE` here would conflict with
+the implicit `FOR KEY SHARE` an `INSERT INTO material_consumption` takes on
+the row it references, for no benefit — this function only ever touches
+`status`/`quantity_released`/`released_at`/`updated_at`, none of them keyed or
+referenced.
+
+Confirmed compiling and behaving correctly against a live PostgreSQL 17
+instance: locks the eligible set ascending by `id`, updates exactly that set,
+and leaves a reservation's existing `quantity_released = quantity_reserved -
+quantity_consumed` computation — `NULL`-propagation included — untouched
+(deliberately not tightened with `COALESCE`; see the thirteenth correction's
+point 3, a separate, out-of-scope follow-up).
+
+No `SECURITY DEFINER` change (stays `SECURITY INVOKER`; RLS already scopes
+`authenticated` to its own organization's rows), no ACL change (the existing
+`anon`/`authenticated`/`service_role` grant is left alone — noted as a
+residual write-surface concern below, not something 191 closes), and no
+behavior change beyond the lock order and the frozen-snapshot `UPDATE`
+shape. This is lock-order-only, exactly like Fix C/D.
+
+**Consumption superset lock mode, corrected to match:** the consumption
+superset lock specified earlier in this section (§4, Fix E) is written as
+`ORDER BY id FOR UPDATE`. For the identical FK reason just given
+(`material_consumption.reservation_id → material_reservations(id)`), it
+should read `ORDER BY id FOR NO KEY UPDATE` — `rpc_consume_reserved_materials_v2`
+is the only current writer of `material_consumption`, so this is not a live
+deadlock today, but the same "no bare `FOR UPDATE` on a referenced parent row
+without a specific reason" principle this design already applies to
+`products` applies here too, and the columns the superset lock and its guard
+touch are the same non-key columns Fix F's `UPDATE` touches. Every mention of
+this lock's mode elsewhere in this document (§6's lock graph, §7's static
+contract) is corrected to `FOR NO KEY UPDATE` to match.
+
 ### Why a product-row lock is the right shared prefix
 
 | Candidate | RED-A | RED-B | Cross-function/cross-call compatibility | Notes |
@@ -1266,7 +1526,7 @@ lock mode.
 Proposed number: **191** (190 is already on `main` for F1 material
 consumption). Confirm at implementation time that 191 is still free.
 
-Replace, in one file, all ten bodies plus one new internal helper:
+Replace, in one file, all eleven bodies plus one new internal helper:
 
 1. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date)` — 9-arg, receipts / manual movement (Fix A/B)
 2. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)` — 10-arg, stock adjustment (Fix A/B)
@@ -1277,13 +1537,14 @@ Replace, in one file, all ten bodies plus one new internal helper:
 7. `rpc_post_goods_receipt(jsonb)` — upfront multi-product lock only (Fix E)
 8. `rpc_post_delivery_note(jsonb)` — upfront multi-product lock only (Fix E)
 9. `rpc_submit_stock_adjustment(uuid)` — upfront multi-product lock only (Fix E)
-10. `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` — upfront multi-product lock only (Fix E)
-11. `wardah_lock_products_for_stock_write(uuid,uuid[])` — **new**, internal-only, no existing ACL to preserve; `REVOKE ALL FROM PUBLIC, anon, authenticated` at creation, no `GRANT` to any client role
+10. `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` — upfront multi-product lock only (Fix E); reservation superset lock mode corrected to `FOR NO KEY UPDATE` (thirteenth correction)
+11. `release_expired_reservations(uuid)` — same-table lock-order fix only (Fix F, thirteenth correction); no RED-A/RED-B, no `products`/`bins` involvement, no business-behavior change
+12. `wardah_lock_products_for_stock_write(uuid,uuid[])` — **new**, internal-only, no existing ACL to preserve; `REVOKE ALL FROM PUBLIC, anon, authenticated` at creation, no `GRANT` to any client role
 
 Carry forward, verbatim except for the stated change to each:
 - items 1–2: the two fixes (Fix A/B) plus the lock-order prefix
 - items 3–4: the lock-order prefix only
-- items 5–10: the lock-order prefix (single product for 5/6, upfront multi-product for 7–10) — every existing business rule, error code, and return shape in all six of these unchanged
+- items 5–11: the lock-order prefix (single product for 5/6, upfront multi-product for 7–10, single-table ordered lock for 11) — every existing business rule, error code, and return shape in all seven of these unchanged
 
 - Valuation: FIFO / LIFO / weighted average, including queue rewrite
 - SLE insert (incoming positive qty; outgoing negative qty and COGS)
@@ -1296,17 +1557,22 @@ Carry forward, verbatim except for the stated change to each:
   outgoing overloads are `'public', 'pg_temp'` — keep each as it is
 - **The ACLs of `rpc_cancel_stock_adjustment`, `rpc_manual_stock_movement_v2`,
   `rpc_post_goods_receipt`, `rpc_post_delivery_note`,
-  `rpc_submit_stock_adjustment`, and `rpc_consume_reserved_materials_v2` are
-  unrelated to the rule below and must not change.** Checked all six
-  directly against the live baseline: every one is `GRANT ALL ... TO
-  authenticated` plus `TO service_role`, consistently — they are legitimate
-  client-facing RPCs (gated by `wardah_assert_org_member`/`wardah_assert_org_admin`
-  and, for material consumption, an exact permission check, at the
-  application layer, not by ACL), not internal helpers. Fixes C/D/E touch
-  only lock order, never grants, on any of the six. The ACL discussion
-  immediately below is scoped to the four stock-write helpers only. The new
+  `rpc_submit_stock_adjustment`, `rpc_consume_reserved_materials_v2`, and
+  `release_expired_reservations` are unrelated to the rule below and must not
+  change.** Checked all seven directly against the live baseline: the first
+  six are `GRANT ALL ... TO authenticated` plus `TO service_role`,
+  consistently, and `release_expired_reservations` is `GRANT ALL ... TO
+  anon, authenticated, service_role` (its `anon` grant is a pre-existing,
+  separate write-surface concern — see §6's residual-risk note — not
+  something Fix F touches). These are legitimate client-facing RPCs (gated
+  by `wardah_assert_org_member`/`wardah_assert_org_admin` and, for material
+  consumption, an exact permission check, at the application layer, not by
+  ACL; `release_expired_reservations` relies on `SECURITY INVOKER` + RLS
+  instead), not internal helpers. Fixes C/D/E/F touch only lock order, never
+  grants, on any of the seven. The ACL discussion immediately below is
+  scoped to the four stock-write helpers only. The new
   `wardah_lock_products_for_stock_write` helper gets no client grant at all
-  (see item 11 above) — it is not one of "the four."
+  (see item 12 above) — it is not one of "the four."
 - **ACL (the four stock-write helpers only): all four bodies are currently
   `service_role`-only in effect**
   (confirmed by the live-schema baseline dump in §2, which renders the
@@ -1361,7 +1627,19 @@ Fail-closed tightening allowed, and it must be called out in the runbook:
   `bins` at all (no bin lock, no bin reference anywhere in its body), so it
   cannot invert lock order against the new products-then-bins convention —
   it remains a known sibling, not F2
-- Client GRANT / RLS / Migration 185 write-surface
+- Client GRANT / RLS / Migration 185 write-surface, including
+  `release_expired_reservations`'s pre-existing `anon` grant and the
+  unmediated multi-row client-write risk on `products`/`material_reservations`
+  documented in §6's residual-risk note — recorded as an F1/write-surface-audit
+  input, not addressed here
+- `quantity_released = quantity_reserved - quantity_consumed`'s `NULL`
+  propagation when `quantity_consumed IS NULL` (thirteenth correction, point
+  3) — a data-semantics question independent of lock ordering; a separate,
+  named follow-up, not part of Fix F
+- `FOR UPDATE SKIP LOCKED` as a best-effort cron-sweep optimization for
+  `release_expired_reservations` (thirteenth correction, point 1) — a
+  semantic change to the function's contract, not a lock-order change; not
+  adopted in 191
 - Production apply
 
 ---
@@ -1532,18 +1810,36 @@ regression it exists for rather than passing by construction:
 ```text
 manufacturing_orders (FOR UPDATE, existing, first statement)
   → stage_wip_log (FOR UPDATE, existing)
-    → material_reservations, superset (FOR UPDATE, new — Fix E)
+    → material_reservations, superset (ORDER BY id, FOR NO KEY UPDATE, new — Fix E)
       → products (FOR NO KEY UPDATE, new — Fix E + shared helper)
         → bins (FOR UPDATE, existing, inside the incoming/outgoing call)
 ```
 
+**Edge criterion, corrected (thirteenth correction above):** an edge is not
+only a *table-to-table* lock-order transition; it is also a **multi-row lock
+on a shared row set of the same table taken in a non-identical order** by two
+different functions. The first version of this check only tested the former
+and missed `release_expired_reservations` as a result (below).
+
 For this to be deadlock-free against every other function this design
 touches or examined, no other live function may acquire any edge of this
-graph in reverse. Checked directly against the live bodies, not assumed:
+graph in reverse, under either sense of "edge." Checked directly against the
+live bodies, not assumed:
 
-- `release_expired_reservations` only reads/updates `material_reservations`
-  — no `products`, no `bins`, no `manufacturing_orders` lock. No edge to
-  conflict with.
+- **`release_expired_reservations` acquires the same `material_reservations`
+  edge as the superset lock above, in scan order rather than `id` order —
+  fixed by Fix F.** An earlier pass cleared this function on the grounds that
+  it "only reads/updates `material_reservations` — no `products`, no `bins`,
+  no `manufacturing_orders` lock. No edge to conflict with" — true under the
+  table-to-table sense alone, and wrong under the corrected criterion: its
+  unordered multi-row `UPDATE` and the superset lock's `ORDER BY id` lock
+  both touch the same reservation rows for a given MO, in different orders,
+  which is exactly the shape Fix C already treats as a real cycle risk for
+  `products`. Fix F brings it to the identical `ORDER BY id FOR NO KEY
+  UPDATE` discipline, so both functions now converge on the same acquisition
+  order and cannot circularly wait on each other regardless of which starts
+  first — the same argument the standalone helper-order mutant already
+  proved for `products` (§7), extended to this table.
 - `rpc_complete_manufacturing_order` locks `manufacturing_orders` then
   `products` — never touches `material_reservations` or `bins`. Consistent
   with (a proper prefix of) the graph above; no reverse edge.
@@ -1559,6 +1855,32 @@ graph in reverse. Checked directly against the live bodies, not assumed:
   `wardah_apply_stock_incoming`/`outgoing` callers (§ "Two more P1s" note),
   extended to check what each caller locks *before* reaching the helper, not
   only whether it calls the helper at all.
+- No other live function takes a multi-row lock on `material_reservations`
+  or `products` at all, so no other same-table counter-ordering edge exists
+  to check under the corrected criterion — re-verify this specifically (not
+  only the table-to-table sweep) at implementation time if `main` has moved.
+
+### Residual risk: unmediated multi-row client writes
+
+The lock-order contract above covers every writer *this migration controls*
+— every RPC and helper this design replaces or adds. It does not, and
+cannot, cover a direct multi-row client write reaching `products` or
+`material_reservations` through PostgREST: both tables carry `GRANT ALL TO
+authenticated` (confirmed against the live baseline) with an `org_id`-scoped
+RLS policy, so a filtered bulk `PATCH` (e.g. `PATCH /products?org_id=eq...`)
+is one statement that locks rows in whatever order its own scan visits them —
+the same shape as `release_expired_reservations` before Fix F, but reachable
+by any authenticated client and not something a `CREATE OR REPLACE` in 191
+can order, because it is not a function this design owns. This is a genuine,
+open write-surface question — not merely a "clean `40P01`, safe to retry"
+footnote, since an RPC's atomicity guarantee doesn't apply to a bulk client
+write that never went through the RPC at all — but closing it is a write-
+surface-closure question (the same shape Migration 185 already answered for
+`stock_ledger_entries`/`bins`, and 176 for the RBAC tables), not a lock-order
+question, and is explicitly out of scope for 191. Recorded here so it is not
+rediscovered as a surprise P1 in a future pass: it belongs on the F1/write-
+surface-audit backlog this design's own §8 framing already points toward, as
+a required input, not an assumption to re-derive.
 
 ### Throughput
 
@@ -1614,6 +1936,9 @@ numeric helpers, with inverted assertions:
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 1 — narrowed superset, guard present | superset query deliberately narrowed to only the specific reservations named by `p_consumptions` (the earlier, wrong pre-pass shape) instead of the full per-MO lock; guard left in place. A fixture whose second line resolves to a reservation outside that narrowed set must raise `PRODUCT_NOT_PRELOCKED` — proves the guard is reachable, not dead code |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 2 — genuinely narrow per-MO superset (missing a product the loop will need), guard removed, forced concurrency | run as two concurrent calls **on two different manufacturing orders**. Two different MOs is required, not incidental: this function's first statement locks `manufacturing_orders WHERE id = p_mo_id FOR UPDATE`, so two calls on the *same* MO would already fully serialize there and never reach product-level contention at all. This is **not** the helper-ordering mutant — do not reuse the positional-loop helper mutation here (per the eighth correction above): if both MOs' superset already covered `{A, B}`, removing the guard would be irrelevant to any deadlock, since the guard only fires on a product outside the locked set. Instead, MO 1's superset lock (the real, unmodified `wardah_lock_products_for_stock_write`, called with `p_consumptions`-derived reservations only) covers **only `{A}`**, and its fixture is built so the per-line loop's second line resolves to the *un-prelocked* product `B`; MO 2's superset covers **only `{B}`**, with its loop needing `A`. A session-level advisory-lock gate barrier (verified mechanism, per the eighth correction) sits after the upfront superset lock and before the per-line loop: MO 1 locks `A` then gates on `1`, MO 2 locks `B` then gates on `2`; releasing both gates together lets both loops proceed to resolve their un-prelocked product at the same instant. With the guard removed, this must reproduce a genuine transaction-level deadlock — `T1` holds `A` and waits on `B` via the ordinary per-line `wardah_apply_stock_incoming`/`outgoing` lock, `T2` holds `B` and waits on `A` — proven via `pg_stat_activity` showing the symmetric wait on both backends, or a `deadlock detected` (`40P01`) on the side PostgreSQL's detector aborts; not a silent wrong value in a single run and not an inferred hang |
 | New: `rpc_consume_reserved_materials_v2` guard regression check, mutant 3 — real 191 | full per-MO superset lock (any status, filtered to `'reserved'` from the locked snapshot) plus the guard, both as specified. Neither the guard nor a deadlock should be reachable under normal operation — the guard exists as a backstop, not as an expected code path |
+| New: Fix F, deterministic RED mutant — consume-shaped `[A,B]` lock vs release-shaped `[B,A]` lock on the same two reservation rows | **not** a planner/scan-order-dependent fixture — two `reserved`, expired reservations for one MO are locked directly by literal id: a test-only mutant that locks the pair in literal `[B, A]` order (mimicking a scan visiting them opposite to `id` order) run concurrently against a caller locking `[A, B]` (consume's real, ascending order), both through the same advisory-lock gate barrier already verified for the standalone `products` helper-order mutant (§7). Must reproduce a genuine `deadlock detected` (`40P01`), with both backends observed on their gate beforehand — confirmed empirically against a live PostgreSQL 17 instance before this row was written |
+| New: Fix F, real-helper GREEN run | identical fixture, both sides using the real, unmodified bodies — consume's superset lock and Fix F's locking loop, both `ORDER BY id FOR NO KEY UPDATE`. Forced overlap (ordinary row-lock waiting, not a gate — both real bodies converge on the same ascending order so there is no mid-loop point to gate on, the same reasoning as the `products` standalone mutant's GREEN run) must complete both without deadlock: consumption proceeds normally, and a `release_expired_reservations` call either completes before or after consumption locks the shared row, never interleaved with it |
+| New: Fix F business-correctness control | a reservation partially consumed by one line of an in-flight `rpc_consume_reserved_materials_v2` call remains `'reserved'` (uncommitted) for the duration of that call, so a concurrent `release_expired_reservations` call must not expire it out from under the consumption in progress — it either queues behind consumption's lock and finds the row no longer eligible (if consumption fully consumed it) or expires it correctly afterward (if consumption left it `'reserved'` with remaining quantity); run once, then run `release_expired_reservations` again after the first call commits to confirm anything still eligible is picked up on the next sweep — a release call is not required to catch a row that becomes eligible only after it has already locked and returned |
 | Static contract, both incoming overloads | product `FOR NO KEY UPDATE` appears before bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent**; `actual_qty = EXCLUDED.actual_qty` is **absent**; unlocked `SUM`→`UPDATE products` without a preceding products lock is **absent** |
 | Static contract, both outgoing overloads | product `FOR NO KEY UPDATE` appears before the all-bins `FOR UPDATE`; a bare products `FOR UPDATE` is **absent** |
 | Static contract, `rpc_cancel_stock_adjustment` | a call to `wardah_lock_products_for_stock_write` (or an equivalent ordered multi-row `FOR NO KEY UPDATE`) appears before the first `UPDATE bins` in the function body |
@@ -1621,7 +1946,8 @@ numeric helpers, with inverted assertions:
 | Static contract, `rpc_post_goods_receipt` / `rpc_post_delivery_note` / `rpc_submit_stock_adjustment` / `rpc_consume_reserved_materials_v2` | a call to `wardah_lock_products_for_stock_write` appears before the per-line `LOOP` in each function body; the resolved/locked product array is referenced later in the loop (the `PRODUCT_NOT_PRELOCKED` guard, see Fix E) |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
-| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status) with `FOR UPDATE` and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop |
+| Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop |
+| Static contract, `release_expired_reservations` (Fix F) | locks `ORDER BY id FOR NO KEY UPDATE` in the same query, before any `UPDATE material_reservations`; a bare `FOR UPDATE` or an `UPDATE` with no preceding ordered lock is **absent**; `FOR UPDATE SKIP LOCKED` is **absent** (not adopted in 191 — see the thirteenth correction, point 1); `SECURITY INVOKER` and the existing `anon`/`authenticated`/`service_role` ACL are unchanged; `quantity_released = quantity_reserved - quantity_consumed` has no `COALESCE` added (unchanged from the live body — see the thirteenth correction, point 3) |
 | Static contract, all four Fix E functions | the `PRODUCT_NOT_PRELOCKED` guard (or equivalent `= ANY(locked set)` assertion) appears at least once per function, after product resolution and before any `bins`/`products` write for that line |
 
 10-arg incoming is Production's stock-adjustment path. The red proof only
@@ -1815,43 +2141,57 @@ The 191 runbook is not a "stock incoming lock upgrade." It is:
 >   `rpc_consume_reserved_materials_v2` — closing a transaction-level
 >   deadlock between two such calls that Fix A/B/C/D alone do not close,
 >   since each only guarantees the order *within* one call.
+> - Fix F reorders `release_expired_reservations`'s locking to `ORDER BY id
+>   FOR NO KEY UPDATE`, the same discipline the consumption superset lock
+>   (Fix E) already applies to `material_reservations` — it has neither
+>   RED-A nor RED-B and no `products`/`bins` involvement at all; this is a
+>   same-table counter-ordering compatibility fix, found only once §6's edge
+>   criterion was corrected to cover multi-row locks on a shared row set of
+>   one table, not only table-to-table transitions.
 >
 > This design's own review history is part of why the runbook states it this
 > way: a first pass covered four functions, a second pass found a fifth after
 > a systematic writer-sweep, a third pass found five more after a systematic
-> *caller*-sweep the first sweep's methodology couldn't have found. State the
-> full list and the sweep methodology that produced it, not just the fix,
-> so a future reader auditing this migration can tell whether a sweep like
-> this one was re-run before trusting the list is still complete.
+> *caller*-sweep the first sweep's methodology couldn't have found, and a
+> fourth pass found a twelfth object after the same-table counter-ordering
+> criterion itself was corrected. State the full list and the sweep
+> methodology that produced it, not just the fix, so a future reader auditing
+> this migration can tell whether a sweep like this one was re-run before
+> trusting the list is still complete.
 
 It must also record:
 
 - additive only; no history rewrite; no `ADJ-000001` repair
-- rollback = restore the ten previous bodies from Migrations 97 (incoming
-  9-arg), 124 (`rpc_cancel_stock_adjustment`), 133 (`rpc_post_delivery_note`),
-  134 (`rpc_manual_stock_movement_v2`), 177 (`rpc_post_goods_receipt`), 186
-  (outgoing 9-arg), 187 (incoming 10-arg, outgoing 10-arg,
-  `rpc_submit_stock_adjustment`), and 190 (`rpc_consume_reserved_materials_v2`)
-  — eight distinct files for ten functions — and drop the new
-  `wardah_lock_products_for_stock_write` helper. That restores every change
-  together — RED-A, RED-B, and every lock-order/upfront-lock change on the
-  other eight functions revert as one unit. There is no supported "roll back
-  Fix A, keep Fix B" or "keep Fix C/D/E but not A/B"
+- rollback = restore the eleven previous bodies from Migrations 61
+  (`release_expired_reservations`, plus its out-of-band `ALTER FUNCTION ...
+  SET search_path` re-applied — that statement is not itself part of any
+  numbered migration, so a rollback that only restores the Migration 61 body
+  would silently drop a hardening 191 never added but must not remove
+  either), 97 (incoming 9-arg), 124 (`rpc_cancel_stock_adjustment`), 133
+  (`rpc_post_delivery_note`), 134 (`rpc_manual_stock_movement_v2`), 177
+  (`rpc_post_goods_receipt`), 186 (outgoing 9-arg), 187 (incoming 10-arg,
+  outgoing 10-arg, `rpc_submit_stock_adjustment`), and 190
+  (`rpc_consume_reserved_materials_v2`) — nine distinct files for eleven
+  functions — and drop the new `wardah_lock_products_for_stock_write`
+  helper. That restores every change together — RED-A, RED-B, and every
+  lock-order/upfront-lock change on the other nine functions revert as one
+  unit. There is no supported "roll back Fix A, keep Fix B" or "keep Fix
+  C/D/E/F but not A/B"
 - The *effective* permission on the four stock-write helpers
   (`service_role`-only) is unchanged by this migration, but 191 must still
   explicitly re-issue `REVOKE ALL ... FROM PUBLIC, anon, authenticated` +
   `GRANT EXECUTE ... TO service_role` for each of those four signatures, and
   verify with `has_function_privilege()` in postflight — per §5, this is not
   a grant change, it is re-proving an invariant that a prior `CREATE OR
-  REPLACE` (97) already broke silently once. The six other functions this
-  migration touches keep their existing `authenticated` + `service_role`
-  ACLs untouched (verified identical across all six) — every one of Fixes
-  C/D/E is body-only, lock-order-only
+  REPLACE` (97) already broke silently once. The seven other functions this
+  migration touches (including `release_expired_reservations`) keep their
+  existing ACLs untouched (verified identical across all seven) — every one
+  of Fixes C/D/E/F is body-only, lock-order-only
 - Production apply requires a separate authorization, preflight (ledger
-  head, all eleven objects' signatures, ACLs on the four stock-write
-  helpers, search_path), apply-once, postflight (`pg_get_functiondef`
-  contract on all eleven), and **no** Production concurrency test against
-  live vouchers
+  head, all twelve objects' signatures, ACLs on the four stock-write
+  helpers, search_path, the guarded `cron.job`/eligible-row informational
+  checks for Fix F), apply-once, postflight (`pg_get_functiondef` contract on
+  all twelve), and **no** Production concurrency test against live vouchers
 - Merging 191 onto `main` does not close the Production gap; 170 sat
   merged-but-unapplied (`PERMISSION_HARDENING_170_173_CHAIN.md` §6)
 
@@ -1863,28 +2203,40 @@ Do not write SQL until this design is accepted. Then, in
 `wardah-process-costing`, in a new tracking issue:
 
 1. Open the issue (do not reopen #228 as if the proof were missing).
-2. Add `sql/migrations/191_…sql` with preflight, **eleven** replaces/additions
+2. Add `sql/migrations/191_…sql` with preflight, **twelve** replaces/additions
    (incoming 9/10-arg, outgoing 9/10-arg, `rpc_cancel_stock_adjustment`,
    `rpc_manual_stock_movement_v2`, `rpc_post_goods_receipt`,
    `rpc_post_delivery_note`, `rpc_submit_stock_adjustment`,
-   `rpc_consume_reserved_materials_v2`, and the new
-   `wardah_lock_products_for_stock_write` helper), explicit ACL restatement
-   on the four stock-write helpers only (`REVOKE ALL FROM PUBLIC, anon,
-   authenticated` + `GRANT EXECUTE TO service_role` per signature — not
-   granting anything new, but not silently inherited either; the other six
-   functions' existing ACLs are left alone; the new helper gets no client
-   grant at all), and an in-migration postflight that asserts
+   `rpc_consume_reserved_materials_v2`, `release_expired_reservations` (Fix
+   F, thirteenth correction), and the new `wardah_lock_products_for_stock_write`
+   helper), explicit ACL restatement on the four stock-write helpers only
+   (`REVOKE ALL FROM PUBLIC, anon, authenticated` + `GRANT EXECUTE TO
+   service_role` per signature — not granting anything new, but not silently
+   inherited either; the other seven existing functions' ACLs are left alone,
+   including `release_expired_reservations`'s current `anon`/`authenticated`/
+   `service_role` grant — Fix F is lock-order only; the new helper gets no
+   client grant at all), and an in-migration postflight that asserts
    `has_function_privilege()` is `false` for `anon`/`authenticated` and
    `true` for `service_role` on the four stock-write signatures, plus a
-   static lock-order assertion on each of the other six per §7's contract
-   rows.
+   static lock-order assertion on each of the other seven per §7's contract
+   rows. Preflight also runs, guarded so it does not fail on an environment
+   without `pg_cron` installed:
+   ```sql
+   SELECT count(*) FROM material_reservations
+     WHERE expires_at IS NOT NULL AND status = 'reserved';
+   SELECT jobid, schedule, command FROM cron.job
+     WHERE to_regclass('cron.job') IS NOT NULL AND command ILIKE '%release_expired%';
+   ```
+   — recording (not blocking on) how many rows are currently exposed to the
+   pre-fix race and whether a scheduled job calls this function in Production,
+   since neither is knowable from the repository alone.
 3. Before writing any of it, re-run both sweeps from this design — every
    direct writer of `products.stock_quantity`, and every caller of
    `wardah_apply_stock_incoming`/`outgoing` — against `main` at implementation
    time, not against this document's list. If `main` moved between this
-   design's acceptance and implementation, a twelfth function is not this
-   design's problem to have predicted, but it is the implementation PR's
-   problem to have checked for.
+   design's acceptance and implementation, a further undiscovered function is
+   not this design's problem to have predicted, but it is the implementation
+   PR's problem to have checked for.
 4. Add the green acceptance script + workflow, including all the new
    controls in §6/§7 (cancellation, manual movement, and the two
    multi-line-caller-vs-multi-line-caller scenarios) with the fixtures
@@ -2092,3 +2444,43 @@ Reviewers should reject the implementation PR if:
   than what its own loop will need (MO 1 locks only `{A}` but its loop later
   needs `B`; MO 2 locks only `{B}` but needs `A`), using the real, unmodified
   helper — no positional-loop mutation belongs in this mutant at all
+- §6's "edge" criterion for the lock graph checks only table-to-table
+  lock-order reversal, without also checking a multi-row lock on a shared row
+  set of the *same* table taken in a different order — this is exactly how
+  `release_expired_reservations` was missed the first time (the thirteenth
+  correction above); re-verify the corrected, broader criterion at
+  implementation time, not only re-run the narrower one
+- it ships the consumption superset lock on `material_reservations` (Fix E)
+  without also bringing `release_expired_reservations` under the same
+  ordered/`FOR NO KEY UPDATE` discipline (Fix F) — this reintroduces exactly
+  the same-table counter-ordering deadlock Fix F exists to close, just on
+  `material_reservations` instead of `products`
+- Fix F or the consumption superset lock uses a bare `FOR UPDATE` on
+  `material_reservations` instead of `FOR NO KEY UPDATE` — `material_consumption
+  .reservation_id`'s FK to `material_reservations(id)` makes this the same
+  lock-mode error a fourth review pass already found on `products`
+- Fix F adds `FOR UPDATE SKIP LOCKED` (or any skip-locked variant) without
+  explicitly relabeling it as a best-effort semantic change with its own
+  retry/next-run acceptance criteria — the primary design is blocking,
+  complete-sweep `ORDER BY id FOR NO KEY UPDATE`, matching the "lock-order
+  only, no business-behavior change" standard already held for Fix C/D
+- Fix F's GREEN/RED acceptance relies on `expires_at` index or heap scan
+  order to force the counter-ordering condition instead of an explicit,
+  literal-order test-only mutant with an advisory-lock gate (the same
+  standard the tenth/eleventh corrections already established for the
+  `products` standalone helper-order mutant) — a planner-dependent fixture
+  can pass GREEN without the ordering fix ever being exercised
+- Fix F wraps `quantity_released = quantity_reserved - quantity_consumed` in
+  `COALESCE(quantity_consumed, 0)` or otherwise changes its `NULL`-propagation
+  behavior — that is a data-semantics tightening independent of lock
+  ordering and does not belong bundled into 191 (the thirteenth correction's
+  point 3); it is a separate, explicitly named follow-up
+- Fix F's preflight queries `cron.job` without guarding on
+  `to_regclass('cron.job') IS NOT NULL` — this fails the whole preflight on
+  any environment without `pg_cron` installed, for a check that is
+  informational, not a gate
+- the residual multi-row client-write risk on `products`/`material_reservations`
+  is described only as a retryable `40P01` footnote instead of being recorded
+  as an F1/write-surface-audit input — a direct client `PATCH` never goes
+  through an RPC's atomicity guarantee at all, so "safe to retry" understates
+  what is actually open here
