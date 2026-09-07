@@ -1,4 +1,5 @@
-import { useEffect, useRef, type ReactNode, type SyntheticEvent } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -55,47 +56,44 @@ export function PermissionRevalidationBoundary({
   children,
 }: PermissionRevalidationBoundaryProps) {
   const { t } = useTranslation();
-  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!blocked) return;
 
-    const active = document.activeElement;
-    if (active instanceof HTMLElement && rootRef.current?.contains(active)) {
-      active.blur();
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
     }
+
+    const blockEvent = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+    };
+
+    const eventTypes = ['pointerdown', 'click', 'keydown', 'beforeinput', 'submit'] as const;
+    eventTypes.forEach(type => document.addEventListener(type, blockEvent, true));
+    return () => {
+      eventTypes.forEach(type => document.removeEventListener(type, blockEvent, true));
+    };
   }, [blocked]);
 
-  const blockEvent = (event: SyntheticEvent) => {
-    if (!blocked) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-
   return (
-    <div
-      ref={rootRef}
-      className={blocked ? 'relative' : 'contents'}
-      onPointerDownCapture={blockEvent}
-      onClickCapture={blockEvent}
-      onKeyDownCapture={blockEvent}
-      onBeforeInputCapture={blockEvent}
-      onSubmitCapture={blockEvent}
-    >
+    <>
       {children}
-      {blocked && (
+      {blocked && createPortal(
         <div
           data-testid="permission-revalidation-blocker"
           role="status"
           aria-live="assertive"
-          className="absolute inset-0 z-50 flex min-h-[12rem] items-center justify-center bg-background"
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-background"
         >
           <div className="text-center space-y-4 p-6">
             <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
             <p className="text-muted-foreground">{t('auth.checkingPermissions')}</p>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
