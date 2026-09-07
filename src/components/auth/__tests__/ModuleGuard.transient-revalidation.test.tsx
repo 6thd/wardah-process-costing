@@ -1,6 +1,7 @@
 // Issue #239: transient permission revalidation failures must fail closed
 // without destroying the already-mounted page state.
 
+import { useEffect } from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
@@ -50,10 +51,17 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 }
 
 let mountCount = 0;
+let unmountCount = 0;
 let submitCount = 0;
 
 function DraftForm() {
-  mountCount += 1;
+  useEffect(() => {
+    mountCount += 1;
+    return () => {
+      unmountCount += 1;
+    };
+  }, []);
+
   return (
     <form
       onSubmit={event => {
@@ -89,6 +97,7 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     rpcMock.mockReset();
     clearPermissionCache();
     mountCount = 0;
+    unmountCount = 0;
     submitCount = 0;
     authState = { user: { id: 'user-1' }, currentOrgId: 'org-a', isAuthenticated: true };
   });
@@ -98,9 +107,10 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     render(<Tree />);
 
     const input = await screen.findByLabelText('draft-note') as HTMLInputElement;
+    await waitFor(() => expect(mountCount).toBe(1));
     await userEvent.type(input, 'unsaved text');
     expect(input.value).toBe('unsaved text');
-    expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
 
     // A refocus revalidation reaches no trustworthy backend answer.
     rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } });
@@ -110,10 +120,11 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
       expect(screen.getByTestId('permission-revalidation-blocker')).toBeInTheDocument()
     );
 
-    // The same component instance survives, including local DOM state.
+    // The same mounted component survives, including local DOM state.
     expect(screen.getByLabelText('draft-note')).toBeInTheDocument();
     expect((screen.getByLabelText('draft-note') as HTMLInputElement).value).toBe('unsaved text');
     expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
 
     // Fail closed at the UI boundary while trust is unavailable.
     await userEvent.click(screen.getByText('save-draft'));
@@ -128,6 +139,7 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
 
     expect((screen.getByLabelText('draft-note') as HTMLInputElement).value).toBe('unsaved text');
     expect(mountCount).toBe(1);
+    expect(unmountCount).toBe(0);
 
     await userEvent.click(screen.getByText('save-draft'));
     expect(submitCount).toBe(1);
@@ -137,6 +149,7 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     rpcMock.mockResolvedValueOnce(snapshot());
     render(<Tree />);
     await screen.findByLabelText('draft-note');
+    await waitFor(() => expect(mountCount).toBe(1));
 
     rpcMock.mockResolvedValueOnce(snapshot({ permission_keys: [] }));
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
@@ -144,5 +157,6 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     await waitFor(() => expect(screen.getByText('auth.accessDenied')).toBeInTheDocument());
     expect(screen.queryByLabelText('draft-note')).not.toBeInTheDocument();
     expect(screen.queryByTestId('permission-revalidation-blocker')).not.toBeInTheDocument();
+    expect(unmountCount).toBe(1);
   });
 });
