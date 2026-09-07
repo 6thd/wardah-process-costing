@@ -30,9 +30,14 @@ export function withPermission<P extends object>(
   const { module, action, fallback: Fallback, showError = true } = options;
 
   return function ProtectedComponent(props: P) {
-    const { hasPermission, loading, error } = usePermissions();
+    const { hasPermission, loading, error, permissionIdentityKey } = usePermissions();
     const hasAccess = hasPermission(module, action);
-    const recoveryBlocked = usePermissionRecoveryBlock({ hasAccess, loading, error });
+    const recoveryBlocked = usePermissionRecoveryBlock({
+      hasAccess,
+      loading,
+      error,
+      identityKey: permissionIdentityKey,
+    });
 
     if (loading && !recoveryBlocked) {
       return (
@@ -113,9 +118,14 @@ interface PermissionGuardProps {
 }
 
 export function PermissionGuard({ module, action, children, fallback }: PermissionGuardProps) {
-  const { hasPermission, loading, error } = usePermissions();
+  const { hasPermission, loading, error, permissionIdentityKey } = usePermissions();
   const hasAccess = hasPermission(module, action);
-  const recoveryBlocked = usePermissionRecoveryBlock({ hasAccess, loading, error });
+  const recoveryBlocked = usePermissionRecoveryBlock({
+    hasAccess,
+    loading,
+    error,
+    identityKey: permissionIdentityKey,
+  });
 
   if (loading && !recoveryBlocked) {
     return (
