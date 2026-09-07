@@ -2400,8 +2400,13 @@ Carry forward, verbatim except for the stated change to each:
 
 - Valuation: FIFO / LIFO / weighted average, including queue rewrite
 - SLE insert (incoming positive qty; outgoing negative qty and COGS)
-- 10-arg source-line guards (`STOCK_SOURCE_LINE_REQUIRED` /
-  `STOCK_SOURCE_LINE_MISMATCH`) and `source_line_id` storage
+- source-line overloads (incoming 10-arg / outgoing 9-arg): their source-line
+  guards (`STOCK_SOURCE_LINE_REQUIRED` /
+  `STOCK_SOURCE_LINE_MISMATCH`) and `source_line_id` storage. Migration 187
+  installs these on **both** of its overloads — incoming at 10 args and
+  outgoing at 9 — so evidence scoped to a single arity would silently omit
+  outgoing's. Name both signatures explicitly; never describe this pair by one
+  shared argument count
 - Outgoing reservation floor (`INSUFFICIENT_UNRESERVED_STOCK`) and
   `BIN_NOT_FOUND` / `INSUFFICIENT_STOCK`
 - 9-arg incoming early `NO_WAREHOUSE_OR_QTY` JSON return
@@ -2438,7 +2443,8 @@ Carry forward, verbatim except for the stated change to each:
   `GRANT EXECUTE ... TO authenticated` line; Migration 101 revoked it again,
   explicitly noting in its own comment that it was reversing 97
   ("إعادة إغلاق ثغرة wardah_apply_stock_incoming (عكستها 97)"). Migration 187's
-  10-arg overloads instead use three separate statements per function
+  source-line overloads (incoming 10-arg / outgoing 9-arg) instead use three
+  separate statements per function
   (`REVOKE ALL ... FROM PUBLIC`, `REVOKE ALL ... FROM anon`,
   `REVOKE ALL ... FROM authenticated`) plus `GRANT EXECUTE ... TO service_role`
   — not a single collapsed `REVOKE ALL FROM PUBLIC`.

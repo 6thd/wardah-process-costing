@@ -92,7 +92,7 @@ For each deterministic race/control, assert the relevant ledger fields, includin
 - stock value / valuation rate where the live contract records them;
 - `qty_after_transaction` continuity for the tested key;
 - COGS/value on outgoing paths where already part of the function contract;
-- `source_line_id` behavior on the 10-arg paths.
+- `source_line_id` behavior on the source-line-aware paths: incoming 10-arg and outgoing 9-arg. Migration 187 added the source-line contract to both, and their arities differ, so evidence must be captured per signature — a gate scoped to one shared argument count would test incoming and silently skip outgoing.
 
 The SLE remains ledger truth; GREEN must never be inferred only from `bins`/`products` projections.
 
