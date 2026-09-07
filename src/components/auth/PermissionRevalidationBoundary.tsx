@@ -1,12 +1,12 @@
 import { useEffect, useRef, type ReactNode, type SyntheticEvent } from 'react';
 import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface PermissionRecoveryState {
   readonly hasAccess: boolean;
   readonly loading: boolean;
   readonly error: string | null;
+  readonly identityKey?: string | null;
 }
 
 /**
@@ -23,9 +23,8 @@ export function usePermissionRecoveryBlock({
   hasAccess,
   loading,
   error,
+  identityKey,
 }: PermissionRecoveryState): boolean {
-  const { user, currentOrgId } = useAuth();
-  const identityKey = user?.id && currentOrgId ? `${user.id}:${currentOrgId}` : null;
   const identityRef = useRef(identityKey);
   const lastTrustedAccessRef = useRef(false);
   const blockedRef = useRef(false);
