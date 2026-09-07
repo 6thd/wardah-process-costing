@@ -102,6 +102,8 @@ export function usePermissions(): UserPermissions & {
   hasAllPermissions: (checks: Array<{ module: string; action: string }>) => boolean;
   isSensitivePermission: (permissionKey: string) => boolean;
   refreshPermissions: () => Promise<void>;
+  /** Current user/org pair for presentation-layer recovery isolation only. */
+  permissionIdentityKey: string | null;
 } {
   const { user, currentOrgId, isAuthenticated } = useAuth();
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -415,6 +417,7 @@ export function usePermissions(): UserPermissions & {
     hasAllPermissions,
     isSensitivePermission,
     refreshPermissions,
+    permissionIdentityKey: renderRequestKey,
   };
 }
 
