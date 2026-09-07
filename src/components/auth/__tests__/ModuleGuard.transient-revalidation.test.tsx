@@ -50,6 +50,12 @@ function snapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>(res => { resolve = res; });
+  return { promise, resolve };
+}
+
 let mountCount = 0;
 let unmountCount = 0;
 let submitCount = 0;
@@ -112,7 +118,6 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     expect(input.value).toBe('unsaved text');
     expect(unmountCount).toBe(0);
 
-    // A refocus revalidation reaches no trustworthy backend answer.
     rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } });
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
 
@@ -120,17 +125,14 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
       expect(screen.getByTestId('permission-revalidation-blocker')).toBeInTheDocument()
     );
 
-    // The same mounted component survives, including local DOM state.
     expect(screen.getByLabelText('draft-note')).toBeInTheDocument();
     expect((screen.getByLabelText('draft-note') as HTMLInputElement).value).toBe('unsaved text');
     expect(mountCount).toBe(1);
     expect(unmountCount).toBe(0);
 
-    // Fail closed at the UI boundary while trust is unavailable.
     await userEvent.click(screen.getByText('save-draft'));
     expect(submitCount).toBe(0);
 
-    // A later successful revalidation restores interaction without remounting.
     rpcMock.mockResolvedValueOnce(snapshot());
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     await waitFor(() =>
@@ -158,5 +160,33 @@ describe('ModuleGuard — transient permission revalidation failure (#239)', () 
     expect(screen.queryByLabelText('draft-note')).not.toBeInTheDocument();
     expect(screen.queryByTestId('permission-revalidation-blocker')).not.toBeInTheDocument();
     expect(unmountCount).toBe(1);
+  });
+
+  it('drops preserved old-org content immediately if the identity changes while recovery is blocked', async () => {
+    rpcMock.mockResolvedValueOnce(snapshot());
+    const { rerender } = render(<Tree />);
+    await screen.findByLabelText('draft-note');
+    await waitFor(() => expect(mountCount).toBe(1));
+
+    rpcMock.mockResolvedValueOnce({ data: null, error: { message: 'network blip' } });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    await waitFor(() =>
+      expect(screen.getByTestId('permission-revalidation-blocker')).toBeInTheDocument()
+    );
+
+    const pending = deferred<{ data: unknown; error: null }>();
+    rpcMock.mockImplementation(() => pending.promise);
+    authState = { ...authState, currentOrgId: 'org-b' };
+    rerender(<Tree />);
+
+    expect(screen.queryByLabelText('draft-note')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('permission-revalidation-blocker')).not.toBeInTheDocument();
+    expect(screen.getByText('auth.checkingPermissions')).toBeInTheDocument();
+    expect(unmountCount).toBe(1);
+
+    act(() => {
+      pending.resolve(snapshot({ org_id: 'org-b' }));
+    });
+    await waitFor(() => expect(screen.getByLabelText('draft-note')).toBeInTheDocument());
   });
 });
