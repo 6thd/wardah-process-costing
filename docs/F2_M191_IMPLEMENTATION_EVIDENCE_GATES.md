@@ -3,6 +3,7 @@
 **Status:** companion contract for the design in `F2_STOCK_BIN_RACE_FIX_DESIGN.md`.
 **Scope:** design/acceptance only. No SQL is implemented by this file.
 **Authority:** the main F2 design remains the source of truth for lock order, function bodies, behavior preservation, and scope. If this checklist ever conflicts with that design, the main design wins and this file must be corrected before implementation.
+**Backlink:** the main design links to this companion from its status block and from §9's implementation gate, and records this file's addition as its twenty-third correction. The link is deliberately two-way — a reader entering through either document must be able to find the other.
 
 This companion captures the implementation-quality recommendations that are useful for F2 without changing the architecture or broadening the fix. It deliberately does **not** convert PR #236 into an implementation PR.
 
