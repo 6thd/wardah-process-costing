@@ -30,13 +30,13 @@ export function withPermission<P extends object>(
   const { module, action, fallback: Fallback, showError = true } = options;
 
   return function ProtectedComponent(props: P) {
-    const { hasPermission, loading, error, permissionIdentityKey } = usePermissions();
+    const { hasPermission, loading, error, permissionIdentityKey, refreshPermissions } = usePermissions();
     const hasAccess = hasPermission(module, action);
     const recoveryBlocked = usePermissionRecoveryBlock({
       hasAccess,
       loading,
       error,
-      identityKey: permissionIdentityKey,
+      scopeKey: `${permissionIdentityKey ?? 'anonymous'}|${module}|${action}`,
     });
 
     if (loading && !recoveryBlocked) {
@@ -87,7 +87,7 @@ export function withPermission<P extends object>(
     }
 
     return (
-      <PermissionRevalidationBoundary blocked={recoveryBlocked}>
+      <PermissionRevalidationBoundary blocked={recoveryBlocked} onRetry={refreshPermissions}>
         <Component {...props} />
       </PermissionRevalidationBoundary>
     );
@@ -118,13 +118,13 @@ interface PermissionGuardProps {
 }
 
 export function PermissionGuard({ module, action, children, fallback }: PermissionGuardProps) {
-  const { hasPermission, loading, error, permissionIdentityKey } = usePermissions();
+  const { hasPermission, loading, error, permissionIdentityKey, refreshPermissions } = usePermissions();
   const hasAccess = hasPermission(module, action);
   const recoveryBlocked = usePermissionRecoveryBlock({
     hasAccess,
     loading,
     error,
-    identityKey: permissionIdentityKey,
+    scopeKey: `${permissionIdentityKey ?? 'anonymous'}|${module}|${action}`,
   });
 
   if (loading && !recoveryBlocked) {
@@ -140,7 +140,7 @@ export function PermissionGuard({ module, action, children, fallback }: Permissi
   }
 
   return (
-    <PermissionRevalidationBoundary blocked={recoveryBlocked}>
+    <PermissionRevalidationBoundary blocked={recoveryBlocked} onRetry={refreshPermissions}>
       {children}
     </PermissionRevalidationBoundary>
   );

@@ -121,11 +121,12 @@ export function ModuleGuard({
     loading,
     error,
     permissionIdentityKey,
+    refreshPermissions,
   } = usePermissions();
 
   // Calculate the current backend-backed decision even while loading/error is
   // active. The recovery helper remembers only a previously successful true
-  // decision for the same identity; it never invents access for a fresh load.
+  // decision for the same scope; it never invents access for a fresh load.
   let hasAccess = true;
 
   // التحقق من Super Admin
@@ -138,6 +139,18 @@ export function ModuleGuard({
     hasAccess = false;
   }
 
+  // المسار الفرعي الذي يحكمه هذا الحارس الآن — مرفوع خارج فرع القرار لأن
+  // نطاق الاسترجاع أدناه يحتاجه أيضًا، لا فحص الصلاحية وحده.
+  const basePath = moduleCode ? (getModuleConfig(moduleCode)?.path ?? `/${moduleCode}`) : '';
+  const subPath =
+    !moduleCode || action
+      ? ''
+      : location.pathname === basePath
+        ? '/'
+        : location.pathname.startsWith(`${basePath}/`)
+          ? location.pathname.slice(basePath.length)
+          : location.pathname;
+
   // التحقق من صلاحية الموديول
   if (hasAccess && moduleCode) {
     if (action) {
@@ -147,23 +160,32 @@ export function ModuleGuard({
       // امتلاك أي صلاحية داخل الموديول لا يكفي بعد الآن: كل subroute مربوط
       // بمفتاح `read`/`view` محدد أو anyOf صريح في route-permissions.ts.
       // مسار غير مربوط في العقد يفشل مغلقًا (requirement === undefined).
-      const basePath = getModuleConfig(moduleCode)?.path ?? `/${moduleCode}`;
-      const subPath =
-        location.pathname === basePath
-          ? '/'
-          : location.pathname.startsWith(`${basePath}/`)
-            ? location.pathname.slice(basePath.length)
-            : location.pathname;
       const requirement = resolveRoutePermission(moduleCode, subPath);
       hasAccess = requirement != null && satisfiesRouteRequirement(requirement, hasPermissionKey);
     }
   }
 
+  // What a preserved decision is granted FOR: the identity AND the thing being
+  // guarded. One ModuleGuard wraps a whole module (`sales/*` -> SalesModule)
+  // whose pages carry different keys and which routes internally, so a
+  // navigation to `/sales/customers` while a block is latched for
+  // `/sales/orders` must not inherit that block — otherwise the guard mounts a
+  // screen whose own route requirement was never satisfied, and its data
+  // effects run behind the overlay.
+  const guardScope = [
+    permissionIdentityKey ?? 'anonymous',
+    requireSuperAdmin ? 'super' : '',
+    requireOrgAdmin ? 'org-admin' : '',
+    moduleCode ?? '',
+    action ?? '',
+    subPath,
+  ].join('|');
+
   const recoveryBlocked = usePermissionRecoveryBlock({
     hasAccess,
     loading,
     error,
-    identityKey: permissionIdentityKey,
+    scopeKey: guardScope,
   });
 
   // A fresh identity still uses the destructive loading screen: preserving a
@@ -190,7 +212,7 @@ export function ModuleGuard({
   }
 
   return (
-    <PermissionRevalidationBoundary blocked={recoveryBlocked}>
+    <PermissionRevalidationBoundary blocked={recoveryBlocked} onRetry={refreshPermissions}>
       {children}
     </PermissionRevalidationBoundary>
   );
