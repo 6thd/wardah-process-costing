@@ -1131,8 +1131,9 @@ This document chooses the remediation shape. It does not implement it.
 > `INVALID_QUALITY_STATUS` — those stay exactly where they are, decided by
 > the unchanged loop, in unchanged order — and it must not raise on a
 > malformed `product_id` string either. Guard the cast with a `CASE` whose
-> condition is a UUID-shape check, so the cast is only attempted on a
-> candidate that already matches the shape (PostgreSQL evaluates `CASE`
+> condition uses PostgreSQL's own `pg_input_is_valid(..., 'uuid')`, so the
+> cast is only attempted on a candidate the live UUID parser accepts
+> (PostgreSQL evaluates `CASE`
 > branches in order and only evaluates the matching branch — unlike a
 > `WHERE` predicate, whose evaluation order relative to a joined cast is not
 > guaranteed):
@@ -1144,8 +1145,7 @@ This document chooses the remediation shape. It does not implement it.
 >   JOIN public.products p
 >     ON p.org_id = v_org
 >    AND p.id = CASE
->                 WHEN line.value->>'product_id' ~
->                   '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+>                 WHEN pg_input_is_valid(line.value->>'product_id', 'uuid')
 >                 THEN (line.value->>'product_id')::uuid
 >                 ELSE NULL
 >               END
@@ -1179,6 +1179,35 @@ This document chooses the remediation shape. It does not implement it.
 > rows (validation-error ordering preserved; malformed-UUID-in-a-later-line
 > does not preempt an earlier line's own error); §9's reject-list gained
 > matching bullets.
+
+> **Twenty-fourth correction (two P2s from the fresh review of `f5826697`):
+> candidate extraction must accept every spelling PostgreSQL's live UUID cast
+> accepts, and the shared lock contract's universal part is the product prefix,
+> not outgoing's function-specific all-bins scan.**
+>
+> First, the twenty-second correction's hand-written canonical UUID regex was
+> non-throwing but not parser-equivalent to the unchanged loop's `::uuid` cast.
+> PostgreSQL also accepts valid non-canonical spellings, including brace-wrapped
+> UUIDs and 32 hexadecimal digits without hyphens. The regex silently omitted
+> those candidates, after which the loop could resolve the product and hit the
+> fail-closed `PRODUCT_NOT_PRELOCKED` guard for a request that succeeds today.
+> Both affected Fix E pre-passes now use PostgreSQL's own
+> `pg_input_is_valid(text, 'uuid')`, with the cast still confined to the matching
+> `CASE` branch. Malformed, nonexistent, and wrong-org candidates remain silently
+> excluded; only the unchanged per-line loop decides their business errors and
+> their order. §7 adds parser-parity GREEN coverage for both RPCs, and §9 rejects
+> either eager casts or narrower hand-written shape tests.
+>
+> Second, an earlier statement of the shared contract incorrectly generalized
+> outgoing's existing ordered all-bins scan to every object Migration 191 touches.
+> The universal invariant is only the complete, distinct, globally ordered
+> `products FOR NO KEY UPDATE` prefix before any bins work (and before the loop for
+> multi-line callers). Bin footprints remain function-specific: incoming locks
+> only its target bin, outgoing retains its all-bins scan, and cancellation,
+> manual movement, and Fix E callers retain their existing per-line/bin behavior.
+> Fix F remains a separate same-table `material_reservations` ordering contract.
+> This is a correction to the prose invariant, not broader locking or a change to
+> Fix A-F.
 
 ---
 
@@ -1380,11 +1409,13 @@ whole remediation.
 
 ### The contract, stated once
 
-Every function this migration touches acquires, in this order:
+The universal invariant for products/bins stock work is:
 
-1. **Product row(s)** — the *complete distinct set* of `products` rows this
+1. **Product-row prefix** — before a function touches any `bins` row for stock
+   work, it holds `FOR NO KEY UPDATE` on the *complete distinct set* of
+   `products` rows this
    *call* (not just this line) is about to touch, in ascending `id` order,
-   locked before step 2. For a function that only ever handles one product
+   acquired before any bins work. For a function that only ever handles one product
    per call (`wardah_apply_stock_incoming`/`outgoing`,
    `rpc_manual_stock_movement_v2`), this set has exactly one member — "locked
    in ascending order" is trivially true and costs nothing extra. For a
@@ -1394,20 +1425,27 @@ Every function this migration touches acquires, in this order:
    `rpc_consume_reserved_materials_v2`), this is the distinct product set
    across *all* lines, resolved and locked once, **before the per-line loop
    starts** — not discovered and locked line by line as the loop runs.
-2. **Existing bins for that product** — the Migration 186 outgoing order,
-   `ORDER BY warehouse_id, id FOR UPDATE` (no-op when none exist)
-3. **Target bin** — `SELECT … FOR UPDATE` on `(product, warehouse)`, then
-   insert-or-update from the locked snapshot
-4. **Product projection** — re-`SUM` bins and `UPDATE products` while still
-   holding (1)
 
-Steps 2-4 are what `wardah_apply_stock_incoming`/`outgoing` already do (Fix
-A/B below); every other function in the table above either calls into one of
-those two helpers per line, or does the bins/products work itself
-(`rpc_cancel_stock_adjustment`). What changes for the other eight functions
-is entirely about *when* step 1 happens relative to steps 2-4 — none of them
-need their valuation, reservation, idempotency, or business-rule logic
-touched.
+After that universal prefix, each function preserves its existing bin footprint:
+
+- `wardah_apply_stock_incoming` 9/10 locks only the target bin (`FOR UPDATE`
+  when it exists; insert/retry when absent), then computes the fresh `SUM` and
+  projection under the product lock. It gains no all-bins scan.
+- `wardah_apply_stock_outgoing` 9/10 retains its existing all-bins lock in
+  `ORDER BY warehouse_id, id FOR UPDATE`, followed by its existing outgoing
+  valuation/reservation/target-bin logic and projection.
+- `rpc_cancel_stock_adjustment` takes its complete product-set prefix, then runs
+  its existing per-line cancellation/SLE/bin/projection logic; it gains no
+  all-bins scan.
+- `rpc_manual_stock_movement_v2` takes its one-product prefix before its first
+  bins reference, then preserves its warehouse-inference, locked-bin, and helper
+  behavior; it gains no all-bins scan.
+- The four Fix E top-level callers take their complete product-set prefix before
+  their unchanged per-line business logic and helper calls; each helper's bin
+  footprint remains function-specific.
+
+Fix F is a separate same-table ordering contract for `material_reservations`,
+not part of this products/bins footprint.
 
 ### Shared helper: `wardah_lock_products_for_stock_write`
 
@@ -1551,14 +1589,16 @@ in this codebase.
 
 ### Why putting the lock only on incoming was never going to be enough
 
-Incoming today does an unlocked step 4 with no step 1 at all. Outgoing does
-2-3-4 without 1. `rpc_cancel_stock_adjustment` does a 3-equivalent (`UPDATE
+Incoming today updates its target bin and then does an unlocked projection
+with no product prefix at all. Outgoing takes its all-bins/target-bin/projection
+path without the prefix. `rpc_cancel_stock_adjustment` does a bin step (`UPDATE
 bins`, which row-locks implicitly) then a 4-equivalent, also without 1 — and
 it can do this for several different products across one adjustment's lines.
 `rpc_manual_stock_movement_v2` takes its own `bins` lock (to read the current
 quantity for its `'adjustment'` movement-type math) before ever calling
 incoming/outgoing, which is a 3-before-1 inversion at the caller level even
-though the callee it then invokes will do 1-then-2-3-4 correctly in
+though the callee it then invokes will take the product prefix before its own
+function-specific bin/projection path in
 isolation. Putting (1) on incoming alone deadlocks with every one of these:
 
 - incoming holds `products`, waits for `bins`
@@ -1568,7 +1608,8 @@ isolation. Putting (1) on incoming alone deadlocks with every one of these:
 - manual movement holds a `bins` row (its own pre-lock), waits for `products`
   (inside the helper it's about to call) — same shape again
 
-And even after every *individual* function does 1-2-3-4 correctly, the four
+And even after every *individual* function takes the prefix before its own bins
+work correctly, the four
 multi-line callers introduce a **second, transaction-level** version of the
 same problem: each call to the helper only locks *that line's* product before
 proceeding, so two different top-level calls (say, one `rpc_post_goods_receipt`
@@ -1581,7 +1622,8 @@ touch. This is why step 1 must happen once per top-level call, for the
 *complete* set that call will touch, not once per line.
 
 So outgoing 9-arg/10-arg, `rpc_cancel_stock_adjustment`, and
-`rpc_manual_stock_movement_v2` must all take (1) **before** (2) in the same
+`rpc_manual_stock_movement_v2` must all take the product prefix **before their
+first bins work** in the same
 migration (lock-order compatibility, not a claim any of them have RED-A or
 RED-B); and `rpc_post_goods_receipt`, `rpc_post_delivery_note`,
 `rpc_submit_stock_adjustment`, and `rpc_consume_reserved_materials_v2` must
@@ -1590,11 +1632,15 @@ per-call product set before their existing per-line loop starts (a second,
 transaction-scoped instance of the same contract, not a new one).
 
 ```text
-incoming/outgoing (after 191)
+incoming (after 191)
   products  FOR NO KEY UPDATE   ← always exists; serializes the SKU without blocking FK inserts
-  bins*     FOR UPDATE ORDER BY warehouse_id, id
-  bins[wh]  FOR UPDATE / insert from locked snapshot
+  bins[wh]  FOR UPDATE / insert-retry from locked snapshot (target bin only)
   SUM bins → UPDATE products    ← recompute under the product lock
+
+outgoing (after 191)
+  products  FOR NO KEY UPDATE   ← same universal prefix
+  bins*     FOR UPDATE ORDER BY warehouse_id, id  ← existing outgoing-only scan
+  (existing valuation/reservation/target-bin logic, then projection)
 
 rpc_cancel_stock_adjustment / multi-line callers (after 191)
   wardah_lock_products_for_stock_write(org, DISTINCT product_id across ALL lines)
@@ -1747,18 +1793,19 @@ v_products := ARRAY(
   JOIN public.products p
     ON p.org_id = v_org
    AND p.id = CASE
-                WHEN line.value->>'product_id' ~
-                  '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                WHEN pg_input_is_valid(line.value->>'product_id', 'uuid')
                 THEN (line.value->>'product_id')::uuid
                 ELSE NULL
               END
 );
 ```
 
-The `CASE` only attempts the cast on a candidate that already matches a
-UUID's shape (PostgreSQL evaluates `CASE` branches in order and only the
-matching branch's `THEN`, unlike a `WHERE` predicate's evaluation order
-relative to a joined cast, which is not guaranteed) — a malformed or
+The `CASE` only attempts the cast when PostgreSQL's own UUID input validator
+accepts the candidate (PostgreSQL evaluates `CASE` branches in order and only
+the matching branch's `THEN`, unlike a `WHERE` predicate's evaluation order
+relative to a joined cast, which is not guaranteed). This is deliberately
+stronger than a canonical UUID regex: it accepts brace-wrapped and hyphenless
+spellings exactly as the unchanged live `::uuid` cast does. A malformed or
 nonexistent line's `product_id` is silently excluded from `v_products`
 rather than raised on, and the unchanged loop is what decides, in its own
 unchanged order, what happens with the line that produced it. No superset or
@@ -1794,8 +1841,8 @@ v_products := ARRAY(
       ON sil.invoice_id = v_invoice_id
      AND sil.org_id = v_org
      AND sil.id = CASE
-                    WHEN line.value->>'sales_invoice_line_id' ~
-                      '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+                    WHEN pg_input_is_valid(
+                      line.value->>'sales_invoice_line_id', 'uuid')
                     THEN (line.value->>'sales_invoice_line_id')::uuid
                     ELSE NULL
                   END
@@ -2545,6 +2592,7 @@ numeric helpers, with inverted assertions:
 | New: `rpc_post_delivery_note` duplicate-line-id regression (twenty-first correction) | one payload lists the *same* `sales_invoice_line_id` twice (e.g. an invoice line with `quantity = 10`, two payload entries each delivering `6`). Must hold identically before and after 191: the first occurrence sees `delivered = 0` and applies; the second occurrence's own `SELECT ... FOR UPDATE` must see the *updated* `delivered = 6` from the first occurrence within the same transaction (read-your-own-writes), not the upfront prelock's stale snapshot — so `6 + 6 > 10` correctly raises `OVER_DELIVERY` (or, with `v_allow_over` set, both apply and `unit_cost_at_sale` reflects the correct cumulative weighted average across both, not two independent computations against the same stale base). A build that caches the upfront prelock's read and reuses it in the loop (rather than re-querying every iteration) fails this row — both occurrences would compute against `delivered = 0`, silently under-recording total `delivered_quantity` and corrupting the weighted-average `unit_cost_at_sale` |
 | New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` line-error-ordering regression (twenty-second correction) | line 1 has an invalid `quality_status` (goods receipt) / a missing `sales_invoice_line_id` (delivery note); line 2 has a well-formed but nonexistent product/line reference. Must hold identically before and after 191: the error raised is line 1's own (`INVALID_QUALITY_STATUS: line=1` / `LINE_REQUIRED: line=1`), never a helper-level `PRODUCT_NOT_FOUND_OR_WRONG_ORG` or `INVALID_INVOICE_LINE` surfaced from line 2 ahead of it — the loop's existing per-line validation order is the sole source of which error a given payload produces, exactly as it is today; the pre-pass's own candidate resolution must never itself raise or preempt that order |
 | New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` malformed-later-line regression (twenty-second correction) | line 1 has an invalid `quality_status` / a missing `sales_invoice_line_id`; line 2's `product_id` / `sales_invoice_line_id` is a syntactically malformed (non-UUID-shaped) string. Must hold identically before and after 191: the error raised is still line 1's own; a pre-pass that casts every line's id to `uuid` in one query (`SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`, or an equivalent `ANY(ARRAY(...::uuid...))` for delivery note) fails this row — confirmed empirically to raise a raw `invalid input syntax for type uuid` before the loop ever runs, replacing line 1's own error with a Postgres-level exception that isn't even one of this RPC's own error codes |
+| New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` UUID-parser-parity regression (twenty-fourth correction) | for **each** affected pre-pass, submit at least one reference using a PostgreSQL-valid non-canonical spelling accepted by the unchanged loop's `::uuid` cast (for example a brace-wrapped UUID for goods receipt and the same UUID's 32-hex, hyphenless form for delivery note). Each request must resolve, prelock, and succeed identically before and after 191 — never reach `PRODUCT_NOT_PRELOCKED`. A canonical `8-4-4-4-12` regex or other hand-written shape test fails this row even if the malformed-later-line regression passes |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
 | Static contract, `wardah_lock_products_for_stock_write` | exists, is not `SECURITY DEFINER`, has its own `SET search_path`, references `public.products` schema-qualified, and has no `EXECUTE` grant for `anon`/`authenticated`/`PUBLIC` |
 | Static contract, `rpc_consume_reserved_materials_v2` | the pre-loop reservation lock filters only on `org_id`/`mo_id` (every row for the MO, any status), locks `ORDER BY id FOR NO KEY UPDATE` (not a bare `FOR UPDATE` — `material_consumption.reservation_id`'s FK to `material_reservations(id)` makes this the same lock-mode argument as `products`; see Fix F) and no `status` predicate in the locking query itself; the `status = 'reserved'` filter is applied afterward, reading from the already-locked rows, not before locking (locking a `status = 'reserved'`-filtered query is the earlier, wrong shape — it can miss a row that flips to `'reserved'` mid-transaction); the `PRODUCT_NOT_PRELOCKED` guard appears inside the per-line loop; **no bare `FOR UPDATE` on `material_reservations` appears anywhere in the function body** — this includes both per-line branches (`reservation_id` given, and `item_id`-derived `ORDER BY created_at, id LIMIT 1`), not only the pre-loop superset lock (the fifteenth correction: an earlier revision left these two as `FOR UPDATE`, wrongly reasoning the upgrade from the superset's `FOR NO KEY UPDATE` was a no-op) |
@@ -3254,11 +3302,18 @@ Reviewers should reject the implementation PR if:
   twenty-second correction above)
 - either Fix E pre-pass casts every payload line's id to `uuid` in one query
   (`SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`,
-  or `ANY(ARRAY(...::uuid...))`) instead of guarding the cast with a `CASE`
-  keyed on a UUID-shape check — confirmed empirically that the unguarded
-  form raises a raw `invalid input syntax for type uuid` for a malformed
+  or `ANY(ARRAY(...::uuid...))`), or guards the cast with a hand-written UUID
+  regex/shape test that is narrower than the live `::uuid` parser, instead of
+  using `pg_input_is_valid(..., 'uuid')` and casting only in the matching `CASE`
+  branch — the eager form was confirmed empirically to raise a raw
+  `invalid input syntax for type uuid` for a malformed
   later line before the loop ever runs, ahead of an earlier line's own
   validation error (the twenty-second correction above)
+- it broadens incoming, cancellation, manual movement, or any Fix E caller to
+  lock all bins merely to satisfy a shared prose contract. Only outgoing retains
+  its existing ordered all-bins scan; every other object keeps the
+  function-specific bin footprint stated in §4 unless an independent behavior
+  and performance change is justified and reviewed separately
 - `rpc_post_delivery_note`'s corrected pre-pass combines `DISTINCT` with a
   locking clause in the same query (`SELECT DISTINCT sil.product_id ... FOR
   UPDATE OF sil`) — PostgreSQL rejects this outright ("FOR UPDATE is not
