@@ -10,6 +10,10 @@ import { resolveRoutePermission, satisfiesRouteRequirement } from '@/config/rout
 import { Loader2, Lock, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
+import {
+  PermissionRevalidationBoundary,
+  usePermissionRecoveryBlock,
+} from './PermissionRevalidationBoundary';
 
 // =====================================
 // Types
@@ -115,27 +119,22 @@ export function ModuleGuard({
     isOrgAdmin,
     isSuperAdmin,
     loading,
+    error,
   } = usePermissions();
 
-  // حالة التحميل
-  if (loading) {
-    return <LoadingState />;
-  }
-
-  // التحقق من الصلاحيات
+  // Calculate the current backend-backed decision even while loading/error is
+  // active. The recovery helper remembers only a previously successful true
+  // decision for the same identity; it never invents access for a fresh load.
   let hasAccess = true;
 
-  // التحقق من Super Admin
   if (requireSuperAdmin && !isSuperAdmin) {
     hasAccess = false;
   }
 
-  // التحقق من Org Admin
   if (hasAccess && requireOrgAdmin && !isOrgAdmin && !isSuperAdmin) {
     hasAccess = false;
   }
 
-  // التحقق من صلاحية الموديول
   if (hasAccess && moduleCode) {
     if (action) {
       // فحص فعل محدد صراحة: أضيق من أي مسار في العقد، ويتجاوزه.
@@ -156,23 +155,33 @@ export function ModuleGuard({
     }
   }
 
-  // إذا لم يكن لديه صلاحية
-  if (!hasAccess) {
-    // إعادة التوجيه
+  const recoveryBlocked = usePermissionRecoveryBlock({ hasAccess, loading, error });
+
+  // A fresh identity still uses the destructive loading screen: preserving a
+  // previous user's/org's page across an identity switch would be unsafe.
+  if (loading && !recoveryBlocked) {
+    return <LoadingState />;
+  }
+
+  // A successful backend answer that says access is gone still removes the
+  // page immediately. Only an unreadable background revalidation is preserved.
+  if (!hasAccess && !recoveryBlocked) {
     if (redirectTo) {
       return <Navigate to={redirectTo} state={{ from: location }} replace />;
     }
 
-    // عرض صفحة رفض الوصول
     if (showAccessDenied) {
       return <AccessDeniedPage />;
     }
 
-    // إعادة التوجيه الافتراضية
     return <Navigate to="/dashboard" state={{ from: location }} replace />;
   }
 
-  return <>{children}</>;
+  return (
+    <PermissionRevalidationBoundary blocked={recoveryBlocked}>
+      {children}
+    </PermissionRevalidationBoundary>
+  );
 }
 
 // =====================================
