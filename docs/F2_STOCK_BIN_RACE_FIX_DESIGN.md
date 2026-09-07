@@ -22,8 +22,8 @@ This document chooses the remediation shape. It does not implement it.
 > `GRANT EXECUTE`-able by `authenticated`. That is wrong. Checked directly against
 > `sql/baseline/000_schema_baseline_20260905_184634.sql` (cutoff 189, the live schema
 > `main` is currently at): the four stock-write helpers this design replaces —
-> `wardah_apply_stock_incoming` 9-arg and 10-arg, `wardah_apply_stock_outgoing` 9-arg
-> and 10-arg — carry the identical live ACL `REVOKE ALL FROM PUBLIC; GRANT ALL TO
+> `wardah_apply_stock_incoming` 9-arg and 10-arg, `wardah_apply_stock_outgoing` 8-arg
+> and 9-arg — carry the identical live ACL `REVOKE ALL FROM PUBLIC; GRANT ALL TO
 > service_role;`. None of the four grant `authenticated` anything today. (A fifth
 > function this design also touches, `rpc_cancel_stock_adjustment`, has a different,
 > unrelated ACL — see the gap note and §5 below; it is not part of this correction.)
@@ -43,7 +43,7 @@ This document chooses the remediation shape. It does not implement it.
 
 > **Gap note (found in review, not silently patched around):** the prior revision of
 > this design covered exactly four functions (`wardah_apply_stock_incoming` 9/10-arg,
-> `wardah_apply_stock_outgoing` 9/10-arg) and treated that as the complete set of
+> `wardah_apply_stock_outgoing` 8/9-arg) and treated that as the complete set of
 > `products`-mutating stock helpers. It wasn't. A systematic sweep of the live schema
 > for every writer of `products.stock_quantity` turns up six functions, not four:
 > the same four, plus `rpc_cancel_stock_adjustment`
@@ -1271,8 +1271,17 @@ This document chooses the remediation shape. It does not implement it.
 >    is the one the unchanged loop must keep owning. `line.value->>'missing_key'`
 >    is `NULL`; `pg_input_is_valid(NULL, 'uuid')` is itself `NULL`, not `false`,
 >    so the `CASE` takes its `ELSE` branch and the guarded expression yields
->    `NULL` — no exception, no match, no `GR_LINE_OBJECT_REQUIRED` /
->    `LINE_REQUIRED` decision stolen from the loop. Verified explicitly rather
+>    `NULL` — no exception, no match, and no business-error decision stolen from
+>    the loop. **The two functions differ here and the difference matters:** for
+>    goods receipt an object *missing* `product_id` is **not**
+>    `GR_LINE_OBJECT_REQUIRED` — Migration 177 raises that only when the array
+>    element is not a JSON object at all (line 201-203); an object without the
+>    key yields `v_product = NULL` and the loop raises **`ITEM_NOT_FOUND`**
+>    (line 205-211). For delivery note, Migration 133 checks
+>    `NULLIF(v_line->>'sales_invoice_line_id','') IS NULL` first and raises
+>    **`LINE_REQUIRED`** (line 171). So the correct expectation is
+>    `ITEM_NOT_FOUND` for goods receipt and `LINE_REQUIRED` for delivery note,
+>    each decided by its own unchanged loop. Verified explicitly rather
 >    than assumed from the `false` case, because a three-valued condition
 >    reaching a `CASE` is precisely the kind of detail that reads as obvious and
 >    is wrong often enough to matter.
@@ -1369,7 +1378,7 @@ wrong ledger. See `docs/db/PERMISSION_HARDENING_170_173_CHAIN.md` and
 `docs/db/TRIAL_BALANCE_CONTRACT_182_183_CHAIN.md`.
 
 Splitting RED-A and RED-B across two numbered migrations would recreate that
-chain on twelve objects now (`incoming` 9/10-arg, `outgoing` 9/10-arg,
+chain on twelve objects now (`incoming` 9/10-arg, `outgoing` 8/9-arg,
 `rpc_cancel_stock_adjustment`, `rpc_manual_stock_movement_v2`,
 `rpc_post_goods_receipt`, `rpc_post_delivery_note`,
 `rpc_submit_stock_adjustment`, `rpc_consume_reserved_materials_v2`,
@@ -1476,8 +1485,8 @@ any bin row exists — the `products` row.
 |---|---|---|---|
 | `wardah_apply_stock_incoming` 9-arg | Migration 97 | RED-A/RED-B live | yes (Goods Receipt) |
 | `wardah_apply_stock_incoming` 10-arg | Migration 187 | RED-A/RED-B live | static `pg_get_functiondef` — adjustment path only |
-| `wardah_apply_stock_outgoing` 9-arg | Migration 186 | lock-order peer, not RED-A/B | Control-2 vs incoming |
-| `wardah_apply_stock_outgoing` 10-arg | Migration 187 | lock-order peer, not RED-A/B | static |
+| `wardah_apply_stock_outgoing` 8-arg | Migration 186 | lock-order peer, not RED-A/B | Control-2 vs incoming |
+| `wardah_apply_stock_outgoing` 9-arg | Migration 187 | lock-order peer, not RED-A/B | static |
 | `rpc_cancel_stock_adjustment` | Migration 124 | lock-order peer, currently **inverted** (bins before products) | new control (§6/§7) |
 | `rpc_manual_stock_movement_v2` | Migration 134 | lock-order peer, currently **inverted** (locks its own bin, then calls the helper) | new control (§6/§7) |
 | `rpc_post_goods_receipt` | Migration 177 | multi-line caller, no upfront product lock today | new control (§6/§7) |
@@ -1527,7 +1536,7 @@ After that universal prefix, each function preserves its existing bin footprint:
 - `wardah_apply_stock_incoming` 9/10 locks only the target bin (`FOR UPDATE`
   when it exists; insert/retry when absent), then computes the fresh `SUM` and
   projection under the product lock. It gains no all-bins scan.
-- `wardah_apply_stock_outgoing` 9/10 retains its existing all-bins lock in
+- `wardah_apply_stock_outgoing` 8/9 retains its existing all-bins lock in
   `ORDER BY warehouse_id, id FOR UPDATE`, followed by its existing outgoing
   valuation/reservation/target-bin logic and projection.
 - `rpc_cancel_stock_adjustment` takes its complete product-set prefix, then runs
@@ -1721,7 +1730,7 @@ touch. This is why the product prefix must happen once per top-level call, for
 the *complete* transaction-wide product set that call will touch, not once per
 line.
 
-So outgoing 9-arg/10-arg, `rpc_cancel_stock_adjustment`, and
+So outgoing 8-arg/9-arg, `rpc_cancel_stock_adjustment`, and
 `rpc_manual_stock_movement_v2` must all take the product prefix **before their
 first bins work** in the same
 migration (lock-order compatibility, not a claim any of them have RED-A or
@@ -1915,10 +1924,44 @@ too, as defense in depth like the other three.
 
 **`rpc_post_delivery_note`** — `v_product` comes from `sales_invoice_lines`,
 resolved by `sales_invoice_line_id` values that are themselves fixed by the
-payload. `sales_invoice_lines` is `GRANT ALL TO authenticated` with only an
-`org_id` policy check, so a concurrent client update to a line's `product_id`
-between an unlocked pre-pass read and the existing loop's own
-`SELECT ... FOR UPDATE` on that same line is possible in principle. Fix:
+payload.
+
+**Corrected premise (fresh-review closure, and the lock is unchanged).** An
+earlier revision of this paragraph justified the lock by claiming
+`sales_invoice_lines` is `GRANT ALL TO authenticated` with only an `org_id`
+policy check, so an authenticated client could `PATCH` a line's `product_id`
+mid-call. That premise is **factually wrong against the live baseline** and is
+corrected here rather than quietly dropped. `sales_invoice_lines` is **not** an
+authenticated direct-client write surface: RLS is enabled
+(`ALTER TABLE public.sales_invoice_lines ENABLE ROW LEVEL SECURITY`) and the
+only policy on the table is `sales_invoice_lines_org_read`, which is
+`FOR SELECT TO authenticated`. There is no `INSERT`/`UPDATE`/`DELETE`/`ALL`
+policy for `authenticated` in the baseline or in any migration, so a PostgREST
+`PATCH` is refused by RLS regardless of the broad table `GRANT`. (A historical
+`sales_invoice_lines_org_isolation ... FOR ALL` policy did exist in an early
+migration and is **not** in the live schema — the likely origin of the wrong
+premise.)
+
+The upfront row lock nevertheless **remains required**, on a narrower and
+accurate argument: it freezes the product mapping against privileged and
+server-side writers that legitimately operate outside that client RLS
+boundary. No table in the baseline sets `FORCE ROW LEVEL SECURITY`, so the
+table owner — and therefore every `SECURITY DEFINER` RPC running as owner —
+bypasses RLS entirely, as does `service_role`. This is not hypothetical:
+Migration 133's own delivery-note loop updates `sales_invoice_lines`
+(`UPDATE public.sales_invoice_lines`, line 202) on every posting. The lock
+therefore protects the mapping from **server-side concurrent mutation**; it is
+not justified by an authenticated PostgREST `PATCH` path, and no acceptance row
+or reject bullet may cite one.
+
+**Do not cite broad table `GRANT`s alone as evidence of authenticated client
+writability when RLS blocks `UPDATE`.** A `GRANT` is necessary but not
+sufficient; the policy set is what decides. This is the specific reasoning
+error that produced the wrong premise above, and it is easy to repeat while
+reading a `pg_dump` baseline, where grants and policies sit thousands of lines
+apart.
+
+Fix:
 lock the referenced `sales_invoice_lines` rows themselves — batched, once,
 before resolving products — instead of relying on the loop's existing
 per-line `FOR UPDATE` (which currently runs too late, after the point where
@@ -2339,8 +2382,8 @@ Replace, in one file, all eleven bodies plus one new internal helper:
 
 1. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date)` — 9-arg, receipts / manual movement (Fix A/B)
 2. `wardah_apply_stock_incoming(uuid,uuid,uuid,numeric,numeric,text,uuid,text,date,uuid)` — 10-arg, stock adjustment (Fix A/B)
-3. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date)` — 9-arg (lock-order prefix only)
-4. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date,uuid)` — 10-arg (lock-order prefix only)
+3. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date)` — 8-arg (lock-order prefix only)
+4. `wardah_apply_stock_outgoing(uuid,uuid,uuid,numeric,text,uuid,text,date,uuid)` — 9-arg (lock-order prefix only)
 5. `rpc_cancel_stock_adjustment(uuid,text)` — lock-order prefix only (Fix C); no RED-A/RED-B logic change
 6. `rpc_manual_stock_movement_v2(jsonb)` — lock-order prefix only (Fix D)
 7. `rpc_post_goods_receipt(jsonb)` — upfront multi-product lock only (Fix E)
@@ -2353,7 +2396,7 @@ Replace, in one file, all eleven bodies plus one new internal helper:
 Carry forward, verbatim except for the stated change to each:
 - items 1–2: the two fixes (Fix A/B) plus the lock-order prefix
 - items 3–4: the lock-order prefix only
-- items 5–11: the lock-order prefix (single product for 5/6, upfront multi-product for 7–10, single-table ordered lock for 11) — every existing business rule, error code, and return shape in all seven of these unchanged
+- items 5–11: the lock-order prefix (upfront multi-product for **5** and 7–10, single product for **6** only, single-table ordered lock for 11) — every existing business rule, error code, and return shape in all seven of these unchanged. Item 5, `rpc_cancel_stock_adjustment`, is **multi-product**: Fix C collects the complete distinct product set across all of the adjustment's lines and locks it before the per-line loop, exactly like items 7–10. Only item 6, `rpc_manual_stock_movement_v2`, handles one product per call. An earlier revision of this line grouped 5 with 6 as "single product", which contradicted Fix C's own specification in §4 and §6 and could have led an implementer to install a per-line single-product lock in cancellation — reintroducing the transaction-level ordering defect Fix C exists to close
 
 - Valuation: FIFO / LIFO / weighted average, including queue rewrite
 - SLE insert (incoming positive qty; outgoing negative qty and COGS)
@@ -2439,10 +2482,11 @@ Fail-closed tightening allowed, and it must be called out in the runbook:
 - Client GRANT / RLS / Migration 185 write-surface, including
   `release_expired_reservations`'s pre-existing `anon` grant and the
   unmediated multi-row client-write risk on `products`,
-  `material_reservations`, `sales_invoice_lines`, and
-  `stock_adjustment_items`
+  `material_reservations`, and `stock_adjustment_items`
   documented in §6's residual-risk note — recorded as an F1/write-surface-audit
-  input, not addressed here. 191 does not close any of the four
+  input, not addressed here. 191 does not close any of the three.
+  (`sales_invoice_lines` is **not** in this set: RLS allows `authenticated`
+  only `FOR SELECT` — see §4 and §6)
 - `quantity_released = quantity_reserved - quantity_consumed`'s `NULL`
   propagation when `quantity_consumed IS NULL` (thirteenth correction, point
   3) — a data-semantics question independent of lock ordering; a separate,
@@ -2678,21 +2722,33 @@ The lock-order contract above covers every writer *this migration controls*
 cannot, cover a direct multi-row client write reaching, through PostgREST,
 any of the client-writable tables this design's own paths depend on:
 
-- **`products`** — the table every lock in this design orders on;
+- **`products`** — the table every lock in this design orders on; policies
+  `products_org_insert` / `_update` / `_delete` / `_select`, all
+  `TO authenticated`;
 - **`material_reservations`** — Fix F's table, and the per-line reservation
-  lock in `rpc_consume_reserved_materials_v2`;
-- **`sales_invoice_lines`** — the table `rpc_post_delivery_note`'s Fix E
-  pre-pass locks and its unchanged loop re-reads; the design's own §4 text
-  already notes it is `GRANT ALL TO authenticated` with only an `org_id`
-  policy check, which is precisely why that pre-pass locks the rows instead
-  of reading them unlocked;
-- **`stock_adjustment_items`** — likewise `GRANT ALL TO authenticated`, and
-  the source of the product set `rpc_submit_stock_adjustment` and
-  `rpc_cancel_stock_adjustment` resolve their lines from.
+  lock in `rpc_consume_reserved_materials_v2`; its four policies carry **no
+  `TO` clause at all**, so they apply to `PUBLIC` — broader than the other
+  two, and worth the audit's attention on its own;
+- **`stock_adjustment_items`** — the source of the product set
+  `rpc_submit_stock_adjustment` and `rpc_cancel_stock_adjustment` resolve
+  their lines from; policies `stock_adjustment_items_ins_m` / `_upd_m` /
+  `_del_m` / `_sel_m`, all `TO authenticated`.
 
-Each of these carries `GRANT ALL TO authenticated` (confirmed against the
-live baseline) with an `org_id`-scoped
-RLS policy, so a filtered bulk `PATCH` (e.g. `PATCH /products?org_id=eq...`)
+**`sales_invoice_lines` is deliberately excluded from this list** (fresh-review
+closure). It was listed here in an earlier revision on the strength of its
+broad table `GRANT` alone. Verified against the live baseline, RLS is enabled
+and its only policy is `sales_invoice_lines_org_read`, `FOR SELECT TO
+authenticated` — there is no write policy for `authenticated` anywhere, so a
+client `PATCH` is refused by RLS and it is **not** a direct-client write
+surface. It remains a table this design's RPC paths lock and mutate
+server-side, and §4 states the corrected, narrower reason
+`rpc_post_delivery_note`'s pre-pass locks its rows; that is a different
+concern from this one and must not be merged back into it.
+
+Each of the three above carries both a broad table `GRANT` **and** write
+policies for a client role (confirmed against the live
+baseline) with an `org_id`-scoped
+predicate, so a filtered bulk `PATCH` (e.g. `PATCH /products?org_id=eq...`)
 is one statement that locks rows in whatever order its own scan visits them —
 the same shape as `release_expired_reservations` before Fix F, but reachable
 by any authenticated client and not something a `CREATE OR REPLACE` in 191
@@ -2707,11 +2763,12 @@ rediscovered as a surprise P1 in a future pass: it belongs on the F1/write-
 surface-audit backlog this design's own §8 framing already points toward, as
 a required input, not an assumption to re-derive.
 
-**Migration 191 does not close any of these four write surfaces, and no
-acceptance row may be read as evidence that it does.** Fix E's
-`sales_invoice_lines` pre-pass lock narrows the window *within a call that
-goes through the RPC*; it has no effect on a client `PATCH` that never enters
-the RPC at all. The same is true of every product lock this design adds. The
+**Migration 191 does not close any of these three write surfaces, and no
+acceptance row may be read as evidence that it does.** Every lock this design
+adds — the product prefix, Fix F's ordered reservation lock, and Fix E's
+`sales_invoice_lines` pre-pass lock — narrows the window *within a call that
+goes through the RPC*; none of them has any effect on a client `PATCH` that
+never enters the RPC at all. The
 list above is an input to the F1 write-surface audit, and the audit is the
 only thing that can close it.
 
@@ -2783,7 +2840,7 @@ numeric helpers, with inverted assertions:
 | New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` line-error-ordering regression (twenty-second correction) | line 1 has an invalid `quality_status` (goods receipt) / a missing `sales_invoice_line_id` (delivery note); line 2 has a well-formed but nonexistent product/line reference. Must hold identically before and after 191: the error raised is line 1's own (`INVALID_QUALITY_STATUS: line=1` / `LINE_REQUIRED: line=1`), never a helper-level `PRODUCT_NOT_FOUND_OR_WRONG_ORG` or `INVALID_INVOICE_LINE` surfaced from line 2 ahead of it — the loop's existing per-line validation order is the sole source of which error a given payload produces, exactly as it is today; the pre-pass's own candidate resolution must never itself raise or preempt that order |
 | New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` malformed-later-line regression (twenty-second correction) | line 1 has an invalid `quality_status` / a missing `sales_invoice_line_id`; line 2's `product_id` / `sales_invoice_line_id` is a syntactically malformed (non-UUID-shaped) string. Must hold identically before and after 191: the error raised is still line 1's own; a pre-pass that casts every line's id to `uuid` in one query (`SELECT DISTINCT (value->>'product_id')::uuid FROM jsonb_array_elements(...)`, or an equivalent `ANY(ARRAY(...::uuid...))` for delivery note) fails this row — confirmed empirically to raise a raw `invalid input syntax for type uuid` before the loop ever runs, replacing line 1's own error with a Postgres-level exception that isn't even one of this RPC's own error codes |
 | New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` UUID-parser-parity regression (twenty-fourth correction) | a **full 2×2 matrix**, not one spelling per function: **both** PostgreSQL-valid non-canonical spellings — brace-wrapped (`{a0eebc99-…}`) and 32-hex hyphenless (`a0eebc999c0b…`) — must be exercised against **both** affected pre-passes, so all four cells (goods receipt × brace-wrapped, goods receipt × hyphenless, delivery note × brace-wrapped, delivery note × hyphenless) are `PASS`. Splitting coverage — "brace-wrapped for GR and hyphenless for DN" — does **not** satisfy this row: it leaves each function's parser untested against one of the two spellings its own unchanged `::uuid` cast accepts, which is the exact gap this correction exists to close. Each request must resolve, prelock, and succeed identically before and after 191 — never reach `PRODUCT_NOT_PRELOCKED`. A canonical `8-4-4-4-12` regex or other hand-written shape test fails this row even if the malformed-later-line regression passes. Confirmed empirically on PostgreSQL 17.6 for all four cells against disposable `products` / `sales_invoice_lines` fixtures (twenty-fourth correction's evidence block above) |
-| New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` missing-key / `NULL` candidate control (twenty-fourth correction) | a payload object with the id key **absent** (so `value->>'…'` is `NULL`). `pg_input_is_valid(NULL, 'uuid')` is `NULL`, not `false`, so the guard must fall to its `ELSE` branch: the pre-pass yields `NULL`, contributes nothing to the locked set, and raises nothing — leaving `GR_LINE_OBJECT_REQUIRED` / `LINE_REQUIRED` to be decided by the unchanged loop, in the loop's own order, exactly as today. A build whose guard treats the three-valued condition as if it were two-valued, or that raises on the absent key, fails this row |
+| New: `rpc_post_goods_receipt` / `rpc_post_delivery_note` missing-key / `NULL` candidate control (twenty-fourth correction) | a payload object with the id key **absent** (so `value->>'…'` is `NULL`). `pg_input_is_valid(NULL, 'uuid')` is `NULL`, not `false`, so the guard must fall to its `ELSE` branch: the pre-pass yields `NULL`, contributes nothing to the locked set, and raises nothing — leaving the business error to be decided by the unchanged loop, in the loop's own order, exactly as today. **The expected error differs per function and must be asserted per function:** goods receipt raises **`ITEM_NOT_FOUND`** (Migration 177 reserves `GR_LINE_OBJECT_REQUIRED` for an array element that is not a JSON object at all, line 201-203; an object with the key absent resolves `v_product = NULL` and falls to `ITEM_NOT_FOUND`, line 205-211), while delivery note raises **`LINE_REQUIRED`** (Migration 133's explicit `NULLIF(...) IS NULL` check, line 171). Asserting `GR_LINE_OBJECT_REQUIRED` for a goods-receipt payload whose line is a well-formed object missing `product_id` would make this row fail against correct, unchanged behavior. A build whose guard treats the three-valued condition as if it were two-valued, or that raises on the absent key, fails this row |
 | Static contract, `rpc_post_delivery_note` Fix E pre-pass (twenty-fourth correction) | the upfront `sales_invoice_lines` pre-pass body matches the proven shape, asserted point by point: (a) the row-locking inner query carries **`ORDER BY sil.id`**, and the locking clause follows it — the reverse placement is a PostgreSQL syntax error, confirmed on 17.6; (b) the locking clause is **`FOR UPDATE OF sil`** — retained for explicitness about the lock target, *not* because a bare `FOR UPDATE` is invalid here: it is valid and genuinely locks, proven on 17.6, so **no gate may assert that a bare `FOR UPDATE` fails**; only naming the function alias (`FOR UPDATE OF line`) is rejected by PostgreSQL; (c) the lock mode is **`FOR UPDATE`**, matching the unchanged loop's own re-read — `FOR NO KEY UPDATE` in the pre-pass while the loop still takes `FOR UPDATE` is **absent**, since that turns the loop's re-acquisition into a mode upgrade (fifteenth correction's trap on a different table); (d) **`DISTINCT` is outside** the row-locking query, applied by an outer query over the already-locked rows — `DISTINCT` combined with a locking clause in one query is **absent** (PostgreSQL rejects it outright: "FOR UPDATE is not allowed with DISTINCT clause", re-confirmed on 17.6 against this exact shape); (e) the per-line loop's own fresh `SELECT ... FOR UPDATE` reading `quantity` / `unit_price` / `COALESCE(delivered_quantity, 0)` **remains present and unchanged** inside the loop; (f) the pre-pass selects **`product_id` only** — it must never be used as a business-state cache, and no `delivered_quantity`, `quantity`, `unit_price`, or other business column read by the loop may be sourced from it (twenty-first correction) |
 | Static contract, canonical-UUID-regex absence — **scope is part of the contract** (twenty-fourth correction) | the check asserting that no canonical `8-4-4-4-12` UUID regex guards a candidate cast applies to exactly four targets and **no others**: (1) the current, live §4 Fix E pre-pass specification for `rpc_post_goods_receipt`; (2) the current, live §4 Fix E pre-pass specification for `rpc_post_delivery_note`; (3) the implemented `pg_get_functiondef()` body of `rpc_post_goods_receipt`; (4) the implemented `pg_get_functiondef()` body of `rpc_post_delivery_note`. A whole-document sweep such as `! rg '\\{8\\}-\\[0-9a-fA-F\\]\\{4\\}' docs/F2_STOCK_BIN_RACE_FIX_DESIGN.md` is **rejected outright**, and so is any equivalent repo-wide grep over the design docs. Historical correction text **may and must** contain the superseded regex: the twenty-second correction preserves the exact guarded form that was empirically tested and later found too narrow, marked as superseded, and that record is the evidence trail. This scoping rule is itself a correction — a too-broad absence check is precisely what forced the historical evidence to be rewritten in place once already, destroying the record of what was actually tested. The evidence log must never again be edited to satisfy a grep whose scope was wrong |
 | Static contract, `wardah_lock_products_for_stock_write` | uses `FOR NO KEY UPDATE`, not `FOR UPDATE`, on `products`; a bare `FOR UPDATE` on `products` anywhere in its body is **absent**; raises on a locked-row-count mismatch (`cardinality` comparison present); the query carrying `FOR NO KEY UPDATE` itself also carries `ORDER BY` on `id` (ascending) — not only the earlier `ARRAY(SELECT DISTINCT ... ORDER BY ...)` normalization step — since acquisition order, not just the deduplicated input set, is what the deadlock-avoidance argument in §6/§7 depends on |
@@ -2969,7 +3026,7 @@ The 191 runbook is not a "stock incoming lock upgrade." It is:
 >
 > - Fix A closes RED-A (`bins` unique-key insert / stale `EXCLUDED`).
 > - Fix B closes RED-B (`products` aggregate from an unlocked `SUM`).
-> - Outgoing 9-arg and 10-arg take the same product-row lock first so
+> - Outgoing 8-arg and 9-arg take the same product-row lock first so
 >   incoming vs outgoing cannot deadlock.
 > - Fix C reorders `rpc_cancel_stock_adjustment`'s locking (products before
 >   bins, in a deterministic multi-row order via the new
@@ -3012,8 +3069,8 @@ It must also record:
   would silently drop a hardening 191 never added but must not remove
   either), 97 (incoming 9-arg), 124 (`rpc_cancel_stock_adjustment`), 133
   (`rpc_post_delivery_note`), 134 (`rpc_manual_stock_movement_v2`), 177
-  (`rpc_post_goods_receipt`), 186 (outgoing 9-arg), 187 (incoming 10-arg,
-  outgoing 10-arg, `rpc_submit_stock_adjustment`), and 190
+  (`rpc_post_goods_receipt`), 186 (outgoing 8-arg), 187 (incoming 10-arg,
+  outgoing 9-arg, `rpc_submit_stock_adjustment`), and 190
   (`rpc_consume_reserved_materials_v2`) — nine distinct files for eleven
   functions — and drop the new `wardah_lock_products_for_stock_write`
   helper. That restores every change together — RED-A, RED-B, and every
@@ -3058,7 +3115,7 @@ Do not write SQL until this design is accepted. Then, in
 
 1. Open the issue (do not reopen #228 as if the proof were missing).
 2. Add `sql/migrations/191_…sql` with preflight, **twelve** replaces/additions
-   (incoming 9/10-arg, outgoing 9/10-arg, `rpc_cancel_stock_adjustment`,
+   (incoming 9/10-arg, outgoing 8/9-arg, `rpc_cancel_stock_adjustment`,
    `rpc_manual_stock_movement_v2`, `rpc_post_goods_receipt`,
    `rpc_post_delivery_note`, `rpc_submit_stock_adjustment`,
    `rpc_consume_reserved_materials_v2`, `release_expired_reservations` (Fix

@@ -49,8 +49,8 @@ Before implementation, re-check `main` and update this table if any live body mo
 |---:|---|---|---|
 | 1 | `wardah_apply_stock_incoming(...9 args...)` | Migration 97 | Fix A + Fix B + products-first prefix; preserve valuation and queue behavior |
 | 2 | `wardah_apply_stock_incoming(...10 args...)` | Migration 187 | Fix A + Fix B + products-first prefix; preserve source-line contract |
-| 3 | `wardah_apply_stock_outgoing(...9 args...)` | Migration 186 | lock-order prefix only |
-| 4 | `wardah_apply_stock_outgoing(...10 args...)` | Migration 187 | lock-order prefix only; preserve source-line contract |
+| 3 | `wardah_apply_stock_outgoing(...8 args...)` | Migration 186 | lock-order prefix only |
+| 4 | `wardah_apply_stock_outgoing(...9 args...)` | Migration 187 | lock-order prefix only; preserve source-line contract |
 | 5 | `rpc_cancel_stock_adjustment(uuid,text)` | Migration 124 | Fix C lock order only |
 | 6 | `rpc_manual_stock_movement_v2(jsonb)` | Migration 134 | Fix D lock order only |
 | 7 | `rpc_post_goods_receipt(jsonb)` | Migration 177 | Fix E whole-call prelock only; preserve sequential line validation/error order |
