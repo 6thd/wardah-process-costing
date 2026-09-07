@@ -15,34 +15,63 @@ import {
   usePermissionRecoveryBlock,
 } from './PermissionRevalidationBoundary';
 
+// =====================================
+// Types
+// =====================================
+
 interface ModuleGuardProps {
   readonly children: ReactNode;
+  /** كود الموديول */
   readonly moduleCode?: string;
+  /** الإجراء المطلوب */
   readonly action?: string;
+  /** يتطلب Org Admin */
   readonly requireOrgAdmin?: boolean;
+  /** يتطلب Super Admin */
   readonly requireSuperAdmin?: boolean;
+  /** إعادة التوجيه إلى مسار معين عند عدم الصلاحية */
   readonly redirectTo?: string;
+  /** عرض رسالة بدلاً من إعادة التوجيه */
   readonly showAccessDenied?: boolean;
 }
 
+// =====================================
+// صفحة رفض الوصول
+// =====================================
+
 function AccessDeniedPage() {
   const { t } = useTranslation()
+
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
       <div className="text-center space-y-6 p-8 max-w-md">
+        {/* أيقونة */}
         <div className="mx-auto w-20 h-20 rounded-full bg-destructive/10 flex items-center justify-center">
           <ShieldAlert className="w-10 h-10 text-destructive" />
         </div>
+
+        {/* العنوان */}
         <div className="space-y-2">
-          <h1 className="text-2xl font-bold text-foreground">{t('auth.accessDenied')}</h1>
-          <p className="text-muted-foreground">{t('auth.accessDeniedDescription')}</p>
+          <h1 className="text-2xl font-bold text-foreground">
+            {t('auth.accessDenied')}
+          </h1>
+          <p className="text-muted-foreground">
+            {t('auth.accessDeniedDescription')}
+          </p>
         </div>
+
+        {/* الأزرار */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Button variant="outline" onClick={() => globalThis.history.back()}>
+          <Button
+            variant="outline"
+            onClick={() => globalThis.history.back()} // Prefer globalThis over window
+          >
             <Lock className="w-4 h-4 mr-2" />
             {t('auth.goBack')}
           </Button>
-          <Button onClick={() => { globalThis.location.href = '/dashboard'; }}>
+          <Button
+            onClick={() => { globalThis.location.href = '/dashboard'; }} // Prefer globalThis over window
+          >
             {t('auth.goToDashboard')}
           </Button>
         </div>
@@ -51,21 +80,32 @@ function AccessDeniedPage() {
   );
 }
 
+// =====================================
+// مكون التحميل
+// =====================================
+
 function LoadingState() {
   const { t } = useTranslation();
+
   return (
     <div className="min-h-[60vh] flex items-center justify-center">
       <div className="text-center space-y-4">
         <Loader2 className="h-10 w-10 animate-spin text-primary mx-auto" />
-        <p className="text-muted-foreground">{t('auth.checkingPermissions')}</p>
+        <p className="text-muted-foreground">
+          {t('auth.checkingPermissions')}
+        </p>
       </div>
     </div>
   );
 }
 
-export function ModuleGuard({
-  children,
-  moduleCode,
+// =====================================
+// ModuleGuard Component
+// =====================================
+
+export function ModuleGuard({ 
+  children, 
+  moduleCode, 
   action,
   requireOrgAdmin = false,
   requireSuperAdmin = false,
@@ -83,20 +123,30 @@ export function ModuleGuard({
     permissionIdentityKey,
   } = usePermissions();
 
+  // Calculate the current backend-backed decision even while loading/error is
+  // active. The recovery helper remembers only a previously successful true
+  // decision for the same identity; it never invents access for a fresh load.
   let hasAccess = true;
 
+  // التحقق من Super Admin
   if (requireSuperAdmin && !isSuperAdmin) {
     hasAccess = false;
   }
 
+  // التحقق من Org Admin
   if (hasAccess && requireOrgAdmin && !isOrgAdmin && !isSuperAdmin) {
     hasAccess = false;
   }
 
+  // التحقق من صلاحية الموديول
   if (hasAccess && moduleCode) {
     if (action) {
+      // فحص فعل محدد صراحة: أضيق من أي مسار في العقد، ويتجاوزه.
       hasAccess = hasPermission(moduleCode, action);
     } else {
+      // امتلاك أي صلاحية داخل الموديول لا يكفي بعد الآن: كل subroute مربوط
+      // بمفتاح `read`/`view` محدد أو anyOf صريح في route-permissions.ts.
+      // مسار غير مربوط في العقد يفشل مغلقًا (requirement === undefined).
       const basePath = getModuleConfig(moduleCode)?.path ?? `/${moduleCode}`;
       const subPath =
         location.pathname === basePath
@@ -116,17 +166,26 @@ export function ModuleGuard({
     identityKey: permissionIdentityKey,
   });
 
+  // A fresh identity still uses the destructive loading screen: preserving a
+  // previous user's/org's page across an identity switch would be unsafe.
   if (loading && !recoveryBlocked) {
     return <LoadingState />;
   }
 
+  // A successful backend answer that says access is gone still removes the
+  // page immediately. Only an unreadable background revalidation is preserved.
   if (!hasAccess && !recoveryBlocked) {
+    // إعادة التوجيه
     if (redirectTo) {
       return <Navigate to={redirectTo} state={{ from: location }} replace />;
     }
+
+    // عرض صفحة رفض الوصول
     if (showAccessDenied) {
       return <AccessDeniedPage />;
     }
+
+    // إعادة التوجيه الافتراضية
     return <Navigate to="/dashboard" state={{ from: location }} replace />;
   }
 
@@ -136,6 +195,10 @@ export function ModuleGuard({
     </PermissionRevalidationBoundary>
   );
 }
+
+// =====================================
+// HOC لحماية الموديولات
+// =====================================
 
 export function withModuleGuard<P extends object>(
   WrappedComponent: React.ComponentType<P>,
