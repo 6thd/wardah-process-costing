@@ -11,7 +11,7 @@ This companion captures the implementation-quality recommendations that are usef
 
 ## 1. What this companion adds
 
-The main design already defines the concurrency architecture, twelve-object scope, deterministic RED/GREEN mechanisms, ACL carry-forward, rollback sources, and reject-list. This file adds five evidence disciplines for the future Migration 191 implementation PR:
+The main design already defines the concurrency architecture, thirteen-object scope, deterministic RED/GREEN mechanisms, ACL carry-forward, rollback sources, and reject-list. This file adds five evidence disciplines for the future Migration 191 implementation PR:
 
 1. valuation/queue integrity assertions beyond quantity-only checks;
 2. exact security/ACL evidence by function signature;
@@ -58,9 +58,14 @@ Before implementation, re-check `main` and update this table if any live body mo
 | 9 | `rpc_submit_stock_adjustment(uuid)` | Migration 187 | Fix E whole-call prelock only |
 | 10 | `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` | Migration 190 | Fix E reservation superset/product prelock only; carry M190 authorization unchanged |
 | 11 | `release_expired_reservations(uuid)` | Migration 61 + current search-path hardening | Fix F ordered reservation lock only |
-| 12 | `wardah_lock_products_for_stock_write(uuid,uuid[])` | new in M191 | internal helper; deterministic ordered `FOR NO KEY UPDATE`; no client grant |
+| 12 | `rpc_create_mo_with_reservation(jsonb,jsonb,uuid)` | Migration 186 | Fix G complete-product prefix before the first `bins` lock only; preserve availability semantics, `wardah_resolve_product_id` resolution, MO-creation and reservation-insert placement, and the existing per-product `bins ORDER BY warehouse_id,id FOR UPDATE`. **Client-facing RPC — keep `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, and the `authenticated` + `service_role` grants; do not apply the stock-helper `service_role`-only form** |
+| 13 | `wardah_lock_products_for_stock_write(uuid,uuid[])` | new in M191 | internal helper; deterministic ordered `FOR NO KEY UPDATE`; no client grant |
 
-Implementation preflight must still rerun the writer/caller/lock-graph sweeps required by the main design. This matrix is a carry-forward aid, not a substitute for those sweeps.
+Implementation preflight must still rerun the writer/caller/**bins same-table**
+sweeps required by the main design. This matrix is a carry-forward aid, not a
+substitute for those sweeps. Item 12's predecessor is Migration 186, the same
+file as item 3; rollback that restores only one of 186's two bodies is an
+unreviewed third state.
 
 ---
 
@@ -161,7 +166,9 @@ For `wardah_lock_products_for_stock_write(uuid,uuid[])` assert:
 
 ### 6.3 Client-facing RPCs replaced for lock order
 
-For items 5–11 in the source matrix, capture pre/post ACL, security mode, and `search_path`, and assert they are unchanged except for changes explicitly authorized by the main design. Lock-order work must not silently become an authorization change.
+For items 5–12 in the source matrix, capture pre/post ACL, security mode, and `search_path`, and assert they are unchanged except for changes explicitly authorized by the main design. Lock-order work must not silently become an authorization change.
+
+Item 12, `rpc_create_mo_with_reservation`, needs its evidence captured by **exact signature** — `(p_order jsonb, p_materials jsonb, p_tenant uuid)`, its only overload — and must show `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, `REVOKE ALL ... FROM PUBLIC`, `GRANT ALL ... TO authenticated`, and `GRANT ALL ... TO service_role`, all unchanged. It sits in the same migration as four `service_role`-only helpers, so the postflight must positively assert `has_function_privilege('authenticated', ..., 'EXECUTE')` is still `true` for it rather than only asserting the helpers are closed.
 
 ---
 
@@ -171,10 +178,10 @@ Rollback must be demonstrated in a disposable Fresh DB/Staging environment befor
 
 Run this sequence against a database seeded to the required precondition (including Migration 190 and its invariants):
 
-1. capture pre-191 `pg_get_functiondef`, ACL, `prosecdef`, and `proconfig`/search-path evidence for all eleven existing bodies;
+1. capture pre-191 `pg_get_functiondef`, ACL, `prosecdef`, and `proconfig`/search-path evidence for all twelve existing bodies;
 2. apply M191;
 3. run the deterministic GREEN suite and ACL/security postflight;
-4. execute the documented rollback that restores the eleven predecessor bodies and removes the new helper;
+4. execute the documented rollback that restores the twelve predecessor bodies and removes the new helper — note that Migration 186 supplies **two** of them (outgoing 8-arg and `rpc_create_mo_with_reservation`), so a rollback that restores only one of 186's bodies leaves the database in a third, unreviewed state;
 5. prove function definitions, ACLs, security modes, and search paths match the captured pre-191 state, including the out-of-band hardening that must be preserved for `release_expired_reservations`;
 6. in this disposable environment only, rerun the frozen F2 RED proof and confirm the old RED-A/RED-B failure shape is observable again — evidence that rollback restored the actual old behavior rather than a third, unreviewed state;
 7. reapply M191 and rerun GREEN to prove forward recovery is repeatable.
@@ -223,6 +230,21 @@ This is **supplemental evidence only**. A thousand scheduler-lucky passes do not
 
 ---
 
+## 9a. Fix G multi-product reservation evidence (must not be collapsed into the single-product control)
+
+The companion does not restate the architecture. It records the evidence the implementation PR must produce for the twenty-fifth correction, because a quantity-only or single-product GREEN can pass while the crossed-`bins` cycle remains.
+
+Required, matching main design §7 Control A/B:
+
+1. **RED against the pre-prefix Migration 186 reservation body**, products `A < B`, observed-blocker choreography (not sleeps): reservation `[A,B]` vs goods receipt `[B,A]` must produce genuine `40P01` with the cycle on `bins`; the same vs an outgoing/delivery-note-class caller `[B,A]` must also `40P01`. Incoming's target-bin-only footprint remains part of the RED assertion.
+2. **GREEN against real M191**: both variants complete with no `40P01`; the competing stock caller serializes at the shared product prefix before taking any bin lock (`pg_blocking_pids` plus `bins.xmax = 0` on the not-yet-visited product).
+3. Keep the existing single-product incoming-vs-reservation control; it still proves `FOR NO KEY UPDATE` / FK compatibility. Do **not** treat it, or an ascending `[A,B]` vs `[A,B]` run, as evidence that Fix G works — both pass against the defective body.
+4. Exact-signature ACL/security/search-path evidence for item 12 is in §6.3; rollback of both Migration 186 bodies is in §7.
+
+The bounded `bins` same-table sweep lives in the main design §6. This companion does not duplicate the table; implementation preflight must re-run that sweep, not this file's matrix.
+
+---
+
 ## 10. Implementation evidence bundle
 
 Before an M191 implementation PR can be called ready, its review artifacts should make the following easy to inspect without reconstructing them from prose:
@@ -235,8 +257,9 @@ Before an M191 implementation PR can be called ready, its review artifacts shoul
 - Fresh DB/Staging rollback rehearsal output from §7;
 - throughput/lock-wait report from §8;
 - bounded stress summary from §9;
+- Fix G Control A/B observed-blocker RED/GREEN from §9a (not the single-product reservation control alone);
 - preflight proof that Migration 190 is already applied and its authorization/quarantine invariants still hold;
-- implementation-time rerun of the writer/caller/lock-graph sweeps against the then-current `main`.
+- implementation-time rerun of the writer/caller/**bins same-table** sweeps against the then-current `main`.
 
 The implementation PR is not ready if any one of those artifacts contradicts the main F2 design, even if unit/CI checks are otherwise green.
 
@@ -246,9 +269,9 @@ The implementation PR is not ready if any one of those artifacts contradicts the
 
 PR #236 may remain design-only. The handoff to implementation is complete when reviewers can answer all of these from the two design documents without inventing policy during coding:
 
-- Which objects change? — the twelve-object contract is explicit.
+- Which objects change? — the thirteen-object contract is explicit.
 - What lock order/mode is required? — main design §4/§6.
-- How are deterministic races proven? — main design §7.
+- How are deterministic races proven? — main design §7, including Fix G Control A/B.
 - Which business semantics must not move? — main design correction/reject-list, including line-error ordering and fresh per-occurrence reads.
 - What valuation state must reconcile? — §§4–5 here.
 - What exact permissions/search paths must survive? — §6 here plus main design §5.
