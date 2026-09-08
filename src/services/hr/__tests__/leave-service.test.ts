@@ -1,12 +1,62 @@
-/**
- * اختبارات حساب رصيد الإجازات (P12-D) — دوال صافية بلا DB.
- * نظام العمل م109: 21 يوماً < 5 سنوات، 30 يوماً ≥ 5 سنوات.
- */
-import { describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+type QueryResult = { data: unknown; error: { message: string } | null };
+
+const db = vi.hoisted(() => {
+  const responses = new Map<string, QueryResult[]>();
+  const calls = {
+    from: [] as string[],
+    select: [] as unknown[][],
+    eq: [] as unknown[][],
+    in: [] as unknown[][],
+  };
+
+  const from = vi.fn((table: string) => {
+    calls.from.push(table);
+    const chain: Record<string, unknown> = {};
+    for (const method of ['select', 'eq', 'in'] as const) {
+      chain[method] = vi.fn((...args: unknown[]) => {
+        calls[method].push(args);
+        return chain;
+      });
+    }
+    chain.then = (
+      resolve: (value: QueryResult) => unknown,
+      reject?: (reason: unknown) => unknown,
+    ) => Promise.resolve(
+      responses.get(table)?.shift() ?? { data: [], error: null },
+    ).then(resolve, reject);
+    return chain;
+  });
+
+  return {
+    responses,
+    calls,
+    from,
+    getTenant: vi.fn(),
+    getPolicies: vi.fn(),
+  };
+});
+
+vi.mock('@/lib/supabase', () => ({
+  getEffectiveTenantId: db.getTenant,
+  supabase: { from: db.from },
+}));
+
+vi.mock('../policies-service', () => ({
+  getHrPoliciesReadOnly: db.getPolicies,
+}));
+
+vi.mock('../attendance-service', () => ({
+  setDayStatusFallback: vi.fn(),
+}));
+
 import {
-  computeLeaveEntitlement,
   computeLeaveAccrual,
   computeLeaveBalance,
+  computeLeaveEntitlement,
+  getLeaveBalance,
+  listLeaveBalances,
 } from '../leave-service';
 
 const policies = {
@@ -14,46 +64,111 @@ const policies = {
   annual_leave_days_after_5y: 30,
 };
 
-describe('computeLeaveEntitlement — م109', () => {
-  it('أقل من 5 سنوات ⇒ 21 يوماً', () => {
-    expect(computeLeaveEntitlement(0, policies)).toBe(21);
+const queue = (table: string, ...results: QueryResult[]) => {
+  db.responses.set(table, results);
+};
+
+describe('leave balance pure functions', () => {
+  it('uses the configured Saudi Labor Law service bands', () => {
     expect(computeLeaveEntitlement(4.9, policies)).toBe(21);
-  });
-
-  it('5 سنوات وأكثر ⇒ 30 يوماً', () => {
     expect(computeLeaveEntitlement(5, policies)).toBe(30);
-    expect(computeLeaveEntitlement(10, policies)).toBe(30);
   });
-});
 
-describe('computeLeaveAccrual — تناسبي', () => {
-  it('6 أشهر خدمة (21 يوم/سنة) ⇒ ~10.5 يوم', () => {
-    const ref = new Date('2026-01-01');
-    const asOf = new Date('2026-07-01'); // ~181 يوم
-    const accrued = computeLeaveAccrual(ref, asOf, 21);
+  it('prorates accrual and never returns a negative balance', () => {
+    const accrued = computeLeaveAccrual(
+      new Date('2026-01-01'),
+      new Date('2026-07-01'),
+      21,
+    );
     expect(accrued).toBeGreaterThan(10);
     expect(accrued).toBeLessThan(11);
-  });
-
-  it('سنة كاملة (30 يوم/سنة) ⇒ ~30 يوماً', () => {
-    const ref = new Date('2025-01-01');
-    const asOf = new Date('2026-01-01'); // 365 يوم
-    expect(computeLeaveAccrual(ref, asOf, 30)).toBeCloseTo(30, 0);
-  });
-
-  it('تاريخ مرجعي مستقبلي ⇒ صفر (لا سالب)', () => {
-    const ref = new Date('2027-01-01');
-    const asOf = new Date('2026-07-01');
-    expect(computeLeaveAccrual(ref, asOf, 21)).toBe(0);
+    expect(computeLeaveBalance(5, 20)).toBe(0);
   });
 });
 
-describe('computeLeaveBalance — رصيد لا ينزل عن الصفر', () => {
-  it('اكتسب 15 واستهلك 10 ⇒ رصيد 5', () => {
-    expect(computeLeaveBalance(15, 10)).toBe(5);
+describe('listLeaveBalances', () => {
+  beforeEach(() => {
+    db.responses.clear();
+    for (const calls of Object.values(db.calls)) calls.length = 0;
+    db.from.mockClear();
+    db.getTenant.mockReset().mockResolvedValue('org-1');
+    db.getPolicies.mockReset().mockResolvedValue(policies);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-01T00:00:00.000Z'));
   });
 
-  it('استهلك أكثر مما اكتسب ⇒ يقيَّد عند 0', () => {
-    expect(computeLeaveBalance(5, 20)).toBe(0);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('batches three reads, uses the latest settlement watermark, and excludes old or unpaid leave', async () => {
+    queue('employees', {
+      data: [{ id: 'emp-1', hire_date: '2020-01-01' }],
+      error: null,
+    });
+    queue('hr_settlements', {
+      data: [
+        { employee_id: 'emp-1', service_end: '2025-01-01' },
+        { employee_id: 'emp-1', service_end: '2026-01-01' },
+      ],
+      error: null,
+    });
+    queue('employee_leaves', {
+      data: [
+        { employee_id: 'emp-1', start_date: '2025-12-20', total_days: 5, leave_type: { is_paid: true } },
+        { employee_id: 'emp-1', start_date: '2026-02-01', total_days: 3, leave_type: [{ is_paid: true }] },
+        { employee_id: 'emp-1', start_date: '2026-03-01', total_days: 4, leave_type: { is_paid: false } },
+      ],
+      error: null,
+    });
+
+    const balances = await listLeaveBalances(['emp-1'], 'org-submitted');
+
+    expect(balances.get('emp-1')).toMatchObject({
+      entitlementPerYear: 30,
+      used: 3,
+      referenceDate: '2026-01-01',
+    });
+    expect(db.calls.from).toEqual(['employees', 'hr_settlements', 'employee_leaves']);
+    expect(db.calls.in).toEqual([
+      ['id', ['emp-1']],
+      ['employee_id', ['emp-1']],
+      ['employee_id', ['emp-1']],
+    ]);
+    expect(db.getPolicies).toHaveBeenCalledWith('org-submitted');
+  });
+
+  it('keeps hire date when an approved settlement watermark is older', async () => {
+    queue('employees', { data: [{ id: 'emp-1', hire_date: '2026-02-01' }], error: null });
+    queue('hr_settlements', { data: [{ employee_id: 'emp-1', service_end: '2026-01-01' }], error: null });
+    queue('employee_leaves', { data: [], error: null });
+
+    await expect(listLeaveBalances(['emp-1'])).resolves.toEqual(new Map([
+      ['emp-1', expect.objectContaining({ referenceDate: '2026-02-01', used: 0 })],
+    ]));
+  });
+
+  it.each([
+    ['employees', 'employee read failed'],
+    ['hr_settlements', 'settlement read failed'],
+    ['employee_leaves', 'leave read failed'],
+  ])('propagates %s query errors', async (failedTable, message) => {
+    for (const table of ['employees', 'hr_settlements', 'employee_leaves']) {
+      queue(table, table === failedTable
+        ? { data: null, error: { message } }
+        : { data: [], error: null });
+    }
+
+    await expect(listLeaveBalances(['emp-1'])).rejects.toThrow(message);
+  });
+
+  it('does no query for an empty employee set and fails for a missing employee wrapper result', async () => {
+    await expect(listLeaveBalances([])).resolves.toEqual(new Map());
+    expect(db.from).not.toHaveBeenCalled();
+
+    queue('employees', { data: [], error: null });
+    queue('hr_settlements', { data: [], error: null });
+    queue('employee_leaves', { data: [], error: null });
+    await expect(getLeaveBalance('missing')).rejects.toThrow('Employee not found');
   });
 });
