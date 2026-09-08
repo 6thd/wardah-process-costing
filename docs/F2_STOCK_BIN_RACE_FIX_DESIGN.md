@@ -1497,6 +1497,34 @@ This document chooses the remediation shape. It does not implement it.
 > in production Migration 191. Fix G architecture and object count are
 > unchanged. Runtime A/B/C and the static source-shape checks are
 > complementary; neither replaces the other.
+>
+> **Twenty-eighth correction (Codex P2 at `7f09c3f`, Mapping-drift C
+> fixture only):** C's legal uniqueness-preserving swap retires the old
+> current mappings and INSERTs new ones. Live `item_product_map.valid_from`
+> defaults to `now()`, and PostgreSQL `now()` is the **transaction**
+> timestamp. The candidate RPC transaction began first, so the
+> `material_reservations` BEFORE trigger resolves with
+> `wardah_resolve_product_id(org, item_id, COALESCE(NEW.created_at, now()))`
+> at the candidate's earlier `p_at`. New rows with default `valid_from`
+> are then ineligible and the trigger raises `ITEM_PRODUCT_MAP_MISSING`
+> instead of the swapped identities — not drift evidence. C now requires
+> an explicit `valid_from <= v_candidate_mapping_at`, pre-release resolver
+> assertions at that exact `p_at`, and treats `ITEM_PRODUCT_MAP_MISSING`
+> as a **harness/fixture** failure. `K_C` timing is unchanged. Bounded
+> check of B: B's mapper changes the existing current mapping row in
+> place (`product_id` X→Y) and therefore keeps its already-eligible
+> `valid_from`; this defect does not apply to B.
+>
+> **Twenty-ninth correction (fixture integrity, Mapping-drift A/B only;
+> C unchanged):** `uq_item_product_map_current_product` is unique on
+> `(org_id, product_id) WHERE is_active AND valid_to IS NULL`. A's and B's
+> mappers are in-place `product_id` X→Y updates, so `Y` must have **no**
+> other active/current `item_product_map` row at mapper time. The mapper
+> UPDATE + COMMIT must succeed while the candidate remains gated. A
+> uniqueness violation is a **harness/fixture** failure, not candidate
+> evidence. B's in-place update preserves the original row's already-
+> eligible `valid_from`, which is why C's explicit backdating protocol
+> does not apply.
 
 ---
 
@@ -3062,8 +3090,11 @@ other deterministic concurrency mutants in this design (eighth correction):
 Choreography:
 
 1. Fixture: item `I` captured initially as product `X`; product `Y` is
-   outside `X`'s captured prefix; deterministic existing bin rows for `X`
-   and `Y`.
+   a valid same-org product **outside** `X`'s captured prefix;
+   deterministic existing bin rows for `X` and `Y`. At mapper time, `Y`
+   has **no** other active/current `item_product_map` row
+   (`uq_item_product_map_current_product`: unique on
+   `(org_id, product_id) WHERE is_active AND valid_to IS NULL`).
 2. A gate-holder session acquires advisory lock `K`.
 3. Independently: `blocker_X` locks the first bin row that the correct
    captured-`X` bins query would attempt; `blocker_Y` locks the
@@ -3081,8 +3112,13 @@ Choreography:
      marker, assert that marker too.
    Sleep-only or timing inference is not acceptable.
 7. Only after the gate wait is observed, a separate mapper transaction
-   changes `I` from `X` to `Y` and COMMITs. The harness must prove the
-   mapper commit completed **before** the gate is released.
+   performs an **in-place** UPDATE of the existing current mapping row
+   (`product_id` X→Y) and COMMITs. The UPDATE + COMMIT must **succeed**
+   while the candidate remains gated. A uniqueness violation
+   (`uq_item_product_map_current_product` or
+   `uq_item_product_map_current_item`) is a **harness/fixture** failure,
+   not candidate evidence. The harness must prove the mapper commit
+   completed **before** the gate is released.
 8. Release advisory gate `K`.
 9. Discriminate the next bins identity:
    - Correct capture-bound implementation:
@@ -3122,7 +3158,9 @@ captured snapshot
 Choreography:
 
 1. Fixture: item `I` captures to product `X`. Product `Y` is a valid
-   same-org product and is **not** the captured identity.
+   same-org product, is **not** the captured identity, and at mapper time
+   has **no** other active/current `item_product_map` row
+   (`uq_item_product_map_current_product`).
 2. Gate-holder acquires advisory lock `K_B`.
 3. Start the TEST-INSTRUMENTED real Fix G candidate (real body plus this
    one gate).
@@ -3137,9 +3175,14 @@ Choreography:
    - plus the harness marker / `application_name` if that convention is
      used.
    No sleeps or inferred timing.
-7. Only after that observed wait, a separate mapper transaction changes
-   `I` from `X` to `Y` and COMMITs. Require proof that mapper COMMIT
-   completed before `K_B` is released.
+7. Only after that observed wait, a separate mapper transaction performs
+   an **in-place** UPDATE of the existing current mapping row
+   (`product_id` X→Y) and COMMITs. That in-place update preserves the
+   original row's already-eligible `valid_from`, which is why C's explicit
+   backdating protocol does **not** apply to B. The UPDATE + COMMIT must
+   **succeed** while the candidate remains gated. A uniqueness violation
+   is a **harness/fixture** failure, not candidate evidence. Require proof
+   that mapper COMMIT completed before `K_B` is released.
 8. Release `K_B`.
 9. The reservation INSERT still supplies the captured intended product
    `X`, but the live BEFORE trigger re-resolves `I` and produces
@@ -3157,6 +3200,14 @@ ignored, or if only the reservation row is undone while the MO survives.
 Runtime B and the static rules (captured line is the intended INSERT
 product; authoritative post-trigger product is compared exactly against
 that line) are complementary. Do not replace one with the other.
+
+Bounded check (twenty-eighth / twenty-ninth corrections): B's mapper is
+an in-place UPDATE of the existing current mapping row (`product_id`
+X→Y). That preserves already-eligible `valid_from`, so C's temporal-
+eligibility fixture is **not** required here and must not be copied onto
+B. `Y` must have no other active/current mapping at mapper time; a
+uniqueness violation is a harness/fixture failure, not candidate
+evidence.
 
 **C.** TEST-ONLY observed gate `K_C` at the **same persistence-time
 boundary as B**, so C is isolated from Mapping-drift A: bins and
@@ -3192,29 +3243,59 @@ Choreography:
    - `pg_blocking_pids(reservation_pid) = {gate_holder_pid}`
    - plus the harness marker / `application_name` if used.
    No sleeps or inferred timing.
-4. Then, in **one** separate mapper transaction, perform a **legal** swap
-   `I1 → Y`, `I2 → X`. The fixture must respect the live
-   `item_product_map` uniqueness rules — do **not** assume two direct
-   `product_id` UPDATEs can swap rows without violating the current unique
-   indexes (`uq_item_product_map_current_item` on `(org_id, item_id)`
-   where `is_active AND valid_to IS NULL`, and
-   `uq_item_product_map_current_product` on `(org_id, product_id)` under
-   the same predicate). Use a transactionally valid mapping change, for
-   example: retire/deactivate the two old current mappings as permitted by
-   the live schema, then install the two new current mappings, then
-   COMMIT.
-5. The harness must prove that mapper COMMIT completed before `K_C` is
-   released.
-6. Release `K_C`.
-7. Trigger result for `I1` is `Y` while captured identity is `X`; trigger
-   result for `I2` is `X` while captured identity is `Y`. Both `Y` and `X`
-   are members of the already-prelocked set `{X,Y}`. Therefore a
-   membership-only `ANY()` guard would **accept** the drift. The required
-   exact per-line comparison must instead raise
-   `ITEM_PRODUCT_MAPPING_DRIFT` on the first mismatching reservation
-   INSERT reached.
-8. Require whole-RPC rollback: no MO persists; no reservation persists; no
-   partially committed line survives.
+   Capture from that same still-open candidate transaction an
+   authoritative timestamp `v_candidate_mapping_at`. It must equal (or
+   be proven equivalent to) the value the later `material_reservations`
+   BEFORE trigger will pass as `p_at`:
+   `wardah_resolve_product_id(NEW.org_id, NEW.item_id, COALESCE(NEW.created_at, now()))`
+   (baseline `trg_resolve_item_product_reference`). Because PostgreSQL
+   `now()` / `CURRENT_TIMESTAMP` is the transaction start time, a
+   reservation INSERT in this same transaction with
+   `created_at DEFAULT now()` uses that candidate timestamp — not the
+   mapper's later `now()`.
+4. Then, in **one** separate mapper transaction, while the candidate
+   remains observed at `K_C`, perform a **legal** swap `I1 → Y`,
+   `I2 → X`:
+   - retire/deactivate the two old current mappings so they are removed
+     from the resolver's active/current candidate set
+     (`is_active` and `valid_from`/`valid_to` as the live schema
+     permits);
+   - INSERT the two swapped current mappings `I1→Y` and `I2→X`;
+   - **do not** rely on `valid_from DEFAULT now()`. Each new mapping
+     must have an **explicit** `valid_from <= v_candidate_mapping_at`.
+     Preferred: copy the corresponding old mapping's already-eligible
+     `valid_from`, or use a deterministic timestamp known to be strictly
+     earlier than `v_candidate_mapping_at`. Do not use arbitrary
+     wall-clock sleeps.
+   - Respect `item_product_map_validity` (`valid_to IS NULL OR valid_to
+     > valid_from`) and the current-item / current-product unique
+     indexes (`uq_item_product_map_current_item`,
+     `uq_item_product_map_current_product`). Do **not** assume two
+     direct `product_id` UPDATEs can swap rows.
+5. COMMIT the mapper transaction while the candidate is still gated.
+   Prove that COMMIT completed before `K_C` is released.
+6. **Mandatory pre-release fixture proof**, after mapper COMMIT and
+   **before** releasing `K_C`, against the same `p_at` the trigger will
+   use:
+   - `wardah_resolve_product_id(org, I1, v_candidate_mapping_at) = Y`
+   - `wardah_resolve_product_id(org, I2, v_candidate_mapping_at) = X`
+   If either returns the old identity (`X`/`Y`), raises
+   `ITEM_PRODUCT_MAP_MISSING`, or returns anything other than the
+   intended swapped product, the fixture is **INVALID**: abort as a
+   **harness failure**, not a candidate failure. This proof exists so
+   Mapping-drift C cannot pass or fail for the wrong temporal-validity
+   reason.
+7. Only after those resolver assertions are GREEN, release `K_C`.
+8. Then the first reservation INSERT(s) must produce:
+   - `I1`: captured = `X`, post-trigger `RETURNING product_id` = `Y`
+   - `I2`: captured = `Y`, post-trigger `RETURNING product_id` = `X`
+   Both post-trigger products are still members of prelocked `{X,Y}`,
+   so `ANY(prelocked_set)` would **accept**. Exact per-line identity
+   must raise `ITEM_PRODUCT_MAPPING_DRIFT` on the first mismatching
+   INSERT. Whole-RPC rollback: no MO persists; no reservation persists;
+   no partially committed line survives.
+   **`ITEM_PRODUCT_MAP_MISSING` does not satisfy Mapping-drift C.** That
+   error means the fixture's temporal mapping validity is wrong.
 
 This is the discriminating proof that exact per-line identity, not set
 membership, is the contract. Runtime C and the static "ANY(prelocked_set)
@@ -3227,7 +3308,11 @@ two RPC phases must have: (1) an exact test-only gate at that boundary;
 (2) observed `pg_stat_activity` / `wait_event_type` evidence; (3) exact
 `pg_blocking_pids` equality to the gate holder; (4) proof the mapper
 COMMIT completed while the candidate was still gated; (5) only then
-release of the gate. Sleep-based scheduling or "start updater around this
+release of the gate. For Mapping-drift C, between mapper COMMIT and
+`K_C` release, the harness must also prove
+`wardah_resolve_product_id` at `v_candidate_mapping_at` as specified in
+C's choreography — that proof is fixture validity, not a substitute for
+the observed gate. Sleep-based scheduling or "start updater around this
 time" is not acceptance. The gates exist in test instrumentation only and
 MUST NOT appear in production Migration 191. A's gate `K` stays after
 prefix and before the first bins query; B's `K_B` and C's `K_C` stay after
@@ -3526,9 +3611,9 @@ numeric helpers, with inverted assertions:
 | New: `rpc_submit_stock_adjustment` vs `rpc_consume_reserved_materials_v2`, overlapping products (real-path control, not an ordering proof — same reasoning as the cancellation-vs-cancellation control) | no deadlock; both fully apply or one fails on its own pre-existing business rules (insufficient reservation, insufficient stock), never a hang. Does not require either call's own array to be in any particular order — the ordering guarantee comes from the standalone helper-order mutant and static contract, not from this fixture |
 | Historical only: incoming vs `rpc_create_mo_with_reservation`, same product, existing bin (pre-Fix-G body) | **Not real-M191 acceptance (twenty-sixth correction / P2-2).** Retain the eighteenth/nineteenth-correction external-bin choreography only as historical evidence for why products `FOR UPDATE` was rejected *before* Fix G: external blocker holds the target bin; reservation queues (`pg_blocking_pids(<reservation>) = {<blocker>}`); incoming `FOR UPDATE` mutant then queues on reservation (`pg_blocking_pids(<incoming>) = {<reservation>}`, not `{<blocker>, <reservation>}`); release blocker; genuine `40P01` on the pre-Fix-G body. Do **not** require this sequence against a post-Fix-G body and do **not** treat a post-Fix-G run as lock-mode proof: after Fix G, reservation holds the product prefix before any bin wait, so the incoming mutant blocks at the product and the old PID assertion can pass on the wrong edge. Also never sufficient for Fix G's multi-product `bins` edge (twenty-fifth correction) |
 | New: real-M191 lock-mode probe (Fix G compatible) | Reservation acquires product P through the shared prefix and is held before completion by blocking its **subsequent** bin lock, so it still holds the prefix. While it remains bin-blocked, an independent real FK child insert on P (fixture that does **not** contend on reservation's other rows — e.g. a separate precreated MO) must **complete** under real `FOR NO KEY UPDATE`. The same probe against a prefix mutant of `FOR UPDATE` must **block**, with `pg_blocking_pids(<probe>) = {<reservation>}` exactly. Then release/cleanup. **No `40P01` required** — the discriminator is KEY SHARE compatibility vs blocking. Together with the static `FOR NO KEY UPDATE` assertion on the helper, this is the current lock-mode evidence. See the subsection above this table |
-| New: Fix G mapping-drift A — remap after prefix, before bins | **Test-only observed gate (twenty-seventh correction); not production 191.** Sequence: snapshot complete → complete product prefix → TEST-ONLY advisory gate `K` → first bins/availability query. Gate-holder holds `K`. Independently `blocker_X` holds the first captured-`X` bin row and `blocker_Y` holds the corresponding `Y` bin (`Y` outside the captured prefix). Start the TEST-INSTRUMENTED candidate. Before any mapping change, observe `wait_event_type = 'Lock'` and `pg_blocking_pids(reservation_pid) = {gate_holder_pid}` (plus harness marker if used). Only then mapper COMMITs `I: X→Y`; prove that commit finished **before** releasing `K`. After release: capture-bound body must show `pg_blocking_pids(reservation_pid) = {blocker_X_pid}`; blocking on `blocker_Y_pid` is a **FAIL** (later `wardah_resolve_product_id` chose `Y`). Then release `blocker_X`. `Y`'s bin must never have been acquired. Sleep-only placement of the remap is rejected. Complementary with the static no-later-resolver rule — neither replaces the other. Full choreography in the subsection above this table |
-| New: Fix G mapping-drift B — remap after availability, before INSERT | **Test-only observed gate `K_B`; not production 191.** Sequence: snapshot → complete prefix → bins/availability success → MO INSERT in the still-open transaction → TEST-ONLY `K_B` → first `material_reservations` INSERT. Before any remap, observe `wait_event_type = 'Lock'` and `pg_blocking_pids(reservation_pid) = {gate_holder_pid}` (plus harness marker if used). Only then mapper COMMITs `I: X→Y`; prove that commit finished **before** releasing `K_B`. After release: INSERT still supplies captured `X`; BEFORE trigger re-resolves to `Y`; `RETURNING product_id` is `Y`; exact `Y != captured X` raises `ITEM_PRODUCT_MAPPING_DRIFT`. Whole-RPC rollback: MO must not persist; no reservation from this RPC may persist; no partial business state. **FAIL** if the INSERT commits with `Y`, if the mismatch is ignored, or if only the reservation is undone while the MO survives. Sleep-only placement is rejected. Complementary with the static captured-line vs post-trigger identity check. Full choreography in the subsection above this table |
-| New: Fix G mapping-drift C — swap among already-prelocked products | **Test-only observed gate `K_C` at B's persistence-time boundary; not production 191.** Isolates C from A: bins/availability already ran on captured `{X,Y}`. Fixture `I1→X`, `I2→Y`, prefix `{X,Y}`. Observe wait at `K_C` (`wait_event_type = 'Lock'`, `pg_blocking_pids(reservation_pid) = {gate_holder_pid}`) **before** any remap. Then one mapper transaction performs a **legal** `I1↔I2` product swap that respects `uq_item_product_map_current_item` and `uq_item_product_map_current_product` (retire/deactivate the two old current mappings, then install the two new ones — not two naive `product_id` UPDATEs). Prove mapper COMMIT finished before releasing `K_C`. After release: trigger `I1→Y` vs captured `X`, `I2→X` vs captured `Y`; both products are in `{X,Y}`, so `ANY(prelocked_set)` would **accept**; exact per-line identity must raise `ITEM_PRODUCT_MAPPING_DRIFT` on the first mismatching INSERT. Whole-RPC rollback: no MO, no reservation, no partial line. Sleep-only placement is rejected. Complementary with the static "ANY() is insufficient" rule. Full choreography in the subsection above this table |
+| New: Fix G mapping-drift A — remap after prefix, before bins | **Test-only observed gate (twenty-seventh correction); not production 191.** Sequence: snapshot complete → complete product prefix → TEST-ONLY advisory gate `K` → first bins/availability query. Fixture: `Y` is a valid same-org product outside the captured prefix, with **no** other active/current `item_product_map` row at mapper time (`uq_item_product_map_current_product`). Gate-holder holds `K`. Independently `blocker_X` holds the first captured-`X` bin row and `blocker_Y` holds the corresponding `Y` bin. Start the TEST-INSTRUMENTED candidate. Before any mapping change, observe `wait_event_type = 'Lock'` and `pg_blocking_pids(reservation_pid) = {gate_holder_pid}` (plus harness marker if used). Only then mapper performs an **in-place** UPDATE (`product_id` X→Y) + COMMIT, which must **succeed** while still gated; a uniqueness violation is a **harness/fixture** failure, not candidate evidence. Prove that commit finished **before** releasing `K`. After release: capture-bound body must show `pg_blocking_pids(reservation_pid) = {blocker_X_pid}`; blocking on `blocker_Y_pid` is a **FAIL** (later `wardah_resolve_product_id` chose `Y`). Then release `blocker_X`. `Y`'s bin must never have been acquired. Sleep-only placement of the remap is rejected. Complementary with the static no-later-resolver rule — neither replaces the other. Full choreography in the subsection above this table |
+| New: Fix G mapping-drift B — remap after availability, before INSERT | **Test-only observed gate `K_B`; not production 191.** Sequence: snapshot → complete prefix → bins/availability success → MO INSERT in the still-open transaction → TEST-ONLY `K_B` → first `material_reservations` INSERT. Fixture: `Y` is a valid same-org product, not the captured identity, with **no** other active/current `item_product_map` row at mapper time. Before any remap, observe `wait_event_type = 'Lock'` and `pg_blocking_pids(reservation_pid) = {gate_holder_pid}` (plus harness marker if used). Only then mapper performs an **in-place** UPDATE (`product_id` X→Y) + COMMIT, which must **succeed** while still gated; a uniqueness violation is a **harness/fixture** failure. That in-place update preserves the original row's already-eligible `valid_from`, so C's backdating protocol does not apply. Prove that commit finished **before** releasing `K_B`. After release: INSERT still supplies captured `X`; BEFORE trigger re-resolves to `Y`; `RETURNING product_id` is `Y`; exact `Y != captured X` raises `ITEM_PRODUCT_MAPPING_DRIFT`. Whole-RPC rollback: MO must not persist; no reservation from this RPC may persist; no partial business state. **FAIL** if the INSERT commits with `Y`, if the mismatch is ignored, or if only the reservation is undone while the MO survives. Sleep-only placement is rejected. Complementary with the static captured-line vs post-trigger identity check. Full choreography in the subsection above this table |
+| New: Fix G mapping-drift C — swap among already-prelocked products | **Test-only observed gate `K_C` at B's persistence-time boundary; not production 191.** Isolates C from A: bins/availability already ran on captured `{X,Y}`. Fixture `I1→X`, `I2→Y`, prefix `{X,Y}`. Observe wait at `K_C` **before** any remap. Capture `v_candidate_mapping_at` from the candidate transaction, proven equivalent to trigger `p_at` (`COALESCE(NEW.created_at, now())`). Mapper (still gated): legal uniqueness-preserving swap — retire old current mappings, INSERT `I1→Y`/`I2→X` with **explicit** `valid_from <= v_candidate_mapping_at` (copy the old already-eligible `valid_from`, or a deterministic earlier timestamp). **Do not** use `valid_from DEFAULT now()`. Prove mapper COMMIT finished while still gated. **Before** releasing `K_C`: `wardah_resolve_product_id(org, I1, v_candidate_mapping_at) = Y` and `(org, I2, …) = X`. Old identity or `ITEM_PRODUCT_MAP_MISSING` here is a **harness/fixture** failure, not candidate evidence. Only then release `K_C`. After release: captured `I1=X`/`I2=Y`, `RETURNING` `Y`/`X`; `ANY(prelocked_set)` would **accept**; exact identity raises `ITEM_PRODUCT_MAPPING_DRIFT`; whole-RPC rollback. `ITEM_PRODUCT_MAP_MISSING` after release does **not** satisfy C. Sleep-only placement is rejected. Full choreography in the subsection above this table |
 | New: Fix G Control A — reservation `[A,B]` vs goods receipt `[B,A]` | **Pre-Fix-G reservation body must RED with genuine `40P01`.** Choreography gated on observed `pg_stat_activity` / `pg_blocking_pids()` / `bins.xmax`, not sleeps: `T1` locks `A`'s bins and is held before `B`; `T2` (post-191 receipt) passes the product prefix then holds target `bins(B,W)`; release `T1` and require `T1` blocked by `T2`; release `T2` and require the sampled mutual wait and `40P01` with the cycle on `bins`. Incoming's target-bin-only footprint is part of the assertion (`bins(B, other warehouse).xmax` remains `0` while `T2` is gated). **Real 191 must GREEN:** both commit, no `40P01`; while reservation holds the shared product prefix the receipt must report `pg_blocking_pids = {reservation}` and must not yet hold any bin. Quantities, MO, and reservation rows must reconcile. See the subsection above this table for the full contract |
 | New: Fix G Control B — reservation `[A,B]` vs outgoing / delivery-note `[B,A]` | Same observed-blocker choreography as Control A, required separately because outgoing holds **all** bins of `B` and therefore widens the contended set. Pre-Fix-G reservation body must RED with genuine `40P01`; real 191 must GREEN with the same prefix-serialization assertion. Do **not** treat an ascending `[A,B]` vs `[A,B]` run as either RED or GREEN for this row — that control passes against the defective body and only diagnoses that the crossed product order is the relevant defect |
 | New: `rpc_consume_reserved_materials_v2` superset lock, two lines same `item_id` where the first consumption fully exhausts the first-created reservation | the two reservations for that `item_id` must be built with genuinely different effective products (different `product_id`, or one `NULL` `product_id` resolving via `wardah_resolve_product_id` to a different product than the other's explicit `product_id` — not two reservations that happen to share one product). Second line resolves to the second reservation (existing behavior, unchanged) and *both* distinct effective products were locked by the upfront superset query — assert this by checking both products appear in the locked set, not just that the call succeeds; a narrower (buggy) pre-pass, or one that derives from the bare `product_id` column instead of the effective-product expression, could otherwise pass this fixture by coincidence |
@@ -4036,6 +4121,11 @@ Reviewers should reject the implementation PR if:
   {blocker_Y_pid}` as success, or omits `blocker_X`/`blocker_Y` — blocking
   on `Y` means a later `wardah_resolve_product_id` chose the remapped
   product; the row must **fail** that case
+- Mapping-drift A or B's in-place X→Y mapper hits
+  `uq_item_product_map_current_product` (or `uq_item_product_map_current_item`)
+  because `Y` already has an active/current mapping, or the mapper UPDATE
+  + COMMIT does not succeed while the candidate remains gated — that is a
+  **harness/fixture** failure, not candidate evidence
 - Mapping-drift B treats a committed INSERT of post-trigger `Y`, an ignored
   mismatch, or a reservation-only undo that leaves the MO persisted as
   success — whole-RPC rollback is required (`ITEM_PRODUCT_MAPPING_DRIFT`,
@@ -4044,6 +4134,20 @@ Reviewers should reject the implementation PR if:
   UPDATEs that would violate `uq_item_product_map_current_item` /
   `uq_item_product_map_current_product`, or omits proof that the legal
   mapper COMMIT finished while the candidate was still gated at `K_C`
+- Mapping-drift C INSERTs the swapped current mappings with
+  `valid_from DEFAULT now()` (or any `valid_from` later than the
+  candidate trigger `p_at` / `v_candidate_mapping_at`) — PostgreSQL
+  `now()` is transaction-start time, so those rows are ineligible at the
+  candidate's earlier timestamp and raise `ITEM_PRODUCT_MAP_MISSING`
+  instead of producing Y/X
+- Mapping-drift C releases `K_C` before proving
+  `wardah_resolve_product_id(org, I1, v_candidate_mapping_at) = Y` and
+  `(org, I2, …) = X`, or treats `ITEM_PRODUCT_MAP_MISSING` (or the old
+  X/Y identities) from that pre-release check as candidate evidence —
+  that is a harness/fixture failure
+- Mapping-drift C treats `ITEM_PRODUCT_MAP_MISSING` from the reservation
+  INSERT as successful drift evidence — only
+  `ITEM_PRODUCT_MAPPING_DRIFT` plus whole-RPC rollback satisfies C
 - Mapping-drift A, B, or C is offered as a substitute for the static
   source-shape checks (no later resolver decides bins/availability
   identity; captured line is the intended INSERT product; exact
