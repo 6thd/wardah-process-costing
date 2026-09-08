@@ -58,7 +58,7 @@ Before implementation, re-check `main` and update this table if any live body mo
 | 9 | `rpc_submit_stock_adjustment(uuid)` | Migration 187 | Fix E whole-call prelock only |
 | 10 | `rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` | Migration 190 | Fix E reservation superset/product prelock only; carry M190 authorization unchanged |
 | 11 | `release_expired_reservations(uuid)` | Migration 61 + current search-path hardening | Fix F ordered reservation lock only |
-| 12 | `rpc_create_mo_with_reservation(jsonb,jsonb,uuid)` | Migration 186 | Fix G complete-product prefix before the first `bins` lock only; preserve availability semantics, `wardah_resolve_product_id` resolution, MO-creation and reservation-insert placement, and the existing per-product `bins ORDER BY warehouse_id,id FOR UPDATE`. **Client-facing RPC — keep `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, and the `authenticated` + `service_role` grants; do not apply the stock-helper `service_role`-only form** |
+| 12 | `rpc_create_mo_with_reservation(jsonb,jsonb,uuid)` | Migration 186 | Fix G: one captured resolved-demand snapshot after validation, shared product prefix from that snapshot only, bins/availability and reservation inserts driven from the same snapshot, exact post-trigger `RETURNING` identity check (`ITEM_PRODUCT_MAPPING_DRIFT` on mismatch). Preserve availability math, resolver semantics at capture, MO-creation and reservation-insert placement, and per-product `bins ORDER BY warehouse_id,id FOR UPDATE`. No later `wardah_resolve_product_id` may decide bins/availability/INSERT identity; a membership-only `= ANY(prelocked set)` guard is not the drift check. **Client-facing RPC — keep `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, and the `authenticated` + `service_role` grants; do not apply the stock-helper `service_role`-only form** |
 | 13 | `wardah_lock_products_for_stock_write(uuid,uuid[])` | new in M191 | internal helper; deterministic ordered `FOR NO KEY UPDATE`; no client grant |
 
 Implementation preflight must still rerun the writer/caller/**bins same-table**
@@ -168,7 +168,7 @@ For `wardah_lock_products_for_stock_write(uuid,uuid[])` assert:
 
 For items 5–12 in the source matrix, capture pre/post ACL, security mode, and `search_path`, and assert they are unchanged except for changes explicitly authorized by the main design. Lock-order work must not silently become an authorization change.
 
-Item 12, `rpc_create_mo_with_reservation`, needs its evidence captured by **exact signature** — `(p_order jsonb, p_materials jsonb, p_tenant uuid)`, its only overload — and must show `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, `REVOKE ALL ... FROM PUBLIC`, `GRANT ALL ... TO authenticated`, and `GRANT ALL ... TO service_role`, all unchanged. It sits in the same migration as four `service_role`-only helpers, so the postflight must positively assert `has_function_privilege('authenticated', ..., 'EXECUTE')` is still `true` for it rather than only asserting the helpers are closed.
+Item 12, `rpc_create_mo_with_reservation`, needs its evidence captured by **exact signature** — `(p_order jsonb, p_materials jsonb, p_tenant uuid)`, its only overload — and must show `SECURITY DEFINER`, `SET search_path TO 'public','pg_temp'`, `REVOKE ALL ... FROM PUBLIC`, `GRANT ALL ... TO authenticated`, and `GRANT ALL ... TO service_role`, all unchanged. The only authorized new error is `ITEM_PRODUCT_MAPPING_DRIFT`. It sits in the same migration as four `service_role`-only helpers, so the postflight must positively assert `has_function_privilege('authenticated', ..., 'EXECUTE')` is still `true` for it rather than only asserting the helpers are closed.
 
 ---
 
@@ -230,16 +230,18 @@ This is **supplemental evidence only**. A thousand scheduler-lucky passes do not
 
 ---
 
-## 9a. Fix G multi-product reservation evidence (must not be collapsed into the single-product control)
+## 9a. Fix G multi-product reservation evidence (must not be collapsed into a single-product control)
 
-The companion does not restate the architecture. It records the evidence the implementation PR must produce for the twenty-fifth correction, because a quantity-only or single-product GREEN can pass while the crossed-`bins` cycle remains.
+The companion does not restate the architecture. It records the evidence the implementation PR must produce for the twenty-fifth and twenty-sixth corrections, because a quantity-only, membership-only, or single-product GREEN can pass while the crossed-`bins` cycle or a mapping swap remains.
 
-Required, matching main design §7 Control A/B:
+Required, matching main design §7:
 
 1. **RED against the pre-prefix Migration 186 reservation body**, products `A < B`, observed-blocker choreography (not sleeps): reservation `[A,B]` vs goods receipt `[B,A]` must produce genuine `40P01` with the cycle on `bins`; the same vs an outgoing/delivery-note-class caller `[B,A]` must also `40P01`. Incoming's target-bin-only footprint remains part of the RED assertion.
 2. **GREEN against real M191**: both variants complete with no `40P01`; the competing stock caller serializes at the shared product prefix before taking any bin lock (`pg_blocking_pids` plus `bins.xmax = 0` on the not-yet-visited product).
-3. Keep the existing single-product incoming-vs-reservation control; it still proves `FOR NO KEY UPDATE` / FK compatibility. Do **not** treat it, or an ascending `[A,B]` vs `[A,B]` run, as evidence that Fix G works — both pass against the defective body.
-4. Exact-signature ACL/security/search-path evidence for item 12 is in §6.3; rollback of both Migration 186 bodies is in §7.
+3. **Historical only — pre-Fix-G external-bin incoming-vs-reservation choreography.** Retain it as evidence for why products `FOR UPDATE` was rejected *before* Fix G. Do **not** classify it as real-M191 acceptance and do **not** require identical choreography post-Fix-G: after Fix G, reservation holds the product prefix before waiting on a bin, so an incoming `FOR UPDATE` mutant blocks at the product and the old PID assertion can pass on the wrong edge. An ascending `[A,B]` vs `[A,B]` run is also not Fix G proof — it passes against the defective body.
+4. **Real-M191 lock-mode probe (twenty-sixth / P2-2).** Reservation acquires P through the shared prefix and is held by blocking its subsequent bin lock. While it still holds the prefix, an independent FK child insert on P (fixture that does not contend on reservation's other rows — e.g. a separate precreated MO) must **complete** under real `FOR NO KEY UPDATE` and must **block** with `pg_blocking_pids(<probe>) = {<reservation>}` against a prefix mutant of `FOR UPDATE`. **No `40P01` required** for this probe; the discriminator is KEY SHARE compatibility vs blocking. Together with the static helper `FOR NO KEY UPDATE` assertion, this is the current lock-mode evidence.
+5. **Mapping-drift A/B/C (twenty-sixth / P2-1).** A: remap after prefix, before bins — no unprelocked bins touched; continue on captured identity or fail closed before such a lock. B: remap after availability, before INSERT — exact post-trigger mismatch raises `ITEM_PRODUCT_MAPPING_DRIFT` and rolls back the whole RPC. C: swap among two products already in the prefix — a membership-only `= ANY(v_locked_products)` guard would pass; exact per-line identity must fail closed. A later `wardah_resolve_product_id` in the bins or reservation path is a contract miss.
+6. Exact-signature ACL/security/search-path evidence for item 12 is in §6.3; rollback of both Migration 186 bodies is in §7.
 
 The bounded `bins` same-table sweep lives in the main design §6. This companion does not duplicate the table; implementation preflight must re-run that sweep, not this file's matrix.
 
@@ -257,7 +259,9 @@ Before an M191 implementation PR can be called ready, its review artifacts shoul
 - Fresh DB/Staging rollback rehearsal output from §7;
 - throughput/lock-wait report from §8;
 - bounded stress summary from §9;
-- Fix G Control A/B observed-blocker RED/GREEN from §9a (not the single-product reservation control alone);
+- Fix G Control A/B observed-blocker RED/GREEN from §9a (not a single-product reservation control, and not the historical pre-Fix-G external-bin choreography as if it were real-M191);
+- Fix G real-M191 lock-mode probe from §9a (KEY SHARE completes under `FOR NO KEY UPDATE` while reservation remains bin-blocked; mutant `FOR UPDATE` blocks; no `40P01` required);
+- Fix G mapping-drift A/B/C from §9a (including C, which rejects a membership-only guard);
 - preflight proof that Migration 190 is already applied and its authorization/quarantine invariants still hold;
 - implementation-time rerun of the writer/caller/**bins same-table** sweeps against the then-current `main`.
 
@@ -271,7 +275,7 @@ PR #236 may remain design-only. The handoff to implementation is complete when r
 
 - Which objects change? — the thirteen-object contract is explicit.
 - What lock order/mode is required? — main design §4/§6.
-- How are deterministic races proven? — main design §7, including Fix G Control A/B.
+- How are deterministic races proven? — main design §7, including Fix G Control A/B, the real-M191 lock-mode probe, and mapping-drift A/B/C.
 - Which business semantics must not move? — main design correction/reject-list, including line-error ordering and fresh per-occurrence reads.
 - What valuation state must reconcile? — §§4–5 here.
 - What exact permissions/search paths must survive? — §6 here plus main design §5.
