@@ -39,9 +39,20 @@ Required baseline/prerequisite state:
 
 - cutoff-189 baseline;
 - Migration 190 authorization boundary present;
-- the complete assembled M191 candidate applied in one transaction;
+- the complete assembled M191 candidate applied in one transaction, with Slice
+  11's two sections embedded in that same transaction (§11);
 - test roles `anon`, `authenticated`, `service_role` exist;
-- no test-only advisory gate is present in the production candidate body.
+- no test-only advisory gate is present in the production candidate body;
+- `default_transaction_isolation` is **`read committed`**.
+
+The isolation level is a hard harness prerequisite, not a recorded field. Every
+mapping-drift fixture in §10.3–§10.5 depends on the mapper's commit becoming
+visible to a **later statement** of the still-open candidate transaction. That is
+READ COMMITTED behaviour. Under REPEATABLE READ or SERIALIZABLE the candidate
+keeps its transaction-level snapshot, the remap is never observed, no drift can
+occur, and all three fixtures report GREEN while testing nothing. Assert the
+level before Drift A/B/C and record the assertion; anything else is
+`HARNESS_FAIL`, not `PASS`.
 
 All deterministic concurrency checks use observed backend state
 (`pg_stat_activity`, `pg_blocking_pids`, row-lock evidence, or an explicit harness
@@ -66,24 +77,80 @@ A harness failure can never be counted as GREEN.
 
 ## 3. Aggregate static gate — run before concurrency scenarios
 
-Run `12_acceptance_static_gates.sql` from this slice first.
+Three files, run in this order from `docs/db/m191-slices/`:
 
-It must prove at minimum:
+| Order | File | Purpose |
+|---|---|---|
+| 1 | `12_acceptance_gate_selftest.sql` | proves the gate discriminates |
+| 2 | `12_acceptance_static_gates.sql` | the candidate verdict |
+| — | `12_acceptance_gate_defs.sql` | shared assertions, pulled in by both via `\ir` |
 
-1. both S1 header-lock regexes match the real stored bodies;
-2. the same regexes reject a `FOR NO KEY UPDATE` mutant;
-3. `rpc_create_mo_with_reservation` contains exactly one explicit
-   `wardah_resolve_product_id` call after the validation pass/capture rewrite and
-   contains no production `pg_advisory_*` gate;
-4. the shared helper remains `FOR NO KEY UPDATE`, not `FOR UPDATE`, and the
+**The verdict is the psql exit code under `\set ON_ERROR_STOP on`: `0` is PASS,
+non-zero is `CANDIDATE_FAIL`/`HARNESS_FAIL`.** The closing
+`M191_ACCEPTANCE_STATIC_PASS` and `M191_GATE_SELFTEST_PASS` notices are
+supplementary evidence for the bundle only. `NOTICE` output disappears whenever
+`client_min_messages` is above `notice`, so a missing notice line is never a
+failure and a present notice line is never, by itself, a pass.
+
+The selftest is not optional. The assertions take body text as a parameter and
+the selftest feeds them synthetic bodies, so it installs and mutates nothing and
+needs none of the thirteen objects. Run it in the same session on the same
+candidate database immediately before the gate, and store both exit codes.
+
+The gate must prove:
+
+1. the 13-object inventory is **closed** — every required signature present
+   **and** no other overload of any M191 target name still installed. Presence
+   alone is not enough: a forgotten predecessor overload stays resolvable by any
+   caller that passes the old argument shape, so the closure would not be closed;
+2. both S1 header-lock patterns match the real stored bodies;
+3. the shared helper remains `FOR NO KEY UPDATE`, not `FOR UPDATE`, and the
    locking query itself remains ordered by product id;
-5. the two S1 child foreign keys exist;
-6. the 13-object function/signature inventory is complete.
+4. the two S1 child foreign keys exist;
+5. **every body that takes the product prefix does so before its first
+   `public.bins` touch** — all eleven of them, detected under
+   `FROM`, `JOIN`, `UPDATE`, `INSERT INTO` and `DELETE FROM`, not `FROM` alone.
+   `release_expired_reservations` is excluded by design: Fix F reorders
+   reservation locks and takes no product prefix;
+6. `rpc_create_mo_with_reservation` contains exactly one explicit
+   `wardah_resolve_product_id` call after the validation pass/capture rewrite,
+   keeps the exact `RETURNING`/`ITEM_PRODUCT_MAPPING_DRIFT` comparison, and
+   contains no production `pg_advisory_*` gate;
+7. the Migration 190 permission key is still present in the assembled
+   consumption body.
 
-The explicit positive+negative regex test is mandatory. Slice 11 demonstrated
-that a syntactically valid but wrongly escaped pattern can otherwise make the
-migration un-installable; conversely, a dead pattern that never fires can look
-"green" in a weak fixture.
+Item 5 is the check the per-slice PASSes structurally cannot give, and it is the
+reason this file exists: assembly can reorder statements inside a body without
+changing any slice file.
+
+### 3.1 What the negative S1 test does and does not prove
+
+The gate builds a `FOR NO KEY UPDATE` mutant from each S1 body and requires the
+pattern to reject it. **This is a regression test on the strength of the pattern,
+not independent evidence about the deployed body.** The mutant is derived from
+the same text that just satisfied the positive match, so it can only fire when
+the pattern itself has been weakened — `FOR.*UPDATE`, say — into something that
+would also accept a downgraded lock. The deployed body's correctness is
+established by the positive match alone. Do not cite the negative half as a
+second, independent proof in the evidence bundle.
+
+Both halves normalize case on both sides before comparing. An earlier revision
+built the mutant with a case-sensitive `replace()` and matched case-insensitively,
+so a **correct** body written in lower case produced `MUTANT_FALSE_PASS` — an
+error that blames the pattern for a body that was never wrong.
+
+### 3.2 Why the escaping convention is fixed
+
+Every regular expression in Slice 12 is an `E''` string with doubled
+backslashes. Mixing `E''` and plain literals produced both prior escaping
+defects: Slice 11's over-escaped pattern that rejected a correct body, and this
+slice's own `'wardah_resolve_product_id[ ]*\\('`, which as a plain literal under
+`standard_conforming_strings=on` reached the regex engine as an unbalanced group
+and made the entire gate un-runnable on PostgreSQL 16.13 — no check after it,
+including the M190 guard, ever executed. A syntactically valid but wrongly
+escaped pattern can make a gate un-runnable; conversely, a dead pattern that
+never fires can look "green" in a weak fixture. §3's selftest exists to close
+the second failure mode the same way `ON_ERROR_STOP` closes the first.
 
 ---
 
@@ -276,6 +343,24 @@ later on its bin:
 
 No deadlock is required. KEY SHARE compatibility vs blocking is the discriminator.
 
+**Use `public.goods_receipt_lines` as the FK child**, inserting a row whose
+`product_id` is P. That is the table the design's twentieth correction verified
+against the live `rpc_post_goods_receipt` body: its
+`goods_receipt_lines_product_id_fkey` makes the INSERT take an implicit
+`FOR KEY SHARE` on P, which is exactly the lock the probe needs. Do not leave the
+child table unnamed and do not substitute `material_reservations` — the
+reservation call under test is itself inserting into that table, so a probe there
+would not be independent of the transaction it is probing.
+
+### Drift fixtures 10.3–10.5: isolation precondition
+
+All three drift fixtures below require `default_transaction_isolation` to be
+`read committed` (§1). Assert it in the candidate session immediately before
+Drift A and record the assertion in the bundle. Under a snapshot isolation level
+the mapper's remap is invisible to the open candidate transaction, no drift can
+ever occur, and A/B/C report GREEN while testing nothing — that is
+`HARNESS_FAIL`, not `PASS`.
+
 ### 10.3 Mapping drift A
 
 Test-only gate exactly after snapshot+prefix and before first bins query.
@@ -329,22 +414,56 @@ Record these two invariants in the acceptance output:
 
 ---
 
-## 11. Security/S1 rerun on the assembled candidate
+## 11. Security/S1 evidence — inside the candidate transaction, not after it
 
-Rerun Slice 11, including its six live PostgreSQL groups. The aggregate candidate
-must still pass:
+**Slice 11 is not a postflight script that can be "rerun" on an already-applied
+candidate.** It has two placement sections and they belong to the candidate
+transaction itself:
 
-1. 12/12 pre-capture signatures;
-2. 12/12 exact pre/post catalog equality;
-3. helper ACL + all caller-owner EXECUTE;
-4. Fix F/Fix G/Fix C explicit ACL assertions;
-5. S1 header locks + both FKs;
-6. `stock_adjustment_items.relacl` unchanged.
+- **Slice 11/A (pre-replace capture)** runs after M191's prerequisite preflight
+  and **before the first `CREATE OR REPLACE`/helper creation**;
+- **Slice 11/B (postflight)** runs after all thirteen object definitions and ACL
+  statements and **before the candidate `COMMIT`**.
 
-Keep the dedicated hard assertions even though exact ACL equality often catches a
-mutation earlier. They are defense-in-depth against a database whose pre-M191 ACL
-is already malformed; the helper requires its own assertions because it has no
-predecessor row to capture.
+So the assembled candidate transaction is: preflight → **11/A** → thirteen
+objects + ACL → **11/B** → `COMMIT`. The security evidence for §14's bundle is
+**that transaction's own output**, captured when it runs.
+
+Running A and B again after the candidate has committed is not a rerun and must
+not be recorded as pre/post evidence. It fails one of two ways:
+
+- **B alone** → `pg_temp.m191_pre_function_security_contract` no longer exists.
+  Slice 11/A's temp tables are `ON COMMIT DROP`, so the candidate's own `COMMIT`
+  destroyed them. This is `HARNESS_FAIL`.
+- **A and B together after the commit** → A now captures the **post-M191**
+  catalog, and group 1 compares that state to itself. It is green by
+  construction and proves nothing. This is precisely the "dead pattern that never
+  fires looks green in a weak fixture" failure from §3, landing on the strongest
+  security gate in the slice.
+
+If the candidate was assembled without 11/A embedded, the security evidence
+cannot be recovered after the fact. Rebuild the disposable database and re-run
+the candidate transaction with 11/A in place.
+
+The candidate must pass **all seven** of Slice 11/B's live PostgreSQL groups,
+plus 11/A's capture assertion:
+
+| | Assertion |
+|---|---|
+| A | 12/12 pre-capture signatures (`M191_SECURITY_CAPTURE_INCOMPLETE`) |
+| 1 | 12/12 exact pre/post catalog equality — oid, owner, security mode, proconfig, normalized ACL |
+| 2 | four canonical stock helpers remain client-closed and `service_role`-only |
+| 3 | new shared helper: `SECURITY INVOKER`, hardened `search_path`, client-closed, and executable by every `SECURITY DEFINER` caller owner |
+| 4 | Fix F's broad historical EXECUTE surface unchanged (explicit carry-forward, not an endorsement of anon exposure) |
+| 5 | Fix G stays client-facing; Fix C stays `authenticated` + `service_role` and not `anon` |
+| 6 | S1 header locks + both child FKs |
+| 7 | `stock_adjustment_items.relacl` unchanged — separate debt, neither repaired nor widened |
+
+Group 2 is easy to drop from a checklist because group 1 usually catches the same
+mutation first; keep it. Keep the dedicated hard assertions generally, for the
+same reason: they are defense-in-depth against a database whose pre-M191 ACL is
+already malformed, where exact equality would happily carry a bad ACL forward.
+The helper needs its own assertions because it has no predecessor row to capture.
 
 ---
 
@@ -425,7 +544,9 @@ that a mutant "was tested earlier" is not enough.
 - real Fix F GREEN;
 - Fix G Control A/B GREEN, real lock-mode probe, and drift A/B/C against the
   final body (test instrumentation derived from that exact body);
-- Slice 11 security/S1 postflight;
+- the aggregate static gate **and its selftest** (§3), both by exit code;
+- Slice 11/A + 11/B security/S1 evidence produced **by the candidate transaction
+  itself** (§11) — never a post-commit re-execution of the pair;
 - final reconciliation blocks.
 
 ---
@@ -436,6 +557,10 @@ Slice 12 may be marked **CLOSED** only when one evidence bundle identifies one
 candidate SHA and contains:
 
 - all mandatory assembled-candidate reruns above;
+- exit code `0` from both `12_acceptance_gate_selftest.sql` and
+  `12_acceptance_static_gates.sql`, in that order, on that candidate;
+- Slice 11/A + 11/B output emitted by the candidate transaction itself;
+- the recorded `default_transaction_isolation = read committed` assertion;
 - all required RED/mutant controls or a traceable stored prior RED artifact;
 - post-commit reconciliation for every stock-mutating GREEN;
 - no unexplained failure, timeout, `40P01`, or partial effect;
