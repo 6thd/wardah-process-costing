@@ -338,7 +338,9 @@ BEGIN
   IF v_total_on_hand - p_qty < v_other_mo_reserved THEN
     RAISE EXCEPTION
       'INSUFFICIENT_UNRESERVED_STOCK: on_hand=%, protected_mo=%, requested=%',
-      v_total_on_hand, v_other_mo_reserved, p_qty;
+      v_total_on_hand,
+      v_other_mo_reserved,
+      p_qty;
   END IF;
 
   SELECT COALESCE(actual_qty, 0),
