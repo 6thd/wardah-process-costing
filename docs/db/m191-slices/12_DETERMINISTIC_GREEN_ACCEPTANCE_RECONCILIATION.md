@@ -137,8 +137,45 @@ reason this file exists: assembly can reorder statements inside a body without
 changing any slice file.
 
 Items 3, 5 and 6 each replaced a check that a mutant was shown to walk past. The
-selftest carries that mutant for each of them, so the three cannot silently
-regress to presence-only matching.
+selftest carries every one of those mutants, so none can silently regress to
+presence-only matching.
+
+### 3.3 Structural checks run on masked text
+
+Items 2, 3, 5 and 6 match against a **length-preserving masked view** of the
+body: comment characters and the contents of single-quoted literals are replaced
+with spaces, every other character and every offset left alone.
+
+Comment stripping alone was not enough. `pg_get_functiondef` returns the body
+verbatim, so any check reading text with literals intact can be satisfied by a
+literal that merely quotes the shape being asserted — a `RAISE NOTICE` carrying
+`'begin perform public.wardah_lock_products_for_stock_write('`, or
+`'order by p.id for no key update'`, or the whole Fix G guard including its
+`IF … IS DISTINCT FROM …` — while the real call, the real ordering clause and
+the real guard are all absent. Adding more anchors does not fix this; the
+literal can always quote one more token.
+
+Three things follow, and the gate asserts all of them so the mask stays sound:
+
+- a body carrying a **nested dollar-quoted literal** fails closed
+  (`NESTED_DOLLAR_QUOTE_UNSUPPORTED`). The mask does not descend into dollar
+  quoting, because the body itself is dollar-quoted by `pg_get_functiondef`;
+- a body using an **`E''` literal** fails closed (`ESCAPE_STRING_UNSUPPORTED`),
+  since `\'` would end a literal early and desynchronize the mask;
+- a body using **dynamic SQL** fails closed (`DYNAMIC_SQL_UNSUPPORTED`). This is
+  what makes it safe to detect `public.bins` touches on masked text too, so the
+  prefix and the first bins touch share one coordinate system. It is also a
+  sound invariant in its own right: a lock-ordering proof over a body that
+  builds SQL at run time would not be a proof.
+
+None of the three appears in any M191 body today.
+
+One consequence is deliberate: on masked text the `ITEM_PRODUCT_MAPPING_DRIFT`
+literal is blank, so item 6 proves the guard's **shape** — `RETURNING`, then the
+exact comparison, then a `RAISE EXCEPTION` — and checks the error name only for
+presence, separately. That this particular guard raises that particular error is
+runtime evidence, established by Drift B and Drift C (§10.4, §10.5). Never let a
+string literal carry a structural proof; that is exactly what was faked.
 
 ### 3.1 What the negative S1 test does and does not prove
 

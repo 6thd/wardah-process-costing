@@ -24,15 +24,16 @@
 -- standard_conforming_strings=on, reached the regex engine as an unbalanced
 -- group and made the whole gate un-runnable on PostgreSQL 16.13.
 --
--- COMMENT STRIPPING
--- -----------------
--- Ordering and executable-shape checks run against comment-stripped code so a
--- doc comment that merely names the helper cannot be mistaken for the call.
--- The stripper is textual and does not parse string literals, so it is used
--- only where removing text can make a gate stricter, never where it could hide
--- a required token. Because it does not lex strings, the prefix-call check does
--- not settle for `public.<helper>(` appearing anywhere: it requires the call in
--- statement position, which a string literal cannot supply.
+-- MASKED STRUCTURAL CHECKS
+-- ------------------------
+-- Every structural check matches against a length-preserving masked view of the
+-- body: comment characters and single-quoted literal CONTENT become spaces, all
+-- other characters and all offsets unchanged. Stripping comments alone was not
+-- enough — a RAISE NOTICE quoting the shape being asserted satisfied the check
+-- while the real call, ordering clause or guard was absent. See
+-- 12_acceptance_gate_defs.sql for the mask and for the three constructs
+-- (nested dollar quoting, E'' literals, dynamic SQL) that make it unsound and
+-- are therefore rejected outright.
 --
 -- SELF-ACCEPTANCE
 -- ---------------

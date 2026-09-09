@@ -242,11 +242,18 @@ DECLARE
   $body$;
 
   -- The helper name appears only inside a string literal, with no call at all.
-  -- Comment stripping does not lex strings, so the statement-position
-  -- requirement is what rejects this.
   c_mutant_prefix_in_string_literal constant text := $body$
     BEGIN
       RAISE NOTICE 'public.wardah_lock_products_for_stock_write(';
+      UPDATE public.bins SET actual_qty = actual_qty + 1 WHERE org_id = v_org;
+    END
+  $body$;
+
+  -- The same evasion, upgraded to quote the statement boundary the pattern
+  -- anchors on. Adding anchors cannot beat this; only masking the literal can.
+  c_mutant_prefix_string_quotes_boundary constant text := $body$
+    BEGIN
+      RAISE NOTICE 'begin perform public.wardah_lock_products_for_stock_write(';
       UPDATE public.bins SET actual_qty = actual_qty + 1 WHERE org_id = v_org;
     END
   $body$;
@@ -275,6 +282,24 @@ DECLARE
     BEGIN
       FOR v_id IN
         -- ORDER BY p.id FOR NO KEY UPDATE
+        SELECT p.id
+        FROM public.products p
+        WHERE p.org_id = p_org AND p.id = ANY(v_wanted)
+        FOR NO KEY UPDATE
+      LOOP
+        v_locked := array_append(v_locked, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- The ordering clause survives only inside a string literal, while the real
+  -- query keeps FROM public.products p and FOR NO KEY UPDATE but no ORDER BY.
+  -- Every non-masking check passes this body, and it has lost exactly the
+  -- property the helper exists to guarantee.
+  c_mutant_helper_order_in_string constant text := $body$
+    BEGIN
+      RAISE NOTICE 'order by p.id for no key update';
+      FOR v_id IN
         SELECT p.id
         FROM public.products p
         WHERE p.org_id = p_org AND p.id = ANY(v_wanted)
@@ -317,6 +342,22 @@ DECLARE
           'ITEM_PRODUCT_MAPPING_DRIFT: item=%, captured=%, persisted=%',
           v_item_id, v_product_id, v_persisted_product_id;
       END IF;
+    END
+  $body$;
+
+  -- The entire contiguous guard shape, quoted. The real resolver call is intact
+  -- and there is exactly one of it, but no RETURNING, no comparison and no
+  -- guard exist in executable code. A regex over text with literals intact
+  -- finds the whole shape inside the literal and reports GREEN.
+  c_mutant_fix_g_guard_in_string constant text := $body$
+    BEGIN
+      v_product_id := public.wardah_resolve_product_id(v_org, v_item_id, now());
+      INSERT INTO public.material_reservations (org_id, product_id)
+      VALUES (v_org, v_product_id);
+      RAISE NOTICE
+        'returning product_id into v_persisted_product_id;
+         if v_persisted_product_id is distinct from v_product_id then
+         raise exception ''ITEM_PRODUCT_MAPPING_DRIFT';
     END
   $body$;
 
@@ -416,14 +457,29 @@ BEGIN
     c_mutant_prefix_in_string_literal,
     'M191_ACCEPTANCE_PREFIX_CALL_MISSING');
 
+  PERFORM pg_temp.m191_selftest_expect_order_failure(
+    'selftest.mutant_prefix_string_quotes_statement_boundary',
+    c_mutant_prefix_string_quotes_boundary,
+    'M191_ACCEPTANCE_PREFIX_CALL_MISSING');
+
   PERFORM pg_temp.m191_selftest_expect_helper_failure(
     'selftest.mutant_helper_order_by_only_in_comment',
     c_mutant_helper_order_in_comment,
     'M191_ACCEPTANCE_HELPER_ORDER_OR_MODE_MISSING');
 
+  PERFORM pg_temp.m191_selftest_expect_helper_failure(
+    'selftest.mutant_helper_order_by_only_in_string',
+    c_mutant_helper_order_in_string,
+    'M191_ACCEPTANCE_HELPER_ORDER_OR_MODE_MISSING');
+
   PERFORM pg_temp.m191_selftest_expect_fix_g_failure(
     'selftest.mutant_fix_g_exact_comparison_removed',
     c_mutant_fix_g_comparison_removed,
+    'M191_ACCEPTANCE_FIX_G_EXACT_DRIFT_GUARD_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_g_failure(
+    'selftest.mutant_fix_g_guard_entirely_in_string',
+    c_mutant_fix_g_guard_in_string,
     'M191_ACCEPTANCE_FIX_G_EXACT_DRIFT_GUARD_MISSING');
 
   PERFORM pg_temp.m191_selftest_expect_s1_failure(
@@ -440,6 +496,6 @@ BEGIN
     c_weak_pattern,
     'M191_ACCEPTANCE_S1_PATTERN_ACCEPTS_MUTANT');
 
-  RAISE NOTICE 'M191_GATE_SELFTEST_PASS: positive=7 mutants=12';
+  RAISE NOTICE 'M191_GATE_SELFTEST_PASS: positive=7 mutants=15';
 END
 $m191_gate_selftest$;
