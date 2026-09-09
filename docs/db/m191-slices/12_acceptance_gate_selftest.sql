@@ -50,6 +50,58 @@ BEGIN
 END
 $$;
 
+-- Expect a specific failure from the helper contract assertion.
+CREATE OR REPLACE FUNCTION pg_temp.m191_selftest_expect_helper_failure(
+  p_case text,
+  p_body text,
+  p_expected_error text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.m191_assert_helper_contract(p_case, p_body);
+  EXCEPTION WHEN OTHERS THEN
+    IF position(p_expected_error IN SQLERRM) = 0 THEN
+      RAISE EXCEPTION
+        'M191_GATE_SELFTEST_WRONG_ERROR: case=% expected=% actual=%',
+        p_case, p_expected_error, SQLERRM;
+    END IF;
+    RETURN;
+  END;
+
+  RAISE EXCEPTION 'M191_GATE_SELFTEST_MUTANT_NOT_CAUGHT: case=%', p_case;
+END
+$$;
+
+-- Expect a specific failure from the Fix G capture contract assertion.
+CREATE OR REPLACE FUNCTION pg_temp.m191_selftest_expect_fix_g_failure(
+  p_case text,
+  p_body text,
+  p_expected_error text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.m191_assert_fix_g_capture_contract(p_case, p_body);
+  EXCEPTION WHEN OTHERS THEN
+    IF position(p_expected_error IN SQLERRM) = 0 THEN
+      RAISE EXCEPTION
+        'M191_GATE_SELFTEST_WRONG_ERROR: case=% expected=% actual=%',
+        p_case, p_expected_error, SQLERRM;
+    END IF;
+    RETURN;
+  END;
+
+  RAISE EXCEPTION 'M191_GATE_SELFTEST_MUTANT_NOT_CAUGHT: case=%', p_case;
+END
+$$;
+
 -- Expect a specific failure from the S1 header assertion.
 CREATE OR REPLACE FUNCTION pg_temp.m191_selftest_expect_s1_failure(
   p_case text,
@@ -189,6 +241,85 @@ DECLARE
     END
   $body$;
 
+  -- The helper name appears only inside a string literal, with no call at all.
+  -- Comment stripping does not lex strings, so the statement-position
+  -- requirement is what rejects this.
+  c_mutant_prefix_in_string_literal constant text := $body$
+    BEGIN
+      RAISE NOTICE 'public.wardah_lock_products_for_stock_write(';
+      UPDATE public.bins SET actual_qty = actual_qty + 1 WHERE org_id = v_org;
+    END
+  $body$;
+
+  -- ---- helper contract fixtures --------------------------------------------
+
+  c_helper_good constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT p.id
+        FROM public.products p
+        WHERE p.org_id = p_org AND p.id = ANY(v_wanted)
+        ORDER BY p.id
+        FOR NO KEY UPDATE
+      LOOP
+        v_locked := array_append(v_locked, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- The ordering clause is gone from the query and survives only as a comment.
+  -- This is the single most dangerous helper mutation: ORDER BY p.id is what
+  -- makes the lock order global, and a gate that reads comment-bearing text
+  -- accepts the note in place of the clause.
+  c_mutant_helper_order_in_comment constant text := $body$
+    BEGIN
+      FOR v_id IN
+        -- ORDER BY p.id FOR NO KEY UPDATE
+        SELECT p.id
+        FROM public.products p
+        WHERE p.org_id = p_org AND p.id = ANY(v_wanted)
+        FOR NO KEY UPDATE
+      LOOP
+        v_locked := array_append(v_locked, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- ---- Fix G capture contract fixtures -------------------------------------
+
+  c_fix_g_good constant text := $body$
+    BEGIN
+      v_product_id := public.wardah_resolve_product_id(v_org, v_item_id, now());
+      INSERT INTO public.material_reservations (org_id, product_id)
+      VALUES (v_org, v_product_id)
+      RETURNING product_id INTO v_persisted_product_id;
+
+      IF v_persisted_product_id IS DISTINCT FROM v_product_id THEN
+        RAISE EXCEPTION
+          'ITEM_PRODUCT_MAPPING_DRIFT: item=%, captured=%, persisted=%',
+          v_item_id, v_product_id, v_persisted_product_id;
+      END IF;
+    END
+  $body$;
+
+  -- RETURNING is intact and the drift error name is still present, but the
+  -- exact comparison is gone and the RAISE sits under an unrelated, effectively
+  -- dead condition. Two independent presence checks both pass on this body.
+  c_mutant_fix_g_comparison_removed constant text := $body$
+    BEGIN
+      v_product_id := public.wardah_resolve_product_id(v_org, v_item_id, now());
+      INSERT INTO public.material_reservations (org_id, product_id)
+      VALUES (v_org, v_product_id)
+      RETURNING product_id INTO v_persisted_product_id;
+
+      IF v_persisted_product_id IS NULL AND v_product_id IS NOT NULL THEN
+        RAISE EXCEPTION
+          'ITEM_PRODUCT_MAPPING_DRIFT: item=%, captured=%, persisted=%',
+          v_item_id, v_product_id, v_persisted_product_id;
+      END IF;
+    END
+  $body$;
+
   -- ---- S1 fixtures ---------------------------------------------------------
 
   c_s1_body_upper constant text := $body$
@@ -231,6 +362,11 @@ BEGIN
     'selftest.good_assignment_form', c_body_good_assignment_form);
   PERFORM pg_temp.m191_assert_prefix_before_bins(
     'selftest.good_no_bins_touch', c_body_good_no_bins);
+
+  PERFORM pg_temp.m191_assert_helper_contract(
+    'selftest.helper_good', c_helper_good);
+  PERFORM pg_temp.m191_assert_fix_g_capture_contract(
+    'selftest.fix_g_good', c_fix_g_good);
 
   PERFORM pg_temp.m191_assert_s1_header(
     'selftest.s1_upper', c_s1_body_upper, c_adj_pattern);
@@ -275,6 +411,21 @@ BEGIN
     c_mutant_prefix_only_mentioned,
     'M191_ACCEPTANCE_PREFIX_CALL_MISSING');
 
+  PERFORM pg_temp.m191_selftest_expect_order_failure(
+    'selftest.mutant_prefix_in_string_literal',
+    c_mutant_prefix_in_string_literal,
+    'M191_ACCEPTANCE_PREFIX_CALL_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_helper_failure(
+    'selftest.mutant_helper_order_by_only_in_comment',
+    c_mutant_helper_order_in_comment,
+    'M191_ACCEPTANCE_HELPER_ORDER_OR_MODE_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_g_failure(
+    'selftest.mutant_fix_g_exact_comparison_removed',
+    c_mutant_fix_g_comparison_removed,
+    'M191_ACCEPTANCE_FIX_G_EXACT_DRIFT_GUARD_MISSING');
+
   PERFORM pg_temp.m191_selftest_expect_s1_failure(
     'selftest.mutant_s1_downgraded_lock',
     c_s1_body_downgraded,
@@ -289,6 +440,6 @@ BEGIN
     c_weak_pattern,
     'M191_ACCEPTANCE_S1_PATTERN_ACCEPTS_MUTANT');
 
-  RAISE NOTICE 'M191_GATE_SELFTEST_PASS: positive=5 mutants=9';
+  RAISE NOTICE 'M191_GATE_SELFTEST_PASS: positive=7 mutants=12';
 END
 $m191_gate_selftest$;

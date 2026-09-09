@@ -30,7 +30,9 @@
 -- doc comment that merely names the helper cannot be mistaken for the call.
 -- The stripper is textual and does not parse string literals, so it is used
 -- only where removing text can make a gate stricter, never where it could hide
--- a required token.
+-- a required token. Because it does not lex strings, the prefix-call check does
+-- not settle for `public.<helper>(` appearing anywhere: it requires the call in
+-- statement position, which a string literal cannot supply.
 --
 -- SELF-ACCEPTANCE
 -- ---------------
@@ -56,9 +58,7 @@ DECLARE
   v_missing text[];
   v_unexpected text[];
   v_expected oid[];
-  v_norm text;
   v_code text;
-  v_resolver_calls integer;
   -- Patterns are matched against UPPERCASED normalized text (see
   -- pg_temp.m191_upper_norm), so they are written in upper case and applied
   -- with the case-sensitive operator.
@@ -221,30 +221,12 @@ BEGIN
   -- ---------------------------------------------------------------------------
   -- 4) Shared helper static order/mode contract.
   -- ---------------------------------------------------------------------------
-  v_norm := pg_temp.m191_norm(
+  PERFORM pg_temp.m191_assert_helper_contract(
+    'wardah_lock_products_for_stock_write',
     pg_get_functiondef(
       'public.wardah_lock_products_for_stock_write(uuid,uuid[])'::regprocedure
     )
   );
-  v_code := pg_temp.m191_code_norm(
-    pg_get_functiondef(
-      'public.wardah_lock_products_for_stock_write(uuid,uuid[])'::regprocedure
-    )
-  );
-
-  IF position('order by p.id for no key update' IN v_norm) = 0 THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_HELPER_ORDER_OR_MODE_MISSING';
-  END IF;
-
-  -- Checked on comment-stripped code so the design note explaining why
-  -- FOR UPDATE was rejected cannot fail the body that correctly avoids it.
-  IF v_code ~ E'(^|[^a-z])for +update([^a-z]|$)' THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_HELPER_FOR_UPDATE_REINTRODUCED';
-  END IF;
-
-  IF position('from public.products p' IN v_code) = 0 THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_HELPER_PRODUCTS_NOT_SCHEMA_QUALIFIED';
-  END IF;
 
   -- ---------------------------------------------------------------------------
   -- 5) Product-prefix lock order across every body that takes the prefix.
@@ -260,35 +242,16 @@ BEGIN
   END LOOP;
 
   -- ---------------------------------------------------------------------------
-  -- 6) Fix G capture identity: one capture-time resolver call, exact RETURNING
-  --    comparison, and no test-only advisory gate in the production body.
-  --    Counted on comment-stripped code so neither a comment naming the
-  --    resolver nor a comment naming pg_advisory_* can move the result.
+  -- 6) Fix G capture identity: one capture-time resolver call, the drift guard
+  --    asserted as a whole contiguous shape rather than as two independent
+  --    presence checks, and no test-only advisory gate in the production body.
   -- ---------------------------------------------------------------------------
-  v_code := pg_temp.m191_code_norm(
+  PERFORM pg_temp.m191_assert_fix_g_capture_contract(
+    'rpc_create_mo_with_reservation',
     pg_get_functiondef(
       'public.rpc_create_mo_with_reservation(jsonb,jsonb,uuid)'::regprocedure
     )
   );
-  SELECT count(*) INTO v_resolver_calls
-  FROM regexp_matches(v_code, E'wardah_resolve_product_id *\\(', 'g');
-
-  IF v_resolver_calls <> 1 THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_G_RESOLVER_CALL_COUNT: %', v_resolver_calls;
-  END IF;
-
-  -- Both tokens are required in executable code. They live in a RAISE literal
-  -- and an INTO target, so comment stripping cannot hide them, and matching on
-  -- stripped code stops a comment that merely names the drift error from
-  -- standing in for the check itself.
-  IF position('returning product_id into v_persisted_product_id' IN v_code) = 0
-     OR position('item_product_mapping_drift' IN v_code) = 0 THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_G_EXACT_RETURNING_DRIFT_CHECK_MISSING';
-  END IF;
-
-  IF position('pg_advisory_' IN v_code) > 0 THEN
-    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_G_TEST_GATE_IN_PRODUCTION_BODY';
-  END IF;
 
   -- ---------------------------------------------------------------------------
   -- 7) Migration 190 authorization boundary must still be visible in the final

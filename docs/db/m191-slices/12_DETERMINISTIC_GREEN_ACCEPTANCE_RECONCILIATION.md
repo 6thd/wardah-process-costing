@@ -104,24 +104,41 @@ The gate must prove:
    alone is not enough: a forgotten predecessor overload stays resolvable by any
    caller that passes the old argument shape, so the closure would not be closed;
 2. both S1 header-lock patterns match the real stored bodies;
-3. the shared helper remains `FOR NO KEY UPDATE`, not `FOR UPDATE`, and the
-   locking query itself remains ordered by product id;
+3. the shared helper's locking query is still `ORDER BY p.id FOR NO KEY UPDATE`
+   and never `FOR UPDATE`. Matched on comment-stripped code: the ordering clause
+   is what makes the global lock order global, and a body that drops the real
+   `ORDER BY p.id` while leaving a `-- ORDER BY p.id FOR NO KEY UPDATE` note
+   behind must fail;
 4. the two S1 child foreign keys exist;
 5. **every body that takes the product prefix does so before its first
-   `public.bins` touch** — all eleven of them, detected under
-   `FROM`, `JOIN`, `UPDATE`, `INSERT INTO` and `DELETE FROM`, not `FROM` alone.
+   `public.bins` touch** — all eleven of them, with the touch detected under
+   `FROM`, `JOIN`, `UPDATE`, `INSERT INTO` and `DELETE FROM`, not `FROM` alone,
+   and the prefix detected only in **statement position** (`PERFORM …` or
+   `<target> := …`). Both call forms in the candidate are accepted; a mention
+   inside a string literal is not, since comment stripping does not lex strings.
    `release_expired_reservations` is excluded by design: Fix F reorders
    reservation locks and takes no product prefix;
 6. `rpc_create_mo_with_reservation` contains exactly one explicit
    `wardah_resolve_product_id` call after the validation pass/capture rewrite,
-   keeps the exact `RETURNING`/`ITEM_PRODUCT_MAPPING_DRIFT` comparison, and
-   contains no production `pg_advisory_*` gate;
+   contains no production `pg_advisory_*` gate, and carries the drift guard as
+   **one contiguous shape**: `RETURNING product_id INTO v_persisted_product_id`,
+   then immediately `IF v_persisted_product_id IS DISTINCT FROM v_product_id`,
+   then immediately the `ITEM_PRODUCT_MAPPING_DRIFT` raise. Two independent
+   presence checks — one for the `RETURNING`, one for the error name — do not
+   prove this: a body can keep both, drop the comparison, and hang the raise on
+   an unrelated or dead condition. Adjacency is required deliberately; any
+   statement wedged between persisting the row and checking it changes the
+   contract and must be re-reviewed rather than silently accepted;
 7. the Migration 190 permission key is still present in the assembled
    consumption body.
 
 Item 5 is the check the per-slice PASSes structurally cannot give, and it is the
 reason this file exists: assembly can reorder statements inside a body without
 changing any slice file.
+
+Items 3, 5 and 6 each replaced a check that a mutant was shown to walk past. The
+selftest carries that mutant for each of them, so the three cannot silently
+regress to presence-only matching.
 
 ### 3.1 What the negative S1 test does and does not prove
 
