@@ -1,81 +1,102 @@
-# M191 S1 Design Correction — Stock Adjustment Predicate Expansion
+# M191 S1 — Predicate-bounded pre-passes: corrected finding and the invariant it creates
 
-Status: authoritative correction addendum for PR #241 implementation review.
-Scope: `rpc_submit_stock_adjustment(uuid)` / Fix E only.
+Status: authoritative note for PR #241 implementation review. **This file
+replaces, in place, the earlier S1 addendum of the same name**, whose operative
+conclusion was wrong. Nothing else refers to a separate retraction document —
+this is the single source of truth for the topic.
+Scope: `rpc_submit_stock_adjustment(uuid)` and
+`rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)` — the two Fix E callers
+whose pre-pass is bounded by a predicate rather than by the call's own payload.
 No SQL or Production/Staging change is authorized by this note.
 
-## Correction
+## 1. What the earlier version of this file claimed, and why it was wrong
 
-The current wording in `docs/F2_STOCK_BIN_RACE_FIX_DESIGN.md` overstates the
-stability of the `stock_adjustment_items` set selected by
-`adjustment_id = v_adj.id`.
+It claimed that because `SELECT ... FOR UPDATE` locks the rows that currently
+satisfy a predicate rather than predicate-locking the condition itself, a
+concurrent `INSERT` of another `stock_adjustment_items` row with the same
+`adjustment_id` could land after the pre-pass, be picked up by the unchanged
+loop, and bypass `DUPLICATE_PRODUCT_WAREHOUSE_LINES` — producing two ledger
+rows for one product/warehouse pair in a single adjustment. That was
+demonstrated on a test fixture.
 
-The incorrect claim is that locking the existing matching rows up front makes
-the row set structurally fixed for the rest of the call. Under PostgreSQL
-READ COMMITTED, `SELECT ... FOR UPDATE` locks rows that currently satisfy the
-predicate; it does not predicate-lock that condition against a concurrent
-`INSERT` of another row with the same `adjustment_id`.
+**The fixture was wrong.** It created `stock_adjustment_items` without its
+foreign key to `stock_adjustments`. The live schema has one:
 
-Therefore the M191 contract for this caller is narrower:
+```
+stock_adjustment_items_adjustment_id_fkey
+  FOREIGN KEY (adjustment_id) REFERENCES public.stock_adjustments(id) ON DELETE CASCADE
+```
 
-1. The pre-pass freezes the identities and mutable product/warehouse fields of
-   the `stock_adjustment_items` rows that already exist when the pre-pass runs.
-2. A concurrent UPDATE of those rows is blocked behind the pre-pass locks.
-3. The predicate `adjustment_id = v_adj.id` remains insert-expandable.
-4. A later inserted row whose product is outside the already-prelocked product
-   set is caught by the uniform `PRODUCT_NOT_PRELOCKED` guard and the submission
-   fails closed.
-5. A later inserted row whose product is already in the prelocked set can still
-   be visible to the later M187 count/loop snapshots and can therefore expose the
-   pre-existing M187 document-membership race, including a same-product / same-
-   warehouse duplicate inserted after the duplicate-count validation.
+An `INSERT` into the child takes an implicit `FOR KEY SHARE` on the referenced
+parent row. `rpc_submit_stock_adjustment` holds that parent row `FOR UPDATE`
+from its first statement, and `FOR UPDATE` conflicts with `FOR KEY SHARE`. The
+phantom `INSERT` therefore blocks for the duration of the call, and the bypass
+cannot occur.
 
-This residual is not introduced by Slice 07. The live M187 body already
-re-queries `stock_adjustment_items` for validation and again for processing,
-so membership can expand between those statements. Slice 07 narrows the risk
-by freezing existing rows and adding a fail-closed product-set guard; it does
-not freeze predicate membership.
+Re-tested on PostgreSQL 16.13 with the foreign key present:
 
-## M191 decision
+| scenario | result |
+|---|---|
+| parent held `FOR UPDATE`, child `INSERT` | **blocked** (lock timeout) |
+| parent held `FOR NO KEY UPDATE`, child `INSERT` | succeeds |
+| `stock_adjustments` held `FOR UPDATE`, `stock_adjustment_items` `INSERT` | **blocked** |
+| `manufacturing_orders` held `FOR UPDATE`, `material_reservations` `INSERT` | **blocked** |
 
-Do not change Slice 07 SQL solely to claim full document-membership freezing.
-In particular, do not derive only the count/duplicate validation from the
-upfront locked-row snapshot while leaving the existing loop as a fresh table
-query: that would make validation intentionally older than processing.
+## 2. What survives
 
-A complete document-membership fix requires one consistent semantic choice
-across validation and processing, such as freezing an exact item-id set and
-processing only that set, or otherwise preventing item insertion once
-submission begins. That is a separate M187 workflow/write-boundary decision,
-not a lock-order-only Fix E change, and is outside M191 unless explicitly
-re-scoped.
+The mechanical statement remains true and worth keeping: a row lock freezes the
+rows it matched, not the predicate that matched them. What the earlier version
+got wrong was the consequence — it treated the pre-pass row locks as the only
+thing standing between the loop and a phantom row, when the header lock taken
+several statements earlier already excludes one.
 
-## Acceptance consequences
+The corrected rule, which replaces the planned "payload-bounded vs
+predicate-bounded means safe vs unsafe" split:
 
-The final M191 acceptance suite must include both facts:
+- **Payload-bounded pre-passes** (`rpc_post_goods_receipt`,
+  `rpc_post_delivery_note`): membership is fixed by the call's own argument.
+  Nothing can enter the set.
+- **Predicate-bounded pre-passes** (`rpc_submit_stock_adjustment`,
+  `rpc_consume_reserved_materials_v2`): membership is fixed by the parent
+  header row being held `FOR UPDATE` **plus** the child's foreign key to that
+  header. Row locks alone would not be enough; the header lock is what closes
+  it.
 
-- natural concurrent INSERT with a new product outside the prefix ->
-  `PRODUCT_NOT_PRELOCKED`, full rollback;
-- natural concurrent INSERT with an already-prelocked product -> documented
-  M187 residual; M191 must not claim this predicate is frozen or that the
-  duplicate-count invariant is closed against this timing window.
+Both categories are sound. Neither may be described as sound *because the
+pre-pass locked the rows* — for the second category that is not the reason, and
+an acceptance step that asserts it for that reason is asserting the wrong thing.
 
-For GR and Delivery Note, `PRODUCT_NOT_PRELOCKED` still requires a deliberate
-mutant/fixture to become reachable. Stock Adjustment is different: concurrent
-predicate expansion supplies a natural real-path trigger for the guard.
+## 3. Reject-list invariant (new)
 
-## Related carried items
+> **Do not weaken the document-header locks from `FOR UPDATE` to
+> `FOR NO KEY UPDATE` in `rpc_submit_stock_adjustment` or
+> `rpc_consume_reserved_materials_v2`.**
+> There, the conflict between `FOR UPDATE` and the FK-driven `FOR KEY SHARE` is
+> deliberate and required: it is what prevents phantom child `INSERT`s while the
+> adjustment is being submitted or the consumption posted.
 
-- Standalone `parse_plpgsql` is not a required gate for catalog-dependent
-  `%rowtype` bodies; actual `CREATE FUNCTION` / Fresh DB execution is the
-  authoritative executable gate.
-- PostgreSQL >= 16 applies to the GR/DN pre-passes using
-  `pg_input_is_valid`; Slice 07 adds no such dependency.
-- The broad `stock_adjustment_items` table grant / latent anon privilege is a
-  separate write-surface hardening concern, not part of M191.
-- The Fix D §7 wording mismatch remains to be corrected before final static
-  acceptance work.
+This is the opposite of the choice M191 makes everywhere else, and that is the
+point. On `products` and on `material_reservations` the migration deliberately
+moves to `FOR NO KEY UPDATE` precisely to stop conflicting with FK-driven
+`FOR KEY SHARE` locks. On `stock_adjustments` and `manufacturing_orders` that
+same conflict is the mechanism being relied on. A future contributor applying
+the migration's general rule uniformly would reopen the phantom-insert window
+on exactly these two functions; row 2 of the table in §1 shows the regression
+directly.
 
-Before M191 execution item 11, reconcile the corresponding paragraph in
-`docs/F2_STOCK_BIN_RACE_FIX_DESIGN.md` to this addendum so there is one final
-canonical wording rather than two competing descriptions.
+The invariant depends on two facts, both of which an acceptance step should
+check rather than assume:
+
+1. the function still holds its parent header `FOR UPDATE`;
+2. `stock_adjustment_items.adjustment_id` and `material_reservations.mo_id`
+   still carry their foreign keys to that header.
+
+## 4. Disposition
+
+- No code change follows from this correction. Slice 07 is unchanged and
+  remains correct as written.
+- The §9 reject-list entry in `docs/F2_STOCK_BIN_RACE_FIX_DESIGN.md` still has
+  to be added when the parallel notes are unified into the design proper; until
+  then §3 above is the authoritative wording.
+- The four-row table in §1 should be carried into the acceptance evidence, so
+  the dependency in §3 is verified rather than assumed.

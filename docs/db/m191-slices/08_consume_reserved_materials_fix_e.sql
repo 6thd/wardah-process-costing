@@ -11,7 +11,8 @@
 --     material_reservations row for the MO regardless of status, ascending id,
 --     FOR NO KEY UPDATE;
 --   * derive the product prefix from the now-frozen rows whose status is
---     'reserved', using the exact effective-product expression the live loop uses;
+--     'reserved', resolving the effective product with a NON-THROWING mirror of
+--     wardah_resolve_product_id's own two lookups (see the C1 correction below);
 --   * acquire the shared deterministic product prefix once before the loop;
 --   * change both existing per-line reservation re-acquisitions from FOR UPDATE
 --     to FOR NO KEY UPDATE so they match the superset lock instead of upgrading;
@@ -25,7 +26,25 @@
 --   * per-line reservation selection rules (reservation_id branch vs item_id /
 --     created_at,id first-reserved branch) and ACTIVE_RESERVATION_NOT_FOUND;
 --   * live effective product expression COALESCE(product_id,
---     wardah_resolve_product_id(...));
+--     wardah_resolve_product_id(...)) AT ITS ORIGINAL M190 CALL SITE inside the
+--     per-line loop — including its ITEM_PRODUCT_MAP_MISSING raise and that
+--     error's original position relative to every other per-line error;
+--
+-- C1 correction (found by independent review, reproduced on PostgreSQL with a
+-- positive control). An earlier revision of this slice called
+-- wardah_resolve_product_id directly inside the superset. That function never
+-- returns NULL: it raises ITEM_PRODUCT_MAP_MISSING when neither an active,
+-- time-valid item_product_map row nor a same-org compatibility product exists.
+-- Because the superset deliberately covers reservations the caller never named,
+-- one unrelated 'reserved' row with a NULL product_id and no resolvable item was
+-- enough to abort every consumption call for that MO — before any per-line
+-- validation, so ACTIVE_RESERVATION_NOT_FOUND and the rest of M190's error order
+-- could no longer be reached. The prefix must therefore resolve without raising.
+-- The mirror below reproduces Migration 132's two lookups in its exact order and
+-- with its exact predicates; it is deliberately NOT an EXCEPTION WHEN OTHERS
+-- wrapper, which would also swallow ITEM_PRODUCT_CONTEXT_REQUIRED and unrelated
+-- failures. An unresolvable reservation contributes nothing to the prefix and is
+-- left entirely to the unchanged loop.
 --   * UoM, quantity, remaining-reservation, warehouse/work-order validation;
 --   * canonical outgoing stock helper call and COGS valuation;
 --   * material_consumption insert, stage WIP accumulation, reservation update;
@@ -49,6 +68,7 @@ DECLARE
   v_warehouse uuid; v_count integer; v_remaining numeric; v_work_order uuid;
   v_stock jsonb; v_cogs numeric; v_total_cogs numeric:=0; v_unit_cost numeric;
   v_lock_res record;
+  v_prefix_product uuid;
   v_products uuid[] := '{}'::uuid[];
   v_locked_products uuid[];
 BEGIN
@@ -97,14 +117,34 @@ BEGIN
     ORDER BY id
     FOR NO KEY UPDATE
   LOOP
-    IF v_lock_res.status='reserved' THEN
-      v_products:=array_append(
-        v_products,
-        COALESCE(
-          v_lock_res.product_id,
-          public.wardah_resolve_product_id(v_org,v_lock_res.item_id,now())
-        )
-      );
+    IF v_lock_res.status<>'reserved' THEN
+      CONTINUE;
+    END IF;
+
+    IF v_lock_res.product_id IS NOT NULL THEN
+      v_products:=array_append(v_products,v_lock_res.product_id);
+      CONTINUE;
+    END IF;
+
+    -- Non-throwing mirror of Migration 132's wardah_resolve_product_id: the
+    -- active, time-valid mapping with the newest valid_from first, then the
+    -- same-org compatibility product. Where the resolver would raise, this
+    -- contributes nothing and the unchanged loop keeps the raise.
+    SELECT m.product_id INTO v_prefix_product
+    FROM public.item_product_map m
+    WHERE m.org_id=v_org AND m.item_id=v_lock_res.item_id AND m.is_active
+      AND m.valid_from<=now() AND (m.valid_to IS NULL OR m.valid_to>now())
+    ORDER BY m.valid_from DESC
+    LIMIT 1;
+
+    IF NOT FOUND THEN
+      SELECT p.id INTO v_prefix_product
+      FROM public.products p
+      WHERE p.id=v_lock_res.item_id AND p.org_id=v_org;
+    END IF;
+
+    IF FOUND THEN
+      v_products:=array_append(v_products,v_prefix_product);
     END IF;
   END LOOP;
 
