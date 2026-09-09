@@ -332,7 +332,7 @@ BEGIN
     pg_get_functiondef('public.rpc_submit_stock_adjustment(uuid)'::regprocedure),
     E'[\\n\\r\\t ]+', ' ', 'g'
   );
-  IF v_def !~* 'FROM public\\.stock_adjustments WHERE id *= *p_adjustment_id FOR UPDATE' THEN
+  IF v_def !~* 'FROM public\.stock_adjustments WHERE id *= *p_adjustment_id FOR UPDATE' THEN
     RAISE EXCEPTION 'M191_S1_ADJUSTMENT_HEADER_FOR_UPDATE_MISSING';
   END IF;
 
@@ -340,7 +340,7 @@ BEGIN
     pg_get_functiondef('public.rpc_consume_reserved_materials_v2(uuid,uuid,jsonb)'::regprocedure),
     E'[\\n\\r\\t ]+', ' ', 'g'
   );
-  IF v_def !~* 'FROM public\\.manufacturing_orders WHERE id *= *p_mo_id FOR UPDATE' THEN
+  IF v_def !~* 'FROM public\.manufacturing_orders WHERE id *= *p_mo_id FOR UPDATE' THEN
     RAISE EXCEPTION 'M191_S1_MO_HEADER_FOR_UPDATE_MISSING';
   END IF;
 
