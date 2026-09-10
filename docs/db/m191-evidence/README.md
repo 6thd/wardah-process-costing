@@ -162,3 +162,16 @@ debt and nothing in this evidence should be read as claiming otherwise.
 Slice 12 closes here. The next implementation step is the **rollback rehearsal**. Do not
 promote the candidate to `sql/migrations/191_f2_stock_write_concurrency_closure.sql` and do
 not request final Codex/Astra review before rollback and final assembly are complete.
+
+## Final-review remediation (later than everything above)
+
+Everything above this heading is the historical record for the SHAs it names and is left
+exactly as it was written. It is **not** retro-fitted to describe tests that did not exist
+then.
+
+Astra/Codex reviewed head `fa1de77f07077af97623c34c0a743b5d00000785` and found three
+acceptance/CI defects — a SECURITY DEFINER scanner false green, a Fix F acquisition-order
+gap that let a `ORDER BY mr.id DESC` mutation of the real function stay GREEN, and a
+missing UUID parser-parity matrix for Fix E. Their reproduction, fix, RED mutant proof and
+GREEN proof are in `M191_FINAL_REVIEW_REMEDIATION.md`. Migration 191's production body was
+not changed.

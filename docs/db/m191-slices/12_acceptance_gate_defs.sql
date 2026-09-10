@@ -430,3 +430,162 @@ BEGIN
   END IF;
 END
 $$;
+
+-- Fix F ordered reservation-lock contract.
+--
+-- FINAL-REVIEW REMEDIATION (PR #241, Finding 2). At the reviewed head
+-- fa1de77f07077af97623c34c0a743b5d00000785 nothing in the acceptance layer
+-- looked at release_expired_reservations' own locking query. Flipping the real
+-- body's `ORDER BY mr.id` to `ORDER BY mr.id DESC` left the catalog contract,
+-- this static gate and §9 of the runtime harness all GREEN — reproduced on a
+-- Fresh PostgreSQL 17 before this assertion was written.
+--
+-- Fix F's entire value is that release acquires material_reservations rows in
+-- the SAME ascending id order consumption uses. That is one clause, and a
+-- single character (`DESC`) reverses it, so it gets an assertion of its own
+-- rather than being inferred from the function's continued existence.
+--
+-- Asserted on masked executable text, so a matching shape that survives only in
+-- a comment or a quoted string cannot satisfy it. Structure proven here; the
+-- ACTUAL acquisition sequence R1 -> R2 is proven at run time against the
+-- deployed function by §9.4/§9.5 of s9_fixf.sh, which also runs the same probe
+-- against a DESC mutant derived from the deployed body.
+CREATE OR REPLACE FUNCTION pg_temp.m191_assert_fix_f_release_lock_contract(
+  p_label text,
+  p_src text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_exec text;
+  v_lock integer;
+  v_update integer;
+BEGIN
+  v_exec := pg_temp.m191_exec_norm(p_label, p_src);
+
+  -- 1) The acquisition must read material_reservations under the mr alias the
+  --    ordering clause below names. Without this anchor, `order by mr.id` could
+  --    be asserted against a query over some other relation entirely.
+  v_lock := regexp_instr(
+    v_exec,
+    E'from +public\\.material_reservations +mr([^a-z0-9_]|$)'
+  );
+  IF v_lock = 0 THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_F_LOCK_SOURCE_MISSING: %', p_label;
+  END IF;
+
+  -- 2) A descending sweep is the exact reversal Fix F exists to prevent, so it
+  --    gets its own verdict rather than being folded into "clause missing".
+  IF v_exec ~ E'order +by +mr\\.id +desc([^a-z0-9_]|$)' THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_F_DESCENDING_LOCK_ORDER: %', p_label;
+  END IF;
+
+  -- 3) FOR UPDATE takes the key lock too and conflicts with the FK checks the
+  --    consumption path performs, which is why Fix F specifies the weaker mode.
+  IF v_exec ~ E'(^|[^a-z])for +update([^a-z]|$)' THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_F_FOR_UPDATE_REINTRODUCED: %', p_label;
+  END IF;
+
+  -- 4) SKIP LOCKED would turn the exact sweep into a best-effort cron pass and
+  --    silently drop precisely the rows that are contended.
+  IF v_exec ~ E'skip +locked([^a-z0-9_]|$)' THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_F_SKIP_LOCKED_PRESENT: %', p_label;
+  END IF;
+
+  -- 5) The ordering and the lock mode must be one contiguous clause. Asserting
+  --    them separately would accept an ORDER BY on one query and a
+  --    FOR NO KEY UPDATE on another.
+  IF position('order by mr.id for no key update' IN v_exec) = 0 THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_F_ORDERED_LOCK_MISSING: %', p_label;
+  END IF;
+
+  -- 6) An UPDATE that reaches material_reservations before the ordered lock is
+  --    the predecessor's defect restored: the UPDATE would then acquire rows in
+  --    whatever order the plan produces, and the ordering clause below it would
+  --    be decoration.
+  v_update := regexp_instr(
+    v_exec,
+    E'update +public\\.material_reservations([^a-z0-9_]|$)'
+  );
+  IF v_update > 0 AND v_update < v_lock THEN
+    RAISE EXCEPTION
+      'M191_ACCEPTANCE_FIX_F_UPDATE_BEFORE_ORDERED_LOCK: % update=% lock=%',
+      p_label, v_update, v_lock;
+  END IF;
+END
+$$;
+
+-- Fix E UUID parser-parity contract, scoped to ONE named prepass.
+--
+-- FINAL-REVIEW REMEDIATION (PR #241, Finding 3). The two Fix E prepasses gate
+-- their candidate cast with pg_input_is_valid(..., 'uuid') — PostgreSQL's own
+-- parser — so every spelling the later raw ::uuid cast accepts also enters the
+-- prelock set. A hand-written canonical 8-4-4-4-12 regex would silently reject
+-- the brace-wrapped and 32-hex-hyphenless spellings, leaving the line to fail
+-- later with PRODUCT_NOT_PRELOCKED, and nothing in the acceptance layer noticed.
+--
+-- SCOPE IS DELIBERATE. This assertion takes ONE function body and ONE candidate
+-- key. It never sweeps the repository or the design document, whose historical
+-- text intentionally carries superseded regex examples that must remain
+-- untouched.
+CREATE OR REPLACE FUNCTION pg_temp.m191_assert_uuid_parser_parity(
+  p_label text,
+  p_src text,
+  p_candidate_key text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+DECLARE
+  v_exec text;
+  v_code text;
+  v_valid integer;
+  v_cast integer;
+BEGIN
+  v_exec := pg_temp.m191_exec_norm(p_label, p_src);
+  -- The candidate key lives inside a quoted literal, so the ordering check
+  -- below runs on comment-stripped code rather than masked text. Presence of
+  -- the key is not the contract; the parser call is.
+  v_code := pg_temp.m191_code_norm(p_src);
+
+  IF position(p_candidate_key IN v_code) = 0 THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_E_CANDIDATE_KEY_MISSING: % key=%',
+      p_label, p_candidate_key;
+  END IF;
+
+  -- 2) No hand-written canonical UUID regex may gate the candidate. These are
+  --    the shapes a "tightening" refactor reaches for; each of them accepts
+  --    strictly fewer spellings than the ::uuid cast the later loop performs,
+  --    which is what turns a valid line into PRODUCT_NOT_PRELOCKED.
+  --    v_code is lowercased, so [0-9a-fA-F] arrives as [0-9a-fa-f] and the one
+  --    hex-class pattern covers both spellings.
+  IF v_code ~ E'\\[0-9a-f'
+     OR v_code ~ E'\\{8\\}-'
+     OR v_code ~ E'\\{4\\}-'
+     OR v_code ~ E'\\{12\\}' THEN
+    RAISE EXCEPTION
+      'M191_ACCEPTANCE_FIX_E_CANONICAL_UUID_REGEX_PRESENT: %', p_label;
+  END IF;
+
+  -- 3) The candidate gate must be PostgreSQL's own uuid validator, in
+  --    executable position. A comment describing it does not gate a cast.
+  v_valid := regexp_instr(
+    v_exec,
+    E'when +pg_input_is_valid *\\([^()]*, *''[ ]*''\\) +then'
+  );
+  IF v_valid = 0 THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_E_PG_INPUT_IS_VALID_MISSING: %', p_label;
+  END IF;
+
+  -- 4) …and it must gate a cast, not stand next to one. The masked view blanks
+  --    the 'uuid' type-name literal inside pg_input_is_valid, so the cast that
+  --    follows is what proves the branch is the candidate extraction site.
+  v_cast := regexp_instr(v_exec, E'\\) *:: *uuid([^a-z0-9_]|$)', v_valid);
+  IF v_cast = 0 THEN
+    RAISE EXCEPTION 'M191_ACCEPTANCE_FIX_E_VALIDATED_CAST_MISSING: %', p_label;
+  END IF;
+END
+$$;

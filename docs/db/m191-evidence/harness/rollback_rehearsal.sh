@@ -179,6 +179,7 @@ run_green_suite() {
     s6_prefix.sh
     s7_fixcd.sh
     s8_fixe.sh
+    s8c_uuid_parity.sh
     s8b_fixe.sh
     s82_superset.sh
     s82b.sh

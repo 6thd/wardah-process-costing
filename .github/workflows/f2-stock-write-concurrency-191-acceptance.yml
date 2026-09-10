@@ -10,7 +10,9 @@ name: F2 Stock Write Concurrency 191 Acceptance
 #
 # Job 1  acceptance        baseline 189 -> reference data -> 190 -> 191
 #                          -> catalog contract -> gate selftest -> static gate
-#                          -> deterministic GREEN harness -> reconciliation
+#                          -> deterministic GREEN harness (14 scripts, including
+#                             the Fix E UUID parser-parity matrix and the Fix F
+#                             real acquisition-order probe) -> reconciliation
 # Job 2  rollback          the rehearsal: restore the twelve predecessors from a
 #                          live pre-191 oracle, prove the frozen RED returns,
 #                          reapply 191 and prove the catalog comes back exactly.
@@ -26,6 +28,8 @@ on:
       - 'scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql'
       - 'scripts/ci/fresh-db/acceptance_191_reconciliation.sql'
       - 'scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh'
+      - 'scripts/ci/check_definer_guards.py'
+      - 'scripts/ci/test_check_definer_guards.py'
       - 'docs/db/m191-slices/**'
       - 'docs/db/m191-evidence/harness/**'
       - '.github/workflows/f2-stock-write-concurrency-191-acceptance.yml'
@@ -92,6 +96,16 @@ jobs:
             sql/migrations /tmp/chain_order.txt
           tail -5 /tmp/chain_report.txt
 
+      - name: SECURITY DEFINER scanner selftest
+        # Final-review remediation, Finding 1: the scanner used to accept an
+        # unguarded DEFINER function whose body merely NAMED the guard in a
+        # string literal or a block comment. Prove it rejects those shapes.
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/ci/test_check_definer_guards.py 2>&1 | tee /tmp/191-definer-selftest.out
+          python3 scripts/ci/check_definer_guards.py
+
       - name: Catalog contract for the thirteen objects
         shell: bash
         run: |
@@ -110,6 +124,10 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f docs/db/m191-slices/12_acceptance_gate_selftest.sql \
             2>&1 | tee /tmp/191-selftest.out
           grep -q 'M191_GATE_SELFTEST_PASS' /tmp/191-selftest.out
+          # The two final-review remediation assertions (Fix F ordered
+          # reservation lock, Fix E UUID parser parity) carry their own notice
+          # so a regression in either names itself.
+          grep -q 'M191_GATE_SELFTEST_REMEDIATION_PASS' /tmp/191-selftest.out
           psql -v ON_ERROR_STOP=1 -f docs/db/m191-slices/12_acceptance_static_gates.sql \
             2>&1 | tee /tmp/191-static.out
           grep -q 'M191_ACCEPTANCE_STATIC_PASS' /tmp/191-static.out
@@ -119,8 +137,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p /tmp/191-green
-          for s in s4_core s5_valuation s6_prefix s7_fixcd s8_fixe s8b_fixe \
-                   s82_superset s82b s82c1 s9_fixf s10_fixg s10_2probe s10_drift; do
+          # s8c_uuid_parity is the Fix E parser-parity matrix added by the
+          # final-review remediation; it shares s8_fixture with s8_fixe, so it
+          # runs beside it rather than after a scenario that resets a different
+          # fixture org. s9_fixf now also carries the real acquisition-order
+          # probe and its DESC mutant discriminator.
+          for s in s4_core s5_valuation s6_prefix s7_fixcd s8_fixe s8c_uuid_parity \
+                   s8b_fixe s82_superset s82b s82c1 s9_fixf s10_fixg s10_2probe \
+                   s10_drift; do
             echo "--- $s ---"
             bash "$SCRATCH/$s.sh" > "/tmp/191-green/$s.out" 2>&1 \
               || { echo "FAILED: $s"; tail -40 "/tmp/191-green/$s.out"; exit 1; }
@@ -145,6 +169,7 @@ jobs:
           name: m191-acceptance-${{ github.run_id }}
           path: |
             /tmp/chain_report.txt
+            /tmp/191-definer-selftest.out
             /tmp/191-contract.out
             /tmp/191-selftest.out
             /tmp/191-static.out

@@ -80,13 +80,17 @@ python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations 189 > /tmp/order
 REPORT=/tmp/chain.txt PGDATABASE=wardah_191 \
   bash scripts/ci/fresh-db/run_chain.sh sql/migrations /tmp/order.txt
 
+python3 scripts/ci/test_check_definer_guards.py
+python3 scripts/ci/check_definer_guards.py
+
 psql -v ON_ERROR_STOP=1 -d wardah_191 -f scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql
 psql -v ON_ERROR_STOP=1 -d wardah_191 -f docs/db/m191-slices/12_acceptance_gate_selftest.sql
 psql -v ON_ERROR_STOP=1 -d wardah_191 -f docs/db/m191-slices/12_acceptance_static_gates.sql
 
 export SCRATCH=docs/db/m191-evidence/harness PGDATABASE=wardah_191
-for s in s4_core s5_valuation s6_prefix s7_fixcd s8_fixe s8b_fixe \
-         s82_superset s82b s82c1 s9_fixf s10_fixg s10_2probe s10_drift; do
+for s in s4_core s5_valuation s6_prefix s7_fixcd s8_fixe s8c_uuid_parity \
+         s8b_fixe s82_superset s82b s82c1 s9_fixf s10_fixg s10_2probe \
+         s10_drift; do
   bash "$SCRATCH/$s.sh" || exit 1
 done
 
@@ -95,7 +99,17 @@ psql -v ON_ERROR_STOP=1 -d wardah_191 -f scripts/ci/fresh-db/acceptance_191_reco
 
 Every verdict is a psql or shell exit code. The gate selftest runs before the gate on
 purpose: a static gate that cannot fail proves nothing, so the selftest first shows it
-rejects fifteen known-bad shapes and accepts seven good ones.
+rejects fifteen known-bad shapes and accepts seven good ones, then emits a second verdict
+(`M191_GATE_SELFTEST_REMEDIATION_PASS`) for the two assertions added by the final-review
+remediation — the Fix F ordered reservation lock and the Fix E UUID parser parity.
+
+The final-review remediation also added `s8c_uuid_parity.sh` (the Fix E brace-wrapped /
+32-hex-hyphenless 2x2 matrix and its canonical-regex discriminator), sections 9.4 and 9.5
+of `s9_fixf.sh` (the acquisition-order probe against the deployed
+`release_expired_reservations` plus a DESC mutant derived from it), and
+`scripts/ci/test_check_definer_guards.py`. Reproduction, RED mutant proof and GREEN proof
+are in `docs/db/m191-evidence/M191_FINAL_REVIEW_REMEDIATION.md`. Migration 191's
+production body was not changed by that work.
 
 Run the reconciliation only on a database where the GREEN harness ran. The frozen F2 RED
 proof deliberately leaves a product aggregate diverging from its bins — that is the

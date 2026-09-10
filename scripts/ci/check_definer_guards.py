@@ -74,65 +74,181 @@ REVOKE_RE = re.compile(
 )
 
 
-def mask_sql(sql: str) -> str:
-    """Blank comments and single-quoted literal CONTENT, preserving every offset.
+class MaskError(Exception):
+    """A construct the length-preserving masker cannot mask soundly."""
+
+
+def _dollar_tag_at(sql: str, i: int) -> str | None:
+    """Return the dollar-quote tag opening at i, or None.
+
+    PostgreSQL tags are `$$` or `$tag$` where tag starts with a letter or
+    underscore. `$1` (a positional parameter) is therefore not a tag.
+    """
+    n = len(sql)
+    if i >= n or sql[i] != "$":
+        return None
+    j = i + 1
+    if j < n and (sql[j].isalpha() or sql[j] == "_"):
+        j += 1
+        while j < n and (sql[j].isalnum() or sql[j] == "_"):
+            j += 1
+    if j < n and sql[j] == "$":
+        return sql[i : j + 1]
+    return None
+
+
+def _blank(out: list[str], start: int, end: int) -> None:
+    """Overwrite [start, end) with spaces, keeping newlines so offsets and line
+    numbers both survive."""
+    for k in range(start, end):
+        if out[k] != "\n":
+            out[k] = " "
+
+
+def _mask_line_comment(sql: str, out: list[str], i: int) -> int:
+    n = len(sql)
+    j = i
+    while j < n and sql[j] != "\n":
+        out[j] = " "
+        j += 1
+    return j
+
+
+def _mask_block_comment(sql: str, out: list[str], i: int) -> int:
+    """Mask a /* ... */ comment, honouring PostgreSQL's nesting. Raises when the
+    comment is never closed, because everything after it would otherwise be
+    scanned as executable text."""
+    n = len(sql)
+    depth = 0
+    j = i
+    while j < n:
+        if sql.startswith("/*", j):
+            depth += 1
+            out[j] = out[j + 1] = " "
+            j += 2
+        elif sql.startswith("*/", j):
+            depth -= 1
+            out[j] = out[j + 1] = " "
+            j += 2
+            if depth == 0:
+                return j
+        else:
+            if sql[j] != "\n":
+                out[j] = " "
+            j += 1
+    raise MaskError("unterminated block comment")
+
+
+def _is_escape_string(sql: str, i: int) -> bool:
+    """True when the quote at i opens an E'' escape-string literal."""
+    if i == 0 or sql[i - 1] not in "Ee":
+        return False
+    k = i - 2
+    return k < 0 or not (sql[k].isalnum() or sql[k] == "_")
+
+
+def _mask_quoted(sql: str, out: list[str], i: int) -> int:
+    """Mask the CONTENT of a single-quoted literal, keeping both delimiters so
+    the statement shape around it stays readable. A doubled '' is content. In an
+    E'' literal a backslash escapes the next character, so \' does not close
+    the literal."""
+    n = len(sql)
+    escape = _is_escape_string(sql, i)
+    j = i + 1
+    while j < n:
+        ch = sql[j]
+        if escape and ch == "\\" and j + 1 < n:
+            _blank(out, j, j + 2)
+            j += 2
+            continue
+        if ch == "'":
+            if sql.startswith("''", j):
+                _blank(out, j, j + 2)
+                j += 2
+                continue
+            return j + 1
+        if ch != "\n":
+            out[j] = " "
+        j += 1
+    raise MaskError("unterminated single-quoted literal")
+
+
+def _mask_nested_dollar(sql: str, out: list[str], i: int, tag: str) -> int:
+    """Mask the CONTENT of a dollar-quoted literal nested inside a function
+    body ($$text$$ / $tag$text$tag$), keeping its delimiters."""
+    body = i + len(tag)
+    end = sql.find(tag, body)
+    if end == -1:
+        raise MaskError(f"unterminated nested dollar-quoted literal {tag}")
+    _blank(out, body, end)
+    return end + len(tag)
+
+
+def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
+    """Blank comments and literal CONTENT, preserving every offset.
 
     The scan below attributes each SECURITY DEFINER occurrence to the last
     CREATE FUNCTION before it, so positions must not shift. Without this mask a
     comment decides the verdict in both directions: a header comment that merely
     mentions "SECURITY DEFINER" is blamed on the previous (possibly INVOKER)
     function, and a guard named only in prose counts as a real assertion.
-    Dollar-quoted bodies stay visible - that is where the guards live - but
-    line/block comments inside them are still blanked, as PL/pgSQL treats them
-    as comments too.
+
+    Dollar-quoted function bodies stay visible - that is where the guards live -
+    but everything non-executable INSIDE them is masked too: line comments,
+    block comments (including nested ones), single-quoted literals (including
+    doubled quotes and E'' backslash escapes) and nested dollar-quoted literals.
+    Before this, an unguarded SECURITY DEFINER body passed the scanner merely by
+    naming the guard in `PERFORM 'wardah_assert_org_member';` or in a
+    `/* wardah_assert_org_member */` comment.
+
+    Returns the masked text plus a list of fail-closed problems. A construct the
+    masker cannot follow (an unterminated comment, literal or dollar quote) is
+    reported rather than silently treated as executable or as safe.
     """
     out = list(sql)
-    i, n = 0, len(sql)
-    state = None      # None | 'line' | 'block' | 'quote' | 'dollar'
-    tag = ''
-    while i < n:
-        ch = sql[i]
-        if state is None:
-            if sql.startswith('--', i):
-                state = 'line'; out[i] = out[i + 1] = ' '; i += 2; continue
-            if sql.startswith('/*', i):
-                state = 'block'; out[i] = out[i + 1] = ' '; i += 2; continue
-            if ch == "'":
-                state = 'quote'; i += 1; continue
-            if ch == '$':
-                j = i + 1
-                while j < n and (sql[j].isalnum() or sql[j] == '_'):
-                    j += 1
-                if j < n and sql[j] == '$':
-                    state, tag = 'dollar', sql[i:j + 1]
-                    i = j + 1; continue
-            i += 1; continue
-        if state == 'line':
-            if ch == '\n': state = None
-            else: out[i] = ' '
-            i += 1; continue
-        if state == 'block':
-            if sql.startswith('*/', i):
-                out[i] = out[i + 1] = ' '; state = None; i += 2; continue
-            if ch != '\n': out[i] = ' '
-            i += 1; continue
-        if state == 'quote':
-            if ch == "'":
-                if sql.startswith("''", i):
-                    out[i] = out[i + 1] = ' '; i += 2; continue
-                state = None; i += 1; continue
-            if ch != '\n': out[i] = ' '
-            i += 1; continue
-        if state == 'dollar':
-            if sql.startswith(tag, i):
-                i += len(tag); state, tag = None, ''; continue
-            if sql.startswith('--', i):
-                j = i
-                while j < n and sql[j] != '\n':
-                    out[j] = ' '; j += 1
-                i = j; continue
-            i += 1; continue
-    return ''.join(out)
+    problems: list[str] = []
+    n = len(sql)
+    i = 0
+    outer_tag: str | None = None   # set while inside a function body
+
+    try:
+        while i < n:
+            if sql.startswith("--", i):
+                i = _mask_line_comment(sql, out, i)
+                continue
+            if sql.startswith("/*", i):
+                i = _mask_block_comment(sql, out, i)
+                continue
+            if sql[i] == "'":
+                i = _mask_quoted(sql, out, i)
+                continue
+            if sql[i] == "$":
+                if outer_tag is not None and sql.startswith(outer_tag, i):
+                    i += len(outer_tag)
+                    outer_tag = None
+                    continue
+                tag = _dollar_tag_at(sql, i)
+                if tag is not None:
+                    if outer_tag is None:
+                        outer_tag = tag       # enter an executable body
+                        i += len(tag)
+                    else:
+                        i = _mask_nested_dollar(sql, out, i, tag)
+                    continue
+            i += 1
+    except MaskError as exc:
+        problems.append(str(exc))
+        return "".join(out), problems
+
+    if outer_tag is not None:
+        problems.append(f"unterminated dollar-quoted function body {outer_tag}")
+
+    return "".join(out), problems
+
+
+def mask_sql(sql: str) -> str:
+    """Backwards-compatible wrapper: masked text only."""
+    return mask_sql_checked(sql)[0]
 
 
 def get_cutoff() -> int:
@@ -161,7 +277,18 @@ def extract_function_body(sql: str, func_start: int) -> str:
 
 def check_file(path: pathlib.Path) -> list[str]:
     errors = []
-    sql = mask_sql(path.read_text(encoding="utf-8"))
+    sql, mask_problems = mask_sql_checked(path.read_text(encoding="utf-8"))
+
+    # Fail closed. A body the masker could not follow may hide a guard name in
+    # unmasked non-executable text, which is exactly the false green this
+    # scanner exists to prevent.
+    for problem in mask_problems:
+        errors.append(
+            f"  \u274c {path.name}: cannot be scanned safely ({problem}); "
+            f"fix the construct or split it out"
+        )
+    if mask_problems:
+        return errors
 
     for m in re.finditer(r"SECURITY\s+DEFINER", sql, re.IGNORECASE):
         prefix = sql[: m.start()]

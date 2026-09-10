@@ -137,4 +137,185 @@ case "$i1st" in
 esac
 num_eq "$rel" 1 || fail "9.3: expected the sweep to release exactly the 1 remaining reserved row, got $rel"
 reconcile_product 9.3-X "$org" "$X"
+
+# =============================================================================
+# 9.4 / 9.5  REAL acquisition-order probe  (final-review remediation, Finding 2)
+# =============================================================================
+#
+# WHY THIS EXISTS. At the reviewed head fa1de77f07077af97623c34c0a743b5d00000785
+# nothing above proved that the DEPLOYED release_expired_reservations acquires
+# reservation rows in ascending id order:
+#   * §9.1 proves reversed-vs-ascending deadlocks, but does it with two
+#     handwritten test-only functions, so it says nothing about the real body;
+#   * §9.2 lets the real release FINISH before consumption starts competing, so
+#     it proves serialization, not acquisition ORDER.
+# Flipping the real body's `ORDER BY mr.id` to `ORDER BY mr.id DESC` was
+# reproduced GREEN through the catalog contract, the static gate and all of §9.
+#
+# WHAT THIS PROVES. Two independent blockers each hold exactly one reservation
+# row. The real function is then started and its acquisition sequence is read
+# out of pg_blocking_pids — observed backend state, never a sleep. Releasing the
+# blocker it is actually waiting on lets it move to the next one, so the
+# recorded sequence is the order the function itself chose.
+#
+# The same probe is then run against a DESC mutant derived from the DEPLOYED
+# body (identical but for the lock order). The mutant must show the reversed
+# sequence; if it does not, the probe cannot discriminate and this scenario
+# fails as a harness defect rather than passing vacuously.
+
+CURRENT_SCENARIO=9.4
+MUTANT_FN=public.zz_m191_testonly_release_desc_probe
+drop_mutant() {
+  "${PSQL[@]}" -c "DROP FUNCTION IF EXISTS $MUTANT_FN(uuid);" >/dev/null 2>&1 || true
+}
+# Test-only instrumentation must not survive this script on any path: the
+# catalog contract fails closed on any public.zz_% function.
+trap drop_mutant EXIT
+
+# Sets PROBE_ORDER ("<first>-><second>" in R1/R2 terms), PROBE_STATUS,
+# PROBE_OUT and PROBE_ERR. Deliberately not a command substitution: that would
+# run the probe in a subshell, so neither the results nor the observed lock
+# evidence would reach the caller.
+probe_acquisition_order() { # $1 label  $2 fully-qualified release function
+  local lbl=$1 fn=$2 k rid first second
+  local r="$tmp/$lbl"; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
+
+  # One blocker per reservation row, each holding ONLY its own row. Neither
+  # blocker can be reached except by a sweep that actually wants that row.
+  for k in 1 2; do
+    eval "rid=\$R$k"
+    PGAPPNAME="$lbl-b$k" "${PSQL[@]}" >"$r-b$k.out" 2>"$r-b$k.err" <<SQL &
+BEGIN;
+SELECT id FROM public.material_reservations WHERE id='$rid' FOR NO KEY UPDATE;
+\! touch $r-b$k.ready
+\! bash -c 'while [ ! -f "$r-b$k.release" ]; do sleep 0.05; done'
+COMMIT;
+SQL
+    eval "B${k}PID=\$!"
+    wait_for_file "$r-b$k.ready" || fail "$lbl: blocker_R$k never took its row: $(tr -d '\n' < "$r-b$k.err")"
+  done
+
+  PGAPPNAME="$lbl-rel" "${PSQL[@]}" >"$r-rel.out" 2>"$r-rel.err" <<SQL &
+BEGIN;
+SELECT set_config('request.jwt.claim.sub','$adm',true);
+SELECT set_config('request.jwt.claims','{"sub":"$adm","role":"authenticated"}',true);
+SELECT $fn('$org');
+COMMIT;
+SQL
+  local relpid=$!
+
+  first=$(wait_for_any_blocker "$lbl-rel") \
+    || fail "$lbl: release never blocked on a reservation row (blockers='$first') - HARNESS_FAIL"
+  echo "  EVIDENCE[$lbl first] $(blocking_evidence "$lbl-rel")"
+  case "$first" in
+    "$lbl-b1") first=R1 ;;
+    "$lbl-b2") first=R2 ;;
+    *) touch "$r-b1.release" "$r-b2.release"; wait "$relpid" || true
+       fail "$lbl: release blocked on an unexpected backend set '$first'" ;;
+  esac
+
+  # Let go of exactly the row it is waiting on; it must then move to the other.
+  if [[ $first == R1 ]]; then
+    touch "$r-b1.release"; second=$(wait_for_blockers "$lbl-rel" "$lbl-b2") || second="TIMEOUT($second)"
+    [[ $second == "$lbl-b2" ]] && second=R2
+    echo "  EVIDENCE[$lbl second] $(blocking_evidence "$lbl-rel")"
+    touch "$r-b2.release"
+  else
+    touch "$r-b2.release"; second=$(wait_for_blockers "$lbl-rel" "$lbl-b1") || second="TIMEOUT($second)"
+    [[ $second == "$lbl-b1" ]] && second=R1
+    echo "  EVIDENCE[$lbl second] $(blocking_evidence "$lbl-rel")"
+    touch "$r-b1.release"
+  fi
+
+  PROBE_STATUS=0; wait "$relpid" || PROBE_STATUS=$?
+  wait "$B1PID" || true; wait "$B2PID" || true
+  PROBE_ERR=$(tr -d '\n' < "$r-rel.err")
+  # Last line only: the two set_config() calls above echo their own results.
+  PROBE_OUT=$(tail -1 "$r-rel.out" | tr -d '\n')
+  PROBE_ORDER="$first->$second"
+}
+
+prepare_two_reservations() { # sets R1 (lower uuid) and R2 (higher uuid)
+  reset_fixture
+  mk_mo "$1" >/dev/null
+  expire_all
+  local n
+  n=$("${PSQL[@]}" -c "SELECT count(*) FROM public.material_reservations WHERE org_id='$org' AND status='reserved' AND expires_at < now()")
+  num_eq "$n" 2 || fail "$CURRENT_SCENARIO: fixture must present exactly 2 expired reservations, got $n"
+  # uuid has no min()/max() aggregate; take the extremes by the same ordering
+  # the function under test is supposed to use.
+  R1=$("${PSQL[@]}" -c "SELECT id FROM public.material_reservations WHERE org_id='$org' AND status='reserved' ORDER BY id ASC LIMIT 1")
+  R2=$("${PSQL[@]}" -c "SELECT id FROM public.material_reservations WHERE org_id='$org' AND status='reserved' ORDER BY id DESC LIMIT 1")
+  # Assert the precondition with PostgreSQL's own uuid comparison, not bash's
+  # locale-dependent string ordering.
+  local ord
+  ord=$("${PSQL[@]}" -c "SELECT '$R1'::uuid < '$R2'::uuid")
+  [[ "$ord" == "t" ]] || fail "$CURRENT_SCENARIO: fixture precondition R1 < R2 violated (R1=$R1 R2=$R2)"
+  echo "  fixture: R1=$R1 < R2=$R2"
+}
+
+echo '=== 9.4 GREEN: the DEPLOYED release_expired_reservations acquires R1 then R2 ==='
+prepare_two_reservations 'S12-F-MO-4'
+probe_acquisition_order s9f-p4 public.release_expired_reservations
+ORDER_REAL=$PROBE_ORDER
+echo "  observed acquisition order (real function) = $ORDER_REAL status=$PROBE_STATUS returned=$PROBE_OUT"
+[[ $PROBE_STATUS -eq 0 ]] || fail "9.4: the real release must complete once both blockers let go: $PROBE_ERR"
+[[ "$ORDER_REAL" == "R1->R2" ]] || fail "9.4: the deployed release_expired_reservations acquired reservations in $ORDER_REAL, not ascending R1->R2"
+num_eq "$PROBE_OUT" 2 || fail "9.4: the sweep must release both expired reservations, returned $PROBE_OUT"
+echo "  9.4 PASS ascending acquisition proven from pg_blocking_pids against the real function"
+
+echo '=== 9.5 DISCRIMINATOR: the same probe on a DESC mutant of the deployed body ==='
+CURRENT_SCENARIO=9.5
+prepare_two_reservations 'S12-F-MO-5'
+# The mutant is derived from the DEPLOYED body, so it differs from it in exactly
+# one respect: the lock order. Anything else that changes would be a harness
+# defect, and the assertions below refuse to build a mutant that is not that.
+"${PSQL[@]}" <<'SQL'
+DO $mut$
+DECLARE
+  v_def text;
+  v_mut text;
+  v_hits integer;
+BEGIN
+  v_def := pg_get_functiondef('public.release_expired_reservations(uuid)'::regprocedure);
+
+  SELECT count(*) INTO v_hits
+  FROM regexp_matches(v_def, 'ORDER BY mr\.id', 'g');
+  IF v_hits <> 1 THEN
+    RAISE EXCEPTION 'S12_S9_MUTANT_ORDER_CLAUSE_HITS: % (expected exactly 1)', v_hits;
+  END IF;
+
+  v_mut := replace(v_def,
+    'FUNCTION public.release_expired_reservations(',
+    'FUNCTION public.zz_m191_testonly_release_desc_probe(');
+  IF v_mut = v_def THEN
+    RAISE EXCEPTION 'S12_S9_MUTANT_RENAME_FAILED';
+  END IF;
+
+  v_mut := replace(v_mut, 'ORDER BY mr.id', 'ORDER BY mr.id DESC');
+  EXECUTE v_mut;
+END
+$mut$;
+SQL
+DIFFLINES=$("${PSQL[@]}" -c "
+SELECT count(*) FROM (
+  SELECT unnest(string_to_array(replace(pg_get_functiondef('public.release_expired_reservations(uuid)'::regprocedure),'release_expired_reservations','X'), E'\n'))
+  EXCEPT ALL
+  SELECT unnest(string_to_array(replace(pg_get_functiondef('$MUTANT_FN(uuid)'::regprocedure),'zz_m191_testonly_release_desc_probe','X'), E'\n'))
+) d")
+num_eq "$DIFFLINES" 1 || fail "9.5: the mutant must differ from the deployed body in exactly 1 line (the lock order), differs in $DIFFLINES"
+echo "  mutant derived from the deployed body; single differing line = the ORDER BY clause"
+
+probe_acquisition_order s9f-p5 "$MUTANT_FN"
+ORDER_MUT=$PROBE_ORDER
+echo "  observed acquisition order (DESC mutant) = $ORDER_MUT status=$PROBE_STATUS returned=$PROBE_OUT"
+[[ "$ORDER_MUT" != "R1->R2" ]] || fail "9.5: the DESC mutant produced the SAME ascending order as the real function - the probe cannot discriminate, so 9.4 proves nothing"
+[[ "$ORDER_MUT" == "R2->R1" ]] || fail "9.5: expected the DESC mutant to acquire R2->R1, observed $ORDER_MUT"
+echo "  9.5 PASS reversed lock order is observed as R2->R1, so 9.4's R1->R2 is a real discriminating result"
+
+drop_mutant
+LEAKED=$("${PSQL[@]}" -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'zz\_%'")
+num_eq "$LEAKED" 0 || fail "9.5: test-only instrumentation survived ($LEAKED function(s))"
+echo "  9.5 cleanup: no public.zz_% function left behind"
+
 echo "SLICE12_S9_PASS"

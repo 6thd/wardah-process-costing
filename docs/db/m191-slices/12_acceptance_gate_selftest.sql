@@ -499,3 +499,387 @@ BEGIN
   RAISE NOTICE 'M191_GATE_SELFTEST_PASS: positive=7 mutants=15';
 END
 $m191_gate_selftest$;
+
+-- ---------------------------------------------------------------------------
+-- FINAL-REVIEW REMEDIATION SELF-ACCEPTANCE (PR #241, Findings 2 and 3)
+-- ---------------------------------------------------------------------------
+--
+-- Kept as its own block with its own notice so the two remediation assertions
+-- stay independently diagnosable: a failure here names which of them stopped
+-- discriminating, without reading back through the fifteen original mutants.
+
+CREATE OR REPLACE FUNCTION pg_temp.m191_selftest_expect_fix_f_failure(
+  p_case text,
+  p_body text,
+  p_expected_error text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.m191_assert_fix_f_release_lock_contract(p_case, p_body);
+  EXCEPTION WHEN OTHERS THEN
+    IF position(p_expected_error IN SQLERRM) = 0 THEN
+      RAISE EXCEPTION
+        'M191_GATE_SELFTEST_WRONG_ERROR: case=% expected=% actual=%',
+        p_case, p_expected_error, SQLERRM;
+    END IF;
+    RETURN;
+  END;
+
+  RAISE EXCEPTION 'M191_GATE_SELFTEST_MUTANT_NOT_CAUGHT: case=%', p_case;
+END
+$$;
+
+CREATE OR REPLACE FUNCTION pg_temp.m191_selftest_expect_uuid_parity_failure(
+  p_case text,
+  p_body text,
+  p_candidate_key text,
+  p_expected_error text
+)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path TO pg_catalog, pg_temp
+AS $$
+BEGIN
+  BEGIN
+    PERFORM pg_temp.m191_assert_uuid_parser_parity(p_case, p_body, p_candidate_key);
+  EXCEPTION WHEN OTHERS THEN
+    IF position(p_expected_error IN SQLERRM) = 0 THEN
+      RAISE EXCEPTION
+        'M191_GATE_SELFTEST_WRONG_ERROR: case=% expected=% actual=%',
+        p_case, p_expected_error, SQLERRM;
+    END IF;
+    RETURN;
+  END;
+
+  RAISE EXCEPTION 'M191_GATE_SELFTEST_MUTANT_NOT_CAUGHT: case=%', p_case;
+END
+$$;
+
+DO $m191_remediation_selftest$
+DECLARE
+  -- ---- Fix F ordered reservation-lock fixtures -----------------------------
+
+  c_f_good constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        WHERE mr.status = 'reserved'
+          AND mr.expires_at < now()
+        ORDER BY mr.id
+        FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+
+      UPDATE public.material_reservations
+      SET status = 'expired'
+      WHERE id = ANY(v_ids);
+    END
+  $body$;
+
+  -- MUTANT — the one-word reversal that survived every gate at the reviewed
+  -- head fa1de77f07077af97623c34c0a743b5d00000785.
+  c_f_desc constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        WHERE mr.status = 'reserved'
+        ORDER BY mr.id DESC
+        FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  c_f_no_order constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        WHERE mr.status = 'reserved'
+        FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  c_f_for_update constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        WHERE mr.status = 'reserved'
+        ORDER BY mr.id
+        FOR UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  c_f_skip_locked constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        WHERE mr.status = 'reserved'
+        ORDER BY mr.id
+        FOR NO KEY UPDATE SKIP LOCKED
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- The predecessor's defect restored: rows are taken by an unordered UPDATE
+  -- first, and the ordered lock below it is then decoration.
+  c_f_update_first constant text := $body$
+    BEGIN
+      UPDATE public.material_reservations
+      SET status = 'expired'
+      WHERE status = 'reserved' AND expires_at < now();
+
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        ORDER BY mr.id
+        FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- The whole ordered-lock shape present, but only as prose.
+  c_f_order_in_comment constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+        -- ORDER BY mr.id FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- …and the same shape quoted in a string literal.
+  c_f_order_in_string constant text := $body$
+    BEGIN
+      RAISE NOTICE 'order by mr.id for no key update';
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.material_reservations mr
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- Ordered lock over some other relation entirely.
+  c_f_wrong_source constant text := $body$
+    BEGIN
+      FOR v_id IN
+        SELECT mr.id
+        FROM public.stock_ledger_entries mr
+        ORDER BY mr.id
+        FOR NO KEY UPDATE
+      LOOP
+        v_ids := array_append(v_ids, v_id);
+      END LOOP;
+    END
+  $body$;
+
+  -- ---- Fix E UUID parser-parity fixtures -----------------------------------
+
+  c_e_good_gr constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          ON p.org_id = v_org
+         AND p.id = CASE
+                      WHEN pg_input_is_valid(line.value->>'product_id', 'uuid')
+                      THEN (line.value->>'product_id')::uuid
+                      ELSE NULL
+                    END
+      );
+    END
+  $body$;
+
+  c_e_good_dn constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT product_id
+        FROM (
+          SELECT sil.product_id
+          FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+          JOIN public.sales_invoice_lines sil
+            ON sil.invoice_id = v_invoice_id
+           AND sil.id = CASE
+                          WHEN pg_input_is_valid(
+                            line.value->>'sales_invoice_line_id', 'uuid')
+                          THEN (line.value->>'sales_invoice_line_id')::uuid
+                          ELSE NULL
+                        END
+          ORDER BY sil.id
+          FOR UPDATE OF sil
+        ) locked
+      );
+    END
+  $body$;
+
+  -- MUTANT — the canonical-only 8-4-4-4-12 regex. It rejects the brace-wrapped
+  -- and 32-hex-hyphenless spellings that the loop's own ::uuid cast accepts, so
+  -- such a line drops out of the prelock set and dies at PRODUCT_NOT_PRELOCKED.
+  c_e_canonical_regex constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          ON p.id = CASE
+                      WHEN line.value->>'product_id' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      THEN (line.value->>'product_id')::uuid
+                      ELSE NULL
+                    END
+      );
+    END
+  $body$;
+
+  -- MUTANT — the parser call kept as decoration while a canonical regex does
+  -- the actual narrowing. Presence of pg_input_is_valid alone must not pass.
+  c_e_regex_alongside constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          ON p.id = CASE
+                      WHEN pg_input_is_valid(line.value->>'product_id', 'uuid')
+                       AND line.value->>'product_id' ~ '^[0-9a-f]{8}-'
+                      THEN (line.value->>'product_id')::uuid
+                      ELSE NULL
+                    END
+      );
+    END
+  $body$;
+
+  c_e_validator_in_comment constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          -- WHEN pg_input_is_valid(line.value->>'product_id', 'uuid') THEN
+          ON p.id = (line.value->>'product_id')::uuid
+      );
+    END
+  $body$;
+
+  -- The validator gates something that is not the candidate cast.
+  c_e_no_validated_cast constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          ON p.legacy_key = CASE
+                              WHEN pg_input_is_valid(line.value->>'product_id', 'uuid')
+                              THEN line.value->>'product_id'
+                              ELSE NULL
+                            END
+      );
+    END
+  $body$;
+
+  -- The prepass no longer reads the candidate key at all.
+  c_e_wrong_key constant text := $body$
+    BEGIN
+      v_products := ARRAY(
+        SELECT DISTINCT p.id
+        FROM jsonb_array_elements(p_payload->'lines') AS line(value)
+        JOIN public.products p
+          ON p.id = CASE
+                      WHEN pg_input_is_valid(line.value->>'item_ref', 'uuid')
+                      THEN (line.value->>'item_ref')::uuid
+                      ELSE NULL
+                    END
+      );
+    END
+  $body$;
+BEGIN
+  -- ---- positives: the shapes the deployed bodies actually have -------------
+  PERFORM pg_temp.m191_assert_fix_f_release_lock_contract(
+    'selftest.fix_f_good', c_f_good);
+  PERFORM pg_temp.m191_assert_uuid_parser_parity(
+    'selftest.uuid_parity_good_gr', c_e_good_gr, 'product_id');
+  PERFORM pg_temp.m191_assert_uuid_parser_parity(
+    'selftest.uuid_parity_good_dn', c_e_good_dn, 'sales_invoice_line_id');
+
+  -- ---- Fix F mutants -------------------------------------------------------
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_descending', c_f_desc,
+    'M191_ACCEPTANCE_FIX_F_DESCENDING_LOCK_ORDER');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_no_order_by', c_f_no_order,
+    'M191_ACCEPTANCE_FIX_F_ORDERED_LOCK_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_bare_for_update', c_f_for_update,
+    'M191_ACCEPTANCE_FIX_F_FOR_UPDATE_REINTRODUCED');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_skip_locked', c_f_skip_locked,
+    'M191_ACCEPTANCE_FIX_F_SKIP_LOCKED_PRESENT');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_update_before_ordered_lock', c_f_update_first,
+    'M191_ACCEPTANCE_FIX_F_UPDATE_BEFORE_ORDERED_LOCK');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_order_only_in_comment', c_f_order_in_comment,
+    'M191_ACCEPTANCE_FIX_F_ORDERED_LOCK_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_order_only_in_string', c_f_order_in_string,
+    'M191_ACCEPTANCE_FIX_F_ORDERED_LOCK_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_fix_f_failure(
+    'selftest.fix_f_wrong_lock_source', c_f_wrong_source,
+    'M191_ACCEPTANCE_FIX_F_LOCK_SOURCE_MISSING');
+
+  -- ---- Fix E UUID parity mutants ------------------------------------------
+  PERFORM pg_temp.m191_selftest_expect_uuid_parity_failure(
+    'selftest.uuid_parity_canonical_regex', c_e_canonical_regex, 'product_id',
+    'M191_ACCEPTANCE_FIX_E_CANONICAL_UUID_REGEX_PRESENT');
+
+  PERFORM pg_temp.m191_selftest_expect_uuid_parity_failure(
+    'selftest.uuid_parity_regex_alongside_validator', c_e_regex_alongside,
+    'product_id', 'M191_ACCEPTANCE_FIX_E_CANONICAL_UUID_REGEX_PRESENT');
+
+  PERFORM pg_temp.m191_selftest_expect_uuid_parity_failure(
+    'selftest.uuid_parity_validator_only_in_comment', c_e_validator_in_comment,
+    'product_id', 'M191_ACCEPTANCE_FIX_E_PG_INPUT_IS_VALID_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_uuid_parity_failure(
+    'selftest.uuid_parity_no_validated_cast', c_e_no_validated_cast,
+    'product_id', 'M191_ACCEPTANCE_FIX_E_VALIDATED_CAST_MISSING');
+
+  PERFORM pg_temp.m191_selftest_expect_uuid_parity_failure(
+    'selftest.uuid_parity_candidate_key_absent', c_e_wrong_key,
+    'product_id', 'M191_ACCEPTANCE_FIX_E_CANDIDATE_KEY_MISSING');
+
+  RAISE NOTICE 'M191_GATE_SELFTEST_REMEDIATION_PASS: positive=3 mutants=13 (fix_f=8 uuid_parity=5)';
+END
+$m191_remediation_selftest$;

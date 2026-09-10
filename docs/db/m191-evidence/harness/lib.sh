@@ -123,3 +123,41 @@ WHERE a.application_name = '$1' AND l.granted
   AND c.relname IN ('products','bins','material_reservations','stock_ledger_entries');
 SQL
 }
+
+# Application names of the backends that are currently blocking $1, read from
+# pg_blocking_pids. This is observed lock state, not a timing inference: a
+# non-empty answer means the waiter is genuinely stuck behind those backends.
+blockers_of() {
+  "${PSQL[@]}" <<SQL
+SELECT coalesce(string_agg(DISTINCT b.application_name, ',' ORDER BY b.application_name), '')
+FROM pg_stat_activity a
+CROSS JOIN LATERAL unnest(pg_blocking_pids(a.pid)) AS bp(pid)
+JOIN pg_stat_activity b ON b.pid = bp.pid
+WHERE a.application_name = '$1';
+SQL
+}
+
+# Wait until $1 is blocked by at least one backend and echo their application
+# names. Deliberately does NOT take an expectation: the caller records which
+# row the function reached for FIRST, so a reversed acquisition order is
+# observed and reported rather than merely timing out.
+wait_for_any_blocker() {
+  local waiter=$1 tries=${2:-400} seen=''
+  for _ in $(seq 1 "$tries"); do
+    seen=$(blockers_of "$waiter")
+    [[ -n "$seen" ]] && { printf '%s' "$seen"; return 0; }
+    sleep 0.05
+  done
+  printf '%s' "$seen"; return 1
+}
+
+# Wait until $1's observed blocker set is exactly $2 (comma-joined app names).
+wait_for_blockers() {
+  local waiter=$1 expected=$2 tries=${3:-400} seen=''
+  for _ in $(seq 1 "$tries"); do
+    seen=$(blockers_of "$waiter")
+    [[ "$seen" == "$expected" ]] && { printf '%s' "$seen"; return 0; }
+    sleep 0.05
+  done
+  printf '%s' "$seen"; return 1
+}

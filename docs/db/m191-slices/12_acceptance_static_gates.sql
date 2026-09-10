@@ -267,7 +267,36 @@ BEGIN
     RAISE EXCEPTION 'M191_ACCEPTANCE_M190_PERMISSION_GUARD_MISSING';
   END IF;
 
-  RAISE NOTICE 'M191_ACCEPTANCE_STATIC_PASS: objects=13/closed s1_regex=positive+pattern_regression fks=2 helper=ordered_no_key_update prefix_order=% bodies fix_g=captured_exact m190_guard=present',
+  -- ---------------------------------------------------------------------------
+  -- 8) Fix F ordered reservation-lock contract (final-review remediation).
+  --    release_expired_reservations takes no product prefix, so check 5 skips
+  --    it by design — which left its own ordering clause unasserted anywhere.
+  --    Reversing it to ORDER BY mr.id DESC left every gate GREEN.
+  -- ---------------------------------------------------------------------------
+  PERFORM pg_temp.m191_assert_fix_f_release_lock_contract(
+    'release_expired_reservations',
+    pg_get_functiondef('public.release_expired_reservations(uuid)'::regprocedure)
+  );
+
+  -- ---------------------------------------------------------------------------
+  -- 9) Fix E UUID parser parity, scoped to the two candidate prepasses only
+  --    (final-review remediation). Deliberately not a repository-wide search:
+  --    the design document's historical text carries superseded regex examples
+  --    that must stay untouched.
+  -- ---------------------------------------------------------------------------
+  PERFORM pg_temp.m191_assert_uuid_parser_parity(
+    'rpc_post_goods_receipt',
+    pg_get_functiondef('public.rpc_post_goods_receipt(jsonb)'::regprocedure),
+    'product_id'
+  );
+
+  PERFORM pg_temp.m191_assert_uuid_parser_parity(
+    'rpc_post_delivery_note',
+    pg_get_functiondef('public.rpc_post_delivery_note(jsonb)'::regprocedure),
+    'sales_invoice_line_id'
+  );
+
+  RAISE NOTICE 'M191_ACCEPTANCE_STATIC_PASS: objects=13/closed s1_regex=positive+pattern_regression fks=2 helper=ordered_no_key_update prefix_order=% bodies fix_g=captured_exact m190_guard=present fix_f=ordered_asc_no_key_update uuid_parity=2/2_pg_input_is_valid',
     cardinality(c_prefix_bodies);
 END
 $m191_acceptance_static$;
