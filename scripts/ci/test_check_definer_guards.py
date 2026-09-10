@@ -26,6 +26,17 @@ CALL shape — `guard(...)` or `public.guard(...)` — so the name by itself nev
 passes. The NON_CALL_MUST_REJECT cases below are that false green, frozen, for
 two different recognized guards so the correction is not special-cased to one
 string.
+
+Final-review remediation (PR #241, Finding 3): `wardah_is_org_member(uuid)`
+returns BOOLEAN and does not raise on denial, so a call whose result is
+discarded authorizes nothing — yet the generic call-shape matcher accepted it.
+It is removed from the generic assertion list, which leaves only the three
+helpers that raise. It is still a real guard in the negated raising idiom every
+historical caller uses, so that idiom is recognized STRUCTURALLY, never by a
+flat regex: the call must sit in an IF condition, and that IF's own deny branch
+must raise at its own nesting level. DISCARDED_BOOLEAN_MUST_REJECT freezes the
+false green; NEGATED_RAISE_MUTANTS_MUST_REJECT proves the structural check
+discriminates rather than rubber-stamping any nearby RAISE.
 """
 
 from __future__ import annotations
@@ -146,6 +157,59 @@ NON_CALL_MUST_REJECT = {
 MUST_REJECT.update(NON_CALL_MUST_REJECT)
 
 
+BOOL_PRED = "wardah_is_org_member"
+QPRED = f"public.{BOOL_PRED}"
+
+# Finding 3. The boolean predicate is called correctly, but its result is
+# discarded and a privileged write follows. Each returned [] before the
+# predicate was removed from the generic assertion list.
+DISCARDED_BOOLEAN_MUST_REJECT = {
+    "boolean_perform_qualified_result_ignored": definer(f"  PERFORM {QPRED}(p_org);"),
+    "boolean_select_qualified_result_ignored": definer(f"  SELECT {QPRED}(p_org);"),
+    "boolean_perform_unqualified_result_ignored": definer(
+        f"  PERFORM {BOOL_PRED}(p_org);"
+    ),
+    "boolean_select_into_discarded": definer(f"  SELECT {BOOL_PRED}(p_org) INTO v_ok;"),
+}
+
+# Finding 3. The predicate IS negated and a RAISE IS present, but the raise does
+# not actually deny this call. A flat "NOT pred ... RAISE" regex would accept
+# every one of these; the structural check must not.
+NEGATED_RAISE_MUTANTS_MUST_REJECT = {
+    # Not negated: this raises FOR members, and lets non-members through.
+    "predicate_not_negated": definer(
+        f"  IF {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'X';\n  END IF;"
+    ),
+    # The raise is in the ELSE branch, so the deny path does nothing.
+    "raise_only_in_else_branch": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    NULL;\n"
+        "  ELSE\n    RAISE EXCEPTION 'X';\n  END IF;"
+    ),
+    # The raise is inside a nested IF, so it is conditional on something else.
+    "raise_only_in_nested_if": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    IF false THEN\n"
+        "      RAISE EXCEPTION 'X';\n    END IF;\n  END IF;"
+    ),
+    # RAISE NOTICE reports; it does not abort.
+    "raise_is_only_a_notice": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE NOTICE 'X';\n  END IF;"
+    ),
+    # The raise is after END IF, outside the deny branch entirely.
+    "raise_after_end_if": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    NULL;\n  END IF;\n"
+        "  RAISE NOTICE 'later';"
+    ),
+    # The predicate is in the THEN body, not in the condition.
+    "predicate_in_body_not_condition": definer(
+        f"  IF true THEN\n    PERFORM {QPRED}(p_org);\n"
+        "    RAISE NOTICE 'x';\n  END IF;"
+    ),
+}
+
+MUST_REJECT.update(DISCARDED_BOOLEAN_MUST_REJECT)
+MUST_REJECT.update(NEGATED_RAISE_MUTANTS_MUST_REJECT)
+
+
 MUST_ACCEPT = {
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
@@ -160,8 +224,9 @@ MUST_ACCEPT = {
     "unqualified_guard_call": definer(f"  PERFORM {GUARD}(p_org);"),
     # An admin guard is equally recognized.
     "admin_guard_call": definer("  PERFORM public.wardah_assert_org_admin(p_org);"),
-    # The membership predicate, in a conditional rather than a PERFORM.
-    "is_org_member_call": definer(
+    # Finding 3: the boolean predicate counts only in the negated raising
+    # idiom — the shape migrations 153/166/167/168/169 actually use.
+    "is_org_member_negated_raise": definer(
         "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
         "    RAISE EXCEPTION 'NOT_ORG_MEMBER';\n"
         "  END IF;"
@@ -169,6 +234,20 @@ MUST_ACCEPT = {
     # Migration 178's recognized permission assertion.
     "permission_assertion_call": definer(
         "  PERFORM wardah_178_assert_permission(p_org, 'reports.financial.read');"
+    ),
+    # Finding 3: the exact shapes migrations 153 and 169 use.
+    "negated_raise_multiline_condition_169": definer(
+        "  IF public.get_current_tenant_id() IS NULL\n"
+        f"     OR NOT {QPRED}(public.get_current_tenant_id()) THEN\n"
+        "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n  END IF;"
+    ),
+    "negated_raise_single_line_condition_153": definer(
+        f"  IF v_org IS NULL OR NOT {QPRED}(v_org) THEN\n"
+        "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n  END IF;"
+    ),
+    # A bare RAISE with no level still aborts.
+    "negated_raise_bare_level": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE 'DENIED';\n  END IF;"
     ),
     # Whitespace between the name and the parenthesis is still a call.
     "call_with_space_before_paren": definer(f"  PERFORM public.{GUARD} (p_org);"),
@@ -245,6 +324,10 @@ class DefinerScannerTests(unittest.TestCase):
             f"PERFORM other_schema.{GUARD}(p_org);",
             f"${ADMIN_GUARD}$",
             f"PERFORM {ADMIN_GUARD};",
+            # Finding 3: the boolean predicate is not a generic assertion, so
+            # even a well-formed call to it must not satisfy GUARD_RE.
+            f"PERFORM public.{BOOL_PRED}(p_org);",
+            f"IF NOT public.{BOOL_PRED}(p_org) THEN",
         ):
             with self.subTest(reject=text):
                 self.assertIsNone(guards.GUARD_RE.search(text), text)
@@ -252,12 +335,48 @@ class DefinerScannerTests(unittest.TestCase):
             f"PERFORM {GUARD}(p_org);",
             f"PERFORM public.{GUARD}(p_org);",
             f"PERFORM public.{ADMIN_GUARD}(p_org);",
-            f"IF public.wardah_is_org_member(p_org) THEN",
             "PERFORM wardah_178_assert_permission(p_org, 'k');",
             f"PERFORM public.{GUARD}\n    (p_org);",
         ):
             with self.subTest(accept=text):
                 self.assertIsNotNone(guards.GUARD_RE.search(text), text)
+
+    def test_discarded_boolean_predicate_is_rejected(self) -> None:
+        """Finding 3: a boolean predicate whose result is thrown away."""
+        for name, sql in DISCARDED_BOOLEAN_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: discarded boolean result accepted as an assertion",
+                )
+
+    def test_negated_raise_structure_discriminates(self) -> None:
+        """Finding 3: a nearby RAISE is not enough — the deny branch must raise."""
+        for name, sql in NEGATED_RAISE_MUTANTS_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: non-denying RAISE accepted as an assertion",
+                )
+
+    def test_boolean_predicate_is_not_a_generic_assertion(self) -> None:
+        """It must be gone from the generic list, not merely handled elsewhere."""
+        self.assertNotIn(BOOL_PRED, guards.GUARD_NAMES)
+        self.assertIn(BOOL_PRED, guards.BOOLEAN_PREDICATES)
+        for helper in (
+            "wardah_assert_org_member",
+            "wardah_assert_org_admin",
+            "wardah_178_assert_permission",
+        ):
+            self.assertIn(helper, guards.GUARD_NAMES)
+
+    def test_unbalanced_if_block_is_not_recognized(self) -> None:
+        """An IF that never closes yields no recognized block (fails closed)."""
+        self.assertFalse(
+            guards.has_negated_raising_predicate(
+                f"IF NOT {QPRED}(p_org) THEN RAISE EXCEPTION 'X';"
+            )
+        )
 
     def test_revoke_from_public_still_exempts(self) -> None:
         sql = definer("  PERFORM 1;", name="f_revoked") + (

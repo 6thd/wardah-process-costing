@@ -68,3 +68,82 @@ Gate results
   python3 scripts/ci/test_check_definer_guards.py   -> Ran 8 tests, OK
   python3 scripts/ci/check_definer_guards.py        -> exit 0,
       "61 migration(s) — لا دوال DEFINER بلا حارس"
+
+
+===========================================================================
+Addendum — boolean membership predicate is not an assertion (Finding 3)
+===========================================================================
+
+Reviewed head: d9e0d2153a7b5701055cd00949a06ec66f11494f
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Defect
+------
+wardah_is_org_member(uuid) returns BOOLEAN and does not raise on denial, so a
+call whose result is discarded authorizes nothing. The generic call-shape
+matcher accepted it anyway.
+
+RED reproduction at d9e0d21, through the real check_file(), each with a
+privileged write (UPDATE public.bins) after the call:
+
+  PERFORM public.wardah_is_org_member(p_org);      -> check_file() == []  FALSE GREEN
+  SELECT  public.wardah_is_org_member(p_org);      -> check_file() == []  FALSE GREEN
+  PERFORM wardah_is_org_member(p_org);             -> check_file() == []  FALSE GREEN
+  SELECT  wardah_is_org_member(p_org) INTO v_ok;   -> check_file() == []  FALSE GREEN
+
+Impact survey BEFORE changing anything
+--------------------------------------
+Removing the predicate from the generic list alone would newly fail 19
+SECURITY DEFINER functions across five migrations: 153 (1), 166 (2), 167 (1),
+168 (5), 169 (10). Each was inspected. Every one is genuinely guarded by the
+negated raising idiom, e.g.
+
+  IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
+
+A repository-wide search found NO discarded-boolean call in any migration or
+baseline file: the only non-negated occurrences are to_regprocedure(
+'public.wardah_is_org_member(uuid)') preflight existence checks in 167 and 168,
+which live inside single-quoted literals and are masked before scanning. So the
+false green was real in the scanner but unexploited in the repository, and there
+is no production security defect.
+
+Correction
+----------
+1. wardah_is_org_member is REMOVED from GUARD_NAMES. The generic list now holds
+   only the three helpers that raise on denial:
+     wardah_assert_org_member, wardah_assert_org_admin,
+     wardah_178_assert_permission
+2. It moves to BOOLEAN_PREDICATES and is recognized ONLY in the negated raising
+   idiom, verified STRUCTURALLY rather than by a flat regex:
+     - _if_blocks_with_raising_deny_branch() walks IF / THEN / ELSIF / ELSE /
+       END IF as balanced tokens (END IF consumed before a bare IF; ELSIF is one
+       word so it cannot open a block) and returns the condition span of each IF
+       whose OWN deny branch raises at its OWN nesting level.
+     - The negated call must lie inside one of those condition spans.
+     - RAISE NOTICE/WARNING/INFO/LOG/DEBUG do not count as denial.
+     - An unbalanced IF yields no recognized block, so it fails closed.
+3. ZERO entries were added to KNOWN_EXEMPT. The 19 functions pass on their own
+   real structure, not on an exemption.
+
+Mutants — a nearby RAISE is not enough (all REJECTED after the correction)
+-------------------------------------------------------------------------
+  predicate_not_negated          IF pred(...) THEN RAISE      (raises for MEMBERS)
+  raise_only_in_else_branch      deny path does nothing
+  raise_only_in_nested_if        raise conditional on something else
+  raise_is_only_a_notice         RAISE NOTICE does not abort
+  raise_after_end_if             raise outside the deny branch
+  predicate_in_body_not_condition  predicate not in the IF condition
+
+Accepted — the real idiom (all ACCEPTED after the correction)
+-------------------------------------------------------------
+  canonical 169 multi-line condition, canonical 153 single-line condition,
+  unqualified negated call, bare RAISE with no level.
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 12 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"  (no migration regressed)

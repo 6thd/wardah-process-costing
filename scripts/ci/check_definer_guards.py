@@ -12,7 +12,12 @@ textual occurrence of the name — a dollar-quote tag, a quoted identifier,
 a bare identifier, comment or literal text — never satisfies the gate.
 
 Recognized guards:
-  - wardah_assert_org_member / wardah_assert_org_admin / wardah_is_org_member
+  - wardah_assert_org_member / wardah_assert_org_admin: raise on denial, so a
+    call alone is an assertion.
+  - wardah_is_org_member: returns BOOLEAN and does NOT raise, so a call whose
+    result is discarded authorizes nothing. It counts only in the negated
+    raising idiom, verified structurally: `IF ... NOT wardah_is_org_member(...)
+    THEN RAISE ... END IF`.
   - wardah_178_assert_permission: Migration 178's assertion wrapper around
     wardah_has_exact_permission. Unlike matching a bare boolean permission
     helper, this wrapper raises on denial and preserves the central Super Admin,
@@ -60,7 +65,6 @@ KNOWN_EXEMPT = {
 GUARD_NAMES = [
     "wardah_assert_org_member",
     "wardah_assert_org_admin",
-    "wardah_is_org_member",
     # Match only the assertion wrapper, never a bare boolean permission lookup.
     "wardah_178_assert_permission",
 ]
@@ -88,6 +92,109 @@ GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
 
 # Kept for backwards compatibility with callers that only need the names.
 GUARD_PATTERNS = list(GUARD_NAMES)
+
+# ---------------------------------------------------------------------------
+# Boolean membership predicates
+# ---------------------------------------------------------------------------
+# wardah_is_org_member(uuid) returns BOOLEAN. It does NOT raise on denial, so
+# calling it and discarding the result authorizes nothing:
+#
+#     PERFORM public.wardah_is_org_member(p_org);   -- result thrown away
+#     UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+#
+# It is a real guard only when its FALSE result actually denies, which in every
+# historical use means the negated form inside an IF whose branch raises:
+#
+#     IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
+#       RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+#     END IF;
+#
+# That is checked structurally below, never by a flat regex: the call must sit
+# in the CONDITION of an IF, and that IF's own deny branch must raise at its own
+# nesting level. A raise inside a nested IF does not count, an ELSE/ELSIF branch
+# does not count, and an unbalanced block is simply not recognized (fail closed).
+BOOLEAN_PREDICATES = [
+    "wardah_is_org_member",
+]
+
+NEGATED_PREDICATE_RE = re.compile(
+    r"\bNOT\s+(?:public\s*\.\s*)?(?:" + "|".join(BOOLEAN_PREDICATES) + r")\s*\(",
+    re.IGNORECASE,
+)
+
+# END IF must be consumed before a bare IF so it never opens a block. ELSIF is a
+# single word, so \bIF\b cannot match inside it.
+_BLOCK_TOKEN_RE = re.compile(
+    r"\b(END\s+IF|ELSIF|ELSE|IF|THEN|RAISE)\b", re.IGNORECASE
+)
+# RAISE NOTICE/WARNING/INFO/LOG/DEBUG report; they do not deny. A bare RAISE, or
+# RAISE EXCEPTION / RAISE SQLSTATE / RAISE 'msg', aborts.
+_NON_ABORTING_RAISE_RE = re.compile(
+    r"\bRAISE\s+(NOTICE|WARNING|INFO|LOG|DEBUG)\b", re.IGNORECASE
+)
+
+
+def _if_blocks_with_raising_deny_branch(body: str) -> list[tuple[int, int]]:
+    """Return (condition_start, condition_end) for each IF ... THEN whose own
+    deny branch raises at that block's nesting level.
+
+    The deny branch is the text between THEN and the first ELSIF/ELSE at the
+    same level, or END IF when there is none. Nested IFs get their own frame, so
+    a RAISE inside one is attributed there and never to the enclosing block.
+    """
+    frames: list[dict] = []
+    blocks: list[tuple[int, int]] = []
+
+    for m in _BLOCK_TOKEN_RE.finditer(body):
+        token = m.group(1).upper()
+        if token.startswith("END"):
+            if frames:
+                frame = frames.pop()
+                if frame["then_pos"] is not None and frame["raises"]:
+                    blocks.append((frame["if_end"], frame["then_pos"]))
+        elif token == "IF":
+            frames.append(
+                {"if_end": m.end(), "then_pos": None, "closed": False, "raises": False}
+            )
+        elif token == "THEN":
+            if frames and frames[-1]["then_pos"] is None:
+                frames[-1]["then_pos"] = m.start()
+        elif token in ("ELSIF", "ELSE"):
+            # The deny branch ends here; anything after it is a different branch.
+            if frames:
+                frames[-1]["closed"] = True
+        elif token == "RAISE":
+            if (
+                frames
+                and frames[-1]["then_pos"] is not None
+                and not frames[-1]["closed"]
+                and not _NON_ABORTING_RAISE_RE.match(body, m.start())
+            ):
+                frames[-1]["raises"] = True
+
+    # Leftover frames mean an unbalanced IF; those blocks are simply not
+    # recognized, which fails closed rather than accepting a guess.
+    return blocks
+
+
+def has_negated_raising_predicate(body: str) -> bool:
+    """True when a boolean membership predicate is negated in the condition of
+    an IF whose deny branch raises."""
+    blocks = _if_blocks_with_raising_deny_branch(body)
+    if not blocks:
+        return False
+    return any(
+        cond_start <= m.start() < cond_end
+        for m in NEGATED_PREDICATE_RE.finditer(body)
+        for cond_start, cond_end in blocks
+    )
+
+
+def has_recognized_guard(body: str) -> bool:
+    """A raising assertion helper, or a boolean predicate used in the negated
+    raising idiom. A discarded boolean result is never a guard."""
+    return bool(GUARD_RE.search(body)) or has_negated_raising_predicate(body)
+
 
 DEFINER_FUNC_RE = re.compile(
     r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(\w+)\s*\(",
@@ -338,7 +445,7 @@ def check_file(path: pathlib.Path) -> list[str]:
         if REVOKE_RE.search(revoke_before_next_func):
             continue
 
-        if not GUARD_RE.search(body):
+        if not has_recognized_guard(body):
             errors.append(
                 f"  ❌ {path.name}: function '{func_name}' is SECURITY DEFINER "
                 f"but has no recognized tenant/authorization assertion"
