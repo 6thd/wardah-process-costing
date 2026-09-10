@@ -10,6 +10,7 @@ INV='00002295-0000-0000-0000-0000000000d3'
 ILA='00002295-0000-0000-0000-0000000000e1'
 ILB='00002295-0000-0000-0000-0000000000e2'
 
+purge_org_documents "$org"
 "${PSQL[@]}" <<SQL
 DELETE FROM public.sales_invoice_lines WHERE org_id='$org';
 DELETE FROM public.sales_invoices WHERE org_id='$org';

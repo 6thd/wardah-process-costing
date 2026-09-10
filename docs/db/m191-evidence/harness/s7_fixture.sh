@@ -4,6 +4,7 @@ admin='00002294-f2f2-0000-0000-000000000002'
 P1='00002294-0000-0000-0000-0000000000a1'
 P2='00002294-0000-0000-0000-0000000000a2'
 W='00002294-0000-0000-0000-0000000000a9'
+purge_org_documents "$org"
 "${PSQL[@]}" <<SQL
 DELETE FROM public.stock_adjustment_items WHERE organization_id='$org';
 DELETE FROM public.stock_adjustments WHERE organization_id='$org';

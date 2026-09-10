@@ -1,7 +1,7 @@
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
 r=$tmp/s8b; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
-ADJ='00002296-0000-0000-0000-000000000601'
+ADJ=$(new_uuid)   # per-run: see s7_fixcd.sh note on derived GL idempotency keys
 mk_adj() { # $1 adj_id $2 number $3.. products in payload order
   local adj=$1 num=$2; shift 2
   "${PSQL[@]}" <<SQL

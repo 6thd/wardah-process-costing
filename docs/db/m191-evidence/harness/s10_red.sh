@@ -27,7 +27,7 @@ launch res "$(mo_payload 'S12-RED-MO' "jsonb_build_array(jsonb_build_object('ite
 respid=$LPID
 w=$(wait_for_lock_waiters 1 "'res'") || fail "RED: reservation never queued on bin X (waiters=$w)"
 echo "  RED step1 reservation waiting: $(blocking_evidence res)"
-launch gr "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-red-g','lines',$GR_YX));"
+launch gr "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-red-g-$RUN_NONCE','lines',$GR_YX));"
 grpid=$LPID
 w=$(wait_for_lock_waiters 2 "'res','gr'") || fail "RED: GR never reached its wait while holding bin Y (waiters=$w)"
 echo "  RED step2 GR waiting:          $(blocking_evidence gr)"

@@ -25,11 +25,11 @@ COMMIT;
 SQL
   DOCPID=$!
 }
-start_doc gr "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-red-gr','lines',$GR_LINES_AB));"
+start_doc gr "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-red-gr-$RUN_NONCE','lines',$GR_LINES_AB));"
 grpid=$DOCPID
 w=$(wait_for_lock_waiters 1 "'gr'") || fail "RED: GR never queued on bin A (waiters=$w)"
 echo "  RED step1 GR waiting: $(blocking_evidence gr)"
-start_doc dn "SELECT public.rpc_post_delivery_note(jsonb_build_object('tenant_id','$org','sales_invoice_id','$INV','warehouse_id','$W','idempotency_key','s12-red-dn','lines',$DN_LINES_BA));"
+start_doc dn "SELECT public.rpc_post_delivery_note(jsonb_build_object('tenant_id','$org','sales_invoice_id','$INV','warehouse_id','$W','idempotency_key','s12-red-dn-$RUN_NONCE','lines',$DN_LINES_BA));"
 dnpid=$DOCPID
 w=$(wait_for_lock_waiters 2 "'gr','dn'") || fail "RED: DN never reached its wait on bin A while holding bin B (waiters=$w)"
 echo "  RED step2 DN waiting:  $(blocking_evidence dn)"

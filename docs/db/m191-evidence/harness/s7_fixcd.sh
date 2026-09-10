@@ -35,11 +35,11 @@ adj_status() { "${PSQL[@]}" -c "SELECT status FROM public.stock_adjustments WHER
 rev_count() { "${PSQL[@]}" -c "SELECT count(*) FROM public.stock_ledger_entries WHERE org_id='$org' AND voucher_type='Stock Adjustment Reversal' AND voucher_id='$1'"; }
 active_sle() { "${PSQL[@]}" -c "SELECT count(*) FROM public.stock_ledger_entries WHERE org_id='$org' AND voucher_id='$1' AND voucher_type='Stock Adjustment' AND COALESCE(is_cancelled,false)=false"; }
 
-ADJ1='00002294-0000-0000-0000-0000000000c1'
-ADJ2='00002294-0000-0000-0000-0000000000c2'
-ADJ3='00002294-0000-0000-0000-0000000000c3'
-ADJ4='00002294-0000-0000-0000-0000000000c4'
-ADJ5='00002294-0000-0000-0000-0000000000c5'
+# Generated per run: rpc_submit_stock_adjustment derives its GL idempotency key
+# as 'stock-adjustment:'||adjustment_id, and the resulting posted gl_entries are
+# immutable, so reusing fixed ids makes a second run fail IDEMPOTENCY_KEY_CONFLICT.
+ADJ1=$(new_uuid); ADJ2=$(new_uuid); ADJ3=$(new_uuid)
+ADJ4=$(new_uuid); ADJ5=$(new_uuid)
 
 echo '=== 7.1 cancellation vs cancellation, two overlapping multi-product adjustments ==='
 CURRENT_SCENARIO=7.1

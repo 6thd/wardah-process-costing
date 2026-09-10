@@ -124,6 +124,33 @@ These are deviations of the *evidence artifacts* from the letter of
 All RED controls in this bundle were produced fresh during this run; none is a prose claim
 that a mutant "was tested earlier".
 
+## Re-runnability contract
+
+Several RPCs derive a deterministic GL idempotency key from document identity (for
+example `rpc_submit_stock_adjustment` uses `'stock-adjustment:' || adjustment_id`), and
+posted GL entries are immutable by contract (`POSTED_ENTRY_IMMUTABLE`). A fixture
+therefore may **not** delete ledger rows in order to repeat itself. Instead:
+
+- `lib.sh` defines `RUN_NONCE` (unique per invocation) and `new_uuid`; every
+  `idempotency_key` carries the nonce and every stock-adjustment id is generated per run;
+- `purge_org_documents` deletes only **non-ledger** documents for a fixture org
+  (`goods_receipts` / `delivery_notes` and their lines) — `gl_entries` and
+  `gl_entry_lines` are never touched.
+
+The rollback rehearsal exercised this: the first version of this harness passed on a
+clean database but failed on a second run with `IDEMPOTENCY_KEY_CONFLICT`, which was
+Migration 179's guard working as designed rather than a candidate defect. See
+`M191_ROLLBACK_REHEARSAL_EVIDENCE.txt`.
+
+## Rollback rehearsal
+
+`harness/rollback_rehearsal.sh` restores the twelve predecessors from the live
+`wardah_pre191` oracle (not from historical migration files), drops the helper, proves
+the rolled-back catalog matches the oracle exactly, re-observes the frozen F2 RED proof,
+then reapplies M191 and re-runs the gates and the full GREEN battery. Result and the
+three harness defects it exposed are recorded in
+`M191_ROLLBACK_REHEARSAL_EVIDENCE.txt`.
+
 ## Out of scope
 
 M191 does **not** close the direct-client write surfaces on `products`,

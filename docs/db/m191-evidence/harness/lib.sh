@@ -5,6 +5,29 @@ PSQL=(psql -X -v ON_ERROR_STOP=1 -qAt)
 tmp=/var/tmp/pg17/rt
 mkdir -p "$tmp"
 
+
+# Unique per invocation. Several RPCs derive a deterministic GL idempotency key
+# from the document identity (e.g. 'stock-adjustment:'||adjustment_id), and
+# posted GL entries are immutable by contract (POSTED_ENTRY_IMMUTABLE), so a
+# fixture may never purge them to re-run. Fresh identities per run are the only
+# correct way to keep these scenarios repeatable.
+RUN_NONCE=${RUN_NONCE:-$(date +%s)$RANDOM}
+
+new_uuid() { "${PSQL[@]}" -c "SELECT gen_random_uuid()"; }
+
+# Delete only NON-ledger documents belonging to a fixture org. gl_entries and
+# gl_entry_lines are deliberately never touched: they are legal ledger history.
+purge_org_documents() {
+  "${PSQL[@]}" <<SQL
+DELETE FROM public.delivery_note_lines WHERE delivery_note_id IN
+  (SELECT id FROM public.delivery_notes WHERE org_id='$1');
+DELETE FROM public.delivery_notes WHERE org_id='$1';
+DELETE FROM public.goods_receipt_lines WHERE goods_receipt_id IN
+  (SELECT id FROM public.goods_receipts WHERE org_id='$1');
+DELETE FROM public.goods_receipts WHERE org_id='$1';
+SQL
+}
+
 fail() { echo "SLICE12_FAIL[$CURRENT_SCENARIO]: $1" >&2; exit 1; }
 num_eq() { awk -v a="$1" -v b="$2" 'BEGIN { exit (a == b) ? 0 : 1 }'; }
 

@@ -155,7 +155,7 @@ write_generated_rollback() {
     for sig in "${signatures[@]}"; do
       echo "-- restore $sig"
       PGDATABASE="$PRE_DB" "${PSQL[@]}" -c \
-        "SELECT pg_get_functiondef('$sig'::regprocedure);" \
+        "SELECT pg_get_functiondef('$sig'::regprocedure) || ';';" \
         || fail "could not extract predecessor definition: $sig"
       echo
     done
@@ -236,6 +236,32 @@ if ! cmp -s "$RUN_DIR/pre191.contract.jsonl" "$RUN_DIR/m191.after_rollback.contr
 fi
 
 log "rollback catalog matches pre-191 oracle exactly"
+
+# acceptance_f2_stock_bin_race_red.sh is a CI script written for a *fresh*
+# database: it inserts the fixed organization STKF2-RACE and fails on a
+# duplicate code if that org is already there. The rehearsal runs it against a
+# long-lived database, so its fixture org is purged first, otherwise the
+# rehearsal is only ever runnable once. The org carries no gl_entries (the raw
+# stock helpers post no GL), so nothing here deletes ledger history.
+purge_frozen_red_fixture() {
+  PGDATABASE="$M191_DB" "${PSQL[@]}" <<'SQL'
+DELETE FROM public.stock_ledger_entries WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.bins             WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.products         WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.warehouses       WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.user_organizations WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.audit_logs       WHERE org_id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM public.organizations    WHERE id='00002280-f2f2-0000-0000-000000000001';
+DELETE FROM auth.users              WHERE id='00002280-f2f2-0000-0000-000000000002';
+SQL
+  local left
+  left=$(PGDATABASE="$M191_DB" "${PSQL[@]}" -c \
+    "SELECT count(*) FROM public.gl_entries WHERE org_id='00002280-f2f2-0000-0000-000000000001'")
+  [[ "$left" == "0" ]] || fail "frozen RED fixture org unexpectedly carries $left gl_entries"
+}
+
+log "purge frozen F2 RED fixture org so the proof is repeatable"
+purge_frozen_red_fixture
 
 log "rerun frozen F2 RED proof on the rolled-back candidate database"
 PGDATABASE="$M191_DB" \

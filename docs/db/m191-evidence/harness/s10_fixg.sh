@@ -44,7 +44,7 @@ SQL
 
 echo '=== 10.1 Control A: reservation [X,Y] vs Goods Receipt [Y,X] ==='
 CURRENT_SCENARIO=10.1A
-control ctlA "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-g-ctlA','lines',$GR_YX));"
+control ctlA "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-g-ctlA-$RUN_NONCE','lines',$GR_YX));"
 echo "  10.1A PASS reservation and crossed GR both completed, writer serialized at prefix before any bin"
 reconcile_product 10.1A-X "$org" "$X"; reconcile_product 10.1A-Y "$org" "$Y"
 
