@@ -122,6 +122,74 @@ NEGATED_PREDICATE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The negated predicate must be an ENTIRE top-level condition term: the whole
+# condition, or one complete top-level OR disjunct. Merely occurring somewhere in
+# the condition is not enough, because a conjunction can make the deny branch
+# unreachable while the text still reads as a guard:
+#
+#     IF NOT public.wardah_is_org_member(p_org) AND false THEN
+#       RAISE EXCEPTION 'DENIED';        -- never runs; non-members proceed
+#     END IF;
+#
+# Non-membership must by itself guarantee entry into the raising branch. In a
+# disjunction each disjunct alone suffices, so an OR term is safe; under AND it
+# is not, so anything else in the term disqualifies it.
+_TOP_LEVEL_OR_RE = re.compile(r"\bOR\b", re.IGNORECASE)
+
+
+def _split_top_level_or(condition: str) -> list[str]:
+    """Split on OR at parenthesis depth 0."""
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(condition):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            m = _TOP_LEVEL_OR_RE.match(condition, i)
+            if m and (i == 0 or not (condition[i - 1].isalnum() or condition[i - 1] == "_")):
+                parts.append(condition[start:i])
+                start = m.end()
+    parts.append(condition[start:])
+    return parts
+
+
+def _strip_outer_parens(text: str) -> str:
+    text = text.strip()
+    while text.startswith("(") and text.endswith(")"):
+        depth = 0
+        for i, ch in enumerate(text):
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    if i != len(text) - 1:
+                        return text
+                    break
+        text = text[1:-1].strip()
+    return text
+
+
+def _is_sole_negated_predicate(term: str) -> bool:
+    """True when `term` is exactly `NOT [public.]predicate(args)` and nothing
+    else — no trailing conjunct, no surrounding expression."""
+    term = _strip_outer_parens(term)
+    m = NEGATED_PREDICATE_RE.match(term)
+    if m is None:
+        return False
+    # Consume the call's balanced argument list; anything after it disqualifies.
+    depth = 0
+    for i in range(m.end() - 1, len(term)):
+        if term[i] == "(":
+            depth += 1
+        elif term[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return not term[i + 1:].strip()
+    return False
+
+
 # END IF must be consumed before a bare IF so it never opens a block. ELSIF is a
 # single word, so \bIF\b cannot match inside it.
 _BLOCK_TOKEN_RE = re.compile(
@@ -178,16 +246,13 @@ def _if_blocks_with_raising_deny_branch(body: str) -> list[tuple[int, int]]:
 
 
 def has_negated_raising_predicate(body: str) -> bool:
-    """True when a boolean membership predicate is negated in the condition of
-    an IF whose deny branch raises."""
-    blocks = _if_blocks_with_raising_deny_branch(body)
-    if not blocks:
-        return False
-    return any(
-        cond_start <= m.start() < cond_end
-        for m in NEGATED_PREDICATE_RE.finditer(body)
-        for cond_start, cond_end in blocks
-    )
+    """True when a boolean membership predicate is negated as a WHOLE top-level
+    condition term of an IF whose deny branch raises."""
+    for cond_start, cond_end in _if_blocks_with_raising_deny_branch(body):
+        condition = body[cond_start:cond_end]
+        if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
+            return True
+    return False
 
 
 def has_recognized_guard(body: str) -> bool:
@@ -308,6 +373,29 @@ def _mask_quoted(sql: str, out: list[str], i: int) -> int:
     raise MaskError("unterminated single-quoted literal")
 
 
+def _mask_quoted_identifier(sql: str, out: list[str], i: int) -> int:
+    """Mask the CONTENT of a "quoted identifier", keeping both delimiters.
+
+    PostgreSQL escapes an embedded double quote by doubling it. Without this the
+    structural PL/pgSQL scan reads a quoted identifier as executable syntax: a
+    column aliased `"RAISE"` made an IF branch look like it aborted, which is a
+    guard the deny path never actually performs.
+    """
+    n = len(sql)
+    j = i + 1
+    while j < n:
+        if sql[j] == '"':
+            if sql.startswith('""', j):
+                _blank(out, j, j + 2)
+                j += 2
+                continue
+            return j + 1
+        if sql[j] != "\n":
+            out[j] = " "
+        j += 1
+    raise MaskError("unterminated quoted identifier")
+
+
 def _mask_nested_dollar(sql: str, out: list[str], i: int, tag: str) -> int:
     """Mask the CONTENT of a dollar-quoted literal nested inside a function
     body ($$text$$ / $tag$text$tag$), keeping its delimiters."""
@@ -331,7 +419,8 @@ def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
     Dollar-quoted function bodies stay visible - that is where the guards live -
     but everything non-executable INSIDE them is masked too: line comments,
     block comments (including nested ones), single-quoted literals (including
-    doubled quotes and E'' backslash escapes) and nested dollar-quoted literals.
+    doubled quotes and E'' backslash escapes), "quoted identifiers" and nested
+    dollar-quoted literals.
     Before this, an unguarded SECURITY DEFINER body passed the scanner merely by
     naming the guard in `PERFORM 'wardah_assert_org_member';` or in a
     `/* wardah_assert_org_member */` comment.
@@ -356,6 +445,9 @@ def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
                 continue
             if sql[i] == "'":
                 i = _mask_quoted(sql, out, i)
+                continue
+            if sql[i] == '"':
+                i = _mask_quoted_identifier(sql, out, i)
                 continue
             if sql[i] == "$":
                 if outer_tag is not None and sql.startswith(outer_tag, i):

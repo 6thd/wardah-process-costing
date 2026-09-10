@@ -37,6 +37,16 @@ flat regex: the call must sit in an IF condition, and that IF's own deny branch
 must raise at its own nesting level. DISCARDED_BOOLEAN_MUST_REJECT freezes the
 false green; NEGATED_RAISE_MUTANTS_MUST_REJECT proves the structural check
 discriminates rather than rubber-stamping any nearby RAISE.
+
+Final-review remediation (PR #241, Finding 4): the structural recognizer above
+accepted the negated predicate anywhere in an IF condition, so a conjunction
+could make the deny branch unreachable while the text still read as a guard
+(`IF NOT pred(...) AND false THEN RAISE`). Non-membership must by itself
+guarantee entry into the raising branch, so the negated predicate must now be an
+entire top-level condition term — the whole condition, or one complete top-level
+OR disjunct. Separately, the masker did not blank "quoted identifiers", so a
+column aliased `"RAISE"` satisfied the structural RAISE detector; quoted
+identifier CONTENT is now masked like any other non-executable text.
 """
 
 from __future__ import annotations
@@ -210,6 +220,44 @@ MUST_REJECT.update(DISCARDED_BOOLEAN_MUST_REJECT)
 MUST_REJECT.update(NEGATED_RAISE_MUTANTS_MUST_REJECT)
 
 
+# Finding 4. The predicate IS negated and the branch DOES raise, but the
+# conjunction means non-membership alone never enters that branch.
+SUPPRESSED_DENY_MUST_REJECT = {
+    # The deny branch is unreachable: non-members fall straight through.
+    "negated_predicate_and_false": definer(
+        f"  IF NOT {QPRED}(p_org) AND false THEN\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    # Same, with the operands swapped.
+    "false_and_negated_predicate": definer(
+        f"  IF false AND NOT {QPRED}(p_org) THEN\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    # A second condition can suppress the deny path for a non-member.
+    "negated_predicate_and_other_condition": definer(
+        f"  IF NOT {QPRED}(p_org) AND v_flag THEN\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    # Buried inside a parenthesised conjunction rather than a top-level term.
+    "negated_predicate_inside_parenthesised_and": definer(
+        f"  IF (NOT {QPRED}(p_org) AND v_flag) THEN\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    # Finding 4 (second class): a quoted identifier is not executable syntax, so
+    # a column aliased "RAISE" must not satisfy the structural RAISE detector.
+    "quoted_identifier_named_raise": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n"
+        '    PERFORM 1 AS "RAISE";\n  END IF;'
+    ),
+    "quoted_identifier_raise_exception": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n"
+        '    PERFORM 1 AS "RAISE EXCEPTION";\n  END IF;'
+    ),
+}
+
+MUST_REJECT.update(SUPPRESSED_DENY_MUST_REJECT)
+
+
 MUST_ACCEPT = {
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
@@ -244,6 +292,19 @@ MUST_ACCEPT = {
     "negated_raise_single_line_condition_153": definer(
         f"  IF v_org IS NULL OR NOT {QPRED}(v_org) THEN\n"
         "    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';\n  END IF;"
+    ),
+    # Finding 4: the predicate as the sole condition, and as a complete
+    # top-level OR disjunct, are both safe — either one alone denies.
+    "negated_predicate_is_whole_condition": definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'X';\n  END IF;"
+    ),
+    "negated_predicate_or_disjunct_first": definer(
+        f"  IF NOT {QPRED}(v_org) OR v_org IS NULL THEN\n"
+        "    RAISE EXCEPTION 'X';\n  END IF;"
+    ),
+    "negated_predicate_or_disjunct_parenthesised": definer(
+        f"  IF v_org IS NULL OR (NOT {QPRED}(v_org)) THEN\n"
+        "    RAISE EXCEPTION 'X';\n  END IF;"
     ),
     # A bare RAISE with no level still aborts.
     "negated_raise_bare_level": definer(
@@ -358,6 +419,50 @@ class DefinerScannerTests(unittest.TestCase):
                     self.verdict(name, sql),
                     f"{name}: non-denying RAISE accepted as an assertion",
                 )
+
+    def test_suppressed_deny_branch_is_rejected(self) -> None:
+        """Finding 4: non-membership alone must guarantee the raise."""
+        for name, sql in SUPPRESSED_DENY_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: unreachable or non-executable deny branch accepted",
+                )
+
+    def test_top_level_term_analysis(self) -> None:
+        """The term test itself, independent of check_file()."""
+        for term in (
+            f"NOT {QPRED}(v_org) AND false",
+            f"false AND NOT {QPRED}(v_org)",
+            f"NOT {QPRED}(v_org) AND v_flag",
+            f"{QPRED}(v_org)",
+            "v_org IS NULL",
+        ):
+            with self.subTest(reject=term):
+                self.assertFalse(guards._is_sole_negated_predicate(term), term)
+        for term in (
+            f"NOT {QPRED}(v_org)",
+            f"  NOT {QPRED}( v_org )  ",
+            f"(NOT {QPRED}(v_org))",
+            f"NOT {BOOL_PRED}(public.get_current_tenant_id())",
+        ):
+            with self.subTest(accept=term):
+                self.assertTrue(guards._is_sole_negated_predicate(term), term)
+
+    def test_quoted_identifier_content_is_masked(self) -> None:
+        """Finding 4: quoted identifiers are not executable syntax."""
+        sql = definer('  PERFORM 1 AS "RAISE";')
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        self.assertEqual(len(masked), len(sql), "mask changed offsets")
+        self.assertEqual(masked.count("\n"), sql.count("\n"), "mask ate a newline")
+        self.assertNotIn("RAISE", masked)
+        self.assertIn('""', masked.replace(" ", ""))
+
+    def test_unterminated_quoted_identifier_fails_closed(self) -> None:
+        errors = self.verdict("unterminated_qid", definer('  PERFORM 1 AS "RAISE;'))
+        self.assertTrue(errors)
+        self.assertIn("cannot be scanned safely", errors[0])
 
     def test_boolean_predicate_is_not_a_generic_assertion(self) -> None:
         """It must be gone from the generic list, not merely handled elsewhere."""

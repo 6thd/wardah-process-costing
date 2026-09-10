@@ -147,3 +147,78 @@ Gate results
   python3 scripts/ci/test_check_definer_guards.py  -> Ran 12 tests, OK
   python3 scripts/ci/check_definer_guards.py       -> exit 0,
       "61 migration(s) — لا دوال DEFINER بلا حارس"  (no migration regressed)
+
+
+===========================================================================
+Addendum 2 — the deny branch must actually be reachable (Finding 4)
+===========================================================================
+
+Reviewed head: 44518a9645b9a290ec62314e5e22555d2cc3ff29
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Two defects, both reproduced live through the real check_file() at 44518a9,
+each with a privileged write after the block:
+
+  A. Conjunction suppresses the deny branch
+       IF NOT public.wardah_is_org_member(p_org) AND false THEN
+         RAISE EXCEPTION 'DENIED';
+       END IF;
+     -> check_file() == []   FALSE GREEN
+     Also false green: `false AND NOT pred(...)`, `NOT pred(...) AND v_flag`,
+     and the same buried inside parentheses.
+
+  B. A quoted identifier satisfied the structural RAISE detector
+       IF NOT public.wardah_is_org_member(p_org) THEN
+         PERFORM 1 AS "RAISE";
+       END IF;
+     -> check_file() == []   FALSE GREEN
+     The masker blanked comments, string literals and dollar-quoted content but
+     kept "quoted identifiers", so non-executable text was read as PL/pgSQL.
+
+Correction
+----------
+A. The negated predicate must be an ENTIRE top-level condition term: the whole
+   condition, or one complete top-level OR disjunct. Rationale: in a disjunction
+   each disjunct alone suffices to enter the branch, so non-membership by itself
+   guarantees the raise; under AND it does not. Implemented as
+   _split_top_level_or() (splitting on OR at parenthesis depth 0) plus
+   _is_sole_negated_predicate(), which strips balanced outer parentheses,
+   requires the term to begin with NOT [public.]predicate( and consumes the
+   call's balanced argument list, rejecting the term if anything follows.
+
+B. _mask_quoted_identifier() blanks the CONTENT of "quoted identifiers" while
+   keeping both delimiters, honouring the doubled "" escape and raising
+   MaskError (fail closed) on an unterminated one. Offsets and newlines are
+   preserved, so the existing offset contract still holds.
+
+Mutants — all REJECTED after the correction
+-------------------------------------------
+  negated_predicate_and_false, false_and_negated_predicate,
+  negated_predicate_and_other_condition,
+  negated_predicate_inside_parenthesised_and,
+  quoted_identifier_named_raise, quoted_identifier_raise_exception
+
+Accepted — safe boolean forms
+-----------------------------
+  NOT pred(...) as the whole condition
+  v_org IS NULL OR NOT pred(v_org)        (canonical 153)
+  NOT pred(v_org) OR v_org IS NULL        (disjunct first)
+  v_org IS NULL OR (NOT pred(v_org))      (parenthesised disjunct)
+  the canonical 169 multi-line condition with a nested call in the argument
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 16 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"  (no migration regressed,
+      zero KNOWN_EXEMPT entries added)
+
+Note on the previous head's CI: the single red on 44518a9 was CI/CD Pipeline's
+"Unit & integration tests" step, failing
+src/components/auth/__tests__/withPermission.transient-revalidation.test.tsx on
+`expect(unmountCount).toBe(1)`. That diff changed no TypeScript; the file passed
+in isolation and in the full 313-file/4620-test suite locally, was the first such
+failure in 20 CI/CD runs, and passed on re-run of the same commit. It is a
+pre-existing async-cleanup race in issue #239's own regression test, not a
+finding against this change and not fixed here (out of scope).
