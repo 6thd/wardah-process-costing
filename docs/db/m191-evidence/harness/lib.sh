@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared harness helpers for the M191 Slice 12 runtime battery.
 set -Eeuo pipefail
 : "${PGDATABASE:?}"

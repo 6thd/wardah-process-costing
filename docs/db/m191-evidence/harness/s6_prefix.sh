@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/lib.sh"
 org='00002293-f2f2-0000-0000-000000000001'
 actor='00002293-f2f2-0000-0000-000000000002'

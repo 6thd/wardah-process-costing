@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
 r=$tmp/s82b; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err

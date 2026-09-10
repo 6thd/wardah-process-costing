@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s8_fixture.sh"
 CURRENT_SCENARIO=8.1a-RED
 echo '=== 8.1a RED control (pre-M191 bodies): GR[A,B] vs DN[B,A] crossed bin order ==='

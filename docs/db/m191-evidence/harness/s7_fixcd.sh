@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s7_fixture.sh"
 
 # backend1 holds open after its call; backend2 must block, then run after release.

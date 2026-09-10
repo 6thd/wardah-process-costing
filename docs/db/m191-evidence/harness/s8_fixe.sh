@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s8_fixture.sh"
 
 echo '=== 8.1a Goods Receipt [A,B] vs Delivery Note [B,A] ==='

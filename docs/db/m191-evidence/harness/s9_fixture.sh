@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 source "$SCRATCH/lib.sh"
 org='00002296-f2f2-0000-0000-000000000001'
 adm='00002296-f2f2-0000-0000-000000000002'   # org admin + consume permission

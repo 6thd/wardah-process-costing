@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
 r=$tmp/s10d; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
@@ -109,6 +110,7 @@ SQL
 blkY=$!
 wait_for_file "$r-blkY.ready" || fail "10.3: Y-bin blocker never acquired"
 blkYpid=$("${PSQL[@]}" -c "SELECT pid FROM pg_stat_activity WHERE application_name='driftA-blkY'")
+echo "  Y-bin blocker holds product Y for the whole scenario (backend pid=$blkYpid)"
 hold_gate $GA A; gA=$GPID
 run_gated A 'S12-DRIFT-A' "jsonb_build_array(jsonb_build_object('item_id','$I1','quantity',2))"
 candA=$CPID

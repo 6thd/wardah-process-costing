@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
 CURRENT_SCENARIO=10.2
