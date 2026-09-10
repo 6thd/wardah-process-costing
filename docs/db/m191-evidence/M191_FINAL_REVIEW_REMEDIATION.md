@@ -309,11 +309,36 @@ On a Fresh PostgreSQL 17.11 built exactly as the workflow builds it
 
 ## Post-push identifiers
 
-Recorded in the follow-up commit on this branch once CI has run:
-
 | Field | Value |
 |---|---|
-| Remediation head SHA | _recorded after push_ |
-| M191 acceptance workflow run | _recorded after push_ |
-| Job `acceptance` | _recorded after push_ |
-| Job `rollback` | _recorded after push_ |
+| Remediation commit | `49dea6b38f536710adaedf835127f7e0b5d4d342` |
+| Parent (reviewed head) | `fa1de77f07077af97623c34c0a743b5d00000785` |
+| M191 acceptance workflow run | [`34466014281`](https://github.com/6thd/wardah-process-costing/actions/runs/34466014281) (run_number 5, attempt 1) |
+| Job `acceptance` — Deterministic GREEN on Fresh PostgreSQL 17 | **success** (job `102834655949`) |
+| Job `rollback` — Rollback rehearsal and forward recovery | **success** (job `102834656182`) |
+| PR state | Draft, unmerged; no Production or Staging apply |
+
+Verdict lines from the run's own logs:
+
+```
+Ran 6 tests in 3.678s                      (test_check_definer_guards.py)
+M191_ACCEPTANCE_CONTRACT_PASS: objects=13/13 ... testonly=absent
+M191_GATE_SELFTEST_PASS: positive=7 mutants=15
+M191_GATE_SELFTEST_REMEDIATION_PASS: positive=3 mutants=13 (fix_f=8 uuid_parity=5)
+M191_ACCEPTANCE_STATIC_PASS: objects=13/closed ... fix_f=ordered_asc_no_key_update
+                             uuid_parity=2/2_pg_input_is_valid
+--- s8c_uuid_parity ---
+  8.C3 PASS sales_invoice_line_id='{00002295-...-0000000000e1}' ... A bin 104 -> 101
+  8.C4 PASS sales_invoice_line_id='000022950000000000000000000000e2' ... B bin 104 -> 101
+SLICE12_S8C_PASS
+--- s9_fixf ---
+  9.4 PASS ascending acquisition proven from pg_blocking_pids against the real function
+  9.5 PASS reversed lock order is observed as R2->R1, so 9.4's R1->R2 is a real
+      discriminating result
+SLICE12_S9_PASS
+M191_RECONCILIATION_PASS: no test-only leftovers, product aggregate = sum(bins), ...
+```
+
+The rollback job's forward-recovery battery logged `forward GREEN: s8c_uuid_parity.sh`
+and `forward GREEN: s9_fixf.sh` before `M191_ROLLBACK_REHEARSAL_PASS`, so recovery
+exercises the strengthened tests rather than the old thirteen.
