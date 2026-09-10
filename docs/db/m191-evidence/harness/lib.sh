@@ -2,7 +2,9 @@
 set -Eeuo pipefail
 : "${PGDATABASE:?}"
 PSQL=(psql -X -v ON_ERROR_STOP=1 -qAt)
-tmp=/var/tmp/pg17/rt
+# Scratch dir for rendezvous files. Overridable so the harness is not tied to
+# one machine's layout; CI runners have no /var/tmp/pg17.
+tmp=${HARNESS_TMP_DIR:-${TMPDIR:-/tmp}/m191-harness}
 mkdir -p "$tmp"
 
 

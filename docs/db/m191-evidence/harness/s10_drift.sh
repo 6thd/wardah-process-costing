@@ -77,6 +77,10 @@ SQL
   [[ "$a" == "$X" && "$b" == "$Y" ]] || fail "restore_mappings: baseline not restored (I1->$a I2->$b)"
 }
 remap() { # $1 item $2 new_product $3 valid_from
+  # Fail closed on an empty timestamp. A non-portable psql invocation used to
+  # produce one silently here, which turned a drift fixture into an insert of
+  # ''::timestamptz instead of a real remap.
+  [[ -n "$3" ]] || fail "remap: empty valid_from - the mapping timestamp query returned nothing"
   "${PSQL[@]}" <<SQL
 BEGIN;
 -- uq_item_product_map_current_product makes (org_id, product_id) unique among
@@ -113,7 +117,7 @@ XS=$(cand_xact_start A)
 echo "  candidate gated at A; its mapping timestamp (xact_start) = $XS"
 capt=$("${PSQL[@]}" -c "SELECT public.wardah_resolve_product_id('$org','$I1','$XS'::timestamptz)")
 [[ "$capt" == "$X" ]] || fail "10.3: fixture precondition - captured resolution is $capt, expected X"
-remap "$I1" "$Y" "$(psql -qAt -h /var/tmp/pg17 -U postgres -d $PGDATABASE -c "SELECT ('$XS'::timestamptz - interval '1 second')")"
+remap "$I1" "$Y" "$("${PSQL[@]}" -c "SELECT ('$XS'::timestamptz - interval '1 second')")"
 now_res=$("${PSQL[@]}" -c "SELECT public.wardah_resolve_product_id('$org','$I1','$XS'::timestamptz)")
 [[ "$now_res" == "$Y" ]] || fail "10.3: mapper did not achieve an eligible in-place remap (resolver still returns $now_res) - HARNESS_FAIL"
 echo "  mapper committed in-place remap I1: X -> Y, eligible at the candidate's own timestamp (resolver now returns Y)"
@@ -143,7 +147,7 @@ candB=$CPID
 w=$(wait_for_lock_waiters 1 "'cand-B'") || fail "10.4: candidate never reached gate B (waiters=$w)"
 XS=$(cand_xact_start B)
 echo "  candidate gated at B; mapping timestamp = $XS"
-remap "$I1" "$Y" "$(psql -qAt -h /var/tmp/pg17 -U postgres -d $PGDATABASE -c "SELECT ('$XS'::timestamptz - interval '1 second')")"
+remap "$I1" "$Y" "$("${PSQL[@]}" -c "SELECT ('$XS'::timestamptz - interval '1 second')")"
 nr=$("${PSQL[@]}" -c "SELECT public.wardah_resolve_product_id('$org','$I1','$XS'::timestamptz)")
 [[ "$nr" == "$Y" ]] || fail "10.4: remap not eligible at the candidate timestamp (got $nr) - HARNESS_FAIL"
 echo "  mapper committed in-place remap I1: X -> Y with an already-eligible valid_from"
