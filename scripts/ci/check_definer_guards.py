@@ -212,13 +212,19 @@ _RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
 # (raise_exception). Only a handler able to catch THAT can swallow an
 # authorization failure; an unrelated condition such as unique_violation cannot,
 # and must not produce a false red.
-_CATCHING_CONDITION_RE = re.compile(
-    r"\b(OTHERS|raise_exception)\b|\bSQLSTATE\s+'P0001'", re.IGNORECASE
-)
+_CATCHING_CONDITION_RE = re.compile(r"\b(OTHERS|raise_exception)\b", re.IGNORECASE)
+
+# The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
+# `WHEN SQLSTATE '     '` in the masked body and a masked-text search can never
+# see it. Rather than unmasking literals globally - which would hand guard
+# detection back every string it was hardened against - this ONE condition is
+# recovered from the unmasked text, and only inside an EXCEPTION handler range.
+# Masking preserves offsets exactly, so the same slice indexes both texts.
+_SQLSTATE_CATCH_RE = re.compile(r"\bSQLSTATE\s+'P0001'", re.IGNORECASE)
 
 
 class _Frame:
-    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raises", "exc_pos")
+    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos")
 
     def __init__(self, kind, start):
         self.kind = kind
@@ -226,7 +232,7 @@ class _Frame:
         self.end = 1 << 60
         self.then_pos = None
         self.closed = False
-        self.raises = False
+        self.raise_pos = None
         self.exc_pos = None
 
 
@@ -281,9 +287,10 @@ def parse_blocks(body: str):
                 and fr.kind == "IF"
                 and fr.then_pos is not None
                 and not fr.closed
+                and fr.raise_pos is None
                 and not _NON_ABORTING_RAISE_RE.match(body, m.start())
             ):
-                fr.raises = True
+                fr.raise_pos = m.start()
 
     # Unclosed frames stay out of `frames`, so nothing depending on them is
     # recognized. That fails closed rather than guessing at the structure.
@@ -294,14 +301,25 @@ def _enclosing(frames, pos):
     return [f for f in frames if f.start < pos < f.end]
 
 
-def _handler_catches(body: str, frame) -> bool:
-    """True when the block's EXCEPTION handlers can catch a P0001 assertion."""
+def _handler_catches(body: str, frame, raw_body: str | None = None) -> bool:
+    """True when the block's EXCEPTION handlers can catch a P0001 assertion.
+
+    `raw_body` is the SAME span of the unmasked source; it is consulted only for
+    the SQLSTATE literal, which masking necessarily hides.
+    """
     if frame.exc_pos is None:
         return False
-    return bool(_CATCHING_CONDITION_RE.search(body[frame.exc_pos: frame.end]))
+    handler = body[frame.exc_pos: frame.end]
+    if _CATCHING_CONDITION_RE.search(handler):
+        return True
+    if raw_body is not None and _SQLSTATE_CATCH_RE.search(
+        raw_body[frame.exc_pos: frame.end]
+    ):
+        return True
+    return False
 
 
-def is_swallowed(body: str, frames, pos: int) -> bool:
+def is_swallowed(body: str, frames, pos: int, raw_body: str | None = None) -> bool:
     """True when an authorization failure raised at `pos` would be caught by an
     enclosing block's own EXCEPTION handlers.
 
@@ -312,7 +330,11 @@ def is_swallowed(body: str, frames, pos: int) -> bool:
     for frame in _enclosing(frames, pos):
         if frame.kind != "BEGIN":
             continue
-        if frame.exc_pos is not None and pos < frame.exc_pos and _handler_catches(body, frame):
+        if (
+            frame.exc_pos is not None
+            and pos < frame.exc_pos
+            and _handler_catches(body, frame, raw_body)
+        ):
             return True
     return False
 
@@ -359,24 +381,59 @@ def terminating_return_before(body: str, pos: int) -> bool:
     return m is not None
 
 
+# For migrations under the strict contract the assertion must be a STANDALONE
+# statement: `PERFORM [public.]guard(args);` and nothing else. PostgreSQL does
+# not execute the call in `PERFORM guard(x) WHERE false;` - the query returns no
+# rows - and `SELECT guard(x) WHERE false;` is the same trick. Migration 191
+# uses the standalone PERFORM form exclusively (9 occurrences, no other shape),
+# so this costs nothing today and keeps the authorization boundary provable.
+_PERFORM_HEAD_RE = re.compile(r"\bPERFORM\s*$", re.IGNORECASE)
+
+
+def is_standalone_perform_assertion(body: str, match) -> bool:
+    """True when the guard call is exactly a `PERFORM guard(...);` statement."""
+    if not _PERFORM_HEAD_RE.search(body[:match.start()]):
+        return False
+    depth = 0
+    for i in range(match.end() - 1, len(body)):
+        ch = body[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return body[i + 1:].lstrip().startswith(";")
+    return False
+
+
 def _if_blocks_with_raising_deny_branch(body: str):
-    """(if_token_pos, condition_start, condition_end) for each IF whose own deny
-    branch raises at its own nesting level."""
-    return [
-        (f.start, f.start + 2, f.then_pos)
-        for f in parse_blocks(body)
-        if f.kind == "IF" and f.then_pos is not None and f.raises
-    ]
+    """(if_token_pos, condition_start, condition_end, raise_pos) for each IF whose
+    own deny branch reaches an aborting RAISE at its own nesting level.
+
+    The RAISE must be REACHABLE: a terminating RETURN between THEN and the RAISE
+    means the deny branch can exit before it ever denies, so the block is not an
+    authorization boundary.
+    """
+    blocks = []
+    for f in parse_blocks(body):
+        if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
+            continue
+        if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
+            continue
+        blocks.append((f.start, f.start + 2, f.then_pos, f.raise_pos))
+    return blocks
 
 
-def has_negated_raising_predicate(body: str, strict: bool = False) -> bool:
+def has_negated_raising_predicate(
+    body: str, strict: bool = False, raw_body: str | None = None
+) -> bool:
     """True when a boolean membership predicate is negated as a WHOLE top-level
-    condition term of an IF whose deny branch raises, that denial is not
-    swallowed, and - under the strict contract - the guarding IF itself sits at
-    the function's outer statement level."""
+    condition term of an IF whose deny branch reaches an aborting RAISE, that
+    denial is not swallowed, and - under the strict contract - the guarding IF
+    sits at the outer statement level with no terminating RETURN before it."""
     frames = parse_blocks(body)
-    for if_pos, cond_start, cond_end in _if_blocks_with_raising_deny_branch(body):
-        if is_swallowed(body, frames, if_pos):
+    for if_pos, cond_start, cond_end, raise_pos in _if_blocks_with_raising_deny_branch(body):
+        if is_swallowed(body, frames, raise_pos, raw_body):
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
@@ -388,20 +445,26 @@ def has_negated_raising_predicate(body: str, strict: bool = False) -> bool:
     return False
 
 
-def has_recognized_guard(body: str, strict: bool = False) -> bool:
+def has_recognized_guard(
+    body: str, strict: bool = False, raw_body: str | None = None
+) -> bool:
     """A raising assertion helper, or a boolean predicate in the negated raising
     idiom. A guard whose failure an enclosing handler can swallow never counts;
-    under the strict contract it must also sit at the outer statement level."""
+    under the strict contract it must also be a standalone PERFORM statement at
+    the outer statement level, with no terminating RETURN before it."""
     frames = parse_blocks(body)
     for m in GUARD_RE.finditer(body):
-        if is_swallowed(body, frames, m.start()):
+        if is_swallowed(body, frames, m.start(), raw_body):
             continue
-        if strict and not is_outer_statement_level(frames, m.start()):
-            continue
-        if strict and terminating_return_before(body, m.start()):
-            continue
+        if strict:
+            if not is_standalone_perform_assertion(body, m):
+                continue
+            if not is_outer_statement_level(frames, m.start()):
+                continue
+            if terminating_return_before(body, m.start()):
+                continue
         return True
-    return has_negated_raising_predicate(body, strict=strict)
+    return has_negated_raising_predicate(body, strict=strict, raw_body=raw_body)
 
 
 def migration_number(path: pathlib.Path):
@@ -634,6 +697,19 @@ def get_cutoff() -> int:
     return int(m.group(1)) if m else 0
 
 
+def extract_function_body_span(sql: str, func_start: int) -> tuple[int, int]:
+    """Span of the target function's text, so the masked and unmasked sources can
+    be sliced identically (masking preserves every offset)."""
+    delim_m = re.search(r"AS\s+(\$\w*\$)", sql[func_start:], re.IGNORECASE)
+    if delim_m:
+        delim = delim_m.group(1)
+        body_start = func_start + delim_m.end()
+        end = sql.find(delim, body_start)
+        if end != -1:
+            return func_start, end + len(delim)
+    return func_start, func_start + 4000
+
+
 def extract_function_body(sql: str, func_start: int) -> str:
     """Return text from func_start to the closing dollar-quote block.
 
@@ -655,7 +731,8 @@ def check_file(path: pathlib.Path) -> list[str]:
     errors = []
     number = migration_number(path)
     strict = number is not None and number >= MIGRATION_STRICT_CUTOFF
-    sql, mask_problems = mask_sql_checked(path.read_text(encoding="utf-8"))
+    raw_sql = path.read_text(encoding="utf-8")
+    sql, mask_problems = mask_sql_checked(raw_sql)
 
     # Fail closed. A body the masker could not follow may hide a guard name in
     # unmasked non-executable text, which is exactly the false green this
@@ -680,7 +757,9 @@ def check_file(path: pathlib.Path) -> list[str]:
         if func_name in KNOWN_EXEMPT:
             continue
 
-        body = extract_function_body(sql, func_m.start())
+        body_start, body_end = extract_function_body_span(sql, func_m.start())
+        body = sql[body_start:body_end]
+        raw_body = raw_sql[body_start:body_end]
 
         # Check for explicit REVOKE after definition and before the next CREATE.
         after = sql[func_m.end():]
@@ -688,7 +767,7 @@ def check_file(path: pathlib.Path) -> list[str]:
         if REVOKE_RE.search(revoke_before_next_func):
             continue
 
-        if not has_recognized_guard(body, strict=strict):
+        if not has_recognized_guard(body, strict=strict, raw_body=raw_body):
             errors.append(
                 f"  ❌ {path.name}: function '{func_name}' is SECURITY DEFINER "
                 f"but has no recognized tenant/authorization assertion"

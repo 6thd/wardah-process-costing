@@ -82,6 +82,23 @@ do not terminate a set-returning function and are not treated as exits. The rule
 is deliberately conservative: it may reject a complex future function whose
 returns are all provably guarded, and the remedy there is to move the
 authorization boundary earlier, never to weaken the gate.
+
+Final-review remediation (PR #241, Astra findings A/B/C):
+
+  A. `_CATCHING_CONDITION_RE` searched the MASKED body for `SQLSTATE 'P0001'`,
+     but the masker blanks literal content, so that condition could never match
+     and such a handler was not seen as swallowing. The condition is now
+     recovered from the unmasked text, only inside an EXCEPTION handler range.
+     The fixture below puts the assertion in the function's OUTER BEGIN so it
+     cannot pass merely because of placement.
+  B. The recognizer found a call SHAPE and then checked only nesting/return, so
+     `PERFORM guard(x) WHERE false;` passed although PostgreSQL never executes
+     the call. Under the strict contract the assertion must now be a STANDALONE
+     `PERFORM [public.]guard(args);` statement.
+  C. The boolean deny branch counted as soon as a RAISE existed in it, while the
+     RETURN check ran only before the IF. A terminating RETURN between THEN and
+     that RAISE now disqualifies the block, so the aborting RAISE must actually
+     be reachable.
 """
 
 from __future__ import annotations
@@ -442,8 +459,67 @@ GUARD_BEFORE_RETURN_MUST_ACCEPT = {
 }
 
 
+
+# Astra A/B/C. Each is a real, correctly-shaped guard that does not authorize.
+ASTRA_MUST_REJECT = {
+    # A. Assertion in the function's OUTER BEGIN, caught by SQLSTATE 'P0001'.
+    #    Placement is valid here, so only SQLSTATE detection can reject it.
+    "outer_assert_caught_by_sqlstate_p0001": (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "AS $function$\nBEGIN\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "EXCEPTION WHEN SQLSTATE 'P0001' THEN\n  NULL;\n"
+        "END;\n$function$;\n"
+    ),
+    # B. The call is present but PostgreSQL never executes it.
+    "perform_assertion_with_where_false": definer(
+        f"  PERFORM {OUTER}(p_org) WHERE false;"
+    ),
+    "select_assertion_with_where_false": definer(
+        f"  SELECT {OUTER}(p_org) WHERE false;"
+    ),
+    "select_assertion_without_perform": definer(f"  SELECT {OUTER}(p_org);"),
+    # C. The deny branch exits before it ever denies.
+    "boolean_deny_returns_before_raise": definer(
+        f"  IF NOT {QPRED}(v_org) THEN\n    RETURN;\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        "  UPDATE public.bins SET actual_qty = 0;"
+    ),
+    "boolean_deny_conditional_return_before_raise": definer(
+        f"  IF NOT {QPRED}(v_org) THEN\n"
+        "    IF p_soft THEN RETURN; END IF;\n"
+        "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        "  UPDATE public.bins SET actual_qty = 0;"
+    ),
+}
+
+MUST_REJECT.update(ASTRA_MUST_REJECT)
+
+ASTRA_MUST_ACCEPT = {
+    # A control: an unrelated handler in the OUTER BEGIN cannot catch P0001 and
+    # must not invalidate the guard.
+    "outer_assert_with_unique_violation_handler": (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "AS $function$\nBEGIN\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "EXCEPTION WHEN unique_violation THEN\n  NULL;\n"
+        "END;\n$function$;\n"
+    ),
+    # C control: the deny branch raises before any return.
+    "boolean_deny_raises_then_returns": definer(
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
+    ),
+}
+
+
 MUST_ACCEPT = {
     **OUTER_LEVEL_MUST_ACCEPT,
+    **ASTRA_MUST_ACCEPT,
     **GUARD_BEFORE_RETURN_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
@@ -692,6 +768,64 @@ class DefinerScannerTests(unittest.TestCase):
         strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_return_probe.sql"
         strict.write_text(sql, encoding="utf-8")
         self.assertTrue(guards.check_file(strict))
+
+    def test_astra_findings_are_rejected(self) -> None:
+        """SQLSTATE swallowing, non-executing calls, unreachable denial."""
+        for name, sql in ASTRA_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: non-authorizing guard accepted",
+                )
+
+    def test_sqlstate_p0001_is_detected_despite_masking(self) -> None:
+        """A: the condition lives in a literal the masker necessarily blanks."""
+        sql = ASTRA_MUST_REJECT["outer_assert_caught_by_sqlstate_p0001"]
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        # Proof the masked text alone cannot see it, so recovery is required.
+        self.assertNotIn("P0001", masked)
+        self.assertIn("P0001", sql)
+        self.assertTrue(self.verdict("sqlstate_probe", sql))
+
+    def test_standalone_perform_contract(self) -> None:
+        """B: the assertion statement itself, independent of check_file()."""
+        for text in (
+            f"PERFORM {OUTER}(p_org) WHERE false;",
+            f"SELECT {OUTER}(p_org);",
+            f"SELECT {OUTER}(p_org) WHERE false;",
+            f"v_ok := {OUTER}(p_org);",
+            f"PERFORM {OUTER}(p_org) FROM t;",
+        ):
+            m = guards.GUARD_RE.search(text)
+            self.assertIsNotNone(m, text)
+            with self.subTest(reject=text):
+                self.assertFalse(
+                    guards.is_standalone_perform_assertion(text, m), text
+                )
+        for text in (
+            f"PERFORM {OUTER}(p_org);",
+            "PERFORM wardah_assert_org_admin(p_org);",
+            f"  PERFORM  {OUTER} ( p_org ) ;",
+            "PERFORM wardah_178_assert_permission(p_org, 'k');",
+        ):
+            m = guards.GUARD_RE.search(text)
+            self.assertIsNotNone(m, text)
+            with self.subTest(accept=text):
+                self.assertTrue(
+                    guards.is_standalone_perform_assertion(text, m), text
+                )
+
+    def test_deny_branch_raise_must_be_reachable(self) -> None:
+        """C: a RETURN between THEN and the RAISE disqualifies the block."""
+        reachable = (
+            f"IF NOT {QPRED}(v_org) THEN RAISE EXCEPTION 'D'; END IF;"
+        )
+        self.assertTrue(guards.has_negated_raising_predicate(reachable))
+        unreachable = (
+            f"IF NOT {QPRED}(v_org) THEN RETURN; RAISE EXCEPTION 'D'; END IF;"
+        )
+        self.assertFalse(guards.has_negated_raising_predicate(unreachable))
 
     def test_strict_contract_applies_from_the_cutoff(self) -> None:
         """The cutoff is a migration NUMBER, tested through real filenames."""

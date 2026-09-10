@@ -424,3 +424,79 @@ Gate results
   python3 scripts/ci/check_definer_guards.py       -> exit 0,
       "61 migration(s) — لا دوال DEFINER بلا حارس"
   Zero KNOWN_EXEMPT entries added (asserted by test).
+
+
+===========================================================================
+Addendum 5 — Astra final-review P2 remediation (A, B, C)
+===========================================================================
+
+Reviewed head with the RED defects: c87646228322dca48edbb4fde0b2c26a92f897d3
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+RED reproduction at c876462, through the real check_file(), strict (999_)
+-------------------------------------------------------------------------
+  A  assertion in the function's OUTER BEGIN, caught by
+     `EXCEPTION WHEN SQLSTATE 'P0001' THEN NULL;`      -> []  FALSE GREEN
+     (control: the same shape with WHEN OTHERS was already rejected, which
+      isolates the defect to SQLSTATE detection rather than placement)
+  B  PERFORM public.wardah_assert_org_member(p_org) WHERE false;  -> []  FALSE GREEN
+     SELECT  public.wardah_assert_org_member(p_org) WHERE false;  -> []  FALSE GREEN
+  C  IF NOT public.wardah_is_org_member(v_org) THEN
+       RETURN; RAISE EXCEPTION 'DENIED'; END IF;                  -> []  FALSE GREEN
+     IF NOT ... THEN IF p_soft THEN RETURN; END IF;
+       RAISE EXCEPTION 'DENIED'; END IF;                          -> []  FALSE GREEN
+
+A. SQLSTATE P0001 recovered without unmasking literals
+------------------------------------------------------
+_CATCHING_CONDITION_RE searched the MASKED body, but _mask_quoted() blanks
+literal content, so `WHEN SQLSTATE 'P0001'` reads as `WHEN SQLSTATE '     '` and
+could never match. Literals are NOT globally unmasked - that would return to
+guard detection every string the masker was hardened against. Instead the single
+condition `SQLSTATE 'P0001'` is recovered from the UNMASKED text, and only within
+an EXCEPTION handler's range: check_file() keeps the raw source, slices it with
+extract_function_body_span() so masked and unmasked bodies share every offset,
+and passes raw_body down to _handler_catches(). Everything else - guard
+detection, block parsing, RETURN analysis - still runs on masked text only.
+An unrelated `WHEN unique_violation` handler in the outer BEGIN still does NOT
+invalidate the guard (positive control retained).
+
+B. Standalone PERFORM statement contract (migrations >= cutoff)
+--------------------------------------------------------------
+Survey of Migration 191's recognized assertion forms:
+    9 occurrences, ALL standalone `PERFORM [public.]guard(args);`
+      5  PERFORM public.wardah_assert_org_member(v_org)
+      2  PERFORM public.wardah_assert_org_member(p_org)
+      2  PERFORM public.wardah_assert_org_admin(v_adj.org_id)
+    (the tenth textual hit is inside a to_regprocedure('…') literal, masked)
+No SELECT form, no assignment form, no query predicate.
+
+is_standalone_perform_assertion() therefore requires the guard call to be headed
+by PERFORM with only whitespace between, and the statement to end at the call's
+balanced closing parenthesis followed by `;`. Rejected: a trailing WHERE or FROM,
+a SELECT form, an assignment. This is a forward syntactic security contract; it
+was not weakened to accommodate hypothetical complex forms.
+
+C. The deny branch's aborting RAISE must be reachable
+-----------------------------------------------------
+_Frame.raises (bool) became _Frame.raise_pos (position of the FIRST qualifying
+aborting RAISE in the deny branch). _if_blocks_with_raising_deny_branch() now
+discards a block when a terminating RETURN occurs between THEN and that RAISE,
+so a deny branch that can exit before denying is not an authorization boundary.
+This covers the direct `RETURN; RAISE ...` form and the nested conditional
+`IF p_soft THEN RETURN; END IF; RAISE ...` form. RETURN NEXT / RETURN QUERY
+remain non-terminating. The swallow test is now applied at the RAISE position
+rather than at the IF token.
+
+MIGRATION 191 UNDER ALL THREE CORRECTIONS
+-----------------------------------------
+  check_file(191) -> 0 errors   ==> PASSES UNCHANGED, checked before anything else.
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 29 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  KNOWN_EXEMPT unchanged at its original 6 entries (asserted by test).
+  Prior mutant batteries (call shape, connectives, quoted identifiers,
+  reachability, RETURN) re-run with no regressions.
