@@ -61,3 +61,8 @@ echo "$out" | grep -q 'PRODUCT_NOT_PRELOCKED' \
 echo "  8.2(1) PASS narrowed superset is caught by the guard: $(echo "$out" | grep -o 'PRODUCT_NOT_PRELOCKED[^ ]*' | head -1)"
 left=$("${PSQL[@]}" -c "SELECT count(*) FROM public.material_consumption WHERE mo_id='$MO1'")
 [[ "$left" == "0" ]] || fail "8.2(1): guard fired but $left consumption row(s) survived"
+# The mutant is a copy of a SECURITY DEFINER body and is created with the
+# default PUBLIC EXECUTE grant, so it must never be left behind, even in a
+# disposable database.
+"${PSQL[@]}" -c "DROP FUNCTION public.zz_m191_testonly_consume_narrow(uuid,uuid,jsonb);"
+echo "SLICE12_S82_1_PASS"

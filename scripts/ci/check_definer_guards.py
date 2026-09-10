@@ -74,6 +74,67 @@ REVOKE_RE = re.compile(
 )
 
 
+def mask_sql(sql: str) -> str:
+    """Blank comments and single-quoted literal CONTENT, preserving every offset.
+
+    The scan below attributes each SECURITY DEFINER occurrence to the last
+    CREATE FUNCTION before it, so positions must not shift. Without this mask a
+    comment decides the verdict in both directions: a header comment that merely
+    mentions "SECURITY DEFINER" is blamed on the previous (possibly INVOKER)
+    function, and a guard named only in prose counts as a real assertion.
+    Dollar-quoted bodies stay visible - that is where the guards live - but
+    line/block comments inside them are still blanked, as PL/pgSQL treats them
+    as comments too.
+    """
+    out = list(sql)
+    i, n = 0, len(sql)
+    state = None      # None | 'line' | 'block' | 'quote' | 'dollar'
+    tag = ''
+    while i < n:
+        ch = sql[i]
+        if state is None:
+            if sql.startswith('--', i):
+                state = 'line'; out[i] = out[i + 1] = ' '; i += 2; continue
+            if sql.startswith('/*', i):
+                state = 'block'; out[i] = out[i + 1] = ' '; i += 2; continue
+            if ch == "'":
+                state = 'quote'; i += 1; continue
+            if ch == '$':
+                j = i + 1
+                while j < n and (sql[j].isalnum() or sql[j] == '_'):
+                    j += 1
+                if j < n and sql[j] == '$':
+                    state, tag = 'dollar', sql[i:j + 1]
+                    i = j + 1; continue
+            i += 1; continue
+        if state == 'line':
+            if ch == '\n': state = None
+            else: out[i] = ' '
+            i += 1; continue
+        if state == 'block':
+            if sql.startswith('*/', i):
+                out[i] = out[i + 1] = ' '; state = None; i += 2; continue
+            if ch != '\n': out[i] = ' '
+            i += 1; continue
+        if state == 'quote':
+            if ch == "'":
+                if sql.startswith("''", i):
+                    out[i] = out[i + 1] = ' '; i += 2; continue
+                state = None; i += 1; continue
+            if ch != '\n': out[i] = ' '
+            i += 1; continue
+        if state == 'dollar':
+            if sql.startswith(tag, i):
+                i += len(tag); state, tag = None, ''; continue
+            if sql.startswith('--', i):
+                j = i
+                while j < n and sql[j] != '\n':
+                    out[j] = ' '; j += 1
+                i = j; continue
+            i += 1; continue
+    return ''.join(out)
+
+
 def get_cutoff() -> int:
     if BASELINE_FILE is None:
         return 0
@@ -100,7 +161,7 @@ def extract_function_body(sql: str, func_start: int) -> str:
 
 def check_file(path: pathlib.Path) -> list[str]:
     errors = []
-    sql = path.read_text(encoding="utf-8")
+    sql = mask_sql(path.read_text(encoding="utf-8"))
 
     for m in re.finditer(r"SECURITY\s+DEFINER", sql, re.IGNORECASE):
         prefix = sql[: m.start()]
