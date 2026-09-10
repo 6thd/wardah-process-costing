@@ -1,0 +1,234 @@
+name: F2 Stock Write Concurrency 191 Acceptance
+
+# Migration 191 makes every stock-write path acquire a deterministic ascending
+# product prefix through one shared internal helper. The defect it closes is a
+# real lost update plus real 40P01 deadlocks between concurrent documents, so a
+# gate that only proves the SQL parses would be worthless here: this workflow
+# builds a Fresh PostgreSQL 17 database and runs the deterministic concurrency
+# harness with genuinely separate backends, proving each forced overlap from
+# observed backend state rather than from a sleep.
+#
+# Job 1  acceptance        baseline 189 -> reference data -> 190 -> 191
+#                          -> catalog contract -> gate selftest -> static gate
+#                          -> deterministic GREEN harness -> reconciliation
+# Job 2  rollback          the rehearsal: restore the twelve predecessors from a
+#                          live pre-191 oracle, prove the frozen RED returns,
+#                          reapply 191 and prove the catalog comes back exactly.
+#
+# Job 2 is separate because it reruns the whole GREEN battery after forward
+# recovery and would roughly double job 1's wall time.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sql/migrations/191_f2_stock_write_concurrency_closure.sql'
+      - 'scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql'
+      - 'scripts/ci/fresh-db/acceptance_191_reconciliation.sql'
+      - 'scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh'
+      - 'docs/db/m191-slices/**'
+      - 'docs/db/m191-evidence/harness/**'
+      - '.github/workflows/f2-stock-write-concurrency-191-acceptance.yml'
+      - 'sql/baseline/**'
+      - 'sql/migrations/**'
+  workflow_dispatch:
+
+jobs:
+  acceptance:
+    name: Deterministic GREEN acceptance on a Fresh PostgreSQL 17
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: wardah_191
+      SCRATCH: docs/db/m191-evidence/harness
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve the cutoff-189 baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          CUTOFF=$(pair_field BASELINE_CUTOFF)
+          test "$CUTOFF" = "189"
+          echo "CUTOFF=$CUTOFF" >> "$GITHUB_ENV"
+
+      - name: Build baseline, reference data, then 190 and 191
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          createdb "$PGDATABASE"
+          psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+          psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+          psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+          python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+            > /tmp/chain_order.txt
+          grep -q '^191_f2_stock_write_concurrency_closure.sql$' /tmp/chain_order.txt
+          REPORT=/tmp/chain_report.txt bash scripts/ci/fresh-db/run_chain.sh \
+            sql/migrations /tmp/chain_order.txt
+          tail -5 /tmp/chain_report.txt
+
+      - name: Catalog contract for the thirteen objects
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql \
+            2>&1 | tee /tmp/191-contract.out
+          grep -q 'M191_ACCEPTANCE_CONTRACT_PASS' /tmp/191-contract.out
+
+      - name: Prove the static gate can fail, then run it
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Order matters: a gate that cannot fail is worth nothing, so the
+          # selftest feeds it fifteen known-bad shapes first.
+          psql -v ON_ERROR_STOP=1 -f docs/db/m191-slices/12_acceptance_gate_selftest.sql \
+            2>&1 | tee /tmp/191-selftest.out
+          grep -q 'M191_GATE_SELFTEST_PASS' /tmp/191-selftest.out
+          psql -v ON_ERROR_STOP=1 -f docs/db/m191-slices/12_acceptance_static_gates.sql \
+            2>&1 | tee /tmp/191-static.out
+          grep -q 'M191_ACCEPTANCE_STATIC_PASS' /tmp/191-static.out
+
+      - name: Deterministic GREEN concurrency harness
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p /tmp/191-green
+          for s in s4_core s5_valuation s6_prefix s7_fixcd s8_fixe s8b_fixe \
+                   s82_superset s82b s82c1 s9_fixf s10_fixg s10_2probe s10_drift; do
+            echo "--- $s ---"
+            bash "$SCRATCH/$s.sh" > "/tmp/191-green/$s.out" 2>&1 \
+              || { echo "FAILED: $s"; tail -40 "/tmp/191-green/$s.out"; exit 1; }
+            grep -hE 'SLICE12_.*_PASS|PASS ' "/tmp/191-green/$s.out" | tail -3 || true
+          done
+
+      - name: Reconciliation and cleanup assertions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          # Only ever on a GREEN-only database: the frozen RED proof deliberately
+          # leaves a product aggregate diverging from its bins.
+          psql -v ON_ERROR_STOP=1 \
+            -f scripts/ci/fresh-db/acceptance_191_reconciliation.sql \
+            2>&1 | tee /tmp/191-recon.out
+          grep -q 'M191_RECONCILIATION_PASS' /tmp/191-recon.out
+
+      - name: Upload acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m191-acceptance-${{ github.run_id }}
+          path: |
+            /tmp/chain_report.txt
+            /tmp/191-contract.out
+            /tmp/191-selftest.out
+            /tmp/191-static.out
+            /tmp/191-recon.out
+            /tmp/191-green/
+          retention-days: 30
+
+  rollback:
+    name: Rollback rehearsal and forward recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      ROLLBACK_RUN_DIR: /tmp/191-rollback
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Resolve the cutoff-189 baseline pair
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PAIR=$(bash scripts/ci/fresh-db/resolve_baseline_pair.sh sql/baseline)
+          pair_field() { printf '%s\n' "$PAIR" | sed -n "s/^$1=//p"; }
+          echo "BASELINE=$(pair_field BASELINE_PATH)" >> "$GITHUB_ENV"
+          echo "REFERENCE=$(pair_field REFERENCE_PATH)" >> "$GITHUB_ENV"
+          echo "CUTOFF=$(pair_field BASELINE_CUTOFF)" >> "$GITHUB_ENV"
+
+      - name: Build the pre-191 oracle and the candidate database
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          build() {   # $1 = database, $2 = highest migration to include
+            createdb "$1"
+            PGDATABASE="$1" psql -v ON_ERROR_STOP=1 -f scripts/ci/fresh-db/supabase_shim.sql -q
+            PGDATABASE="$1" psql -v ON_ERROR_STOP=1 -f "$BASELINE" -q
+            PGDATABASE="$1" psql -v ON_ERROR_STOP=1 -f "$REFERENCE" -q
+            python3 scripts/ci/fresh-db/build_apply_order.py sql/migrations "$CUTOFF" \
+              > "/tmp/order-$1.txt"
+            sed -i "/^$2\$/q" "/tmp/order-$1.txt"
+            REPORT="/tmp/chain-$1.txt" PGDATABASE="$1" \
+              bash scripts/ci/fresh-db/run_chain.sh sql/migrations "/tmp/order-$1.txt"
+          }
+          build wardah_pre191 190_material_consumption_authorization_boundary.sql
+          build wardah_m191   191_f2_stock_write_concurrency_closure.sql
+
+      - name: Rollback rehearsal
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          PRE_DB=wardah_pre191 M191_DB=wardah_m191 \
+            bash docs/db/m191-evidence/harness/rollback_rehearsal.sh \
+            2>&1 | tee /tmp/191-rollback.out
+          grep -q 'M191_ROLLBACK_REHEARSAL_PASS' /tmp/191-rollback.out
+
+      - name: Upload rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: m191-rollback-${{ github.run_id }}
+          path: |
+            /tmp/191-rollback.out
+            /tmp/191-rollback/ROLLBACK_REHEARSAL_SUMMARY.txt
+            /tmp/191-rollback/*.contract.jsonl
+            /tmp/191-rollback/*.diff
+            /tmp/chain-wardah_pre191.txt
+            /tmp/chain-wardah_m191.txt
+          retention-days: 30
