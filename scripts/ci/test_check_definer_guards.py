@@ -47,6 +47,30 @@ entire top-level condition term — the whole condition, or one complete top-lev
 OR disjunct. Separately, the masker did not blank "quoted identifiers", so a
 column aliased `"RAISE"` satisfied the structural RAISE detector; quoted
 identifier CONTENT is now masked like any other non-executable text.
+
+Final-review remediation (PR #241, Finding 5): two execution-reachability
+classes remained. A guard could sit in dead code (`IF false THEN PERFORM
+assert...`), and a guard could be called and actually raise while an enclosing
+block swallowed the failure (`EXCEPTION WHEN OTHERS THEN NULL`). Both are closed
+here, and neither by trying to prove arbitrary control flow:
+
+  A. Swallowing (all migrations): a guard does not count when an ENCLOSING block
+     has EXCEPTION handlers able to catch a PL/pgSQL P0001 assertion - WHEN
+     OTHERS, WHEN raise_exception, WHEN SQLSTATE 'P0001'. An unrelated handler
+     such as unique_violation cannot catch it and must not cause a false red,
+     and a later non-enclosing nested handler must not invalidate a guard.
+
+  B. Reachability (migrations >= MIGRATION_STRICT_CUTOFF): the guard must sit at
+     the function's OUTER PL/pgSQL statement level - not under IF/ELSIF/ELSE,
+     LOOP/WHILE/FOR/FOREACH, CASE, a nested BEGIN or an EXCEPTION handler. This
+     is a forward syntactic contract, not a theorem prover: new SECURITY DEFINER
+     code must use an authorization shape the scanner can actually prove.
+     Migrations at or below the cutoff are immutable historical inputs and keep
+     their previously validated compatibility. The cutoff is a migration NUMBER,
+     so nothing is exempted by function name.
+
+The guard need not be the literal first statement: identity and org-resolution
+reads before it are legitimate and are covered by a positive control.
 """
 
 from __future__ import annotations
@@ -258,7 +282,99 @@ SUPPRESSED_DENY_MUST_REJECT = {
 MUST_REJECT.update(SUPPRESSED_DENY_MUST_REJECT)
 
 
+
+def definer_named(number: int, body: str, name: str = "f_probe") -> tuple[str, str]:
+    """A fixture plus the migration filename stem that decides strictness."""
+    return f"{number}_reachability_probe", definer(body, name=name)
+
+
+OUTER = "public.wardah_assert_org_member"
+
+# Finding 5A/5B. Each names a real guard and calls it correctly; none of them
+# authorizes the privileged write that follows.
+UNREACHABLE_OR_SWALLOWED_MUST_REJECT = {
+    # 1. dead code
+    "guard_inside_if_false": definer(
+        f"  IF false THEN\n    PERFORM {OUTER}(p_org);\n  END IF;"
+    ),
+    # 2. a loop that never iterates
+    "guard_inside_never_entered_loop": definer(
+        f"  WHILE false LOOP\n    PERFORM {OUTER}(p_org);\n  END LOOP;"
+    ),
+    # 3. a CASE branch
+    "guard_inside_case_branch": definer(
+        f"  CASE WHEN false THEN\n    PERFORM {OUTER}(p_org);\n"
+        "  ELSE NULL;\n  END CASE;"
+    ),
+    # 4. a nested BEGIN block
+    "guard_inside_nested_begin": definer(
+        f"  BEGIN\n    PERFORM {OUTER}(p_org);\n  END;"
+    ),
+    # 5-7. the guard runs and raises, but the failure is swallowed
+    "guard_swallowed_by_when_others": definer(
+        f"  BEGIN\n    PERFORM {OUTER}(p_org);\n"
+        "  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;"
+    ),
+    "guard_swallowed_by_raise_exception": definer(
+        f"  BEGIN\n    PERFORM {OUTER}(p_org);\n"
+        "  EXCEPTION WHEN raise_exception THEN\n    NULL;\n  END;"
+    ),
+    "guard_swallowed_by_sqlstate_p0001": definer(
+        f"  BEGIN\n    PERFORM {OUTER}(p_org);\n"
+        "  EXCEPTION WHEN SQLSTATE 'P0001' THEN\n    NULL;\n  END;"
+    ),
+    # 8. the structural boolean guard, nested in dead code
+    "boolean_guard_nested_under_if_false": definer(
+        "  IF false THEN\n"
+        f"    IF NOT {QPRED}(v_org) THEN\n      RAISE EXCEPTION 'DENIED';\n"
+        "    END IF;\n  END IF;"
+    ),
+    # The boolean guard's own denial, swallowed by an enclosing handler.
+    "boolean_guard_swallowed_by_when_others": definer(
+        "  BEGIN\n"
+        f"    IF NOT {QPRED}(v_org) THEN\n      RAISE EXCEPTION 'DENIED';\n"
+        "    END IF;\n  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;"
+    ),
+}
+
+MUST_REJECT.update(UNREACHABLE_OR_SWALLOWED_MUST_REJECT)
+
+# Shapes that must keep passing under the strict contract.
+OUTER_LEVEL_MUST_ACCEPT = {
+    "outer_level_member_assert": definer(f"  PERFORM {OUTER}(p_org);"),
+    "outer_level_admin_assert": definer(
+        "  PERFORM public.wardah_assert_org_admin(p_org);"
+    ),
+    "outer_level_permission_assert": definer(
+        "  PERFORM wardah_178_assert_permission(p_org, 'reports.financial.read');"
+    ),
+    "outer_level_boolean_negated_raise": definer(
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    # M191's real shape: resolve identity/org first, then assert. The contract is
+    # about execution level, not textual first-line placement.
+    "org_resolution_before_assert": definer(
+        "  v_org := public.get_current_tenant_id();\n"
+        "  IF v_org IS NULL THEN\n    RAISE EXCEPTION 'ORG_NOT_RESOLVED';\n"
+        f"  END IF;\n  PERFORM {OUTER}(v_org);"
+    ),
+    # An unrelated handler cannot catch a P0001 assertion: no false red.
+    "unrelated_unique_violation_handler": definer(
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  BEGIN\n    INSERT INTO public.t VALUES (1);\n"
+        "  EXCEPTION WHEN unique_violation THEN\n    NULL;\n  END;"
+    ),
+    # A later, NON-ENCLOSING nested handler must not invalidate the guard.
+    "later_non_enclosing_when_others": definer(
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  BEGIN\n    PERFORM 1;\n"
+        "  EXCEPTION WHEN OTHERS THEN\n    NULL;\n  END;"
+    ),
+}
+
+
 MUST_ACCEPT = {
+    **OUTER_LEVEL_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
     # Same, with the non-executable decoys present as well: an executable call
@@ -463,6 +579,78 @@ class DefinerScannerTests(unittest.TestCase):
         errors = self.verdict("unterminated_qid", definer('  PERFORM 1 AS "RAISE;'))
         self.assertTrue(errors)
         self.assertIn("cannot be scanned safely", errors[0])
+
+    def test_unreachable_or_swallowed_guards_are_rejected(self) -> None:
+        """Finding 5: dead code and swallowed denials are not authorization."""
+        for name, sql in UNREACHABLE_OR_SWALLOWED_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: unreachable or swallowed guard accepted",
+                )
+
+    def test_strict_contract_applies_from_the_cutoff(self) -> None:
+        """The cutoff is a migration NUMBER, tested through real filenames."""
+        nested = UNREACHABLE_OR_SWALLOWED_MUST_REJECT["guard_inside_if_false"]
+        at_cutoff = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_probe.sql"
+        at_cutoff.write_text(nested, encoding="utf-8")
+        self.assertTrue(
+            guards.check_file(at_cutoff),
+            "the contract must apply AT the cutoff, not only above it",
+        )
+        above = self.root / f"{guards.MIGRATION_STRICT_CUTOFF + 1}_probe.sql"
+        above.write_text(nested, encoding="utf-8")
+        self.assertTrue(guards.check_file(above))
+
+    def test_historical_migrations_keep_their_compatibility(self) -> None:
+        """<= cutoff is lenient on placement — by NUMBER, not by function name."""
+        nested = UNREACHABLE_OR_SWALLOWED_MUST_REJECT["guard_inside_if_false"]
+        for number in (150, guards.MIGRATION_STRICT_CUTOFF - 1):
+            path = self.root / f"{number}_probe.sql"
+            path.write_text(nested, encoding="utf-8")
+            with self.subTest(migration=number):
+                self.assertEqual(
+                    guards.check_file(path),
+                    [],
+                    f"{number}: historical placement compatibility was broken",
+                )
+
+    def test_swallowing_rule_is_not_cutoff_scoped(self) -> None:
+        """A swallowed denial is never an authorization boundary, at any age."""
+        swallowed = UNREACHABLE_OR_SWALLOWED_MUST_REJECT[
+            "guard_swallowed_by_when_others"
+        ]
+        for number in (150, guards.MIGRATION_STRICT_CUTOFF):
+            path = self.root / f"{number}_swallow.sql"
+            path.write_text(swallowed, encoding="utf-8")
+            with self.subTest(migration=number):
+                self.assertTrue(guards.check_file(path))
+
+    def test_migration_191_passes_the_strict_contract_unchanged(self) -> None:
+        """The contract begins AT 191, so 191 itself must satisfy it as shipped."""
+        path = pathlib.Path(
+            "sql/migrations/191_f2_stock_write_concurrency_closure.sql"
+        )
+        if not path.exists():
+            self.skipTest("migration 191 not present")
+        self.assertGreaterEqual(
+            guards.migration_number(path), guards.MIGRATION_STRICT_CUTOFF
+        )
+        self.assertEqual(guards.check_file(path), [])
+
+    def test_no_new_known_exempt_entries(self) -> None:
+        """The closures must not have been bought with exemptions."""
+        self.assertEqual(
+            guards.KNOWN_EXEMPT,
+            {
+                "rpc_get_invitation_preview",
+                "wardah_guard_allocation_immutability",
+                "wardah_receipt_line_uninvoiced_base",
+                "has_permission",
+                "wardah_178_assert_permission",
+                "rpc_batch_post_manual_journal_entries",
+            },
+        )
 
     def test_boolean_predicate_is_not_a_generic_assertion(self) -> None:
         """It must be gone from the generic list, not merely handled elsewhere."""

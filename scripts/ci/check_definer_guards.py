@@ -190,75 +190,197 @@ def _is_sole_negated_predicate(term: str) -> bool:
     return False
 
 
-# END IF must be consumed before a bare IF so it never opens a block. ELSIF is a
-# single word, so \bIF\b cannot match inside it.
+# ---------------------------------------------------------------------------
+# Structural PL/pgSQL block model
+# ---------------------------------------------------------------------------
+# From this migration on, a raising assertion counts only at the function's
+# outer statement level. Older migrations are immutable historical inputs and
+# keep their previously validated compatibility; the cutoff is a migration
+# NUMBER, never a function-name exemption.
+MIGRATION_STRICT_CUTOFF = 191
+
 _BLOCK_TOKEN_RE = re.compile(
-    r"\b(END\s+IF|ELSIF|ELSE|IF|THEN|RAISE)\b", re.IGNORECASE
+    r"\b(END\s+IF|END\s+LOOP|END\s+CASE|ELSIF|ELSE|EXCEPTION|BEGIN|IF|THEN|LOOP|CASE|END|RAISE)\b",
+    re.IGNORECASE,
 )
-# RAISE NOTICE/WARNING/INFO/LOG/DEBUG report; they do not deny. A bare RAISE, or
-# RAISE EXCEPTION / RAISE SQLSTATE / RAISE 'msg', aborts.
 _NON_ABORTING_RAISE_RE = re.compile(
     r"\bRAISE\s+(NOTICE|WARNING|INFO|LOG|DEBUG)\b", re.IGNORECASE
 )
+_RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
+
+# A PL/pgSQL `RAISE EXCEPTION` without an explicit SQLSTATE raises P0001
+# (raise_exception). Only a handler able to catch THAT can swallow an
+# authorization failure; an unrelated condition such as unique_violation cannot,
+# and must not produce a false red.
+_CATCHING_CONDITION_RE = re.compile(
+    r"\b(OTHERS|raise_exception)\b|\bSQLSTATE\s+'P0001'", re.IGNORECASE
+)
 
 
-def _if_blocks_with_raising_deny_branch(body: str) -> list[tuple[int, int]]:
-    """Return (condition_start, condition_end) for each IF ... THEN whose own
-    deny branch raises at that block's nesting level.
+class _Frame:
+    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raises", "exc_pos")
 
-    The deny branch is the text between THEN and the first ELSIF/ELSE at the
-    same level, or END IF when there is none. Nested IFs get their own frame, so
-    a RAISE inside one is attributed there and never to the enclosing block.
+    def __init__(self, kind, start):
+        self.kind = kind
+        self.start = start
+        self.end = 1 << 60
+        self.then_pos = None
+        self.closed = False
+        self.raises = False
+        self.exc_pos = None
+
+
+def parse_blocks(body: str):
+    """Model BEGIN / IF / LOOP / CASE nesting and EXCEPTION sections.
+
+    LOOP covers WHILE, FOR and FOREACH, which all open with LOOP and close with
+    END LOOP. A bare END closes the innermost BEGIN or CASE, so a CASE
+    expression cannot silently close an enclosing block.
     """
-    frames: list[dict] = []
-    blocks: list[tuple[int, int]] = []
+    stack, frames = [], []
+
+    def pop(kinds, at):
+        for i in range(len(stack) - 1, -1, -1):
+            if stack[i].kind in kinds:
+                fr = stack.pop(i)
+                fr.end = at
+                frames.append(fr)
+                return
 
     for m in _BLOCK_TOKEN_RE.finditer(body):
-        token = m.group(1).upper()
-        if token.startswith("END"):
-            if frames:
-                frame = frames.pop()
-                if frame["then_pos"] is not None and frame["raises"]:
-                    blocks.append((frame["if_end"], frame["then_pos"]))
-        elif token == "IF":
-            frames.append(
-                {"if_end": m.end(), "then_pos": None, "closed": False, "raises": False}
-            )
+        token = " ".join(m.group(1).upper().split())
+        if token in ("BEGIN", "IF", "LOOP", "CASE"):
+            stack.append(_Frame(token, m.start()))
         elif token == "THEN":
-            if frames and frames[-1]["then_pos"] is None:
-                frames[-1]["then_pos"] = m.start()
+            if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
+                stack[-1].then_pos = m.start()
         elif token in ("ELSIF", "ELSE"):
-            # The deny branch ends here; anything after it is a different branch.
-            if frames:
-                frames[-1]["closed"] = True
+            if stack and stack[-1].kind == "IF":
+                stack[-1].closed = True
+        elif token == "EXCEPTION":
+            # `RAISE EXCEPTION` is a statement, not a handler section.
+            if _RAISE_BEFORE_RE.search(body[max(0, m.start() - 16): m.start()]):
+                continue
+            for fr in reversed(stack):
+                if fr.kind == "BEGIN":
+                    if fr.exc_pos is None:
+                        fr.exc_pos = m.start()
+                    break
+        elif token == "END IF":
+            pop(("IF",), m.start())
+        elif token == "END LOOP":
+            pop(("LOOP",), m.start())
+        elif token == "END CASE":
+            pop(("CASE",), m.start())
+        elif token == "END":
+            pop(("BEGIN", "CASE"), m.start())
         elif token == "RAISE":
+            fr = stack[-1] if stack else None
             if (
-                frames
-                and frames[-1]["then_pos"] is not None
-                and not frames[-1]["closed"]
+                fr is not None
+                and fr.kind == "IF"
+                and fr.then_pos is not None
+                and not fr.closed
                 and not _NON_ABORTING_RAISE_RE.match(body, m.start())
             ):
-                frames[-1]["raises"] = True
+                fr.raises = True
 
-    # Leftover frames mean an unbalanced IF; those blocks are simply not
-    # recognized, which fails closed rather than accepting a guess.
-    return blocks
+    # Unclosed frames stay out of `frames`, so nothing depending on them is
+    # recognized. That fails closed rather than guessing at the structure.
+    return frames
 
 
-def has_negated_raising_predicate(body: str) -> bool:
+def _enclosing(frames, pos):
+    return [f for f in frames if f.start < pos < f.end]
+
+
+def _handler_catches(body: str, frame) -> bool:
+    """True when the block's EXCEPTION handlers can catch a P0001 assertion."""
+    if frame.exc_pos is None:
+        return False
+    return bool(_CATCHING_CONDITION_RE.search(body[frame.exc_pos: frame.end]))
+
+
+def is_swallowed(body: str, frames, pos: int) -> bool:
+    """True when an authorization failure raised at `pos` would be caught by an
+    enclosing block's own EXCEPTION handlers.
+
+    Only blocks that actually enclose `pos` count: a later, unrelated nested
+    exception block elsewhere in the function must not invalidate this guard,
+    and a handler for an unrelated condition cannot catch the assertion.
+    """
+    for frame in _enclosing(frames, pos):
+        if frame.kind != "BEGIN":
+            continue
+        if frame.exc_pos is not None and pos < frame.exc_pos and _handler_catches(body, frame):
+            return True
+    return False
+
+
+def is_outer_statement_level(frames, pos: int) -> bool:
+    """True when `pos` sits at the function's outermost PL/pgSQL statement level.
+
+    Not inside IF/ELSIF/ELSE, LOOP/WHILE/FOR/FOREACH, CASE, a nested BEGIN, or
+    an EXCEPTION handler. Identity and org-resolution reads may legitimately
+    precede the guard: this is about execution level, not textual first-line
+    placement.
+    """
+    enclosing = _enclosing(frames, pos)
+    if any(f.kind in ("IF", "LOOP", "CASE") for f in enclosing):
+        return False
+    begins = [f for f in enclosing if f.kind == "BEGIN"]
+    if len(begins) > 1:
+        return False
+    if begins and begins[0].exc_pos is not None and pos > begins[0].exc_pos:
+        return False
+    return True
+
+
+def _if_blocks_with_raising_deny_branch(body: str):
+    """(if_token_pos, condition_start, condition_end) for each IF whose own deny
+    branch raises at its own nesting level."""
+    return [
+        (f.start, f.start + 2, f.then_pos)
+        for f in parse_blocks(body)
+        if f.kind == "IF" and f.then_pos is not None and f.raises
+    ]
+
+
+def has_negated_raising_predicate(body: str, strict: bool = False) -> bool:
     """True when a boolean membership predicate is negated as a WHOLE top-level
-    condition term of an IF whose deny branch raises."""
-    for cond_start, cond_end in _if_blocks_with_raising_deny_branch(body):
+    condition term of an IF whose deny branch raises, that denial is not
+    swallowed, and - under the strict contract - the guarding IF itself sits at
+    the function's outer statement level."""
+    frames = parse_blocks(body)
+    for if_pos, cond_start, cond_end in _if_blocks_with_raising_deny_branch(body):
+        if is_swallowed(body, frames, if_pos):
+            continue
+        if strict and not is_outer_statement_level(frames, if_pos):
+            continue
         condition = body[cond_start:cond_end]
         if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
             return True
     return False
 
 
-def has_recognized_guard(body: str) -> bool:
-    """A raising assertion helper, or a boolean predicate used in the negated
-    raising idiom. A discarded boolean result is never a guard."""
-    return bool(GUARD_RE.search(body)) or has_negated_raising_predicate(body)
+def has_recognized_guard(body: str, strict: bool = False) -> bool:
+    """A raising assertion helper, or a boolean predicate in the negated raising
+    idiom. A guard whose failure an enclosing handler can swallow never counts;
+    under the strict contract it must also sit at the outer statement level."""
+    frames = parse_blocks(body)
+    for m in GUARD_RE.finditer(body):
+        if is_swallowed(body, frames, m.start()):
+            continue
+        if strict and not is_outer_statement_level(frames, m.start()):
+            continue
+        return True
+    return has_negated_raising_predicate(body, strict=strict)
+
+
+def migration_number(path: pathlib.Path):
+    """Leading number of a migration filename, or None when it has none."""
+    head = path.stem.split("_")[0]
+    return int(head) if head.isdigit() else None
 
 
 DEFINER_FUNC_RE = re.compile(
@@ -504,6 +626,8 @@ def extract_function_body(sql: str, func_start: int) -> str:
 
 def check_file(path: pathlib.Path) -> list[str]:
     errors = []
+    number = migration_number(path)
+    strict = number is not None and number >= MIGRATION_STRICT_CUTOFF
     sql, mask_problems = mask_sql_checked(path.read_text(encoding="utf-8"))
 
     # Fail closed. A body the masker could not follow may hide a guard name in
@@ -537,7 +661,7 @@ def check_file(path: pathlib.Path) -> list[str]:
         if REVOKE_RE.search(revoke_before_next_func):
             continue
 
-        if not has_recognized_guard(body):
+        if not has_recognized_guard(body, strict=strict):
             errors.append(
                 f"  ❌ {path.name}: function '{func_name}' is SECURITY DEFINER "
                 f"but has no recognized tenant/authorization assertion"

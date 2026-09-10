@@ -222,3 +222,123 @@ in isolation and in the full 313-file/4620-test suite locally, was the first suc
 failure in 20 CI/CD runs, and passed on re-run of the same commit. It is a
 pre-existing async-cleanup race in issue #239's own regression test, not a
 finding against this change and not fixed here (out of scope).
+
+
+===========================================================================
+Addendum 3 — execution reachability and exception swallowing (Finding 5)
+===========================================================================
+
+Reviewed head: 62187e595994200abcba1e5bf2c64d0477825f63
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+RED reproduction at 62187e5, through the real check_file()
+----------------------------------------------------------
+  IF false THEN
+    PERFORM public.wardah_assert_org_member(p_org);
+  END IF;
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+    -> check_file() == []   FALSE GREEN   (guard never executes)
+
+  BEGIN
+    PERFORM public.wardah_assert_org_member(p_org);
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+    -> check_file() == []   FALSE GREEN   (guard raises; failure swallowed)
+
+Impact survey before changing anything
+--------------------------------------
+121 non-exempt SECURITY DEFINER occurrences over 61 migrations.
+  raising assertion calls                     83
+    at outer statement level                  78
+    inside IF/LOOP/CASE                        5 calls / 6 sites / 4 functions
+        144:60, 144:66  wardah_guard_products_base_uom_change   (trigger)
+        145:79          wardah_guard_mapped_product_uom_stock_write (trigger)
+        146:29, 146:36  wardah_guard_products_base_uom_change   (trigger)
+        174:711         rpc_permission_snapshot
+    inside a nested BEGIN                      0
+  boolean negated-raise guards                24, all conditional by
+        construction (the IF *is* the guard) — migrations 153/166/167/168/169
+  functions with a real EXCEPTION section     20
+  guards positioned before such a section      7
+  of those, handler without RAISE              3
+  ACTUALLY capable of swallowing an auth failure   0
+      150 rpc_create_matched_supplier_invoice: handler is unique_violation-only
+          (line 160) while the guard is top-level (line 54) — cannot catch P0001.
+      183 rpc_subledger_gl_reconciliation: guard top-level (line 53); all three
+          WHEN OTHERS handlers (155/173/214) are inside LATER, NON-ENCLOSING
+          nested BEGIN blocks.
+So both classes were real in the scanner and unexploited in the repository.
+
+Correction
+----------
+A. Swallowing — applies to ALL migrations, no cutoff.
+   parse_blocks() models BEGIN / IF / LOOP / CASE nesting and EXCEPTION
+   sections. is_swallowed() rejects a guard only when a block that ACTUALLY
+   ENCLOSES it has handlers able to catch a PL/pgSQL P0001 assertion:
+   WHEN OTHERS, WHEN raise_exception, WHEN SQLSTATE 'P0001'. An unrelated
+   condition (unique_violation) does not count, and a later non-enclosing nested
+   handler does not invalidate a guard. The same test is applied to the boolean
+   guard's own RAISE. Impact on existing migrations: 0.
+
+B. Reachability — a forward syntactic contract, MIGRATION_STRICT_CUTOFF = 191.
+   For migrations >= 191 a guard counts only at the function's OUTER PL/pgSQL
+   statement level: not under IF/ELSIF/ELSE, LOOP/WHILE/FOR/FOREACH, CASE, a
+   nested BEGIN, or an EXCEPTION handler. The guard need NOT be the literal
+   first statement — identity/org-resolution reads before it are legitimate and
+   are covered by a positive control. Migrations <= 190 are immutable historical
+   inputs and keep their validated compatibility. The cutoff is a migration
+   NUMBER, so the four historical trigger/conditional functions above need no
+   exemption and no edit. No general control-flow analysis is attempted.
+
+MIGRATION 191 UNDER THE STRICT CONTRACT
+---------------------------------------
+  migration_number = 191  ->  strict = True
+  check_file(191)  ->  0 errors
+  ==> Migration 191 passes the strict contract UNCHANGED. The rule therefore
+      begins AT 191, as required, and no weakening was needed.
+
+Discrimination — MUST REJECT (synthetic 999_, strict)
+-----------------------------------------------------
+  1 guard inside IF false                     rejected
+  2 guard inside a never-entered WHILE LOOP   rejected
+  3 guard inside a CASE branch                rejected
+  4 guard inside a nested BEGIN               rejected
+  5 guard swallowed by WHEN OTHERS            rejected
+  6 guard swallowed by WHEN raise_exception   rejected
+  7 guard swallowed by WHEN SQLSTATE 'P0001'  rejected
+  8 boolean guard nested under IF false       rejected
+  + boolean guard swallowed by WHEN OTHERS    rejected
+
+Discrimination — MUST ACCEPT (synthetic 999_, strict)
+-----------------------------------------------------
+  outer-level wardah_assert_org_member / _org_admin / wardah_178_assert_permission
+  outer-level canonical negated wardah_is_org_member + RAISE
+  org resolution before the assert (M191's real shape)
+  unrelated unique_violation handler          accepted (no false red)
+  later NON-ENCLOSING WHEN OTHERS block       accepted (no false red)
+
+Historical compatibility
+------------------------
+  150_… and 190_… with the same IF-false / nested-BEGIN placement: ACCEPTED
+    (placement leniency is by migration NUMBER, not by function name)
+  150_… with a swallowing WHEN OTHERS handler: REJECTED
+    (rule A is deliberately not cutoff-scoped)
+  191_… and 192_…: REJECTED (the contract applies AT the cutoff, not above it)
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 22 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  KNOWN_EXEMPT asserted equal to its original six entries by a dedicated test.
+
+Scope principle
+---------------
+This scanner is a syntactic security gate, not a PL/pgSQL theorem prover. From
+191 on, new SECURITY DEFINER code must use an authorization shape the scanner
+can prove: a simple assertion at the outer statement level. Code needing a
+complex conditional authorization architecture should be refactored to an
+explicit top-level assertion boundary rather than weakening this gate.
