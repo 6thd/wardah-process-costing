@@ -323,7 +323,8 @@ def is_outer_statement_level(frames, pos: int) -> bool:
     Not inside IF/ELSIF/ELSE, LOOP/WHILE/FOR/FOREACH, CASE, a nested BEGIN, or
     an EXCEPTION handler. Identity and org-resolution reads may legitimately
     precede the guard: this is about execution level, not textual first-line
-    placement.
+    placement. Reachability past an earlier RETURN is handled separately by
+    terminating_return_before().
     """
     enclosing = _enclosing(frames, pos)
     if any(f.kind in ("IF", "LOOP", "CASE") for f in enclosing):
@@ -334,6 +335,28 @@ def is_outer_statement_level(frames, pos: int) -> bool:
     if begins and begins[0].exc_pos is not None and pos > begins[0].exc_pos:
         return False
     return True
+
+
+# A plain `RETURN` (with or without an expression) ends the invocation, so any
+# assertion after it is dead code even at the outer statement level. RETURN NEXT
+# and RETURN QUERY do NOT terminate a set-returning function, so they are not
+# treated as exits. `RETURNS` in the function header is not a word match.
+_TERMINATING_RETURN_RE = re.compile(r"\bRETURN\b(?!\s+(?:NEXT|QUERY)\b)", re.IGNORECASE)
+
+
+def terminating_return_before(body: str, pos: int) -> bool:
+    """True when the invocation can already have ended before `pos`.
+
+    Deliberately conservative and purely textual: any terminating RETURN earlier
+    in the body disqualifies the candidate, whether it is unconditional dead code
+    (`RETURN; PERFORM assert...`) or an early exit on some input path
+    (`IF p_skip THEN RETURN; END IF; PERFORM assert...`). Both leave the
+    privileged work unguarded on at least one path. This can reject a complex
+    future function whose returns are all provably guarded; the remedy is to move
+    the authorization boundary earlier, never to weaken this gate.
+    """
+    m = _TERMINATING_RETURN_RE.search(body, 0, pos)
+    return m is not None
 
 
 def _if_blocks_with_raising_deny_branch(body: str):
@@ -357,6 +380,8 @@ def has_negated_raising_predicate(body: str, strict: bool = False) -> bool:
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
+        if strict and terminating_return_before(body, if_pos):
+            continue
         condition = body[cond_start:cond_end]
         if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
             return True
@@ -372,6 +397,8 @@ def has_recognized_guard(body: str, strict: bool = False) -> bool:
         if is_swallowed(body, frames, m.start()):
             continue
         if strict and not is_outer_statement_level(frames, m.start()):
+            continue
+        if strict and terminating_return_before(body, m.start()):
             continue
         return True
     return has_negated_raising_predicate(body, strict=strict)

@@ -71,6 +71,17 @@ here, and neither by trying to prove arbitrary control flow:
 
 The guard need not be the literal first statement: identity and org-resolution
 reads before it are legitimate and are covered by a positive control.
+
+Final-review remediation (PR #241, Finding 6): the strict contract modelled
+nesting but not function exit, so an outer-level assertion placed after an
+earlier terminating RETURN still passed while being dead on at least one path
+(`RETURN; PERFORM assert...`, or `IF p_skip THEN RETURN; END IF; PERFORM
+assert...`). For migrations >= the cutoff, a candidate guard no longer counts
+when any terminating RETURN precedes it textually. RETURN NEXT and RETURN QUERY
+do not terminate a set-returning function and are not treated as exits. The rule
+is deliberately conservative: it may reject a complex future function whose
+returns are all provably guarded, and the remedy there is to move the
+authorization boundary earlier, never to weaken the gate.
 """
 
 from __future__ import annotations
@@ -373,8 +384,67 @@ OUTER_LEVEL_MUST_ACCEPT = {
 }
 
 
+
+# Finding 6. The guard is at outer level and is not swallowed, but the function
+# can already have returned before reaching it.
+RETURN_BEFORE_GUARD_MUST_REJECT = {
+    # Unconditional dead code after a bare RETURN.
+    "bare_return_before_guard": definer(
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        f"  RETURN;\n  PERFORM {OUTER}(p_org);"
+    ),
+    # Same with a returned expression.
+    "return_expression_before_guard": definer(
+        "  UPDATE public.bins SET actual_qty = 0;\n"
+        f"  RETURN 1;\n  PERFORM {OUTER}(p_org);"
+    ),
+    # An early exit on some input path skips the guard for those inputs.
+    "conditional_early_return_before_guard": definer(
+        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0;"
+    ),
+    # The structural boolean guard is subject to the same rule.
+    "return_before_boolean_guard": definer(
+        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+    "conditional_early_return_before_boolean_guard": definer(
+        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        "  UPDATE public.bins SET actual_qty = 0;"
+    ),
+}
+
+MUST_REJECT.update(RETURN_BEFORE_GUARD_MUST_REJECT)
+
+# The guard precedes every exit: still a valid boundary.
+GUARD_BEFORE_RETURN_MUST_ACCEPT = {
+    "guard_then_bare_return": definer(
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
+    ),
+    "guard_then_return_expression": definer(
+        f"  PERFORM {OUTER}(p_org);\n  RETURN 1;"
+    ),
+    "boolean_guard_then_return": definer(
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
+    ),
+    # M191's shape: resolve org, assert, do the work, return at the end.
+    "m191_resolve_assert_work_return": definer(
+        "  v_org := public.get_current_tenant_id();\n"
+        "  IF v_org IS NULL THEN\n    RAISE EXCEPTION 'ORG_NOT_RESOLVED';\n"
+        f"  END IF;\n  PERFORM {OUTER}(v_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = v_org;\n"
+        "  RETURN;"
+    ),
+}
+
+
 MUST_ACCEPT = {
     **OUTER_LEVEL_MUST_ACCEPT,
+    **GUARD_BEFORE_RETURN_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
     # Same, with the non-executable decoys present as well: an executable call
@@ -588,6 +658,40 @@ class DefinerScannerTests(unittest.TestCase):
                     self.verdict(name, sql),
                     f"{name}: unreachable or swallowed guard accepted",
                 )
+
+    def test_guard_after_a_terminating_return_is_rejected(self) -> None:
+        """Finding 6: an assertion past an exit is dead on at least one path."""
+        for name, sql in RETURN_BEFORE_GUARD_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: guard after a terminating RETURN accepted",
+                )
+
+    def test_return_next_and_query_are_not_exits(self) -> None:
+        """They continue a set-returning function, so they must not disqualify."""
+        self.assertFalse(
+            guards.terminating_return_before("RETURN NEXT r; PERFORM x", 40)
+        )
+        self.assertFalse(
+            guards.terminating_return_before("RETURN QUERY SELECT 1; PERFORM x", 40)
+        )
+        self.assertTrue(guards.terminating_return_before("RETURN; PERFORM x", 40))
+        self.assertTrue(guards.terminating_return_before("RETURN 1; PERFORM x", 40))
+        # `RETURNS` in the function header is not a RETURN statement.
+        self.assertFalse(
+            guards.terminating_return_before("RETURNS void LANGUAGE plpgsql", 40)
+        )
+
+    def test_return_rule_is_strict_contract_only(self) -> None:
+        """<= cutoff keeps its validated compatibility for placement."""
+        sql = RETURN_BEFORE_GUARD_MUST_REJECT["bare_return_before_guard"]
+        historical = self.root / "150_return_probe.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_return_probe.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
 
     def test_strict_contract_applies_from_the_cutoff(self) -> None:
         """The cutoff is a migration NUMBER, tested through real filenames."""

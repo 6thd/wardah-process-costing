@@ -342,3 +342,85 @@ This scanner is a syntactic security gate, not a PL/pgSQL theorem prover. From
 can prove: a simple assertion at the outer statement level. Code needing a
 complex conditional authorization architecture should be refactored to an
 explicit top-level assertion boundary rather than weakening this gate.
+
+
+===========================================================================
+Addendum 4 — a guard past a terminating RETURN is dead (Finding 6)
+===========================================================================
+
+Reviewed head: 5d7c16c8378c5adad67eb3fae26e064a0fad13a6
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Defect
+------
+The strict contract modelled BEGIN/IF/LOOP/CASE nesting but not function exit.
+_BLOCK_TOKEN_RE never contained RETURN, so an outer-level, non-swallowed
+assertion counted even when the invocation could already have ended.
+
+RED reproduction at 5d7c16c, through the real check_file(), strict (999_):
+
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+  RETURN;
+  PERFORM public.wardah_assert_org_member(p_org);
+    -> check_file() == []   FALSE GREEN   (guard is unconditional dead code)
+
+  IF p_skip THEN RETURN; END IF;
+  PERFORM public.wardah_assert_org_member(p_org);
+    -> check_file() == []   FALSE GREEN   (guard skipped for p_skip = true)
+
+  RETURN 1; PERFORM public.wardah_assert_org_member(p_org);   -> []  FALSE GREEN
+  RETURN; IF NOT public.wardah_is_org_member(v_org) THEN RAISE ...  -> []  FALSE GREEN
+
+Correction (migrations >= MIGRATION_STRICT_CUTOFF only)
+-------------------------------------------------------
+terminating_return_before(body, pos): a candidate guard does not satisfy the
+strict gate when any terminating RETURN precedes it textually. Applied to both
+the raising assertion helpers and the structural boolean guard.
+
+  - A plain RETURN, with or without an expression, ends the invocation.
+  - RETURN NEXT and RETURN QUERY do NOT terminate a set-returning function and
+    are explicitly not treated as exits.
+  - `RETURNS` in the function header is not a word match for RETURN.
+
+The rule is deliberately conservative and purely textual: it makes no attempt to
+prove that every return path is guarded. It may reject a complex future function
+whose returns are all provably guarded; the remedy there is to move the
+authorization boundary earlier, never to weaken the gate.
+
+Migration 191 form inventory: 28 RETURN statements, all plain RETURN — no
+RETURN NEXT and no RETURN QUERY — so the accurate treatment above carries no
+risk for this migration.
+
+MIGRATION 191 UNDER THE NEW RULE
+--------------------------------
+  check_file(191) -> 0 errors
+  ==> Migration 191 PASSES UNCHANGED. Every scanned M191 SECURITY DEFINER
+      function places its authorization boundary before any terminating RETURN.
+
+Discrimination — MUST REJECT (strict)
+-------------------------------------
+  bare RETURN before the assertion
+  RETURN <expression> before the assertion
+  conditional early RETURN before the assertion
+  boolean negated-raise guard after a bare RETURN
+  boolean negated-raise guard after a conditional early RETURN
+
+Discrimination — MUST ACCEPT (strict)
+-------------------------------------
+  assertion then bare RETURN
+  assertion then RETURN <expression>
+  boolean guard then RETURN
+  M191's shape: resolve org -> assert -> privileged work -> RETURN
+
+Historical compatibility
+------------------------
+  150_… with RETURN before the guard: ACCEPTED (placement rules are cutoff-scoped)
+  191_… with the same shape:          REJECTED
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 25 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  Zero KNOWN_EXEMPT entries added (asserted by test).
