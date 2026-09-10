@@ -6,6 +6,11 @@ Scans all migration files numbered > BASELINE_CUTOFF for new/replaced DEFINER
 functions. Fails if any client-callable function lacks one of the reviewed
 server-boundary guards.
 
+A guard counts only when it appears as an executable function CALL
+(`guard(...)` or `public.guard(...)`) inside the masked function body. A
+textual occurrence of the name — a dollar-quote tag, a quoted identifier,
+a bare identifier, comment or literal text — never satisfies the gate.
+
 Recognized guards:
   - wardah_assert_org_member / wardah_assert_org_admin / wardah_is_org_member
   - wardah_178_assert_permission: Migration 178's assertion wrapper around
@@ -52,14 +57,37 @@ KNOWN_EXEMPT = {
     "rpc_batch_post_manual_journal_entries",
 }
 
-GUARD_PATTERNS = [
-    r"wardah_assert_org_member",
-    r"wardah_assert_org_admin",
-    r"wardah_is_org_member",
+GUARD_NAMES = [
+    "wardah_assert_org_member",
+    "wardah_assert_org_admin",
+    "wardah_is_org_member",
     # Match only the assertion wrapper, never a bare boolean permission lookup.
-    r"wardah_178_assert_permission",
+    "wardah_178_assert_permission",
 ]
-GUARD_RE = re.compile("|".join(GUARD_PATTERNS))
+
+# A recognized guard is an EXECUTABLE CALL, never a textual occurrence of the
+# name. Masking alone cannot close this class: masking keeps delimiters and
+# identifiers, so a bare-name matcher still accepted a guard named as an outer
+# dollar-quote tag ($wardah_assert_org_member$), as a nested dollar tag, as a
+# quoted alias ("wardah_assert_org_member") or as a bare non-call identifier
+# (PERFORM wardah_assert_org_member;). All of those are non-executable, so the
+# name must be followed by optional whitespace and an opening parenthesis.
+#
+#   left boundary: not preceded by an identifier character, a dollar sign (a
+#                  dollar-quote tag) or a double quote (a quoted identifier),
+#                  and not preceded by a `.` unless that qualifier is `public`,
+#                  so another schema's same-named function cannot stand in.
+#   qualification: the existing optional `public.` prefix.
+#   call shape:    name, optional whitespace, `(`.
+GUARD_CALL_PATTERN = (
+    r"(?<![\w$\".])(?:public\s*\.\s*)?(?:"
+    + "|".join(GUARD_NAMES)
+    + r")\s*\("
+)
+GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
+
+# Kept for backwards compatibility with callers that only need the names.
+GUARD_PATTERNS = list(GUARD_NAMES)
 
 DEFINER_FUNC_RE = re.compile(
     r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(\w+)\s*\(",

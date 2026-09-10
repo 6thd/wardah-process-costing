@@ -1,0 +1,70 @@
+M191 final-review remediation — SECURITY DEFINER scanner call-shape closure
+===========================================================================
+
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL is byte-unchanged
+(sql/migrations/191_f2_stock_write_concurrency_closure.sql,
+ sha256 637a81caeaebea60693476222611b373dc1e738cd6b10c634bf4c236227f3f40,
+ identical at c926e22 and at this head).
+
+Defect
+------
+At c926e22185e4c0b6dd34aa92a8a614faff3940af the masker was correct, but the
+verdict came from `GUARD_RE.search(body)` with GUARD_RE matching the guard NAME
+alone. Masking deliberately preserves delimiters and identifiers, so any
+non-executable appearance the masker keeps still satisfied the security gate.
+
+RED reproduction against the OLD implementation, through the real check_file()
+-----------------------------------------------------------------------------
+All seven probes below returned check_file() == []  (FALSE GREEN) for a
+SECURITY DEFINER body that writes public.bins and never calls any guard:
+
+  outer_delimiter_is_guard_name              -> []   AS $wardah_assert_org_member$
+  outer_delimiter_tagged_containing_guard    -> []   AS $body_wardah_assert_org_member_end$
+  nested_dollar_tag_containing_guard         -> []   RAISE NOTICE $wardah_assert_org_member$opaque$...$
+  quoted_alias                               -> []   PERFORM 1 AS "wardah_assert_org_member"
+  bare_non_call_identifier                   -> []   PERFORM wardah_assert_org_member;
+  admin_outer_delimiter_is_guard_name        -> []   AS $wardah_assert_org_admin$
+  admin_bare_non_call_identifier             -> []   PERFORM wardah_assert_org_admin;
+
+None of these shapes was already rejected: every one of the additional probes
+(quoted alias, bare non-call identifier) was a live false green, not a
+pre-existing rejection.
+
+Matcher change
+--------------
+Before:
+  GUARD_RE = re.compile("|".join(GUARD_PATTERNS))          # bare name
+
+After:
+  GUARD_CALL_PATTERN = (
+      r"(?<![\w$\".])(?:public\s*\.\s*)?(?:" + "|".join(GUARD_NAMES) + r")\s*\("
+  )
+  GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
+
+A recognized guard must now have an executable FUNCTION-CALL SHAPE: the name,
+optional whitespace, `(`. The optional `public.` qualification is retained. The
+left boundary rejects an identifier character, a dollar-quote tag `$`, a quoted
+identifier `"`, and a foreign schema qualifier `.`. Masking of comments,
+string literals, nested block comments and nested dollar-quoted CONTENT is
+retained unchanged; fail-closed behaviour on unmaskable constructs is retained
+unchanged.
+
+GREEN after the correction
+--------------------------
+All seven probes above are now rejected with
+  "function '<name>' is SECURITY DEFINER but has no recognized
+   tenant/authorization assertion"
+
+Real executable calls continue to be accepted:
+  PERFORM wardah_assert_org_member(p_org);              -> []
+  PERFORM public.wardah_assert_org_member(p_org);       -> []
+  PERFORM public.wardah_assert_org_admin(p_org);        -> []
+  IF NOT public.wardah_is_org_member(p_org) THEN ...    -> []
+  PERFORM wardah_178_assert_permission(p_org, '...');   -> []
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py   -> Ran 8 tests, OK
+  python3 scripts/ci/check_definer_guards.py        -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"

@@ -12,6 +12,20 @@ function therefore passed the scanner merely because the guard's NAME appeared
 inside non-executable text — a string literal, a block comment, a nested block
 comment, or a nested dollar-quoted literal. The MUST_REJECT cases below are that
 false green, frozen.
+
+Final-review remediation (PR #241, Finding 2): at head
+c926e22185e4c0b6dd34aa92a8a614faff3940af the masking above was correct, but the
+verdict still came from `GUARD_RE.search(body)` where GUARD_RE matched the guard
+NAME alone. Masking deliberately keeps delimiters and identifiers, so any
+non-executable appearance the masker preserves still satisfied the gate: an
+outer dollar-quote tag ($wardah_assert_org_member$), a tagged outer or nested
+delimiter containing the name, a quoted alias ("wardah_assert_org_member") and a
+bare non-call identifier (PERFORM wardah_assert_org_member;) were all accepted
+for an unguarded SECURITY DEFINER body. A recognized guard is now an executable
+CALL shape — `guard(...)` or `public.guard(...)` — so the name by itself never
+passes. The NON_CALL_MUST_REJECT cases below are that false green, frozen, for
+two different recognized guards so the correction is not special-cased to one
+string.
 """
 
 from __future__ import annotations
@@ -77,6 +91,61 @@ MUST_REJECT = {
     ),
 }
 
+
+ADMIN_GUARD = "wardah_assert_org_admin"
+
+
+def definer_delim(delim: str, body: str = "", name: str = "f_probe") -> str:
+    """A SECURITY DEFINER function whose OUTER dollar-quote tag is `delim`."""
+    return (
+        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+        "RETURNS void\n"
+        "LANGUAGE plpgsql\n"
+        "SECURITY DEFINER\n"
+        "SET search_path TO 'public', 'pg_temp'\n"
+        f"AS {delim}\n"
+        "BEGIN\n"
+        f"{body}\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n"
+        f"{delim};\n"
+    )
+
+
+# Finding 2. Every entry names a recognized guard somewhere the masker keeps
+# intact, but never calls it. Each one returned [] before the call-shape
+# matcher landed.
+NON_CALL_MUST_REJECT = {
+    # 1. Outer function delimiter is exactly the guard name.
+    "outer_delimiter_is_guard_name": definer_delim(f"${GUARD}$"),
+    # 2. Tagged outer delimiter containing the guard name.
+    "outer_delimiter_tagged_contains_guard": definer_delim(f"$body_{GUARD}_end$"),
+    # 3. Nested dollar-quote DELIMITER carries the name; its content does not.
+    "nested_dollar_tag_contains_guard": definer(
+        f"  RAISE NOTICE ${GUARD}$opaque${GUARD}$;"
+    ),
+    # 4. Quoted alias — a quoted identifier, not a call.
+    "guard_only_as_quoted_alias": definer(f'  PERFORM 1 AS "{GUARD}";'),
+    # 5. Bare non-call identifier.
+    "guard_only_as_bare_identifier": definer(f"  PERFORM {GUARD};"),
+    # 6. The same six classes for a second recognized guard, so the fix is a
+    #    semantic class closure rather than a special case for one string.
+    "admin_outer_delimiter_is_guard_name": definer_delim(f"${ADMIN_GUARD}$"),
+    "admin_outer_delimiter_tagged_contains_guard": definer_delim(
+        f"$body_{ADMIN_GUARD}_end$"
+    ),
+    "admin_nested_dollar_tag_contains_guard": definer(
+        f"  RAISE NOTICE ${ADMIN_GUARD}$opaque${ADMIN_GUARD}$;"
+    ),
+    "admin_guard_only_as_quoted_alias": definer(f'  PERFORM 1 AS "{ADMIN_GUARD}";'),
+    "admin_guard_only_as_bare_identifier": definer(f"  PERFORM {ADMIN_GUARD};"),
+    # A longer identifier that merely ENDS with the guard name is not the guard.
+    "guard_name_is_identifier_suffix": definer(f"  PERFORM fake_{GUARD}(p_org);"),
+}
+
+MUST_REJECT.update(NON_CALL_MUST_REJECT)
+
+
 MUST_ACCEPT = {
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
@@ -91,6 +160,22 @@ MUST_ACCEPT = {
     "unqualified_guard_call": definer(f"  PERFORM {GUARD}(p_org);"),
     # An admin guard is equally recognized.
     "admin_guard_call": definer("  PERFORM public.wardah_assert_org_admin(p_org);"),
+    # The membership predicate, in a conditional rather than a PERFORM.
+    "is_org_member_call": definer(
+        "  IF NOT public.wardah_is_org_member(p_org) THEN\n"
+        "    RAISE EXCEPTION 'NOT_ORG_MEMBER';\n"
+        "  END IF;"
+    ),
+    # Migration 178's recognized permission assertion.
+    "permission_assertion_call": definer(
+        "  PERFORM wardah_178_assert_permission(p_org, 'reports.financial.read');"
+    ),
+    # Whitespace between the name and the parenthesis is still a call.
+    "call_with_space_before_paren": definer(f"  PERFORM public.{GUARD} (p_org);"),
+    # A real call still passes when the outer delimiter carries the guard name.
+    "real_call_inside_guard_named_delimiter": definer_delim(
+        f"${GUARD}$", f"  PERFORM public.{GUARD}(p_org);"
+    ),
 }
 
 # Constructs the masker cannot follow. These must fail closed rather than be
@@ -139,6 +224,40 @@ class DefinerScannerTests(unittest.TestCase):
                 errors = self.verdict(name, sql)
                 self.assertTrue(errors, f"{name}: unmaskable construct not reported")
                 self.assertIn("cannot be scanned safely", errors[0])
+
+    def test_non_call_guard_occurrences_are_rejected(self) -> None:
+        """Finding 2: a recognized guard NAME that is not an executable call."""
+        for name, sql in NON_CALL_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: guard name accepted without a function-call shape",
+                )
+
+    def test_guard_matcher_requires_call_shape(self) -> None:
+        """The matcher itself, independent of check_file()."""
+        for text in (
+            f"${GUARD}$",
+            f"$msg_{GUARD}$",
+            f'SELECT 1 AS "{GUARD}";',
+            f"PERFORM {GUARD};",
+            f"PERFORM fake_{GUARD}(p_org);",
+            f"PERFORM other_schema.{GUARD}(p_org);",
+            f"${ADMIN_GUARD}$",
+            f"PERFORM {ADMIN_GUARD};",
+        ):
+            with self.subTest(reject=text):
+                self.assertIsNone(guards.GUARD_RE.search(text), text)
+        for text in (
+            f"PERFORM {GUARD}(p_org);",
+            f"PERFORM public.{GUARD}(p_org);",
+            f"PERFORM public.{ADMIN_GUARD}(p_org);",
+            f"IF public.wardah_is_org_member(p_org) THEN",
+            "PERFORM wardah_178_assert_permission(p_org, 'k');",
+            f"PERFORM public.{GUARD}\n    (p_org);",
+        ):
+            with self.subTest(accept=text):
+                self.assertIsNotNone(guards.GUARD_RE.search(text), text)
 
     def test_revoke_from_public_still_exempts(self) -> None:
         sql = definer("  PERFORM 1;", name="f_revoked") + (
