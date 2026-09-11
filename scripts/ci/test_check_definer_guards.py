@@ -757,7 +757,8 @@ UNREACHABLE_ABORT_MUST_ACCEPT = {
 #    DEFINER routine the scanner cannot read a body from is rejected rather than
 #    given someone else's.
 GUARDED_NEXT = (
-    "CREATE OR REPLACE FUNCTION public.f_guarded(p_org uuid)\n"
+    # Scanner fixture only: written to a temporary file, never executed as SQL.
+    "CREATE OR REPLACE FUNCTION public.f_guarded(p_org uuid)\n"  # nosec B608
     "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
     "SET search_path TO 'public', 'pg_temp'\n"
     "AS $guarded$\nBEGIN\n"
@@ -773,7 +774,8 @@ BODY_ATTRIBUTION_MUST_REJECT = {
         + GUARDED_NEXT
     ),
     "sql_standard_body_is_not_readable": (
-        "CREATE OR REPLACE FUNCTION public.f_atomic(p_org uuid)\n"
+        # Scanner fixture only; concatenation tests body attribution, not DB execution.
+        "CREATE OR REPLACE FUNCTION public.f_atomic(p_org uuid)\n"  # nosec B608
         "RETURNS void\nLANGUAGE sql\nSECURITY DEFINER\n"
         "BEGIN ATOMIC\n"
         "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
@@ -876,7 +878,8 @@ ALTER_DEFINER_MUST_ACCEPT = {
 #    exemption - and neither is another schema's same-named function.
 def quoted_definer(header: str) -> str:
     return (
-        f"{header}\n"
+        # Test-owned header: this SQL is input to check_file(), never a DB driver.
+        f"{header}\n"  # nosec B608
         "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
         "SET search_path TO 'public', 'pg_temp'\n"
         "AS $q$\nBEGIN\n"
