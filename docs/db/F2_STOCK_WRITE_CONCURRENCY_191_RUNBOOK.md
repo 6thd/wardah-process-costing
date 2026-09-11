@@ -138,6 +138,38 @@ It also does not change `release_expired_reservations`'s broad historical EXECUT
 surface. That surface is carried forward unchanged and asserted as such, so any future
 change to it is a deliberate decision rather than an accident.
 
+### Declared scanner limitations and follow-up
+
+The strict scanner contract for migrations numbered 191 onward is frozen for M191
+acceptance at executable head `a5977e31c00b1f85bb909b144f06d3587065145a` with three
+known false negatives tracked in [Issue #243](https://github.com/6thd/wardah-process-costing/issues/243).
+The issue includes executable text-only reproductions and correction acceptance criteria.
+
+- **Default client grants:** the closure model does not account for the baseline's
+  direct default function grants to `anon` and `authenticated` for objects created
+  by `postgres` or `supabase_admin`. Revoking only `PUBLIC` can therefore falsely
+  pass. This is a priority follow-up because those defaults exist in this repository.
+- **Schema-wide privileges:** `GRANT`/`REVOKE` on `ALL FUNCTIONS/ROUTINES IN SCHEMA`
+  are not replayed against function identities; a later schema-wide grant can
+  reopen a function that the scanner considers closed.
+- **Custom denial SQLSTATE:** boolean membership deny branches are checked for
+  swallowed P0001 exceptions, not their actual overridden SQLSTATE. A custom
+  `ERRCODE` can be caught by a handler that the scanner treats as unrelated.
+
+These are acceptance-tool limitations, not waived requirements for future migrations.
+Until #243 closes, review affected ACLs and exception behavior explicitly and prove
+them in an isolated PostgreSQL acceptance test; a scanner pass alone is insufficient.
+The catalog contract covers its enumerated objects, not all future functions.
+
+M191 does not activate these cases: its five internal helper signatures explicitly
+revoke `PUBLIC`, `anon` and `authenticated` before granting `service_role`; the file
+contains neither schema-wide privilege statements nor an `ERRCODE` override.
+This does not claim that every M191 function is client-closed: callable RPCs retain
+their reviewed authorization boundaries. M191 SHA256 remains
+`637a81caeaebea60693476222611b373dc1e738cd6b10c634bf4c236227f3f40`.
+Freezing this implementation does not settle the separate Codacy/CodeFactor gates
+or authorize merging #241 to main or applying M191 to Production/Staging.
+
 ## Post-apply verification
 
 After a Production apply — which requires separate authorization — confirm the ledger
