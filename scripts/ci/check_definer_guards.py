@@ -1296,9 +1296,14 @@ _GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_ro
 
 def _grantee_names(raw_region: str) -> set[str]:
     """Role names named in a GRANT/REVOKE grantee list."""
+    # Locate tokens on masked structure so comments cannot invent grantees.
+    # Recover only those spans from raw SQL to preserve quoted role identities.
+    masked_region, problems = mask_sql_checked(raw_region)
+    if problems:
+        raise MaskError("; ".join(problems))
     names = set()
-    for m in _GRANTEE_TOKEN_RE.finditer(raw_region):
-        token = m.group(0)
+    for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
+        token = raw_region[m.start():m.end()]
         if token.startswith('"'):
             names.add(token[1:-1].replace('""', '"'))
         else:

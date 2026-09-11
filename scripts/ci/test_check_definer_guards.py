@@ -1849,6 +1849,40 @@ class DefinerScannerTests(unittest.TestCase):
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
 
+    def test_comments_cannot_close_client_privileges(self) -> None:
+        """Commented role names must never exempt an unguarded definer."""
+        definition = """
+CREATE FUNCTION public.review_probe(p_org uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
+"""
+        for comment in (
+            '/* PUBLIC, anon, authenticated */',
+            '-- PUBLIC, anon, authenticated\n',
+            '/* outer /* PUBLIC */ anon, "authenticated" */',
+            '/* unmatched quote " PUBLIC, anon, authenticated */',
+        ):
+            with self.subTest(comment=comment):
+                sql = definition + (
+                    'REVOKE EXECUTE ON FUNCTION public.review_probe(uuid) '
+                    f'FROM service_role {comment};'
+                )
+                self.assertTrue(self.verdict('commented_roles', sql))
+                # A real quoted client grant after closure still reopens it,
+                # even when a comment contains an unmatched double quote.
+                sql = definition + (
+                    'REVOKE EXECUTE ON FUNCTION public.review_probe(uuid) '
+                    'FROM PUBLIC, anon, authenticated; '
+                    'GRANT EXECUTE ON FUNCTION public.review_probe(uuid) '
+                    f'TO {comment} "authenticated";'
+                )
+                self.assertTrue(self.verdict('comment_before_grant', sql))
+                sql = definition + (
+                    'REVOKE EXECUTE ON FUNCTION public.review_probe(uuid) '
+                    f'FROM {comment} PUBLIC, "anon", "authenticated";'
+                )
+                self.assertEqual(self.verdict('real_commented_closure', sql), [])
+
     def test_grantee_name_resolution(self) -> None:
         """M: the grantee reader itself."""
         self.assertEqual(

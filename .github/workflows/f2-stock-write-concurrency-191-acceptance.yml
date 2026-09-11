@@ -22,7 +22,7 @@ name: F2 Stock Write Concurrency 191 Acceptance
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, f2/m191-stock-concurrency-implementation]
     paths:
       - 'sql/migrations/191_f2_stock_write_concurrency_closure.sql'
       - 'scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql'
