@@ -135,6 +135,10 @@ PostgreSQL actually does:
      NAME, so a new overload of an exempt name inherited an exemption written
      for a different function; and a guard call was matched by name, so a
      locally declared no-op overload of a recognized helper satisfied the gate.
+     The third rule - a migration may not redefine a helper it is validated by -
+     applies FROM THE CUTOFF ON and must: migrations 123 and 178 both replace a
+     recognized helper and both sit inside the scanned set, so a rule applied at
+     every age would turn two immutable historical migrations red.
 
 The catalog-side half of D, H, I and J - what the whole chain finally produced,
 which no per-file scan can see - is asserted by
@@ -634,7 +638,20 @@ MUST_FAIL_CLOSED = {
 # Astra findings D-I: acceptance-layer gaps in the scanner itself
 # ---------------------------------------------------------------------------
 # Every fixture below was run through the REAL check_file() at the reviewed head
-# before any change and returned [] - the false green, frozen.
+# before any change. Most returned [] - that is the false green, frozen. Six did
+# NOT, and they are marked as controls where they appear:
+#
+#   4 in EXCEPTION_CATEGORY_MUST_REJECT - OTHERS and raise_exception, which the
+#     old condition regex already matched by name, plus SQLSTATE 'P0001' alone
+#     and inside an OR list, which the old raw-text SQLSTATE search already found
+#     anywhere in the handler range;
+#   2 in REVOKE_ATTRIBUTION_MUST_REJECT - a REVOKE before the definition, which
+#     the old window (starting at the definition) never saw, and ON ALL FUNCTIONS
+#     IN SCHEMA, which the old pattern's required ON FUNCTION never matched.
+#
+# Each group therefore contributes 4 closures and its controls. They are kept
+# because the rewrite could easily have started accepting them; they are not
+# closed findings and must not be counted as any.
 
 
 def definer_outer_handler(handler: str, name: str = "f_probe") -> str:
@@ -679,10 +696,13 @@ EXCEPTION_CATEGORY_MUST_REJECT = {
     "handler_catches_as_later_or_term": definer_outer_handler(
         "unique_violation OR plpgsql_error"
     ),
+    # Controls that were already rejected at the reviewed head, kept so they
+    # cannot regress. The old SQLSTATE search scanned the whole handler range,
+    # so it matched inside an OR list too - which is why the OR form below is a
+    # control while its plpgsql_error twin above is a closure.
     "handler_catches_as_later_or_sqlstate": definer_outer_handler(
         "unique_violation OR SQLSTATE 'P0001'"
     ),
-    # Controls that were already rejected, kept so they cannot regress.
     "handler_catches_when_others": definer_outer_handler("OTHERS"),
     "handler_catches_raise_exception": definer_outer_handler("raise_exception"),
     "handler_catches_sqlstate_p0001": definer_outer_handler("SQLSTATE 'P0001'"),
@@ -781,6 +801,11 @@ REVOKE_ATTRIBUTION_MUST_REJECT = {
     "grant_to_public_reopens_the_revoke": definer("  PERFORM 1;", name="f_c")
     + closed()
     + "GRANT EXECUTE ON FUNCTION public.f_c(uuid) TO PUBLIC;\n",
+    # Controls, not closures: the old window started at the definition so an
+    # earlier REVOKE was never in it, and the old pattern required ON FUNCTION so
+    # ON ALL FUNCTIONS IN SCHEMA never matched. Both were already rejected; both
+    # are kept because the identity rewrite could easily have started crediting
+    # them, and neither should ever be credited.
     "revoke_precedes_the_definition": closed() + definer("  PERFORM 1;", name="f_c"),
     "all_functions_in_schema_is_not_attribution": definer("  PERFORM 1;", name="f_c")
     + "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;\n",
@@ -857,6 +882,59 @@ def quoted_definer(header: str) -> str:
         "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
         "END;\n$q$;\n"
     )
+
+
+# The security mode itself. parse_definitions() decides `is_definer` from the
+# statement's HEADER and its TRAILER while excluding the dollar-quoted body, so
+# that a `SECURITY DEFINER` written in the body's own text cannot make an INVOKER
+# function look like a definer, and an options clause placed AFTER the body is
+# still seen. Both directions are load-bearing and neither had a control: only
+# the fact that many other fixtures would fail protected them.
+SECURITY_MODE_MUST_REJECT = {
+    # Options may follow the AS clause, so a definer declared there is real.
+    "definer_declared_after_the_body": (
+        "CREATE OR REPLACE FUNCTION public.f_trailer(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\n"
+        "AS $t$\nBEGIN\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n$t$\n"
+        "SECURITY DEFINER;\n"
+    ),
+}
+
+SECURITY_MODE_MUST_ACCEPT = {
+    # An unguarded SECURITY INVOKER function is not this scanner's business.
+    "invoker_function_is_not_scanned": (
+        "CREATE OR REPLACE FUNCTION public.f_invoker(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY INVOKER\n"
+        "AS $i$\nBEGIN\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n$i$;\n"
+    ),
+    # Neither is one that simply omits the clause - INVOKER is the default.
+    "function_with_no_security_clause_is_not_scanned": (
+        "CREATE OR REPLACE FUNCTION public.f_default(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\n"
+        "AS $d$\nBEGIN\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n$d$;\n"
+    ),
+    # A body that merely MENTIONS the phrase does not make the function a
+    # definer. Two layers hold this and the test does not claim otherwise: the
+    # masker blanks the literal's content first, and is_definer excludes the body
+    # span second. Verified: the phrase is already absent from the masked body,
+    # so this fixture evidences the combined behaviour, not the span exclusion on
+    # its own - that one is evidenced by definer_declared_after_the_body, which
+    # only passes because the TRAILER is read.
+    "the_phrase_inside_the_body_is_not_a_clause": (
+        "CREATE OR REPLACE FUNCTION public.f_mentions(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY INVOKER\n"
+        "AS $m$\nBEGIN\n"
+        "  RAISE NOTICE 'this RPC is deliberately not SECURITY DEFINER';\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n$m$;\n"
+    ),
+}
 
 
 QUOTED_IDENTITY_MUST_REJECT = {
@@ -1380,6 +1458,34 @@ class DefinerScannerTests(unittest.TestCase):
         for name, sql in ALTER_DEFINER_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_security_mode_is_read_from_header_and_trailer_only(self) -> None:
+        """The definer decision itself: options before AND after the body count,
+        the body's own text does not, and an INVOKER function is left alone."""
+        for name, sql in SECURITY_MODE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SECURITY_MODE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_is_definer_flag_matches_the_declared_mode(self) -> None:
+        """The flag itself, independent of check_file()."""
+        cases = {
+            "definer_declared_after_the_body": True,
+            "invoker_function_is_not_scanned": False,
+            "function_with_no_security_clause_is_not_scanned": False,
+            "the_phrase_inside_the_body_is_not_a_clause": False,
+        }
+        fixtures = {**SECURITY_MODE_MUST_REJECT, **SECURITY_MODE_MUST_ACCEPT}
+        for name, expected in cases.items():
+            raw = fixtures[name]
+            masked, problems = guards.mask_sql_checked(raw)
+            self.assertEqual(problems, [])
+            definitions = guards.parse_definitions(raw, masked)
+            self.assertEqual(len(definitions), 1, name)
+            with self.subTest(case=name):
+                self.assertIs(definitions[0].is_definer, expected, name)
 
     def test_quoted_identities_are_scanned(self) -> None:
         """I: a quoted identity used to match no CREATE at all."""

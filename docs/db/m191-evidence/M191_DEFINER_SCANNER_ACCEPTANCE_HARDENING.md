@@ -59,10 +59,16 @@ falsifiable by `scripts/ci/fresh-db/selftest_definer_guard_contract.sh`.
 
 ## 3. The REDs, reproduced through the real `check_file()` first
 
-Every row below returned `[]` — accepted, no error — at the reviewed head
-`afc0272a09070e4a9c60c68c0eac4b8447e7ce14`, from a temporary `999_*.sql`
-(strict) or `150_*.sql` (historical) fixture driven through `check_file()`
-itself, not through a helper.
+Every row below was driven through `check_file()` itself — not through a helper
+— from a temporary `999_*.sql` (strict) or `150_*.sql` (historical) fixture, at
+the reviewed head `afc0272a09070e4a9c60c68c0eac4b8447e7ce14`.
+
+Rows are labelled by what that run actually returned. A row with `accepted` in
+the **Before** column returned `[]` there: that is the false green, frozen. A row
+marked **control** was already rejected at the reviewed head and is kept as a
+regression case — it is *not* a closed finding, and is not counted as one. Six
+fixtures across sections D and G are controls; they are called out in place
+rather than left to inflate the total.
 
 ### D — exception categories catching authorization failures
 
@@ -76,9 +82,17 @@ placement cannot be the reason it passed.
 | `WHEN SQLSTATE 'P0000'` | accepted | rejected |
 | `WHEN SQLSTATE /* reason */ 'P0001'` | accepted | rejected |
 | `WHEN unique_violation OR plpgsql_error` | accepted | rejected |
-| `WHEN unique_violation OR SQLSTATE 'P0001'` | accepted | rejected |
-| `WHEN OTHERS` / `raise_exception` / `SQLSTATE 'P0001'` | rejected | rejected |
+| `WHEN unique_violation OR SQLSTATE 'P0001'` | rejected — **control** | rejected |
+| `WHEN OTHERS` / `raise_exception` / `SQLSTATE 'P0001'` | rejected — **control** | rejected |
 | `WHEN unique_violation` / `foreign_key_violation` / `data_exception` | accepted | **accepted** (no false red) |
+
+The two **control** rows cover four fixtures that were already rejected at the
+reviewed head, and are kept as regression cases rather than counted as closed
+findings: `OTHERS` and `raise_exception` were matched by name by the old
+condition regex, and `SQLSTATE 'P0001'` — alone or inside an OR list — was found
+by the old raw-text search, which scanned the whole handler range. The four
+reject rows above them are the closure: the category door, which nothing
+reached. The final row is an accept control.
 
 PostgreSQL matches a handler either on the exact SQLSTATE or on its **category**
 — a code whose last three characters are `000`. A bare `RAISE EXCEPTION` is
@@ -131,10 +145,17 @@ age.
 | `REVOKE ... ON FUNCTION public.f_somewhere_else(uuid) FROM PUBLIC` | accepted | rejected |
 | `REVOKE ... ON FUNCTION public.f_c(text)` for a definition of `f_c(uuid)` | accepted | rejected |
 | REVOKE from PUBLIC, then `GRANT ... TO PUBLIC` | accepted | rejected |
-| REVOKE placed **before** the definition | accepted | rejected |
-| `REVOKE ... ON ALL FUNCTIONS IN SCHEMA public` | accepted | rejected (not attribution) |
+| REVOKE placed **before** the definition | rejected — **control** | rejected |
+| `REVOKE ... ON ALL FUNCTIONS IN SCHEMA public` | rejected — **control** | rejected (not attribution) |
 | close PUBLIC, grant `authenticated` (strict) | accepted | rejected |
 | close PUBLIC, grant `authenticated` (≤190) | accepted | **accepted** — see below |
+
+The two **control** rows were already rejected at the reviewed head — the old
+window started at the definition, so an earlier REVOKE was never in it, and the
+old pattern required `ON FUNCTION`, so `ON ALL FUNCTIONS IN SCHEMA` never
+matched. They are kept because the rewrite could easily have started crediting
+either, and neither should be credited. The four closed findings are the three
+reject rows above them plus the strict `authenticated` row below.
 
 The exemption is now an ACL replay against the definition's own identity:
 PostgreSQL grants EXECUTE to PUBLIC on every new function, so the surface starts
@@ -195,9 +216,21 @@ same-named function is likewise no longer conflated with `public`'s.
 
 Three separate closures, because an overload is a different function in
 PostgreSQL: `KNOWN_EXEMPT` stops applying at the cutoff, a recognized guard call
-must match the helper's canonical arity, and a migration that redefines a
-recognized helper is a hard stop rather than a judgement call — the guard the
-scanner reads and the guard the database will run would be two different bodies.
+must match the helper's canonical arity, and **from the cutoff on** a migration
+that redefines a recognized helper is a hard stop rather than a judgement call —
+the guard the scanner reads and the guard the database will run would be two
+different bodies.
+
+That third rule is scoped to ≥191 because it has to be, not out of caution:
+`123_fix_user_profile_trigger_and_active_guards.sql` and
+`178_journal_rbac_and_canonical_manual_lifecycle.sql` both replace a recognized
+helper and both sit inside the scanned set, so a rule applied at every age would
+turn two immutable historical migrations red. The consequence is worth stating
+plainly: from 191 on there is no escape hatch for a legitimate helper
+replacement, and migration 178 is proof that those happen. A migration that
+genuinely must replace one of the four helpers has to change this scanner in the
+same PR, with the review that implies — which is the intent, but it is a cost,
+not a free rule.
 
 ## 4. What did NOT change verdict
 
@@ -299,3 +332,20 @@ the catalog exactly as it found it.
 - The strict reachability rules can reject a future function whose returns and
   raises are all provably guarded. The remedy is to move the authorization
   boundary earlier, never to weaken the gate.
+- **The catalog contract's assertions 4 and 5 are fixture-scoped, and do not
+  enumerate.** §4 pins the security mode of thirteen named signatures and §5 the
+  privilege ledger of five, against roughly 155 `SECURITY DEFINER` functions in
+  `public`. A function outside those lists — unguarded, `SECURITY DEFINER`, and
+  granted to `authenticated` — leaves the contract green; that was verified by
+  creating exactly such a function and watching `DEFINER_GUARD_CONTRACT_PASS`
+  still print. The static scanner is what covers that case, and only for
+  migrations newer than the baseline cutoff, so a definer surface opened by an
+  older migration and never altered since is asserted by neither layer. §§1-3
+  (exception semantics, guard identity, mixed-case twins) *are* catalog-wide.
+  Widening §§4-5 into an enumeration with a pinned allowlist is a real
+  improvement and a separate change: it would have to classify all 155, which is
+  an audit, not a polish.
+- The selftest proves four of the five assertions falsifiable. §1 has no mutant
+  because its subject is PostgreSQL's own matching rule, which cannot be mutated
+  from SQL; its negative control (`unique_violation` must not catch) is the
+  discrimination evidence that stands in for one.

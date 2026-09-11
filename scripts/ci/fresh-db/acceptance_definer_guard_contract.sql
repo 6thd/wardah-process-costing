@@ -19,6 +19,19 @@
 --
 -- Fail-closed: every assertion raises, and the psql exit code under
 -- ON_ERROR_STOP is the verdict. The closing notice is evidence, not the verdict.
+--
+-- SCOPE, stated so a green run is not read as more than it is. Assertions 1-3
+-- (exception semantics, guard identity, mixed-case twins) are catalog-WIDE.
+-- Assertions 4 and 5 are FIXTURE-SCOPED: they pin thirteen named signatures and
+-- five respectively, against roughly 155 SECURITY DEFINER functions in public.
+-- A function outside those lists - unguarded, SECURITY DEFINER, granted to
+-- authenticated - leaves this file green; that was verified by creating exactly
+-- such a function and watching the PASS notice still print. The static scanner
+-- is what covers that case, and only for migrations newer than the baseline
+-- cutoff, so a definer surface opened by an older migration and never altered
+-- since is asserted by neither layer. Turning 4 and 5 into an enumeration with a
+-- pinned allowlist would require classifying all 155 - an audit, and a separate
+-- change from this one.
 
 \set ON_ERROR_STOP on
 
