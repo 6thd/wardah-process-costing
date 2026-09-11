@@ -99,6 +99,47 @@ Final-review remediation (PR #241, Astra findings A/B/C):
      RETURN check ran only before the IF. A terminating RETURN between THEN and
      that RAISE now disqualifies the block, so the aborting RAISE must actually
      be reachable.
+
+Astra acceptance-layer findings D-J. Six classes that were all reproduced
+through the real check_file() at afc0272 before a line changed, and none of
+which more regex could close - they were consequences of the scanner attributing
+by POSITION rather than by IDENTITY, and of modelling only part of what
+PostgreSQL actually does:
+
+  D. Exception CATEGORIES. PostgreSQL matches an EXCEPTION handler on the exact
+     SQLSTATE or on its class - a code ending in '000'. A bare RAISE EXCEPTION
+     is P0001, whose class is P0000, so `WHEN plpgsql_error` and
+     `WHEN SQLSTATE 'P0000'` both swallow an authorization failure. Only the
+     exact code was recognized. The same rule was matched on RAW text, where a
+     block comment between `SQLSTATE` and its literal defeated it; conditions
+     are resolved on masked structure now, with only the VALUE recovered raw.
+  E. Reachability through an exit the model lacked: an outer-level aborting
+     RAISE ends the invocation exactly as a terminating RETURN does, so an
+     assertion after one is dead code.
+  F. Body attribution: a definition with no dollar-quoted body of its own
+     (`LANGUAGE internal AS 'boolin'`, an SQL-standard `BEGIN ATOMIC` body)
+     searched FORWARD and swallowed the next function's body, and with it the
+     next function's guard.
+  G. Privilege attribution: the exemption was a blanket `REVOKE ... FROM PUBLIC`
+     anywhere before the next CREATE. It never checked that the statement named
+     THIS function or THIS overload, and never noticed a later
+     `GRANT ... TO PUBLIC` putting the privilege back.
+  H. `ALTER FUNCTION ... SECURITY DEFINER` restates no body, so there was
+     nothing to read a guard from - and it was attributed to whatever CREATE
+     happened to precede it, or dropped entirely when none did.
+  I. Quoted identities. The CREATE pattern read the name off the MASKED text,
+     where a quoted identifier's content is blanked by design, so
+     `CREATE FUNCTION public."f"(...)` matched no definition at all. Case is
+     part of the identity too: a quoted "HAS_PERMISSION" is not `has_permission`.
+  J. Overload impersonation, from both directions: KNOWN_EXEMPT is keyed by bare
+     NAME, so a new overload of an exempt name inherited an exemption written
+     for a different function; and a guard call was matched by name, so a
+     locally declared no-op overload of a recognized helper satisfied the gate.
+
+The catalog-side half of D, H, I and J - what the whole chain finally produced,
+which no per-file scan can see - is asserted by
+scripts/ci/fresh-db/acceptance_definer_guard_contract.sql and proved falsifiable
+by scripts/ci/fresh-db/selftest_definer_guard_contract.sh.
 """
 
 from __future__ import annotations
@@ -589,6 +630,277 @@ MUST_FAIL_CLOSED = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Astra findings D-I: acceptance-layer gaps in the scanner itself
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at the reviewed head
+# before any change and returned [] - the false green, frozen.
+
+
+def definer_outer_handler(handler: str, name: str = "f_probe") -> str:
+    """A guard at the OUTER statement level whose own block handles `handler`.
+
+    The handler is on the FUNCTION's own BEGIN, so the fixture cannot pass or
+    fail for placement reasons: the only thing under test is whether that
+    handler can catch the assertion's P0001.
+    """
+    return (
+        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+        "RETURNS void\n"
+        "LANGUAGE plpgsql\n"
+        "SECURITY DEFINER\n"
+        "SET search_path TO 'public', 'pg_temp'\n"
+        "AS $function$\n"
+        "BEGIN\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        f"EXCEPTION WHEN {handler} THEN\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n"
+        "$function$;\n"
+    )
+
+
+# D. PostgreSQL matches an EXCEPTION handler either on the exact SQLSTATE or on
+#    its CATEGORY - a condition whose code ends in '000'. A bare RAISE EXCEPTION
+#    is P0001, whose category is P0000, so `plpgsql_error` and
+#    `SQLSTATE 'P0000'` both catch an authorization failure. Only the exact code
+#    was recognized, so the category door stood open. The comment-separated form
+#    is the same defect from the other side: the condition was matched on RAW
+#    text, where a block comment between the keyword and the literal defeated the
+#    separator; it is resolved on masked structure now, with only the VALUE
+#    recovered from the raw source.
+EXCEPTION_CATEGORY_MUST_REJECT = {
+    "handler_catches_by_category_name": definer_outer_handler("plpgsql_error"),
+    "handler_catches_by_category_code": definer_outer_handler("SQLSTATE 'P0000'"),
+    "handler_catches_with_comment_separator": definer_outer_handler(
+        "SQLSTATE /* documented reason */ 'P0001'"
+    ),
+    "handler_catches_as_later_or_term": definer_outer_handler(
+        "unique_violation OR plpgsql_error"
+    ),
+    "handler_catches_as_later_or_sqlstate": definer_outer_handler(
+        "unique_violation OR SQLSTATE 'P0001'"
+    ),
+    # Controls that were already rejected, kept so they cannot regress.
+    "handler_catches_when_others": definer_outer_handler("OTHERS"),
+    "handler_catches_raise_exception": definer_outer_handler("raise_exception"),
+    "handler_catches_sqlstate_p0001": definer_outer_handler("SQLSTATE 'P0001'"),
+}
+
+# The other half of the same rule: a condition that CANNOT catch a P0001 must
+# not invalidate a real guard. PostgreSQL resolves every condition name at
+# compile time, so an unrecognized one is a hard error rather than an attacker's
+# invention - which is why treating an unknown name as non-catching is sound.
+EXCEPTION_CATEGORY_MUST_ACCEPT = {
+    "unique_violation_does_not_catch": definer_outer_handler("unique_violation"),
+    "fk_violation_does_not_catch": definer_outer_handler("foreign_key_violation"),
+    "unrelated_category_does_not_catch": definer_outer_handler("data_exception"),
+}
+
+
+# E. Reachability again, but through an exit the model did not have. A
+#    terminating RETURN was understood; an aborting RAISE at the OUTER statement
+#    level ends the invocation just as surely, so an assertion after one is dead
+#    code no caller ever reaches. A raise inside a conditional is NOT an exit,
+#    and must not cost a real guard its recognition.
+UNREACHABLE_ABORT_MUST_REJECT = {
+    "guard_after_outer_level_raise": definer(
+        f"  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n  PERFORM {OUTER}(p_org);"
+    ),
+    "guard_after_outer_level_raise_using": definer(
+        "  RAISE EXCEPTION 'X' USING ERRCODE = '22023';\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    "boolean_guard_after_outer_level_raise": definer(
+        "  RAISE EXCEPTION 'NOT_IMPLEMENTED';\n"
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;"
+    ),
+}
+
+UNREACHABLE_ABORT_MUST_ACCEPT = {
+    "conditional_raise_before_guard_is_not_an_exit": definer(
+        "  IF p_org IS NULL THEN\n    RAISE EXCEPTION 'ORG_REQUIRED';\n  END IF;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    "raise_notice_before_guard_is_not_an_exit": definer(
+        f"  RAISE NOTICE 'starting';\n  PERFORM {OUTER}(p_org);"
+    ),
+}
+
+
+# F. Body attribution. `extract_function_body_span` looked FORWARD from the
+#    CREATE for the first `AS $tag$`, so a definition with no dollar-quoted body
+#    of its own swallowed the NEXT function's - and with it the next function's
+#    guard. A definition is now bounded by its own statement, and a SECURITY
+#    DEFINER routine the scanner cannot read a body from is rejected rather than
+#    given someone else's.
+GUARDED_NEXT = (
+    "CREATE OR REPLACE FUNCTION public.f_guarded(p_org uuid)\n"
+    "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+    "SET search_path TO 'public', 'pg_temp'\n"
+    "AS $guarded$\nBEGIN\n"
+    f"  PERFORM {OUTER}(p_org);\n"
+    "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+    "END;\n$guarded$;\n"
+)
+
+BODY_ATTRIBUTION_MUST_REJECT = {
+    "unreadable_body_borrows_the_next_guard": (
+        "CREATE OR REPLACE FUNCTION public.f_unreadable(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE internal\nSECURITY DEFINER\nAS 'boolin';\n"
+        + GUARDED_NEXT
+    ),
+    "sql_standard_body_is_not_readable": (
+        "CREATE OR REPLACE FUNCTION public.f_atomic(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE sql\nSECURITY DEFINER\n"
+        "BEGIN ATOMIC\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n"
+        + GUARDED_NEXT
+    ),
+}
+
+
+# G. Privilege attribution. The exemption was a blanket
+#    `REVOKE ... FROM PUBLIC` anywhere before the next CREATE: it never checked
+#    that the statement named THIS function, and never noticed a later GRANT
+#    putting the grant back. It is now an ACL replay against this identity.
+def closed(name: str = "f_c") -> str:
+    return (
+        f"REVOKE EXECUTE ON FUNCTION public.{name}(uuid) "
+        "FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+REVOKE_ATTRIBUTION_MUST_REJECT = {
+    "revoke_names_another_function": definer("  PERFORM 1;", name="f_c")
+    + closed("f_somewhere_else"),
+    "revoke_names_another_overload": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE EXECUTE ON FUNCTION public.f_c(text) FROM PUBLIC, anon, authenticated;\n",
+    "grant_to_public_reopens_the_revoke": definer("  PERFORM 1;", name="f_c")
+    + closed()
+    + "GRANT EXECUTE ON FUNCTION public.f_c(uuid) TO PUBLIC;\n",
+    "revoke_precedes_the_definition": closed() + definer("  PERFORM 1;", name="f_c"),
+    "all_functions_in_schema_is_not_attribution": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;\n",
+    "closing_public_while_granting_authenticated": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE EXECUTE ON FUNCTION public.f_c(uuid) FROM PUBLIC, anon;\n"
+    + "GRANT EXECUTE ON FUNCTION public.f_c(uuid) TO authenticated;\n",
+}
+
+REVOKE_ATTRIBUTION_MUST_ACCEPT = {
+    "named_closure_of_this_identity": definer("  PERFORM 1;", name="f_c") + closed(),
+    "closure_split_over_lines": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE EXECUTE\n  ON FUNCTION public.f_c(uuid)\n"
+      "  FROM PUBLIC, anon, authenticated;\n",
+    "closure_with_all_privileges": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE ALL PRIVILEGES ON FUNCTION public.f_c(uuid) "
+      "FROM PUBLIC, anon, authenticated;\n",
+    "closure_naming_parameter_names": definer("  PERFORM 1;", name="f_c")
+    + "REVOKE EXECUTE ON FUNCTION public.f_c(p_org uuid) "
+      "FROM PUBLIC, anon, authenticated;\n",
+    "closure_listing_several_targets": definer("  PERFORM 1;", name="f_a")
+    + definer("  PERFORM 1;", name="f_b")
+    + "REVOKE EXECUTE ON FUNCTION public.f_a(uuid), public.f_b(uuid)\n"
+      "  FROM PUBLIC, anon, authenticated;\n",
+    "grant_to_service_role_is_not_a_reopen": definer("  PERFORM 1;", name="f_c")
+    + closed()
+    + "GRANT EXECUTE ON FUNCTION public.f_c(uuid) TO service_role;\n",
+}
+
+
+# H. `ALTER FUNCTION ... SECURITY DEFINER` makes an existing function run as its
+#    owner while restating nothing, so there is no body to read a guard from. The
+#    positional scan blamed the occurrence on whatever CREATE preceded it - or,
+#    with none before it, dropped it entirely.
+ALTER_DEFINER_MUST_REJECT = {
+    "alter_alone_in_the_migration": (
+        "ALTER FUNCTION public.f_legacy(uuid) SECURITY DEFINER;\n"
+    ),
+    "alter_borrows_an_earlier_guard": GUARDED_NEXT
+    + "ALTER FUNCTION public.f_legacy(uuid) SECURITY DEFINER;\n",
+    "alter_then_regrant_to_public": (
+        "ALTER FUNCTION public.f_legacy(uuid) SECURITY DEFINER;\n"
+        "REVOKE EXECUTE ON FUNCTION public.f_legacy(uuid) "
+        "FROM PUBLIC, anon, authenticated;\n"
+        "GRANT EXECUTE ON FUNCTION public.f_legacy(uuid) TO PUBLIC;\n"
+    ),
+}
+
+ALTER_DEFINER_MUST_ACCEPT = {
+    "alter_to_security_invoker_is_not_a_finding": GUARDED_NEXT
+    + "ALTER FUNCTION public.calculate_planned_load(uuid, date, date) "
+      "SECURITY INVOKER;\n",
+    "alter_of_a_function_defined_and_guarded_here": GUARDED_NEXT
+    + "ALTER FUNCTION public.f_guarded(uuid) SECURITY DEFINER;\n",
+    "alter_with_a_named_closure": (
+        "ALTER FUNCTION public.f_legacy(uuid) SECURITY DEFINER;\n"
+        "REVOKE EXECUTE ON FUNCTION public.f_legacy(uuid) "
+        "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
+# I. Identity. `DEFINER_FUNC_RE` read `(?:public\.)?(\w+)` off the MASKED text,
+#    where a quoted identifier's content is blanked by design. A quoted identity
+#    therefore matched no CREATE at all: its SECURITY DEFINER was attributed to
+#    an earlier function or dropped. Case is part of the identity too - a quoted
+#    "HAS_PERMISSION" is not `has_permission` and must not inherit its
+#    exemption - and neither is another schema's same-named function.
+def quoted_definer(header: str) -> str:
+    return (
+        f"{header}\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "SET search_path TO 'public', 'pg_temp'\n"
+        "AS $q$\nBEGIN\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "END;\n$q$;\n"
+    )
+
+
+QUOTED_IDENTITY_MUST_REJECT = {
+    "quoted_function_name": quoted_definer(
+        'CREATE OR REPLACE FUNCTION public."f_quoted"(p_org uuid)'
+    ),
+    "quoted_schema_and_name": quoted_definer(
+        'CREATE OR REPLACE FUNCTION "public"."f_quoted"(p_org uuid)'
+    ),
+    "quoted_after_a_guarded_function": GUARDED_NEXT
+    + quoted_definer('CREATE OR REPLACE FUNCTION public."f_quoted"(p_org uuid)'),
+    "quoted_uppercase_impersonates_an_exempt_name": quoted_definer(
+        'CREATE OR REPLACE FUNCTION public."HAS_PERMISSION"(p_org uuid)'
+    ),
+    "another_schema_same_name": quoted_definer(
+        "CREATE OR REPLACE FUNCTION other_schema.f_elsewhere(p_org uuid)"
+    ),
+}
+
+
+# J. Overload impersonation. KNOWN_EXEMPT is keyed by bare NAME, so under the
+#    strict contract a brand-new overload of an exempt name would inherit an
+#    exemption written for a different function; and a recognized guard call is
+#    matched by name, so a locally declared no-op overload of that name would
+#    satisfy the gate through the same match as the real helper.
+OVERLOAD_IMPERSONATION_MUST_REJECT = {
+    "new_overload_of_an_exempt_name": quoted_definer(
+        "CREATE OR REPLACE FUNCTION public.has_permission(p_org uuid)"
+    ),
+    "migration_redefines_the_guard_it_leans_on": (
+        "CREATE OR REPLACE FUNCTION public.wardah_assert_org_member(p_org text)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nAS $shadow$\nBEGIN\n  NULL;\nEND;\n$shadow$;\n"
+        + GUARDED_NEXT
+    ),
+    "guard_called_with_the_wrong_arity": definer(f"  PERFORM {OUTER}();"),
+    "guard_called_with_too_many_arguments": definer(
+        f"  PERFORM {OUTER}(p_org, p_org);"
+    ),
+    "boolean_predicate_called_with_the_wrong_arity": definer(
+        f"  IF NOT {QPRED}(p_org, p_org) THEN\n    RAISE EXCEPTION 'D';\n  END IF;"
+    ),
+}
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -937,6 +1249,208 @@ class DefinerScannerTests(unittest.TestCase):
             _, problems = guards.mask_sql_checked(path.read_text(encoding="utf-8"))
             self.assertEqual(problems, [], f"{path.name}: {problems}")
 
+    # -- Astra findings D-I -------------------------------------------------
+
+    def test_exception_categories_that_catch_p0001_are_rejected(self) -> None:
+        """D: P0001 is caught by its own code AND by its class code P0000."""
+        for name, sql in EXCEPTION_CATEGORY_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: the denial is swallowed by this handler",
+                )
+
+    def test_unrelated_exception_conditions_do_not_false_red(self) -> None:
+        """D: a condition that cannot catch P0001 must not cost a real guard."""
+        for name, sql in EXCEPTION_CATEGORY_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_condition_resolver_discriminates(self) -> None:
+        """D: the resolver itself, independent of check_file()."""
+        def catches(condition: str) -> bool:
+            masked, problems = guards.mask_sql_checked(f"WHEN {condition} THEN")
+            self.assertEqual(problems, [])
+            raw = f"WHEN {condition} THEN"
+            spans = guards._handler_condition_spans(masked, 0, len(masked))
+            return any(
+                guards._condition_catches_p0001(masked, raw, s, e) for s, e in spans
+            )
+
+        for condition in (
+            "OTHERS",
+            "raise_exception",
+            "plpgsql_error",
+            "SQLSTATE 'P0001'",
+            "SQLSTATE 'P0000'",
+            "SQLSTATE /* why */ 'P0001'",
+            "unique_violation OR plpgsql_error",
+        ):
+            with self.subTest(catches=condition):
+                self.assertTrue(catches(condition), condition)
+        for condition in (
+            "unique_violation",
+            "foreign_key_violation",
+            "data_exception",
+            "SQLSTATE '23505'",
+            "no_data_found",
+        ):
+            with self.subTest(passes=condition):
+                self.assertFalse(catches(condition), condition)
+
+    def test_guard_after_an_outer_level_abort_is_rejected(self) -> None:
+        """E: an aborting RAISE at outer level ends the invocation."""
+        for name, sql in UNREACHABLE_ABORT_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UNREACHABLE_ABORT_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_abort_rule_is_strict_contract_only(self) -> None:
+        """E: historical migrations keep their validated placement."""
+        sql = UNREACHABLE_ABORT_MUST_REJECT["guard_after_outer_level_raise"]
+        historical = self.root / "150_abort.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_abort.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
+
+    def test_a_definition_cannot_borrow_the_next_functions_body(self) -> None:
+        """F: no dollar-quoted body of its own means no guard, at any age."""
+        for name, sql in BODY_ATTRIBUTION_MUST_REJECT.items():
+            for number in (150, guards.MIGRATION_STRICT_CUTOFF):
+                path = self.root / f"{number}_{name}.sql"
+                path.write_text(sql, encoding="utf-8")
+                with self.subTest(case=name, migration=number):
+                    self.assertTrue(guards.check_file(path), name)
+
+    def test_revoke_must_name_the_function_it_exempts(self) -> None:
+        """G: attribution by identity, and the closure must survive the file."""
+        for name, sql in REVOKE_ATTRIBUTION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in REVOKE_ATTRIBUTION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_client_closure_rule_is_scoped_to_the_strict_contract(self) -> None:
+        """G: 123, 175 and 186 close PUBLIC and grant authenticated; they stay
+        green, and the same shape is rejected from the cutoff on."""
+        sql = REVOKE_ATTRIBUTION_MUST_REJECT["closing_public_while_granting_authenticated"]
+        historical = self.root / "150_closure.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_closure.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
+        # A PUBLIC re-grant is never acceptable, at any age.
+        reopened = self.root / "150_reopened.sql"
+        reopened.write_text(
+            REVOKE_ATTRIBUTION_MUST_REJECT["grant_to_public_reopens_the_revoke"],
+            encoding="utf-8",
+        )
+        self.assertTrue(guards.check_file(reopened))
+
+    def test_argument_type_normalization(self) -> None:
+        """G: the overload comparison itself, independent of check_file()."""
+        cases = {
+            "p_org uuid": "uuid",
+            "uuid": "uuid",
+            "OUT p_total numeric": "numeric",
+            "VARIADIC p_ids uuid[]": "uuid[]",
+            "p_meta jsonb DEFAULT '{}'::jsonb": "jsonb",
+            "p_at timestamp with time zone": "timestamp with time zone",
+            "timestamp with time zone": "timestamp with time zone",
+            "p_name character varying": "character varying",
+            "character varying": "character varying",
+            "p_rate numeric(10,2)": "numeric(10,2)",
+            "p_x double precision": "double precision",
+        }
+        for param, expected in cases.items():
+            with self.subTest(param=param):
+                self.assertEqual(guards._normalize_arg_type(param), expected)
+
+    def test_alter_function_security_definer_is_a_finding(self) -> None:
+        """H: flipping an existing function to definer restates no guard."""
+        for name, sql in ALTER_DEFINER_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in ALTER_DEFINER_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_quoted_identities_are_scanned(self) -> None:
+        """I: a quoted identity used to match no CREATE at all."""
+        for name, sql in QUOTED_IDENTITY_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_overload_impersonation_is_rejected(self) -> None:
+        """J: neither the exemption list nor a guard name is a free pass."""
+        for name, sql in OVERLOAD_IMPERSONATION_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_known_exempt_is_historical_only(self) -> None:
+        """J: the ledger still applies below the cutoff, never at or above it."""
+        sql = quoted_definer(
+            "CREATE OR REPLACE FUNCTION public.rpc_get_invitation_preview(p_org uuid)"
+        )
+        historical = self.root / "150_exempt.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_exempt.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
+
+    def test_identity_comparison(self) -> None:
+        """The overload equality rule itself."""
+        raw = (
+            "CREATE FUNCTION public.f(p_org uuid) RETURNS void LANGUAGE sql AS $$"
+            "SELECT 1$$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.f(text) FROM PUBLIC;\n"
+            "REVOKE EXECUTE ON FUNCTION public.f(uuid) FROM PUBLIC;\n"
+        )
+        masked, problems = guards.mask_sql_checked(raw)
+        self.assertEqual(problems, [])
+        definition = guards.parse_definitions(raw, masked)[0]
+        targets = [
+            t for stmt in guards.parse_privilege_statements(raw, masked)
+            for t in stmt.targets
+        ]
+        self.assertFalse(definition.identity.same_function(targets[0]))
+        self.assertTrue(definition.identity.same_function(targets[1]))
+
+    def test_migration_191_still_relies_on_no_exemption(self) -> None:
+        """191 must pass on guards and real closures, never on KNOWN_EXEMPT."""
+        path = pathlib.Path(
+            "sql/migrations/191_f2_stock_write_concurrency_closure.sql"
+        )
+        if not path.exists():
+            self.skipTest("migration 191 not present")
+        raw = path.read_text(encoding="utf-8")
+        masked, problems = guards.mask_sql_checked(raw)
+        self.assertEqual(problems, [])
+        definitions = guards.parse_definitions(raw, masked)
+        privileges = guards.parse_privilege_statements(raw, masked)
+        definers = [d for d in definitions if d.is_definer]
+        self.assertTrue(definers, "191 defines no SECURITY DEFINER function")
+        for definition in definers:
+            closed = guards.revoke_closes_client_surface(
+                definition.identity, definition.end, privileges, strict=True
+            )
+            body = masked[definition.start: definition.body_span[1]]
+            raw_body = raw[definition.start: definition.body_span[1]]
+            guarded = guards.has_recognized_guard(body, strict=True, raw_body=raw_body)
+            self.assertTrue(
+                closed or guarded,
+                f"{definition.identity.qualified} rests on neither a guard nor a "
+                f"closure",
+            )
+            self.assertNotIn(definition.identity.name, guards.KNOWN_EXEMPT)
+        self.assertEqual(guards.redefined_guard_names(definitions), [])
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
