@@ -175,3 +175,18 @@ gap that let a `ORDER BY mr.id DESC` mutation of the real function stay GREEN, a
 missing UUID parser-parity matrix for Fix E. Their reproduction, fix, RED mutant proof and
 GREEN proof are in `M191_FINAL_REVIEW_REMEDIATION.md`. Migration 191's production body was
 not changed.
+
+## Scanner acceptance-layer hardening (later still)
+
+A subsequent review accepted six further findings, all of them in the SECURITY
+DEFINER scanner's own acceptance layer rather than in Migration 191: exception
+categories that catch an authorization failure, guards made unreachable by
+control flow, misleading REVOKE attribution, `ALTER FUNCTION ... SECURITY
+DEFINER`, quoted function identities, and overload guard impersonation. Each was
+reproduced through the real `check_file()` before any change, and the closure is
+one structural pass — attribution by identity rather than by position — plus a
+catalog-backed contract for the parts only PostgreSQL can answer.
+
+The reproduction, the layer split, the historical-compatibility boundary and the
+full verification run are in `M191_DEFINER_SCANNER_ACCEPTANCE_HARDENING.md`.
+Migration 191's production SQL is byte-unchanged.

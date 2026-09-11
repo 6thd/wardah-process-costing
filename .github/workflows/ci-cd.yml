@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main, develop ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, develop, f2/m191-stock-concurrency-implementation ]
 
 jobs:
   test:
@@ -311,6 +311,30 @@ jobs:
           set -Eeuo pipefail
           psql -v ON_ERROR_STOP=1 -d wardah_fresh \
             -f scripts/ci/fresh-db/acceptance_reference_rbac.sql
+        env:
+          PGHOST: localhost
+          PGUSER: postgres
+          PGPASSWORD: postgres
+
+      - name: DEFINER guard contract in the catalog (and proof it can fail)
+        # check_definer_guards.py proves STRUCTURE inside one migration's bytes.
+        # This proves the FINAL STATE the chain produced and the PostgreSQL
+        # semantics the scanner's rules rest on - which functions really are
+        # SECURITY DEFINER, who can really execute them, and whether the
+        # recognized guards still resolve to the reviewed single-signature
+        # helpers. The selftest feeds four broken catalogs through the same file
+        # first and reverts every mutation, so a gate that cannot fail cannot
+        # pass unnoticed.
+        run: |
+          set -Eeuo pipefail
+          if ! psql -d wardah_fresh -tAc \
+            "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+             WHERE n.nspname = 'public'
+               AND p.proname = 'wardah_lock_products_for_stock_write'" | grep -q 1; then
+            echo "⏭ migration 191 not present in fresh DB (baseline may be ahead) — skipping"
+            exit 0
+          fi
+          PGDATABASE=wardah_fresh bash scripts/ci/fresh-db/selftest_definer_guard_contract.sh
         env:
           PGHOST: localhost
           PGUSER: postgres

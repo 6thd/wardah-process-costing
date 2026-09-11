@@ -22,7 +22,7 @@ name: F2 Stock Write Concurrency 191 Acceptance
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, f2/m191-stock-concurrency-implementation]
     paths:
       - 'sql/migrations/191_f2_stock_write_concurrency_closure.sql'
       - 'scripts/ci/fresh-db/acceptance_191_f2_stock_write_concurrency.sql'
@@ -30,6 +30,8 @@ on:
       - 'scripts/ci/fresh-db/acceptance_f2_stock_bin_race_red.sh'
       - 'scripts/ci/check_definer_guards.py'
       - 'scripts/ci/test_check_definer_guards.py'
+      - 'scripts/ci/fresh-db/acceptance_definer_guard_contract.sql'
+      - 'scripts/ci/fresh-db/selftest_definer_guard_contract.sh'
       - 'docs/db/m191-slices/**'
       - 'docs/db/m191-evidence/harness/**'
       - '.github/workflows/f2-stock-write-concurrency-191-acceptance.yml'
@@ -106,6 +108,22 @@ jobs:
           python3 scripts/ci/test_check_definer_guards.py 2>&1 | tee /tmp/191-definer-selftest.out
           python3 scripts/ci/check_definer_guards.py
 
+      - name: DEFINER guard contract in the catalog (and proof it can fail)
+        # The static scanner reads one migration's bytes; it cannot see what the
+        # whole chain finally produced. This step asks the database instead:
+        # which functions ARE definer, who can actually execute them, whether the
+        # recognized guards are still the reviewed single-signature functions,
+        # and whether PL/pgSQL still catches P0001 by its class code P0000 - the
+        # semantics the scanner's swallow analysis rests on. The selftest drives
+        # four deliberately broken catalogs through the same file first, so a
+        # gate that cannot fail cannot pass unnoticed. It reverts every mutation.
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash scripts/ci/fresh-db/selftest_definer_guard_contract.sh \
+            2>&1 | tee /tmp/191-definer-contract.out
+          grep -q 'DEFINER_GUARD_CONTRACT_SELFTEST_PASS' /tmp/191-definer-contract.out
+
       - name: Catalog contract for the thirteen objects
         shell: bash
         run: |
@@ -170,6 +188,7 @@ jobs:
           path: |
             /tmp/chain_report.txt
             /tmp/191-definer-selftest.out
+            /tmp/191-definer-contract.out
             /tmp/191-contract.out
             /tmp/191-selftest.out
             /tmp/191-static.out

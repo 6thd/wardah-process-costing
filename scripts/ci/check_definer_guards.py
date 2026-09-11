@@ -7,9 +7,15 @@ functions. Fails if any client-callable function lacks one of the reviewed
 server-boundary guards.
 
 A guard counts only when it appears as an executable function CALL
-(`guard(...)` or `public.guard(...)`) inside the masked function body. A
-textual occurrence of the name — a dollar-quote tag, a quoted identifier,
-a bare identifier, comment or literal text — never satisfies the gate.
+(`guard(...)` or `public.guard(...)`) with the helper's canonical arity, inside
+the masked function body. A textual occurrence of the name — a dollar-quote tag,
+a quoted identifier, a bare identifier, comment or literal text — never
+satisfies the gate, and neither does a call to a different overload of the name.
+
+It must also be able to RUN and to DENY: it cannot sit after a terminating
+RETURN or an outer-level aborting RAISE, and no enclosing EXCEPTION handler may
+be able to catch its P0001 — including through that code's class, P0000, which
+`WHEN plpgsql_error` and `WHEN SQLSTATE 'P0000'` both reach.
 
 Recognized guards:
   - wardah_assert_org_member / wardah_assert_org_admin: raise on denial, so a
@@ -24,9 +30,33 @@ Recognized guards:
     active-membership, role-org, role-active and expiry semantics.
 
 Exemptions:
-  - Functions with REVOKE EXECUTE/ALL FROM PUBLIC immediately after definition
+  - Functions this migration itself closes to every client role. The REVOKE must
+    NAME the function - same schema, name and argument types - and no later
+    GRANT in the file may put the privilege back. Below the strict cutoff this
+    keeps its historical meaning (close PUBLIC); from the cutoff on, closing
+    PUBLIC while granting `authenticated` is not a closure.
   - Functions listed in KNOWN_EXEMPT (intentionally open/delegating/superseded,
-    with a documented reason)
+    with a documented reason). That ledger is HISTORICAL: it is keyed by bare
+    name, so it stops applying at MIGRATION_STRICT_CUTOFF, where a new overload
+    of an exempt name would otherwise inherit an exemption written for a
+    different function.
+
+Statement model (what a rule is allowed to assume):
+  Attribution is by IDENTITY, not by position. Every CREATE/ALTER FUNCTION and
+  every GRANT/REVOKE is parsed once into a schema-qualified identity with its
+  argument type list, read from the UNMASKED source so that quoted identifiers
+  are visible and case-sensitive. A definition owns only its own statement, so
+  a routine with no dollar-quoted body cannot borrow the next one's guard, and
+  `ALTER FUNCTION ... SECURITY DEFINER` is a finding in its own right rather
+  than something blamed on the CREATE before it.
+
+Division of labour with the acceptance database:
+  This scanner proves STRUCTURE in one migration's bytes. It cannot see what the
+  whole chain finally produced, so the catalog-side facts - which functions are
+  really SECURITY DEFINER, who can really execute them, and whether a recognized
+  guard name still resolves to the reviewed single-signature helper - are
+  asserted by scripts/ci/fresh-db/acceptance_definer_guard_contract.sql, whose
+  own selftest drives four deliberately broken catalogs through it.
 """
 
 import pathlib
@@ -89,9 +119,6 @@ GUARD_CALL_PATTERN = (
     + r")\s*\("
 )
 GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
-
-# Kept for backwards compatibility with callers that only need the names.
-GUARD_PATTERNS = list(GUARD_NAMES)
 
 # ---------------------------------------------------------------------------
 # Boolean membership predicates
@@ -178,6 +205,12 @@ def _is_sole_negated_predicate(term: str) -> bool:
     m = NEGATED_PREDICATE_RE.match(term)
     if m is None:
         return False
+    # The predicate's own arity must match the reviewed helper's, for the same
+    # reason a raising guard's must: an overload is a different function.
+    if _call_arity(term, m.end() - 1) != GUARD_ARITY.get(
+        _predicate_name(term, m), object()
+    ):
+        return False
     # Consume the call's balanced argument list; anything after it disqualifies.
     depth = 0
     for i in range(m.end() - 1, len(term)):
@@ -188,6 +221,16 @@ def _is_sole_negated_predicate(term: str) -> bool:
             if depth == 0:
                 return not term[i + 1:].strip()
     return False
+
+
+_TRAILING_IDENT_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_$]*)\s*$")
+
+
+def _predicate_name(term: str, match) -> str:
+    """The bare predicate name inside a matched `NOT [public.]pred(` prefix."""
+    head = term[match.start(): match.end() - 1]
+    m = _TRAILING_IDENT_RE.search(head)
+    return m.group(1).lower() if m else ""
 
 
 # ---------------------------------------------------------------------------
@@ -208,19 +251,119 @@ _NON_ABORTING_RAISE_RE = re.compile(
 )
 _RAISE_BEFORE_RE = re.compile(r"\bRAISE\s*$", re.IGNORECASE)
 
+# ---------------------------------------------------------------------------
+# Which EXCEPTION handlers can actually catch an authorization failure
+# ---------------------------------------------------------------------------
 # A PL/pgSQL `RAISE EXCEPTION` without an explicit SQLSTATE raises P0001
-# (raise_exception). Only a handler able to catch THAT can swallow an
-# authorization failure; an unrelated condition such as unique_violation cannot,
-# and must not produce a false red.
-_CATCHING_CONDITION_RE = re.compile(r"\b(OTHERS|raise_exception)\b", re.IGNORECASE)
+# (raise_exception), which is what all three recognized assertion helpers do.
+# A handler swallows the denial when any of its conditions matches that code.
+#
+# PostgreSQL matches a handler condition against the raised SQLSTATE in
+# exactly two ways (plpgsql exec.c, exception_matches_conditions):
+#
+#   exact     the condition's own code equals the raised code;
+#   CATEGORY  the condition's code is a category - its last three characters
+#             are '000' - and the raised code belongs to that class.
+#
+# So P0001 is caught by the exact code P0001 AND by its class code P0000. That
+# second door was open: `WHEN plpgsql_error` (P0000) and `WHEN SQLSTATE 'P0000'`
+# both catch a P0001 assertion and neither was recognized. Verified on a live
+# PostgreSQL, not inferred.
+#
+# Every condition NAME is resolved by PostgreSQL at compile time - an
+# unrecognized one is a hard error - so the only names that can reach P0001 are
+# the two below plus OTHERS. An unknown identifier therefore cannot be an
+# attacker's invention and is correctly treated as non-catching; that is what
+# keeps `WHEN unique_violation` from producing a false red.
+_P0001_CATCHING_CODES = frozenset({"P0001", "P0000"})
+_P0001_CATCHING_NAMES = frozenset({"others", "raise_exception", "plpgsql_error"})
 
+# Handler headers inside an EXCEPTION section, on MASKED text so that a WHEN in
+# a comment or a literal cannot invent one. Conditions are then split on OR.
+_HANDLER_WHEN_RE = re.compile(r"\bWHEN\b", re.IGNORECASE)
+_HANDLER_THEN_RE = re.compile(r"\bTHEN\b", re.IGNORECASE)
+_CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
-# `WHEN SQLSTATE '     '` in the masked body and a masked-text search can never
-# see it. Rather than unmasking literals globally - which would hand guard
-# detection back every string it was hardened against - this ONE condition is
-# recovered from the unmasked text, and only inside an EXCEPTION handler range.
-# Masking preserves offsets exactly, so the same slice indexes both texts.
-_SQLSTATE_CATCH_RE = re.compile(r"\bSQLSTATE\s+'P0001'", re.IGNORECASE)
+# `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
+# globally - which would hand guard detection back every string it was hardened
+# against - the SQLSTATE value alone is recovered from the unmasked text at the
+# same offsets, and only inside a handler condition. Locating the keyword and
+# the quotes on MASKED text is also what makes `WHEN SQLSTATE /* why */ 'P0001'`
+# resolve: the comment is whitespace by then, so no separator regex has to
+# anticipate it.
+_SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
+
+
+def _handler_condition_spans(body: str, start: int, end: int):
+    """Absolute (start, end) spans of each `WHEN <conditions> THEN` list in
+    [start, end).
+
+    Deliberately permissive about which WHEN it finds: an extra span can only
+    add conditions to the catch test, which fails closed. A condition that is
+    not a recognized catching name still does not catch, so an ordinary
+    `CASE WHEN ... THEN` in a handler body cannot invent a false red.
+    """
+    spans = []
+    pos = start
+    while True:
+        w = _HANDLER_WHEN_RE.search(body, pos, end)
+        if w is None:
+            return spans
+        t = _HANDLER_THEN_RE.search(body, w.end(), end)
+        if t is None:
+            return spans
+        spans.append((w.end(), t.start()))
+        pos = t.end()
+
+
+def _split_top_level_or_spans(condition: str, base: int) -> list[tuple[int, int]]:
+    """Absolute (start, end) span of each top-level OR term.
+
+    The string form cannot be used to locate a term: masking blanks literal
+    CONTENT but keeps the delimiters, so `SQLSTATE \'P0002\' OR SQLSTATE \'P0001\'`
+    masks to two textually IDENTICAL terms. Recovering a term\'s offset with
+    str.index() then returns the FIRST one, and the second term\'s SQLSTATE value
+    is read out of the first term\'s raw bytes - so a handler that really does
+    catch P0001 could be read as catching something else entirely.
+    """
+    spans, depth, start = [], 0, 0
+    for i, ch in enumerate(condition):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            m = _TOP_LEVEL_OR_RE.match(condition, i)
+            if m and (i == 0 or not (condition[i - 1].isalnum() or condition[i - 1] == "_")):
+                spans.append((base + start, base + i))
+                start = m.end()
+    spans.append((base + start, base + len(condition)))
+    return spans
+
+
+def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: int) -> bool:
+    """True when one condition term in body[start:end] can catch a P0001."""
+    for term_start, term_end in _split_top_level_or_spans(body[start:end], start):
+        term = body[term_start:term_end]
+        offset = term_start
+        stripped = term.strip()
+        if _CONDITION_NAME_RE.match(stripped) and stripped.lower() in _P0001_CATCHING_NAMES:
+            return True
+        kw = _SQLSTATE_KEYWORD_RE.search(term)
+        if kw is None:
+            continue
+        # `SQLSTATE <literal>`: the delimiters survive masking, the value does
+        # not, so read the value from the unmasked source at the same offsets.
+        q1 = term.find("'", kw.end())
+        if q1 == -1:
+            continue
+        q2 = term.find("'", q1 + 1)
+        if q2 == -1 or raw_body is None:
+            continue
+        value = raw_body[offset + q1 + 1: offset + q2].strip()
+        if value.upper() in _P0001_CATCHING_CODES:
+            return True
+    return False
 
 
 class _Frame:
@@ -304,18 +447,17 @@ def _enclosing(frames, pos):
 def _handler_catches(body: str, frame, raw_body: str | None = None) -> bool:
     """True when the block's EXCEPTION handlers can catch a P0001 assertion.
 
-    `raw_body` is the SAME span of the unmasked source; it is consulted only for
-    the SQLSTATE literal, which masking necessarily hides.
+    Every `WHEN ... THEN` header in the handler section is resolved condition by
+    condition, so a catching condition anywhere in an OR-list counts and an
+    unrelated one (`unique_violation`) still does not. `raw_body` is the SAME
+    span of the unmasked source; it is consulted only for the SQLSTATE value,
+    which masking necessarily hides.
     """
     if frame.exc_pos is None:
         return False
-    handler = body[frame.exc_pos: frame.end]
-    if _CATCHING_CONDITION_RE.search(handler):
-        return True
-    if raw_body is not None and _SQLSTATE_CATCH_RE.search(
-        raw_body[frame.exc_pos: frame.end]
-    ):
-        return True
+    for start, end in _handler_condition_spans(body, frame.exc_pos, frame.end):
+        if _condition_catches_p0001(body, raw_body, start, end):
+            return True
     return False
 
 
@@ -381,6 +523,39 @@ def terminating_return_before(body: str, pos: int) -> bool:
     return m is not None
 
 
+# RETURN is not the only way the invocation can already be over. An aborting
+# RAISE at the function's OUTER statement level ends it just as surely, so an
+# assertion placed after one is dead code that no caller ever reaches:
+#
+#     RAISE EXCEPTION 'NOT_IMPLEMENTED';
+#     PERFORM public.wardah_assert_org_member(p_org);   -- never executes
+#
+# Only an OUTER-level raise counts. A raise inside an IF/LOOP/CASE or a nested
+# BEGIN is conditional, so a later assertion is still reachable and must not be
+# rejected. RAISE NOTICE/WARNING/INFO/LOG/DEBUG report without aborting and are
+# excluded; a bare re-`RAISE;` inside a handler is not outer level by
+# construction.
+_ABORTING_RAISE_RE = re.compile(
+    r"\bRAISE\b(?!\s+(?:NOTICE|WARNING|INFO|LOG|DEBUG)\b)", re.IGNORECASE
+)
+
+
+def unconditional_abort_before(body: str, frames, pos: int) -> bool:
+    """True when an outer-level aborting RAISE precedes `pos`."""
+    for m in _ABORTING_RAISE_RE.finditer(body, 0, pos):
+        if is_outer_statement_level(frames, m.start()):
+            return True
+    return False
+
+
+def is_unreachable_at(body: str, frames, pos: int) -> bool:
+    """True when the invocation can already have ended before `pos` - through a
+    terminating RETURN or an outer-level aborting RAISE."""
+    return terminating_return_before(body, pos) or unconditional_abort_before(
+        body, frames, pos
+    )
+
+
 # For migrations under the strict contract the assertion must be a STANDALONE
 # statement: `PERFORM [public.]guard(args);` and nothing else. PostgreSQL does
 # not execute the call in `PERFORM guard(x) WHERE false;` - the query returns no
@@ -437,7 +612,7 @@ def has_negated_raising_predicate(
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
-        if strict and terminating_return_before(body, if_pos):
+        if strict and is_unreachable_at(body, frames, if_pos):
             continue
         condition = body[cond_start:cond_end]
         if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
@@ -454,6 +629,10 @@ def has_recognized_guard(
     the outer statement level, with no terminating RETURN before it."""
     frames = parse_blocks(body)
     for m in GUARD_RE.finditer(body):
+        # An overload is a different function in PostgreSQL, so a call that does
+        # not match the reviewed helper's arity is not the reviewed helper.
+        if not guard_call_has_canonical_arity(body, m):
+            continue
         if is_swallowed(body, frames, m.start(), raw_body):
             continue
         if strict:
@@ -461,7 +640,7 @@ def has_recognized_guard(
                 continue
             if not is_outer_statement_level(frames, m.start()):
                 continue
-            if terminating_return_before(body, m.start()):
+            if is_unreachable_at(body, frames, m.start()):
                 continue
         return True
     return has_negated_raising_predicate(body, strict=strict, raw_body=raw_body)
@@ -471,19 +650,6 @@ def migration_number(path: pathlib.Path):
     """Leading number of a migration filename, or None when it has none."""
     head = path.stem.split("_")[0]
     return int(head) if head.isdigit() else None
-
-
-DEFINER_FUNC_RE = re.compile(
-    r"CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(\w+)\s*\(",
-    re.IGNORECASE,
-)
-
-# Both REVOKE EXECUTE and REVOKE ALL remove the inherited PUBLIC EXECUTE grant.
-# REVOKE from authenticated alone is insufficient while PUBLIC still holds it.
-REVOKE_RE = re.compile(
-    r"REVOKE\s+(?:EXECUTE|ALL(?:\s+PRIVILEGES)?)\s+ON\s+FUNCTION\s+.*?\s+FROM\s+PUBLIC\b",
-    re.IGNORECASE | re.DOTALL,
-)
 
 
 class MaskError(Exception):
@@ -685,11 +851,6 @@ def mask_sql_checked(sql: str) -> tuple[str, list[str]]:
     return "".join(out), problems
 
 
-def mask_sql(sql: str) -> str:
-    """Backwards-compatible wrapper: masked text only."""
-    return mask_sql_checked(sql)[0]
-
-
 def get_cutoff() -> int:
     if BASELINE_FILE is None:
         return 0
@@ -697,34 +858,616 @@ def get_cutoff() -> int:
     return int(m.group(1)) if m else 0
 
 
-def extract_function_body_span(sql: str, func_start: int) -> tuple[int, int]:
-    """Span of the target function's text, so the masked and unmasked sources can
-    be sliced identically (masking preserves every offset)."""
-    delim_m = re.search(r"AS\s+(\$\w*\$)", sql[func_start:], re.IGNORECASE)
-    if delim_m:
-        delim = delim_m.group(1)
-        body_start = func_start + delim_m.end()
-        end = sql.find(delim, body_start)
-        if end != -1:
-            return func_start, end + len(delim)
-    return func_start, func_start + 4000
+# ---------------------------------------------------------------------------
+# Statement model: identities, definitions, ALTERs and the privilege ledger
+# ---------------------------------------------------------------------------
+# Attribution used to be positional: find `SECURITY DEFINER`, walk backwards to
+# the nearest `CREATE ... FUNCTION`, take 4000 characters as the body, and
+# accept any `REVOKE ... FROM PUBLIC` that happened to sit before the next
+# `CREATE`. Four different false greens came out of that one shortcut:
+#
+#   * a definition with no dollar-quoted body (`LANGUAGE internal AS 'boolin'`)
+#     borrowed the NEXT function's body, and therefore the next function's
+#     guard;
+#   * `ALTER FUNCTION ... SECURITY DEFINER` was blamed on whichever function was
+#     defined before it - or, with none before it, silently ignored;
+#   * a quoted identity (`CREATE FUNCTION public."f"(...)`) matched no CREATE at
+#     all, so the DEFINER occurrence was attributed to an earlier function or
+#     dropped;
+#   * a REVOKE naming a DIFFERENT function, or a different overload, exempted
+#     the unguarded one - and a later `GRANT ... TO PUBLIC` re-opened what the
+#     REVOKE had closed, invisibly.
+#
+# So statements are modelled once, by identity, and every later rule reads that
+# model instead of re-deriving position.
 
 
-def extract_function_body(sql: str, func_start: int) -> str:
-    """Return text from func_start to the closing dollar-quote block.
+class Identity:
+    """A schema-qualified function identity, with its argument TYPE list.
 
-    Detects the actual delimiter (e.g. $function$, $$) so that the guard
-    search is confined to the target function's body and cannot bleed into
-    a subsequent guarded function in the same migration file.
+    `args` is None when the statement carried no argument list at all. Quoted
+    identifiers keep their case (PostgreSQL folds only unquoted ones), so
+    `"HAS_PERMISSION"` is a different function from `has_permission` and cannot
+    inherit its exemption.
     """
-    delim_m = re.search(r"AS\s+(\$\w*\$)", sql[func_start:], re.IGNORECASE)
-    if delim_m:
-        delim = delim_m.group(1)
-        body_start = func_start + delim_m.end()
-        end = sql.find(delim, body_start)
-        if end != -1:
-            return sql[func_start: end + len(delim)]
-    return sql[func_start: func_start + 4000]
+
+    __slots__ = ("schema", "name", "quoted", "args")
+
+    def __init__(self, schema, name, quoted, args):
+        self.schema = schema
+        self.name = name
+        self.quoted = quoted
+        self.args = args
+
+    @property
+    def qualified(self) -> str:
+        base = f"{self.schema}.{self.name}" if self.schema else self.name
+        return base if self.args is None else f"{base}({','.join(self.args)})"
+
+    def same_function(self, other: "Identity") -> bool:
+        """Name match, plus argument-list match when BOTH sides carry one.
+
+        PostgreSQL identifies an overload by its argument types, so a REVOKE on
+        `f(text)` says nothing about `f(uuid)`. When either side omits the list
+        the name match is all that is available; an unparseable list is never
+        silently treated as equal.
+        """
+        if self.name != other.name:
+            return False
+        if self.schema and other.schema:
+            if self.schema != other.schema:
+                return False
+        elif self.schema or other.schema:
+            # One side omitted the schema. PostgreSQL resolves that through
+            # search_path - it is NOT a wildcard - and every migration here runs
+            # with `public` first. So an unqualified name resolves to `public`
+            # and says nothing about a function in another schema. Treating it as
+            # a match let a REVOKE with no schema exempt `other_schema.f`.
+            named = self.schema or other.schema
+            if named != "public":
+                return False
+        if self.args is None or other.args is None:
+            return True
+        return self.args == other.args
+
+
+# The only built-in types whose FIRST word is part of the type rather than a
+# parameter name. Everything else that leads a two-token parameter is a name.
+_TYPE_LEAD_WORDS = frozenset(
+    {"character", "double", "bit", "national", "time", "timestamp", "interval"}
+)
+_ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
+_PLAIN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+_DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
+_UNQUOTED_IDENT_RE = re.compile(r"[A-Za-z_-￿][A-Za-z0-9_$-￿]*")
+
+
+_QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
+
+
+def _fold_type_text(text: str) -> str:
+    """Lower-case a type expression EXCEPT inside quoted identifiers.
+
+    PostgreSQL folds an unquoted type name and preserves a quoted one, so
+    `public."TypeA"` and `public."TypeB"` are different types. They are also the
+    two things masking destroys - it blanks quoted-identifier content - which is
+    why argument lists are normalized from the RAW source and folded here rather
+    than lower-cased wholesale.
+    """
+    out, last = [], 0
+    for m in _QUOTED_SEGMENT_RE.finditer(text):
+        out.append(text[last:m.start()].lower())
+        out.append(m.group(0))
+        last = m.end()
+    out.append(text[last:].lower())
+    return "".join(out)
+
+
+def _normalize_arg_type(param: str) -> str | None:
+    """The declared TYPE of one parameter, normalized for comparison.
+
+    Accepts both the CREATE form (`p_org uuid`, `OUT v numeric`,
+    `p_x jsonb DEFAULT '{}'::jsonb`) and the privilege-statement form (`uuid`),
+    because PostgreSQL allows argument names in GRANT/REVOKE too. Returns None
+    when the parameter cannot be parsed, which callers treat as "not equal".
+    """
+    text = _DEFAULT_SPLIT_RE.split(param, 1)[0]
+    tokens = text.split()
+    if tokens and tokens[0].lower() in _ARG_MODES and len(tokens) > 1:
+        tokens = tokens[1:]
+    if (
+        len(tokens) > 1
+        and _PLAIN_IDENT_RE.match(tokens[0])
+        and tokens[0].lower() not in _TYPE_LEAD_WORDS
+    ):
+        tokens = tokens[1:]
+    elif len(tokens) > 1 and tokens[0].startswith('"'):
+        # A quoted parameter NAME is still a name; a quoted TYPE never leads a
+        # multi-token parameter on its own, so dropping it here is safe.
+        tokens = tokens[1:]
+    if not tokens:
+        return None
+    normalized = _fold_type_text(" ".join(tokens))
+    normalized = re.sub(r"\s*([(),\[\]])\s*", r"\1", normalized)
+    return re.sub(r"\s+", " ", normalized).strip() or None
+
+
+def _split_top_level_commas(text: str) -> list[str]:
+    parts, depth, start = [], 0, 0
+    for i, ch in enumerate(text):
+        if ch in "([":
+            depth += 1
+        elif ch in ")]":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append(text[start:i])
+            start = i + 1
+    parts.append(text[start:])
+    return parts
+
+
+def _parse_arg_list(inner: str, raw_inner: str | None = None):
+    """Normalized argument types. `inner` is masked (used for structure only);
+    `raw_inner` is the same span unmasked and supplies each parameter's text."""
+    if raw_inner is None:
+        raw_inner = inner
+    if not inner.strip():
+        return ()
+    args = []
+    offset = 0
+    for part in _split_top_level_commas(inner):
+        raw_part = raw_inner[offset: offset + len(part)]
+        offset += len(part) + 1
+        if not part.strip():
+            continue
+        normalized = _normalize_arg_type(raw_part)
+        if normalized is None:
+            return None
+        args.append(normalized)
+    return tuple(args)
+
+
+def _skip_ws(masked: str, i: int) -> int:
+    while i < len(masked) and masked[i].isspace():
+        i += 1
+    return i
+
+
+def _parse_identity(raw: str, masked: str, i: int):
+    """Parse a possibly quoted, possibly schema-qualified name at `i`.
+
+    Read from the UNMASKED text: the masker blanks quoted-identifier content by
+    design, so `public."f_quoted"` carries no name in the masked source. Offsets
+    are identical between the two, so the masked text still decides whitespace.
+    """
+    parts, quoted_any = [], False
+    n = len(raw)
+    while True:
+        i = _skip_ws(masked, i)
+        if i >= n:
+            return None, i
+        if raw[i] == '"':
+            j, buf = i + 1, []
+            closed = False
+            while j < n:
+                if raw[j] == '"':
+                    if raw.startswith('""', j):
+                        buf.append('"')
+                        j += 2
+                        continue
+                    j += 1
+                    closed = True
+                    break
+                buf.append(raw[j])
+                j += 1
+            if not closed:
+                return None, i
+            parts.append("".join(buf))
+            quoted_any = True
+            i = j
+        else:
+            m = _UNQUOTED_IDENT_RE.match(raw, i)
+            if m is None:
+                return None, i
+            parts.append(m.group(0).lower())
+            i = m.end()
+        nxt = _skip_ws(masked, i)
+        if nxt < n and raw[nxt] == ".":
+            i = nxt + 1
+            continue
+        return (parts, quoted_any), nxt
+
+
+def _balanced_parens(masked: str, i: int):
+    """(inner_text, index_after_close) for the parenthesis group opening at i."""
+    if i >= len(masked) or masked[i] != "(":
+        return None, i
+    depth = 0
+    for j in range(i, len(masked)):
+        if masked[j] == "(":
+            depth += 1
+        elif masked[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return masked[i + 1: j], j + 1
+    return None, i
+
+
+def _identity_at(raw: str, masked: str, i: int):
+    """Identity plus the index just past its optional argument list."""
+    parsed, after = _parse_identity(raw, masked, i)
+    if parsed is None:
+        return None, after
+    parts, quoted = parsed
+    after = _skip_ws(masked, after)
+    args = None
+    if after < len(masked) and masked[after] == "(":
+        open_paren = after
+        inner, after = _balanced_parens(masked, open_paren)
+        if inner is None:
+            return None, after
+        # Structure is decided on MASKED text (so a comma inside a literal or a
+        # comment cannot split a parameter), but each parameter's TEXT is taken
+        # from RAW at the same offsets, because masking blanks quoted-identifier
+        # content and a quoted type name is part of the identity.
+        args = _parse_arg_list(inner, raw[open_paren + 1: after - 1])
+    schema = parts[-2] if len(parts) > 1 else None
+    return Identity(schema, parts[-1], quoted, args), after
+
+
+def _scan_statement(masked: str, i: int):
+    """(end_of_statement, dollar_body_span) starting at `i`.
+
+    Walks the masked text honouring parentheses, single-quoted literals, quoted
+    identifiers and dollar-quoted bodies, and stops at the first `;` outside all
+    of them. The dollar-quoted body, when present, is reported separately so a
+    definition can never borrow the next one's.
+    """
+    n, depth, j = len(masked), 0, i
+    body = None
+    while j < n:
+        ch = masked[j]
+        if ch == "'":
+            k = masked.find("'", j + 1)
+            j = n if k == -1 else k + 1
+            continue
+        if ch == '"':
+            k = masked.find('"', j + 1)
+            j = n if k == -1 else k + 1
+            continue
+        if ch == "$":
+            tag = _dollar_tag_at(masked, j)
+            if tag is not None:
+                close = masked.find(tag, j + len(tag))
+                if close == -1:
+                    return n, body
+                if body is None:
+                    body = (j + len(tag), close)
+                j = close + len(tag)
+                continue
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif ch == ";" and depth == 0:
+            return j + 1, body
+        j += 1
+    return n, body
+
+
+_CREATE_ROUTINE_RE = re.compile(
+    r"\bCREATE\s+(?:OR\s+REPLACE\s+)?(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE
+)
+_ALTER_ROUTINE_RE = re.compile(r"\bALTER\s+(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE)
+_SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
+_REVOKE_HEAD_RE = re.compile(
+    r"\bREVOKE\s+(?:GRANT\s+OPTION\s+FOR\s+)?(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
+    re.IGNORECASE,
+)
+_GRANT_HEAD_RE = re.compile(
+    r"\bGRANT\s+(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
+)
+_EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
+_ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
+_ON_ALL_ROUTINES_RE = re.compile(
+    r"\AALL\s+(?:FUNCTIONS|PROCEDURES|ROUTINES)\s+IN\s+SCHEMA\b", re.IGNORECASE
+)
+
+
+class Definition:
+    __slots__ = ("identity", "start", "end", "body_span", "is_definer", "final_definer",
+                 "promoted_by")
+
+    def __init__(self, identity, start, end, body_span, is_definer):
+        self.identity = identity
+        self.start = start
+        self.end = end
+        self.body_span = body_span
+        # The mode this statement DECLARES.
+        self.is_definer = is_definer
+        # The mode the function ends the migration in, after every later ALTER
+        # in this file has been applied. resolve_security_state() sets it.
+        self.final_definer = is_definer
+        self.promoted_by = None
+
+
+def parse_definitions(raw: str, masked: str) -> list[Definition]:
+    """Every CREATE [OR REPLACE] FUNCTION/PROCEDURE statement in the file."""
+    out = []
+    for m in _CREATE_ROUTINE_RE.finditer(masked):
+        identity, after = _identity_at(raw, masked, m.end())
+        if identity is None:
+            continue
+        end, body_span = _scan_statement(masked, after)
+        header = masked[m.start(): body_span[0]] if body_span else masked[m.start(): end]
+        trailer = masked[body_span[1]: end] if body_span else ""
+        definer = bool(
+            _SECURITY_DEFINER_RE.search(header) or _SECURITY_DEFINER_RE.search(trailer)
+        )
+        out.append(Definition(identity, m.start(), end, body_span, definer))
+    return out
+
+
+_SECURITY_INVOKER_RE = re.compile(r"\bSECURITY\s+INVOKER\b", re.IGNORECASE)
+
+
+class AlterSecurity:
+    __slots__ = ("identity", "start", "end", "sets_definer")
+
+    def __init__(self, identity, start, end, sets_definer):
+        self.identity = identity
+        self.start = start
+        self.end = end
+        self.sets_definer = sets_definer
+
+
+def parse_alter_security(raw: str, masked: str) -> list[AlterSecurity]:
+    """Every `ALTER FUNCTION/PROCEDURE ... SECURITY {DEFINER|INVOKER}` statement.
+
+    Both directions are collected, because the security mode of a function is a
+    STATE, not a property of the statement that created it: PostgreSQL lets a
+    later ALTER change it without restating a line of the body. Reading only the
+    DEFINER direction gets the state wrong in both directions - it misses a
+    promotion and it keeps flagging a demotion.
+    """
+    out = []
+    for m in _ALTER_ROUTINE_RE.finditer(masked):
+        identity, after = _identity_at(raw, masked, m.end())
+        if identity is None:
+            continue
+        end, _ = _scan_statement(masked, after)
+        clause = masked[after:end]
+        if _SECURITY_DEFINER_RE.search(clause):
+            out.append(AlterSecurity(identity, m.start(), end, True))
+        elif _SECURITY_INVOKER_RE.search(clause):
+            out.append(AlterSecurity(identity, m.start(), end, False))
+    return out
+
+
+def parse_alter_security_definer(raw: str, masked: str) -> list[AlterSecurity]:
+    """Only the statements that make a function SECURITY DEFINER."""
+    return [a for a in parse_alter_security(raw, masked) if a.sets_definer]
+
+
+def resolve_security_state(definitions, alters):
+    """Apply every ALTER to the definitions it names, in file order.
+
+    Returns the ALTERs that matched no definition in this file - those promote a
+    function defined elsewhere, so this migration restates no body for them and
+    they have to be judged on their own.
+
+    A definition's FINAL mode is what matters. Judging the declared mode alone
+    was wrong twice over: a function created SECURITY INVOKER and promoted by a
+    later ALTER in the same file was never guard-checked at all (the CREATE was
+    skipped as unprivileged and the ALTER was skipped as "already covered by its
+    CREATE"), and a function created SECURITY DEFINER and demoted in the same
+    file was still reported.
+    """
+    external = []
+    for alter in sorted(alters, key=lambda a: a.start):
+        matched = [
+            d for d in definitions
+            if d.start < alter.start and alter.identity.same_function(d.identity)
+        ]
+        if not matched:
+            if alter.sets_definer:
+                external.append(alter)
+            continue
+        for definition in matched:
+            definition.final_definer = alter.sets_definer
+            definition.promoted_by = alter if alter.sets_definer else None
+    return external
+
+
+# The client roles a SECURITY DEFINER function must not be reachable from when
+# it carries no guard. PUBLIC is implicit: PostgreSQL grants EXECUTE to PUBLIC
+# on every new function, and anon/authenticated inherit it from there.
+CLIENT_ROLES = ("public", "anon", "authenticated")
+
+# Grantees are read from the RAW source. The masker blanks quoted-identifier
+# content, so `GRANT ... TO "authenticated"` had no grantee at all in the masked
+# text: the re-open was invisible and the closure still looked intact. A quoted
+# role name is the SAME role when its content matches - PostgreSQL folds the
+# unquoted form to lower case - so both spellings resolve here, and a quoted
+# form that differs in case (`"Authenticated"`) is a different role and does not.
+_GRANTEE_TOKEN_RE = re.compile(r'"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*')
+_GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_role"})
+
+
+def _grantee_names(raw_region: str) -> set[str]:
+    """Role names named in a GRANT/REVOKE grantee list."""
+    # Locate tokens on masked structure so comments cannot invent grantees.
+    # Recover only those spans from raw SQL to preserve quoted role identities.
+    masked_region, problems = mask_sql_checked(raw_region)
+    if problems:
+        raise MaskError("; ".join(problems))
+    names = set()
+    for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
+        token = raw_region[m.start():m.end()]
+        if token.startswith('"'):
+            names.add(token[1:-1].replace('""', '"'))
+        else:
+            lowered = token.lower()
+            if lowered in _GRANTEE_NOISE:
+                continue
+            names.add(lowered)
+    return names
+
+
+class PrivilegeStatement:
+    __slots__ = ("start", "end", "is_revoke", "targets", "all_in_schema", "grantees")
+
+    def __init__(self, start, end, is_revoke, targets, all_in_schema, grantees):
+        self.start = start
+        self.end = end
+        self.is_revoke = is_revoke
+        self.targets = targets
+        self.all_in_schema = all_in_schema
+        self.grantees = grantees
+
+
+def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
+    """REVOKE/GRANT statements that carry EXECUTE (or ALL) on routines."""
+    out = []
+    for head_re, is_revoke in ((_REVOKE_HEAD_RE, True), (_GRANT_HEAD_RE, False)):
+        for m in head_re.finditer(masked):
+            if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
+                continue
+            end, _ = _scan_statement(masked, m.end())
+            rest = masked[m.end(): end]
+            all_in_schema = bool(_ON_ALL_ROUTINES_RE.match(rest))
+            targets = []
+            if not all_in_schema:
+                on_routine = _ON_ROUTINE_RE.match(rest)
+                if on_routine is None:
+                    continue
+                pos = m.end() + on_routine.end()
+                while True:
+                    identity, after = _identity_at(raw, masked, pos)
+                    if identity is None:
+                        break
+                    targets.append(identity)
+                    nxt = _skip_ws(masked, after)
+                    if nxt < end and masked[nxt] == ",":
+                        pos = nxt + 1
+                        continue
+                    break
+                if not targets:
+                    continue
+            keyword = "FROM" if is_revoke else "TO"
+            km = re.compile(r"\b" + keyword + r"\b", re.IGNORECASE).search(
+                masked, m.end(), end
+            )
+            grantees = _grantee_names(raw[km.end(): end]) if km else set()
+            out.append(
+                PrivilegeStatement(
+                    m.start(), end, is_revoke, targets, all_in_schema, grantees
+                )
+            )
+    return out
+
+
+def revoke_closes_client_surface(
+    identity: Identity,
+    after: int,
+    privileges: list[PrivilegeStatement],
+    strict: bool = False,
+) -> bool:
+    """True when the migration leaves THIS function unreachable by every client.
+
+    The old test was a blanket `REVOKE ... FROM PUBLIC` regex anywhere before the
+    next CREATE. It neither checked that the statement named this function nor
+    that the closure survived - so a REVOKE on a different function, or on a
+    different overload, exempted an unguarded one, and a later
+    `GRANT ... TO PUBLIC` re-opened what it had closed.
+
+    The replacement replays the file's own privilege statements against this
+    identity and asks what the ACL looks like when the migration finishes.
+    PostgreSQL grants EXECUTE to PUBLIC on a new function, so the surface starts
+    open and only an explicit REVOKE closes it; anon and authenticated reach the
+    function through PUBLIC unless they hold an explicit grant of their own.
+    Under the STRICT contract, closing PUBLIC while granting `authenticated` is
+    not a closure at all - that is precisely the cross-tenant surface this
+    scanner exists to find, and the project contract has always read "revoke
+    EXECUTE from PUBLIC *and the clients*". Migrations at or below the cutoff
+    are immutable historical inputs, and three of them (123, 175, 186) do exactly
+    that while carrying their own reviewed authorization, so for them the
+    historical PUBLIC-only test is preserved. The cutoff is a migration NUMBER;
+    no function is exempted by name.
+    """
+    public_open = True
+    explicit = {role: False for role in CLIENT_ROLES if role != "public"}
+    for stmt in sorted(privileges, key=lambda s: s.start):
+        if stmt.start < after or stmt.all_in_schema:
+            continue
+        if not any(identity.same_function(t) for t in stmt.targets):
+            continue
+        for role in CLIENT_ROLES:
+            if role not in stmt.grantees:
+                continue
+            if role == "public":
+                public_open = not stmt.is_revoke
+            else:
+                explicit[role] = not stmt.is_revoke
+    if public_open:
+        return False
+    return not strict or not any(explicit.values())
+
+
+# ---------------------------------------------------------------------------
+# Recognized-guard integrity
+# ---------------------------------------------------------------------------
+# The canonical arity of every recognized helper. A call with a different
+# argument count cannot be the reviewed function, whatever it is named: an
+# overload is a DIFFERENT function in PostgreSQL, and a locally declared
+# `wardah_assert_org_member(text)` that does nothing would otherwise satisfy the
+# gate through the same call-shape match as the real one.
+GUARD_ARITY = {
+    "wardah_assert_org_member": 1,
+    "wardah_assert_org_admin": 1,
+    "wardah_178_assert_permission": 2,
+    "wardah_is_org_member": 1,
+}
+
+_GUARD_NAME_RE = re.compile(
+    r"(?:public\s*\.\s*)?(" + "|".join(GUARD_NAMES + BOOLEAN_PREDICATES) + r")\s*\(",
+    re.IGNORECASE,
+)
+
+
+def _call_arity(body: str, open_paren: int) -> int | None:
+    """Top-level argument count of the call whose `(` is at `open_paren`."""
+    inner, _ = _balanced_parens(body, open_paren)
+    if inner is None:
+        return None
+    if not inner.strip():
+        return 0
+    return len(_split_top_level_commas(inner))
+
+
+def guard_call_has_canonical_arity(body: str, match) -> bool:
+    """True when a matched guard call passes the helper's declared arity."""
+    name_m = _GUARD_NAME_RE.match(body, match.start())
+    if name_m is None:
+        return False
+    expected = GUARD_ARITY.get(name_m.group(1).lower())
+    if expected is None:
+        return False
+    return _call_arity(body, match.end() - 1) == expected
+
+
+def redefined_guard_names(definitions) -> list[str]:
+    """Recognized helper names this file itself defines or replaces.
+
+    A migration that redefines the very helper it leans on is not something a
+    per-file scanner can adjudicate: the guard it reads and the guard the
+    database will run are then two different bodies. Under the strict contract
+    that is a hard stop, not a judgement call.
+    """
+    recognized = {n.lower() for n in GUARD_NAMES + BOOLEAN_PREDICATES}
+    return sorted(
+        {d.identity.name.lower() for d in definitions if d.identity.name.lower() in recognized}
+    )
 
 
 def check_file(path: pathlib.Path) -> list[str]:
@@ -739,39 +1482,93 @@ def check_file(path: pathlib.Path) -> list[str]:
     # scanner exists to prevent.
     for problem in mask_problems:
         errors.append(
-            f"  \u274c {path.name}: cannot be scanned safely ({problem}); "
+            f"  ❌ {path.name}: cannot be scanned safely ({problem}); "
             f"fix the construct or split it out"
         )
     if mask_problems:
         return errors
 
-    for m in re.finditer(r"SECURITY\s+DEFINER", sql, re.IGNORECASE):
-        prefix = sql[: m.start()]
-        func_m = None
-        for fm in DEFINER_FUNC_RE.finditer(prefix):
-            func_m = fm
-        if func_m is None:
+    definitions = parse_definitions(raw_sql, sql)
+    privileges = parse_privilege_statements(raw_sql, sql)
+    # Security mode is a STATE. Resolve every CREATE against the ALTERs that
+    # follow it before judging anything, so a promotion cannot slip between the
+    # two statements and a demotion cannot be reported.
+    external_promotions = resolve_security_state(
+        definitions, parse_alter_security(raw_sql, sql)
+    )
+
+    if strict:
+        for name in redefined_guard_names(definitions):
+            errors.append(
+                f"  ❌ {path.name}: redefines the recognized authorization "
+                f"helper '{name}'; a migration may not both replace a guard and "
+                f"be validated by it"
+            )
+
+    for definition in definitions:
+        if not definition.final_definer:
             continue
 
-        func_name = func_m.group(1).lower()
-        if func_name in KNOWN_EXEMPT:
+        identity = definition.identity
+        # KNOWN_EXEMPT is a HISTORICAL ledger. It is keyed by bare name, so
+        # under the strict contract it would exempt a brand-new overload, and a
+        # quoted `"HAS_PERMISSION"` that folds to an exempt name is not that
+        # function at all. From the cutoff on, no name-based exemption applies.
+        if (
+            not strict
+            and not identity.quoted
+            and identity.schema in (None, "public")
+            and identity.name in KNOWN_EXEMPT
+        ):
             continue
 
-        body_start, body_end = extract_function_body_span(sql, func_m.start())
+        if revoke_closes_client_surface(
+            identity, definition.end, privileges, strict=strict
+        ):
+            continue
+
+        if definition.body_span is None:
+            errors.append(
+                f"  ❌ {path.name}: function '{identity.qualified}' is "
+                f"SECURITY DEFINER with no dollar-quoted body this scanner can "
+                f"read; revoke EXECUTE from PUBLIC in this migration or give it "
+                f"a readable body"
+            )
+            continue
+
+        body_start, body_end = definition.start, definition.body_span[1]
         body = sql[body_start:body_end]
         raw_body = raw_sql[body_start:body_end]
 
-        # Check for explicit REVOKE after definition and before the next CREATE.
-        after = sql[func_m.end():]
-        revoke_before_next_func = after.split("CREATE")[0] if "CREATE" in after else after
-        if REVOKE_RE.search(revoke_before_next_func):
-            continue
-
         if not has_recognized_guard(body, strict=strict, raw_body=raw_body):
+            how = (
+                "is SECURITY DEFINER"
+                if definition.promoted_by is None
+                else "is made SECURITY DEFINER by a later ALTER in this migration"
+            )
             errors.append(
-                f"  ❌ {path.name}: function '{func_name}' is SECURITY DEFINER "
+                f"  ❌ {path.name}: function '{identity.qualified}' {how} "
                 f"but has no recognized tenant/authorization assertion"
             )
+
+    # A promotion of a function this migration does NOT define restates no body,
+    # so there is nothing to prove a guard from. (A promotion of one it DOES
+    # define was folded into that definition's final state above and judged there
+    # against its real body - which is the case that used to be skipped on the
+    # false reasoning that "its CREATE was checked", when the CREATE had been an
+    # unprivileged INVOKER nobody checks.) It is accepted only when the migration
+    # closes it to every client role.
+    for alter in external_promotions:
+        if revoke_closes_client_surface(
+            alter.identity, alter.end, privileges, strict=strict
+        ):
+            continue
+        errors.append(
+            f"  ❌ {path.name}: 'ALTER FUNCTION {alter.identity.qualified} "
+            f"SECURITY DEFINER' makes an existing function run as its owner "
+            f"without restating a guard; define it with its assertion in this "
+            f"migration or revoke EXECUTE from PUBLIC"
+        )
 
     return errors
 
