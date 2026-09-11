@@ -316,6 +316,108 @@ The behavioural harness and the reconciliation were rerun **after** the
 selftest's mutate/revert cycle, so they also evidence that the selftest leaves
 the catalog exactly as it found it.
 
+## 6a. Second pass — Codex findings K-O
+
+A Codex review of the first pass found five more, all in the same layer. They
+were reproduced through the real `check_file()` at `97eb585` before anything
+changed. **Two of the five are regressions the first pass introduced**, and are
+labelled as such below rather than presented as pre-existing gaps — the identity
+rewrite closed one door and opened another.
+
+The common root this time is narrower and worth naming: the first pass moved
+attribution onto identities, but kept reading three things off the **masked**
+text that masking is specifically designed to destroy — quoted grantees, quoted
+type names, and the offsets of literals inside an OR list — and it modelled the
+security mode as a property of the `CREATE` statement rather than as a **state**
+that a later `ALTER` changes.
+
+| # | Finding | Verdict at 97eb585 | Origin |
+|---|---|---|---|
+| K | `CREATE ... SECURITY INVOKER` then `ALTER ... SECURITY DEFINER` in the same file | accepted | **first-pass regression** |
+| L | SQLSTATE value read at another term's offset inside an OR list | accepted | pre-existing |
+| M | `GRANT ... TO "authenticated"` re-open invisible | accepted | pre-existing |
+| N | `"TypeA"` and `"TypeB"` overloads collapse to one signature | accepted | pre-existing |
+| O | `REVOKE` with the schema omitted credits another schema's function | accepted | pre-existing |
+
+### K — security mode is a state, not a declaration
+
+```sql
+CREATE OR REPLACE FUNCTION public.f_promoted(p_org uuid) ... SECURITY INVOKER ...;
+ALTER FUNCTION public.f_promoted(uuid) SECURITY DEFINER;   -- accepted, no error
+```
+
+The first pass skipped a promotion whose target is defined in the same file, on
+the reasoning that *"its CREATE was checked above"*. That reasoning holds only
+when the CREATE declared `SECURITY DEFINER`. When it declares `SECURITY INVOKER`
+— or omits the clause — the definition loop skips it as unprivileged and the
+ALTER loop skips it as already covered, so a privileged, unguarded,
+client-callable function passed with **no error at all**. It was the worst
+outcome of the five: not a weakened check, an absent one.
+
+`resolve_security_state()` now applies every ALTER to the definitions it names,
+in file order, before anything is judged. A definition is judged on its
+**final** mode. That fixes the mirror defect too: a function created
+`SECURITY DEFINER` and demoted in the same file ends the migration unprivileged
+and was being reported — a false red the same model removes. An ALTER that
+precedes its CREATE does not decide that CREATE's state; the later statement
+wins. The error message names the promotion so the author is not left wondering
+why an invoker function is being asked for a guard.
+
+### L — SQLSTATE offsets inside an OR list
+
+Masking blanks literal *content* and keeps the delimiters, so
+
+```sql
+WHEN SQLSTATE 'P0002' OR SQLSTATE 'P0001' THEN
+```
+
+masks to two terms that are **textually identical**. The term's offset was
+recovered with `str.index()`, which returns the first match, so the second
+term's value was read out of the first term's raw bytes: the handler catches
+P0001 and the scanner read `P0002`. `_split_top_level_or_spans()` carries real
+offsets instead. The false-red mirror (`'P0001' OR 'P0002'`) is covered too —
+that one happened to be rejected before, for the wrong reason.
+
+### M — quoted grantees
+
+`GRANT EXECUTE ON FUNCTION public.f_c(uuid) TO "authenticated";` named no
+grantee at all in masked text, so the re-open was invisible and the closure
+still looked intact. Grantees are read from the raw source now. A quoted name
+whose content matches the folded role is the same role; one that differs in case
+(`"Authenticated"`) is a different role and does not match — which is
+PostgreSQL's own rule, in both directions.
+
+### N — quoted type names
+
+`public."TypeA"` and `public."TypeB"` are different types, and masking blanks
+both to the same thing, so the two overloads normalized identically and a REVOKE
+naming one credited the other. Argument lists are now split on masked text (so a
+comma inside a literal still cannot split a parameter) but each parameter's text
+is taken from **raw** at the same offsets, and folded everywhere except inside
+quotes.
+
+### O — an omitted schema is not a wildcard
+
+`REVOKE EXECUTE ON FUNCTION f_s(uuid) FROM PUBLIC, anon, authenticated;` was
+credited to `other_schema.f_s`. PostgreSQL resolves an unqualified name through
+`search_path`, which for these migrations puts `public` first — it says nothing
+about a function in another schema. An omitted schema now matches only a
+definition in `public` (or one that also omits it).
+
+This was the one the review flagged as needing reproduction before judgement,
+and the reproduction settles it: it is a real exemption transfer, not a parser
+nit. The companion case — a REVOKE qualified to `public` against a definition in
+`other_schema` — was already rejected and is kept as a control.
+
+### What this pass did not change
+
+No new `KNOWN_EXEMPT` entries. Migration 191 was checked against every rule
+first and passes unchanged, and the scanner still reports 61 migrations clean.
+F3/F4/F5 from the earlier adversarial review (type aliases, argument-less
+REVOKE, malformed DDL skipped rather than failed closed) are deliberately still
+open — they were scoped out of this pass and none is reachable by a file that
+can pass the pglast syntax gate and apply to a Fresh DB.
+
 ## 7. Known limits, stated rather than hidden
 
 - The rules remain **syntactic**. A guard called with a hard-coded organization
