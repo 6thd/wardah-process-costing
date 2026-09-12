@@ -368,33 +368,87 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
     return False
 
 
-# A PL/pgSQL block or loop may carry a `<<label>>` immediately before its
-# opening keyword, and `EXIT <label>` then transfers control to just after that
-# block's END — including for a plain BEGIN block, which is the one shape people
-# do not expect. `EXIT` with no label only ever leaves the innermost LOOP, so it
-# cannot skip an outer-level statement; a label is what makes the jump able to
-# cross a block boundary. The label is captured here so labelled_exit_before()
-# can ask whether a jump lands PAST a candidate guard.
-_BLOCK_LABEL_RE = re.compile(r"<<\s*([A-Za-z_][A-Za-z0-9_$]*)\s*>>")
+# A PL/pgSQL block or loop may carry a `<<label>>`, and `EXIT <label>` then
+# transfers control to just after that construct's END — including for a plain
+# BEGIN block, which is the one shape people do not expect. `EXIT` with no label
+# only ever leaves the innermost LOOP, so it cannot skip an outer-level
+# statement; a label is what makes the jump able to cross a block boundary.
+#
+# Attribution is FORWARD, from the label to what it labels, because a block's
+# real grammar is
+#
+#     [ <<label>> ] [ DECLARE declarations ] BEGIN ... END [ label ];
+#
+# and the label therefore precedes the DECLARE, not the BEGIN. Walking BACKWARD
+# from BEGIN over whitespace - the first attempt at this - landed on the `;` of
+# the last declaration and returned no label at all, so every function with a
+# declaration section (the ordinary shape) silently lost its label and the
+# labelled-EXIT bypass reopened. Only BEGIN and LOOP take a label: PL/pgSQL
+# labels blocks and loops, never an IF or a CASE, so those are not label targets
+# and no wider grammar is modelled here.
+#
+# The label's own text is read through _parse_identity(), the same identifier
+# reader the statement model uses, so a quoted label works and PostgreSQL's
+# folding rules are honoured: an unquoted label folds to lower case, a quoted one
+# keeps its case, and `<<"Auth_Block">>` is therefore NOT `EXIT auth_block`.
+_LABEL_OPEN_RE = re.compile(r"<<")
+_DECLARE_KW_RE = re.compile(r"DECLARE\b", re.IGNORECASE)
+_BEGIN_KW_RE = re.compile(r"BEGIN\b", re.IGNORECASE)
+_LOOP_KW_RE = re.compile(r"LOOP\b", re.IGNORECASE)
+_LOOP_HEAD_RE = re.compile(r"(?:LOOP|WHILE|FOR|FOREACH)\b", re.IGNORECASE)
 
 
-def _label_before(body: str, pos: int) -> str | None:
-    """The `<<label>>` immediately preceding the block opener at `pos`, if any.
+def _labelled_opener(body: str, pos: int) -> int | None:
+    """Offset of the block/loop keyword a label ending at `pos` attaches to.
 
-    Walks back over whitespace rather than searching a fixed window, so a long
-    comment between the label and its BEGIN - whitespace by the time the masker
-    is done - cannot hide the label and quietly restore the old behaviour.
+    Deliberately strict about what may follow the label: BEGIN, a DECLARE
+    section, or a loop head. That is the whole grammar, and requiring it is also
+    what stops the inet/box shift operators from inventing a label - in
+    `a << b >> c` the text after `>>` is an ordinary expression, not a block
+    opener, so no label is recorded.
     """
-    j = pos
-    while j > 0 and body[j - 1].isspace():
-        j -= 1
-    if not body.endswith(">>", 0, j):
-        return None
-    open_at = body.rfind("<<", 0, j - 2)
-    if open_at == -1:
-        return None
-    m = _BLOCK_LABEL_RE.fullmatch(body, open_at, j)
-    return m.group(1).lower() if m else None
+    i = _skip_ws(body, pos)
+    if _BEGIN_KW_RE.match(body, i):
+        return i
+    declare = _DECLARE_KW_RE.match(body, i)
+    if declare:
+        # A declaration section runs to the BEGIN that opens the block. Nothing
+        # in it can spell BEGIN: comments and every literal form are already
+        # blanked in the masked text this reads.
+        opener = _BEGIN_KW_RE.search(body, declare.end())
+        return opener.start() if opener else None
+    if _LOOP_HEAD_RE.match(body, i):
+        # WHILE/FOR/FOREACH open their frame at the LOOP keyword that ends the
+        # loop header, which is where parse_blocks() pushes the frame.
+        opener = _LOOP_KW_RE.search(body, i)
+        return opener.start() if opener else None
+    return None
+
+
+def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
+    """{opener offset: canonical label} for every `<<label>>` in the body.
+
+    The unmasked default is resolved here rather than in parse_blocks(), which
+    CodeFactor already flags for complexity (#244); this keeps that method's
+    branch count exactly where it was.
+    """
+    if raw_body is None:
+        raw_body = body
+    labels: dict[int, str] = {}
+    for m in _LABEL_OPEN_RE.finditer(body):
+        parsed, after = _parse_identity(raw_body, body, m.end())
+        if parsed is None:
+            continue
+        parts, _quoted = parsed
+        if len(parts) != 1:
+            continue
+        after = _skip_ws(body, after)
+        if not body.startswith(">>", after):
+            continue
+        opener = _labelled_opener(body, after + 2)
+        if opener is not None:
+            labels[opener] = parts[0]
+    return labels
 
 
 class _Frame:
@@ -412,13 +466,17 @@ class _Frame:
         self.label = label
 
 
-def parse_blocks(body: str):
+def parse_blocks(body: str, raw_body: str | None = None):
     """Model BEGIN / IF / LOOP / CASE nesting and EXCEPTION sections.
 
     LOOP covers WHILE, FOR and FOREACH, which all open with LOOP and close with
     END LOOP. A bare END closes the innermost BEGIN or CASE, so a CASE
     expression cannot silently close an enclosing block.
+
+    `raw_body` is the SAME span of the unmasked source. It is consulted only for
+    block-label text, which masking necessarily hides for a quoted label.
     """
+    labels = _block_labels(body, raw_body)
     stack, frames = [], []
 
     def pop(kinds, at):
@@ -432,7 +490,7 @@ def parse_blocks(body: str):
     for m in _BLOCK_TOKEN_RE.finditer(body):
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
-            stack.append(_Frame(token, m.start(), _label_before(body, m.start())))
+            stack.append(_Frame(token, m.start(), labels.get(m.start())))
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
@@ -608,33 +666,73 @@ def unconditional_abort_before(body: str, frames, pos: int) -> bool:
 # disqualifying. An unlabelled EXIT is not matched: it can only leave the
 # innermost LOOP, and anything inside a loop is already rejected as not
 # outer-level.
-_EXIT_LABEL_RE = re.compile(
-    r"\bEXIT\s+(?!WHEN\b)([A-Za-z_][A-Za-z0-9_$]*)", re.IGNORECASE
-)
+#
+# The EXIT's own target is read with the SAME identifier reader as the block
+# label, for the same reason: PostgreSQL accepts a quoted identifier on either
+# side, and the masker blanks quoted content, so a hand-rolled ASCII pattern read
+# `EXIT "auth_block";` as `EXIT "          ";` and matched nothing at all. Going
+# through _parse_identity() also picks up the high-range identifier characters
+# _UNQUOTED_IDENT_RE already models, so a non-ASCII label is not a way out
+# either.
+_EXIT_KW_RE = re.compile(r"\bEXIT\b", re.IGNORECASE)
+_WHEN_KW_RE = re.compile(r"WHEN\b", re.IGNORECASE)
+
+# A target that is label-SHAPED but that this scanner cannot resolve to one
+# identifier. It matches any block containing both the EXIT and the candidate,
+# so an EXIT whose destination cannot be read never silently authorizes
+# anything. A token that is not label-shaped at all (a comma, a digit) is not
+# this: it means the EXIT is not an EXIT statement - `SELECT exit, x FROM t`
+# names a column - and treating that as a wildcard would be a false red.
+_UNREADABLE_EXIT_TARGET = object()
 
 
-def labelled_exit_before(body: str, frames, pos: int) -> bool:
+def _exit_targets(body: str, raw_body: str, end: int):
+    """(offset, target) for each EXIT before `end` that names a destination."""
+    out = []
+    for m in _EXIT_KW_RE.finditer(body, 0, end):
+        i = _skip_ws(body, m.end())
+        if i >= len(body) or body[i] == ";" or _WHEN_KW_RE.match(body, i):
+            continue  # `EXIT;` and `EXIT WHEN <predicate>` carry no label
+        parsed, _after = _parse_identity(raw_body, body, i)
+        if parsed is None:
+            if raw_body[i] == '"' or _UNQUOTED_IDENT_RE.match(raw_body, i):
+                out.append((m.start(), _UNREADABLE_EXIT_TARGET))
+            continue
+        parts, _quoted = parsed
+        # A label is a single identifier; `EXIT a.b` is not one this scanner can
+        # resolve, so it fails closed rather than being dropped.
+        out.append(
+            (m.start(), parts[0] if len(parts) == 1 else _UNREADABLE_EXIT_TARGET)
+        )
+    return out
+
+
+def labelled_exit_before(
+    body: str, frames, pos: int, raw_body: str | None = None
+) -> bool:
     """True when a labelled EXIT earlier in `body` can jump out of a block that
     contains `pos`, skipping it."""
-    for m in _EXIT_LABEL_RE.finditer(body, 0, pos):
-        label = m.group(1).lower()
+    if raw_body is None:
+        raw_body = body
+    for exit_pos, target in _exit_targets(body, raw_body, pos):
         for frame in frames:
-            if (
-                frame.label == label
-                and frame.start < pos < frame.end
-                and frame.start < m.start() < frame.end
-            ):
+            if not (frame.start < pos < frame.end
+                    and frame.start < exit_pos < frame.end):
+                continue
+            if target is _UNREADABLE_EXIT_TARGET or frame.label == target:
                 return True
     return False
 
 
-def is_unreachable_at(body: str, frames, pos: int) -> bool:
+def is_unreachable_at(
+    body: str, frames, pos: int, raw_body: str | None = None
+) -> bool:
     """True when `pos` can be skipped - through a terminating RETURN, an
     outer-level aborting RAISE, or a labelled EXIT out of its own block."""
     return (
         terminating_return_before(body, pos)
         or unconditional_abort_before(body, frames, pos)
-        or labelled_exit_before(body, frames, pos)
+        or labelled_exit_before(body, frames, pos, raw_body)
     )
 
 
@@ -663,7 +761,7 @@ def is_standalone_perform_assertion(body: str, match) -> bool:
     return False
 
 
-def _if_blocks_with_raising_deny_branch(body: str):
+def _if_blocks_with_raising_deny_branch(body: str, raw_body: str | None = None):
     """(if_token_pos, condition_start, condition_end, raise_pos) for each IF whose
     own deny branch reaches an aborting RAISE at its own nesting level.
 
@@ -672,7 +770,7 @@ def _if_blocks_with_raising_deny_branch(body: str):
     authorization boundary.
     """
     blocks = []
-    for f in parse_blocks(body):
+    for f in parse_blocks(body, raw_body):
         if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
             continue
         if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
@@ -688,13 +786,15 @@ def has_negated_raising_predicate(
     condition term of an IF whose deny branch reaches an aborting RAISE, that
     denial is not swallowed, and - under the strict contract - the guarding IF
     sits at the outer statement level with no terminating RETURN before it."""
-    frames = parse_blocks(body)
-    for if_pos, cond_start, cond_end, raise_pos in _if_blocks_with_raising_deny_branch(body):
+    frames = parse_blocks(body, raw_body)
+    for if_pos, cond_start, cond_end, raise_pos in _if_blocks_with_raising_deny_branch(
+        body, raw_body
+    ):
         if is_swallowed(body, frames, raise_pos, raw_body):
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
-        if strict and is_unreachable_at(body, frames, if_pos):
+        if strict and is_unreachable_at(body, frames, if_pos, raw_body):
             continue
         condition = body[cond_start:cond_end]
         if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
@@ -709,7 +809,7 @@ def has_recognized_guard(
     idiom. A guard whose failure an enclosing handler can swallow never counts;
     under the strict contract it must also be a standalone PERFORM statement at
     the outer statement level, with no terminating RETURN before it."""
-    frames = parse_blocks(body)
+    frames = parse_blocks(body, raw_body)
     for m in GUARD_RE.finditer(body):
         # An overload is a different function in PostgreSQL, so a call that does
         # not match the reviewed helper's arity is not the reviewed helper.
@@ -722,7 +822,7 @@ def has_recognized_guard(
                 continue
             if not is_outer_statement_level(frames, m.start()):
                 continue
-            if is_unreachable_at(body, frames, m.start()):
+            if is_unreachable_at(body, frames, m.start(), raw_body):
                 continue
         return True
     return has_negated_raising_predicate(body, strict=strict, raw_body=raw_body)

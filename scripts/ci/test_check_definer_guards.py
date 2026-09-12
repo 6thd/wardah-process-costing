@@ -150,6 +150,7 @@ from __future__ import annotations
 
 import importlib.util
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -582,14 +583,28 @@ ASTRA_MUST_ACCEPT = {
 # the label precisely for the block case. The controls below hold that
 # distinction — an inner block that exits itself, and a loop that exits itself,
 # both leave a later outer-level guard intact.
-def labelled_definer(body: str, label: str = "auth_block") -> str:
-    """A SECURITY DEFINER function whose OUTER block carries a `<<label>>`."""
+def labelled_definer(
+    body: str,
+    label: str = "auth_block",
+    declare: str = "",
+    end_label: str | None = None,
+) -> str:
+    """A SECURITY DEFINER function whose OUTER block carries a `<<label>>`.
+
+    `declare` inserts a declaration section between the label and BEGIN, which
+    is where PL/pgSQL actually puts it and which the first fix could not see.
+    """
+    tail = label if end_label is None else end_label
     return (
         "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
         "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
         "SET search_path TO 'public', 'pg_temp'\n"
-        f"AS $function$\n<<{label}>>\nBEGIN\n{body}\nEND {label};\n$function$;\n"
+        f"AS $function$\n<<{label}>>\n{declare}BEGIN\n{body}\nEND {tail};\n"
+        "$function$;\n"
     )
+
+
+DECLARE_SECTION = "DECLARE\n  v_seen boolean := false;\n  v_count integer := 0;\n"
 
 
 LABELLED_EXIT_MUST_REJECT = {
@@ -628,6 +643,103 @@ LABELLED_EXIT_MUST_REJECT = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# Second-round P2: the same bypass through shapes the first fix could not see
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at b200591 - after
+# the first P2-A fix - and returned [] there. Two independent gaps:
+#
+#   1. A DECLARE section. The block grammar is
+#      `[<<label>>] [DECLARE ...] BEGIN ... END [label];`, so the label precedes
+#      the DECLARE. The first fix walked BACKWARD from BEGIN over whitespace,
+#      landed on the `;` of the last declaration, and recorded no label at all -
+#      so every function with a declaration section, which is the ordinary
+#      shape, silently lost its label and the bypass reopened. The original
+#      corpus contained no DECLARE fixture, which is why 62 green tests said
+#      nothing about it.
+#
+#   2. Quoted and non-ASCII labels. PostgreSQL accepts a quoted identifier on
+#      both sides, and the masker blanks quoted content, so `EXIT "auth_block";`
+#      read as `EXIT "          ";` and matched nothing. The ASCII-only pattern
+#      also missed the high-range identifier characters _UNQUOTED_IDENT_RE
+#      already models elsewhere in the scanner.
+LABELLED_EXIT_DECLARE_MUST_REJECT = {
+    "declare_section_before_the_labelled_begin": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+    ),
+    # The trailing `END;` carries no label, so nothing downstream can recover it.
+    "declare_section_with_an_unlabelled_end": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+        end_label="",
+    ),
+    "declare_section_with_the_boolean_deny_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n"
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_a_conditional_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block WHEN p_org IS NULL;\n"
+        f"  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_inner_block_exiting_the_outer_label": labelled_definer(
+        "  BEGIN\n    EXIT auth_block;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    # A comment between the label and the DECLARE is whitespace after masking.
+    "comment_then_declare_then_begin": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare="/* resolve the caller's org first */\n" + DECLARE_SECTION,
+    ),
+}
+
+LABELLED_EXIT_IDENTIFIER_MUST_REJECT = {
+    "quoted_exit_target_against_an_unquoted_label": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);'
+    ),
+    "quoted_block_label_against_an_unquoted_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        label='"auth_block"',
+        end_label='"auth_block"',
+    ),
+    "both_sides_quoted": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);',
+        label='"auth_block"',
+        end_label='"auth_block"',
+    ),
+    # A quoted label keeps its case on BOTH sides, so this is one label.
+    "both_sides_quoted_mixed_case": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "Auth_Block";\n  PERFORM {OUTER}(p_org);',
+        label='"Auth_Block"',
+        end_label='"Auth_Block"',
+    ),
+    "quoted_label_with_a_declare_section": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);',
+        label='"auth_block"',
+        end_label='"auth_block"',
+        declare=DECLARE_SECTION,
+    ),
+    # PostgreSQL identifiers are not ASCII-only, and neither is this scanner's
+    # own _UNQUOTED_IDENT_RE.
+    "non_ascii_unquoted_label": labelled_definer(
+        f"{WORK_LINE}\n  EXIT حارس;\n  PERFORM {OUTER}(p_org);",
+        label="حارس",
+        end_label="حارس",
+    ),
+    "non_ascii_label_with_a_declare_section": labelled_definer(
+        f"{WORK_LINE}\n  EXIT حارس;\n  PERFORM {OUTER}(p_org);",
+        label="حارس",
+        end_label="حارس",
+        declare=DECLARE_SECTION,
+    ),
+}
+
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_DECLARE_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_IDENTIFIER_MUST_REJECT)
+
 MUST_REJECT.update(LABELLED_EXIT_MUST_REJECT)
 
 LABELLED_EXIT_MUST_ACCEPT = {
@@ -662,6 +774,40 @@ LABELLED_EXIT_MUST_ACCEPT = {
     "labelled_loop_exits_itself_then_guard": definer(
         "  <<scan>>\n  WHILE true LOOP\n    EXIT scan;\n  END LOOP;\n"
         f"  PERFORM {OUTER}(p_org);"
+    ),
+    # Second-round controls: the DECLARE and identifier work must not turn any
+    # of these into a false red.
+    "declare_section_with_the_guard_before_the_exit": labelled_definer(
+        f"  PERFORM {OUTER}(p_org);\n  EXIT auth_block;\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_inner_block_exiting_itself": labelled_definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_unlabelled_loop_exit": labelled_definer(
+        "  WHILE true LOOP\n    EXIT;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_exit_when_and_no_label": labelled_definer(
+        "  WHILE true LOOP\n    EXIT WHEN p_org IS NOT NULL;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    # `exit` is not a reserved word in SQL. A column of that name followed by a
+    # comma is not an EXIT statement and must not be read as an unreadable jump.
+    "a_column_named_exit_is_not_a_jump": definer(
+        "  PERFORM (SELECT exit, p_org FROM public.probe_rows LIMIT 1);\n"  # nosec B608
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # An inner block labelled the same word as an OUTER loop must not let the
+    # inner self-exit be read against the outer construct.
+    "inner_block_exits_itself_beside_a_same_named_loop": definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  <<inner>>\n  WHILE false LOOP\n    NULL;\n  END LOOP;"
     ),
 }
 
@@ -1849,6 +1995,135 @@ class DefinerScannerTests(unittest.TestCase):
                 guards.parse_blocks(unlabelled),
                 unlabelled.index("PERFORM"),
             )
+        )
+
+    def test_labelled_exit_survives_a_declare_section(self) -> None:
+        """P2-A round 2: the label precedes DECLARE, not BEGIN."""
+        for name, sql in LABELLED_EXIT_DECLARE_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labelled EXIT lost because of a DECLARE section",
+                )
+
+    def test_labelled_exit_reads_quoted_and_non_ascii_labels(self) -> None:
+        """P2-A round 2: a label is an identifier, not an ASCII word."""
+        for name, sql in LABELLED_EXIT_IDENTIFIER_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labelled EXIT lost because of the label's spelling",
+                )
+
+    def test_label_identity_follows_postgresql_folding(self) -> None:
+        """Unquoted folds, quoted keeps its case, and the two must not be
+        conflated in either direction."""
+        def jumps(label: str, target: str, declare: str = "") -> bool:
+            body = (
+                f"<<{label}>>\n{declare}BEGIN\n"
+                f"  EXIT {target};\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                f"END;\n"
+            )
+            frames = guards.parse_blocks(body, body)
+            return guards.labelled_exit_before(
+                body, frames, body.index("PERFORM"), body
+            )
+
+        # Same identifier, spelled four legal ways: all resolve to one label.
+        self.assertTrue(jumps("auth_block", "auth_block"))
+        self.assertTrue(jumps("auth_block", '"auth_block"'))
+        self.assertTrue(jumps('"auth_block"', "auth_block"))
+        self.assertTrue(jumps('"auth_block"', '"auth_block"'))
+        # An unquoted label folds, so case is irrelevant on the unquoted side.
+        self.assertTrue(jumps("Auth_Block", "AUTH_BLOCK"))
+        # A quoted label keeps its case, so these are DIFFERENT labels and the
+        # jump does not leave that block. Treating them as equal would be a
+        # false red; treating a real match as unequal would be a false green.
+        self.assertFalse(jumps('"Auth_Block"', "auth_block"))
+        self.assertFalse(jumps('"Auth_Block"', '"auth_block"'))
+        self.assertFalse(jumps("auth_block", '"Auth_Block"'))
+        # Non-ASCII identifiers behave like any other unquoted identifier.
+        self.assertTrue(jumps("حارس", "حارس"))
+        # And every one of these still holds across a declaration section.
+        self.assertTrue(jumps("auth_block", '"auth_block"', DECLARE_SECTION))
+        self.assertFalse(jumps('"Auth_Block"', "auth_block", DECLARE_SECTION))
+
+    def test_label_support_discriminates(self) -> None:
+        """Mutation proof: removing either half of the round-2 fix must bring
+        the corresponding RED back, so these fixtures cannot be passing for an
+        unrelated reason."""
+        never = re.compile(r"(?!)")
+        original_declare = guards._DECLARE_KW_RE
+        try:
+            guards._DECLARE_KW_RE = never  # drop DECLARE-section support
+            for name, sql in LABELLED_EXIT_DECLARE_MUST_REJECT.items():
+                with self.subTest(mutation="no_declare_support", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._DECLARE_KW_RE = original_declare
+
+        # The identifier work has two halves - the block label and the EXIT
+        # target - and a fixture may exercise either, so the mutation restores
+        # the pre-fix ASCII-unquoted reader on BOTH sides. Only the identifier
+        # reader is mutated; DECLARE attribution stays intact so the two
+        # mutations cannot mask each other.
+        ascii_exit = re.compile(
+            r"\bEXIT\s+(?!WHEN\b)([A-Za-z_][A-Za-z0-9_$]*)", re.IGNORECASE
+        )
+        ascii_label = re.compile(r"<<\s*([A-Za-z_][A-Za-z0-9_$]*)\s*>>")
+
+        def ascii_exit_targets(body, raw_body, end):
+            return [(m.start(), m.group(1).lower())
+                    for m in ascii_exit.finditer(body, 0, end)]
+
+        def ascii_block_labels(body, raw_body):
+            found = {}
+            for m in ascii_label.finditer(body):
+                opener = guards._labelled_opener(body, m.end())
+                if opener is not None:
+                    found[opener] = m.group(1).lower()
+            return found
+
+        original_targets = guards._exit_targets
+        original_labels = guards._block_labels
+        try:
+            guards._exit_targets = ascii_exit_targets
+            guards._block_labels = ascii_block_labels
+            for name, sql in LABELLED_EXIT_IDENTIFIER_MUST_REJECT.items():
+                with self.subTest(mutation="ascii_only_labels", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._exit_targets = original_targets
+            guards._block_labels = original_labels
+
+        # The fixtures reject again once both halves are restored.
+        for name, sql in {**LABELLED_EXIT_DECLARE_MUST_REJECT,
+                          **LABELLED_EXIT_IDENTIFIER_MUST_REJECT}.items():
+            with self.subTest(restored=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_only_blocks_and_loops_take_a_label(self) -> None:
+        """PL/pgSQL labels blocks and loops; CASE and IF are not label targets,
+        and the parser must not invent one for them."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  CASE WHEN p_org IS NULL THEN NULL ELSE NULL END CASE;\n"
+            "  EXIT auth_block;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body, body)
+        labelled = {f.kind for f in frames if f.label == "auth_block"}
+        self.assertEqual(labelled, {"BEGIN"})
+        self.assertTrue(
+            guards.labelled_exit_before(body, frames, body.index("PERFORM"), body)
         )
 
     def test_labelled_exit_rule_is_strict_contract_only(self) -> None:
