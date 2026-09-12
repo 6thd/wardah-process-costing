@@ -1,0 +1,502 @@
+M191 final-review remediation — SECURITY DEFINER scanner call-shape closure
+===========================================================================
+
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL is byte-unchanged
+(sql/migrations/191_f2_stock_write_concurrency_closure.sql,
+ sha256 637a81caeaebea60693476222611b373dc1e738cd6b10c634bf4c236227f3f40,
+ identical at c926e22 and at this head).
+
+Defect
+------
+At c926e22185e4c0b6dd34aa92a8a614faff3940af the masker was correct, but the
+verdict came from `GUARD_RE.search(body)` with GUARD_RE matching the guard NAME
+alone. Masking deliberately preserves delimiters and identifiers, so any
+non-executable appearance the masker keeps still satisfied the security gate.
+
+RED reproduction against the OLD implementation, through the real check_file()
+-----------------------------------------------------------------------------
+All seven probes below returned check_file() == []  (FALSE GREEN) for a
+SECURITY DEFINER body that writes public.bins and never calls any guard:
+
+  outer_delimiter_is_guard_name              -> []   AS $wardah_assert_org_member$
+  outer_delimiter_tagged_containing_guard    -> []   AS $body_wardah_assert_org_member_end$
+  nested_dollar_tag_containing_guard         -> []   RAISE NOTICE $wardah_assert_org_member$opaque$...$
+  quoted_alias                               -> []   PERFORM 1 AS "wardah_assert_org_member"
+  bare_non_call_identifier                   -> []   PERFORM wardah_assert_org_member;
+  admin_outer_delimiter_is_guard_name        -> []   AS $wardah_assert_org_admin$
+  admin_bare_non_call_identifier             -> []   PERFORM wardah_assert_org_admin;
+
+None of these shapes was already rejected: every one of the additional probes
+(quoted alias, bare non-call identifier) was a live false green, not a
+pre-existing rejection.
+
+Matcher change
+--------------
+Before:
+  GUARD_RE = re.compile("|".join(GUARD_PATTERNS))          # bare name
+
+After:
+  GUARD_CALL_PATTERN = (
+      r"(?<![\w$\".])(?:public\s*\.\s*)?(?:" + "|".join(GUARD_NAMES) + r")\s*\("
+  )
+  GUARD_RE = re.compile(GUARD_CALL_PATTERN, re.IGNORECASE)
+
+A recognized guard must now have an executable FUNCTION-CALL SHAPE: the name,
+optional whitespace, `(`. The optional `public.` qualification is retained. The
+left boundary rejects an identifier character, a dollar-quote tag `$`, a quoted
+identifier `"`, and a foreign schema qualifier `.`. Masking of comments,
+string literals, nested block comments and nested dollar-quoted CONTENT is
+retained unchanged; fail-closed behaviour on unmaskable constructs is retained
+unchanged.
+
+GREEN after the correction
+--------------------------
+All seven probes above are now rejected with
+  "function '<name>' is SECURITY DEFINER but has no recognized
+   tenant/authorization assertion"
+
+Real executable calls continue to be accepted:
+  PERFORM wardah_assert_org_member(p_org);              -> []
+  PERFORM public.wardah_assert_org_member(p_org);       -> []
+  PERFORM public.wardah_assert_org_admin(p_org);        -> []
+  IF NOT public.wardah_is_org_member(p_org) THEN ...    -> []
+  PERFORM wardah_178_assert_permission(p_org, '...');   -> []
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py   -> Ran 8 tests, OK
+  python3 scripts/ci/check_definer_guards.py        -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+
+
+===========================================================================
+Addendum — boolean membership predicate is not an assertion (Finding 3)
+===========================================================================
+
+Reviewed head: d9e0d2153a7b5701055cd00949a06ec66f11494f
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Defect
+------
+wardah_is_org_member(uuid) returns BOOLEAN and does not raise on denial, so a
+call whose result is discarded authorizes nothing. The generic call-shape
+matcher accepted it anyway.
+
+RED reproduction at d9e0d21, through the real check_file(), each with a
+privileged write (UPDATE public.bins) after the call:
+
+  PERFORM public.wardah_is_org_member(p_org);      -> check_file() == []  FALSE GREEN
+  SELECT  public.wardah_is_org_member(p_org);      -> check_file() == []  FALSE GREEN
+  PERFORM wardah_is_org_member(p_org);             -> check_file() == []  FALSE GREEN
+  SELECT  wardah_is_org_member(p_org) INTO v_ok;   -> check_file() == []  FALSE GREEN
+
+Impact survey BEFORE changing anything
+--------------------------------------
+Removing the predicate from the generic list alone would newly fail 19
+SECURITY DEFINER functions across five migrations: 153 (1), 166 (2), 167 (1),
+168 (5), 169 (10). Each was inspected. Every one is genuinely guarded by the
+negated raising idiom, e.g.
+
+  IF v_org IS NULL OR NOT public.wardah_is_org_member(v_org) THEN
+    RAISE EXCEPTION 'TENANT_MEMBERSHIP_REQUIRED';
+  END IF;
+
+A repository-wide search found NO discarded-boolean call in any migration or
+baseline file: the only non-negated occurrences are to_regprocedure(
+'public.wardah_is_org_member(uuid)') preflight existence checks in 167 and 168,
+which live inside single-quoted literals and are masked before scanning. So the
+false green was real in the scanner but unexploited in the repository, and there
+is no production security defect.
+
+Correction
+----------
+1. wardah_is_org_member is REMOVED from GUARD_NAMES. The generic list now holds
+   only the three helpers that raise on denial:
+     wardah_assert_org_member, wardah_assert_org_admin,
+     wardah_178_assert_permission
+2. It moves to BOOLEAN_PREDICATES and is recognized ONLY in the negated raising
+   idiom, verified STRUCTURALLY rather than by a flat regex:
+     - _if_blocks_with_raising_deny_branch() walks IF / THEN / ELSIF / ELSE /
+       END IF as balanced tokens (END IF consumed before a bare IF; ELSIF is one
+       word so it cannot open a block) and returns the condition span of each IF
+       whose OWN deny branch raises at its OWN nesting level.
+     - The negated call must lie inside one of those condition spans.
+     - RAISE NOTICE/WARNING/INFO/LOG/DEBUG do not count as denial.
+     - An unbalanced IF yields no recognized block, so it fails closed.
+3. ZERO entries were added to KNOWN_EXEMPT. The 19 functions pass on their own
+   real structure, not on an exemption.
+
+Mutants — a nearby RAISE is not enough (all REJECTED after the correction)
+-------------------------------------------------------------------------
+  predicate_not_negated          IF pred(...) THEN RAISE      (raises for MEMBERS)
+  raise_only_in_else_branch      deny path does nothing
+  raise_only_in_nested_if        raise conditional on something else
+  raise_is_only_a_notice         RAISE NOTICE does not abort
+  raise_after_end_if             raise outside the deny branch
+  predicate_in_body_not_condition  predicate not in the IF condition
+
+Accepted — the real idiom (all ACCEPTED after the correction)
+-------------------------------------------------------------
+  canonical 169 multi-line condition, canonical 153 single-line condition,
+  unqualified negated call, bare RAISE with no level.
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 12 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"  (no migration regressed)
+
+
+===========================================================================
+Addendum 2 — the deny branch must actually be reachable (Finding 4)
+===========================================================================
+
+Reviewed head: 44518a9645b9a290ec62314e5e22555d2cc3ff29
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Two defects, both reproduced live through the real check_file() at 44518a9,
+each with a privileged write after the block:
+
+  A. Conjunction suppresses the deny branch
+       IF NOT public.wardah_is_org_member(p_org) AND false THEN
+         RAISE EXCEPTION 'DENIED';
+       END IF;
+     -> check_file() == []   FALSE GREEN
+     Also false green: `false AND NOT pred(...)`, `NOT pred(...) AND v_flag`,
+     and the same buried inside parentheses.
+
+  B. A quoted identifier satisfied the structural RAISE detector
+       IF NOT public.wardah_is_org_member(p_org) THEN
+         PERFORM 1 AS "RAISE";
+       END IF;
+     -> check_file() == []   FALSE GREEN
+     The masker blanked comments, string literals and dollar-quoted content but
+     kept "quoted identifiers", so non-executable text was read as PL/pgSQL.
+
+Correction
+----------
+A. The negated predicate must be an ENTIRE top-level condition term: the whole
+   condition, or one complete top-level OR disjunct. Rationale: in a disjunction
+   each disjunct alone suffices to enter the branch, so non-membership by itself
+   guarantees the raise; under AND it does not. Implemented as
+   _split_top_level_or() (splitting on OR at parenthesis depth 0) plus
+   _is_sole_negated_predicate(), which strips balanced outer parentheses,
+   requires the term to begin with NOT [public.]predicate( and consumes the
+   call's balanced argument list, rejecting the term if anything follows.
+
+B. _mask_quoted_identifier() blanks the CONTENT of "quoted identifiers" while
+   keeping both delimiters, honouring the doubled "" escape and raising
+   MaskError (fail closed) on an unterminated one. Offsets and newlines are
+   preserved, so the existing offset contract still holds.
+
+Mutants — all REJECTED after the correction
+-------------------------------------------
+  negated_predicate_and_false, false_and_negated_predicate,
+  negated_predicate_and_other_condition,
+  negated_predicate_inside_parenthesised_and,
+  quoted_identifier_named_raise, quoted_identifier_raise_exception
+
+Accepted — safe boolean forms
+-----------------------------
+  NOT pred(...) as the whole condition
+  v_org IS NULL OR NOT pred(v_org)        (canonical 153)
+  NOT pred(v_org) OR v_org IS NULL        (disjunct first)
+  v_org IS NULL OR (NOT pred(v_org))      (parenthesised disjunct)
+  the canonical 169 multi-line condition with a nested call in the argument
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 16 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"  (no migration regressed,
+      zero KNOWN_EXEMPT entries added)
+
+Note on the previous head's CI: the single red on 44518a9 was CI/CD Pipeline's
+"Unit & integration tests" step, failing
+src/components/auth/__tests__/withPermission.transient-revalidation.test.tsx on
+`expect(unmountCount).toBe(1)`. That diff changed no TypeScript; the file passed
+in isolation and in the full 313-file/4620-test suite locally, was the first such
+failure in 20 CI/CD runs, and passed on re-run of the same commit. It is a
+pre-existing async-cleanup race in issue #239's own regression test, not a
+finding against this change and not fixed here (out of scope).
+
+
+===========================================================================
+Addendum 3 — execution reachability and exception swallowing (Finding 5)
+===========================================================================
+
+Reviewed head: 62187e595994200abcba1e5bf2c64d0477825f63
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+RED reproduction at 62187e5, through the real check_file()
+----------------------------------------------------------
+  IF false THEN
+    PERFORM public.wardah_assert_org_member(p_org);
+  END IF;
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+    -> check_file() == []   FALSE GREEN   (guard never executes)
+
+  BEGIN
+    PERFORM public.wardah_assert_org_member(p_org);
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+    -> check_file() == []   FALSE GREEN   (guard raises; failure swallowed)
+
+Impact survey before changing anything
+--------------------------------------
+121 non-exempt SECURITY DEFINER occurrences over 61 migrations.
+  raising assertion calls                     83
+    at outer statement level                  78
+    inside IF/LOOP/CASE                        5 calls / 6 sites / 4 functions
+        144:60, 144:66  wardah_guard_products_base_uom_change   (trigger)
+        145:79          wardah_guard_mapped_product_uom_stock_write (trigger)
+        146:29, 146:36  wardah_guard_products_base_uom_change   (trigger)
+        174:711         rpc_permission_snapshot
+    inside a nested BEGIN                      0
+  boolean negated-raise guards                24, all conditional by
+        construction (the IF *is* the guard) — migrations 153/166/167/168/169
+  functions with a real EXCEPTION section     20
+  guards positioned before such a section      7
+  of those, handler without RAISE              3
+  ACTUALLY capable of swallowing an auth failure   0
+      150 rpc_create_matched_supplier_invoice: handler is unique_violation-only
+          (line 160) while the guard is top-level (line 54) — cannot catch P0001.
+      183 rpc_subledger_gl_reconciliation: guard top-level (line 53); all three
+          WHEN OTHERS handlers (155/173/214) are inside LATER, NON-ENCLOSING
+          nested BEGIN blocks.
+So both classes were real in the scanner and unexploited in the repository.
+
+Correction
+----------
+A. Swallowing — applies to ALL migrations, no cutoff.
+   parse_blocks() models BEGIN / IF / LOOP / CASE nesting and EXCEPTION
+   sections. is_swallowed() rejects a guard only when a block that ACTUALLY
+   ENCLOSES it has handlers able to catch a PL/pgSQL P0001 assertion:
+   WHEN OTHERS, WHEN raise_exception, WHEN SQLSTATE 'P0001'. An unrelated
+   condition (unique_violation) does not count, and a later non-enclosing nested
+   handler does not invalidate a guard. The same test is applied to the boolean
+   guard's own RAISE. Impact on existing migrations: 0.
+
+B. Reachability — a forward syntactic contract, MIGRATION_STRICT_CUTOFF = 191.
+   For migrations >= 191 a guard counts only at the function's OUTER PL/pgSQL
+   statement level: not under IF/ELSIF/ELSE, LOOP/WHILE/FOR/FOREACH, CASE, a
+   nested BEGIN, or an EXCEPTION handler. The guard need NOT be the literal
+   first statement — identity/org-resolution reads before it are legitimate and
+   are covered by a positive control. Migrations <= 190 are immutable historical
+   inputs and keep their validated compatibility. The cutoff is a migration
+   NUMBER, so the four historical trigger/conditional functions above need no
+   exemption and no edit. No general control-flow analysis is attempted.
+
+MIGRATION 191 UNDER THE STRICT CONTRACT
+---------------------------------------
+  migration_number = 191  ->  strict = True
+  check_file(191)  ->  0 errors
+  ==> Migration 191 passes the strict contract UNCHANGED. The rule therefore
+      begins AT 191, as required, and no weakening was needed.
+
+Discrimination — MUST REJECT (synthetic 999_, strict)
+-----------------------------------------------------
+  1 guard inside IF false                     rejected
+  2 guard inside a never-entered WHILE LOOP   rejected
+  3 guard inside a CASE branch                rejected
+  4 guard inside a nested BEGIN               rejected
+  5 guard swallowed by WHEN OTHERS            rejected
+  6 guard swallowed by WHEN raise_exception   rejected
+  7 guard swallowed by WHEN SQLSTATE 'P0001'  rejected
+  8 boolean guard nested under IF false       rejected
+  + boolean guard swallowed by WHEN OTHERS    rejected
+
+Discrimination — MUST ACCEPT (synthetic 999_, strict)
+-----------------------------------------------------
+  outer-level wardah_assert_org_member / _org_admin / wardah_178_assert_permission
+  outer-level canonical negated wardah_is_org_member + RAISE
+  org resolution before the assert (M191's real shape)
+  unrelated unique_violation handler          accepted (no false red)
+  later NON-ENCLOSING WHEN OTHERS block       accepted (no false red)
+
+Historical compatibility
+------------------------
+  150_… and 190_… with the same IF-false / nested-BEGIN placement: ACCEPTED
+    (placement leniency is by migration NUMBER, not by function name)
+  150_… with a swallowing WHEN OTHERS handler: REJECTED
+    (rule A is deliberately not cutoff-scoped)
+  191_… and 192_…: REJECTED (the contract applies AT the cutoff, not above it)
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 22 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  KNOWN_EXEMPT asserted equal to its original six entries by a dedicated test.
+
+Scope principle
+---------------
+This scanner is a syntactic security gate, not a PL/pgSQL theorem prover. From
+191 on, new SECURITY DEFINER code must use an authorization shape the scanner
+can prove: a simple assertion at the outer statement level. Code needing a
+complex conditional authorization architecture should be refactored to an
+explicit top-level assertion boundary rather than weakening this gate.
+
+
+===========================================================================
+Addendum 4 — a guard past a terminating RETURN is dead (Finding 6)
+===========================================================================
+
+Reviewed head: 5d7c16c8378c5adad67eb3fae26e064a0fad13a6
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+Defect
+------
+The strict contract modelled BEGIN/IF/LOOP/CASE nesting but not function exit.
+_BLOCK_TOKEN_RE never contained RETURN, so an outer-level, non-swallowed
+assertion counted even when the invocation could already have ended.
+
+RED reproduction at 5d7c16c, through the real check_file(), strict (999_):
+
+  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+  RETURN;
+  PERFORM public.wardah_assert_org_member(p_org);
+    -> check_file() == []   FALSE GREEN   (guard is unconditional dead code)
+
+  IF p_skip THEN RETURN; END IF;
+  PERFORM public.wardah_assert_org_member(p_org);
+    -> check_file() == []   FALSE GREEN   (guard skipped for p_skip = true)
+
+  RETURN 1; PERFORM public.wardah_assert_org_member(p_org);   -> []  FALSE GREEN
+  RETURN; IF NOT public.wardah_is_org_member(v_org) THEN RAISE ...  -> []  FALSE GREEN
+
+Correction (migrations >= MIGRATION_STRICT_CUTOFF only)
+-------------------------------------------------------
+terminating_return_before(body, pos): a candidate guard does not satisfy the
+strict gate when any terminating RETURN precedes it textually. Applied to both
+the raising assertion helpers and the structural boolean guard.
+
+  - A plain RETURN, with or without an expression, ends the invocation.
+  - RETURN NEXT and RETURN QUERY do NOT terminate a set-returning function and
+    are explicitly not treated as exits.
+  - `RETURNS` in the function header is not a word match for RETURN.
+
+The rule is deliberately conservative and purely textual: it makes no attempt to
+prove that every return path is guarded. It may reject a complex future function
+whose returns are all provably guarded; the remedy there is to move the
+authorization boundary earlier, never to weaken the gate.
+
+Migration 191 form inventory: 28 RETURN statements, all plain RETURN — no
+RETURN NEXT and no RETURN QUERY — so the accurate treatment above carries no
+risk for this migration.
+
+MIGRATION 191 UNDER THE NEW RULE
+--------------------------------
+  check_file(191) -> 0 errors
+  ==> Migration 191 PASSES UNCHANGED. Every scanned M191 SECURITY DEFINER
+      function places its authorization boundary before any terminating RETURN.
+
+Discrimination — MUST REJECT (strict)
+-------------------------------------
+  bare RETURN before the assertion
+  RETURN <expression> before the assertion
+  conditional early RETURN before the assertion
+  boolean negated-raise guard after a bare RETURN
+  boolean negated-raise guard after a conditional early RETURN
+
+Discrimination — MUST ACCEPT (strict)
+-------------------------------------
+  assertion then bare RETURN
+  assertion then RETURN <expression>
+  boolean guard then RETURN
+  M191's shape: resolve org -> assert -> privileged work -> RETURN
+
+Historical compatibility
+------------------------
+  150_… with RETURN before the guard: ACCEPTED (placement rules are cutoff-scoped)
+  191_… with the same shape:          REJECTED
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 25 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  Zero KNOWN_EXEMPT entries added (asserted by test).
+
+
+===========================================================================
+Addendum 5 — Astra final-review P2 remediation (A, B, C)
+===========================================================================
+
+Reviewed head with the RED defects: c87646228322dca48edbb4fde0b2c26a92f897d3
+Scope: scripts/ci/check_definer_guards.py + scripts/ci/test_check_definer_guards.py
+Migration 191 production SQL remains byte-unchanged (sha256 637a81ca…).
+
+RED reproduction at c876462, through the real check_file(), strict (999_)
+-------------------------------------------------------------------------
+  A  assertion in the function's OUTER BEGIN, caught by
+     `EXCEPTION WHEN SQLSTATE 'P0001' THEN NULL;`      -> []  FALSE GREEN
+     (control: the same shape with WHEN OTHERS was already rejected, which
+      isolates the defect to SQLSTATE detection rather than placement)
+  B  PERFORM public.wardah_assert_org_member(p_org) WHERE false;  -> []  FALSE GREEN
+     SELECT  public.wardah_assert_org_member(p_org) WHERE false;  -> []  FALSE GREEN
+  C  IF NOT public.wardah_is_org_member(v_org) THEN
+       RETURN; RAISE EXCEPTION 'DENIED'; END IF;                  -> []  FALSE GREEN
+     IF NOT ... THEN IF p_soft THEN RETURN; END IF;
+       RAISE EXCEPTION 'DENIED'; END IF;                          -> []  FALSE GREEN
+
+A. SQLSTATE P0001 recovered without unmasking literals
+------------------------------------------------------
+_CATCHING_CONDITION_RE searched the MASKED body, but _mask_quoted() blanks
+literal content, so `WHEN SQLSTATE 'P0001'` reads as `WHEN SQLSTATE '     '` and
+could never match. Literals are NOT globally unmasked - that would return to
+guard detection every string the masker was hardened against. Instead the single
+condition `SQLSTATE 'P0001'` is recovered from the UNMASKED text, and only within
+an EXCEPTION handler's range: check_file() keeps the raw source, slices it with
+extract_function_body_span() so masked and unmasked bodies share every offset,
+and passes raw_body down to _handler_catches(). Everything else - guard
+detection, block parsing, RETURN analysis - still runs on masked text only.
+An unrelated `WHEN unique_violation` handler in the outer BEGIN still does NOT
+invalidate the guard (positive control retained).
+
+B. Standalone PERFORM statement contract (migrations >= cutoff)
+--------------------------------------------------------------
+Survey of Migration 191's recognized assertion forms:
+    9 occurrences, ALL standalone `PERFORM [public.]guard(args);`
+      5  PERFORM public.wardah_assert_org_member(v_org)
+      2  PERFORM public.wardah_assert_org_member(p_org)
+      2  PERFORM public.wardah_assert_org_admin(v_adj.org_id)
+    (the tenth textual hit is inside a to_regprocedure('…') literal, masked)
+No SELECT form, no assignment form, no query predicate.
+
+is_standalone_perform_assertion() therefore requires the guard call to be headed
+by PERFORM with only whitespace between, and the statement to end at the call's
+balanced closing parenthesis followed by `;`. Rejected: a trailing WHERE or FROM,
+a SELECT form, an assignment. This is a forward syntactic security contract; it
+was not weakened to accommodate hypothetical complex forms.
+
+C. The deny branch's aborting RAISE must be reachable
+-----------------------------------------------------
+_Frame.raises (bool) became _Frame.raise_pos (position of the FIRST qualifying
+aborting RAISE in the deny branch). _if_blocks_with_raising_deny_branch() now
+discards a block when a terminating RETURN occurs between THEN and that RAISE,
+so a deny branch that can exit before denying is not an authorization boundary.
+This covers the direct `RETURN; RAISE ...` form and the nested conditional
+`IF p_soft THEN RETURN; END IF; RAISE ...` form. RETURN NEXT / RETURN QUERY
+remain non-terminating. The swallow test is now applied at the RAISE position
+rather than at the IF token.
+
+MIGRATION 191 UNDER ALL THREE CORRECTIONS
+-----------------------------------------
+  check_file(191) -> 0 errors   ==> PASSES UNCHANGED, checked before anything else.
+
+Gate results
+------------
+  python3 scripts/ci/test_check_definer_guards.py  -> Ran 29 tests, OK
+  python3 scripts/ci/check_definer_guards.py       -> exit 0,
+      "61 migration(s) — لا دوال DEFINER بلا حارس"
+  KNOWN_EXEMPT unchanged at its original 6 entries (asserted by test).
+  Prior mutant batteries (call shape, connectives, quoted identifiers,
+  reachability, RETURN) re-run with no regressions.
