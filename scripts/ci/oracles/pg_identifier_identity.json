@@ -1,0 +1,223 @@
+{
+    "note": "Generated from a live PostgreSQL server by scripts/ci/oracles/generate_pg_identifier_identity.sql. \"unquoted\" is the identifier as the parser resolves it (downcase_identifier then truncate_identifier); \"quoted\" is the same with folding suppressed. Do not edit by hand - regenerate.",
+    "rows": [
+        {
+            "text": "rpc_probe",
+            "quoted": "rpc_probe",
+            "unquoted": "rpc_probe"
+        },
+        {
+            "text": "RPC_PROBE",
+            "quoted": "RPC_PROBE",
+            "unquoted": "rpc_probe"
+        },
+        {
+            "text": "Rpc_Probe",
+            "quoted": "Rpc_Probe",
+            "unquoted": "rpc_probe"
+        },
+        {
+            "text": "_leading",
+            "quoted": "_leading",
+            "unquoted": "_leading"
+        },
+        {
+            "text": "with$dollar",
+            "quoted": "with$dollar",
+            "unquoted": "with$dollar"
+        },
+        {
+            "text": "a1b2",
+            "quoted": "a1b2",
+            "unquoted": "a1b2"
+        },
+        {
+            "text": "حارس",
+            "quoted": "حارس",
+            "unquoted": "حارس"
+        },
+        {
+            "text": "rpc_bÄd",
+            "quoted": "rpc_bÄd",
+            "unquoted": "rpc_bÄd"
+        },
+        {
+            "text": "rpc_bäd",
+            "quoted": "rpc_bäd",
+            "unquoted": "rpc_bäd"
+        },
+        {
+            "text": "RPC_BÄD",
+            "quoted": "RPC_BÄD",
+            "unquoted": "rpc_bÄd"
+        },
+        {
+            "text": "TypeÄ",
+            "quoted": "TypeÄ",
+            "unquoted": "typeÄ"
+        },
+        {
+            "text": "Typeä",
+            "quoted": "Typeä",
+            "unquoted": "typeä"
+        },
+        {
+            "text": "K",
+            "quoted": "K",
+            "unquoted": "K"
+        },
+        {
+            "text": "KaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaX",
+            "quoted": "Kaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "Kaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "KaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaY",
+            "quoted": "Kaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "Kaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "Å",
+            "quoted": "Å",
+            "unquoted": "Å"
+        },
+        {
+            "text": "Ω",
+            "quoted": "Ω",
+            "unquoted": "Ω"
+        },
+        {
+            "text": "ẞ",
+            "quoted": "ẞ",
+            "unquoted": "ẞ"
+        },
+        {
+            "text": "İ",
+            "quoted": "İ",
+            "unquoted": "İ"
+        },
+        {
+            "text": "auth𝐀",
+            "quoted": "auth𝐀",
+            "unquoted": "auth𝐀"
+        },
+        {
+            "text": "𝐀auth",
+            "quoted": "𝐀auth",
+            "unquoted": "𝐀auth"
+        },
+        {
+            "text": "auth😀",
+            "quoted": "auth😀",
+            "unquoted": "auth😀"
+        },
+        {
+            "text": "rpc_𝐀",
+            "quoted": "rpc_𝐀",
+            "unquoted": "rpc_𝐀"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaX",
+            "quoted": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaY",
+            "quoted": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "rpc_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaم"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaก",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaก",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaก",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaก",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaก"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa𝐀",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa𝐀",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa𝐀",
+            "quoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        {
+            "text": "مممممممممممممممممممممممممممممممم",
+            "quoted": "ممممممممممممممممممممممممممممممم",
+            "unquoted": "ممممممممممممممممممممممممممممممم"
+        },
+        {
+            "text": "ممممممممممممممممممممممممممممممم",
+            "quoted": "ممممممممممممممممممممممممممممممم",
+            "unquoted": "ممممممممممممممممممممممممممممممم"
+        },
+        {
+            "text": "𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀",
+            "quoted": "𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀",
+            "unquoted": "𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀𝐀"
+        },
+        {
+            "text": "rpc_مixÄ",
+            "quoted": "rpc_مixÄ",
+            "unquoted": "rpc_مixÄ"
+        },
+        {
+            "text": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAمممممممممممممممممممم",
+            "quoted": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAمممممممممممممممم",
+            "unquoted": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaمممممممممممممممم"
+        }
+    ],
+    "server_version": "PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg24.04+2) on x86_64-pc-linux-gnu, compiled by gcc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, 64-bit",
+    "server_encoding": "UTF8",
+    "namedatalen_limit": 63
+}

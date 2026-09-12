@@ -5,6 +5,22 @@ These run against check_file() — the function CI actually uses per migration �
 rather than against the masker alone, so they prove the verdict, not an
 intermediate string.
 
+Two kinds of test live here, and the difference matters when reading a green
+run as evidence:
+
+  END-TO-END. Every MUST_REJECT / MUST_ACCEPT fixture goes through
+  self.verdict(), which writes a real `999_*.sql` (strict contract) and calls
+  check_file(). These are the security acceptance cases; a fixture is only ever
+  claimed closed on the strength of one of them.
+
+  PARSER-INTERNAL. A handful assert on an intermediate result instead —
+  test_labelled_exit_rule_discriminates, test_label_identity_follows_postgresql_folding,
+  test_only_blocks_and_loops_take_a_label, test_effective_identifier_matches_postgresql_clipping
+  and test_grant_option_only_is_modelled_on_the_statement. They pin down a
+  specific semantic (label identity, statement modelling) more precisely than a
+  verdict can, but each one is backed by end-to-end fixtures covering the same
+  behaviour. None of them is the sole proof of any security property.
+
 Final-review remediation (PR #241, Finding 1): at the reviewed head
 fa1de77f07077af97623c34c0a743b5d00000785, mask_sql() masked only `--` comments
 once it entered a dollar-quoted function body. An unguarded SECURITY DEFINER
@@ -149,7 +165,9 @@ by scripts/ci/fresh-db/selftest_definer_guard_contract.sh.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
+import re
 import tempfile
 import unittest
 
@@ -565,10 +583,511 @@ ASTRA_MUST_ACCEPT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Final-review P2-A: a labelled EXIT jumps past the authorization boundary
+# ---------------------------------------------------------------------------
+# Reproduced through the real check_file() at 337965b, where every fixture in
+# LABELLED_EXIT_MUST_REJECT returned []. is_unreachable_at() modelled a
+# terminating RETURN and an outer-level aborting RAISE, both of which end the
+# whole invocation, but not `EXIT <label>` — which does not end the invocation
+# and is exactly why it slipped through. It leaves the block it names and
+# resumes after that block's END, so the guard sitting further down inside that
+# block is skipped while remaining, textually, a real call at the outer
+# statement level with nothing disqualifying before it.
+#
+# `EXIT` is the shape people do not expect to cross a BEGIN boundary: an
+# unlabelled EXIT only ever leaves the innermost LOOP, and PostgreSQL requires
+# the label precisely for the block case. The controls below hold that
+# distinction — an inner block that exits itself, and a loop that exits itself,
+# both leave a later outer-level guard intact.
+def labelled_definer(
+    body: str,
+    label: str = "auth_block",
+    declare: str = "",
+    end_label: str | None = None,
+) -> str:
+    """A SECURITY DEFINER function whose OUTER block carries a `<<label>>`.
+
+    `declare` inserts a declaration section between the label and BEGIN, which
+    is where PL/pgSQL actually puts it and which the first fix could not see.
+    """
+    tail = label if end_label is None else end_label
+    return (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "SET search_path TO 'public', 'pg_temp'\n"
+        f"AS $function$\n<<{label}>>\n{declare}BEGIN\n{body}\nEND {tail};\n"
+        "$function$;\n"
+    )
+
+
+DECLARE_SECTION = "DECLARE\n  v_seen boolean := false;\n  v_count integer := 0;\n"
+
+
+LABELLED_EXIT_MUST_REJECT = {
+    # The reported mutant: the privileged write has already happened, the jump
+    # skips the assertion, and the function returns having authorized nothing.
+    "labelled_exit_before_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);"
+    ),
+    # A conditional jump still leaves a path on which the guard never runs —
+    # the same reason terminating_return_before() rejects a conditional RETURN.
+    "conditional_labelled_exit_before_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block WHEN p_org IS NULL;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # The jump is issued from a nested block but NAMES the outer one, so it
+    # still lands past the guard.
+    "inner_block_exits_the_labelled_outer_block": labelled_definer(
+        f"  BEGIN\n    EXIT auth_block;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}"
+    ),
+    # The label is still the block's label with a comment between the two: the
+    # masker has turned the comment into whitespace by then, so a fixed-window
+    # lookback would be the only thing that could lose it.
+    "labelled_exit_with_a_comment_between_label_and_begin": (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "AS $function$\n<<auth_block>>\n/* " + ("x" * 400) + " */\nBEGIN\n"
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);\n"
+        "END auth_block;\n$function$;\n"
+    ),
+    # The boolean negated-raising idiom is skipped by the same jump.
+    "labelled_exit_before_boolean_guard": labelled_definer(
+        "  EXIT auth_block;\n"
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"{WORK_LINE}"
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Second-round P2: the same bypass through shapes the first fix could not see
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at b200591 - after
+# the first P2-A fix - and returned [] there. Two independent gaps:
+#
+#   1. A DECLARE section. The block grammar is
+#      `[<<label>>] [DECLARE ...] BEGIN ... END [label];`, so the label precedes
+#      the DECLARE. The first fix walked BACKWARD from BEGIN over whitespace,
+#      landed on the `;` of the last declaration, and recorded no label at all -
+#      so every function with a declaration section, which is the ordinary
+#      shape, silently lost its label and the bypass reopened. The original
+#      corpus contained no DECLARE fixture, which is why 62 green tests said
+#      nothing about it.
+#
+#   2. Quoted and non-ASCII labels. PostgreSQL accepts a quoted identifier on
+#      both sides, and the masker blanks quoted content, so `EXIT "auth_block";`
+#      read as `EXIT "          ";` and matched nothing. The ASCII-only pattern
+#      also missed the high-range identifier characters _UNQUOTED_IDENT_RE
+#      already models elsewhere in the scanner.
+LABELLED_EXIT_DECLARE_MUST_REJECT = {
+    "declare_section_before_the_labelled_begin": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+    ),
+    # The trailing `END;` carries no label, so nothing downstream can recover it.
+    "declare_section_with_an_unlabelled_end": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+        end_label="",
+    ),
+    "declare_section_with_the_boolean_deny_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n"
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_a_conditional_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block WHEN p_org IS NULL;\n"
+        f"  PERFORM {OUTER}(p_org);",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_inner_block_exiting_the_outer_label": labelled_definer(
+        "  BEGIN\n    EXIT auth_block;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    # A comment between the label and the DECLARE is whitespace after masking.
+    "comment_then_declare_then_begin": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        declare="/* resolve the caller's org first */\n" + DECLARE_SECTION,
+    ),
+}
+
+LABELLED_EXIT_IDENTIFIER_MUST_REJECT = {
+    "quoted_exit_target_against_an_unquoted_label": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);'
+    ),
+    "quoted_block_label_against_an_unquoted_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);",
+        label='"auth_block"',
+        end_label='"auth_block"',
+    ),
+    "both_sides_quoted": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);',
+        label='"auth_block"',
+        end_label='"auth_block"',
+    ),
+    # A quoted label keeps its case on BOTH sides, so this is one label.
+    "both_sides_quoted_mixed_case": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "Auth_Block";\n  PERFORM {OUTER}(p_org);',
+        label='"Auth_Block"',
+        end_label='"Auth_Block"',
+    ),
+    "quoted_label_with_a_declare_section": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "auth_block";\n  PERFORM {OUTER}(p_org);',
+        label='"auth_block"',
+        end_label='"auth_block"',
+        declare=DECLARE_SECTION,
+    ),
+    # PostgreSQL identifiers are not ASCII-only, and neither is this scanner's
+    # own _UNQUOTED_IDENT_RE.
+    "non_ascii_unquoted_label": labelled_definer(
+        f"{WORK_LINE}\n  EXIT حارس;\n  PERFORM {OUTER}(p_org);",
+        label="حارس",
+        end_label="حارس",
+    ),
+    "non_ascii_label_with_a_declare_section": labelled_definer(
+        f"{WORK_LINE}\n  EXIT حارس;\n  PERFORM {OUTER}(p_org);",
+        label="حارس",
+        end_label="حارس",
+        declare=DECLARE_SECTION,
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Third-round P2-C: identifiers collide once PostgreSQL clips them
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at 407ffa1 - after
+# the DECLARE and quoted/non-ASCII round - and returned [] there.
+#
+# PostgreSQL clips every identifier to NAMEDATALEN-1 = 63 BYTES, so a block
+# label and an EXIT target that differ only PAST byte 63 are ONE label to
+# PL/pgSQL. Comparing the untruncated text sees two names where the database
+# sees one, records no jump, and accepts the function. Confirmed at run time on
+# PostgreSQL 17: the function is created with a truncation notice and the
+# assertion never executes.
+#
+# The limit is in BYTES, so a multibyte label collides sooner in characters than
+# an ASCII one, and the clip must fall on a character boundary.
+_LONG = "a" * 63                     # 63 ASCII bytes; +1 char overflows
+_LONG_MB = "م" * 32             # 64 bytes: over the limit in 32 characters
+
+
+def collide_definer(label: str, target: str, declare: str = "",
+                    guard: str | None = None, exit_stmt: str | None = None) -> str:
+    """A SECURITY DEFINER function whose label and EXIT target may collide."""
+    guard = f"  PERFORM {OUTER}(p_org);" if guard is None else guard
+    exit_stmt = f"  EXIT {target};" if exit_stmt is None else exit_stmt
+    return (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        f"AS $function$\n<<{label}>>\n{declare}BEGIN\n{WORK_LINE}\n"
+        f"{exit_stmt}\n{guard}\nEND;\n$function$;\n"
+    )
+
+
+LABELLED_EXIT_TRUNCATION_MUST_REJECT = {
+    "ascii_labels_differing_only_after_byte_63": collide_definer(
+        _LONG + "X", _LONG + "Y"
+    ),
+    "truncation_collision_with_a_declare_section": collide_definer(
+        _LONG + "X", _LONG + "Y", declare=DECLARE_SECTION
+    ),
+    # 32 two-byte characters already exceed 63 bytes, so these differ only past
+    # the limit even though they are short in characters.
+    "multibyte_labels_differing_only_after_the_byte_limit": collide_definer(
+        _LONG_MB + "a", _LONG_MB + "b"
+    ),
+    # Quoting preserves case but does not exempt an identifier from the clip.
+    "quoted_labels_colliding_only_after_byte_63": collide_definer(
+        f'"{_LONG}X"', f'"{_LONG}Y"'
+    ),
+    "conditional_exit_with_a_truncation_collision": collide_definer(
+        _LONG + "X", _LONG + "Y",
+        exit_stmt=f"  EXIT {_LONG}Y WHEN p_org IS NULL;",
+    ),
+    "boolean_deny_guard_behind_a_colliding_exit": collide_definer(
+        _LONG + "X", _LONG + "Y",
+        guard=(f"  IF NOT {QPRED}(p_org) THEN\n"
+               "    RAISE EXCEPTION 'DENIED';\n  END IF;"),
+    ),
+}
+
+LABELLED_EXIT_TRUNCATION_MUST_ACCEPT = {
+    # Different inside the first 63 bytes: two real labels, no jump proven.
+    "labels_genuinely_different_within_the_limit": collide_definer(
+        "alpha_block", "beta_block"
+    ),
+    # Over-length but identical, with the guard ahead of the jump.
+    "guard_before_a_colliding_exit": collide_definer(
+        _LONG + "X", _LONG + "X",
+        guard=WORK_LINE,
+        exit_stmt=f"  PERFORM {OUTER}(p_org);\n  EXIT {_LONG}X;",
+    ),
+    # An inner over-length block that exits ITSELF leaves the outer guard live.
+    "inner_long_labelled_block_exits_itself": definer(
+        f"  <<{_LONG}X>>\n  BEGIN\n    EXIT {_LONG}X;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # Quoted identifiers keep their case, and both fit inside the limit, so
+    # PostgreSQL keeps these distinct and the guard stays reachable.
+    "quoted_mixed_case_stays_distinct_within_the_limit": collide_definer(
+        '"Auth_Block"', '"auth_block"'
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# Fourth-round: ONE PostgreSQL identifier identity
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at 4acd2ac and
+# returned [] there. They are not five unrelated bugs: the scanner carried
+# THREE different notions of "the same identifier" - an unquoted alphabet that
+# stopped at U+FFFF, a fold that used Python's whole-Unicode str.lower() where
+# PostgreSQL downcases ASCII only, and a NAMEDATALEN clip applied to labels and
+# EXIT targets but not to routine, schema or type names. Each round of review
+# found one more instance; the fix is one canonicalizer, _pg_identifier(), that
+# every security-bearing comparison is built on.
+_ASTRAL = "auth\U0001D400"           # U+1D400: 4-byte UTF-8, above the BMP
+_KELVIN = "K"                   # U+212A: 3 bytes, str.lower() -> 1-byte 'k'
+_LONG_NAME_X = "rpc_" + "a" * 60 + "X"   # 65 bytes: clipped to the same 63 as
+_LONG_NAME_Y = "rpc_" + "a" * 60 + "Y"   # ... this one
+_LONG_SCHEMA_X = "sch_" + "a" * 60 + "X"
+_LONG_SCHEMA_Y = "sch_" + "a" * 60 + "Y"
+
+
+def definer_named_routine(name: str, args: str = "p_org uuid",
+                          mode: str = "SECURITY DEFINER",
+                          body: str | None = None, schema: str = "public") -> str:
+    """A routine with an arbitrary (possibly non-ASCII or over-length) name."""
+    return (
+        f"CREATE OR REPLACE FUNCTION {schema}.{name}({args})\n"
+        f"RETURNS void\nLANGUAGE plpgsql\n{mode}\n"
+        f"AS $rt$\nBEGIN\n{body or WORK_LINE}\nEND;\n$rt$;\n"
+    )
+
+
+# P1-1: an identifier above U+FFFF was unparseable, so the block label was
+# never recorded at all and the EXIT target read as a truncated ASCII prefix -
+# which never even reached the fail-closed path.
+IDENTITY_ASTRAL_MUST_REJECT = {
+    "astral_label_and_matching_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_ASTRAL};\n  PERFORM {OUTER}(p_org);",
+        label=_ASTRAL, end_label=_ASTRAL,
+    ),
+    "astral_label_with_a_declare_section": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_ASTRAL};\n  PERFORM {OUTER}(p_org);",
+        label=_ASTRAL, end_label=_ASTRAL, declare=DECLARE_SECTION,
+    ),
+    # The readable ASCII prefix must not be accepted as the identifier: the
+    # scanner may not silently parse `auth` out of `auth<astral>`.
+    "astral_suffix_after_a_readable_ascii_prefix": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth\U0001F600;\n  PERFORM {OUTER}(p_org);",
+        label="auth\U0001F600", end_label="auth\U0001F600",
+    ),
+    "astral_first_character": labelled_definer(
+        f"{WORK_LINE}\n  EXIT \U0001D400auth;\n  PERFORM {OUTER}(p_org);",
+        label="\U0001D400auth", end_label="\U0001D400auth",
+    ),
+}
+
+# P1-2 / P2-3 / P2-5: PostgreSQL downcases ASCII only in a multibyte encoding.
+# Python's str.lower() folds everything, which both MERGES identifiers
+# PostgreSQL keeps apart and, when the fold shortens the UTF-8 encoding, moves
+# the 63-byte clip so a pair PostgreSQL has already merged comes apart.
+IDENTITY_FOLD_MUST_REJECT = {
+    # U+212A folds to a one-byte `k`, dropping the identifier under the limit.
+    "kelvin_fold_moves_the_namedatalen_clip": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_KELVIN}{'a' * 60}Y;\n  PERFORM {OUTER}(p_org);",
+        label=_KELVIN + "a" * 60 + "X", end_label="",
+    ),
+    # Two distinct routines in PostgreSQL; a REVOKE on one must not exempt the
+    # other.
+    "non_ascii_case_twin_routine_names": (
+        definer_named_routine("rpc_bÄd")
+        + definer_named_routine("rpc_bäd", mode="", body="  NULL;")
+        + "REVOKE ALL ON FUNCTION public.rpc_bäd(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # The same twin, one schema level up.
+    "non_ascii_case_twin_schema_names": (
+        definer_named_routine("rpc_s", schema="schÄ")
+        + "REVOKE ALL ON FUNCTION schä.rpc_s(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # ... and in the argument TYPE, which decides the overload.
+    "non_ascii_case_twin_argument_types": (
+        definer_named_routine("rpc_t", args="p_org public.TypeÄ")
+        + "REVOKE ALL ON FUNCTION public.rpc_t(public.Typeä) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+# P2-4: the clip existed for labels but not for routine, schema or type names,
+# so a later GRANT spelled differently past byte 63 reopened a closed surface
+# without the scanner noticing.
+IDENTITY_CLIP_MUST_REJECT = {
+    "over_long_routine_name_reopened_by_a_grant": (
+        definer_named_routine(_LONG_NAME_X)
+        + f"REVOKE ALL ON FUNCTION public.{_LONG_NAME_X}(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + f"GRANT EXECUTE ON FUNCTION public.{_LONG_NAME_Y}(uuid) "
+          "TO authenticated;\n"
+    ),
+    "over_long_schema_name_reopened_by_a_grant": (
+        definer_named_routine("rpc_s", schema=_LONG_SCHEMA_X)
+        + f"REVOKE ALL ON FUNCTION {_LONG_SCHEMA_X}.rpc_s(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + f"GRANT EXECUTE ON FUNCTION {_LONG_SCHEMA_Y}.rpc_s(uuid) "
+          "TO authenticated;\n"
+    ),
+    # An over-length TYPE name decides the overload the same way.
+    "over_long_type_name_exempted_by_another_overload": (
+        definer_named_routine("rpc_u", args="p_org public.t_" + "a" * 60 + "X")
+        + "REVOKE ALL ON FUNCTION public.rpc_u(public.t_" + "a" * 60 + "Y) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION public.rpc_u(public.t_" + "a" * 60 + "Y) "
+          "TO authenticated;\n"
+    ),
+    # A quoted over-length label collides after clipping just as an unquoted
+    # one does; quoting exempts nothing from NAMEDATALEN.
+    "quoted_over_long_label_collision": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "{"a" * 63}Y";\n  PERFORM {OUTER}(p_org);',
+        label=f'"{"a" * 63}X"', end_label="",
+    ),
+}
+
+IDENTITY_MUST_ACCEPT = {
+    # Distinct inside the first effective 63 bytes: two real identifiers.
+    "routine_names_distinct_within_the_limit": (
+        definer_named_routine("rpc_alpha")
+        + "REVOKE ALL ON FUNCTION public.rpc_alpha(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # PostgreSQL keeps a quoted identifier's case, so these are two types and
+    # the REVOKE naming the actual one is a real closure.
+    "quoted_type_case_is_preserved": (
+        definer_named_routine("rpc_q", args='p_org public."TypeA"')
+        + 'REVOKE ALL ON FUNCTION public.rpc_q(public."TypeA") '
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # An unquoted ASCII type folds, so these two spellings ARE one type.
+    "unquoted_ascii_type_folds": (
+        definer_named_routine("rpc_f", args="p_org public.MyType")
+        + "REVOKE ALL ON FUNCTION public.rpc_f(public.mytype) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A non-ASCII routine name is one identifier, and the REVOKE naming that
+    # same spelling closes it.
+    "non_ascii_routine_closed_by_its_own_revoke": (
+        definer_named_routine("rpc_bÄd")
+        + "REVOKE ALL ON FUNCTION public.rpc_bÄd(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # An astral-plane routine name likewise.
+    "astral_routine_closed_by_its_own_revoke": (
+        definer_named_routine("rpc_\U0001D400")
+        + "REVOKE ALL ON FUNCTION public.rpc_\U0001D400(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # Over-length names that agree inside the effective identifier still close.
+    "over_long_routine_closed_by_the_same_effective_name": (
+        definer_named_routine(_LONG_NAME_X)
+        + f"REVOKE ALL ON FUNCTION public.{_LONG_NAME_Y}(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_DECLARE_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_IDENTIFIER_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_TRUNCATION_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_ASTRAL_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_FOLD_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_CLIP_MUST_REJECT)
+
+MUST_REJECT.update(LABELLED_EXIT_MUST_REJECT)
+
+LABELLED_EXIT_MUST_ACCEPT = {
+    # The guard precedes the jump, so every path through the block is authorized.
+    "guard_before_labelled_exit": labelled_definer(
+        f"  PERFORM {OUTER}(p_org);\n  EXIT auth_block;\n{WORK_LINE}"
+    ),
+    # An inner labelled block that exits ITSELF completes before the outer-level
+    # guard, which therefore still runs. Rejecting this would be a false red.
+    "inner_labelled_block_exits_itself": definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # An UNLABELLED EXIT can only leave the innermost loop; the guard after the
+    # loop is untouched.
+    "unlabelled_loop_exit_then_guard": definer(
+        "  WHILE true LOOP\n    EXIT;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # `EXIT WHEN <predicate>` carries no label: WHEN must not be read as one.
+    "exit_when_without_a_label_then_guard": definer(
+        "  WHILE true LOOP\n    EXIT WHEN p_org IS NOT NULL;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # `>>` is also the inet/box shift operator. Text that merely ends in `>>`
+    # before a block must not be read as a label.
+    "shift_operator_is_not_a_block_label": definer(
+        "  PERFORM inet '10.0.0.0/8' >> inet '10.1.1.1';\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # A labelled loop that exits itself, with the guard after it.
+    #
+    # NOTE, so this is not read as more than it proves: the labelled-LOOP
+    # fixtures are NOT isolation proofs. A guard inside a loop is already
+    # rejected by is_outer_statement_level(), so these reject with the EXIT
+    # removed too. The loop branch of _labelled_opener() is belt-and-braces;
+    # only the BEGIN-block branch is load-bearing for this contract.
+    "labelled_loop_exits_itself_then_guard": definer(
+        "  <<scan>>\n  WHILE true LOOP\n    EXIT scan;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # Second-round controls: the DECLARE and identifier work must not turn any
+    # of these into a false red.
+    "declare_section_with_the_guard_before_the_exit": labelled_definer(
+        f"  PERFORM {OUTER}(p_org);\n  EXIT auth_block;\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_inner_block_exiting_itself": labelled_definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_an_unlabelled_loop_exit": labelled_definer(
+        "  WHILE true LOOP\n    EXIT;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    "declare_section_with_exit_when_and_no_label": labelled_definer(
+        "  WHILE true LOOP\n    EXIT WHEN p_org IS NOT NULL;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}",
+        declare=DECLARE_SECTION,
+    ),
+    # `exit` is not a reserved word in SQL. A column of that name followed by a
+    # comma is not an EXIT statement and must not be read as an unreadable jump.
+    "a_column_named_exit_is_not_a_jump": definer(
+        "  PERFORM (SELECT exit, p_org FROM public.probe_rows LIMIT 1);\n"  # nosec B608
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # An inner block labelled the same word as an OUTER loop must not let the
+    # inner self-exit be read against the outer construct.
+    "inner_block_exits_itself_beside_a_same_named_loop": definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);\n"
+        "  <<inner>>\n  WHILE false LOOP\n    NULL;\n  END LOOP;"
+    ),
+}
+
+
 MUST_ACCEPT = {
     **OUTER_LEVEL_MUST_ACCEPT,
     **ASTRA_MUST_ACCEPT,
     **GUARD_BEFORE_RETURN_MUST_ACCEPT,
+    **LABELLED_EXIT_MUST_ACCEPT,
+    **IDENTITY_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
     # Same, with the non-executable decoys present as well: an executable call
@@ -1205,6 +1724,83 @@ OMITTED_SCHEMA_MUST_ACCEPT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Final-review P2-B: REVOKE GRANT OPTION FOR EXECUTE is not a closure
+# ---------------------------------------------------------------------------
+# Reproduced through the real check_file() at 337965b, where every fixture in
+# GRANT_OPTION_MUST_REJECT returned []. _REVOKE_HEAD_RE already TOLERATED the
+# optional `GRANT OPTION FOR` clause — which is how the statement parsed at all
+# and how its privilege list read `EXECUTE` — but the parse then collapsed into
+# `is_revoke=True`, indistinguishable from a real revoke. The ACL replay closed
+# the executable surface on the strength of a statement that withdraws only the
+# right to RE-GRANT execute: `authenticated` keeps EXECUTE and can still call
+# the unguarded SECURITY DEFINER function.
+GRANT_OPTION_MUST_REJECT = {
+    "grant_option_revoke_does_not_close_the_default_public_grant": (
+        routine("f_go", "SECURITY DEFINER")
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "grant_option_revoke_leaves_an_explicit_grant_standing": (
+        routine("f_go2", "SECURITY DEFINER")
+        + "GRANT EXECUTE ON FUNCTION public.f_go2(uuid) TO authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # ALL is the same statement with a wider privilege list, and just as
+    # ineffective when it is only the grant option being withdrawn.
+    "grant_option_revoke_of_all_privileges": (
+        routine("f_go3", "SECURITY DEFINER")
+        + "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.f_go3(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # Ordering: a real closure, re-opened by a later GRANT, is NOT re-closed by
+    # a grant-option-only revoke. `authenticated` ends the migration holding
+    # EXECUTE.
+    "grant_option_revoke_cannot_re_close_a_later_grant": (
+        routine("f_go4", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_go4(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION public.f_go4(uuid) TO authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go4(uuid) "
+          "FROM authenticated;\n"
+    ),
+    # A quoted grantee resolves to the same role, so it must not close either.
+    "grant_option_revoke_with_a_quoted_grantee": (
+        routine("f_go5", "SECURITY DEFINER")
+        + 'REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go5(uuid) '
+          'FROM PUBLIC, anon, "authenticated";\n'
+    ),
+}
+
+GRANT_OPTION_MUST_ACCEPT = {
+    # The real statement still closes exactly as before.
+    "real_revoke_execute_still_closes": (
+        routine("f_ok", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A grant-option-only revoke after a real closure changes nothing: the
+    # correction must not turn it into a re-opening either.
+    "grant_option_revoke_after_a_real_closure_keeps_it_closed": (
+        routine("f_ok2", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_ok2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # `WITH GRANT OPTION` on a GRANT is a trailer, not a second statement; the
+    # real revoke that follows still closes the surface.
+    "grant_with_grant_option_then_real_revoke": (
+        routine("f_ok3", "SECURITY DEFINER")
+        + "GRANT EXECUTE ON FUNCTION public.f_ok3(uuid) TO authenticated "
+          "WITH GRANT OPTION;\n"
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok3(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -1620,6 +2216,418 @@ class DefinerScannerTests(unittest.TestCase):
         strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_abort.sql"
         strict.write_text(sql, encoding="utf-8")
         self.assertTrue(guards.check_file(strict))
+
+    # -- Final-review P2-A: labelled EXIT ------------------------------------
+
+    def test_labelled_exit_past_a_guard_is_rejected(self) -> None:
+        """P2-A: `EXIT <label>` leaves the block, skipping the assertion."""
+        for name, sql in LABELLED_EXIT_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: guard skipped by a labelled EXIT accepted",
+                )
+
+    def test_labelled_exit_rule_discriminates(self) -> None:
+        """The jump must cross the candidate's own block, and nothing else."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  EXIT auth_block;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body)
+        guard_pos = body.index("PERFORM")
+        self.assertTrue(guards.labelled_exit_before(body, frames, guard_pos))
+        # The label must be the one on the block that CONTAINS the position.
+        other = body.replace("EXIT auth_block;", "EXIT some_other_block;")
+        self.assertFalse(
+            guards.labelled_exit_before(
+                other, guards.parse_blocks(other), other.index("PERFORM")
+            )
+        )
+        # An EXIT after the candidate cannot skip it.
+        after = (
+            "<<auth_block>>\nBEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "  EXIT auth_block;\n"
+            "END auth_block;\n"
+        )
+        self.assertFalse(
+            guards.labelled_exit_before(
+                after, guards.parse_blocks(after), after.index("PERFORM")
+            )
+        )
+        # `EXIT WHEN <predicate>` carries no label at all.
+        unlabelled = "BEGIN\n  EXIT WHEN p_x;\n  PERFORM g(p_org);\nEND;\n"
+        self.assertFalse(
+            guards.labelled_exit_before(
+                unlabelled,
+                guards.parse_blocks(unlabelled),
+                unlabelled.index("PERFORM"),
+            )
+        )
+
+    def test_labelled_exit_survives_a_declare_section(self) -> None:
+        """P2-A round 2: the label precedes DECLARE, not BEGIN."""
+        for name, sql in LABELLED_EXIT_DECLARE_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labelled EXIT lost because of a DECLARE section",
+                )
+
+    def test_labelled_exit_reads_quoted_and_non_ascii_labels(self) -> None:
+        """P2-A round 2: a label is an identifier, not an ASCII word."""
+        for name, sql in LABELLED_EXIT_IDENTIFIER_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labelled EXIT lost because of the label's spelling",
+                )
+
+    def test_truncated_identifiers_cannot_hide_a_labelled_exit(self) -> None:
+        """P2-C: PostgreSQL clips identifiers to 63 bytes, so labels that differ
+        only past the limit are one label and the jump is real.
+
+        End-to-end through check_file(), not the canonicalizer alone.
+        """
+        for name, sql in LABELLED_EXIT_TRUNCATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labels collide once PostgreSQL clips them",
+                )
+        for name, sql in LABELLED_EXIT_TRUNCATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_one_postgresql_identifier_identity(self) -> None:
+        """Fourth round: the scanner carried three notions of identifier
+        identity. These are the false greens each of them produced, all
+        end-to-end through check_file()."""
+        groups = {
+            "astral": IDENTITY_ASTRAL_MUST_REJECT,
+            "fold": IDENTITY_FOLD_MUST_REJECT,
+            "clip": IDENTITY_CLIP_MUST_REJECT,
+        }
+        for group, fixtures in groups.items():
+            for name, sql in fixtures.items():
+                with self.subTest(group=group, reject=name):
+                    self.assertTrue(
+                        self.verdict(name, sql),
+                        f"{name}: scanner identity diverges from PostgreSQL",
+                    )
+        for name, sql in IDENTITY_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_pg_identifier_is_the_single_identity(self) -> None:
+        """The canonicalizer itself: PostgreSQL's order and PostgreSQL's rules."""
+        pg = guards._pg_identifier
+        # Unquoted folds ASCII A-Z and nothing else.
+        self.assertEqual(pg("Rpc_Probe"), "rpc_probe")
+        self.assertEqual(pg("RPC_BÄD"), "rpc_bÄd")   # Ä survives
+        self.assertNotEqual(pg("rpc_bÄd"), pg("rpc_bäd"))
+        # str.lower() would merge those two; PostgreSQL does not.
+        self.assertEqual("rpc_bÄd".lower(), "rpc_bäd")
+        # Quoted content survives verbatim, case included.
+        self.assertEqual(pg("TypeA", quoted=True), "TypeA")
+        self.assertNotEqual(pg("Auth_Block", quoted=True), pg("auth_block"))
+        # Folding happens BEFORE the clip, and the fold must not change length.
+        kelvin = "K" + "a" * 60
+        self.assertEqual(len(kelvin.encode("utf-8")), 63)
+        self.assertEqual(pg(kelvin + "X"), pg(kelvin + "Y"))
+        self.assertEqual(len(pg(kelvin + "X").encode("utf-8")), 63)
+        # Astral code points are ordinary identifier characters.
+        self.assertEqual(pg("auth\U0001D400"), "auth\U0001D400")
+        self.assertTrue(guards._UNQUOTED_IDENT_RE.fullmatch("auth\U0001D400"))
+        self.assertTrue(guards._UNQUOTED_IDENT_RE.fullmatch("\U0001D400auth"))
+        # The clip is bytes, on a character boundary, never a partial code point.
+        for width, char in ((2, "م"), (3, "ก"), (4, "\U0001D400")):
+            self.assertEqual(len(char.encode("utf-8")), width)
+            over = "a" * (64 - width) + char       # crosses the limit by `width`
+            clipped = pg(over)
+            self.assertLessEqual(len(clipped.encode("utf-8")), 63)
+            self.assertEqual(clipped.encode("utf-8").decode("utf-8"), clipped)
+        # Exactly 63 bytes is untouched.
+        self.assertEqual(pg("a" * 63), "a" * 63)
+
+    def test_pg_identifier_matches_the_postgresql_17_oracle(self) -> None:
+        """Differential gate: every row of the committed oracle was resolved by
+        a live PostgreSQL 17 server, and the canonicalizer must agree with all
+        of them.
+
+        Four review rounds each found a case where the scanner's identifier
+        identity diverged from PostgreSQL's. A hand-written expectation table
+        would encode the same assumptions that were wrong, so the expectations
+        come from the server: see scripts/ci/generate_pg_identifier_oracle.py
+        to regenerate against PostgreSQL 17.
+        """
+        oracle_path = SCRIPT.with_name("oracles") / "pg_identifier_identity.json"
+        self.assertTrue(oracle_path.is_file(), f"missing oracle: {oracle_path}")
+        oracle = json.loads(oracle_path.read_text(encoding="utf-8"))
+        self.assertEqual(oracle["server_encoding"], "UTF8")
+        self.assertEqual(oracle["namedatalen_limit"], guards._NAMEDATALEN_LIMIT)
+        self.assertTrue(oracle["server_version"].startswith("PostgreSQL 17."),
+                        oracle["server_version"])
+        self.assertGreaterEqual(len(oracle["rows"]), 40)
+        for row in oracle["rows"]:
+            with self.subTest(identifier=row["text"][:24]):
+                self.assertEqual(
+                    guards._pg_identifier(row["text"]), row["unquoted"],
+                    "unquoted identity disagrees with PostgreSQL 17",
+                )
+                self.assertEqual(
+                    guards._pg_identifier(row["text"], quoted=True), row["quoted"],
+                    "quoted identity disagrees with PostgreSQL 17",
+                )
+
+    def test_effective_identifier_matches_postgresql_clipping(self) -> None:
+        """The canonicalizer itself: NAMEDATALEN-1 bytes, character-aligned."""
+        eff = guards._effective_identifier
+        # Exactly at the limit: untouched.
+        at_limit = "a" * 63
+        self.assertEqual(eff(at_limit), at_limit)
+        self.assertEqual(len(eff(at_limit).encode("utf-8")), 63)
+        # Over the limit in ASCII: clipped to 63 bytes.
+        self.assertEqual(eff("a" * 64), at_limit)
+        self.assertEqual(eff("a" * 200), at_limit)
+        # The limit is BYTES, not characters: 32 two-byte characters overflow.
+        mb = "م" * 32
+        self.assertEqual(len(mb), 32)
+        self.assertEqual(len(mb.encode("utf-8")), 64)
+        clipped = eff(mb)
+        # Clipped on a character boundary - never a partial code point.
+        self.assertEqual(clipped, "م" * 31)
+        self.assertLessEqual(len(clipped.encode("utf-8")), 63)
+        self.assertEqual(clipped.encode("utf-8").decode("utf-8"), clipped)
+        # Two identifiers PostgreSQL aliases after clipping normalize EQUAL.
+        self.assertEqual(eff("a" * 63 + "X"), eff("a" * 63 + "Y"))
+        self.assertEqual(eff(mb + "a"), eff(mb + "b"))
+        # Two that differ BEFORE the limit stay distinct.
+        self.assertNotEqual(eff("a" * 62 + "X"), eff("a" * 62 + "Y"))
+        self.assertNotEqual(eff("alpha_block"), eff("beta_block"))
+        # Clipping decides length only; folding and quoting were already
+        # applied by the identifier parser, so case is untouched here.
+        self.assertEqual(eff("Auth_Block"), "Auth_Block")
+
+    def test_label_identity_follows_postgresql_folding(self) -> None:
+        """Unquoted folds, quoted keeps its case, and the two must not be
+        conflated in either direction."""
+        def jumps(label: str, target: str, declare: str = "") -> bool:
+            body = (
+                f"<<{label}>>\n{declare}BEGIN\n"
+                f"  EXIT {target};\n"
+                "  PERFORM public.wardah_assert_org_member(p_org);\n"
+                f"END;\n"
+            )
+            frames = guards.parse_blocks(body, body)
+            return guards.labelled_exit_before(
+                body, frames, body.index("PERFORM"), body
+            )
+
+        # Same identifier, spelled four legal ways: all resolve to one label.
+        self.assertTrue(jumps("auth_block", "auth_block"))
+        self.assertTrue(jumps("auth_block", '"auth_block"'))
+        self.assertTrue(jumps('"auth_block"', "auth_block"))
+        self.assertTrue(jumps('"auth_block"', '"auth_block"'))
+        # An unquoted label folds, so case is irrelevant on the unquoted side.
+        self.assertTrue(jumps("Auth_Block", "AUTH_BLOCK"))
+        # A quoted label keeps its case, so these are DIFFERENT labels and the
+        # jump does not leave that block. Treating them as equal would be a
+        # false red; treating a real match as unequal would be a false green.
+        self.assertFalse(jumps('"Auth_Block"', "auth_block"))
+        self.assertFalse(jumps('"Auth_Block"', '"auth_block"'))
+        self.assertFalse(jumps("auth_block", '"Auth_Block"'))
+        # Non-ASCII identifiers behave like any other unquoted identifier.
+        self.assertTrue(jumps("حارس", "حارس"))
+        # And every one of these still holds across a declaration section.
+        self.assertTrue(jumps("auth_block", '"auth_block"', DECLARE_SECTION))
+        self.assertFalse(jumps('"Auth_Block"', "auth_block", DECLARE_SECTION))
+
+    def test_label_support_discriminates(self) -> None:
+        """Mutation proof: removing either half of the round-2 fix must bring
+        the corresponding RED back, so these fixtures cannot be passing for an
+        unrelated reason."""
+        never = re.compile(r"(?!)")
+        original_declare = guards._DECLARE_KW_RE
+        try:
+            guards._DECLARE_KW_RE = never  # drop DECLARE-section support
+            for name, sql in LABELLED_EXIT_DECLARE_MUST_REJECT.items():
+                with self.subTest(mutation="no_declare_support", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._DECLARE_KW_RE = original_declare
+
+        # The identifier work has two halves - the block label and the EXIT
+        # target - and the mutation restores the pre-fix ASCII-unquoted reader
+        # on BOTH sides. Only the identifier reader is mutated; DECLARE
+        # attribution stays intact so the two mutations cannot mask each other.
+        #
+        # Correcting an imprecise claim made when this test was written: the two
+        # halves are NOT symmetric. Reverting only the EXIT-target reader does
+        # not reopen these fixtures - an unresolvable target falls through to
+        # _UNREADABLE_EXIT_TARGET and fails closed, which still rejects. The
+        # BLOCK-LABEL side is the load-bearing half; the EXIT side is what keeps
+        # the failure mode closed rather than open. Mutating both together is
+        # what actually restores the pre-fix behaviour, which is what this does.
+        ascii_exit = re.compile(
+            r"\bEXIT\s+(?!WHEN\b)([A-Za-z_][A-Za-z0-9_$]*)", re.IGNORECASE
+        )
+        ascii_label = re.compile(r"<<\s*([A-Za-z_][A-Za-z0-9_$]*)\s*>>")
+
+        def ascii_exit_targets(body, raw_body, end):
+            return [(m.start(), m.group(1).lower())
+                    for m in ascii_exit.finditer(body, 0, end)]
+
+        def ascii_block_labels(body, raw_body):
+            found = {}
+            for m in ascii_label.finditer(body):
+                opener = guards._labelled_opener(body, m.end())
+                if opener is not None:
+                    found[opener] = m.group(1).lower()
+            return found
+
+        original_targets = guards._exit_targets
+        original_labels = guards._block_labels
+        try:
+            guards._exit_targets = ascii_exit_targets
+            guards._block_labels = ascii_block_labels
+            for name, sql in LABELLED_EXIT_IDENTIFIER_MUST_REJECT.items():
+                with self.subTest(mutation="ascii_only_labels", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._exit_targets = original_targets
+            guards._block_labels = original_labels
+
+        # Third arm: raise the NAMEDATALEN limit out of reach and the truncation
+        # collisions become invisible again, because the two labels compare
+        # unequal. Mutating the LIMIT rather than the whole canonicalizer keeps
+        # this arm isolated to the clip - the ASCII fold stays intact.
+        original_limit = guards._NAMEDATALEN_LIMIT
+        try:
+            guards._NAMEDATALEN_LIMIT = 10 ** 9
+            for name, sql in LABELLED_EXIT_TRUNCATION_MUST_REJECT.items():
+                with self.subTest(mutation="no_identifier_clip", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._NAMEDATALEN_LIMIT = original_limit
+
+        # Fourth arm: restore Python's full-Unicode fold and every identity that
+        # depends on PostgreSQL folding ASCII only comes apart again - U+212A
+        # folds to a one-byte `k`, moving the clip and un-merging a pair
+        # PostgreSQL had already merged, and `Ä` merges with `ä`, which
+        # PostgreSQL keeps distinct.
+        original_fold = guards._fold_unquoted
+        try:
+            guards._fold_unquoted = str.lower
+            for name, sql in IDENTITY_FOLD_MUST_REJECT.items():
+                with self.subTest(mutation="unicode_fold", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._fold_unquoted = original_fold
+
+        # Fifth arm: put the U+FFFF ceiling back on the identifier alphabet and
+        # an astral-plane label becomes unreadable, so no label is recorded.
+        original_ident = guards._UNQUOTED_IDENT_RE
+        try:
+            guards._UNQUOTED_IDENT_RE = re.compile(
+                "[A-Za-z_-￿][A-Za-z0-9_$-￿]*"
+            )
+            for name, sql in IDENTITY_ASTRAL_MUST_REJECT.items():
+                with self.subTest(mutation="bmp_only_alphabet", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._UNQUOTED_IDENT_RE = original_ident
+
+        # The fixtures reject again once every half is restored.
+        for name, sql in {**LABELLED_EXIT_DECLARE_MUST_REJECT,
+                          **LABELLED_EXIT_IDENTIFIER_MUST_REJECT,
+                          **LABELLED_EXIT_TRUNCATION_MUST_REJECT}.items():
+            with self.subTest(restored=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_only_blocks_and_loops_take_a_label(self) -> None:
+        """PL/pgSQL labels blocks and loops; CASE and IF are not label targets,
+        and the parser must not invent one for them."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  CASE WHEN p_org IS NULL THEN NULL ELSE NULL END CASE;\n"
+            "  EXIT auth_block;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body, body)
+        labelled = {f.kind for f in frames if f.label == "auth_block"}
+        self.assertEqual(labelled, {"BEGIN"})
+        self.assertTrue(
+            guards.labelled_exit_before(body, frames, body.index("PERFORM"), body)
+        )
+
+    def test_labelled_exit_rule_is_strict_contract_only(self) -> None:
+        """P2-A: historical migrations keep their validated placement."""
+        sql = LABELLED_EXIT_MUST_REJECT["labelled_exit_before_guard"]
+        historical = self.root / "150_labelled_exit.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_labelled_exit.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
+
+    # -- Final-review P2-B: REVOKE GRANT OPTION FOR --------------------------
+
+    def test_grant_option_revoke_is_not_a_closure(self) -> None:
+        """P2-B: withdrawing delegation leaves EXECUTE, and the surface, open."""
+        for name, sql in GRANT_OPTION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: grant-option-only revoke accepted as a closure",
+                )
+        for name, sql in GRANT_OPTION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_grant_option_only_is_modelled_on_the_statement(self) -> None:
+        """P2-B: the distinction is carried, not re-derived at each use site."""
+        sql = (
+            "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f(uuid) "
+            "FROM authenticated;\n"
+            "REVOKE EXECUTE ON FUNCTION public.f(uuid) FROM authenticated;\n"
+            "GRANT EXECUTE ON FUNCTION public.f(uuid) TO authenticated "
+            "WITH GRANT OPTION;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = sorted(
+            guards.parse_privilege_statements(sql, masked), key=lambda s: s.start
+        )
+        # Exactly three statements: the `GRANT OPTION FOR` clause inside the
+        # first REVOKE is part of that revoke, not a fourth (phantom) GRANT.
+        self.assertEqual(
+            [(s.is_revoke, s.grant_option_only) for s in stmts],
+            [(True, True), (True, False), (False, False)],
+        )
+        # `WITH GRANT OPTION` is a trailer on a GRANT, never a revoke of one.
+        self.assertFalse(stmts[2].is_revoke)
+        self.assertEqual(stmts[2].grantees & set(guards.CLIENT_ROLES),
+                         {"authenticated"})
 
     def test_a_definition_cannot_borrow_the_next_functions_body(self) -> None:
         """F: no dollar-quoted body of its own means no guard, at any age."""

@@ -13,9 +13,10 @@ a quoted identifier, a bare identifier, comment or literal text — never
 satisfies the gate, and neither does a call to a different overload of the name.
 
 It must also be able to RUN and to DENY: it cannot sit after a terminating
-RETURN or an outer-level aborting RAISE, and no enclosing EXCEPTION handler may
-be able to catch its P0001 — including through that code's class, P0000, which
-`WHEN plpgsql_error` and `WHEN SQLSTATE 'P0000'` both reach.
+RETURN, an outer-level aborting RAISE, or a labelled EXIT that jumps out of the
+block it sits in, and no enclosing EXCEPTION handler may be able to catch its
+P0001 — including through that code's class, P0000, which `WHEN plpgsql_error`
+and `WHEN SQLSTATE 'P0000'` both reach.
 
 Recognized guards:
   - wardah_assert_org_member / wardah_assert_org_admin: raise on denial, so a
@@ -31,7 +32,8 @@ Recognized guards:
 
 Exemptions:
   - Functions this migration itself closes to every client role. The REVOKE must
-    NAME the function - same schema, name and argument types - and no later
+    NAME the function - same schema, name and argument types - it must revoke
+    the privilege itself rather than only `GRANT OPTION FOR` it, and no later
     GRANT in the file may put the privilege back. Below the strict cutoff this
     keeps its historical meaning (close PUBLIC); from the cutoff on, closing
     PUBLIC while granting `authenticated` is not a closure.
@@ -366,10 +368,165 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
     return False
 
 
-class _Frame:
-    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos")
+# A PL/pgSQL block or loop may carry a `<<label>>`, and `EXIT <label>` then
+# transfers control to just after that construct's END — including for a plain
+# BEGIN block, which is the one shape people do not expect. `EXIT` with no label
+# only ever leaves the innermost LOOP, so it cannot skip an outer-level
+# statement; a label is what makes the jump able to cross a block boundary.
+#
+# Attribution is FORWARD, from the label to what it labels, because a block's
+# real grammar is
+#
+#     [ <<label>> ] [ DECLARE declarations ] BEGIN ... END [ label ];
+#
+# and the label therefore precedes the DECLARE, not the BEGIN. Walking BACKWARD
+# from BEGIN over whitespace - the first attempt at this - landed on the `;` of
+# the last declaration and returned no label at all, so every function with a
+# declaration section (the ordinary shape) silently lost its label and the
+# labelled-EXIT bypass reopened. Only BEGIN and LOOP take a label: PL/pgSQL
+# labels blocks and loops, never an IF or a CASE, so those are not label targets
+# and no wider grammar is modelled here.
+#
+# The label's own text is read through _parse_identity(), the same identifier
+# reader the statement model uses, so a quoted label works and PostgreSQL's
+# folding rules are honoured: an unquoted label folds to lower case, a quoted one
+# keeps its case, and `<<"Auth_Block">>` is therefore NOT `EXIT auth_block`.
+_LABEL_OPEN_RE = re.compile(r"<<")
+_DECLARE_KW_RE = re.compile(r"DECLARE\b", re.IGNORECASE)
+_BEGIN_KW_RE = re.compile(r"BEGIN\b", re.IGNORECASE)
+_LOOP_KW_RE = re.compile(r"LOOP\b", re.IGNORECASE)
+_LOOP_HEAD_RE = re.compile(r"(?:LOOP|WHILE|FOR|FOREACH)\b", re.IGNORECASE)
 
-    def __init__(self, kind, start):
+
+def _labelled_opener(body: str, pos: int) -> int | None:
+    """Offset of the block/loop keyword a label ending at `pos` attaches to.
+
+    Deliberately strict about what may follow the label: BEGIN, a DECLARE
+    section, or a loop head. That is the whole grammar, and requiring it is also
+    what stops the inet/box shift operators from inventing a label - in
+    `a << b >> c` the text after `>>` is an ordinary expression, not a block
+    opener, so no label is recorded.
+    """
+    i = _skip_ws(body, pos)
+    if _BEGIN_KW_RE.match(body, i):
+        return i
+    declare = _DECLARE_KW_RE.match(body, i)
+    if declare:
+        # A declaration section runs to the BEGIN that opens the block. Nothing
+        # in it can spell BEGIN: comments and every literal form are already
+        # blanked in the masked text this reads.
+        opener = _BEGIN_KW_RE.search(body, declare.end())
+        return opener.start() if opener else None
+    if _LOOP_HEAD_RE.match(body, i):
+        # WHILE/FOR/FOREACH open their frame at the LOOP keyword that ends the
+        # loop header, which is where parse_blocks() pushes the frame.
+        opener = _LOOP_KW_RE.search(body, i)
+        return opener.start() if opener else None
+    return None
+
+
+# ---------------------------------------------------------------------------
+# PostgreSQL identifier identity - the ONE definition
+# ---------------------------------------------------------------------------
+# Every security decision in this scanner ultimately compares two identifiers:
+# is this EXIT's target the label on the block the guard sits in, does this
+# REVOKE name the function that was just defined, is this the same overload,
+# is this grantee `authenticated`. If the scanner's notion of "same identifier"
+# differs from PostgreSQL's ANYWHERE, that difference is a false green.
+#
+# It differed in three separate places, each with its own rules, and four
+# consecutive review rounds each found a fresh instance:
+#
+#   * the unquoted alphabet stopped at U+FFFF, so a label containing a 4-byte
+#     UTF-8 character parsed as nothing at all and no label was recorded;
+#   * folding used Python's `str.lower()`, which folds the whole Unicode
+#     repertoire, while PostgreSQL's downcase_identifier() downcases ONLY
+#     ASCII A-Z in a multibyte encoding - so `rpc_bÄd` and `rpc_bäd`, two
+#     different functions, merged into one, and U+212A KELVIN SIGN folding to
+#     a one-byte `k` moved the length clip two bytes and un-merged a pair
+#     PostgreSQL had already merged;
+#   * the NAMEDATALEN clip existed as its OWN layer applied to labels and EXIT
+#     targets but not to routine names, schemas or type names.
+#
+# So identity is defined once, here, and every security-bearing comparison in
+# this file is built on it. PostgreSQL's own order is reproduced exactly:
+# downcase first (scansup.c), then truncate (truncate_identifier), because the
+# fold can change the byte length and therefore where the clip falls.
+#
+# `_ASCII_FOLD` is what downcase_identifier() does when `enc_is_single_byte` is
+# false, which is the case for the UTF-8 databases this repository uses: bytes
+# 'A'-'Z' are lowered and every other byte is left exactly as it is.
+_NAMEDATALEN_LIMIT = 63
+_ASCII_FOLD = {c: c + 32 for c in range(ord("A"), ord("Z") + 1)}
+
+
+def _fold_unquoted(text: str) -> str:
+    """downcase_identifier() for a multibyte encoding: ASCII A-Z and nothing
+    else. Never str.lower(), which folds the whole Unicode repertoire and can
+    even change the UTF-8 byte length."""
+    return text.translate(_ASCII_FOLD)
+
+
+def _pg_identifier(text: str, quoted: bool = False) -> str:
+    """One identifier as PostgreSQL will resolve and store it.
+
+    `text` is the identifier's own characters - for a quoted identifier, its
+    content with `""` already unescaped, not the surrounding quotes.
+
+    Unquoted: fold ASCII A-Z only, never `str.lower()`, so a non-ASCII code
+    point keeps its identity exactly as PostgreSQL keeps it.
+    Quoted: content survives verbatim, case included.
+    Both: clipped to NAMEDATALEN-1 = 63 BYTES on a character boundary, which is
+    what pg_mbcliplen() guarantees - errors="ignore" drops only a partial
+    trailing sequence, and the input is always valid UTF-8 here.
+    """
+    folded = text if quoted else _fold_unquoted(text)
+    raw = folded.encode("utf-8")
+    if len(raw) <= _NAMEDATALEN_LIMIT:
+        return folded
+    return raw[:_NAMEDATALEN_LIMIT].decode("utf-8", "ignore")
+
+
+def _effective_identifier(name: str) -> str:
+    """Length clip alone, for an identifier whose folding is already resolved.
+
+    Kept as a thin wrapper so it cannot drift into a second definition of
+    identity: it is _pg_identifier()'s quoted path, which applies no folding.
+    """
+    return _pg_identifier(name, quoted=True)
+
+
+def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
+    """{opener offset: canonical label} for every `<<label>>` in the body.
+
+    The unmasked default is resolved here rather than in parse_blocks(), which
+    CodeFactor already flags for complexity (#244); this keeps that method's
+    branch count exactly where it was.
+    """
+    if raw_body is None:
+        raw_body = body
+    labels: dict[int, str] = {}
+    for m in _LABEL_OPEN_RE.finditer(body):
+        parsed, after = _parse_identity(raw_body, body, m.end())
+        if parsed is None:
+            continue
+        parts, _quoted = parsed
+        if len(parts) != 1:
+            continue
+        after = _skip_ws(body, after)
+        if not body.startswith(">>", after):
+            continue
+        opener = _labelled_opener(body, after + 2)
+        if opener is not None:
+            labels[opener] = _effective_identifier(parts[0])
+    return labels
+
+
+class _Frame:
+    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos",
+                 "label")
+
+    def __init__(self, kind, start, label=None):
         self.kind = kind
         self.start = start
         self.end = 1 << 60
@@ -377,15 +534,20 @@ class _Frame:
         self.closed = False
         self.raise_pos = None
         self.exc_pos = None
+        self.label = label
 
 
-def parse_blocks(body: str):
+def parse_blocks(body: str, raw_body: str | None = None):
     """Model BEGIN / IF / LOOP / CASE nesting and EXCEPTION sections.
 
     LOOP covers WHILE, FOR and FOREACH, which all open with LOOP and close with
     END LOOP. A bare END closes the innermost BEGIN or CASE, so a CASE
     expression cannot silently close an enclosing block.
+
+    `raw_body` is the SAME span of the unmasked source. It is consulted only for
+    block-label text, which masking necessarily hides for a quoted label.
     """
+    labels = _block_labels(body, raw_body)
     stack, frames = [], []
 
     def pop(kinds, at):
@@ -399,7 +561,7 @@ def parse_blocks(body: str):
     for m in _BLOCK_TOKEN_RE.finditer(body):
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
-            stack.append(_Frame(token, m.start()))
+            stack.append(_Frame(token, m.start(), labels.get(m.start())))
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
@@ -548,11 +710,102 @@ def unconditional_abort_before(body: str, frames, pos: int) -> bool:
     return False
 
 
-def is_unreachable_at(body: str, frames, pos: int) -> bool:
-    """True when the invocation can already have ended before `pos` - through a
-    terminating RETURN or an outer-level aborting RAISE."""
-    return terminating_return_before(body, pos) or unconditional_abort_before(
-        body, frames, pos
+# RETURN and an aborting RAISE end the whole invocation. A labelled EXIT does
+# something narrower and just as effective: it leaves the block it names and
+# resumes after that block's END, so every statement still pending inside that
+# block is skipped. When the named block is the one the candidate guard sits in,
+# the guard is on the skipped side of the jump:
+#
+#     <<auth_block>>
+#     BEGIN
+#       UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+#       EXIT auth_block;                                  -- jumps past END
+#       PERFORM public.wardah_assert_org_member(p_org);   -- never executes
+#     END auth_block;
+#
+# The privileged write has already happened and the assertion is dead code, yet
+# the guard call is a real call, at the outer statement level, with no RETURN and
+# no aborting RAISE before it - so every earlier reachability rule accepts it.
+#
+# The test is deliberately narrow, so that an EXIT which does NOT cross the
+# guard's block cannot produce a false red: the labelled frame must CONTAIN the
+# candidate position, and the EXIT must sit inside that same frame, earlier. An
+# inner labelled block that exits itself and completes before a later outer-level
+# guard therefore still passes. `EXIT label WHEN <predicate>` is covered by the
+# same rule - a conditional jump still leaves a path on which the guard never
+# runs, which is exactly what terminating_return_before() already treats as
+# disqualifying. An unlabelled EXIT is not matched: it can only leave the
+# innermost LOOP, and anything inside a loop is already rejected as not
+# outer-level.
+#
+# The EXIT's own target is read with the SAME identifier reader as the block
+# label, for the same reason: PostgreSQL accepts a quoted identifier on either
+# side, and the masker blanks quoted content, so a hand-rolled ASCII pattern read
+# `EXIT "auth_block";` as `EXIT "          ";` and matched nothing at all. Going
+# through _parse_identity() also picks up the high-range identifier characters
+# _UNQUOTED_IDENT_RE already models, so a non-ASCII label is not a way out
+# either.
+_EXIT_KW_RE = re.compile(r"\bEXIT\b", re.IGNORECASE)
+_WHEN_KW_RE = re.compile(r"WHEN\b", re.IGNORECASE)
+
+# A target that is label-SHAPED but that this scanner cannot resolve to one
+# identifier. It matches any block containing both the EXIT and the candidate,
+# so an EXIT whose destination cannot be read never silently authorizes
+# anything. A token that is not label-shaped at all (a comma, a digit) is not
+# this: it means the EXIT is not an EXIT statement - `SELECT exit, x FROM t`
+# names a column - and treating that as a wildcard would be a false red.
+_UNREADABLE_EXIT_TARGET = object()
+
+
+def _exit_targets(body: str, raw_body: str, end: int):
+    """(offset, target) for each EXIT before `end` that names a destination."""
+    out = []
+    for m in _EXIT_KW_RE.finditer(body, 0, end):
+        i = _skip_ws(body, m.end())
+        if i >= len(body) or body[i] == ";" or _WHEN_KW_RE.match(body, i):
+            continue  # `EXIT;` and `EXIT WHEN <predicate>` carry no label
+        parsed, _after = _parse_identity(raw_body, body, i)
+        if parsed is None:
+            if raw_body[i] == '"' or _UNQUOTED_IDENT_RE.match(raw_body, i):
+                out.append((m.start(), _UNREADABLE_EXIT_TARGET))
+            continue
+        parts, _quoted = parsed
+        # A label is a single identifier; `EXIT a.b` is not one this scanner can
+        # resolve, so it fails closed rather than being dropped.
+        out.append(
+            (m.start(),
+             _effective_identifier(parts[0]) if len(parts) == 1
+             else _UNREADABLE_EXIT_TARGET)
+        )
+    return out
+
+
+def labelled_exit_before(
+    body: str, frames, pos: int, raw_body: str | None = None
+) -> bool:
+    """True when a labelled EXIT earlier in `body` can jump out of a block that
+    contains `pos`, skipping it."""
+    if raw_body is None:
+        raw_body = body
+    for exit_pos, target in _exit_targets(body, raw_body, pos):
+        for frame in frames:
+            if not (frame.start < pos < frame.end
+                    and frame.start < exit_pos < frame.end):
+                continue
+            if target is _UNREADABLE_EXIT_TARGET or frame.label == target:
+                return True
+    return False
+
+
+def is_unreachable_at(
+    body: str, frames, pos: int, raw_body: str | None = None
+) -> bool:
+    """True when `pos` can be skipped - through a terminating RETURN, an
+    outer-level aborting RAISE, or a labelled EXIT out of its own block."""
+    return (
+        terminating_return_before(body, pos)
+        or unconditional_abort_before(body, frames, pos)
+        or labelled_exit_before(body, frames, pos, raw_body)
     )
 
 
@@ -581,7 +834,7 @@ def is_standalone_perform_assertion(body: str, match) -> bool:
     return False
 
 
-def _if_blocks_with_raising_deny_branch(body: str):
+def _if_blocks_with_raising_deny_branch(body: str, raw_body: str | None = None):
     """(if_token_pos, condition_start, condition_end, raise_pos) for each IF whose
     own deny branch reaches an aborting RAISE at its own nesting level.
 
@@ -590,7 +843,7 @@ def _if_blocks_with_raising_deny_branch(body: str):
     authorization boundary.
     """
     blocks = []
-    for f in parse_blocks(body):
+    for f in parse_blocks(body, raw_body):
         if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
             continue
         if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
@@ -606,13 +859,15 @@ def has_negated_raising_predicate(
     condition term of an IF whose deny branch reaches an aborting RAISE, that
     denial is not swallowed, and - under the strict contract - the guarding IF
     sits at the outer statement level with no terminating RETURN before it."""
-    frames = parse_blocks(body)
-    for if_pos, cond_start, cond_end, raise_pos in _if_blocks_with_raising_deny_branch(body):
+    frames = parse_blocks(body, raw_body)
+    for if_pos, cond_start, cond_end, raise_pos in _if_blocks_with_raising_deny_branch(
+        body, raw_body
+    ):
         if is_swallowed(body, frames, raise_pos, raw_body):
             continue
         if strict and not is_outer_statement_level(frames, if_pos):
             continue
-        if strict and is_unreachable_at(body, frames, if_pos):
+        if strict and is_unreachable_at(body, frames, if_pos, raw_body):
             continue
         condition = body[cond_start:cond_end]
         if any(_is_sole_negated_predicate(t) for t in _split_top_level_or(condition)):
@@ -627,7 +882,7 @@ def has_recognized_guard(
     idiom. A guard whose failure an enclosing handler can swallow never counts;
     under the strict contract it must also be a standalone PERFORM statement at
     the outer statement level, with no terminating RETURN before it."""
-    frames = parse_blocks(body)
+    frames = parse_blocks(body, raw_body)
     for m in GUARD_RE.finditer(body):
         # An overload is a different function in PostgreSQL, so a call that does
         # not match the reviewed helper's arity is not the reviewed helper.
@@ -640,7 +895,7 @@ def has_recognized_guard(
                 continue
             if not is_outer_statement_level(frames, m.start()):
                 continue
-            if is_unreachable_at(body, frames, m.start()):
+            if is_unreachable_at(body, frames, m.start(), raw_body):
                 continue
         return True
     return has_negated_raising_predicate(body, strict=strict, raw_body=raw_body)
@@ -937,29 +1192,58 @@ _TYPE_LEAD_WORDS = frozenset(
     {"character", "double", "bit", "national", "time", "timestamp", "interval"}
 )
 _ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
-_PLAIN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
+# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
+# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
+# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
+# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
+# block label, invisible: no label was recorded and the labelled-EXIT bypass
+# reopened.
+_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
+_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
+_UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
+# The same alphabet, anchored: "is this whole token one bare identifier".
+_PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
 _DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
-_UNQUOTED_IDENT_RE = re.compile(r"[A-Za-z_-￿][A-Za-z0-9_$-￿]*")
 
 
 _QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
 
 
 def _fold_type_text(text: str) -> str:
-    """Lower-case a type expression EXCEPT inside quoted identifiers.
+    """Resolve a type expression's IDENTIFIER SEGMENTS to PostgreSQL identity.
 
     PostgreSQL folds an unquoted type name and preserves a quoted one, so
     `public."TypeA"` and `public."TypeB"` are different types. They are also the
     two things masking destroys - it blanks quoted-identifier content - which is
-    why argument lists are normalized from the RAW source and folded here rather
-    than lower-cased wholesale.
+    why argument lists are normalized from the RAW source and resolved here
+    rather than lower-cased wholesale.
+
+    Each identifier SEGMENT goes through _pg_identifier() on its own;
+    punctuation, parentheses, array brackets and whitespace are copied through
+    untouched. Lower-casing the unquoted spans wholesale was a second identity
+    model, and it merged `TypeÄ` with `Typeä` - two distinct types in a UTF-8
+    database - so a REVOKE naming one overload exempted a SECURITY DEFINER
+    function declared with the other.
     """
     out, last = [], 0
     for m in _QUOTED_SEGMENT_RE.finditer(text):
-        out.append(text[last:m.start()].lower())
-        out.append(m.group(0))
+        out.append(_fold_type_segment(text[last:m.start()]))
+        content = _pg_identifier(m.group(0)[1:-1].replace('""', '"'), quoted=True)
+        out.append('"' + content.replace('"', '""') + '"')
         last = m.end()
-    out.append(text[last:].lower())
+    out.append(_fold_type_segment(text[last:]))
+    return "".join(out)
+
+
+def _fold_type_segment(span: str) -> str:
+    """Resolve every bare identifier inside an unquoted span of type text."""
+    out, last = [], 0
+    for m in _UNQUOTED_IDENT_RE.finditer(span):
+        out.append(span[last:m.start()])
+        out.append(_pg_identifier(m.group(0)))
+        last = m.end()
+    out.append(span[last:])
     return "".join(out)
 
 
@@ -1062,14 +1346,14 @@ def _parse_identity(raw: str, masked: str, i: int):
                 j += 1
             if not closed:
                 return None, i
-            parts.append("".join(buf))
+            parts.append(_pg_identifier("".join(buf), quoted=True))
             quoted_any = True
             i = j
         else:
             m = _UNQUOTED_IDENT_RE.match(raw, i)
             if m is None:
                 return None, i
-            parts.append(m.group(0).lower())
+            parts.append(_pg_identifier(m.group(0)))
             i = m.end()
         nxt = _skip_ws(masked, i)
         if nxt < n and raw[nxt] == ".":
@@ -1160,12 +1444,26 @@ _CREATE_ROUTINE_RE = re.compile(
 )
 _ALTER_ROUTINE_RE = re.compile(r"\bALTER\s+(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE)
 _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
+# `REVOKE GRANT OPTION FOR EXECUTE ... FROM authenticated` withdraws only the
+# right to RE-GRANT execute. The role keeps EXECUTE itself and can still call the
+# function. The optional clause was already matched here - so the statement
+# parsed and its privilege list read `EXECUTE` - but it collapsed into a plain
+# revoke, and the ACL replay then closed the executable surface on the strength
+# of a statement that closes nothing. It is captured as its own group so
+# revoke_closes_client_surface() can leave EXECUTE state alone.
 _REVOKE_HEAD_RE = re.compile(
-    r"\bREVOKE\s+(?:GRANT\s+OPTION\s+FOR\s+)?(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
+    r"\bREVOKE\s+(?P<grant_option>GRANT\s+OPTION\s+FOR\s+)?"
+    r"(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
     re.IGNORECASE,
 )
+# `GRANT OPTION FOR` never begins a GRANT statement - it is the clause above,
+# inside a REVOKE. Without the lookahead the same bytes were ALSO parsed as
+# `GRANT OPTION FOR EXECUTE ON FUNCTION f(...)`, a statement that does not
+# exist. It opened nothing in practice, because a REVOKE has no `TO` and the
+# phantom's grantee list came out empty, but it put a statement in the ledger
+# that the file never contained.
 _GRANT_HEAD_RE = re.compile(
-    r"\bGRANT\s+(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
+    r"\bGRANT\s+(?!OPTION\s+FOR\b)(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
 )
 _EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
 _ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
@@ -1290,7 +1588,9 @@ CLIENT_ROLES = ("public", "anon", "authenticated")
 # role name is the SAME role when its content matches - PostgreSQL folds the
 # unquoted form to lower case - so both spellings resolve here, and a quoted
 # form that differs in case (`"Authenticated"`) is a different role and does not.
-_GRANTEE_TOKEN_RE = re.compile(r'"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*')
+_GRANTEE_TOKEN_RE = re.compile(
+    f'"(?:[^"]|"")*"|[{_IDENT_START}][{_IDENT_CONT}]*'
+)
 _GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_role"})
 
 
@@ -1305,25 +1605,29 @@ def _grantee_names(raw_region: str) -> set[str]:
     for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
         token = raw_region[m.start():m.end()]
         if token.startswith('"'):
-            names.add(token[1:-1].replace('""', '"'))
+            names.add(_pg_identifier(token[1:-1].replace('""', '"'), quoted=True))
         else:
-            lowered = token.lower()
-            if lowered in _GRANTEE_NOISE:
+            resolved = _pg_identifier(token)
+            if resolved in _GRANTEE_NOISE:
                 continue
-            names.add(lowered)
+            names.add(resolved)
     return names
 
 
 class PrivilegeStatement:
-    __slots__ = ("start", "end", "is_revoke", "targets", "all_in_schema", "grantees")
+    __slots__ = ("start", "end", "is_revoke", "targets", "all_in_schema", "grantees",
+                 "grant_option_only")
 
-    def __init__(self, start, end, is_revoke, targets, all_in_schema, grantees):
+    def __init__(self, start, end, is_revoke, targets, all_in_schema, grantees,
+                 grant_option_only=False):
         self.start = start
         self.end = end
         self.is_revoke = is_revoke
         self.targets = targets
         self.all_in_schema = all_in_schema
         self.grantees = grantees
+        # `REVOKE GRANT OPTION FOR ...`: withdraws delegation, not the privilege.
+        self.grant_option_only = grant_option_only
 
 
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
@@ -1361,7 +1665,8 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
             grantees = _grantee_names(raw[km.end(): end]) if km else set()
             out.append(
                 PrivilegeStatement(
-                    m.start(), end, is_revoke, targets, all_in_schema, grantees
+                    m.start(), end, is_revoke, targets, all_in_schema, grantees,
+                    bool(m.groupdict().get("grant_option")),
                 )
             )
     return out
@@ -1399,6 +1704,11 @@ def revoke_closes_client_surface(
     explicit = {role: False for role in CLIENT_ROLES if role != "public"}
     for stmt in sorted(privileges, key=lambda s: s.start):
         if stmt.start < after or stmt.all_in_schema:
+            continue
+        # `REVOKE GRANT OPTION FOR EXECUTE` takes away the right to pass EXECUTE
+        # on. The grantee's own EXECUTE is untouched, so this statement moves no
+        # part of the executable surface and must not be replayed as a closure.
+        if stmt.grant_option_only:
             continue
         if not any(identity.same_function(t) for t in stmt.targets):
             continue
@@ -1464,10 +1774,10 @@ def redefined_guard_names(definitions) -> list[str]:
     database will run are then two different bodies. Under the strict contract
     that is a hard stop, not a judgement call.
     """
+    # Identity.name is already resolved through _pg_identifier(); re-folding it
+    # here with str.lower() would be a second, divergent identity model.
     recognized = {n.lower() for n in GUARD_NAMES + BOOLEAN_PREDICATES}
-    return sorted(
-        {d.identity.name.lower() for d in definitions if d.identity.name.lower() in recognized}
-    )
+    return sorted({d.identity.name for d in definitions if d.identity.name in recognized})
 
 
 def check_file(path: pathlib.Path) -> list[str]:
