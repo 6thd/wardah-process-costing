@@ -13,9 +13,10 @@ a quoted identifier, a bare identifier, comment or literal text — never
 satisfies the gate, and neither does a call to a different overload of the name.
 
 It must also be able to RUN and to DENY: it cannot sit after a terminating
-RETURN or an outer-level aborting RAISE, and no enclosing EXCEPTION handler may
-be able to catch its P0001 — including through that code's class, P0000, which
-`WHEN plpgsql_error` and `WHEN SQLSTATE 'P0000'` both reach.
+RETURN, an outer-level aborting RAISE, or a labelled EXIT that jumps out of the
+block it sits in, and no enclosing EXCEPTION handler may be able to catch its
+P0001 — including through that code's class, P0000, which `WHEN plpgsql_error`
+and `WHEN SQLSTATE 'P0000'` both reach.
 
 Recognized guards:
   - wardah_assert_org_member / wardah_assert_org_admin: raise on denial, so a
@@ -31,7 +32,8 @@ Recognized guards:
 
 Exemptions:
   - Functions this migration itself closes to every client role. The REVOKE must
-    NAME the function - same schema, name and argument types - and no later
+    NAME the function - same schema, name and argument types - it must revoke
+    the privilege itself rather than only `GRANT OPTION FOR` it, and no later
     GRANT in the file may put the privilege back. Below the strict cutoff this
     keeps its historical meaning (close PUBLIC); from the cutoff on, closing
     PUBLIC while granting `authenticated` is not a closure.
@@ -366,10 +368,40 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
     return False
 
 
-class _Frame:
-    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos")
+# A PL/pgSQL block or loop may carry a `<<label>>` immediately before its
+# opening keyword, and `EXIT <label>` then transfers control to just after that
+# block's END — including for a plain BEGIN block, which is the one shape people
+# do not expect. `EXIT` with no label only ever leaves the innermost LOOP, so it
+# cannot skip an outer-level statement; a label is what makes the jump able to
+# cross a block boundary. The label is captured here so labelled_exit_before()
+# can ask whether a jump lands PAST a candidate guard.
+_BLOCK_LABEL_RE = re.compile(r"<<\s*([A-Za-z_][A-Za-z0-9_$]*)\s*>>")
 
-    def __init__(self, kind, start):
+
+def _label_before(body: str, pos: int) -> str | None:
+    """The `<<label>>` immediately preceding the block opener at `pos`, if any.
+
+    Walks back over whitespace rather than searching a fixed window, so a long
+    comment between the label and its BEGIN - whitespace by the time the masker
+    is done - cannot hide the label and quietly restore the old behaviour.
+    """
+    j = pos
+    while j > 0 and body[j - 1].isspace():
+        j -= 1
+    if not body.endswith(">>", 0, j):
+        return None
+    open_at = body.rfind("<<", 0, j - 2)
+    if open_at == -1:
+        return None
+    m = _BLOCK_LABEL_RE.fullmatch(body, open_at, j)
+    return m.group(1).lower() if m else None
+
+
+class _Frame:
+    __slots__ = ("kind", "start", "end", "then_pos", "closed", "raise_pos", "exc_pos",
+                 "label")
+
+    def __init__(self, kind, start, label=None):
         self.kind = kind
         self.start = start
         self.end = 1 << 60
@@ -377,6 +409,7 @@ class _Frame:
         self.closed = False
         self.raise_pos = None
         self.exc_pos = None
+        self.label = label
 
 
 def parse_blocks(body: str):
@@ -399,7 +432,7 @@ def parse_blocks(body: str):
     for m in _BLOCK_TOKEN_RE.finditer(body):
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
-            stack.append(_Frame(token, m.start()))
+            stack.append(_Frame(token, m.start(), _label_before(body, m.start())))
         elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
@@ -548,11 +581,60 @@ def unconditional_abort_before(body: str, frames, pos: int) -> bool:
     return False
 
 
+# RETURN and an aborting RAISE end the whole invocation. A labelled EXIT does
+# something narrower and just as effective: it leaves the block it names and
+# resumes after that block's END, so every statement still pending inside that
+# block is skipped. When the named block is the one the candidate guard sits in,
+# the guard is on the skipped side of the jump:
+#
+#     <<auth_block>>
+#     BEGIN
+#       UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;
+#       EXIT auth_block;                                  -- jumps past END
+#       PERFORM public.wardah_assert_org_member(p_org);   -- never executes
+#     END auth_block;
+#
+# The privileged write has already happened and the assertion is dead code, yet
+# the guard call is a real call, at the outer statement level, with no RETURN and
+# no aborting RAISE before it - so every earlier reachability rule accepts it.
+#
+# The test is deliberately narrow, so that an EXIT which does NOT cross the
+# guard's block cannot produce a false red: the labelled frame must CONTAIN the
+# candidate position, and the EXIT must sit inside that same frame, earlier. An
+# inner labelled block that exits itself and completes before a later outer-level
+# guard therefore still passes. `EXIT label WHEN <predicate>` is covered by the
+# same rule - a conditional jump still leaves a path on which the guard never
+# runs, which is exactly what terminating_return_before() already treats as
+# disqualifying. An unlabelled EXIT is not matched: it can only leave the
+# innermost LOOP, and anything inside a loop is already rejected as not
+# outer-level.
+_EXIT_LABEL_RE = re.compile(
+    r"\bEXIT\s+(?!WHEN\b)([A-Za-z_][A-Za-z0-9_$]*)", re.IGNORECASE
+)
+
+
+def labelled_exit_before(body: str, frames, pos: int) -> bool:
+    """True when a labelled EXIT earlier in `body` can jump out of a block that
+    contains `pos`, skipping it."""
+    for m in _EXIT_LABEL_RE.finditer(body, 0, pos):
+        label = m.group(1).lower()
+        for frame in frames:
+            if (
+                frame.label == label
+                and frame.start < pos < frame.end
+                and frame.start < m.start() < frame.end
+            ):
+                return True
+    return False
+
+
 def is_unreachable_at(body: str, frames, pos: int) -> bool:
-    """True when the invocation can already have ended before `pos` - through a
-    terminating RETURN or an outer-level aborting RAISE."""
-    return terminating_return_before(body, pos) or unconditional_abort_before(
-        body, frames, pos
+    """True when `pos` can be skipped - through a terminating RETURN, an
+    outer-level aborting RAISE, or a labelled EXIT out of its own block."""
+    return (
+        terminating_return_before(body, pos)
+        or unconditional_abort_before(body, frames, pos)
+        or labelled_exit_before(body, frames, pos)
     )
 
 
@@ -1160,12 +1242,26 @@ _CREATE_ROUTINE_RE = re.compile(
 )
 _ALTER_ROUTINE_RE = re.compile(r"\bALTER\s+(?:FUNCTION|PROCEDURE)\s+", re.IGNORECASE)
 _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
+# `REVOKE GRANT OPTION FOR EXECUTE ... FROM authenticated` withdraws only the
+# right to RE-GRANT execute. The role keeps EXECUTE itself and can still call the
+# function. The optional clause was already matched here - so the statement
+# parsed and its privilege list read `EXECUTE` - but it collapsed into a plain
+# revoke, and the ACL replay then closed the executable surface on the strength
+# of a statement that closes nothing. It is captured as its own group so
+# revoke_closes_client_surface() can leave EXECUTE state alone.
 _REVOKE_HEAD_RE = re.compile(
-    r"\bREVOKE\s+(?:GRANT\s+OPTION\s+FOR\s+)?(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
+    r"\bREVOKE\s+(?P<grant_option>GRANT\s+OPTION\s+FOR\s+)?"
+    r"(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
     re.IGNORECASE,
 )
+# `GRANT OPTION FOR` never begins a GRANT statement - it is the clause above,
+# inside a REVOKE. Without the lookahead the same bytes were ALSO parsed as
+# `GRANT OPTION FOR EXECUTE ON FUNCTION f(...)`, a statement that does not
+# exist. It opened nothing in practice, because a REVOKE has no `TO` and the
+# phantom's grantee list came out empty, but it put a statement in the ledger
+# that the file never contained.
 _GRANT_HEAD_RE = re.compile(
-    r"\bGRANT\s+(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
+    r"\bGRANT\s+(?!OPTION\s+FOR\b)(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
 )
 _EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
 _ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
@@ -1315,15 +1411,19 @@ def _grantee_names(raw_region: str) -> set[str]:
 
 
 class PrivilegeStatement:
-    __slots__ = ("start", "end", "is_revoke", "targets", "all_in_schema", "grantees")
+    __slots__ = ("start", "end", "is_revoke", "targets", "all_in_schema", "grantees",
+                 "grant_option_only")
 
-    def __init__(self, start, end, is_revoke, targets, all_in_schema, grantees):
+    def __init__(self, start, end, is_revoke, targets, all_in_schema, grantees,
+                 grant_option_only=False):
         self.start = start
         self.end = end
         self.is_revoke = is_revoke
         self.targets = targets
         self.all_in_schema = all_in_schema
         self.grantees = grantees
+        # `REVOKE GRANT OPTION FOR ...`: withdraws delegation, not the privilege.
+        self.grant_option_only = grant_option_only
 
 
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
@@ -1361,7 +1461,8 @@ def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement
             grantees = _grantee_names(raw[km.end(): end]) if km else set()
             out.append(
                 PrivilegeStatement(
-                    m.start(), end, is_revoke, targets, all_in_schema, grantees
+                    m.start(), end, is_revoke, targets, all_in_schema, grantees,
+                    bool(m.groupdict().get("grant_option")),
                 )
             )
     return out
@@ -1399,6 +1500,11 @@ def revoke_closes_client_surface(
     explicit = {role: False for role in CLIENT_ROLES if role != "public"}
     for stmt in sorted(privileges, key=lambda s: s.start):
         if stmt.start < after or stmt.all_in_schema:
+            continue
+        # `REVOKE GRANT OPTION FOR EXECUTE` takes away the right to pass EXECUTE
+        # on. The grantee's own EXECUTE is untouched, so this statement moves no
+        # part of the executable surface and must not be replayed as a closure.
+        if stmt.grant_option_only:
             continue
         if not any(identity.same_function(t) for t in stmt.targets):
             continue

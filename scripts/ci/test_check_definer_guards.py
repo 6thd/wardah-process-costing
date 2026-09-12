@@ -565,10 +565,112 @@ ASTRA_MUST_ACCEPT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Final-review P2-A: a labelled EXIT jumps past the authorization boundary
+# ---------------------------------------------------------------------------
+# Reproduced through the real check_file() at 337965b, where every fixture in
+# LABELLED_EXIT_MUST_REJECT returned []. is_unreachable_at() modelled a
+# terminating RETURN and an outer-level aborting RAISE, both of which end the
+# whole invocation, but not `EXIT <label>` — which does not end the invocation
+# and is exactly why it slipped through. It leaves the block it names and
+# resumes after that block's END, so the guard sitting further down inside that
+# block is skipped while remaining, textually, a real call at the outer
+# statement level with nothing disqualifying before it.
+#
+# `EXIT` is the shape people do not expect to cross a BEGIN boundary: an
+# unlabelled EXIT only ever leaves the innermost LOOP, and PostgreSQL requires
+# the label precisely for the block case. The controls below hold that
+# distinction — an inner block that exits itself, and a loop that exits itself,
+# both leave a later outer-level guard intact.
+def labelled_definer(body: str, label: str = "auth_block") -> str:
+    """A SECURITY DEFINER function whose OUTER block carries a `<<label>>`."""
+    return (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "SET search_path TO 'public', 'pg_temp'\n"
+        f"AS $function$\n<<{label}>>\nBEGIN\n{body}\nEND {label};\n$function$;\n"
+    )
+
+
+LABELLED_EXIT_MUST_REJECT = {
+    # The reported mutant: the privileged write has already happened, the jump
+    # skips the assertion, and the function returns having authorized nothing.
+    "labelled_exit_before_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);"
+    ),
+    # A conditional jump still leaves a path on which the guard never runs —
+    # the same reason terminating_return_before() rejects a conditional RETURN.
+    "conditional_labelled_exit_before_guard": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth_block WHEN p_org IS NULL;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # The jump is issued from a nested block but NAMES the outer one, so it
+    # still lands past the guard.
+    "inner_block_exits_the_labelled_outer_block": labelled_definer(
+        f"  BEGIN\n    EXIT auth_block;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);\n{WORK_LINE}"
+    ),
+    # The label is still the block's label with a comment between the two: the
+    # masker has turned the comment into whitespace by then, so a fixed-window
+    # lookback would be the only thing that could lose it.
+    "labelled_exit_with_a_comment_between_label_and_begin": (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        "AS $function$\n<<auth_block>>\n/* " + ("x" * 400) + " */\nBEGIN\n"
+        f"{WORK_LINE}\n  EXIT auth_block;\n  PERFORM {OUTER}(p_org);\n"
+        "END auth_block;\n$function$;\n"
+    ),
+    # The boolean negated-raising idiom is skipped by the same jump.
+    "labelled_exit_before_boolean_guard": labelled_definer(
+        "  EXIT auth_block;\n"
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"{WORK_LINE}"
+    ),
+}
+
+MUST_REJECT.update(LABELLED_EXIT_MUST_REJECT)
+
+LABELLED_EXIT_MUST_ACCEPT = {
+    # The guard precedes the jump, so every path through the block is authorized.
+    "guard_before_labelled_exit": labelled_definer(
+        f"  PERFORM {OUTER}(p_org);\n  EXIT auth_block;\n{WORK_LINE}"
+    ),
+    # An inner labelled block that exits ITSELF completes before the outer-level
+    # guard, which therefore still runs. Rejecting this would be a false red.
+    "inner_labelled_block_exits_itself": definer(
+        "  <<inner>>\n  BEGIN\n    EXIT inner;\n  END inner;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # An UNLABELLED EXIT can only leave the innermost loop; the guard after the
+    # loop is untouched.
+    "unlabelled_loop_exit_then_guard": definer(
+        "  WHILE true LOOP\n    EXIT;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # `EXIT WHEN <predicate>` carries no label: WHEN must not be read as one.
+    "exit_when_without_a_label_then_guard": definer(
+        "  WHILE true LOOP\n    EXIT WHEN p_org IS NOT NULL;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # `>>` is also the inet/box shift operator. Text that merely ends in `>>`
+    # before a block must not be read as a label.
+    "shift_operator_is_not_a_block_label": definer(
+        "  PERFORM inet '10.0.0.0/8' >> inet '10.1.1.1';\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # A labelled loop that exits itself, with the guard after it.
+    "labelled_loop_exits_itself_then_guard": definer(
+        "  <<scan>>\n  WHILE true LOOP\n    EXIT scan;\n  END LOOP;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+}
+
+
 MUST_ACCEPT = {
     **OUTER_LEVEL_MUST_ACCEPT,
     **ASTRA_MUST_ACCEPT,
     **GUARD_BEFORE_RETURN_MUST_ACCEPT,
+    **LABELLED_EXIT_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
     # Same, with the non-executable decoys present as well: an executable call
@@ -1205,6 +1307,83 @@ OMITTED_SCHEMA_MUST_ACCEPT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Final-review P2-B: REVOKE GRANT OPTION FOR EXECUTE is not a closure
+# ---------------------------------------------------------------------------
+# Reproduced through the real check_file() at 337965b, where every fixture in
+# GRANT_OPTION_MUST_REJECT returned []. _REVOKE_HEAD_RE already TOLERATED the
+# optional `GRANT OPTION FOR` clause — which is how the statement parsed at all
+# and how its privilege list read `EXECUTE` — but the parse then collapsed into
+# `is_revoke=True`, indistinguishable from a real revoke. The ACL replay closed
+# the executable surface on the strength of a statement that withdraws only the
+# right to RE-GRANT execute: `authenticated` keeps EXECUTE and can still call
+# the unguarded SECURITY DEFINER function.
+GRANT_OPTION_MUST_REJECT = {
+    "grant_option_revoke_does_not_close_the_default_public_grant": (
+        routine("f_go", "SECURITY DEFINER")
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "grant_option_revoke_leaves_an_explicit_grant_standing": (
+        routine("f_go2", "SECURITY DEFINER")
+        + "GRANT EXECUTE ON FUNCTION public.f_go2(uuid) TO authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # ALL is the same statement with a wider privilege list, and just as
+    # ineffective when it is only the grant option being withdrawn.
+    "grant_option_revoke_of_all_privileges": (
+        routine("f_go3", "SECURITY DEFINER")
+        + "REVOKE GRANT OPTION FOR ALL ON FUNCTION public.f_go3(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # Ordering: a real closure, re-opened by a later GRANT, is NOT re-closed by
+    # a grant-option-only revoke. `authenticated` ends the migration holding
+    # EXECUTE.
+    "grant_option_revoke_cannot_re_close_a_later_grant": (
+        routine("f_go4", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_go4(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION public.f_go4(uuid) TO authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go4(uuid) "
+          "FROM authenticated;\n"
+    ),
+    # A quoted grantee resolves to the same role, so it must not close either.
+    "grant_option_revoke_with_a_quoted_grantee": (
+        routine("f_go5", "SECURITY DEFINER")
+        + 'REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_go5(uuid) '
+          'FROM PUBLIC, anon, "authenticated";\n'
+    ),
+}
+
+GRANT_OPTION_MUST_ACCEPT = {
+    # The real statement still closes exactly as before.
+    "real_revoke_execute_still_closes": (
+        routine("f_ok", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A grant-option-only revoke after a real closure changes nothing: the
+    # correction must not turn it into a re-opening either.
+    "grant_option_revoke_after_a_real_closure_keeps_it_closed": (
+        routine("f_ok2", "SECURITY DEFINER")
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f_ok2(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # `WITH GRANT OPTION` on a GRANT is a trailer, not a second statement; the
+    # real revoke that follows still closes the surface.
+    "grant_with_grant_option_then_real_revoke": (
+        routine("f_ok3", "SECURITY DEFINER")
+        + "GRANT EXECUTE ON FUNCTION public.f_ok3(uuid) TO authenticated "
+          "WITH GRANT OPTION;\n"
+        + "REVOKE EXECUTE ON FUNCTION public.f_ok3(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -1620,6 +1799,106 @@ class DefinerScannerTests(unittest.TestCase):
         strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_abort.sql"
         strict.write_text(sql, encoding="utf-8")
         self.assertTrue(guards.check_file(strict))
+
+    # -- Final-review P2-A: labelled EXIT ------------------------------------
+
+    def test_labelled_exit_past_a_guard_is_rejected(self) -> None:
+        """P2-A: `EXIT <label>` leaves the block, skipping the assertion."""
+        for name, sql in LABELLED_EXIT_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: guard skipped by a labelled EXIT accepted",
+                )
+
+    def test_labelled_exit_rule_discriminates(self) -> None:
+        """The jump must cross the candidate's own block, and nothing else."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  EXIT auth_block;\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body)
+        guard_pos = body.index("PERFORM")
+        self.assertTrue(guards.labelled_exit_before(body, frames, guard_pos))
+        # The label must be the one on the block that CONTAINS the position.
+        other = body.replace("EXIT auth_block;", "EXIT some_other_block;")
+        self.assertFalse(
+            guards.labelled_exit_before(
+                other, guards.parse_blocks(other), other.index("PERFORM")
+            )
+        )
+        # An EXIT after the candidate cannot skip it.
+        after = (
+            "<<auth_block>>\nBEGIN\n"
+            "  PERFORM public.wardah_assert_org_member(p_org);\n"
+            "  EXIT auth_block;\n"
+            "END auth_block;\n"
+        )
+        self.assertFalse(
+            guards.labelled_exit_before(
+                after, guards.parse_blocks(after), after.index("PERFORM")
+            )
+        )
+        # `EXIT WHEN <predicate>` carries no label at all.
+        unlabelled = "BEGIN\n  EXIT WHEN p_x;\n  PERFORM g(p_org);\nEND;\n"
+        self.assertFalse(
+            guards.labelled_exit_before(
+                unlabelled,
+                guards.parse_blocks(unlabelled),
+                unlabelled.index("PERFORM"),
+            )
+        )
+
+    def test_labelled_exit_rule_is_strict_contract_only(self) -> None:
+        """P2-A: historical migrations keep their validated placement."""
+        sql = LABELLED_EXIT_MUST_REJECT["labelled_exit_before_guard"]
+        historical = self.root / "150_labelled_exit.sql"
+        historical.write_text(sql, encoding="utf-8")
+        self.assertEqual(guards.check_file(historical), [])
+        strict = self.root / f"{guards.MIGRATION_STRICT_CUTOFF}_labelled_exit.sql"
+        strict.write_text(sql, encoding="utf-8")
+        self.assertTrue(guards.check_file(strict))
+
+    # -- Final-review P2-B: REVOKE GRANT OPTION FOR --------------------------
+
+    def test_grant_option_revoke_is_not_a_closure(self) -> None:
+        """P2-B: withdrawing delegation leaves EXECUTE, and the surface, open."""
+        for name, sql in GRANT_OPTION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: grant-option-only revoke accepted as a closure",
+                )
+        for name, sql in GRANT_OPTION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_grant_option_only_is_modelled_on_the_statement(self) -> None:
+        """P2-B: the distinction is carried, not re-derived at each use site."""
+        sql = (
+            "REVOKE GRANT OPTION FOR EXECUTE ON FUNCTION public.f(uuid) "
+            "FROM authenticated;\n"
+            "REVOKE EXECUTE ON FUNCTION public.f(uuid) FROM authenticated;\n"
+            "GRANT EXECUTE ON FUNCTION public.f(uuid) TO authenticated "
+            "WITH GRANT OPTION;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = sorted(
+            guards.parse_privilege_statements(sql, masked), key=lambda s: s.start
+        )
+        # Exactly three statements: the `GRANT OPTION FOR` clause inside the
+        # first REVOKE is part of that revoke, not a fourth (phantom) GRANT.
+        self.assertEqual(
+            [(s.is_revoke, s.grant_option_only) for s in stmts],
+            [(True, True), (True, False), (False, False)],
+        )
+        # `WITH GRANT OPTION` is a trailer on a GRANT, never a revoke of one.
+        self.assertFalse(stmts[2].is_revoke)
+        self.assertEqual(stmts[2].grantees & set(guards.CLIENT_ROLES),
+                         {"authenticated"})
 
     def test_a_definition_cannot_borrow_the_next_functions_body(self) -> None:
         """F: no dollar-quoted body of its own means no guard, at any age."""
