@@ -425,6 +425,42 @@ def _labelled_opener(body: str, pos: int) -> int | None:
     return None
 
 
+# PostgreSQL stores an identifier in a `name` column, so it clips every one of
+# them to NAMEDATALEN-1 = 63 BYTES at parse time (`truncate_identifier`), on a
+# character boundary. Two labels that differ only PAST byte 63 are therefore one
+# and the same label to PL/pgSQL - and comparing the untruncated Python strings
+# sees two names where the database sees one, so the jump goes unnoticed:
+#
+#     <<aaa…63 a's…X>>                                   -- clipped to 63 a's
+#     BEGIN
+#       UPDATE public.bins SET actual_qty = 0 …;         -- privileged
+#       EXIT aaa…63 a's…Y;                               -- the SAME label
+#       PERFORM public.wardah_assert_org_member(p_org);  -- never executes
+#     END;
+#
+# Verified on PostgreSQL 17: the function is created (with a truncation notice)
+# and the assertion is skipped at run time. Both operands are therefore
+# canonicalized the same way before they are stored or compared.
+#
+# The limit is in BYTES, not characters, and the clip must never split a UTF-8
+# character - which is why this decodes with errors="ignore" to drop a partial
+# trailing sequence, exactly as pg_mbcliplen() does.
+_NAMEDATALEN_LIMIT = 63
+
+
+def _effective_identifier(name: str) -> str:
+    """The identifier as PostgreSQL will actually store it.
+
+    Folding and quoting are NOT decided here - _parse_identity() has already
+    applied them - so this only applies the length clip, and an identifier that
+    fits is returned untouched.
+    """
+    raw = name.encode("utf-8")
+    if len(raw) <= _NAMEDATALEN_LIMIT:
+        return name
+    return raw[:_NAMEDATALEN_LIMIT].decode("utf-8", "ignore")
+
+
 def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
     """{opener offset: canonical label} for every `<<label>>` in the body.
 
@@ -447,7 +483,7 @@ def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
             continue
         opener = _labelled_opener(body, after + 2)
         if opener is not None:
-            labels[opener] = parts[0]
+            labels[opener] = _effective_identifier(parts[0])
     return labels
 
 
@@ -702,7 +738,9 @@ def _exit_targets(body: str, raw_body: str, end: int):
         # A label is a single identifier; `EXIT a.b` is not one this scanner can
         # resolve, so it fails closed rather than being dropped.
         out.append(
-            (m.start(), parts[0] if len(parts) == 1 else _UNREADABLE_EXIT_TARGET)
+            (m.start(),
+             _effective_identifier(parts[0]) if len(parts) == 1
+             else _UNREADABLE_EXIT_TARGET)
         )
     return out
 

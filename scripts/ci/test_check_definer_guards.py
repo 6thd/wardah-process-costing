@@ -5,6 +5,22 @@ These run against check_file() — the function CI actually uses per migration �
 rather than against the masker alone, so they prove the verdict, not an
 intermediate string.
 
+Two kinds of test live here, and the difference matters when reading a green
+run as evidence:
+
+  END-TO-END. Every MUST_REJECT / MUST_ACCEPT fixture goes through
+  self.verdict(), which writes a real `999_*.sql` (strict contract) and calls
+  check_file(). These are the security acceptance cases; a fixture is only ever
+  claimed closed on the strength of one of them.
+
+  PARSER-INTERNAL. A handful assert on an intermediate result instead —
+  test_labelled_exit_rule_discriminates, test_label_identity_follows_postgresql_folding,
+  test_only_blocks_and_loops_take_a_label, test_effective_identifier_matches_postgresql_clipping
+  and test_grant_option_only_is_modelled_on_the_statement. They pin down a
+  specific semantic (label identity, statement modelling) more precisely than a
+  verdict can, but each one is backed by end-to-end fixtures covering the same
+  behaviour. None of them is the sole proof of any security property.
+
 Final-review remediation (PR #241, Finding 1): at the reviewed head
 fa1de77f07077af97623c34c0a743b5d00000785, mask_sql() masked only `--` comments
 once it entered a dollar-quoted function body. An unguarded SECURITY DEFINER
@@ -737,8 +753,91 @@ LABELLED_EXIT_IDENTIFIER_MUST_REJECT = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# Third-round P2-C: identifiers collide once PostgreSQL clips them
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at 407ffa1 - after
+# the DECLARE and quoted/non-ASCII round - and returned [] there.
+#
+# PostgreSQL clips every identifier to NAMEDATALEN-1 = 63 BYTES, so a block
+# label and an EXIT target that differ only PAST byte 63 are ONE label to
+# PL/pgSQL. Comparing the untruncated text sees two names where the database
+# sees one, records no jump, and accepts the function. Confirmed at run time on
+# PostgreSQL 17: the function is created with a truncation notice and the
+# assertion never executes.
+#
+# The limit is in BYTES, so a multibyte label collides sooner in characters than
+# an ASCII one, and the clip must fall on a character boundary.
+_LONG = "a" * 63                     # 63 ASCII bytes; +1 char overflows
+_LONG_MB = "م" * 32             # 64 bytes: over the limit in 32 characters
+
+
+def collide_definer(label: str, target: str, declare: str = "",
+                    guard: str | None = None, exit_stmt: str | None = None) -> str:
+    """A SECURITY DEFINER function whose label and EXIT target may collide."""
+    guard = f"  PERFORM {OUTER}(p_org);" if guard is None else guard
+    exit_stmt = f"  EXIT {target};" if exit_stmt is None else exit_stmt
+    return (
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        f"AS $function$\n<<{label}>>\n{declare}BEGIN\n{WORK_LINE}\n"
+        f"{exit_stmt}\n{guard}\nEND;\n$function$;\n"
+    )
+
+
+LABELLED_EXIT_TRUNCATION_MUST_REJECT = {
+    "ascii_labels_differing_only_after_byte_63": collide_definer(
+        _LONG + "X", _LONG + "Y"
+    ),
+    "truncation_collision_with_a_declare_section": collide_definer(
+        _LONG + "X", _LONG + "Y", declare=DECLARE_SECTION
+    ),
+    # 32 two-byte characters already exceed 63 bytes, so these differ only past
+    # the limit even though they are short in characters.
+    "multibyte_labels_differing_only_after_the_byte_limit": collide_definer(
+        _LONG_MB + "a", _LONG_MB + "b"
+    ),
+    # Quoting preserves case but does not exempt an identifier from the clip.
+    "quoted_labels_colliding_only_after_byte_63": collide_definer(
+        f'"{_LONG}X"', f'"{_LONG}Y"'
+    ),
+    "conditional_exit_with_a_truncation_collision": collide_definer(
+        _LONG + "X", _LONG + "Y",
+        exit_stmt=f"  EXIT {_LONG}Y WHEN p_org IS NULL;",
+    ),
+    "boolean_deny_guard_behind_a_colliding_exit": collide_definer(
+        _LONG + "X", _LONG + "Y",
+        guard=(f"  IF NOT {QPRED}(p_org) THEN\n"
+               "    RAISE EXCEPTION 'DENIED';\n  END IF;"),
+    ),
+}
+
+LABELLED_EXIT_TRUNCATION_MUST_ACCEPT = {
+    # Different inside the first 63 bytes: two real labels, no jump proven.
+    "labels_genuinely_different_within_the_limit": collide_definer(
+        "alpha_block", "beta_block"
+    ),
+    # Over-length but identical, with the guard ahead of the jump.
+    "guard_before_a_colliding_exit": collide_definer(
+        _LONG + "X", _LONG + "X",
+        guard=WORK_LINE,
+        exit_stmt=f"  PERFORM {OUTER}(p_org);\n  EXIT {_LONG}X;",
+    ),
+    # An inner over-length block that exits ITSELF leaves the outer guard live.
+    "inner_long_labelled_block_exits_itself": definer(
+        f"  <<{_LONG}X>>\n  BEGIN\n    EXIT {_LONG}X;\n  END;\n"
+        f"  PERFORM {OUTER}(p_org);"
+    ),
+    # Quoted identifiers keep their case, and both fit inside the limit, so
+    # PostgreSQL keeps these distinct and the guard stays reachable.
+    "quoted_mixed_case_stays_distinct_within_the_limit": collide_definer(
+        '"Auth_Block"', '"auth_block"'
+    ),
+}
+
 LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_DECLARE_MUST_REJECT)
 LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_IDENTIFIER_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_TRUNCATION_MUST_REJECT)
 
 MUST_REJECT.update(LABELLED_EXIT_MUST_REJECT)
 
@@ -771,6 +870,12 @@ LABELLED_EXIT_MUST_ACCEPT = {
         f"  PERFORM {OUTER}(p_org);"
     ),
     # A labelled loop that exits itself, with the guard after it.
+    #
+    # NOTE, so this is not read as more than it proves: the labelled-LOOP
+    # fixtures are NOT isolation proofs. A guard inside a loop is already
+    # rejected by is_outer_statement_level(), so these reject with the EXIT
+    # removed too. The loop branch of _labelled_opener() is belt-and-braces;
+    # only the BEGIN-block branch is load-bearing for this contract.
     "labelled_loop_exits_itself_then_guard": definer(
         "  <<scan>>\n  WHILE true LOOP\n    EXIT scan;\n  END LOOP;\n"
         f"  PERFORM {OUTER}(p_org);"
@@ -2015,6 +2120,51 @@ class DefinerScannerTests(unittest.TestCase):
                     f"{name}: labelled EXIT lost because of the label's spelling",
                 )
 
+    def test_truncated_identifiers_cannot_hide_a_labelled_exit(self) -> None:
+        """P2-C: PostgreSQL clips identifiers to 63 bytes, so labels that differ
+        only past the limit are one label and the jump is real.
+
+        End-to-end through check_file(), not the canonicalizer alone.
+        """
+        for name, sql in LABELLED_EXIT_TRUNCATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: labels collide once PostgreSQL clips them",
+                )
+        for name, sql in LABELLED_EXIT_TRUNCATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_effective_identifier_matches_postgresql_clipping(self) -> None:
+        """The canonicalizer itself: NAMEDATALEN-1 bytes, character-aligned."""
+        eff = guards._effective_identifier
+        # Exactly at the limit: untouched.
+        at_limit = "a" * 63
+        self.assertEqual(eff(at_limit), at_limit)
+        self.assertEqual(len(eff(at_limit).encode("utf-8")), 63)
+        # Over the limit in ASCII: clipped to 63 bytes.
+        self.assertEqual(eff("a" * 64), at_limit)
+        self.assertEqual(eff("a" * 200), at_limit)
+        # The limit is BYTES, not characters: 32 two-byte characters overflow.
+        mb = "م" * 32
+        self.assertEqual(len(mb), 32)
+        self.assertEqual(len(mb.encode("utf-8")), 64)
+        clipped = eff(mb)
+        # Clipped on a character boundary - never a partial code point.
+        self.assertEqual(clipped, "م" * 31)
+        self.assertLessEqual(len(clipped.encode("utf-8")), 63)
+        self.assertEqual(clipped.encode("utf-8").decode("utf-8"), clipped)
+        # Two identifiers PostgreSQL aliases after clipping normalize EQUAL.
+        self.assertEqual(eff("a" * 63 + "X"), eff("a" * 63 + "Y"))
+        self.assertEqual(eff(mb + "a"), eff(mb + "b"))
+        # Two that differ BEFORE the limit stay distinct.
+        self.assertNotEqual(eff("a" * 62 + "X"), eff("a" * 62 + "Y"))
+        self.assertNotEqual(eff("alpha_block"), eff("beta_block"))
+        # Clipping decides length only; folding and quoting were already
+        # applied by the identifier parser, so case is untouched here.
+        self.assertEqual(eff("Auth_Block"), "Auth_Block")
+
     def test_label_identity_follows_postgresql_folding(self) -> None:
         """Unquoted folds, quoted keeps its case, and the two must not be
         conflated in either direction."""
@@ -2067,10 +2217,17 @@ class DefinerScannerTests(unittest.TestCase):
             guards._DECLARE_KW_RE = original_declare
 
         # The identifier work has two halves - the block label and the EXIT
-        # target - and a fixture may exercise either, so the mutation restores
-        # the pre-fix ASCII-unquoted reader on BOTH sides. Only the identifier
-        # reader is mutated; DECLARE attribution stays intact so the two
-        # mutations cannot mask each other.
+        # target - and the mutation restores the pre-fix ASCII-unquoted reader
+        # on BOTH sides. Only the identifier reader is mutated; DECLARE
+        # attribution stays intact so the two mutations cannot mask each other.
+        #
+        # Correcting an imprecise claim made when this test was written: the two
+        # halves are NOT symmetric. Reverting only the EXIT-target reader does
+        # not reopen these fixtures - an unresolvable target falls through to
+        # _UNREADABLE_EXIT_TARGET and fails closed, which still rejects. The
+        # BLOCK-LABEL side is the load-bearing half; the EXIT side is what keeps
+        # the failure mode closed rather than open. Mutating both together is
+        # what actually restores the pre-fix behaviour, which is what this does.
         ascii_exit = re.compile(
             r"\bEXIT\s+(?!WHEN\b)([A-Za-z_][A-Za-z0-9_$]*)", re.IGNORECASE
         )
@@ -2103,9 +2260,24 @@ class DefinerScannerTests(unittest.TestCase):
             guards._exit_targets = original_targets
             guards._block_labels = original_labels
 
-        # The fixtures reject again once both halves are restored.
+        # Third half: drop the NAMEDATALEN clip and the truncation collisions
+        # become invisible again, because the two labels compare unequal.
+        original_effective = guards._effective_identifier
+        try:
+            guards._effective_identifier = lambda name: name
+            for name, sql in LABELLED_EXIT_TRUNCATION_MUST_REJECT.items():
+                with self.subTest(mutation="no_identifier_clip", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._effective_identifier = original_effective
+
+        # The fixtures reject again once every half is restored.
         for name, sql in {**LABELLED_EXIT_DECLARE_MUST_REJECT,
-                          **LABELLED_EXIT_IDENTIFIER_MUST_REJECT}.items():
+                          **LABELLED_EXIT_IDENTIFIER_MUST_REJECT,
+                          **LABELLED_EXIT_TRUNCATION_MUST_REJECT}.items():
             with self.subTest(restored=name):
                 self.assertTrue(self.verdict(name, sql), name)
 
