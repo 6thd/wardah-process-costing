@@ -89,6 +89,7 @@ fi
 "${PSQL[@]}" -c "DROP FUNCTION public.zz_m191_testonly_mutant_unordered(uuid,uuid[],bigint);"
 
 echo '=== 6.2 GREEN: real helper, two independent blockers, input ARRAY[B,A] ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=6.2
 r=$tmp/s62; rm -f "$r"-*.out "$r"-*.err "$r"-*.ready "$r"-*.release
 

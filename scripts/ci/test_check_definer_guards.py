@@ -163,7 +163,8 @@ _spec.loader.exec_module(guards)
 def definer(body: str, name: str = "f_probe") -> str:
     """A SECURITY DEFINER function whose body is exactly `body`."""
     return (
-        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+        # Fixture text fed to check_file(); never executed as SQL.
+        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"  # nosec B608
         "RETURNS void\n"
         "LANGUAGE plpgsql\n"
         "SECURITY DEFINER\n"
@@ -434,7 +435,7 @@ OUTER_LEVEL_MUST_ACCEPT = {
     ),
     # An unrelated handler cannot catch a P0001 assertion: no false red.
     "unrelated_unique_violation_handler": definer(
-        f"  PERFORM {OUTER}(p_org);\n"
+        f"  PERFORM {OUTER}(p_org);\n"  # nosec B608 - fixture text, never executed as SQL
         "  BEGIN\n    INSERT INTO public.t VALUES (1);\n"
         "  EXCEPTION WHEN unique_violation THEN\n    NULL;\n  END;"
     ),
@@ -453,23 +454,23 @@ OUTER_LEVEL_MUST_ACCEPT = {
 RETURN_BEFORE_GUARD_MUST_REJECT = {
     # Unconditional dead code after a bare RETURN.
     "bare_return_before_guard": definer(
-        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"
+        "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = p_org;\n"  # nosec B608 - fixture text, never executed as SQL
         f"  RETURN;\n  PERFORM {OUTER}(p_org);"
     ),
     # Same with a returned expression.
     "return_expression_before_guard": definer(
-        "  UPDATE public.bins SET actual_qty = 0;\n"
+        "  UPDATE public.bins SET actual_qty = 0;\n"  # nosec B608 - fixture text, never executed as SQL
         f"  RETURN 1;\n  PERFORM {OUTER}(p_org);"
     ),
     # An early exit on some input path skips the guard for those inputs.
     "conditional_early_return_before_guard": definer(
-        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"
+        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"  # nosec B608 - fixture text, never executed as SQL
         f"  PERFORM {OUTER}(p_org);\n"
         "  UPDATE public.bins SET actual_qty = 0;"
     ),
     # The structural boolean guard is subject to the same rule.
     "return_before_boolean_guard": definer(
-        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;\n"
+        "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;\n"  # nosec B608 - fixture text, never executed as SQL
         f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;"
     ),
     "conditional_early_return_before_boolean_guard": definer(
@@ -491,12 +492,12 @@ GUARD_BEFORE_RETURN_MUST_ACCEPT = {
         f"  PERFORM {OUTER}(p_org);\n  RETURN 1;"
     ),
     "boolean_guard_then_return": definer(
-        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"  # nosec B608 - fixture text, never executed as SQL
         "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
     ),
     # M191's shape: resolve org, assert, do the work, return at the end.
     "m191_resolve_assert_work_return": definer(
-        "  v_org := public.get_current_tenant_id();\n"
+        "  v_org := public.get_current_tenant_id();\n"  # nosec B608 - fixture text, never executed as SQL
         "  IF v_org IS NULL THEN\n    RAISE EXCEPTION 'ORG_NOT_RESOLVED';\n"
         f"  END IF;\n  PERFORM {OUTER}(v_org);\n"
         "  UPDATE public.bins SET actual_qty = 0 WHERE org_id = v_org;\n"
@@ -511,7 +512,7 @@ ASTRA_MUST_REJECT = {
     # A. Assertion in the function's OUTER BEGIN, caught by SQLSTATE 'P0001'.
     #    Placement is valid here, so only SQLSTATE detection can reject it.
     "outer_assert_caught_by_sqlstate_p0001": (
-        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"  # nosec B608 - fixture text, never executed as SQL
         "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
         "AS $function$\nBEGIN\n"
         f"  PERFORM {OUTER}(p_org);\n"
@@ -529,12 +530,12 @@ ASTRA_MUST_REJECT = {
     "select_assertion_without_perform": definer(f"  SELECT {OUTER}(p_org);"),
     # C. The deny branch exits before it ever denies.
     "boolean_deny_returns_before_raise": definer(
-        f"  IF NOT {QPRED}(v_org) THEN\n    RETURN;\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n    RETURN;\n"  # nosec B608 - fixture text, never executed as SQL
         "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
         "  UPDATE public.bins SET actual_qty = 0;"
     ),
     "boolean_deny_conditional_return_before_raise": definer(
-        f"  IF NOT {QPRED}(v_org) THEN\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n"  # nosec B608 - fixture text, never executed as SQL
         "    IF p_soft THEN RETURN; END IF;\n"
         "    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
         "  UPDATE public.bins SET actual_qty = 0;"

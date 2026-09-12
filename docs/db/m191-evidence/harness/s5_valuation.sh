@@ -79,6 +79,7 @@ echo "  FIFO PASS bin=$q/$v rate=$rate queue=$qu cogs=140 outgoing_rate=$orate"
 reconcile_product FIFO "$org" "$fifo_p"
 
 echo '=== LIFO forced-concurrency: bin 10@10, +5@20, -12 ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=LIFO
 run_val lifo "$lifo_p" "$lifo_w" '00002292-0000-0000-0000-0000000000b4' '00002292-0000-0000-0000-0000000000b5'
 read -r q v rate qu <<<"$("${PSQL[@]}" -c "SELECT actual_qty||' '||stock_value||' '||valuation_rate||' '||stock_queue::text FROM public.bins WHERE product_id='$lifo_p'")"

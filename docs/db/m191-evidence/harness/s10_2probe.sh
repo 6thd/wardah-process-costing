@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=10.2
 GRH='00002296-0000-0000-0000-0000000000aa'
 "${PSQL[@]}" -c "INSERT INTO public.goods_receipts (id,org_id,vendor_id) VALUES ('$GRH','$org','$VEND');"

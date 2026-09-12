@@ -400,13 +400,13 @@ def parse_blocks(body: str):
         token = " ".join(m.group(1).upper().split())
         if token in ("BEGIN", "IF", "LOOP", "CASE"):
             stack.append(_Frame(token, m.start()))
-        elif token == "THEN":
+        elif token == "THEN":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             if stack and stack[-1].kind == "IF" and stack[-1].then_pos is None:
                 stack[-1].then_pos = m.start()
         elif token in ("ELSIF", "ELSE"):
             if stack and stack[-1].kind == "IF":
                 stack[-1].closed = True
-        elif token == "EXCEPTION":
+        elif token == "EXCEPTION":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             # `RAISE EXCEPTION` is a statement, not a handler section.
             if _RAISE_BEFORE_RE.search(body[max(0, m.start() - 16): m.start()]):
                 continue
@@ -415,15 +415,15 @@ def parse_blocks(body: str):
                     if fr.exc_pos is None:
                         fr.exc_pos = m.start()
                     break
-        elif token == "END IF":
+        elif token == "END IF":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             pop(("IF",), m.start())
-        elif token == "END LOOP":
+        elif token == "END LOOP":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             pop(("LOOP",), m.start())
-        elif token == "END CASE":
+        elif token == "END CASE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             pop(("CASE",), m.start())
-        elif token == "END":
+        elif token == "END":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             pop(("BEGIN", "CASE"), m.start())
-        elif token == "RAISE":
+        elif token == "RAISE":  # nosec B105 - parsed PL/pgSQL keyword, not a credential
             fr = stack[-1] if stack else None
             if (
                 fr is not None

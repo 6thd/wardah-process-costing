@@ -206,6 +206,7 @@ rs=$("${PSQL[@]}" -c "SELECT count(*) FROM public.material_reservations WHERE or
 echo "  10.5 PASS whole-RPC rollback: 0 MO, 0 reservation"
 
 echo '=== 10.6 Fix G timestamp reject-list invariants (recorded) ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=10.6
 trg=$("${PSQL[@]}" -c "SELECT CASE WHEN position('COALESCE(NEW.created_at,now())' IN replace(pg_get_functiondef('public.trg_resolve_item_product_reference()'::regprocedure),' ',''))>0 THEN 'COALESCE(NEW.created_at, now())' ELSE 'CHANGED' END")
 [[ "$trg" != "CHANGED" ]] || fail "10.6: the reservation trigger no longer resolves on COALESCE(NEW.created_at, now()) - Fix G's captured-vs-trigger identity assumption must be re-reviewed"

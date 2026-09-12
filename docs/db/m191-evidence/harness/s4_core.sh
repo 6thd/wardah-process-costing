@@ -142,6 +142,7 @@ reconcile_product G-C2 "$org" "$gc2_p"
 echo "  G-C2 PASS bin=$q/$val"
 
 echo '=== G-FB: first-bin incoming vs outgoing ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=G-FB
 r=$tmp/g-fb; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
 PGAPPNAME='g-fb-1' "${PSQL[@]}" >"$r-1.out" 2>"$r-1.err" <<SQL &

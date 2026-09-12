@@ -116,6 +116,7 @@ echo "  7.5 PASS bin $b0 -> $b1 (+7 manual, -2 outgoing)"
 reconcile_product 7.5 "$org" "$P2"
 
 echo '=== 7.6 manual movement vs cancellation ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=7.6
 make_adj "$ADJ5" 'S12-CD-ADJ-5' "$P1"
 as_admin "SELECT public.rpc_submit_stock_adjustment('$ADJ5');" >/dev/null

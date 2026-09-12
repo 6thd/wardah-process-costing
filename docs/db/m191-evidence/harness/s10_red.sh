@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=10.1-RED
 GR_YX="jsonb_build_array(
   jsonb_build_object('product_id','$Y','qty_entered',4,'unit_cost',10),

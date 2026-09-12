@@ -4,6 +4,7 @@ reset_fixture
 r=$tmp/s82b; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
 GATE=982101
 echo '=== 8.2(2) narrowed superset + guard REMOVED, crossed MOs => deterministic 40P01 ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=8.2-2
 "${PSQL[@]}" <<MUT
 DO \$mk\$

@@ -21,6 +21,7 @@ SQL
 }
 
 echo '=== 8.1b Stock Adjustment [Y,X] vs Consumption {X,Y} ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=8.1b
 MO=$( as_user "$(mo_payload 'S12-8B-MO' "jsonb_build_array(jsonb_build_object('item_id','$I1','quantity',4),jsonb_build_object('item_id','$I2','quantity',4))")" >/dev/null; "${PSQL[@]}" -c "SELECT id FROM public.manufacturing_orders WHERE org_id='$org' AND order_number='S12-8B-MO'" )
 mk_wip "$MO"

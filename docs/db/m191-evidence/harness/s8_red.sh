@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 source "$SCRATCH/s8_fixture.sh"
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=8.1a-RED
 echo '=== 8.1a RED control (pre-M191 bodies): GR[A,B] vs DN[B,A] crossed bin order ==='
 r=$tmp/s8red; rm -f "$r"-*.ready "$r"-*.release "$r"-*.out "$r"-*.err
@@ -14,6 +15,7 @@ COMMIT;
 SQL
 blk=$!
 wait_for_file "$r-blk.ready" || fail "RED: blocker never locked bin A"
+# shellcheck disable=SC2034 # captured for manual diagnosis if this RED control needs debugging; not read by the pass/fail path
 blkpid=$("${PSQL[@]}" -c "SELECT pid FROM pg_stat_activity WHERE application_name='s8red-blk'")
 
 start_doc() { # $1 name $2 call

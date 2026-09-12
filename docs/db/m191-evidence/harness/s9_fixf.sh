@@ -11,7 +11,9 @@ expire_all() { "${PSQL[@]}" -c "UPDATE public.material_reservations SET expires_
 stage_of() { mk_wip "$1"; echo "$STAGE"; }
 
 echo '=== 9.1 RED: reversed reservation-lock order vs ascending order => 40P01 ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=9.1
+# shellcheck disable=SC2034 # mk_mo's side effect (creating the MO + reservations) is what this RED scenario needs; the returned id itself is intentionally unused
 MO1=$(mk_mo 'S12-F-MO-1'); expire_all
 "${PSQL[@]}" <<SQL
 CREATE OR REPLACE FUNCTION public.zz_m191_testonly_release_desc(p_org uuid, p_gate bigint)

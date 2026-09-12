@@ -2,6 +2,7 @@
 source "$SCRATCH/s8_fixture.sh"
 
 echo '=== 8.1a Goods Receipt [A,B] vs Delivery Note [B,A] ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=8.1a
 pairE gr-vs-dn \
 "SELECT public.rpc_post_goods_receipt(jsonb_build_object('tenant_id','$org','vendor_id','$VEND','warehouse_id','$W','idempotency_key','s12-gr-1-$RUN_NONCE','lines',$GR_LINES_AB));" \

@@ -50,6 +50,7 @@ echo "  10.1A PASS reservation and crossed GR both completed, writer serialized 
 reconcile_product 10.1A-X "$org" "$X"; reconcile_product 10.1A-Y "$org" "$Y"
 
 echo '=== 10.1 Control B: reservation [X,Y] vs outgoing [Y,X] ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=10.1B
 control ctlB "SELECT public.wardah_apply_stock_outgoing('$org','$Y','$W',2,'Delivery Note',gen_random_uuid(),'S12-G-B-Y',CURRENT_DATE);
 SELECT public.wardah_apply_stock_outgoing('$org','$X','$W',2,'Delivery Note',gen_random_uuid(),'S12-G-B-X',CURRENT_DATE);"

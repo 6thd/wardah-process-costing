@@ -52,9 +52,11 @@ INSERT INTO public.sales_invoice_lines (id,org_id,invoice_id,product_id,quantity
  ('$ILA','$org','$INV','$A',50,20,1),('$ILB','$org','$INV','$B',50,20,2);
 SQL
 
+# shellcheck disable=SC2034 # read by s8_fixe.sh and s8_red.sh, which source this file
 GR_LINES_AB="jsonb_build_array(
   jsonb_build_object('product_id','$A','qty_entered',5,'unit_cost',10),
   jsonb_build_object('product_id','$B','qty_entered',5,'unit_cost',10))"
+# shellcheck disable=SC2034 # read by s8_fixe.sh and s8_red.sh, which source this file
 DN_LINES_BA="jsonb_build_array(
   jsonb_build_object('sales_invoice_line_id','$ILB','qty_entered',3),
   jsonb_build_object('sales_invoice_line_id','$ILA','qty_entered',3))"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 source "$SCRATCH/s9_fixture.sh"
 reset_fixture
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=C1
 I3='00002296-0000-0000-0000-000000000103'   # item with NO mapping and NOT a product
 echo '=== 8.2 C1: an unrelated unresolvable reserved row must not poison a valid consumption ==='

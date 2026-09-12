@@ -26,6 +26,7 @@ echo "  8.2(3) PASS bins X=$qx Y=$qy consumption(rows/COGS)=$mc stage_wip cost_m
 reconcile_product 8.2-3-X "$org" "$X"; reconcile_product 8.2-3-Y "$org" "$Y"
 
 echo '=== 8.2(1) narrowed superset + guard retained => PRODUCT_NOT_PRELOCKED ==='
+# shellcheck disable=SC2034 # read by lib.sh's fail() across sourced scripts
 CURRENT_SCENARIO=8.2-1
 # Test-only mutant: identical to the candidate except the prefix is narrowed to
 # the FIRST reservation only, with the guard left in place.
