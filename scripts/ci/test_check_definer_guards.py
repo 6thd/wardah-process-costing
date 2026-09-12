@@ -217,7 +217,8 @@ ADMIN_GUARD = "wardah_assert_org_admin"
 def definer_delim(delim: str, body: str = "", name: str = "f_probe") -> str:
     """A SECURITY DEFINER function whose OUTER dollar-quote tag is `delim`."""
     return (
-        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+        # Fixture text fed to check_file(); never executed as SQL.
+        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"  # nosec B608
         "RETURNS void\n"
         "LANGUAGE plpgsql\n"
         "SECURITY DEFINER\n"
@@ -474,7 +475,7 @@ RETURN_BEFORE_GUARD_MUST_REJECT = {
         f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;"
     ),
     "conditional_early_return_before_boolean_guard": definer(
-        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"
+        "  IF p_skip THEN\n    RETURN;\n  END IF;\n"  # nosec B608 - fixture text, never executed as SQL
         f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
         "  UPDATE public.bins SET actual_qty = 0;"
     ),
@@ -485,7 +486,7 @@ MUST_REJECT.update(RETURN_BEFORE_GUARD_MUST_REJECT)
 # The guard precedes every exit: still a valid boundary.
 GUARD_BEFORE_RETURN_MUST_ACCEPT = {
     "guard_then_bare_return": definer(
-        f"  PERFORM {OUTER}(p_org);\n"
+        f"  PERFORM {OUTER}(p_org);\n"  # nosec B608 - fixture text, never executed as SQL
         "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
     ),
     "guard_then_return_expression": definer(
@@ -548,7 +549,7 @@ ASTRA_MUST_ACCEPT = {
     # A control: an unrelated handler in the OUTER BEGIN cannot catch P0001 and
     # must not invalidate the guard.
     "outer_assert_with_unique_violation_handler": (
-        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"
+        "CREATE OR REPLACE FUNCTION public.f_probe(p_org uuid)\n"  # nosec B608 - fixture text, never executed as SQL
         "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
         "AS $function$\nBEGIN\n"
         f"  PERFORM {OUTER}(p_org);\n"
@@ -558,7 +559,7 @@ ASTRA_MUST_ACCEPT = {
     ),
     # C control: the deny branch raises before any return.
     "boolean_deny_raises_then_returns": definer(
-        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"  IF NOT {QPRED}(v_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"  # nosec B608 - fixture text, never executed as SQL
         "  UPDATE public.bins SET actual_qty = 0;\n  RETURN;"
     ),
 }
@@ -664,7 +665,8 @@ def definer_outer_handler(handler: str, name: str = "f_probe") -> str:
     handler can catch the assertion's P0001.
     """
     return (
-        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"
+        # Fixture text fed to check_file(); never executed as SQL.
+        f"CREATE OR REPLACE FUNCTION public.{name}(p_org uuid)\n"  # nosec B608
         "RETURNS void\n"
         "LANGUAGE plpgsql\n"
         "SECURITY DEFINER\n"
