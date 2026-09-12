@@ -17,9 +17,18 @@
 # dialect that is actually deployed. Leaving the wrong parser pointed at them
 # keeps the quality signal permanently red and buries findings that matter.
 #
+# The same parser mismatch repeats under docs/db/: the M191 review-candidate
+# and slice files are the assembled/staged psql sources for Migration 191
+# (`\ir m191-slices/...`, PL/pgSQL bodies), never executed as bare ANSI SQL.
+# SQLint reports each `\ir`/`\set` line and PL/pgSQL boundary as a syntax
+# error, which is where the bulk of PR #241's 75 High/Compatibility findings
+# came from (docs/db/M191_CANDIDATE_ASSEMBLED.sql:228 among them) — the same
+# false-positive class already excluded below, just outside sql/ and scripts/.
+#
 # Excluding the SQL sources costs no coverage: SQLint is the only Codacy tool
 # that reads them. Shell, TypeScript and security analyzers keep running on
 # every other path, including the gate scripts next to these files.
 exclude_paths:
   - 'sql/**/*.sql'
   - 'scripts/**/*.sql'
+  - 'docs/db/**/*.sql'

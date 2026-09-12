@@ -26,7 +26,7 @@ set -Eeuo pipefail
 PRE_DB=${PRE_DB:-wardah_pre191}
 M191_DB=${M191_DB:-wardah_m191}
 ROOT=${ROOT:-$(git rev-parse --show-toplevel)}
-SCRATCH=${SCRATCH:-$ROOT/docs/db/m191-evidence/harness}
+export SCRATCH=${SCRATCH:-$ROOT/docs/db/m191-evidence/harness}
 RUN_DIR=${ROLLBACK_RUN_DIR:-/var/tmp/pg17/m191-rollback}
 mkdir -p "$RUN_DIR"
 
@@ -192,7 +192,7 @@ run_green_suite() {
   local s
   for s in "${scripts[@]}"; do
     log "forward GREEN: $s"
-    PGDATABASE="$M191_DB" SCRATCH="$SCRATCH" \
+    PGDATABASE="$M191_DB" \
       bash "$SCRATCH/$s" \
       >"$RUN_DIR/forward-${s%.sh}.out" \
       2>"$RUN_DIR/forward-${s%.sh}.err" \
