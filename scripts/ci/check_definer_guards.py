@@ -425,40 +425,75 @@ def _labelled_opener(body: str, pos: int) -> int | None:
     return None
 
 
-# PostgreSQL stores an identifier in a `name` column, so it clips every one of
-# them to NAMEDATALEN-1 = 63 BYTES at parse time (`truncate_identifier`), on a
-# character boundary. Two labels that differ only PAST byte 63 are therefore one
-# and the same label to PL/pgSQL - and comparing the untruncated Python strings
-# sees two names where the database sees one, so the jump goes unnoticed:
+# ---------------------------------------------------------------------------
+# PostgreSQL identifier identity - the ONE definition
+# ---------------------------------------------------------------------------
+# Every security decision in this scanner ultimately compares two identifiers:
+# is this EXIT's target the label on the block the guard sits in, does this
+# REVOKE name the function that was just defined, is this the same overload,
+# is this grantee `authenticated`. If the scanner's notion of "same identifier"
+# differs from PostgreSQL's ANYWHERE, that difference is a false green.
 #
-#     <<aaa…63 a's…X>>                                   -- clipped to 63 a's
-#     BEGIN
-#       UPDATE public.bins SET actual_qty = 0 …;         -- privileged
-#       EXIT aaa…63 a's…Y;                               -- the SAME label
-#       PERFORM public.wardah_assert_org_member(p_org);  -- never executes
-#     END;
+# It differed in three separate places, each with its own rules, and four
+# consecutive review rounds each found a fresh instance:
 #
-# Verified on PostgreSQL 17: the function is created (with a truncation notice)
-# and the assertion is skipped at run time. Both operands are therefore
-# canonicalized the same way before they are stored or compared.
+#   * the unquoted alphabet stopped at U+FFFF, so a label containing a 4-byte
+#     UTF-8 character parsed as nothing at all and no label was recorded;
+#   * folding used Python's `str.lower()`, which folds the whole Unicode
+#     repertoire, while PostgreSQL's downcase_identifier() downcases ONLY
+#     ASCII A-Z in a multibyte encoding - so `rpc_bÄd` and `rpc_bäd`, two
+#     different functions, merged into one, and U+212A KELVIN SIGN folding to
+#     a one-byte `k` moved the length clip two bytes and un-merged a pair
+#     PostgreSQL had already merged;
+#   * the NAMEDATALEN clip existed as its OWN layer applied to labels and EXIT
+#     targets but not to routine names, schemas or type names.
 #
-# The limit is in BYTES, not characters, and the clip must never split a UTF-8
-# character - which is why this decodes with errors="ignore" to drop a partial
-# trailing sequence, exactly as pg_mbcliplen() does.
+# So identity is defined once, here, and every security-bearing comparison in
+# this file is built on it. PostgreSQL's own order is reproduced exactly:
+# downcase first (scansup.c), then truncate (truncate_identifier), because the
+# fold can change the byte length and therefore where the clip falls.
+#
+# `_ASCII_FOLD` is what downcase_identifier() does when `enc_is_single_byte` is
+# false, which is the case for the UTF-8 databases this repository uses: bytes
+# 'A'-'Z' are lowered and every other byte is left exactly as it is.
 _NAMEDATALEN_LIMIT = 63
+_ASCII_FOLD = {c: c + 32 for c in range(ord("A"), ord("Z") + 1)}
+
+
+def _fold_unquoted(text: str) -> str:
+    """downcase_identifier() for a multibyte encoding: ASCII A-Z and nothing
+    else. Never str.lower(), which folds the whole Unicode repertoire and can
+    even change the UTF-8 byte length."""
+    return text.translate(_ASCII_FOLD)
+
+
+def _pg_identifier(text: str, quoted: bool = False) -> str:
+    """One identifier as PostgreSQL will resolve and store it.
+
+    `text` is the identifier's own characters - for a quoted identifier, its
+    content with `""` already unescaped, not the surrounding quotes.
+
+    Unquoted: fold ASCII A-Z only, never `str.lower()`, so a non-ASCII code
+    point keeps its identity exactly as PostgreSQL keeps it.
+    Quoted: content survives verbatim, case included.
+    Both: clipped to NAMEDATALEN-1 = 63 BYTES on a character boundary, which is
+    what pg_mbcliplen() guarantees - errors="ignore" drops only a partial
+    trailing sequence, and the input is always valid UTF-8 here.
+    """
+    folded = text if quoted else _fold_unquoted(text)
+    raw = folded.encode("utf-8")
+    if len(raw) <= _NAMEDATALEN_LIMIT:
+        return folded
+    return raw[:_NAMEDATALEN_LIMIT].decode("utf-8", "ignore")
 
 
 def _effective_identifier(name: str) -> str:
-    """The identifier as PostgreSQL will actually store it.
+    """Length clip alone, for an identifier whose folding is already resolved.
 
-    Folding and quoting are NOT decided here - _parse_identity() has already
-    applied them - so this only applies the length clip, and an identifier that
-    fits is returned untouched.
+    Kept as a thin wrapper so it cannot drift into a second definition of
+    identity: it is _pg_identifier()'s quoted path, which applies no folding.
     """
-    raw = name.encode("utf-8")
-    if len(raw) <= _NAMEDATALEN_LIMIT:
-        return name
-    return raw[:_NAMEDATALEN_LIMIT].decode("utf-8", "ignore")
+    return _pg_identifier(name, quoted=True)
 
 
 def _block_labels(body: str, raw_body: str | None = None) -> dict[int, str]:
@@ -1157,29 +1192,58 @@ _TYPE_LEAD_WORDS = frozenset(
     {"character", "double", "bit", "national", "time", "timestamp", "interval"}
 )
 _ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
-_PLAIN_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
+# ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
+# ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
+# the same plus digits and `$`. PostgreSQL's scanner accepts every high-bit
+# byte, so the range runs to U+10FFFF - it previously stopped at U+FFFF, which
+# made an identifier containing a 4-byte UTF-8 character unparseable and, for a
+# block label, invisible: no label was recorded and the labelled-EXIT bypass
+# reopened.
+_IDENT_START = "A-Za-z_\x80-\U0010FFFF"
+_IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
+_UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
+# The same alphabet, anchored: "is this whole token one bare identifier".
+_PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
 _DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
-_UNQUOTED_IDENT_RE = re.compile(r"[A-Za-z_-￿][A-Za-z0-9_$-￿]*")
 
 
 _QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
 
 
 def _fold_type_text(text: str) -> str:
-    """Lower-case a type expression EXCEPT inside quoted identifiers.
+    """Resolve a type expression's IDENTIFIER SEGMENTS to PostgreSQL identity.
 
     PostgreSQL folds an unquoted type name and preserves a quoted one, so
     `public."TypeA"` and `public."TypeB"` are different types. They are also the
     two things masking destroys - it blanks quoted-identifier content - which is
-    why argument lists are normalized from the RAW source and folded here rather
-    than lower-cased wholesale.
+    why argument lists are normalized from the RAW source and resolved here
+    rather than lower-cased wholesale.
+
+    Each identifier SEGMENT goes through _pg_identifier() on its own;
+    punctuation, parentheses, array brackets and whitespace are copied through
+    untouched. Lower-casing the unquoted spans wholesale was a second identity
+    model, and it merged `TypeÄ` with `Typeä` - two distinct types in a UTF-8
+    database - so a REVOKE naming one overload exempted a SECURITY DEFINER
+    function declared with the other.
     """
     out, last = [], 0
     for m in _QUOTED_SEGMENT_RE.finditer(text):
-        out.append(text[last:m.start()].lower())
-        out.append(m.group(0))
+        out.append(_fold_type_segment(text[last:m.start()]))
+        content = _pg_identifier(m.group(0)[1:-1].replace('""', '"'), quoted=True)
+        out.append('"' + content.replace('"', '""') + '"')
         last = m.end()
-    out.append(text[last:].lower())
+    out.append(_fold_type_segment(text[last:]))
+    return "".join(out)
+
+
+def _fold_type_segment(span: str) -> str:
+    """Resolve every bare identifier inside an unquoted span of type text."""
+    out, last = [], 0
+    for m in _UNQUOTED_IDENT_RE.finditer(span):
+        out.append(span[last:m.start()])
+        out.append(_pg_identifier(m.group(0)))
+        last = m.end()
+    out.append(span[last:])
     return "".join(out)
 
 
@@ -1282,14 +1346,14 @@ def _parse_identity(raw: str, masked: str, i: int):
                 j += 1
             if not closed:
                 return None, i
-            parts.append("".join(buf))
+            parts.append(_pg_identifier("".join(buf), quoted=True))
             quoted_any = True
             i = j
         else:
             m = _UNQUOTED_IDENT_RE.match(raw, i)
             if m is None:
                 return None, i
-            parts.append(m.group(0).lower())
+            parts.append(_pg_identifier(m.group(0)))
             i = m.end()
         nxt = _skip_ws(masked, i)
         if nxt < n and raw[nxt] == ".":
@@ -1524,7 +1588,9 @@ CLIENT_ROLES = ("public", "anon", "authenticated")
 # role name is the SAME role when its content matches - PostgreSQL folds the
 # unquoted form to lower case - so both spellings resolve here, and a quoted
 # form that differs in case (`"Authenticated"`) is a different role and does not.
-_GRANTEE_TOKEN_RE = re.compile(r'"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_$]*')
+_GRANTEE_TOKEN_RE = re.compile(
+    f'"(?:[^"]|"")*"|[{_IDENT_START}][{_IDENT_CONT}]*'
+)
 _GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_role"})
 
 
@@ -1539,12 +1605,12 @@ def _grantee_names(raw_region: str) -> set[str]:
     for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
         token = raw_region[m.start():m.end()]
         if token.startswith('"'):
-            names.add(token[1:-1].replace('""', '"'))
+            names.add(_pg_identifier(token[1:-1].replace('""', '"'), quoted=True))
         else:
-            lowered = token.lower()
-            if lowered in _GRANTEE_NOISE:
+            resolved = _pg_identifier(token)
+            if resolved in _GRANTEE_NOISE:
                 continue
-            names.add(lowered)
+            names.add(resolved)
     return names
 
 
@@ -1708,10 +1774,10 @@ def redefined_guard_names(definitions) -> list[str]:
     database will run are then two different bodies. Under the strict contract
     that is a hard stop, not a judgement call.
     """
+    # Identity.name is already resolved through _pg_identifier(); re-folding it
+    # here with str.lower() would be a second, divergent identity model.
     recognized = {n.lower() for n in GUARD_NAMES + BOOLEAN_PREDICATES}
-    return sorted(
-        {d.identity.name.lower() for d in definitions if d.identity.name.lower() in recognized}
-    )
+    return sorted({d.identity.name for d in definitions if d.identity.name in recognized})
 
 
 def check_file(path: pathlib.Path) -> list[str]:

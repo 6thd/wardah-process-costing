@@ -165,6 +165,7 @@ by scripts/ci/fresh-db/selftest_definer_guard_contract.sh.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import re
 import tempfile
@@ -835,9 +836,173 @@ LABELLED_EXIT_TRUNCATION_MUST_ACCEPT = {
     ),
 }
 
+# ---------------------------------------------------------------------------
+# Fourth-round: ONE PostgreSQL identifier identity
+# ---------------------------------------------------------------------------
+# Every fixture below was run through the REAL check_file() at 4acd2ac and
+# returned [] there. They are not five unrelated bugs: the scanner carried
+# THREE different notions of "the same identifier" - an unquoted alphabet that
+# stopped at U+FFFF, a fold that used Python's whole-Unicode str.lower() where
+# PostgreSQL downcases ASCII only, and a NAMEDATALEN clip applied to labels and
+# EXIT targets but not to routine, schema or type names. Each round of review
+# found one more instance; the fix is one canonicalizer, _pg_identifier(), that
+# every security-bearing comparison is built on.
+_ASTRAL = "auth\U0001D400"           # U+1D400: 4-byte UTF-8, above the BMP
+_KELVIN = "K"                   # U+212A: 3 bytes, str.lower() -> 1-byte 'k'
+_LONG_NAME_X = "rpc_" + "a" * 60 + "X"   # 65 bytes: clipped to the same 63 as
+_LONG_NAME_Y = "rpc_" + "a" * 60 + "Y"   # ... this one
+_LONG_SCHEMA_X = "sch_" + "a" * 60 + "X"
+_LONG_SCHEMA_Y = "sch_" + "a" * 60 + "Y"
+
+
+def definer_named_routine(name: str, args: str = "p_org uuid",
+                          mode: str = "SECURITY DEFINER",
+                          body: str | None = None, schema: str = "public") -> str:
+    """A routine with an arbitrary (possibly non-ASCII or over-length) name."""
+    return (
+        f"CREATE OR REPLACE FUNCTION {schema}.{name}({args})\n"
+        f"RETURNS void\nLANGUAGE plpgsql\n{mode}\n"
+        f"AS $rt$\nBEGIN\n{body or WORK_LINE}\nEND;\n$rt$;\n"
+    )
+
+
+# P1-1: an identifier above U+FFFF was unparseable, so the block label was
+# never recorded at all and the EXIT target read as a truncated ASCII prefix -
+# which never even reached the fail-closed path.
+IDENTITY_ASTRAL_MUST_REJECT = {
+    "astral_label_and_matching_exit": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_ASTRAL};\n  PERFORM {OUTER}(p_org);",
+        label=_ASTRAL, end_label=_ASTRAL,
+    ),
+    "astral_label_with_a_declare_section": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_ASTRAL};\n  PERFORM {OUTER}(p_org);",
+        label=_ASTRAL, end_label=_ASTRAL, declare=DECLARE_SECTION,
+    ),
+    # The readable ASCII prefix must not be accepted as the identifier: the
+    # scanner may not silently parse `auth` out of `auth<astral>`.
+    "astral_suffix_after_a_readable_ascii_prefix": labelled_definer(
+        f"{WORK_LINE}\n  EXIT auth\U0001F600;\n  PERFORM {OUTER}(p_org);",
+        label="auth\U0001F600", end_label="auth\U0001F600",
+    ),
+    "astral_first_character": labelled_definer(
+        f"{WORK_LINE}\n  EXIT \U0001D400auth;\n  PERFORM {OUTER}(p_org);",
+        label="\U0001D400auth", end_label="\U0001D400auth",
+    ),
+}
+
+# P1-2 / P2-3 / P2-5: PostgreSQL downcases ASCII only in a multibyte encoding.
+# Python's str.lower() folds everything, which both MERGES identifiers
+# PostgreSQL keeps apart and, when the fold shortens the UTF-8 encoding, moves
+# the 63-byte clip so a pair PostgreSQL has already merged comes apart.
+IDENTITY_FOLD_MUST_REJECT = {
+    # U+212A folds to a one-byte `k`, dropping the identifier under the limit.
+    "kelvin_fold_moves_the_namedatalen_clip": labelled_definer(
+        f"{WORK_LINE}\n  EXIT {_KELVIN}{'a' * 60}Y;\n  PERFORM {OUTER}(p_org);",
+        label=_KELVIN + "a" * 60 + "X", end_label="",
+    ),
+    # Two distinct routines in PostgreSQL; a REVOKE on one must not exempt the
+    # other.
+    "non_ascii_case_twin_routine_names": (
+        definer_named_routine("rpc_bÄd")
+        + definer_named_routine("rpc_bäd", mode="", body="  NULL;")
+        + "REVOKE ALL ON FUNCTION public.rpc_bäd(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # The same twin, one schema level up.
+    "non_ascii_case_twin_schema_names": (
+        definer_named_routine("rpc_s", schema="schÄ")
+        + "REVOKE ALL ON FUNCTION schä.rpc_s(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # ... and in the argument TYPE, which decides the overload.
+    "non_ascii_case_twin_argument_types": (
+        definer_named_routine("rpc_t", args="p_org public.TypeÄ")
+        + "REVOKE ALL ON FUNCTION public.rpc_t(public.Typeä) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+# P2-4: the clip existed for labels but not for routine, schema or type names,
+# so a later GRANT spelled differently past byte 63 reopened a closed surface
+# without the scanner noticing.
+IDENTITY_CLIP_MUST_REJECT = {
+    "over_long_routine_name_reopened_by_a_grant": (
+        definer_named_routine(_LONG_NAME_X)
+        + f"REVOKE ALL ON FUNCTION public.{_LONG_NAME_X}(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + f"GRANT EXECUTE ON FUNCTION public.{_LONG_NAME_Y}(uuid) "
+          "TO authenticated;\n"
+    ),
+    "over_long_schema_name_reopened_by_a_grant": (
+        definer_named_routine("rpc_s", schema=_LONG_SCHEMA_X)
+        + f"REVOKE ALL ON FUNCTION {_LONG_SCHEMA_X}.rpc_s(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + f"GRANT EXECUTE ON FUNCTION {_LONG_SCHEMA_Y}.rpc_s(uuid) "
+          "TO authenticated;\n"
+    ),
+    # An over-length TYPE name decides the overload the same way.
+    "over_long_type_name_exempted_by_another_overload": (
+        definer_named_routine("rpc_u", args="p_org public.t_" + "a" * 60 + "X")
+        + "REVOKE ALL ON FUNCTION public.rpc_u(public.t_" + "a" * 60 + "Y) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION public.rpc_u(public.t_" + "a" * 60 + "Y) "
+          "TO authenticated;\n"
+    ),
+    # A quoted over-length label collides after clipping just as an unquoted
+    # one does; quoting exempts nothing from NAMEDATALEN.
+    "quoted_over_long_label_collision": labelled_definer(
+        f'{WORK_LINE}\n  EXIT "{"a" * 63}Y";\n  PERFORM {OUTER}(p_org);',
+        label=f'"{"a" * 63}X"', end_label="",
+    ),
+}
+
+IDENTITY_MUST_ACCEPT = {
+    # Distinct inside the first effective 63 bytes: two real identifiers.
+    "routine_names_distinct_within_the_limit": (
+        definer_named_routine("rpc_alpha")
+        + "REVOKE ALL ON FUNCTION public.rpc_alpha(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # PostgreSQL keeps a quoted identifier's case, so these are two types and
+    # the REVOKE naming the actual one is a real closure.
+    "quoted_type_case_is_preserved": (
+        definer_named_routine("rpc_q", args='p_org public."TypeA"')
+        + 'REVOKE ALL ON FUNCTION public.rpc_q(public."TypeA") '
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # An unquoted ASCII type folds, so these two spellings ARE one type.
+    "unquoted_ascii_type_folds": (
+        definer_named_routine("rpc_f", args="p_org public.MyType")
+        + "REVOKE ALL ON FUNCTION public.rpc_f(public.mytype) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A non-ASCII routine name is one identifier, and the REVOKE naming that
+    # same spelling closes it.
+    "non_ascii_routine_closed_by_its_own_revoke": (
+        definer_named_routine("rpc_bÄd")
+        + "REVOKE ALL ON FUNCTION public.rpc_bÄd(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # An astral-plane routine name likewise.
+    "astral_routine_closed_by_its_own_revoke": (
+        definer_named_routine("rpc_\U0001D400")
+        + "REVOKE ALL ON FUNCTION public.rpc_\U0001D400(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # Over-length names that agree inside the effective identifier still close.
+    "over_long_routine_closed_by_the_same_effective_name": (
+        definer_named_routine(_LONG_NAME_X)
+        + f"REVOKE ALL ON FUNCTION public.{_LONG_NAME_Y}(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
 LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_DECLARE_MUST_REJECT)
 LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_IDENTIFIER_MUST_REJECT)
 LABELLED_EXIT_MUST_REJECT.update(LABELLED_EXIT_TRUNCATION_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_ASTRAL_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_FOLD_MUST_REJECT)
+LABELLED_EXIT_MUST_REJECT.update(IDENTITY_CLIP_MUST_REJECT)
 
 MUST_REJECT.update(LABELLED_EXIT_MUST_REJECT)
 
@@ -922,6 +1087,7 @@ MUST_ACCEPT = {
     **ASTRA_MUST_ACCEPT,
     **GUARD_BEFORE_RETURN_MUST_ACCEPT,
     **LABELLED_EXIT_MUST_ACCEPT,
+    **IDENTITY_MUST_ACCEPT,
     # The real thing, in statement position.
     "executable_guard_call": definer(f"  PERFORM public.{GUARD}(p_org);"),
     # Same, with the non-executable decoys present as well: an executable call
@@ -2136,6 +2302,87 @@ class DefinerScannerTests(unittest.TestCase):
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
 
+    def test_one_postgresql_identifier_identity(self) -> None:
+        """Fourth round: the scanner carried three notions of identifier
+        identity. These are the false greens each of them produced, all
+        end-to-end through check_file()."""
+        groups = {
+            "astral": IDENTITY_ASTRAL_MUST_REJECT,
+            "fold": IDENTITY_FOLD_MUST_REJECT,
+            "clip": IDENTITY_CLIP_MUST_REJECT,
+        }
+        for group, fixtures in groups.items():
+            for name, sql in fixtures.items():
+                with self.subTest(group=group, reject=name):
+                    self.assertTrue(
+                        self.verdict(name, sql),
+                        f"{name}: scanner identity diverges from PostgreSQL",
+                    )
+        for name, sql in IDENTITY_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_pg_identifier_is_the_single_identity(self) -> None:
+        """The canonicalizer itself: PostgreSQL's order and PostgreSQL's rules."""
+        pg = guards._pg_identifier
+        # Unquoted folds ASCII A-Z and nothing else.
+        self.assertEqual(pg("Rpc_Probe"), "rpc_probe")
+        self.assertEqual(pg("RPC_BÄD"), "rpc_bÄd")   # Ä survives
+        self.assertNotEqual(pg("rpc_bÄd"), pg("rpc_bäd"))
+        # str.lower() would merge those two; PostgreSQL does not.
+        self.assertEqual("rpc_bÄd".lower(), "rpc_bäd")
+        # Quoted content survives verbatim, case included.
+        self.assertEqual(pg("TypeA", quoted=True), "TypeA")
+        self.assertNotEqual(pg("Auth_Block", quoted=True), pg("auth_block"))
+        # Folding happens BEFORE the clip, and the fold must not change length.
+        kelvin = "K" + "a" * 60
+        self.assertEqual(len(kelvin.encode("utf-8")), 63)
+        self.assertEqual(pg(kelvin + "X"), pg(kelvin + "Y"))
+        self.assertEqual(len(pg(kelvin + "X").encode("utf-8")), 63)
+        # Astral code points are ordinary identifier characters.
+        self.assertEqual(pg("auth\U0001D400"), "auth\U0001D400")
+        self.assertTrue(guards._UNQUOTED_IDENT_RE.fullmatch("auth\U0001D400"))
+        self.assertTrue(guards._UNQUOTED_IDENT_RE.fullmatch("\U0001D400auth"))
+        # The clip is bytes, on a character boundary, never a partial code point.
+        for width, char in ((2, "م"), (3, "ก"), (4, "\U0001D400")):
+            self.assertEqual(len(char.encode("utf-8")), width)
+            over = "a" * (64 - width) + char       # crosses the limit by `width`
+            clipped = pg(over)
+            self.assertLessEqual(len(clipped.encode("utf-8")), 63)
+            self.assertEqual(clipped.encode("utf-8").decode("utf-8"), clipped)
+        # Exactly 63 bytes is untouched.
+        self.assertEqual(pg("a" * 63), "a" * 63)
+
+    def test_pg_identifier_matches_the_postgresql_17_oracle(self) -> None:
+        """Differential gate: every row of the committed oracle was resolved by
+        a live PostgreSQL 17 server, and the canonicalizer must agree with all
+        of them.
+
+        Four review rounds each found a case where the scanner's identifier
+        identity diverged from PostgreSQL's. A hand-written expectation table
+        would encode the same assumptions that were wrong, so the expectations
+        come from the server: see scripts/ci/generate_pg_identifier_oracle.py
+        to regenerate against PostgreSQL 17.
+        """
+        oracle_path = SCRIPT.with_name("oracles") / "pg_identifier_identity.json"
+        self.assertTrue(oracle_path.is_file(), f"missing oracle: {oracle_path}")
+        oracle = json.loads(oracle_path.read_text(encoding="utf-8"))
+        self.assertEqual(oracle["server_encoding"], "UTF8")
+        self.assertEqual(oracle["namedatalen_limit"], guards._NAMEDATALEN_LIMIT)
+        self.assertTrue(oracle["server_version"].startswith("PostgreSQL 17."),
+                        oracle["server_version"])
+        self.assertGreaterEqual(len(oracle["rows"]), 40)
+        for row in oracle["rows"]:
+            with self.subTest(identifier=row["text"][:24]):
+                self.assertEqual(
+                    guards._pg_identifier(row["text"]), row["unquoted"],
+                    "unquoted identity disagrees with PostgreSQL 17",
+                )
+                self.assertEqual(
+                    guards._pg_identifier(row["text"], quoted=True), row["quoted"],
+                    "quoted identity disagrees with PostgreSQL 17",
+                )
+
     def test_effective_identifier_matches_postgresql_clipping(self) -> None:
         """The canonicalizer itself: NAMEDATALEN-1 bytes, character-aligned."""
         eff = guards._effective_identifier
@@ -2260,11 +2507,13 @@ class DefinerScannerTests(unittest.TestCase):
             guards._exit_targets = original_targets
             guards._block_labels = original_labels
 
-        # Third half: drop the NAMEDATALEN clip and the truncation collisions
-        # become invisible again, because the two labels compare unequal.
-        original_effective = guards._effective_identifier
+        # Third arm: raise the NAMEDATALEN limit out of reach and the truncation
+        # collisions become invisible again, because the two labels compare
+        # unequal. Mutating the LIMIT rather than the whole canonicalizer keeps
+        # this arm isolated to the clip - the ASCII fold stays intact.
+        original_limit = guards._NAMEDATALEN_LIMIT
         try:
-            guards._effective_identifier = lambda name: name
+            guards._NAMEDATALEN_LIMIT = 10 ** 9
             for name, sql in LABELLED_EXIT_TRUNCATION_MUST_REJECT.items():
                 with self.subTest(mutation="no_identifier_clip", case=name):
                     self.assertEqual(
@@ -2272,7 +2521,40 @@ class DefinerScannerTests(unittest.TestCase):
                         f"{name}: expected the pre-fix false green to return",
                     )
         finally:
-            guards._effective_identifier = original_effective
+            guards._NAMEDATALEN_LIMIT = original_limit
+
+        # Fourth arm: restore Python's full-Unicode fold and every identity that
+        # depends on PostgreSQL folding ASCII only comes apart again - U+212A
+        # folds to a one-byte `k`, moving the clip and un-merging a pair
+        # PostgreSQL had already merged, and `Ä` merges with `ä`, which
+        # PostgreSQL keeps distinct.
+        original_fold = guards._fold_unquoted
+        try:
+            guards._fold_unquoted = str.lower
+            for name, sql in IDENTITY_FOLD_MUST_REJECT.items():
+                with self.subTest(mutation="unicode_fold", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._fold_unquoted = original_fold
+
+        # Fifth arm: put the U+FFFF ceiling back on the identifier alphabet and
+        # an astral-plane label becomes unreadable, so no label is recorded.
+        original_ident = guards._UNQUOTED_IDENT_RE
+        try:
+            guards._UNQUOTED_IDENT_RE = re.compile(
+                "[A-Za-z_-￿][A-Za-z0-9_$-￿]*"
+            )
+            for name, sql in IDENTITY_ASTRAL_MUST_REJECT.items():
+                with self.subTest(mutation="bmp_only_alphabet", case=name):
+                    self.assertEqual(
+                        self.verdict(name, sql), [],
+                        f"{name}: expected the pre-fix false green to return",
+                    )
+        finally:
+            guards._UNQUOTED_IDENT_RE = original_ident
 
         # The fixtures reject again once every half is restored.
         for name, sql in {**LABELLED_EXIT_DECLARE_MUST_REJECT,
