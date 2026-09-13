@@ -350,10 +350,31 @@ def _decode_pg_escape_string(raw: str) -> str | None:
     return "".join(out)
 
 
+def _read_quoted_span(
+    term: str, raw_body: str, offset: int, pos: int, decode_escapes: bool
+) -> tuple[str | None, int, bool]:
+    """Read the bare `'...'` span at masked-term offset `pos` (`term[pos]` is
+    the opening quote itself - no `E`/`e` prefix). `decode_escapes` says
+    whether backslash escapes apply to its content, independent of whether
+    THIS span carries its own prefix - see `_read_sqlstate_literal` for why.
+
+    Returns (value, end_pos, unparseable), matching `_read_one_pg_literal`.
+    """
+    q2 = term.find("'", pos + 1)
+    if q2 == -1:
+        return None, pos, True
+    raw_content = raw_body[offset + pos + 1: offset + q2]
+    if decode_escapes:
+        value = _decode_pg_escape_string(raw_content)
+        return (None, q2 + 1, True) if value is None else (value, q2 + 1, False)
+    return raw_content.replace("''", "'"), q2 + 1, False
+
+
 def _read_one_pg_literal(
     term: str, raw_body: str, offset: int, pos: int
 ) -> tuple[str | None, int, bool]:
-    """Decode exactly ONE literal at masked-term offset `pos`.
+    """Decode exactly ONE literal at masked-term offset `pos`, honouring its
+    OWN `E`/`e` prefix if it has one.
 
     Returns (value, end_pos, unparseable). `end_pos` is the offset just past
     the literal's closing delimiter, so a caller can look for PostgreSQL's
@@ -366,14 +387,7 @@ def _read_one_pg_literal(
     if is_escape:
         pos += 1
     if term[pos:pos + 1] == "'":
-        q2 = term.find("'", pos + 1)
-        if q2 == -1:
-            return None, pos, True
-        raw_content = raw_body[offset + pos + 1: offset + q2]
-        if is_escape:
-            value = _decode_pg_escape_string(raw_content)
-            return (None, q2 + 1, True) if value is None else (value, q2 + 1, False)
-        return raw_content.replace("''", "'"), q2 + 1, False
+        return _read_quoted_span(term, raw_body, offset, pos, is_escape)
     if term[pos] == "$":
         m = _DOLLAR_TAG_RE.match(term, pos)
         if not m:
@@ -387,9 +401,9 @@ def _read_one_pg_literal(
 
 
 def _is_string_literal_opener(term: str, pos: int) -> bool:
-    """True when `term[pos:]` opens a `'...'` or `E'...'` literal - the two
-    forms PostgreSQL concatenates across a newline. Dollar-quoted literals are
-    read as a single standalone operand and are not chained here."""
+    """True when `term[pos:]` opens a `'...'` or `E'...'` literal - the shape
+    a STARTING literal may take. Dollar-quoted literals are read as a single
+    standalone operand and are not chained here."""
     if pos >= len(term):
         return False
     if term[pos] == "'":
@@ -403,12 +417,24 @@ def _read_sqlstate_literal(
     """Decode the literal(s) at masked-term offset `pos` (a `SQLSTATE`
     operand).
 
-    PostgreSQL's lexer concatenates two adjacent string constants ('...' or
-    E'...') into ONE literal when the whitespace between them contains a
-    newline - `SQLSTATE 'P00'\n'01'` is the single value `P0001`, not two
-    unrelated conditions. Reading only the first segment let a swallow spelled
-    across a line break hide from this scanner. Dollar-quoted literals are not
-    part of this continuation rule and are read as a single standalone value.
+    PostgreSQL's lexer concatenates two adjacent string constants into ONE
+    literal when the whitespace between them contains a newline -
+    `SQLSTATE 'P00'\n'01'` is the single value `P0001`, not two unrelated
+    conditions. Reading only the first segment let a swallow spelled across a
+    line break hide from this scanner.
+
+    The escape mode of the WHOLE chain is decided ONCE, by the very first
+    segment's own `E`/`e` prefix - verified against a live PostgreSQL server:
+    a continuation segment NEVER carries its own prefix. `E'P00'\n'0\x31'`
+    resolves to P0001 (the bare continuation is decoded WITH the inherited
+    escape mode), and every form tried where a later segment carries its own
+    `E`/`e` prefix - after either an escape or an ordinary first segment - is
+    a hard parse error (`invalid SQLSTATE code` or a syntax error), never a
+    second independently-moded literal. So a continuation segment opening
+    with `E'`/`e'` is a shape this scanner cannot confidently attribute to a
+    real, compilable statement; it fails closed rather than silently keeping
+    only the segments decoded so far. Dollar-quoted literals are not part of
+    this continuation rule and are read as a single standalone value.
 
     Returns (value, unparseable). `value` is None when nothing recognizable as
     a literal starts at `pos`. `unparseable=True` means a literal opener was
@@ -416,6 +442,9 @@ def _read_sqlstate_literal(
     confidently decoded, so the caller must fail closed rather than treat it
     as "does not catch".
     """
+    if pos >= len(term):
+        return None, False
+    chain_is_escape = term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
     value, end_pos, unparseable = _read_one_pg_literal(term, raw_body, offset, pos)
     if value is None or unparseable:
         return (None, unparseable)
@@ -428,17 +457,20 @@ def _read_sqlstate_literal(
             if term[i] == "\n":
                 saw_newline = True
             i += 1
-        if not saw_newline or not _is_string_literal_opener(term, i):
+        if not saw_newline:
             return value, False
-        next_value, next_end, next_unparseable = _read_one_pg_literal(
-            term, raw_body, offset, i
-        )
-        if next_unparseable:
-            return None, True
-        if next_value is None:
-            return value, False
-        value += next_value
-        end_pos = next_end
+        if i < n and term[i] == "'":
+            next_value, next_end, next_unparseable = _read_quoted_span(
+                term, raw_body, offset, i, chain_is_escape
+            )
+            if next_unparseable:
+                return None, True
+            value += next_value
+            end_pos = next_end
+            continue
+        if i < n and term[i] in "Ee" and i + 1 < n and term[i + 1] == "'":
+            return None, True  # an E-prefixed continuation segment never compiles
+        return value, False
 
 
 def _handler_condition_spans(body: str, start: int, end: int):

@@ -1793,6 +1793,71 @@ SQLSTATE_CONTINUATION_MUST_ACCEPT = {
 }
 
 
+# Astra round 3: the continuation fix above decoded each segment
+# independently through its OWN prefix, losing the chain's effective escape
+# mode. Reproduced against the real check_file() on the #246 head that closed
+# the newline-continuation gap: `_read_sqlstate_literal()` returned
+# ('P000\x31', False) for `E'P00'\n'0\x31'` - the bare continuation segment
+# was read as an ORDINARY string instead of inheriting the leading E'' mode,
+# so the effective P0001 (confirmed live: PostgreSQL 17/16 both evaluate this
+# to P0001) went undetected. A live server also confirms a continuation
+# segment can NEVER carry its own E/e prefix - `'P0'\nE'01'` and
+# `E'P0'\nE'01'` are both hard parse errors (`invalid SQLSTATE code` /
+# `syntax error`) regardless of the first segment's mode - so that shape
+# fails closed rather than being silently truncated to the first segment.
+SQLSTATE_CHAINED_ESCAPE_MODE_MUST_REJECT = {
+    # Astra's exact reproducer: E'' then a bare continuation, hex escape only
+    # resolves under the inherited escape mode.
+    "escape_then_ordinary_hex_resolves_to_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\n'0\\x31'"
+    ),
+    # Triple chain: the mode must survive through every hop, not just one.
+    "triple_chain_escape_then_ordinary_then_ordinary": definer_outer_handler(
+        "SQLSTATE E'P0'\n'00'\n'\\x31'"
+    ),
+    # Existing single-segment forms must not regress under the refactor.
+    "single_segment_hex_still_resolves": definer_outer_handler(
+        r"SQLSTATE E'P000\x31'"
+    ),
+    "single_segment_octal_still_wraps": definer_outer_handler(
+        "SQLSTATE E'P000\\461'"
+    ),
+    "plain_two_segment_continuation_still_works": definer_outer_handler(
+        "SQLSTATE 'P00'\n'01'"
+    ),
+}
+
+SQLSTATE_CHAINED_ESCAPE_MODE_MUST_ACCEPT = {
+    # The inherited mode must decode the RIGHT value, not just any value:
+    # E'235' + escaped '0\x35' is 23505, not P0001.
+    "escape_then_ordinary_unrelated_code": definer_outer_handler(
+        "SQLSTATE E'235'\n'0\\x35'"
+    ),
+    # With NO leading E'', a continuation's backslash is never an escape -
+    # PostgreSQL keeps it as two literal characters, confirmed live.
+    "ordinary_chain_keeps_backslash_literal": definer_outer_handler(
+        "SQLSTATE 'P00'\n'0\\x31'"
+    ),
+    # An E-prefixed continuation segment never compiles on a real server, in
+    # either direction - the scanner must still fail CLOSED on it (tested via
+    # the MUST_REJECT dict below, not here); these two confirm the escape
+    # MODE itself, not the illegal-continuation shape.
+}
+
+# A continuation segment can never carry its own E/e prefix; PostgreSQL
+# rejects both orderings outright. This scanner cannot confidently attribute
+# such text to a real, compilable statement, so it fails closed instead of
+# quietly keeping only the first segment.
+SQLSTATE_ILLEGAL_CONTINUATION_PREFIX_MUST_REJECT = {
+    "ordinary_then_escape_prefixed_continuation": definer_outer_handler(
+        "SQLSTATE 'P0'\nE'01'"
+    ),
+    "escape_then_escape_prefixed_continuation": definer_outer_handler(
+        "SQLSTATE E'P0'\nE'01'"
+    ),
+}
+
+
 QUOTED_TYPE_WHITESPACE_MUST_REJECT = {
     # The REVOKE below names ONLY the double-space overload. If the scanner
     # collapses `"Type  A"` to `"Type A"` before comparing, it wrongly treats
@@ -3161,6 +3226,77 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         masked, _ = guards.mask_sql_checked(raw)
         value, unparseable = guards._read_sqlstate_literal(
             masked, raw, 0, masked.index("'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+    def test_sqlstate_continuation_inherits_the_chains_escape_mode(self) -> None:
+        """Astra round 3: the escape mode is decided ONCE by the leading
+        segment and applies to every continuation segment - verified against
+        a live PostgreSQL server, which never lets a continuation segment
+        carry its own E/e prefix in the first place."""
+        for name, sql in SQLSTATE_CHAINED_ESCAPE_MODE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_CHAINED_ESCAPE_MODE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        for name, sql in SQLSTATE_ILLEGAL_CONTINUATION_PREFIX_MUST_REJECT.items():
+            with self.subTest(illegal_continuation=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_chained_escape_mode_reader_discriminates(self) -> None:
+        """The reader itself: the leading segment's prefix decides the mode
+        for the WHOLE chain, an E-prefixed continuation is never legal PG
+        syntax and fails closed, and a plain chain never decodes escapes."""
+        raw = "SQLSTATE E'P00'\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'P0'\n'00'\n'\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'235'\n'0\\x35'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "23505")
+        self.assertFalse(unparseable)
+
+        # No leading E'': a continuation's backslash is never an escape.
+        raw = "SQLSTATE 'P00'\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P000\\x31")
+        self.assertFalse(unparseable)
+
+        # An E-prefixed continuation segment never compiles, in either
+        # direction, and must fail closed rather than truncate to the first
+        # segment's value.
+        raw = "SQLSTATE 'P0'\nE'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+        raw = "SQLSTATE E'P0'\nE'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
         )
         self.assertIsNone(value)
         self.assertTrue(unparseable)
