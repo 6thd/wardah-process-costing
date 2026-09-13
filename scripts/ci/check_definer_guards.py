@@ -350,127 +350,41 @@ def _decode_pg_escape_string(raw: str) -> str | None:
     return "".join(out)
 
 
-def _read_quoted_span(
-    term: str, raw_body: str, offset: int, pos: int, decode_escapes: bool
-) -> tuple[str | None, int, bool]:
-    """Read the bare `'...'` span at masked-term offset `pos` (`term[pos]` is
-    the opening quote itself - no `E`/`e` prefix). `decode_escapes` says
-    whether backslash escapes apply to its content, independent of whether
-    THIS span carries its own prefix - see `_read_sqlstate_literal` for why.
-
-    Returns (value, end_pos, unparseable), matching `_read_one_pg_literal`.
-    """
-    q2 = term.find("'", pos + 1)
-    if q2 == -1:
-        return None, pos, True
-    raw_content = raw_body[offset + pos + 1: offset + q2]
-    if decode_escapes:
-        value = _decode_pg_escape_string(raw_content)
-        return (None, q2 + 1, True) if value is None else (value, q2 + 1, False)
-    return raw_content.replace("''", "'"), q2 + 1, False
-
-
-def _read_one_pg_literal(
-    term: str, raw_body: str, offset: int, pos: int
-) -> tuple[str | None, int, bool]:
-    """Decode exactly ONE literal at masked-term offset `pos`, honouring its
-    OWN `E`/`e` prefix if it has one.
-
-    Returns (value, end_pos, unparseable). `end_pos` is the offset just past
-    the literal's closing delimiter, so a caller can look for PostgreSQL's
-    adjacent-string-literal continuation right after it. `value` is None when
-    nothing recognizable as a literal starts at `pos`.
-    """
-    if pos >= len(term):
-        return None, pos, False
-    is_escape = term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
-    if is_escape:
-        pos += 1
-    if term[pos:pos + 1] == "'":
-        return _read_quoted_span(term, raw_body, offset, pos, is_escape)
-    if term[pos] == "$":
-        m = _DOLLAR_TAG_RE.match(term, pos)
-        if not m:
-            return None, pos, True
-        tag = m.group(0)
-        end_pos = term.find(tag, m.end())
-        if end_pos == -1:
-            return None, pos, True
-        return raw_body[offset + m.end(): offset + end_pos], end_pos + len(tag), False
-    return None, pos, False
-
-
-def _is_string_literal_opener(term: str, pos: int) -> bool:
-    """True when `term[pos:]` opens a `'...'` or `E'...'` literal - the shape
-    a STARTING literal may take. Dollar-quoted literals are read as a single
-    standalone operand and are not chained here."""
-    if pos >= len(term):
-        return False
-    if term[pos] == "'":
-        return True
-    return term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
-
-
 def _read_sqlstate_literal(
     term: str, raw_body: str, offset: int, pos: int
 ) -> tuple[str | None, bool]:
-    """Decode the literal(s) at masked-term offset `pos` (a `SQLSTATE`
-    operand).
+    """Decode a SQLSTATE using the masker's shared RAW literal spans.
 
-    PostgreSQL's lexer concatenates two adjacent string constants into ONE
-    literal when the whitespace between them contains a newline -
-    `SQLSTATE 'P00'\n'01'` is the single value `P0001`, not two unrelated
-    conditions. Reading only the first segment let a swallow spelled across a
-    line break hide from this scanner.
-
-    The escape mode of the WHOLE chain is decided ONCE, by the very first
-    segment's own `E`/`e` prefix - verified against a live PostgreSQL server:
-    a continuation segment NEVER carries its own prefix. `E'P00'\n'0\x31'`
-    resolves to P0001 (the bare continuation is decoded WITH the inherited
-    escape mode), and every form tried where a later segment carries its own
-    `E`/`e` prefix - after either an escape or an ordinary first segment - is
-    a hard parse error (`invalid SQLSTATE code` or a syntax error), never a
-    second independently-moded literal. So a continuation segment opening
-    with `E'`/`e'` is a shape this scanner cannot confidently attribute to a
-    real, compilable statement; it fails closed rather than silently keeping
-    only the segments decoded so far. Dollar-quoted literals are not part of
-    this continuation rule and are read as a single standalone value.
-
-    Returns (value, unparseable). `value` is None when nothing recognizable as
-    a literal starts at `pos`. `unparseable=True` means a literal opener was
-    found but its content - or a continuation segment's - could not be
-    confidently decoded, so the caller must fail closed rather than treat it
-    as "does not catch".
+    Unknown operands (including U& strings and their optional UESCAPE clause)
+    fail closed. Unicode value decoding is deliberately outside this reader's
+    contract; it must never be mistaken for an unrelated exception condition.
+    Dollar quoting remains standalone, and ordinary chains assume PostgreSQL's
+    standard_conforming_strings=on. Returns (value, unparseable).
     """
-    if pos >= len(term):
-        return None, False
-    chain_is_escape = term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
-    value, end_pos, unparseable = _read_one_pg_literal(term, raw_body, offset, pos)
-    if value is None or unparseable:
-        return (None, unparseable)
-    if not _is_string_literal_opener(term, pos):
-        return value, False  # a dollar-quoted literal is never chained
-    while True:
-        i, n = end_pos, len(term)
-        saw_newline = False
-        while i < n and term[i].isspace():
-            if term[i] == "\n":
-                saw_newline = True
-            i += 1
-        if not saw_newline:
-            return value, False
-        if i < n and term[i] == "'":
-            next_value, next_end, next_unparseable = _read_quoted_span(
-                term, raw_body, offset, i, chain_is_escape
-            )
-            if next_unparseable:
-                return None, True
-            value += next_value
-            end_pos = next_end
-            continue
-        if i < n and term[i] in "Ee" and i + 1 < n and term[i + 1] == "'":
-            return None, True  # an E-prefixed continuation segment never compiles
-        return value, False
+    raw = raw_body[offset:offset + len(term)]
+    if raw[pos:pos + 1] == "$":
+        match = _DOLLAR_TAG_RE.match(raw, pos)
+        if match:
+            end = raw.find(match.group(), match.end())
+            if end != -1:
+                return raw[match.end():end], False
+        return None, True
+    if raw[pos:pos + 1] in ("E", "e") and raw[pos + 1:pos + 2] == "'":
+        pos += 1
+    if raw[pos:pos + 1] != "'":
+        return None, True
+    try:
+        spans, escape = _quoted_chain_spans(raw, pos)
+    except MaskError:
+        return None, True
+    values = []
+    for start, end in spans:
+        content = raw[start + 1:end - 1]
+        value = _decode_pg_escape_string(content) if escape else content.replace("''", "'")
+        if value is None:
+            return None, True
+        values.append(value)
+    return "".join(values), False
 
 
 def _handler_condition_spans(body: str, start: int, end: int):
@@ -1171,30 +1085,79 @@ def _is_escape_string(sql: str, i: int) -> bool:
     return k < 0 or not (sql[k].isalnum() or sql[k] == "_")
 
 
-def _mask_quoted(sql: str, out: list[str], i: int) -> int:
-    """Mask the CONTENT of a single-quoted literal, keeping both delimiters so
-    the statement shape around it stays readable. A doubled '' is content. In an
-    E'' literal a backslash escapes the next character, so \' does not close
-    the literal."""
+def _quoted_span_end(sql: str, i: int, escape: bool) -> int:
+    """Exclusive end of one raw quoted span, with the CHAIN's escape mode."""
     n = len(sql)
-    escape = _is_escape_string(sql, i)
     j = i + 1
     while j < n:
         ch = sql[j]
         if escape and ch == "\\" and j + 1 < n:
-            _blank(out, j, j + 2)
             j += 2
             continue
         if ch == "'":
             if sql.startswith("''", j):
-                _blank(out, j, j + 2)
                 j += 2
                 continue
             return j + 1
-        if ch != "\n":
-            out[j] = " "
         j += 1
     raise MaskError("unterminated single-quoted literal")
+
+
+def _continuation_quote(sql: str, end: int) -> int | None:
+    """PostgreSQL quote continuation: whitespace/newline and -- comments.
+
+    Inspect RAW text: masking a block comment into whitespace would invent a
+    continuation PostgreSQL does not accept. CR and LF both count as newlines.
+    A prefix on a later segment is unsupported syntax and fails closed.
+    """
+    i, n = end, len(sql)
+    newline = False
+    while i < n:
+        if sql[i] in " \t\f\r\n":
+            newline |= sql[i] in "\r\n"
+            i += 1
+        elif sql.startswith("--", i):
+            i += 2
+            while i < n and sql[i] not in "\r\n":
+                i += 1
+        else:
+            break
+    if not newline:
+        return None
+    if sql[i:i + 1] == "'":
+        return i
+    if sql[i:i + 2].lower() == "e'" or sql[i:i + 3].lower() == "u&'":
+        raise MaskError("unsupported prefixed string continuation")
+    return None
+
+
+def _quoted_chain_spans(sql: str, i: int) -> tuple[list[tuple[int, int]], bool]:
+    """Shared literal boundaries for masking and SQLSTATE decoding.
+
+    Input starts at the first quote; returned spans include both delimiters.
+    Only the leading E/e determines escape mode. Bare continuation segments
+    inherit it, including escaped quotes; the mode ends with this chain.
+    """
+    escape = _is_escape_string(sql, i)
+    spans = []
+    while True:
+        end = _quoted_span_end(sql, i, escape)
+        spans.append((i, end))
+        next_quote = _continuation_quote(sql, end)
+        if next_quote is None:
+            return spans, escape
+        i = next_quote
+
+
+def _mask_quoted(sql: str, out: list[str], i: int) -> int:
+    """Mask chain contents and separator comments, preserving delimiters."""
+    spans, _ = _quoted_chain_spans(sql, i)
+    previous_end = i
+    for start, end in spans:
+        _blank(out, previous_end, start)
+        _blank(out, start + 1, end - 1)
+        previous_end = end
+    return previous_end
 
 
 def _mask_quoted_identifier(sql: str, out: list[str], i: int) -> int:

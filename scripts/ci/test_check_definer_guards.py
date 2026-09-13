@@ -1992,6 +1992,48 @@ GRANT_OPTION_MUST_ACCEPT = {
 }
 
 
+# Round 4: the decoder and masker must agree on continued-string boundaries.
+# These payloads were also executed in an isolated PostgreSQL 17.5 engine:
+# the apparent assertion is string content and the unguarded write succeeds.
+CONTINUED_LITERAL_FAKE_GUARDS = {
+    "inherited_escaped_quote": "  PERFORM E''\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+    "third_segment_escaped_quote": "  PERFORM e''\n''\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+    "line_comment_separator": "  PERFORM E'' -- continuation\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+}
+
+UNICODE_SQLSTATE_MUST_REJECT = (
+    "SQLSTATE U&'P0001'",  # Exact Codex report; fail closed, no decoder claim.
+    r"SQLSTATE U&'P000\0031'",
+    r"SQLSTATE u&'\00500001'",
+    r"SQLSTATE U&'P000!0031' UESCAPE '!'",
+    r"SQLSTATE U&'P000\0030'",
+    r"SQLSTATE '23505' OR SQLSTATE U&'P000\0031'",
+    r"SQLSTATE U&'23505'",  # Unsupported decoding fails closed even if unrelated.
+)
+
+# Scalar values checked against PostgreSQL 17.5. Parser-level equality below
+# is backed by check_file() controls using EVERY expression in a real body.
+CONTINUED_LITERAL_VALUES = (
+    ("E''\n'\\''", "'"),
+    ("E''\n'\\'x'", "'x"),
+    ("E''\n'\\\\'", "\\"),
+    ("E'one'''\n'''two'", "one''two"),
+    ("E'P0'\n'00'\n'\\x31'", "P0001"),
+    ("E'P00' \t\r\n '0\\461'", "P0001"),
+    ("E'P00'\n\n\n'01'", "P0001"),
+    ("E'P00' -- comment\n'01'", "P0001"),
+    ("E'P00' -- first\n -- second\n'01'", "P0001"),
+    ("E'a'\n'\\tb'", "a\tb"),
+    ("E'a\\\\'\n'b'", "a\\b"),
+    ("'a\\'\n'b'", "a\\b"),
+    ("E'235'\n'0\\x35'", "23505"),
+    ("'P00'\n'0\\x31'", "P000\\x31"),
+)
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -3167,6 +3209,72 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_unicode_sqlstate_fails_closed(self) -> None:
+        for i, handler in enumerate(UNICODE_SQLSTATE_MUST_REJECT):
+            with self.subTest(handler=handler):
+                self.assertTrue(self.verdict(f"unicode_{i}", definer_outer_handler(handler)))
+
+    def test_continued_literal_cannot_impersonate_a_guard(self) -> None:
+        for name, body in CONTINUED_LITERAL_FAKE_GUARDS.items():
+            with self.subTest(name=name):
+                self.assertTrue(self.verdict(name, definer(body)))
+                # The same string preceding a REAL assertion remains valid.
+                guarded = body + "\n  PERFORM public.wardah_assert_org_member(p_org);"
+                self.assertEqual(self.verdict(name + "_real_guard", definer(guarded)), [])
+
+    def test_ordinary_continuation_does_not_inherit_escape_mode(self) -> None:
+        # Without leading E the backslash is content and the quote really
+        # closes: the assertion after it executes (PostgreSQL 17.5 control).
+        body = "  PERFORM ''\n'\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n"
+        self.assertEqual(self.verdict("ordinary_real_guard", definer(body)), [])
+
+    def test_literal_boundaries_match_for_masking_and_decoding(self) -> None:
+        for i, (literal, expected) in enumerate(CONTINUED_LITERAL_VALUES):
+            with self.subTest(literal=literal):
+                raw = "SQLSTATE " + literal
+                masked, problems = guards.mask_sql_checked(raw)
+                self.assertEqual(problems, [])
+                self.assertEqual(len(masked), len(raw))
+                self.assertEqual(
+                    guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                    (expected, False),
+                )
+                body = "  PERFORM " + literal + ";"
+                self.assertTrue(self.verdict(f"literal_{i}_unguarded", definer(body)))
+                body += "\n  PERFORM public.wardah_assert_org_member(p_org);"
+                self.assertEqual(self.verdict(f"literal_{i}_guarded", definer(body)), [])
+                # Also prove the actual exception-handling verdict, including
+                # unrelated/invalid SQLSTATE values that do not catch P0001.
+                findings = self.verdict(f"literal_{i}_handler", definer_outer_handler(raw))
+                self.assertEqual(bool(findings), expected in ("P0001", "P0000"))
+
+    def test_continuation_uses_raw_separators_and_resets_mode(self) -> None:
+        for separator in (" ", " /* comment */\n", "\n/* nested /* c */ c */\n"):
+            raw = "SQLSTATE E'P00'" + separator + "'01'"
+            masked, problems = guards.mask_sql_checked(raw)
+            self.assertEqual(problems, [])
+            self.assertEqual(
+                guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                ("P00", False),
+            )
+        body = "  PERFORM E'';\n  PERFORM ''\n'\\';\n"
+        body += "  PERFORM public.wardah_assert_org_member(p_org);"
+        self.assertEqual(self.verdict("escape_mode_reset", definer(body)), [])
+
+    def test_unknown_sqlstate_operands_and_broken_chains_fail_closed(self) -> None:
+        for i, operand in enumerate((
+            "U&'P0001'", "U&'P000!0031' UESCAPE '!'", "U&'P00'\n'01'",
+            "E'P0'\nU&'001'", "E'P0'\n'\\x'", "E'P0'\n'\\q'",
+        )):
+            with self.subTest(operand=operand):
+                raw = "SQLSTATE " + operand
+                masked, _ = guards.mask_sql_checked(raw)
+                self.assertEqual(
+                    guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                    (None, True),
+                )
+                self.assertTrue(self.verdict(f"unknown_{i}", definer_outer_handler(raw)))
 
     def test_sqlstate_octal_escape_uses_postgresql_byte_semantics(self) -> None:
         """Astra round 2, finding 1: `\\ooo` is a BYTE escape and wraps modulo
