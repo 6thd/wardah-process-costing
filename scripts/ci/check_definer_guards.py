@@ -332,7 +332,12 @@ def _decode_pg_escape_string(raw: str) -> str | None:
                 while j < n and len(digits) < 3 and raw[j] in "01234567":
                     digits += raw[j]
                     j += 1
-                out.append(chr(int(digits, 8)))
+                # PostgreSQL's \ooo is a BYTE value, not a Unicode code point:
+                # an octal escape whose value exceeds 255 wraps modulo 256
+                # (\461 = octal 305 = 0x131, low byte 0x31 = '1'). chr() of the
+                # unmasked int would instead have produced an unrelated
+                # high-range character and hidden a real 'P0001' spelling.
+                out.append(chr(int(digits, 8) & 0xFF))
                 i = j
                 continue
             if nxt in _SIMPLE_ESCAPES:
@@ -345,40 +350,95 @@ def _decode_pg_escape_string(raw: str) -> str | None:
     return "".join(out)
 
 
-def _read_sqlstate_literal(
+def _read_one_pg_literal(
     term: str, raw_body: str, offset: int, pos: int
-) -> tuple[str | None, bool]:
-    """Decode the literal at masked-term offset `pos` (a `SQLSTATE` operand).
+) -> tuple[str | None, int, bool]:
+    """Decode exactly ONE literal at masked-term offset `pos`.
 
-    Returns (value, unparseable). `value` is None when nothing recognizable as
-    a literal starts at `pos`. `unparseable=True` means a literal opener was
-    found but its content could not be confidently decoded - the caller must
-    fail closed rather than treat it as "does not catch".
+    Returns (value, end_pos, unparseable). `end_pos` is the offset just past
+    the literal's closing delimiter, so a caller can look for PostgreSQL's
+    adjacent-string-literal continuation right after it. `value` is None when
+    nothing recognizable as a literal starts at `pos`.
     """
     if pos >= len(term):
-        return None, False
+        return None, pos, False
     is_escape = term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
     if is_escape:
         pos += 1
     if term[pos:pos + 1] == "'":
         q2 = term.find("'", pos + 1)
         if q2 == -1:
-            return None, True
+            return None, pos, True
         raw_content = raw_body[offset + pos + 1: offset + q2]
         if is_escape:
             value = _decode_pg_escape_string(raw_content)
-            return (None, True) if value is None else (value, False)
-        return raw_content.replace("''", "'"), False
+            return (None, q2 + 1, True) if value is None else (value, q2 + 1, False)
+        return raw_content.replace("''", "'"), q2 + 1, False
     if term[pos] == "$":
         m = _DOLLAR_TAG_RE.match(term, pos)
         if not m:
-            return None, True
+            return None, pos, True
         tag = m.group(0)
         end_pos = term.find(tag, m.end())
         if end_pos == -1:
+            return None, pos, True
+        return raw_body[offset + m.end(): offset + end_pos], end_pos + len(tag), False
+    return None, pos, False
+
+
+def _is_string_literal_opener(term: str, pos: int) -> bool:
+    """True when `term[pos:]` opens a `'...'` or `E'...'` literal - the two
+    forms PostgreSQL concatenates across a newline. Dollar-quoted literals are
+    read as a single standalone operand and are not chained here."""
+    if pos >= len(term):
+        return False
+    if term[pos] == "'":
+        return True
+    return term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
+
+
+def _read_sqlstate_literal(
+    term: str, raw_body: str, offset: int, pos: int
+) -> tuple[str | None, bool]:
+    """Decode the literal(s) at masked-term offset `pos` (a `SQLSTATE`
+    operand).
+
+    PostgreSQL's lexer concatenates two adjacent string constants ('...' or
+    E'...') into ONE literal when the whitespace between them contains a
+    newline - `SQLSTATE 'P00'\n'01'` is the single value `P0001`, not two
+    unrelated conditions. Reading only the first segment let a swallow spelled
+    across a line break hide from this scanner. Dollar-quoted literals are not
+    part of this continuation rule and are read as a single standalone value.
+
+    Returns (value, unparseable). `value` is None when nothing recognizable as
+    a literal starts at `pos`. `unparseable=True` means a literal opener was
+    found but its content - or a continuation segment's - could not be
+    confidently decoded, so the caller must fail closed rather than treat it
+    as "does not catch".
+    """
+    value, end_pos, unparseable = _read_one_pg_literal(term, raw_body, offset, pos)
+    if value is None or unparseable:
+        return (None, unparseable)
+    if not _is_string_literal_opener(term, pos):
+        return value, False  # a dollar-quoted literal is never chained
+    while True:
+        i, n = end_pos, len(term)
+        saw_newline = False
+        while i < n and term[i].isspace():
+            if term[i] == "\n":
+                saw_newline = True
+            i += 1
+        if not saw_newline or not _is_string_literal_opener(term, i):
+            return value, False
+        next_value, next_end, next_unparseable = _read_one_pg_literal(
+            term, raw_body, offset, i
+        )
+        if next_unparseable:
             return None, True
-        return raw_body[offset + m.end(): offset + end_pos], False
-    return None, False
+        if next_value is None:
+            return value, False
+        value += next_value
+        end_pos = next_end
 
 
 def _handler_condition_spans(body: str, start: int, end: int):

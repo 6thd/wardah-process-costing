@@ -1755,6 +1755,44 @@ SQLSTATE_LITERAL_FORM_MUST_ACCEPT = {
 }
 
 
+# Astra round 2: two further gaps in the SQLSTATE-literal swallow model itself,
+# both reproduced against the real check_file() on the #246 head that closed
+# the three findings above.
+#
+#   1. `\ooo` in an E'' string is a PostgreSQL BYTE escape, not a Unicode code
+#      point. `chr(int(digits, 8))` on a 3-digit octal escape whose value
+#      exceeds 255 (`\461` = octal 305) produced an unrelated high-range
+#      character instead of the wrapped byte 0x31 = '1', so `E'P000\461'` -
+#      which PostgreSQL reads as P0001 - did not compare equal to it.
+#   2. PostgreSQL's lexer concatenates two adjacent string constants when the
+#      whitespace between them contains a newline: `SQLSTATE 'P00'\n'01'` is
+#      the single value P0001. The reader stopped at the first literal's
+#      closing quote, so a swallow spelled across a line break was invisible.
+SQLSTATE_OCTAL_ESCAPE_MUST_REJECT = {
+    "octal_escape_wraps_to_p0001": definer_outer_handler(
+        "SQLSTATE E'P000\\461'"
+    ),
+}
+
+SQLSTATE_CONTINUATION_MUST_REJECT = {
+    "newline_continuation_spells_p0001": definer_outer_handler(
+        "SQLSTATE 'P00'\n'01'"
+    ),
+}
+
+SQLSTATE_CONTINUATION_MUST_ACCEPT = {
+    "newline_continuation_unrelated_code": definer_outer_handler(
+        "SQLSTATE '235'\n'05'"
+    ),
+    # No newline in the separating whitespace: PostgreSQL does NOT concatenate
+    # these, so the scanner must not invent a continuation either. The first
+    # segment alone ('P00') does not catch P0001.
+    "same_line_adjacent_literals_are_not_concatenated": definer_outer_handler(
+        "SQLSTATE 'P00' '01'"
+    ),
+}
+
+
 QUOTED_TYPE_WHITESPACE_MUST_REJECT = {
     # The REVOKE below names ONLY the double-space overload. If the scanner
     # collapses `"Type  A"` to `"Type A"` before comparing, it wrongly treats
@@ -3064,6 +3102,68 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_sqlstate_octal_escape_uses_postgresql_byte_semantics(self) -> None:
+        """Astra round 2, finding 1: `\\ooo` is a BYTE escape and wraps modulo
+        256, not an arbitrary Unicode code point."""
+        for name, sql in SQLSTATE_OCTAL_ESCAPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        # Existing hex/simple/plain forms and unrelated codes must not regress.
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_REJECT.items():
+            with self.subTest(no_regression_reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
+            with self.subTest(no_regression_accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_sqlstate_literals_continue_across_a_newline(self) -> None:
+        """Astra round 2, finding 2: PostgreSQL concatenates adjacent string
+        constants when the separating whitespace contains a newline."""
+        for name, sql in SQLSTATE_CONTINUATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_CONTINUATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_literal_continuation_reader_discriminates(self) -> None:
+        """The reader itself: newline-separated segments concatenate, a
+        same-line pair does not, and an unparseable continuation fails
+        closed rather than silently keeping only the first segment."""
+        raw = "SQLSTATE 'P00'\n'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE 'P00' '01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+
+        # A dollar-quoted literal is a standalone operand, never chained.
+        raw = "SQLSTATE $tag$P00$tag$\n'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("$")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+
+        # A continuation segment that cannot be decoded fails closed.
+        raw = "SQLSTATE 'P00'\nE'P0\\q01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
 
     def test_sqlstate_literal_reader_fails_closed_on_unparseable_content(self) -> None:
         """The reader itself: an opener it cannot confidently decode must
