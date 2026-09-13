@@ -294,6 +294,91 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # resolve: the comment is whitespace by then, so no separator regex has to
 # anticipate it.
 _SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
+_DOLLAR_TAG_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$")
+_SIMPLE_ESCAPES = {
+    "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
+    "\\": "\\", "'": "'", '"': '"',
+}
+
+
+def _decode_pg_escape_string(raw: str) -> str | None:
+    """Decode an E'' escape-string's raw content. None when a backslash escape
+    is not one this scanner confidently understands - the caller then fails
+    closed instead of comparing against a guessed value."""
+    out = []
+    i, n = 0, len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "'" and raw[i:i + 2] == "''":
+            out.append("'")
+            i += 2
+            continue
+        if ch == "\\" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "x":
+                j = i + 2
+                digits = ""
+                while j < n and len(digits) < 2 and raw[j] in "0123456789abcdefABCDEF":
+                    digits += raw[j]
+                    j += 1
+                if not digits:
+                    return None
+                out.append(chr(int(digits, 16)))
+                i = j
+                continue
+            if nxt in "01234567":
+                j = i + 1
+                digits = ""
+                while j < n and len(digits) < 3 and raw[j] in "01234567":
+                    digits += raw[j]
+                    j += 1
+                out.append(chr(int(digits, 8)))
+                i = j
+                continue
+            if nxt in _SIMPLE_ESCAPES:
+                out.append(_SIMPLE_ESCAPES[nxt])
+                i += 2
+                continue
+            return None
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _read_sqlstate_literal(
+    term: str, raw_body: str, offset: int, pos: int
+) -> tuple[str | None, bool]:
+    """Decode the literal at masked-term offset `pos` (a `SQLSTATE` operand).
+
+    Returns (value, unparseable). `value` is None when nothing recognizable as
+    a literal starts at `pos`. `unparseable=True` means a literal opener was
+    found but its content could not be confidently decoded - the caller must
+    fail closed rather than treat it as "does not catch".
+    """
+    if pos >= len(term):
+        return None, False
+    is_escape = term[pos] in "Ee" and pos + 1 < len(term) and term[pos + 1] == "'"
+    if is_escape:
+        pos += 1
+    if term[pos:pos + 1] == "'":
+        q2 = term.find("'", pos + 1)
+        if q2 == -1:
+            return None, True
+        raw_content = raw_body[offset + pos + 1: offset + q2]
+        if is_escape:
+            value = _decode_pg_escape_string(raw_content)
+            return (None, True) if value is None else (value, False)
+        return raw_content.replace("''", "'"), False
+    if term[pos] == "$":
+        m = _DOLLAR_TAG_RE.match(term, pos)
+        if not m:
+            return None, True
+        tag = m.group(0)
+        end_pos = term.find(tag, m.end())
+        if end_pos == -1:
+            return None, True
+        return raw_body[offset + m.end(): offset + end_pos], False
+    return None, False
 
 
 def _handler_condition_spans(body: str, start: int, end: int):
@@ -354,16 +439,20 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
         kw = _SQLSTATE_KEYWORD_RE.search(term)
         if kw is None:
             continue
+        if raw_body is None:
+            continue
         # `SQLSTATE <literal>`: the delimiters survive masking, the value does
         # not, so read the value from the unmasked source at the same offsets.
-        q1 = term.find("'", kw.end())
-        if q1 == -1:
-            continue
-        q2 = term.find("'", q1 + 1)
-        if q2 == -1 or raw_body is None:
-            continue
-        value = raw_body[offset + q1 + 1: offset + q2].strip()
-        if value.upper() in _P0001_CATCHING_CODES:
+        # PostgreSQL accepts a plain '...' literal, an E'...' escape string, or
+        # a $tag$...$tag$ dollar-quoted literal here; an operand that starts
+        # one of these forms but cannot be confidently decoded fails closed
+        # (treated as catching P0001) rather than being waved through as
+        # unrelated.
+        lit_pos = _skip_ws(term, kw.end())
+        value, unparseable = _read_sqlstate_literal(term, raw_body, offset, lit_pos)
+        if unparseable:
+            return True
+        if value is not None and value.strip().upper() in _P0001_CATCHING_CODES:
             return True
     return False
 
@@ -781,13 +870,15 @@ def _exit_targets(body: str, raw_body: str, end: int):
 
 
 def labelled_exit_before(
-    body: str, frames, pos: int, raw_body: str | None = None
+    body: str, frames, pos: int, raw_body: str | None = None, after: int = 0
 ) -> bool:
-    """True when a labelled EXIT earlier in `body` can jump out of a block that
-    contains `pos`, skipping it."""
+    """True when a labelled EXIT in `body[after:pos]` can jump out of a block
+    that contains `pos`, skipping it."""
     if raw_body is None:
         raw_body = body
     for exit_pos, target in _exit_targets(body, raw_body, pos):
+        if exit_pos < after:
+            continue
         for frame in frames:
             if not (frame.start < pos < frame.end
                     and frame.start < exit_pos < frame.end):
@@ -840,13 +931,21 @@ def _if_blocks_with_raising_deny_branch(body: str, raw_body: str | None = None):
 
     The RAISE must be REACHABLE: a terminating RETURN between THEN and the RAISE
     means the deny branch can exit before it ever denies, so the block is not an
-    authorization boundary.
+    authorization boundary. A labelled EXIT (with or without a WHEN clause)
+    between THEN and the RAISE, targeting a block that contains the RAISE, is
+    the same bypass - it lets the deny branch jump past the RAISE instead of
+    returning past it, so it disqualifies the branch exactly like RETURN does.
     """
+    frames = list(parse_blocks(body, raw_body))
     blocks = []
-    for f in parse_blocks(body, raw_body):
+    for f in frames:
         if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
             continue
         if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
+            continue
+        if labelled_exit_before(
+            body, frames, f.raise_pos, raw_body, after=f.then_pos
+        ):
             continue
         blocks.append((f.start, f.start + 2, f.then_pos, f.raise_pos))
     return blocks
@@ -1207,7 +1306,62 @@ _PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
 _DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
 
 
+def _quote_aware_split(text: str) -> list[str]:
+    """Split on whitespace runs OUTSIDE double-quoted identifier spans.
+
+    PostgreSQL never folds or collapses whitespace inside a quoted identifier
+    - `"Type A"` and `"Type  A"` are different identifiers - but plain
+    `str.split()` does not know quoting exists and collapses both alike,
+    silently merging two distinct overloads. A quoted span (with `""` as an
+    escaped quote) is copied through byte-for-byte; only whitespace outside
+    quotes is used as a token separator, exactly where `str.split()` already
+    split unquoted text.
+    """
+    tokens, current = [], []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '"':
+            j = i + 1
+            while j < n:
+                if text[j] == '"':
+                    if text.startswith('""', j):
+                        j += 2
+                        continue
+                    j += 1
+                    break
+                j += 1
+            current.append(text[i:j])
+            i = j
+            continue
+        if ch.isspace():
+            if current:
+                tokens.append("".join(current))
+                current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    if current:
+        tokens.append("".join(current))
+    return tokens
+
+
 _QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
+
+
+def _collapse_ws_outside_quotes(text: str, transform) -> str:
+    """Apply `transform` to each span OUTSIDE a double-quoted identifier,
+    copying quoted spans through untouched. Used so a whitespace-collapsing
+    pass cannot fold two distinct quoted type identifiers (`"Type A"` vs
+    `"Type  A"`) into the same normalized text."""
+    out, last = [], 0
+    for m in _QUOTED_SEGMENT_RE.finditer(text):
+        out.append(transform(text[last:m.start()]))
+        out.append(m.group(0))
+        last = m.end()
+    out.append(transform(text[last:]))
+    return "".join(out)
 
 
 def _fold_type_text(text: str) -> str:
@@ -1256,7 +1410,7 @@ def _normalize_arg_type(param: str) -> str | None:
     when the parameter cannot be parsed, which callers treat as "not equal".
     """
     text = _DEFAULT_SPLIT_RE.split(param, 1)[0]
-    tokens = text.split()
+    tokens = _quote_aware_split(text)
     if tokens and tokens[0].lower() in _ARG_MODES and len(tokens) > 1:
         tokens = tokens[1:]
     if (
@@ -1272,8 +1426,13 @@ def _normalize_arg_type(param: str) -> str | None:
     if not tokens:
         return None
     normalized = _fold_type_text(" ".join(tokens))
-    normalized = re.sub(r"\s*([(),\[\]])\s*", r"\1", normalized)
-    return re.sub(r"\s+", " ", normalized).strip() or None
+    normalized = _collapse_ws_outside_quotes(
+        normalized, lambda s: re.sub(r"\s*([(),\[\]])\s*", r"\1", s)
+    )
+    normalized = _collapse_ws_outside_quotes(
+        normalized, lambda s: re.sub(r"\s+", " ", s)
+    )
+    return normalized.strip() or None
 
 
 def _split_top_level_commas(text: str) -> list[str]:

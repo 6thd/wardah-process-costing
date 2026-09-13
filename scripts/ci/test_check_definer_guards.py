@@ -1688,6 +1688,94 @@ QUOTED_TYPE_MUST_ACCEPT = {
 }
 
 
+# P. A third independent-review round found three more shapes the fixes above
+#    did not cover, each reproduced against the real check_file() before this
+#    fix landed:
+#
+#   1. A labelled EXIT strictly INSIDE a boolean deny branch - between THEN
+#      and the aborting RAISE - was never checked. `_if_blocks_with_raising_
+#      deny_branch()` only rejected a terminating RETURN in that span, and
+#      the labelled-EXIT reachability test elsewhere runs at the IF's OWN
+#      position, which cannot see an EXIT written AFTER it. The privileged
+#      write already ran by the time the EXIT fires; it then jumps past the
+#      RAISE and the function returns having denied nothing.
+#   2. `_condition_catches_p0001()` located a SQLSTATE literal by searching
+#      for a bare `'`, so a dollar-quoted `SQLSTATE $tag$P0001$tag$` and an
+#      E'' escape string like `SQLSTATE E'P000\x31'` (PostgreSQL decodes
+#      `\x31` to `1`) both hid a real P0001 swallow.
+#   3. `_normalize_arg_type()` collapsed ALL whitespace before folding a type,
+#      so `"Type A"` and `"Type  A"` - two distinct PostgreSQL identifiers -
+#      normalized to the same text, letting a REVOKE naming only the
+#      double-space overload exempt the single-space one too.
+BOOLEAN_DENY_EXIT_MUST_REJECT = {
+    "exit_between_then_and_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n{WORK_LINE}\n"
+        "    EXIT auth_block;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+    "conditional_exit_between_then_and_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n{WORK_LINE}\n"
+        "    EXIT auth_block WHEN true;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+}
+
+BOOLEAN_DENY_EXIT_MUST_ACCEPT = {
+    "ordinary_boolean_deny_branch_reaches_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"{WORK_LINE}"
+    ),
+    # An EXIT written AFTER the RAISE cannot skip it.
+    "exit_after_the_raise_is_unreachable_code": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n"
+        "    EXIT auth_block;\n  END IF;\n"
+    ),
+    # An inner labelled block that exits only ITSELF leaves the outer RAISE
+    # reachable.
+    "inner_block_exits_itself_not_the_outer_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n"
+        "    <<inner_block>>\n    BEGIN\n      EXIT inner_block;\n"
+        "    END inner_block;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+}
+
+
+SQLSTATE_LITERAL_FORM_MUST_REJECT = {
+    "dollar_quoted_p0001": definer_outer_handler("SQLSTATE $tag$P0001$tag$"),
+    "dollar_quoted_p0001_double_dollar_tag": definer_outer_handler(
+        "SQLSTATE $$P0001$$"
+    ),
+    "escape_string_hex_encoded_p0001": definer_outer_handler(
+        r"SQLSTATE E'P000\x31'"
+    ),
+}
+
+SQLSTATE_LITERAL_FORM_MUST_ACCEPT = {
+    "plain_literal_unrelated_code": definer_outer_handler("SQLSTATE '22012'"),
+    "dollar_quoted_unrelated_code": definer_outer_handler("SQLSTATE $tag$22012$tag$"),
+    "escape_string_unrelated_code": definer_outer_handler(r"SQLSTATE E'2\x3012'"),
+}
+
+
+QUOTED_TYPE_WHITESPACE_MUST_REJECT = {
+    # The REVOKE below names ONLY the double-space overload. If the scanner
+    # collapses `"Type  A"` to `"Type A"` before comparing, it wrongly treats
+    # the single-space DEFINER overload as ACL-closed too.
+    "double_space_revoke_does_not_close_single_space_overload": (
+        routine("f_w", "SECURITY DEFINER", args='p_x public."Type A"')
+        + routine("f_w", "SECURITY DEFINER", args='p_x public."Type  A"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_w(public."Type  A")\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+QUOTED_TYPE_WHITESPACE_MUST_ACCEPT = {
+    "matching_double_space_quoted_type_closes_it": (
+        routine("f_w", "SECURITY DEFINER", args='p_x public."Type  A"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_w(public."Type  A") '
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
 # O. An omitted schema is resolved by PostgreSQL through search_path; it is not
 #    a wildcard. Treating it as matching any schema let a REVOKE with no schema
 #    exempt a SECURITY DEFINER function in a DIFFERENT schema.
@@ -2929,6 +3017,90 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
             guards._normalize_arg_type("p_x public.typea"),
         )
         self.assertEqual(guards._normalize_arg_type("p_x PUBLIC.TypeA"), "public.typea")
+
+    def test_labelled_exit_inside_boolean_deny_branch_is_rejected(self) -> None:
+        """P: an EXIT between THEN and the RAISE skips the denial itself,
+        not just the IF that leads to it."""
+        for name, sql in BOOLEAN_DENY_EXIT_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: RAISE skipped by an EXIT inside its own deny "
+                    f"branch was accepted as a guard",
+                )
+        for name, sql in BOOLEAN_DENY_EXIT_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_labelled_exit_before_raise_pos_discriminates(self) -> None:
+        """The function itself: only an EXIT AFTER `after` and reaching a
+        frame around `pos` counts, exactly like `labelled_exit_before` at the
+        IF's own position already did for the whole IF."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  IF NOT p THEN\n"
+            "    EXIT auth_block;\n"
+            "    RAISE EXCEPTION 'denied';\n"
+            "  END IF;\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body)
+        then_pos = body.index("EXIT")
+        raise_pos = body.index("RAISE")
+        self.assertTrue(
+            guards.labelled_exit_before(body, frames, raise_pos, after=then_pos)
+        )
+        # An EXIT before `after` (outside the span under test) does not count.
+        self.assertFalse(
+            guards.labelled_exit_before(body, frames, raise_pos, after=raise_pos)
+        )
+
+    def test_sqlstate_literal_forms_are_all_decoded(self) -> None:
+        """P: PostgreSQL accepts '...', E'...' and $tag$...$tag$ here - a
+        scanner that only reads '...' hides a real P0001 swallow."""
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_sqlstate_literal_reader_fails_closed_on_unparseable_content(self) -> None:
+        """The reader itself: an opener it cannot confidently decode must
+        report unparseable=True, never a silent 'no match'."""
+        raw = "SQLSTATE E'P0\\q01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+        # An unterminated dollar tag is unparseable too, not "no literal here".
+        raw = "SQLSTATE $tag$P0001"
+        value, unparseable = guards._read_sqlstate_literal(
+            raw, raw, 0, raw.index("$")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+    def test_quoted_type_whitespace_keeps_overloads_distinct(self) -> None:
+        """P: whitespace INSIDE a quoted type identifier is part of its
+        identity - PostgreSQL never collapses it, and neither may this
+        scanner's tokenizer before the fold step runs."""
+        for name, sql in QUOTED_TYPE_WHITESPACE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in QUOTED_TYPE_WHITESPACE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        self.assertNotEqual(
+            guards._normalize_arg_type('p_x public."Type A"'),
+            guards._normalize_arg_type('p_x public."Type  A"'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x public."Type  A"'),
+            guards._normalize_arg_type('public."Type  A"'),
+        )
 
     def test_an_omitted_schema_is_not_a_wildcard(self) -> None:
         """O: an unqualified name resolves through search_path, to public."""
