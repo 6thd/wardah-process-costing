@@ -2034,6 +2034,127 @@ CONTINUED_LITERAL_VALUES = (
 )
 
 
+
+# ---------------------------------------------------------------------------
+# Astra round 4 / Codex round 4: PostgreSQL 17 lexical boundaries
+# ---------------------------------------------------------------------------
+# Both findings are the same class of defect: this scanner transcribed a
+# PostgreSQL lexer rule by hand and got the CHARACTER SET wrong, so a literal
+# ended somewhere PostgreSQL does not end it and the literal's content was
+# scanned as executable code. Both were reproduced on a live PostgreSQL 17
+# server (17.11): the probe function was created, called, and the protected
+# write observed to happen with the assertion never executed.
+#
+# ASTRA: dollar-quote TAGS. scan.l spells them
+#     dolq_start [A-Za-z\200-\377_]   dolq_cont [A-Za-z\200-\377_0-9]
+# - a BYTE range, so in UTF-8 every non-ASCII codepoint qualifies. The scanner
+# used str.isalpha()/str.isalnum(), which are Unicode CATEGORY tests, so every
+# non-ASCII codepoint outside L*/N* was not recognized as a tag at all:
+# `$😀$`, `$Ⅸ$`, and tags containing a combining mark, ZWSP, NBSP, soft hyphen,
+# U+FEFF or a private-use character. A sweep of the whole ASCII range plus a
+# Unicode spread against the live server found the disagreement was ALWAYS in
+# that one direction - PostgreSQL opens the literal, the scanner does not.
+#
+# CODEX: the vertical tab. PostgreSQL 17 added \v to scan.l's `space` class
+# (v16 has no \v), and quote continuation is
+#     {non_newline_whitespace}*{newline}{special_whitespace}*{quote}
+# so under v17 - the version this project runs - a VT is ordinary whitespace on
+# BOTH sides of the required newline. Omitting it split one continued literal
+# in two, which showed up twice: the SQLSTATE reader decoded only the first
+# segment and missed a handler that really catches P0001, and the masker ended
+# the literal early and exposed the rest as code.
+DOLLAR_TAG_BYTE_RANGE_MUST_REJECT = {
+    # Astra's own reproducer, verbatim in shape.
+    "guard_inside_emoji_tagged_literal": definer(
+        f"  PERFORM $\U0001F600$ PERFORM public.{GUARD}(p_org); $\U0001F600$;"
+    ),
+    "guard_inside_roman_numeral_tagged_literal": definer(
+        f"  PERFORM $\u2168$ PERFORM public.{GUARD}(p_org); $\u2168$;"
+    ),
+    "guard_inside_combining_mark_tagged_literal": definer(
+        f"  PERFORM $a\u0301$ PERFORM public.{GUARD}(p_org); $a\u0301$;"
+    ),
+    "guard_inside_zero_width_space_tagged_literal": definer(
+        f"  PERFORM $a\u200b$ PERFORM public.{GUARD}(p_org); $a\u200b$;"
+    ),
+    "guard_inside_nbsp_tagged_literal": definer(
+        f"  PERFORM $\u00a0$ PERFORM public.{GUARD}(p_org); $\u00a0$;"
+    ),
+    "guard_inside_soft_hyphen_tagged_literal": definer(
+        f"  PERFORM $\u00ad$ PERFORM public.{GUARD}(p_org); $\u00ad$;"
+    ),
+    "guard_inside_bom_tagged_literal": definer(
+        f"  PERFORM $a\ufeff$ PERFORM public.{GUARD}(p_org); $a\ufeff$;"
+    ),
+    "guard_inside_private_use_tagged_literal": definer(
+        f"  PERFORM $\ue000$ PERFORM public.{GUARD}(p_org); $\ue000$;"
+    ),
+    # The same bytes as the OUTER body delimiter: the tag has to be recognized
+    # for the scanner to know where executable text even begins.
+    "guard_named_as_emoji_outer_delimiter": definer_delim(
+        "$\U0001F600$", f"  PERFORM public.{GUARD};"
+    ),
+}
+
+DOLLAR_TAG_BYTE_RANGE_MUST_ACCEPT = {
+    # A real call still passes when a non-ASCII tag is merely present nearby:
+    # the fix must widen tag RECOGNITION, not swallow real guards.
+    "real_guard_beside_emoji_tagged_literal": definer(
+        f"  PERFORM $\U0001F600$note$\U0001F600$;\n"
+        f"  PERFORM public.{GUARD}(p_org);"
+    ),
+    "real_guard_inside_emoji_delimited_body": definer_delim(
+        "$\U0001F600$", f"  PERFORM public.{GUARD}(p_org);"
+    ),
+}
+
+VERTICAL_TAB_CONTINUATION_MUST_REJECT = {
+    # Codex's reproducer: one continued escape-string spelling P0001, so the
+    # handler really does swallow the assertion.
+    "vt_before_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x31'"
+    ),
+    "vt_after_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\n\x0b'0\\x31'"
+    ),
+    "vt_run_around_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P0'\x0b\x0b\n\x0b'001'"
+    ),
+    "vt_continuation_spells_the_p0000_class": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x30'"
+    ),
+    # An OR-list where only the VT-continued term catches.
+    "vt_continuation_inside_an_or_list": definer_outer_handler(
+        "unique_violation OR SQLSTATE E'P00'\x0b\n'0\\x31'"
+    ),
+    # The masking half of the same boundary: with the continuation followed,
+    # the guard text sits INSIDE the literal after an escaped quote.
+    "guard_hidden_after_escaped_quote_in_vt_continued_estring": definer(
+        f"  PERFORM E'a'\x0b\n'b\\' PERFORM public.{GUARD}(p_org); \\'c';"
+    ),
+    "guard_hidden_after_escaped_quote_in_nl_vt_continued_estring": definer(
+        f"  PERFORM E'a'\n\x0b'b\\' PERFORM public.{GUARD}(p_org); \\'c';"
+    ),
+}
+
+VERTICAL_TAB_CONTINUATION_MUST_ACCEPT = {
+    # The continuation is followed, and what it spells is NOT a catching code:
+    # the fix must discriminate, not fail closed on every vertical tab.
+    "vt_continuation_unrelated_code": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x32'"
+    ),
+    "vt_continuation_unrelated_code_plain": definer_outer_handler(
+        "SQLSTATE '235'\x0b\n'05'"
+    ),
+    # A vertical tab is whitespace but never a NEWLINE, so it cannot supply the
+    # newline PostgreSQL requires: these stay TWO literals and 'P00' alone does
+    # not catch P0001.
+    "vt_alone_does_not_concatenate": definer_outer_handler(
+        "SQLSTATE 'P00'\x0b'01'"
+    ),
+}
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -3454,6 +3575,78 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         for name, sql in OMITTED_SCHEMA_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_dollar_tag_recognition_uses_postgresqls_byte_range(self) -> None:
+        """Astra round 4: dolq_start/dolq_cont accept every non-ASCII byte, so
+        a tag this scanner failed to recognize left the literal's content
+        exposed as executable text. Reproduced live on PostgreSQL 17."""
+        for name, sql in DOLLAR_TAG_BYTE_RANGE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in DOLLAR_TAG_BYTE_RANGE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_dollar_tag_reader_matches_postgresql(self) -> None:
+        """The reader itself, against PostgreSQL's own character classes."""
+        for tag in ("$\U0001F600$", "$\u2168$", "$a\u0301$", "$a\u200b$",
+                    "$\u00a0$", "$\u00ad$", "$a\ufeff$", "$\ue000$",
+                    "$$", "$_$", "$a1$", "$tag$", "$\u00e9$", "$\u3042$"):
+            self.assertEqual(guards._dollar_tag_at(tag, 0), tag, tag)
+        # Not tags: a digit cannot start one, and neither whitespace nor `$`
+        # may appear inside one.
+        for text in ("$1$", "$1", "$", "$ $", "$a b$", "$a\t$", "$a\x0b$"):
+            self.assertIsNone(guards._dollar_tag_at(text, 0), text)
+        # The masker and the SQLSTATE reader must share ONE boundary rule.
+        for tag in ("$\U0001F600$", "$a\u0301$", "$$", "$q$"):
+            self.assertEqual(
+                guards._DOLLAR_TAG_RE.match(tag, 0).group(0),
+                guards._dollar_tag_at(tag, 0),
+                tag,
+            )
+
+    def test_vertical_tab_is_continuation_whitespace_on_postgresql_17(self) -> None:
+        """Codex round 4: v17 added \v to scan.l's `space` class, so a VT is
+        ordinary whitespace on either side of a quote continuation's newline.
+        Missing it truncated the SQLSTATE chain and ended masked literals
+        early. Reproduced live on PostgreSQL 17."""
+        for name, sql in VERTICAL_TAB_CONTINUATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in VERTICAL_TAB_CONTINUATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_vertical_tab_continuation_reader_discriminates(self) -> None:
+        """The reader itself: a VT joins a chain only alongside a newline, and
+        never supplies the newline PostgreSQL requires."""
+        raw = "SQLSTATE E'P00'\x0b\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'P00'\n\x0b'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        # VT with no newline is NOT a continuation.
+        raw = "SQLSTATE 'P00'\x0b'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+        self.assertIsNone(guards._continuation_quote("'a'\x0b'b'", 3))
+        self.assertIsNotNone(guards._continuation_quote("'a'\x0b\n'b'", 3))
+        self.assertIsNotNone(guards._continuation_quote("'a'\n\x0b'b'", 3))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

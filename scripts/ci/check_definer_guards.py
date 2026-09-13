@@ -294,7 +294,31 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # resolve: the comment is whitespace by then, so no separator regex has to
 # anticipate it.
 _SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
-_DOLLAR_TAG_RE = re.compile(r"\$[A-Za-z_][A-Za-z0-9_]*\$|\$\$")
+
+# PostgreSQL's lexer is BYTE based (src/backend/parser/scan.l):
+#
+#     dolq_start  [A-Za-z\200-\377_]
+#     dolq_cont   [A-Za-z\200-\377_0-9]
+#
+# Every byte from \200 to \377 is accepted, and the lexer never asks what
+# character those bytes spell. In a UTF-8 source each non-ASCII codepoint
+# encodes to bytes that are ALL >= 0x80, so "any codepoint >= U+0080" is the
+# exact character-level equivalent of that byte range - which is the same rule
+# `_IDENT_START`/`_IDENT_CONT` already apply to ordinary identifiers further
+# down. Note dolq_cont, unlike ident_cont, excludes `$`: a `$` ends the tag.
+#
+# str.isalpha()/str.isalnum() are NOT that rule and were the previous test.
+# They are Unicode CATEGORY tests, so every non-ASCII codepoint outside
+# categories L*/N* was read as "not a tag": emoji, combining marks, ZWSP, NBSP,
+# soft hyphen, U+FEFF, private-use characters and `Ⅸ` among them. PostgreSQL
+# opens a dollar-quoted literal on all of those, so the masker left the
+# literal's CONTENT visible as executable text - and a guard name written
+# inside it counted as a real assertion. Verified against a live PostgreSQL 17
+# over the whole ASCII range plus a Unicode spread: every disagreement was a
+# non-ASCII codepoint PostgreSQL accepted and this scanner rejected.
+_DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
+_DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
+_DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
 _SIMPLE_ESCAPES = {
     "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
     "\\": "\\", "'": "'", '"': '"',
@@ -1019,20 +1043,19 @@ class MaskError(Exception):
 def _dollar_tag_at(sql: str, i: int) -> str | None:
     """Return the dollar-quote tag opening at i, or None.
 
-    PostgreSQL tags are `$$` or `$tag$` where tag starts with a letter or
-    underscore. `$1` (a positional parameter) is therefore not a tag.
+    PostgreSQL tags are `$$` or `$tag$` with the tag spelled from
+    dolq_start/dolq_cont (see `_DOLLAR_TAG_RE`), so `$1` - a positional
+    parameter - is not a tag.
+
+    This deliberately shares ONE compiled boundary rule with the SQLSTATE
+    literal reader. They were two separate transcriptions of the same grammar
+    before, and they disagreed: a tag this masker refused to recognize left the
+    literal's content exposed as executable text. A single reader cannot drift.
     """
-    n = len(sql)
-    if i >= n or sql[i] != "$":
+    if i >= len(sql) or sql[i] != "$":
         return None
-    j = i + 1
-    if j < n and (sql[j].isalpha() or sql[j] == "_"):
-        j += 1
-        while j < n and (sql[j].isalnum() or sql[j] == "_"):
-            j += 1
-    if j < n and sql[j] == "$":
-        return sql[i : j + 1]
-    return None
+    match = _DOLLAR_TAG_RE.match(sql, i)
+    return match.group(0) if match else None
 
 
 def _blank(out: list[str], start: int, end: int) -> None:
@@ -1109,11 +1132,29 @@ def _continuation_quote(sql: str, end: int) -> int | None:
     Inspect RAW text: masking a block comment into whitespace would invent a
     continuation PostgreSQL does not accept. CR and LF both count as newlines.
     A prefix on a later segment is unsupported syntax and fails closed.
+
+    The separator set is PostgreSQL 17's, which is NOT PostgreSQL 16's. v17
+    added the vertical tab to scan.l's `space` class:
+
+        space              [ \t\n\r\f\v]      -- v16 had no \v
+        non_newline_space  [ \t\f\v]
+        quotecontinue      {non_newline_whitespace}*{newline}{special_whitespace}*{quote}
+
+    so under v17 - the version this project runs - a VT is ordinary whitespace
+    on BOTH sides of the required newline. Omitting it split one continued
+    literal into two: the SQLSTATE reader then decoded only the first segment
+    (`E'P00'` out of `E'P00'\v\n'0\x31'`, missing that the handler really
+    catches P0001 and swallows the assertion), and the masker ended the literal
+    early, exposing its remaining content - a fake guard after an escaped quote
+    in a continued E-string - as executable text. Both were false greens,
+    reproduced on a live PostgreSQL 17.
+    A VT is whitespace but never a NEWLINE, so it still cannot supply the
+    newline PostgreSQL requires; `'a'\v'b'` stays two literals, not one.
     """
     i, n = end, len(sql)
     newline = False
     while i < n:
-        if sql[i] in " \t\f\r\n":
+        if sql[i] in " \t\v\f\r\n":
             newline |= sql[i] in "\r\n"
             i += 1
         elif sql.startswith("--", i):
