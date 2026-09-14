@@ -328,6 +328,12 @@ _SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
 # inside it counted as a real assertion. Verified against a live PostgreSQL 17
 # over the whole ASCII range plus a Unicode spread: every disagreement was a
 # non-ASCII codepoint PostgreSQL accepted and this scanner rejected.
+# PostgreSQL's own whitespace set, as a regex character class. Python's `\s` is
+# NOT it: `\s` also matches U+00A0 and other Unicode spaces that PostgreSQL's
+# scanner rejects (`GRANT ALL\u00a0PRIVILEGES` is a syntax error there), so a
+# grammar written against `\s` would parse text PostgreSQL never accepts.
+_PG_WS = r" \t\n\r\f\v"
+
 _DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
 _DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
 _DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
@@ -442,7 +448,9 @@ def _read_sqlstate_literal(
 # resolve returns None and every caller FAILS CLOSED on that - an identity that
 # cannot be proven must never be compared as if it were known.
 _UAMP_PREFIX_RE = re.compile(r'U&(?=")', re.IGNORECASE)
-_UESCAPE_CLAUSE_RE = re.compile(r"\s*UESCAPE\s*'(.)'", re.IGNORECASE)
+_UESCAPE_CLAUSE_RE = re.compile(
+    f"[{_PG_WS}]*UESCAPE[{_PG_WS}]*'(.)'", re.IGNORECASE
+)
 _UHEX4_RE = re.compile(r"[0-9A-Fa-f]{4}")
 _UHEX6_RE = re.compile(r"\+([0-9A-Fa-f]{6})")
 _BAD_UESCAPE_CHARS = frozenset('+\'"0123456789abcdefABCDEF')
@@ -495,13 +503,31 @@ def _decode_unicode_identifier(content: str, esc: str) -> str | None:
     return "".join(out)
 
 
-def _read_delimited_identifier(raw: str, pos: int):
+def _read_delimited_identifier(raw: str, pos: int, masked: str | None = None):
     """(resolved name, index just past it) for a `"..."` or `U&"..."`
     identifier at `pos`, or None when there is none or it cannot be resolved.
 
     `raw` must be UNMASKED text: masking blanks quoted-identifier content by
-    design, so the identity only exists in the raw source.
+    design, so the identity only exists in the raw source. `masked` is the SAME
+    span masked and offset-aligned, and it is what decides STRUCTURE - here,
+    whether a `UESCAPE` clause follows the closing quote.
+
+    That split matters because a comment is not whitespace in raw bytes. With
+    raw text alone, `U&"authenticate!0064" /* c */ UESCAPE '!'` - which
+    PostgreSQL resolves to the role `authenticated` - showed no UESCAPE clause,
+    so the content was decoded against the DEFAULT backslash escape and this
+    function returned a plausible but WRONG identity instead of None. A wrong
+    identity never trips the UNRESOLVED_GRANTEE fail-closed path, so a GRANT
+    spelled that way reopened a closed function invisibly. Callers that hold
+    only raw text keep the old behaviour, which is why every caller in this
+    module passes `masked`.
     """
+    if masked is None:
+        masked = raw
+    elif len(masked) != len(raw):
+        # The two views must be offset-aligned or the clause below would be
+        # read at the wrong place. Fail closed rather than guess.
+        return None
     uamp = _UAMP_PREFIX_RE.match(raw, pos)
     start = uamp.end() if uamp else pos
     if raw[start:start + 1] != '"':
@@ -523,9 +549,12 @@ def _read_delimited_identifier(raw: str, pos: int):
     if not uamp:
         return _pg_identifier(content, quoted=True), j
     escape = "\\"
-    clause = _UESCAPE_CLAUSE_RE.match(raw, j)
+    # STRUCTURE from masked (so an intervening comment is already whitespace),
+    # CONTENT from raw at the same offset (the masker blanks literal content,
+    # so the escape character itself only exists in the raw source).
+    clause = _UESCAPE_CLAUSE_RE.match(masked, j)
     if clause:
-        escape = clause.group(1)
+        escape = raw[clause.start(1):clause.end(1)]
         if escape in _BAD_UESCAPE_CHARS or escape.isspace():
             return None
         j = clause.end()
@@ -603,7 +632,7 @@ def _quoted_condition_name(term: str, raw_body: str | None, offset: int) -> str 
         return None
     if term[start - 2:start].upper() == "U&" and start >= 2:
         start -= 2
-    read = _read_delimited_identifier(raw, start)
+    read = _read_delimited_identifier(raw, start, term)
     if read is None:
         return None
     return read[0]
@@ -1562,32 +1591,98 @@ class Identity:
         collapsing it into the omitted case turned every signature this scanner
         could not read into a wildcard.
         """
-        if self.name != other.name:
+        if not self._names_can_match(other):
             return False
-        if self.schema and other.schema:
-            if self.schema != other.schema:
-                return False
-        elif self.schema or other.schema:
-            # One side omitted the schema. PostgreSQL resolves that through
-            # search_path - it is NOT a wildcard - and every migration here runs
-            # with `public` first. So an unqualified name resolves to `public`
-            # and says nothing about a function in another schema. Treating it as
-            # a match let a REVOKE with no schema exempt `other_schema.f`.
-            named = self.schema or other.schema
-            if named != "public":
-                return False
         if self.args is UNRESOLVED_ARGS or other.args is UNRESOLVED_ARGS:
             return False
         if self.args is None or other.args is None:
             return True
         return self.args == other.args
 
+    def _names_can_match(self, other: "Identity") -> bool:
+        """The name/schema half of identity, shared by BOTH relations so they
+        cannot drift apart.
 
-# The only built-in types whose FIRST word is part of the type rather than a
-# parameter name. Everything else that leads a two-token parameter is a name.
-_TYPE_LEAD_WORDS = frozenset(
-    {"character", "double", "bit", "national", "time", "timestamp", "interval"}
-)
+        When one side omits the schema, PostgreSQL resolves it through
+        search_path - that is NOT a wildcard - and every migration here runs
+        with `public` first. So an unqualified name resolves to `public` and
+        says nothing about a function in another schema. Treating it as a match
+        let a REVOKE with no schema exempt `other_schema.f`.
+        """
+        if self.name != other.name:
+            return False
+        if self.schema and other.schema:
+            return self.schema == other.schema
+        if self.schema or other.schema:
+            return (self.schema or other.schema) == "public"
+        return True
+
+    def may_be_same_function(self, other: "Identity") -> bool:
+        """Could PostgreSQL resolve these two to the SAME routine?
+
+        This is deliberately NOT same_function(). Exact identity answers "are
+        these provably the same overload" and an unresolved argument list can
+        never prove that, so it matches nothing there - that is what stopped a
+        signature this scanner cannot read from acting as a wildcard REVOKE.
+
+        But "not provably the same" was then replayed as "definitely unrelated",
+        and for a GRANT that is the wrong default. `public.review_probe(
+        public.review_marker.note%TYPE)` is a PostgreSQL-valid way to name an
+        existing routine; PostgreSQL resolves the `%TYPE` and reopens client
+        EXECUTE, while the scanner silently ignored the statement and still
+        reported the function closed.
+
+        So closure asks this question instead for GRANTs: it uses every scrap of
+        identity that IS known - schema and routine name - and only concedes the
+        argument list. An unresolved GRANT on a DIFFERENT name, or in a provably
+        different schema, still cannot touch this routine, so one unreadable
+        grant does not reopen every function in the file.
+        """
+        if not self._names_can_match(other):
+            return False
+        if self.args is UNRESOLVED_ARGS or other.args is UNRESOLVED_ARGS:
+            return True
+        if self.args is None or other.args is None:
+            return True
+        return self.args == other.args
+
+
+# PostgreSQL's multi-word built-in type phrases, as lead word -> the words that
+# may CONTINUE the type after it. A flat set of lead words was not enough in
+# either direction:
+#
+#   * it was INCOMPLETE. `char varying` is the built-in varchar in PostgreSQL 17,
+#     but `char` was not a lead word, so the scanner dropped it as an optional
+#     parameter NAME and the type identity became `varying` - the same identity a
+#     quoted custom type `"varying"` normalizes to. Two distinct PostgreSQL
+#     overloads collapsed into one, so a REVOKE naming either closed the other on
+#     paper while PostgreSQL still let clients execute the unguarded definer.
+#   * it was also too BROAD. `DOUBLE` is an unreserved keyword, so
+#     `CREATE FUNCTION f(double text)` is valid and declares a parameter NAMED
+#     `double` of type `text`; a flat lead-word set kept `double` and read the
+#     type as `double text`. Every other lead word here is a col_name_keyword and
+#     cannot be a bare parameter name at all (`char text`, `time text`,
+#     `interval text` are all syntax errors), but the continuation test settles
+#     all of them uniformly instead of relying on that.
+#
+# The decision is therefore "do the first TWO tokens open a type phrase", taken
+# BEFORE any optional-name removal. Equivalent PostgreSQL spellings that this
+# leaves distinct (`char varying` vs `character varying` vs `varchar`) only cost
+# a conservative non-match; the collapse of distinct identities is the unsafe
+# direction and is what this closes.
+_TYPE_LEAD_CONTINUATIONS = {
+    "character": frozenset({"varying"}),
+    "char": frozenset({"varying"}),
+    "nchar": frozenset({"varying"}),
+    "national": frozenset({"character", "char"}),
+    "bit": frozenset({"varying"}),
+    "double": frozenset({"precision"}),
+    "time": frozenset({"with", "without"}),
+    "timestamp": frozenset({"with", "without"}),
+    "interval": frozenset(
+        {"year", "month", "day", "hour", "minute", "second"}
+    ),
+}
 _ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
 # ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
 # ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
@@ -1665,7 +1760,7 @@ def _tokenize_parameter(masked: str, raw: str):
             i = number.end()
             continue
         if masked[i:i + 1] == '"' or _UAMP_PREFIX_RE.match(masked, i):
-            delimited = _read_delimited_identifier(raw, i)
+            delimited = _read_delimited_identifier(raw, i, masked)
             if delimited is None:
                 # A delimited identifier that could not be resolved. Fail closed.
                 return None
@@ -1728,6 +1823,19 @@ def _render_type_tokens(tokens) -> str:
     return "".join(out)
 
 
+def _opens_type_phrase(first, second) -> bool:
+    """True when these two identifier tokens begin a multi-word built-in TYPE,
+    so the first one is part of the type and not an optional parameter name.
+
+    Both must be written BARE: PostgreSQL reaches a built-in type phrase through
+    keywords, and a delimited `"char"` is the ordinary type of that name, never
+    the first half of `char varying`.
+    """
+    if first[2] or second[2]:
+        return False
+    return second[1] in _TYPE_LEAD_CONTINUATIONS.get(first[1], ())
+
+
 def _normalize_arg_type(param: str, raw_param: str | None = None) -> str | None:
     """The declared TYPE of one parameter, normalized for comparison.
 
@@ -1753,11 +1861,16 @@ def _normalize_arg_type(param: str, raw_param: str | None = None) -> str | None:
     # type name - another identifier. Anything else after it (`.` continuing a
     # qualified name, `(` opening a modifier, `[` opening array bounds) means
     # the first token was the type itself, not a name.
+    #
+    # Whether the first two tokens open a multi-word TYPE PHRASE is decided
+    # FIRST, and on both of them: a lead word alone is not a type phrase
+    # (`double text` is a parameter named `double`), and dropping a real type's
+    # leading word is what collapsed `char varying` into `varying`.
     if (
         len(tokens) > 1
         and tokens[0][0] == "ident"
         and tokens[1][0] == "ident"
-        and not (not tokens[0][2] and tokens[0][1] in _TYPE_LEAD_WORDS)
+        and not _opens_type_phrase(tokens[0], tokens[1])
         and not _is_array_suffix_only(tokens[1:])
     ):
         tokens = tokens[1:]
@@ -1827,7 +1940,7 @@ def _parse_identity(raw: str, masked: str, i: int):
             # use, rather than a second transcription of PostgreSQL's rules
             # that could drift from it - and it is what makes a `U&"..."`
             # routine or schema name resolve here too.
-            delimited = _read_delimited_identifier(raw, i)
+            delimited = _read_delimited_identifier(raw, i, masked)
             if delimited is None:
                 return None, i
             parts.append(delimited[0])
@@ -1935,9 +2048,20 @@ _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
 # revoke, and the ACL replay then closed the executable surface on the strength
 # of a statement that closes nothing. It is captured as its own group so
 # revoke_closes_client_surface() can leave EXECUTE state alone.
+#
+# The privilege list itself is read over MASKED text with PostgreSQL's own
+# whitespace set, not a literal ASCII space. `[A-Za-z, ]` accepted
+# `GRANT ALL PRIVILEGES` but not `GRANT ALL\nPRIVILEGES`, which PostgreSQL
+# accepts and which grants EXECUTE: the statement matched no head at all, so it
+# vanished from the ACL replay and a reopened function still looked closed. The
+# class stays tightly bounded - it admits letters, commas and whitespace and
+# nothing else, so it cannot reach past a `;` into another statement, and
+# comments are already whitespace in the masked text it runs on.
 _REVOKE_HEAD_RE = re.compile(
-    r"\bREVOKE\s+(?P<grant_option>GRANT\s+OPTION\s+FOR\s+)?"
-    r"(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
+    r"\bREVOKE[" + _PG_WS + r"]+"
+    r"(?P<grant_option>GRANT[" + _PG_WS + r"]+OPTION[" + _PG_WS + r"]+FOR["
+    + _PG_WS + r"]+)?"
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
     re.IGNORECASE,
 )
 # `GRANT OPTION FOR` never begins a GRANT statement - it is the clause above,
@@ -1947,7 +2071,9 @@ _REVOKE_HEAD_RE = re.compile(
 # phantom's grantee list came out empty, but it put a statement in the ledger
 # that the file never contained.
 _GRANT_HEAD_RE = re.compile(
-    r"\bGRANT\s+(?!OPTION\s+FOR\b)(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
+    r"\bGRANT[" + _PG_WS + r"]+(?!OPTION[" + _PG_WS + r"]+FOR\b)"
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
+    re.IGNORECASE,
 )
 _EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
 _ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
@@ -2097,7 +2223,7 @@ def _grantee_names(raw_region: str) -> set[str]:
     names, i, n = set(), 0, len(masked_region)
     while i < n:
         if masked_region[i] == '"' or _UAMP_PREFIX_RE.match(masked_region, i):
-            read = _read_delimited_identifier(raw_region, i)
+            read = _read_delimited_identifier(raw_region, i, masked_region)
             if read is not None:
                 names.add(read[0])
                 i = read[1]
@@ -2216,7 +2342,14 @@ def revoke_closes_client_surface(
         # part of the executable surface and must not be replayed as a closure.
         if stmt.grant_option_only:
             continue
-        if not any(identity.same_function(t) for t in stmt.targets):
+        # A REVOKE only credits closure for the overload it PROVABLY names; a
+        # GRANT is replayed whenever it MIGHT reach this one. The asymmetry is
+        # the point: an unreadable signature must never close a surface, and
+        # must never be assumed harmless either.
+        relation = (
+            Identity.same_function if stmt.is_revoke else Identity.may_be_same_function
+        )
+        if not any(relation(identity, t) for t in stmt.targets):
             continue
         # A GRANT to a grantee nobody could resolve may well reach a client
         # role, so it is replayed as reaching all of them. The same token in a

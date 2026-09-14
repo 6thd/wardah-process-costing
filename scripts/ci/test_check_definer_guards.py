@@ -2587,6 +2587,348 @@ VERTICAL_TAB_CONTINUATION_MUST_ACCEPT = {
 }
 
 
+# ---------------------------------------------------------------------------
+# Round 9 (PR #246): four P2 acceptance-layer false-greens, each reproduced
+# against a live PostgreSQL 17.11 oracle before being frozen here.
+#
+# Every reproducer below is PostgreSQL-VALID and security-relevant: PostgreSQL
+# accepts the statement and the client role really can execute the unguarded
+# SECURITY DEFINER function afterwards, while the scanner reported the surface
+# closed. None of them is one of the three declared #243 limitations, and none
+# indicates a defect in any production migration body.
+# ---------------------------------------------------------------------------
+
+def _r9_definer(signature: str) -> str:
+    """An unguarded SECURITY DEFINER function with the given parameter list."""
+    return (
+        f"CREATE OR REPLACE FUNCTION public.review_probe({signature})\n"
+        "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+        "BEGIN\n"
+        "  RETURN;\n"
+        "END;\n"
+        "$$;\n"
+    )
+
+
+_R9_CLOSE = (
+    "REVOKE EXECUTE ON FUNCTION public.review_probe(text) "
+    "FROM PUBLIC, anon, authenticated;\n"
+)
+
+# --- Round 9 finding 1 -----------------------------------------------------
+# `char varying` is the built-in varchar on PostgreSQL 17 (verified live:
+# `CREATE FUNCTION f(char varying)` yields identity arguments
+# `character varying`). The scanner had no `char` among its type lead words, so
+# it dropped `char` as an optional parameter NAME and the type identity became
+# `varying` - which is also what the quoted custom type `"varying"` normalizes
+# to (live identity arguments: `varying`, a DIFFERENT type). Two distinct
+# PostgreSQL overloads collapsed into one scanner identity, so a REVOKE naming
+# either one closed the other on paper while PostgreSQL still let clients
+# execute the unguarded definer.
+TYPE_PHRASE_MUST_REJECT = {
+    "char_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(char varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "quoted_varying_revoke_does_not_close_char_varying":
+        _r9_definer("p_x char varying")
+        + 'REVOKE EXECUTE ON FUNCTION public.review_probe("varying") '
+          "FROM PUBLIC, anon, authenticated;\n",
+    "nchar_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(nchar varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "bit_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bit varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "national_character_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(national character varying) FROM PUBLIC, anon, authenticated;\n",
+    # The same boundary in the other direction. `DOUBLE` is an unreserved
+    # keyword, so `f(double text)` declares a parameter NAMED `double` of type
+    # `text` (verified live: identity arguments `double text`). Keeping `double`
+    # as part of the type read the identity as `double text`, which is not the
+    # overload a REVOKE on `f(text)` names.
+    "double_named_parameter_is_not_a_type_phrase":
+        _r9_definer("double text")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bigint) "
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+TYPE_PHRASE_MUST_ACCEPT = {
+    # A multi-word type phrase closed by the SAME multi-word spelling.
+    "char_varying_closes_char_varying":
+        _r9_definer("p_x char varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(char varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "character_varying_closes_character_varying":
+        _r9_definer("p_x character varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(character varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "double_precision_closes_double_precision":
+        _r9_definer("p_x double precision")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(double precision) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "time_with_time_zone_closes_itself":
+        _r9_definer("p_x time with time zone")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(time with time zone) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "timestamp_without_time_zone_closes_itself":
+        _r9_definer("p_x timestamp without time zone")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(timestamp without time zone) FROM PUBLIC, anon, authenticated;\n",
+    "interval_day_to_second_closes_itself":
+        _r9_definer("p_x interval day to second")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(interval day to second) FROM PUBLIC, anon, authenticated;\n",
+    "bit_varying_closes_bit_varying":
+        _r9_definer("p_x bit varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bit varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # `double` as a parameter NAME: the type is `text`, so a REVOKE on `text`
+    # closes it. This is the case the lead-word set got wrong before.
+    "double_named_parameter_closed_by_its_real_type":
+        _r9_definer("double text") + _R9_CLOSE,
+    "varying_named_parameter_closed_by_its_real_type":
+        _r9_definer("varying text") + _R9_CLOSE,
+    "quoted_varying_closes_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + 'REVOKE EXECUTE ON FUNCTION public.review_probe("varying") '
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+# --- Round 9 finding 2 -----------------------------------------------------
+# `public.review_probe(public.review_marker.note%TYPE)` is a PostgreSQL-valid
+# way to name an existing routine; live, the GRANT resolves the `%TYPE` and
+# `has_function_privilege('authenticated', 'public.review_probe(text)',
+# 'EXECUTE')` becomes true. The scanner correctly refuses to treat an
+# unresolved argument list as an exact identity match, but ACL replay then read
+# "not an exact match" as "definitely unrelated" and dropped the GRANT, so the
+# reopened function still looked closed.
+UNRESOLVED_GRANT_MUST_REJECT = {
+    "unresolved_pct_type_grant_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    "unresolved_pct_type_grant_to_public_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) TO PUBLIC;\n",
+    "unresolved_grant_unqualified_name_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "review_probe(public.review_marker.note%TYPE) TO authenticated;\n",
+    # An unresolved REVOKE credits NO closure: a signature nobody could read is
+    # not proof that this overload was closed.
+    "unresolved_pct_type_revoke_credits_no_closure":
+        _r9_definer("p_x text")
+        + "REVOKE EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # Unresolved on BOTH sides is still not a match, in either direction.
+    "unresolved_definition_and_unresolved_revoke_do_not_match":
+        _r9_definer("p_x public.review_marker.note%TYPE")
+        + "REVOKE EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # An ALTER that promotes a routine it names with an unresolved argument
+    # list restates no body and closes nothing.
+    "unresolved_alter_security_definer_is_not_closed":
+        "CREATE OR REPLACE FUNCTION public.review_probe(p_x text)\n"
+        "RETURNS void LANGUAGE plpgsql AS $$\nBEGIN\n  RETURN;\nEND;\n$$;\n"
+        + _R9_CLOSE
+        + "ALTER FUNCTION public.other_probe(public.review_marker.note%TYPE) "
+          "SECURITY DEFINER;\n",
+    # An unresolved GRANT that PostgreSQL could resolve to ONE of several
+    # overloads reopens the one it might name.
+    "unresolved_grant_reopens_one_of_several_overloads":
+        _r9_definer("p_x text")
+        + _r9_definer("p_x uuid").replace("review_probe(p_x uuid)",
+                                          "review_probe(p_x uuid)")
+        + _R9_CLOSE
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+}
+
+UNRESOLVED_GRANT_MUST_ACCEPT = {
+    # No global pollution: an unresolved GRANT naming a DIFFERENT routine says
+    # nothing about this one.
+    "unresolved_grant_for_other_name_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.other_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    # Nor does one in a provably different schema.
+    "unresolved_grant_in_other_schema_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "other_schema.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    # An exact GRANT to a NON-client role is not a client reopen.
+    "exact_grant_to_non_client_role_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO service_role;\n",
+    # A plain closure is still a closure.
+    "exact_revoke_still_closes":
+        _r9_definer("p_x text") + _R9_CLOSE,
+}
+
+# --- Round 9 finding 3 -----------------------------------------------------
+# `U&"authenticate!0064" /* c */ UESCAPE '!'` is the role `authenticated` to
+# PostgreSQL (verified live: the GRANT succeeds and authenticated gains
+# EXECUTE). The UESCAPE clause was looked for in RAW bytes, where a comment is
+# not whitespace, so the clause was missed, the content was decoded against the
+# DEFAULT backslash escape, and the reader returned a plausible but WRONG role
+# name. Because it returned a value rather than None, the UNRESOLVED_GRANTEE
+# fail-closed path never ran and the reopen was invisible.
+UESCAPE_GRANTEE_MUST_REJECT = {
+    "uescape_after_block_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* c */ UESCAPE '!';\n",
+    "uescape_after_nested_block_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* a /* b */ c */ UESCAPE '!';\n",
+    "uescape_after_line_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" -- c\n UESCAPE '!';\n",
+    "uescape_after_tab_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\"\tUESCAPE '!';\n",
+    "uescape_after_newline_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\"\n\nUESCAPE '!';\n",
+    "uescape_plain_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" UESCAPE '!';\n",
+    "default_backslash_form_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate\\0064\";\n",
+    # A malformed UESCAPE character is a PostgreSQL error, so the grantee is
+    # unresolvable and the GRANT must be replayed as reaching every client role.
+    "malformed_uescape_grantee_fails_closed":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* c */ UESCAPE '1';\n",
+}
+
+UESCAPE_GRANTEE_MUST_ACCEPT = {
+    # A case-different delimited role is a DIFFERENT role (PostgreSQL: `role
+    # "Authenticated" does not exist`), so it is not a client reopen.
+    "uescape_case_different_role_is_not_a_client":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"Authenticate!0064\" /* c */ UESCAPE '!';\n",
+    # A resolvable, unrelated role name reopens nothing.
+    "uescape_unrelated_role_is_not_a_client":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"service!005frole\" /* c */ UESCAPE '!';\n",
+}
+
+# --- Round 9 finding 4 -----------------------------------------------------
+# `GRANT ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) TO authenticated`
+# is accepted by PostgreSQL and grants EXECUTE (verified live). The privilege
+# head admitted literal ASCII spaces only, so the statement matched no head at
+# all and simply disappeared from the ACL replay - the unsafe failure mode, not
+# a fail-closed one.
+PRIVILEGE_HEAD_MUST_REJECT = {
+    "grant_all_newline_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_tab_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\tPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_crlf_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\r\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_vertical_tab_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\x0bPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_form_feed_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\x0cPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_block_comment_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL /* c */ PRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_line_comment_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL -- c\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_comma_separated_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE,\nEXECUTE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_newline_execute_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT\nEXECUTE\nON\nFUNCTION public.review_probe(text)\n"
+          "TO authenticated;\n",
+    # `REVOKE GRANT OPTION FOR EXECUTE` withdraws delegation only; the role
+    # keeps EXECUTE. Verified live across a newline inside that clause too.
+    "revoke_grant_option_for_across_newline_closes_nothing":
+        _r9_definer("p_x text")
+        + "REVOKE GRANT\nOPTION FOR EXECUTE ON FUNCTION "
+          "public.review_probe(text) FROM PUBLIC, anon, authenticated;\n",
+}
+
+PRIVILEGE_HEAD_MUST_ACCEPT = {
+    "revoke_all_newline_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "revoke_all_block_comment_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL /* c */ PRIVILEGES ON FUNCTION "
+          "public.review_probe(text) FROM PUBLIC, anon, authenticated;\n",
+    "revoke_execute_across_newlines_closes":
+        _r9_definer("p_x text")
+        + "REVOKE\nEXECUTE\nON\nFUNCTION public.review_probe(text)\n"
+          "FROM PUBLIC, anon, authenticated;\n",
+    "revoke_all_tab_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL\tPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+# A malformed privilege head is not a PostgreSQL statement at all
+# (`GRANT ALL PRIVILEGE` is a syntax error on PostgreSQL 17), and the scanner
+# reads its `ALL` and replays it as a reopen. That is the CONSERVATIVE
+# direction - a false red on SQL that could never run - and it is unchanged by
+# Round 9: the previous head grammar already admitted `ALL PRIVILEGE` across a
+# literal space. It is frozen here so the widened whitespace class is never
+# mistaken for having introduced it, and so a later change cannot silently flip
+# it to the unsafe direction.
+PRIVILEGE_HEAD_CONSERVATIVE_FALSE_RED = {
+    "malformed_privilege_head_is_replayed_conservatively":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL PRIVILEGE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "malformed_privilege_head_across_newline_is_replayed_conservatively":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\nPRIVILEGE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+}
+
+
 class DefinerScannerTests(unittest.TestCase):
     def setUp(self) -> None:
         self._dir = tempfile.TemporaryDirectory()
@@ -4334,6 +4676,237 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         self.assertIsNone(guards._continuation_quote("'a'\x0b'b'", 3))
         self.assertIsNotNone(guards._continuation_quote("'a'\x0b\n'b'", 3))
         self.assertIsNotNone(guards._continuation_quote("'a'\n\x0b'b'", 3))
+
+    # -- Round 9 (PR #246) --------------------------------------------------
+
+    def test_multi_word_type_phrase_keeps_its_leading_word(self) -> None:
+        """Round 9 finding 1: `char varying` is the built-in varchar on
+        PostgreSQL 17, but the scanner dropped `char` as an optional parameter
+        NAME and normalized the type to `varying` - the identity a quoted
+        custom type `"varying"` also produces. Two distinct PostgreSQL
+        overloads collapsed, so a REVOKE naming one closed the other."""
+        for name, sql in TYPE_PHRASE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in TYPE_PHRASE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_type_phrase_boundary_is_decided_on_two_tokens(self) -> None:
+        """Parser-internal: the decision is "do these two tokens open a type
+        phrase", not "is the first word ever a type word". A lead word alone is
+        not a phrase - `double text` is a parameter NAMED `double` of type
+        `text`, which PostgreSQL accepts (identity arguments `double text`) -
+        and a delimited `"char"` is the ordinary type of that name."""
+        self.assertEqual(guards._normalize_arg_type("char varying"), "char varying")
+        self.assertEqual(
+            guards._normalize_arg_type("character varying"), "character varying"
+        )
+        self.assertEqual(guards._normalize_arg_type("p_x char varying"),
+                         "char varying")
+        self.assertEqual(guards._normalize_arg_type("double precision"),
+                         "double precision")
+        self.assertEqual(guards._normalize_arg_type("double text"), "text")
+        self.assertEqual(guards._normalize_arg_type("varying text"), "text")
+        self.assertEqual(guards._normalize_arg_type("bit varying"), "bit varying")
+        self.assertEqual(guards._normalize_arg_type("nchar varying"),
+                         "nchar varying")
+        self.assertEqual(
+            guards._normalize_arg_type("national character varying"),
+            "national character varying",
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("time with time zone"), "time with time zone"
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("timestamp without time zone"),
+            "timestamp without time zone",
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("interval day to second"),
+            "interval day to second",
+        )
+        self.assertEqual(guards._normalize_arg_type("interval"), "interval")
+        self.assertEqual(guards._normalize_arg_type("p_x text"), "text")
+        # A DELIMITED lead word is an ordinary type name, never half a phrase.
+        self.assertEqual(guards._normalize_arg_type('"char" varying'), "varying")
+        # The collapse itself: these two must not share a scanner identity.
+        self.assertNotEqual(
+            guards._normalize_arg_type("char varying"),
+            guards._normalize_arg_type('p_x "varying"'),
+        )
+
+    def test_unresolved_grant_target_is_not_assumed_unrelated(self) -> None:
+        """Round 9 finding 2: `f(public.t.c%TYPE)` is a PostgreSQL-valid way to
+        name an existing routine, and the GRANT really does reopen client
+        EXECUTE. Exact identity correctly refuses to match an unresolved
+        argument list, but ACL replay read "not an exact match" as "definitely
+        unrelated" and dropped the statement."""
+        for name, sql in UNRESOLVED_GRANT_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UNRESOLVED_GRANT_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_exact_identity_and_possible_applicability_stay_distinct(self) -> None:
+        """Parser-internal: the two relations must not collapse back into one.
+        same_function() stays EXACT - an unresolved list matches nothing, which
+        is what stopped it acting as a wildcard REVOKE - while
+        may_be_same_function() concedes only the argument list and still uses
+        schema and routine name, so one unreadable GRANT cannot reopen every
+        routine in the file."""
+        def ident(schema, name, args):
+            return guards.Identity(schema, name, False, args)
+
+        exact = ident("public", "f", ("text",))
+        other = ident("public", "f", ("uuid",))
+        unresolved = ident("public", "f", guards.UNRESOLVED_ARGS)
+        omitted = ident("public", "f", None)
+        elsewhere = ident("other_schema", "f", guards.UNRESOLVED_ARGS)
+        different = ident("public", "g", guards.UNRESOLVED_ARGS)
+
+        # EXACT: unresolved proves nothing, in either direction.
+        self.assertFalse(exact.same_function(unresolved))
+        self.assertFalse(unresolved.same_function(exact))
+        self.assertFalse(unresolved.same_function(unresolved))
+        self.assertFalse(exact.same_function(other))
+        self.assertTrue(exact.same_function(omitted))
+        self.assertTrue(exact.same_function(ident("public", "f", ("text",))))
+
+        # POSSIBLE: unresolved might be this routine - but only this NAME, in
+        # this SCHEMA.
+        self.assertTrue(exact.may_be_same_function(unresolved))
+        self.assertTrue(unresolved.may_be_same_function(exact))
+        self.assertTrue(unresolved.may_be_same_function(unresolved))
+        self.assertFalse(exact.may_be_same_function(elsewhere))
+        self.assertFalse(exact.may_be_same_function(different))
+        # With both lists resolved, possibility is exactly identity again.
+        self.assertFalse(exact.may_be_same_function(other))
+        self.assertTrue(exact.may_be_same_function(ident("public", "f", ("text",))))
+
+        # An unqualified name resolves through search_path to `public`, and is
+        # not a wildcard over other schemas.
+        self.assertTrue(exact.may_be_same_function(ident(None, "f",
+                                                         guards.UNRESOLVED_ARGS)))
+        self.assertFalse(
+            ident("other_schema", "f", ("text",)).may_be_same_function(
+                ident(None, "f", guards.UNRESOLVED_ARGS)
+            )
+        )
+
+    def test_uescape_clause_is_found_across_comments(self) -> None:
+        """Round 9 finding 3: PostgreSQL resolves
+        `U&"authenticate!0064" /* c */ UESCAPE '!'` to the role
+        `authenticated`. The clause was looked for in RAW bytes, where a
+        comment is not whitespace, so it was missed, the content was decoded
+        against the default backslash escape, and the reader returned a WRONG
+        role instead of None - which never trips the fail-closed path."""
+        for name, sql in UESCAPE_GRANTEE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UESCAPE_GRANTEE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_delimited_identifier_reader_uses_masked_structure(self) -> None:
+        """Parser-internal: STRUCTURE from masked, CONTENT from raw, offsets
+        aligned - the same split the parameter path already uses, not a second
+        private U& reader and not a regex strip of comments from raw SQL."""
+        for spacing in (" ", "  ", "\t", "\n", "\r\n", "\x0b", "\x0c",
+                        " /* c */ ", " /* a /* b */ c */ ", " -- c\n "):
+            raw = f'U&"authenticate!0064"{spacing}UESCAPE \'!\''
+            masked, problems = guards.mask_sql_checked(raw)
+            self.assertEqual(problems, [], repr(spacing))
+            read = guards._read_delimited_identifier(raw, 0, masked)
+            self.assertIsNotNone(read, repr(spacing))
+            self.assertEqual(read[0], "authenticated", repr(spacing))
+            self.assertEqual(read[1], len(raw), repr(spacing))
+        # Default backslash escape when no clause follows.
+        raw = 'U&"authenticate\\0064"'
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertEqual(
+            guards._read_delimited_identifier(raw, 0, masked)[0], "authenticated"
+        )
+        # A UESCAPE character PostgreSQL rejects is unresolvable here too, even
+        # when a comment precedes the clause.
+        raw = 'U&"authenticate!0064" /* c */ UESCAPE \'1\''
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertIsNone(guards._read_delimited_identifier(raw, 0, masked))
+        # Raw and masked stay offset-aligned; masking never shortens the span.
+        raw = 'U&"authenticate!0064" /* c */ UESCAPE \'!\''
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertEqual(len(masked), len(raw))
+
+    def test_privilege_head_consumes_postgresql_whitespace(self) -> None:
+        """Round 9 finding 4: `GRANT ALL\\nPRIVILEGES ON FUNCTION ... TO
+        authenticated` is accepted by PostgreSQL and grants EXECUTE, but the
+        privilege head admitted literal ASCII spaces only, so the statement
+        matched no head and vanished from the ACL replay entirely."""
+        for name, sql in PRIVILEGE_HEAD_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in PRIVILEGE_HEAD_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        # Documented conservative false reds, frozen so the direction cannot
+        # flip silently.
+        for name, sql in PRIVILEGE_HEAD_CONSERVATIVE_FALSE_RED.items():
+            with self.subTest(conservative=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_privilege_head_stays_bounded_to_one_statement(self) -> None:
+        """Parser-internal: the head grammar consumes PostgreSQL whitespace and
+        masked comments, and NOTHING else - it is not `.*`. A `;` is outside
+        its character class, so it can never reach from one statement's GRANT
+        into a later statement's ON clause. Python's `\\s` is also not
+        PostgreSQL's whitespace: `GRANT ALL\\u00a0PRIVILEGES` is a syntax error
+        on PostgreSQL 17, so it must not parse here either."""
+        def heads(sql):
+            masked, problems = guards.mask_sql_checked(sql)
+            self.assertEqual(problems, [])
+            return guards.parse_privilege_statements(sql, masked)
+
+        # A semicolon ends the reach of the head.
+        self.assertEqual(
+            heads("GRANT ALL;\nPRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        self.assertEqual(
+            heads("GRANT SELECT ON TABLE public.t TO authenticated;\n"
+                  "GRANT USAGE ON SCHEMA public TO authenticated;"),
+            [],
+        )
+        # Non-whitespace, non-letter text is outside the class too.
+        self.assertEqual(
+            heads("GRANT ALL()PRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        # Unicode whitespace PostgreSQL rejects must not parse here.
+        self.assertEqual(
+            heads("GRANT ALL PRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        # The PostgreSQL-valid spellings DO parse, and carry their grantee.
+        for sep in (" ", "\t", "\n", "\r\n", "\x0b", "\x0c", " /* c */ ",
+                    " -- c\n"):
+            stmts = heads(f"GRANT ALL{sep}PRIVILEGES ON FUNCTION "
+                          f"public.f(text) TO authenticated;")
+            self.assertEqual(len(stmts), 1, repr(sep))
+            self.assertIn("authenticated", stmts[0].grantees, repr(sep))
+            self.assertFalse(stmts[0].is_revoke, repr(sep))
+            self.assertFalse(stmts[0].grant_option_only, repr(sep))
+        # `REVOKE GRANT OPTION FOR` keeps its own modelling across whitespace.
+        stmts = heads("REVOKE GRANT\nOPTION FOR EXECUTE ON FUNCTION "
+                      "public.f(text) FROM authenticated;")
+        self.assertEqual(len(stmts), 1)
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertTrue(stmts[0].grant_option_only)
+        # ... and `GRANT OPTION FOR` still never begins a GRANT statement.
+        self.assertTrue(all(s.is_revoke for s in stmts))
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
