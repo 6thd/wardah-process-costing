@@ -294,7 +294,9 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # authorization failure while the scanner reported the function as guarded.
 # The name is therefore recovered from the unmasked source at the same offsets,
 # exactly as the SQLSTATE value below is.
-_QUOTED_CONDITION_RE = re.compile(r'\A"[^"]*"\Z')
+_QUOTED_CONDITION_RE = re.compile(
+    r"""\A(?:U&)?"[^"]*"(?:\s*UESCAPE\s*'[^']*')?\Z""", re.IGNORECASE
+)
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
 # `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
 # globally - which would hand guard detection back every string it was hardened
@@ -421,6 +423,118 @@ def _read_sqlstate_literal(
     return "".join(values), False
 
 
+# ONE PostgreSQL-aware reader for a DELIMITED identifier, shared by every place
+# that has to resolve an identifier's identity: routine and schema names,
+# parameter types, and exception-condition names. PostgreSQL spells a delimited
+# identifier two ways and resolves BOTH to the same identifier:
+#
+#     "raise_exception"           ordinary quoted identifier
+#     U&"raise_excepti\006Fn"     Unicode delimited identifier (scan.l, UIDENT)
+#
+# The second was invisible to the scanner: a handler written
+# `WHEN U&"raise_exception" THEN` swallowed an assertion's authorization
+# failure while the function was still reported as guarded. Recognizing only
+# the first spelling is exactly the incomplete-fix shape that reopened it, so
+# the U& form is decoded here rather than special-cased at any call site.
+#
+# `UESCAPE 'c'` replaces the default backslash; PostgreSQL rejects a hex digit,
+# `+`, `'`, `"` and whitespace as that character. Anything this reader cannot
+# resolve returns None and every caller FAILS CLOSED on that - an identity that
+# cannot be proven must never be compared as if it were known.
+_UAMP_PREFIX_RE = re.compile(r'U&(?=")', re.IGNORECASE)
+_UESCAPE_CLAUSE_RE = re.compile(r"\s*UESCAPE\s*'(.)'", re.IGNORECASE)
+_UHEX4_RE = re.compile(r"[0-9A-Fa-f]{4}")
+_UHEX6_RE = re.compile(r"\+([0-9A-Fa-f]{6})")
+_BAD_UESCAPE_CHARS = frozenset('+\'"0123456789abcdefABCDEF')
+
+
+def _decode_unicode_identifier(content: str, esc: str) -> str | None:
+    """Decode a U&"..." identifier's content, or None when PostgreSQL would
+    reject it. Surrogate PAIRS are combined as PostgreSQL combines them; a lone
+    surrogate, a NUL, and a malformed escape are all errors there, so they are
+    unresolvable here too."""
+    out, i, n, high = [], 0, len(content), None
+    while i < n:
+        ch = content[i]
+        if ch != esc:
+            if high is not None:
+                return None
+            out.append(ch)
+            i += 1
+            continue
+        if content[i + 1:i + 2] == esc:
+            if high is not None:
+                return None
+            out.append(esc)
+            i += 2
+            continue
+        m4 = _UHEX4_RE.match(content, i + 1)
+        if m4:
+            code, i = int(m4.group(0), 16), m4.end()
+        else:
+            m6 = _UHEX6_RE.match(content, i + 1)
+            if m6 is None:
+                return None
+            code, i = int(m6.group(1), 16), m6.end()
+        if 0xD800 <= code <= 0xDBFF:
+            if high is not None:
+                return None
+            high = code
+            continue
+        if 0xDC00 <= code <= 0xDFFF:
+            if high is None:
+                return None
+            out.append(chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00)))
+            high = None
+            continue
+        if high is not None or code == 0:
+            return None
+        out.append(chr(code))
+    if high is not None:
+        return None
+    return "".join(out)
+
+
+def _read_delimited_identifier(raw: str, pos: int):
+    """(resolved name, index just past it) for a `"..."` or `U&"..."`
+    identifier at `pos`, or None when there is none or it cannot be resolved.
+
+    `raw` must be UNMASKED text: masking blanks quoted-identifier content by
+    design, so the identity only exists in the raw source.
+    """
+    uamp = _UAMP_PREFIX_RE.match(raw, pos)
+    start = uamp.end() if uamp else pos
+    if raw[start:start + 1] != '"':
+        return None
+    j, buf = start + 1, []
+    while j < len(raw):
+        if raw[j] == '"':
+            if raw.startswith('""', j):
+                buf.append('"')
+                j += 2
+                continue
+            j += 1
+            break
+        buf.append(raw[j])
+        j += 1
+    else:
+        return None
+    content = "".join(buf)
+    if not uamp:
+        return _pg_identifier(content, quoted=True), j
+    escape = "\\"
+    clause = _UESCAPE_CLAUSE_RE.match(raw, j)
+    if clause:
+        escape = clause.group(1)
+        if escape in _BAD_UESCAPE_CHARS or escape.isspace():
+            return None
+        j = clause.end()
+    decoded = _decode_unicode_identifier(content, escape)
+    if decoded is None:
+        return None
+    return _pg_identifier(decoded, quoted=True), j
+
+
 def _handler_condition_spans(body: str, start: int, end: int):
     """Absolute (start, end) spans of each `WHEN <conditions> THEN` list in
     [start, end).
@@ -472,23 +586,27 @@ def _quoted_condition_name(term: str, raw_body: str | None, offset: int) -> str 
     """The PostgreSQL identity of a quoted condition name, or None when it
     cannot be resolved from the raw source (callers fail closed on None).
 
-    `term` is masked text already known to be one quoted identifier; `raw_body`
-    is the same body unmasked and offset-aligned, so the identifier's content is
-    read back at the same offsets. `""` is PostgreSQL's escape for an embedded
-    quote and is unescaped here; the content is otherwise verbatim, because a
-    quoted identifier is never folded.
+    `term` is masked text already known to be one delimited identifier;
+    `raw_body` is the same body unmasked and offset-aligned, so the identifier's
+    content is read back at the same offsets and resolved by the SHARED
+    identifier reader - which is what makes the ordinary `"..."` and the Unicode
+    `U&"..."` spellings resolve to the same condition here, as they do in
+    PostgreSQL.
     """
     if raw_body is None:
         return None
     raw = raw_body[offset:offset + len(term)]
     if len(raw) != len(term):
         return None
-    start, end = term.find('"'), term.rfind('"')
-    if start == -1 or end <= start:
+    start = term.find('"')
+    if start == -1:
         return None
-    if raw[start] != '"' or raw[end] != '"':
+    if term[start - 2:start].upper() == "U&" and start >= 2:
+        start -= 2
+    read = _read_delimited_identifier(raw, start)
+    if read is None:
         return None
-    return _pg_identifier(raw[start + 1:end].replace('""', '"'), quoted=True)
+    return read[0]
 
 
 def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: int) -> bool:
@@ -1445,120 +1563,117 @@ _IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
 _UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
 # The same alphabet, anchored: "is this whole token one bare identifier".
 _PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
-_DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
-# An array type may be written with its bounds SEPARATED from the element type
-# by whitespace - `uuid []`, `"Type A" [4]`, `numeric ARRAY [3]` are all legal -
-# so "more than one token" does NOT mean "the first token is a parameter name".
-# Reading `"Type A" []` as the name `"Type A"` plus the type `[]` normalized
-# every such parameter to the same empty element type, which merged distinct
-# overloads: a REVOKE naming `rpc_f("Type B"[])` then appeared to close
-# `rpc_f("Type A"[])`, leaving the unguarded definer executable by clients.
-# PostgreSQL's grammar (gram.y, arrayBounds) is what is modelled here: an
-# optional ARRAY keyword followed by any number of `[ <optional integer> ]`.
-_ARRAY_SUFFIX_ONLY_RE = re.compile(
-    r"\A(?:ARRAY\b)?\s*(?:\[\s*\d*\s*\]\s*)*\Z", re.IGNORECASE
-)
+# One parameter is tokenized ONCE, quote-aware and qualification-aware, and
+# every later decision is taken on those tokens. The three heuristics this
+# replaces each ran on their own slice of the text and each lost:
+#
+#   * `DEFAULT`/`=` were found by a regex over the UNPARSED parameter, so
+#     `"Type DEFAULT A" []` was truncated INSIDE a quoted identifier and two
+#     distinct types both normalized to the fragment `"type`;
+#   * whitespace splitting knew nothing about qualification, so
+#     `"Schema A" . "T" []` looked like the name `"Schema A"` followed by the
+#     type `. "T" []`, and `"Schema A"` and `"Schema B"` collapsed together;
+#   * neither knew about `U&"..."`.
+#
+# Each case merged two distinct PostgreSQL overloads into one scanner identity,
+# so a REVOKE naming one of them closed the other on paper while PostgreSQL
+# still let clients execute the unguarded definer.
+_PARAM_PUNCT = frozenset(".,()[]")
+_NUMBER_RE = re.compile(r"\d+")
 
 
-def _is_array_suffix_only(tokens: list[str]) -> bool:
-    """True when every remaining token belongs to the PRECEDING type's array
-    bounds, which means no parameter name was written at all."""
-    text = " ".join(tokens).strip()
-    return bool(text) and _ARRAY_SUFFIX_ONLY_RE.match(text) is not None
+def _tokenize_parameter(text: str):
+    """[(kind, value, quoted)] for one parameter, or None when unresolvable.
 
-
-def _quote_aware_split(text: str) -> list[str]:
-    """Split on whitespace runs OUTSIDE double-quoted identifier spans.
-
-    PostgreSQL never folds or collapses whitespace inside a quoted identifier
-    - `"Type A"` and `"Type  A"` are different identifiers - but plain
-    `str.split()` does not know quoting exists and collapses both alike,
-    silently merging two distinct overloads. A quoted span (with `""` as an
-    escaped quote) is copied through byte-for-byte; only whitespace outside
-    quotes is used as a token separator, exactly where `str.split()` already
-    split unquoted text.
+    kind is 'ident', 'num' or 'punct'. An identifier's value is already
+    RESOLVED to PostgreSQL identity - folded when bare, verbatim when
+    delimited - so no later step has to know how it was spelled. Reading stops
+    at a top-level `DEFAULT` or `=`, which is where the parameter's TYPE ends;
+    because that decision is made here, inside the tokenizer, text that merely
+    looks like a separator inside a delimited identifier cannot end it.
     """
-    tokens, current = [], []
-    i, n = 0, len(text)
+    tokens, i, depth, n = [], 0, 0, len(text)
     while i < n:
         ch = text[i]
-        if ch == '"':
-            j = i + 1
-            while j < n:
-                if text[j] == '"':
-                    if text.startswith('""', j):
-                        j += 2
-                        continue
-                    j += 1
-                    break
-                j += 1
-            current.append(text[i:j])
-            i = j
-            continue
         if ch.isspace():
-            if current:
-                tokens.append("".join(current))
-                current = []
             i += 1
             continue
-        current.append(ch)
-        i += 1
-    if current:
-        tokens.append("".join(current))
+        if ch == "=" and depth == 0:
+            break
+        if ch in _PARAM_PUNCT:
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+            tokens.append(("punct", ch, False))
+            i += 1
+            continue
+        number = _NUMBER_RE.match(text, i)
+        if number:
+            tokens.append(("num", number.group(0), False))
+            i = number.end()
+            continue
+        delimited = _read_delimited_identifier(text, i)
+        if delimited is not None:
+            tokens.append(("ident", delimited[0], True))
+            i = delimited[1]
+            continue
+        if text[i:i + 1] == '"' or _UAMP_PREFIX_RE.match(text, i):
+            # A delimited identifier that could not be resolved. Fail closed.
+            return None
+        bare = _UNQUOTED_IDENT_RE.match(text, i)
+        if bare is None:
+            return None
+        if depth == 0 and bare.group(0).lower() == "default":
+            break
+        tokens.append(("ident", _pg_identifier(bare.group(0)), False))
+        i = bare.end()
     return tokens
 
 
-_QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
-
-
-def _collapse_ws_outside_quotes(text: str, transform) -> str:
-    """Apply `transform` to each span OUTSIDE a double-quoted identifier,
-    copying quoted spans through untouched. Used so a whitespace-collapsing
-    pass cannot fold two distinct quoted type identifiers (`"Type A"` vs
-    `"Type  A"`) into the same normalized text."""
-    out, last = [], 0
-    for m in _QUOTED_SEGMENT_RE.finditer(text):
-        out.append(transform(text[last:m.start()]))
-        out.append(m.group(0))
-        last = m.end()
-    out.append(transform(text[last:]))
-    return "".join(out)
-
-
-def _fold_type_text(text: str) -> str:
-    """Resolve a type expression's IDENTIFIER SEGMENTS to PostgreSQL identity.
-
-    PostgreSQL folds an unquoted type name and preserves a quoted one, so
-    `public."TypeA"` and `public."TypeB"` are different types. They are also the
-    two things masking destroys - it blanks quoted-identifier content - which is
-    why argument lists are normalized from the RAW source and resolved here
-    rather than lower-cased wholesale.
-
-    Each identifier SEGMENT goes through _pg_identifier() on its own;
-    punctuation, parentheses, array brackets and whitespace are copied through
-    untouched. Lower-casing the unquoted spans wholesale was a second identity
-    model, and it merged `TypeÄ` with `Typeä` - two distinct types in a UTF-8
-    database - so a REVOKE naming one overload exempted a SECURITY DEFINER
-    function declared with the other.
+def _is_array_suffix_only(tokens) -> bool:
+    """True when every remaining token belongs to the PRECEDING type's array
+    bounds - PostgreSQL's `arrayBounds`, an optional ARRAY keyword followed by
+    any number of `[ <optional integer> ]` - which means no parameter name was
+    written at all. `uuid []` is one unnamed parameter, not `uuid` named `[]`.
     """
-    out, last = [], 0
-    for m in _QUOTED_SEGMENT_RE.finditer(text):
-        out.append(_fold_type_segment(text[last:m.start()]))
-        content = _pg_identifier(m.group(0)[1:-1].replace('""', '"'), quoted=True)
-        out.append('"' + content.replace('"', '""') + '"')
-        last = m.end()
-    out.append(_fold_type_segment(text[last:]))
-    return "".join(out)
+    if not tokens:
+        return False
+    for index, (kind, value, quoted) in enumerate(tokens):
+        if kind == "punct" and value in "[]":
+            continue
+        if kind == "num":
+            continue
+        if index == 0 and kind == "ident" and not quoted and value == "array":
+            continue
+        return False
+    return True
 
 
-def _fold_type_segment(span: str) -> str:
-    """Resolve every bare identifier inside an unquoted span of type text."""
-    out, last = [], 0
-    for m in _UNQUOTED_IDENT_RE.finditer(span):
-        out.append(span[last:m.start()])
-        out.append(_pg_identifier(m.group(0)))
-        last = m.end()
-    out.append(span[last:])
+def _render_type_tokens(tokens) -> str:
+    """Canonical text for a resolved type expression.
+
+    An identifier is written bare when its resolved name is exactly what the
+    bare spelling would produce, and delimited otherwise - so `"uuid"` and
+    `uuid` render alike (PostgreSQL resolves them to the same identifier) while
+    `"UUID"` stays distinct. Whitespace only ever separates two word-like
+    tokens, so spacing around `.`, `[` and `,` cannot change an identity.
+    """
+    out, separates = [], False
+    for kind, value, _quoted in tokens:
+        word = kind in ("ident", "num")
+        if out and word and separates:
+            out.append(" ")
+        if kind == "ident" and not (
+            _PLAIN_IDENT_RE.match(value) and _fold_unquoted(value) == value
+        ):
+            out.append('"' + value.replace('"', '""') + '"')
+        else:
+            out.append(value)
+        # A word after a word, and a word after a closing `)`, need a
+        # separator (`time(3) with time zone`); nothing else does, so spacing
+        # around `.`, `[` and `,` cannot change an identity.
+        separates = word or (kind == "punct" and value == ")")
     return "".join(out)
 
 
@@ -1570,28 +1685,29 @@ def _normalize_arg_type(param: str) -> str | None:
     because PostgreSQL allows argument names in GRANT/REVOKE too. Returns None
     when the parameter cannot be parsed, which callers treat as "not equal".
     """
-    text = _DEFAULT_SPLIT_RE.split(param, 1)[0]
-    tokens = _quote_aware_split(text)
-    if tokens and tokens[0].lower() in _ARG_MODES and len(tokens) > 1:
-        tokens = tokens[1:]
-    if len(tokens) > 1 and not _is_array_suffix_only(tokens[1:]):
-        if _PLAIN_IDENT_RE.match(tokens[0]) and tokens[0].lower() not in _TYPE_LEAD_WORDS:
-            tokens = tokens[1:]
-        elif tokens[0].startswith('"'):
-            # A quoted parameter NAME is still a name. A quoted TYPE can lead a
-            # multi-token parameter, but only when what follows is its own array
-            # bounds - which the guard above has already excluded.
-            tokens = tokens[1:]
+    tokens = _tokenize_parameter(param)
     if not tokens:
         return None
-    normalized = _fold_type_text(" ".join(tokens))
-    normalized = _collapse_ws_outside_quotes(
-        normalized, lambda s: re.sub(r"\s*([(),\[\]])\s*", r"\1", s)
-    )
-    normalized = _collapse_ws_outside_quotes(
-        normalized, lambda s: re.sub(r"\s+", " ", s)
-    )
-    return normalized.strip() or None
+    if (
+        len(tokens) > 1
+        and tokens[0][0] == "ident"
+        and not tokens[0][2]
+        and tokens[0][1] in _ARG_MODES
+    ):
+        tokens = tokens[1:]
+    # An optional argument NAME is one identifier followed by the START of a
+    # type name - another identifier. Anything else after it (`.` continuing a
+    # qualified name, `(` opening a modifier, `[` opening array bounds) means
+    # the first token was the type itself, not a name.
+    if (
+        len(tokens) > 1
+        and tokens[0][0] == "ident"
+        and tokens[1][0] == "ident"
+        and not (not tokens[0][2] and tokens[0][1] in _TYPE_LEAD_WORDS)
+        and not _is_array_suffix_only(tokens[1:])
+    ):
+        tokens = tokens[1:]
+    return _render_type_tokens(tokens) or None
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -1648,25 +1764,17 @@ def _parse_identity(raw: str, masked: str, i: int):
         i = _skip_ws(masked, i)
         if i >= n:
             return None, i
-        if raw[i] == '"':
-            j, buf = i + 1, []
-            closed = False
-            while j < n:
-                if raw[j] == '"':
-                    if raw.startswith('""', j):
-                        buf.append('"')
-                        j += 2
-                        continue
-                    j += 1
-                    closed = True
-                    break
-                buf.append(raw[j])
-                j += 1
-            if not closed:
+        if raw[i] == '"' or _UAMP_PREFIX_RE.match(raw, i):
+            # The SAME delimited-identifier reader the type and condition paths
+            # use, rather than a second transcription of PostgreSQL's rules
+            # that could drift from it - and it is what makes a `U&"..."`
+            # routine or schema name resolve here too.
+            delimited = _read_delimited_identifier(raw, i)
+            if delimited is None:
                 return None, i
-            parts.append(_pg_identifier("".join(buf), quoted=True))
+            parts.append(delimited[0])
             quoted_any = True
-            i = j
+            i = delimited[1]
         else:
             m = _UNQUOTED_IDENT_RE.match(raw, i)
             if m is None:

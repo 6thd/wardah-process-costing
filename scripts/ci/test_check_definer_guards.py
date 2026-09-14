@@ -1943,6 +1943,167 @@ ARRAY_BOUND_TYPE_MUST_REJECT = {
     ),
 }
 
+# R. A seventh independent-review round found three more shapes. Each was
+#    reproduced against the real check_file() on `7f3f2a8` before this fix, and
+#    the two ACL-identity ones were confirmed on a live PostgreSQL 17.11 server:
+#    the REVOKE naming the other overload left the unguarded definer executable
+#    by `authenticated`, which then performed the protected write.
+#
+#   1. A condition name spelled as a Unicode delimited identifier
+#      (`WHEN U&"raise_exception"`) matched nothing, because the Round 6 reader
+#      recognized only the ordinary `"..."` spelling. PostgreSQL 17.11's plpgsql
+#      grammar in fact REFUSES a UIDENT in that position (`syntax error at or
+#      near "U&""raise_exception"""`), so this was not a live swallow - but a
+#      reader that cannot resolve an identity must fail CLOSED rather than wave
+#      it through, and the same U& spelling IS accepted in the SQL-level
+#      surfaces this scanner also parses (type names, routine names), which is
+#      why one shared reader now decodes it everywhere.
+#   2. `"Schema A" . "T" []` was read as the NAME `"Schema A"` plus the type
+#      `. "T" []`, so `"Schema A"` and `"Schema B"` normalized identically.
+#   3. `DEFAULT`/`=` were located by a regex over the UNPARSED parameter, so
+#      `"Type DEFAULT A" []` and `"Type=A" []` were truncated INSIDE a quoted
+#      identifier, leaving the fragment `"type` as the whole type identity.
+UNICODE_CONDITION_MUST_REJECT = {
+    "handler_catches_unicode_raise_exception": definer_outer_handler(
+        'U&"raise_exception"'
+    ),
+    "handler_catches_unicode_others": definer_outer_handler('U&"others"'),
+    "handler_catches_unicode_category_name": definer_outer_handler(
+        'U&"plpgsql_error"'
+    ),
+    # The same name written through the escape itself: \006E is `n`.
+    "handler_catches_unicode_escaped_name": definer_outer_handler(
+        'U&"raise_excepti\\006Fn"'
+    ),
+    "handler_catches_unicode_escaped_name_plus_form": definer_outer_handler(
+        'U&"raise_excepti\\+00006Fn"'
+    ),
+    "handler_catches_unicode_custom_uescape": definer_outer_handler(
+        'U&"raise_excepti!006Fn" UESCAPE \'!\''
+    ),
+    "handler_catches_unicode_as_later_or_term": definer_outer_handler(
+        'unique_violation OR U&"raise_exception"'
+    ),
+    "handler_catches_unicode_as_first_or_term": definer_outer_handler(
+        'U&"raise_exception" OR unique_violation'
+    ),
+    # Unresolvable spellings: a truncated escape, and a UESCAPE character
+    # PostgreSQL forbids (a hex digit). Identity cannot be proven, so the
+    # reader must fail closed instead of reporting the function as guarded.
+    "handler_condition_with_truncated_escape": definer_outer_handler(
+        'U&"raise_exceptio\\00"'
+    ),
+    "handler_condition_with_forbidden_uescape": definer_outer_handler(
+        'U&"raise_exception" UESCAPE \'a\''
+    ),
+}
+
+UNICODE_CONDITION_MUST_ACCEPT = {
+    # An unrelated condition, in every spelling, still cannot catch a P0001.
+    "unicode_unique_violation_does_not_catch": definer_outer_handler(
+        'U&"unique_violation"'
+    ),
+    "unicode_escaped_unique_violation_does_not_catch": definer_outer_handler(
+        'U&"uniqu\\0065_violation"'
+    ),
+    "unicode_fk_violation_does_not_catch": definer_outer_handler(
+        'U&"foreign_key_violation"'
+    ),
+}
+
+QUALIFIED_TYPE_MUST_REJECT = {
+    # Two distinct qualified types; only the B overload is revoked. Confirmed
+    # on PostgreSQL 17.11: the A overload stays executable by `authenticated`.
+    "spaced_qualification_keeps_quoted_schemas_distinct": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . "T" []')
+        + routine("f_q", "SECURITY DEFINER", args='"Schema B" . "T" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema B" . "T" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "spaced_qualification_keeps_bare_schemas_distinct": (
+        routine("f_q", "SECURITY DEFINER", args="sch_a . t []")
+        + routine("f_q", "SECURITY DEFINER", args="sch_b . t []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_q(sch_b . t [])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "spaced_qualification_mixed_quoting_stays_distinct": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . t []')
+        + routine("f_q", "SECURITY DEFINER", args='"Schema B" . t []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema B" . t [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "multi_dimensional_bounds_stay_with_their_element_type": (
+        routine("f_q", "SECURITY DEFINER", args='public."Type A" [] []')
+        + routine("f_q", "SECURITY DEFINER", args='public."Type B" [] []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q(public."Type B"[][])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+QUALIFIED_TYPE_MUST_ACCEPT = {
+    # Spacing around `.` and the bounds is NOT part of the identity: the same
+    # overload written either way must still be recognized as closed.
+    "spaced_qualification_matches_tight_revoke": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . "T" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema A"."T"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "bare_spaced_qualification_matches_tight_revoke": (
+        routine("f_q", "SECURITY DEFINER", args="sch_a . t []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_q(sch_a.t[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "named_argument_with_qualified_array_type_matches": (
+        routine("f_q", "SECURITY DEFINER", args='p_x public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q(public."Type A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+DEFAULT_IN_QUOTED_TYPE_MUST_REJECT = {
+    # `DEFAULT` and `=` inside a quoted type name are part of the NAME.
+    # Confirmed on PostgreSQL 17.11 for both pairs.
+    "quoted_type_containing_default_keyword_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT A" []')
+        + routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT B" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT B" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "quoted_type_containing_equals_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type=A" []')
+        + routine("f_d", "SECURITY DEFINER", args='public."Type=B" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type=B" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "quoted_type_with_doubled_quote_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Ty""pe DEFAULT A"')
+        + routine("f_d", "SECURITY DEFINER", args='public."Ty""pe DEFAULT B"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Ty""pe DEFAULT B")\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT = {
+    "quoted_type_containing_default_keyword_matches_itself": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A REAL default expression is still stripped: the parameter's type is what
+    # is compared, and the REVOKE form never carries the default.
+    "real_default_expression_is_still_stripped": (
+        routine("f_d", "SECURITY DEFINER",
+                args='p_x public."Type DEFAULT A" [] DEFAULT NULL')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "real_equals_default_expression_is_still_stripped": (
+        routine("f_d", "SECURITY DEFINER", args="p_meta jsonb = '{}'::jsonb")
+        + "REVOKE EXECUTE ON FUNCTION public.f_d(jsonb)\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
 ARRAY_BOUND_TYPE_MUST_ACCEPT = {
     # Spacing around the bounds is not part of the identity: the same overload
     # written either way must still be recognized as closed.
@@ -3682,6 +3843,137 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
                     f"closing the unguarded definer",
                 )
         for name, sql in ARRAY_BOUND_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_unicode_delimited_condition_names_resolve_or_fail_closed(self) -> None:
+        """R1: `U&"..."` is a delimited identifier too. PostgreSQL 17.11 refuses
+        one in a plpgsql handler condition, so these are not live swallows - but
+        an identity this reader cannot PROVE must never be reported as
+        non-catching, and an unrelated name must still not invent a red."""
+        for name, sql in UNICODE_CONDITION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UNICODE_CONDITION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_the_shared_identifier_reader_decodes_both_spellings(self) -> None:
+        """R1: one reader, both spellings, and None for anything unresolvable."""
+        self.assertEqual(
+            guards._read_delimited_identifier('"raise_exception"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(r'U&"raise_excepti\006Fn"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(r'U&"raise_excepti\+00006Fn"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(
+                'U&"raise_excepti!006Fn" UESCAPE \'!\'', 0
+            )[0],
+            "raise_exception",
+        )
+        # A doubled quote is an embedded quote, in both spellings.
+        self.assertEqual(
+            guards._read_delimited_identifier('"a""b"', 0)[0], 'a"b'
+        )
+        # Quoting prevents FOLDING; it does not change the identifier, so a
+        # quoted lower-case name is the same identifier as the bare one.
+        self.assertEqual(
+            guards._read_delimited_identifier('"uuid"', 0)[0], "uuid"
+        )
+        for unresolvable in (
+            r'U&"bad\00"',                     # truncated escape
+            r'U&"bad\+0000"',                  # truncated plus form
+            'U&"x" UESCAPE \'a\'',              # a hex digit cannot be the escape
+            'U&"x" UESCAPE \'+\'',              # nor can `+`
+            r'U&"lone\D800"',                  # a lone surrogate
+            r'U&"nul\0000"',                   # NUL is not an identifier char
+            '"unterminated',
+        ):
+            with self.subTest(unresolvable=unresolvable):
+                self.assertIsNone(
+                    guards._read_delimited_identifier(unresolvable, 0),
+                    unresolvable,
+                )
+
+    def test_qualified_type_identity_survives_spacing(self) -> None:
+        """R2: `"Schema A" . "T" []` is ONE qualified array type, not a name
+        followed by `. "T" []`."""
+        self.assertEqual(
+            guards._normalize_arg_type('"Schema A" . "T" []'),
+            guards._normalize_arg_type('"Schema A"."T"[]'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Schema A" . "T" []'),
+            guards._normalize_arg_type('"Schema B" . "T" []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("sch_a . t []"),
+            guards._normalize_arg_type("sch_a.t[]"),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type("sch_a . t []"),
+            guards._normalize_arg_type("sch_b . t []"),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Schema A" . t []'),
+            guards._normalize_arg_type('"Schema B" . t []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x public."Type A" []'),
+            guards._normalize_arg_type('public."Type A"[]'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('public."Type A" [] []'),
+            guards._normalize_arg_type('public."Type A" []'),
+        )
+        for name, sql in QUALIFIED_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in QUALIFIED_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_default_separators_are_found_outside_quoted_identifiers(self) -> None:
+        """R3: `DEFAULT` and `=` inside a quoted type name are part of the NAME;
+        only a separator at the parameter's top level ends the type."""
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Type DEFAULT A" []'),
+            guards._normalize_arg_type('"Type DEFAULT B" []'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Type=A" []'),
+            guards._normalize_arg_type('"Type=B" []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('"Type DEFAULT A" []'),
+            '"Type DEFAULT A"[]',
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x "Type DEFAULT A" [] DEFAULT NULL'),
+            '"Type DEFAULT A"[]',
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("p_meta jsonb = '{}'::jsonb"), "jsonb"
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x "Ty""pe DEFAULT A"'),
+            '"Ty""pe DEFAULT A"',
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Ty""pe DEFAULT A"'),
+            guards._normalize_arg_type('"Ty""pe DEFAULT B"'),
+        )
+        for name, sql in DEFAULT_IN_QUOTED_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
 
