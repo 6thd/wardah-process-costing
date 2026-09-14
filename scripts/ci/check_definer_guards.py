@@ -1496,11 +1496,41 @@ def get_cutoff() -> int:
 # model instead of re-deriving position.
 
 
+class _UnresolvedArgs:
+    """The third argument-list state: PRESENT in the statement, but not
+    resolvable to a type list by this scanner.
+
+    It exists because `None` used to carry two incompatible meanings at once -
+    "no argument list was written" and "an argument list was written and could
+    not be parsed" - and `same_function()` answers TRUE for the first. Any
+    signature this scanner could not read therefore became a WILDCARD that
+    matched every overload of the same name, so a REVOKE on `f(text)` exempted
+    an unguarded `f(uuid)`. A comment inside the argument list was enough to
+    trigger it, and so was any PostgreSQL type syntax the tokenizer does not
+    model.
+
+    An unresolved list matches NOTHING, including another unresolved list: two
+    signatures nobody could read are not evidence that they are the same
+    function.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<unresolved argument list>"
+
+
+UNRESOLVED_ARGS = _UnresolvedArgs()
+
+
 class Identity:
     """A schema-qualified function identity, with its argument TYPE list.
 
-    `args` is None when the statement carried no argument list at all. Quoted
-    identifiers keep their case (PostgreSQL folds only unquoted ones), so
+    `args` is None when the statement carried NO argument list at all, a tuple
+    of normalized type texts when it carried one this scanner resolved, and
+    UNRESOLVED_ARGS when it carried one that could not be resolved. Those three
+    states are deliberately distinct; see _UnresolvedArgs. Quoted identifiers
+    keep their case (PostgreSQL folds only unquoted ones), so
     `"HAS_PERMISSION"` is a different function from `has_permission` and cannot
     inherit its exemption.
     """
@@ -1516,15 +1546,21 @@ class Identity:
     @property
     def qualified(self) -> str:
         base = f"{self.schema}.{self.name}" if self.schema else self.name
-        return base if self.args is None else f"{base}({','.join(self.args)})"
+        if self.args is None:
+            return base
+        if self.args is UNRESOLVED_ARGS:
+            return f"{base}(<unresolved argument list>)"
+        return f"{base}({','.join(self.args)})"
 
     def same_function(self, other: "Identity") -> bool:
         """Name match, plus argument-list match when BOTH sides carry one.
 
         PostgreSQL identifies an overload by its argument types, so a REVOKE on
-        `f(text)` says nothing about `f(uuid)`. When either side omits the list
-        the name match is all that is available; an unparseable list is never
-        silently treated as equal.
+        `f(text)` says nothing about `f(uuid)`. When either side OMITS the list
+        the name match is all that is available. A list that is PRESENT but
+        unresolved is a different state entirely and matches nothing at all -
+        collapsing it into the omitted case turned every signature this scanner
+        could not read into a wildcard.
         """
         if self.name != other.name:
             return False
@@ -1540,6 +1576,8 @@ class Identity:
             named = self.schema or other.schema
             if named != "public":
                 return False
+        if self.args is UNRESOLVED_ARGS or other.args is UNRESOLVED_ARGS:
+            return False
         if self.args is None or other.args is None:
             return True
         return self.args == other.args
@@ -1582,8 +1620,16 @@ _PARAM_PUNCT = frozenset(".,()[]")
 _NUMBER_RE = re.compile(r"\d+")
 
 
-def _tokenize_parameter(text: str):
+def _tokenize_parameter(masked: str, raw: str):
     """[(kind, value, quoted)] for one parameter, or None when unresolvable.
+
+    STRUCTURE is read from `masked` and identifier CONTENT from `raw` at the
+    same offsets. That split is the whole point: the masker has already turned
+    comments into whitespace and blanked literal and delimited-identifier
+    content, so `uuid /* why */` is structurally `uuid` here without this
+    function knowing that comments exist, while `"Type A"` still yields its real
+    name. Scanning raw bytes instead made every commented parameter
+    unparseable - which, before UNRESOLVED_ARGS, silently became a wildcard.
 
     kind is 'ident', 'num' or 'punct'. An identifier's value is already
     RESOLVED to PostgreSQL identity - folded when bare, verbatim when
@@ -1591,10 +1637,15 @@ def _tokenize_parameter(text: str):
     at a top-level `DEFAULT` or `=`, which is where the parameter's TYPE ends;
     because that decision is made here, inside the tokenizer, text that merely
     looks like a separator inside a delimited identifier cannot end it.
+
+    Anything else - `%TYPE`, `%ROWTYPE`, or any other valid PostgreSQL type
+    syntax this tokenizer does not model - returns None. The caller turns that
+    into UNRESOLVED_ARGS, which matches no overload; it must never degrade into
+    "no argument list was written".
     """
-    tokens, i, depth, n = [], 0, 0, len(text)
+    tokens, i, depth, n = [], 0, 0, len(masked)
     while i < n:
-        ch = text[i]
+        ch = masked[i]
         if ch.isspace():
             i += 1
             continue
@@ -1608,20 +1659,20 @@ def _tokenize_parameter(text: str):
             tokens.append(("punct", ch, False))
             i += 1
             continue
-        number = _NUMBER_RE.match(text, i)
+        number = _NUMBER_RE.match(masked, i)
         if number:
             tokens.append(("num", number.group(0), False))
             i = number.end()
             continue
-        delimited = _read_delimited_identifier(text, i)
-        if delimited is not None:
+        if masked[i:i + 1] == '"' or _UAMP_PREFIX_RE.match(masked, i):
+            delimited = _read_delimited_identifier(raw, i)
+            if delimited is None:
+                # A delimited identifier that could not be resolved. Fail closed.
+                return None
             tokens.append(("ident", delimited[0], True))
             i = delimited[1]
             continue
-        if text[i:i + 1] == '"' or _UAMP_PREFIX_RE.match(text, i):
-            # A delimited identifier that could not be resolved. Fail closed.
-            return None
-        bare = _UNQUOTED_IDENT_RE.match(text, i)
+        bare = _UNQUOTED_IDENT_RE.match(masked, i)
         if bare is None:
             return None
         if depth == 0 and bare.group(0).lower() == "default":
@@ -1677,15 +1728,18 @@ def _render_type_tokens(tokens) -> str:
     return "".join(out)
 
 
-def _normalize_arg_type(param: str) -> str | None:
+def _normalize_arg_type(param: str, raw_param: str | None = None) -> str | None:
     """The declared TYPE of one parameter, normalized for comparison.
 
-    Accepts both the CREATE form (`p_org uuid`, `OUT v numeric`,
+    `param` is the MASKED parameter text and `raw_param` the same span unmasked
+    (defaulting to `param` for callers that hold only one form). Accepts both
+    the CREATE form (`p_org uuid`, `OUT v numeric`,
     `p_x jsonb DEFAULT '{}'::jsonb`) and the privilege-statement form (`uuid`),
     because PostgreSQL allows argument names in GRANT/REVOKE too. Returns None
-    when the parameter cannot be parsed, which callers treat as "not equal".
+    when the parameter cannot be resolved; callers must render that as
+    UNRESOLVED_ARGS, never as an omitted list.
     """
-    tokens = _tokenize_parameter(param)
+    tokens = _tokenize_parameter(param, param if raw_param is None else raw_param)
     if not tokens:
         return None
     if (
@@ -1738,9 +1792,13 @@ def _parse_arg_list(inner: str, raw_inner: str | None = None):
         offset += len(part) + 1
         if not part.strip():
             continue
-        normalized = _normalize_arg_type(raw_part)
+        # STRUCTURE from the masked span - where a comment is already
+        # non-semantic whitespace - and identifier CONTENT from raw at the same
+        # offsets. Feeding raw comment bytes to the tokenizer made every
+        # commented parameter unparseable.
+        normalized = _normalize_arg_type(part, raw_part)
         if normalized is None:
-            return None
+            return UNRESOLVED_ARGS
         args.append(normalized)
     return tuple(args)
 
@@ -2014,29 +2072,51 @@ CLIENT_ROLES = ("public", "anon", "authenticated")
 # role name is the SAME role when its content matches - PostgreSQL folds the
 # unquoted form to lower case - so both spellings resolve here, and a quoted
 # form that differs in case (`"Authenticated"`) is a different role and does not.
-_GRANTEE_TOKEN_RE = re.compile(
-    f'"(?:[^"]|"")*"|[{_IDENT_START}][{_IDENT_CONT}]*'
-)
 _GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_role"})
+# A grantee this scanner could not resolve. A REVOKE naming it credits no
+# closure (it is not a client role), and a GRANT naming it must be replayed as
+# reaching EVERY client role - PostgreSQL may well resolve it to one of them.
+UNRESOLVED_GRANTEE = "\x00unresolved-grantee"
 
 
 def _grantee_names(raw_region: str) -> set[str]:
-    """Role names named in a GRANT/REVOKE grantee list."""
-    # Locate tokens on masked structure so comments cannot invent grantees.
-    # Recover only those spans from raw SQL to preserve quoted role identities.
+    """Role names named in a GRANT/REVOKE grantee list.
+
+    Structure comes from the masked region, so a comment cannot invent a
+    grantee, and each identifier is resolved by the SHARED delimited-identifier
+    reader - the same one routine names, schema names and parameter types use.
+    A second, private quote regex lived here until it was found to miss exactly
+    what that reader exists to resolve: `U&"authenticate\0064"` is the role
+    `authenticated` to PostgreSQL, so a GRANT spelled that way reopens a closed
+    function, while the old reader recorded the bare token `u` plus a role
+    literally named `authenticate\0064` and saw no reopen at all.
+    """
     masked_region, problems = mask_sql_checked(raw_region)
     if problems:
         raise MaskError("; ".join(problems))
-    names = set()
-    for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
-        token = raw_region[m.start():m.end()]
-        if token.startswith('"'):
-            names.add(_pg_identifier(token[1:-1].replace('""', '"'), quoted=True))
-        else:
-            resolved = _pg_identifier(token)
-            if resolved in _GRANTEE_NOISE:
+    names, i, n = set(), 0, len(masked_region)
+    while i < n:
+        if masked_region[i] == '"' or _UAMP_PREFIX_RE.match(masked_region, i):
+            read = _read_delimited_identifier(raw_region, i)
+            if read is not None:
+                names.add(read[0])
+                i = read[1]
                 continue
+            # Unresolvable delimited grantee: fail closed and skip its span so
+            # the `U&` prefix cannot be re-read as a bare role named `u`.
+            names.add(UNRESOLVED_GRANTEE)
+            quote = masked_region.find('"', i)
+            close = masked_region.find('"', quote + 1) if quote != -1 else -1
+            i = (close + 1) if close != -1 else n
+            continue
+        bare = _UNQUOTED_IDENT_RE.match(masked_region, i)
+        if bare is None:
+            i += 1
+            continue
+        resolved = _pg_identifier(raw_region[bare.start():bare.end()])
+        if resolved not in _GRANTEE_NOISE:
             names.add(resolved)
+        i = bare.end()
     return names
 
 
@@ -2138,8 +2218,14 @@ def revoke_closes_client_surface(
             continue
         if not any(identity.same_function(t) for t in stmt.targets):
             continue
+        # A GRANT to a grantee nobody could resolve may well reach a client
+        # role, so it is replayed as reaching all of them. The same token in a
+        # REVOKE credits no closure: it is simply not one of these roles.
+        opens_everything = (
+            not stmt.is_revoke and UNRESOLVED_GRANTEE in stmt.grantees
+        )
         for role in CLIENT_ROLES:
-            if role not in stmt.grantees:
+            if role not in stmt.grantees and not opens_everything:
                 continue
             if role == "public":
                 public_open = not stmt.is_revoke

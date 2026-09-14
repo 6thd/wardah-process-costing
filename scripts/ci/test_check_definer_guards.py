@@ -2104,6 +2104,197 @@ DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT = {
     ),
 }
 
+# S. An eighth independent-review round found two more shapes, both confirmed
+#    on a live PostgreSQL 17.11 server - the unguarded definer stayed reachable
+#    by a client role while the scanner reported no finding:
+#
+#   1. `Identity.args = None` carried TWO meanings: "no argument list was
+#      written" and "an argument list was written and could not be parsed".
+#      `same_function()` answers TRUE for the first, so every signature the
+#      scanner could not read became a WILDCARD matching any overload of the
+#      same name - and a comment inside the argument list was enough, because
+#      the parameter tokenizer ran on RAW bytes. A REVOKE on `f(text)` then
+#      exempted an unguarded `f(uuid /* why */)`. The third state is explicit
+#      now (UNRESOLVED_ARGS) and matches nothing, and parameter STRUCTURE is
+#      read from the masked span where a comment is already whitespace.
+#   2. `_grantee_names()` still had its own quote regex after Round 7 gave the
+#      scanner one shared delimited-identifier reader. `U&"authenticate\0064"`
+#      is the role `authenticated` to PostgreSQL, so a GRANT spelled that way
+#      reopens a closed function; the private reader saw a bare role `u` plus a
+#      role literally named `authenticate\0064`, and no reopen at all.
+
+
+def commented_definer(args: str, name: str = "rpc_p") -> str:
+    return (
+        f"CREATE OR REPLACE FUNCTION public.{name}({args})\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        f"AS ${name}$\nBEGIN\n{WORK_LINE}\nEND;\n${name}$;\n"
+    )
+
+
+def revoke_clients(args: str, name: str = "rpc_p") -> str:
+    return (
+        f"REVOKE EXECUTE ON FUNCTION public.{name}({args})\n"
+        "  FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+def grant_to(grantee: str, args: str = "uuid", name: str = "rpc_p") -> str:
+    return (
+        f"GRANT EXECUTE ON FUNCTION public.{name}({args})\n  TO {grantee};\n"
+    )
+
+
+# A second overload exists in each rejecting fixture, so the REVOKE below names
+# a REAL function and the file is valid PostgreSQL - confirmed on 17.11, where
+# the commented overload stays client-executable.
+OTHER_OVERLOAD = commented_definer("p_y text", name="rpc_p")
+
+UNPARSEABLE_ARGS_MUST_REJECT = {
+    "create_side_block_comment_is_not_a_wildcard": (
+        commented_definer("p_x uuid /* why */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "revoke_side_block_comment_is_not_a_wildcard": (
+        commented_definer("p_x uuid") + OTHER_OVERLOAD
+        + revoke_clients("text /* why */")
+    ),
+    "comment_around_qualification_dot": (
+        commented_definer("p_x public /* c */ . t") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "comment_before_array_bounds": (
+        commented_definer("p_x public.t /* c */ []") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "comment_after_array_bounds": (
+        commented_definer("p_x uuid [] /* c */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "line_comment_inside_argument_list": (
+        commented_definer("p_x uuid -- why\n") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "nested_block_comment_inside_argument_list": (
+        commented_definer("p_x uuid /* a /* nested */ b */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    # PostgreSQL-valid type syntax this scanner does not model. Option B of the
+    # contract: mark the PRESENT list unresolved and fail closed - never turn
+    # unsupported syntax into omitted-argument (wildcard) semantics.
+    "percent_type_is_unresolved_not_omitted": (
+        commented_definer("p_x public.audit_probe.note%TYPE") + OTHER_OVERLOAD
+        + revoke_clients("uuid")
+    ),
+    # An unresolved list matches NOTHING - including the identical spelling on
+    # the other side. Two signatures nobody could read are not a match.
+    "percent_type_does_not_match_itself": (
+        commented_definer("p_x public.audit_probe.note%TYPE")
+        + revoke_clients("public.audit_probe.note%TYPE")
+    ),
+    # The same rule on the ALTER surface: an unresolved signature cannot carry
+    # a promotion onto a definition, and cannot be closed by a REVOKE either.
+    "unresolved_alter_signature_cannot_be_closed": (
+        "CREATE OR REPLACE FUNCTION public.rpc_p(p_x uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY INVOKER\n"
+        f"AS $rpc_p$\nBEGIN\n{WORK_LINE}\nEND;\n$rpc_p$;\n"
+        "ALTER FUNCTION public.rpc_p(public.audit_probe.note%TYPE)\n"
+        "  SECURITY DEFINER;\n"
+        + revoke_clients("uuid")
+    ),
+    "control_no_comment_other_overload": (
+        commented_definer("p_x uuid") + OTHER_OVERLOAD + revoke_clients("text")
+    ),
+}
+
+UNPARSEABLE_ARGS_MUST_ACCEPT = {
+    # Comments do not alter PostgreSQL routine identity, so a REVOKE naming the
+    # same overload still closes it - in either direction.
+    "create_side_comment_matches_plain_revoke": (
+        commented_definer("p_x uuid /* why */") + revoke_clients("uuid")
+    ),
+    "revoke_side_comment_matches_plain_create": (
+        commented_definer("p_x uuid") + revoke_clients("uuid /* why */")
+    ),
+    "comment_at_dot_matches_tight_revoke": (
+        commented_definer("p_x public /* c */ . t") + revoke_clients("public.t")
+    ),
+    "line_comment_matches_plain_revoke": (
+        commented_definer("p_x uuid -- why\n") + revoke_clients("uuid")
+    ),
+    "control_no_comment_same_overload": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+    ),
+}
+
+UNICODE_GRANTEE_MUST_REJECT = {
+    # Each GRANT below reopens the function for a client role on PostgreSQL
+    # 17.11 - verified with has_function_privilege.
+    "reopened_by_escaped_unicode_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate\\0064"')
+    ),
+    "reopened_by_uescape_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate!0064" UESCAPE \'!\'')
+    ),
+    "reopened_by_escaped_unicode_anon": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"ano\\006E"')
+    ),
+    "reopened_by_escaped_unicode_public": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"publi\\0063"')
+    ),
+    # Controls that were already rejected, kept so they cannot regress.
+    "reopened_by_plain_unicode_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticated"')
+    ),
+    "reopened_by_ordinary_quoted_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('"authenticated"')
+    ),
+    "reopened_by_bare_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to("authenticated")
+    ),
+    # An unresolvable delimited grantee may BE a client role, so a GRANT naming
+    # one is replayed as reaching all of them.
+    "unresolvable_unicode_grantee_fails_closed": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate\\00"')
+    ),
+}
+
+UNICODE_GRANTEE_MUST_ACCEPT = {
+    # PostgreSQL keeps a delimited identifier's case, so these are other roles.
+    "case_variant_grantee_is_another_role": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('"Authenticated"')
+    ),
+    "non_client_role_grant_does_not_reopen": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to("reporting_role")
+    ),
+    "unicode_non_client_role_grant_does_not_reopen": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"reporting_rol\\0065"')
+    ),
+    # The closure itself may be written in the U& spelling, and comments may
+    # sit between grantees.
+    "revoke_from_unicode_spelled_clients_closes": (
+        commented_definer("p_x uuid")
+        + 'REVOKE EXECUTE ON FUNCTION public.rpc_p(uuid)\n'
+          '  FROM U&"publi\\0063", U&"ano\\006E", U&"authenticate\\0064";\n'
+    ),
+    "comments_between_grantees_do_not_hide_the_closure": (
+        commented_definer("p_x uuid")
+        + "REVOKE EXECUTE ON FUNCTION public.rpc_p(uuid)\n"
+          "  FROM PUBLIC /* c */, anon, /* c */ authenticated;\n"
+    ),
+}
+
 ARRAY_BOUND_TYPE_MUST_ACCEPT = {
     # Spacing around the bounds is not part of the identity: the same overload
     # written either way must still be recognized as closed.
@@ -3974,6 +4165,92 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
             with self.subTest(reject=name):
                 self.assertTrue(self.verdict(name, sql), name)
         for name, sql in DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_a_present_but_unresolved_argument_list_is_not_a_wildcard(self) -> None:
+        """S1: three distinct states - omitted, resolved, present-but-unresolved
+        - and only the first two may ever compare equal."""
+        omitted = guards.Identity("public", "f", False, None)
+        uuid_args = guards.Identity("public", "f", False, ("uuid",))
+        text_args = guards.Identity("public", "f", False, ("text",))
+        unresolved = guards.Identity("public", "f", False, guards.UNRESOLVED_ARGS)
+        # The three states are distinguishable, not one sentinel.
+        self.assertIsNot(guards.UNRESOLVED_ARGS, None)
+        self.assertNotEqual(uuid_args.args, text_args.args)
+        self.assertFalse(uuid_args.same_function(text_args))
+        # An omitted list keeps exactly the semantics it always had.
+        self.assertTrue(omitted.same_function(uuid_args))
+        self.assertTrue(uuid_args.same_function(omitted))
+        # An unresolved list matches nothing - not a resolved list, not an
+        # omitted one, not even another unresolved one.
+        for other in (omitted, uuid_args, text_args, unresolved):
+            with self.subTest(other=other.qualified):
+                self.assertFalse(unresolved.same_function(other))
+                self.assertFalse(other.same_function(unresolved))
+        self.assertIn("unresolved", unresolved.qualified)
+        # And the parser reaches that state instead of returning None.
+        self.assertIs(
+            guards._parse_arg_list("p_x public.audit_probe.note%TYPE"),
+            guards.UNRESOLVED_ARGS,
+        )
+        self.assertEqual(guards._parse_arg_list("uuid"), ("uuid",))
+
+    def test_comments_do_not_alter_routine_identity(self) -> None:
+        """S1: a comment is whitespace to PostgreSQL, so it must neither create
+        a wildcard nor break a real match."""
+        for name, sql in UNPARSEABLE_ARGS_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an unreadable or non-matching signature was "
+                    f"treated as closing the unguarded definer",
+                )
+        for name, sql in UNPARSEABLE_ARGS_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        # Structure from the masked span, identifier content from raw.
+        self.assertEqual(
+            guards._normalize_arg_type("p_x uuid          ", "p_x uuid /* why */"),
+            "uuid",
+        )
+
+    def test_grantee_identities_use_the_shared_reader(self) -> None:
+        """S2: if PostgreSQL resolves a grantee to PUBLIC, anon or
+        authenticated, ACL replay must resolve it to the same role."""
+        self.assertEqual(
+            guards._grantee_names('PUBLIC, anon, U&"authenticate\\0064"'),
+            {"public", "anon", "authenticated"},
+        )
+        self.assertEqual(
+            guards._grantee_names("U&\"authenticate!0064\" UESCAPE '!'"),
+            {"authenticated"},
+        )
+        self.assertEqual(
+            guards._grantee_names('PUBLIC, anon, "authenticated"'),
+            {"public", "anon", "authenticated"},
+        )
+        self.assertEqual(guards._grantee_names("GROUP service_role"), {"service_role"})
+        # A quoted name that differs in CASE is a different role.
+        self.assertEqual(guards._grantee_names('"Authenticated"'), {"Authenticated"})
+        # `U&` must never be re-read as a bare role named `u`.
+        self.assertNotIn("u", guards._grantee_names('U&"reporting_rol\\0065"'))
+        self.assertEqual(
+            guards._grantee_names('U&"reporting_rol\\0065"'), {"reporting_role"}
+        )
+        # An unresolvable delimited grantee is recorded as unresolved, not as
+        # some other role, and not silently dropped.
+        self.assertIn(
+            guards.UNRESOLVED_GRANTEE, guards._grantee_names('U&"authenticate\\00"')
+        )
+        for name, sql in UNICODE_GRANTEE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a GRANT that reopens the function for a client "
+                    f"role was not seen",
+                )
+        for name, sql in UNICODE_GRANTEE_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
 
