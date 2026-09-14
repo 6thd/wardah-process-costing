@@ -1879,6 +1879,86 @@ QUOTED_TYPE_WHITESPACE_MUST_ACCEPT = {
 }
 
 
+# Q. A fifth independent-review round found two more shapes, each reproduced
+#    against the real check_file() before this fix landed:
+#
+#   1. A condition name may be written as a QUOTED identifier, and PostgreSQL
+#      resolves `WHEN "raise_exception"` to exactly the condition the bare name
+#      names. The masker blanks quoted-identifier CONTENT, so the term reached
+#      `_condition_catches_p0001()` as `"              "` and matched nothing:
+#      a handler that really does swallow an assertion's authorization failure
+#      left the function reported as guarded.
+#   2. Array bounds may be separated from their element type by whitespace
+#      (`"Type A" []`, `uuid [4]`), so a multi-token parameter does not imply a
+#      leading argument NAME. `_normalize_arg_type()` dropped that first token
+#      anyway, normalizing every such parameter to the bounds alone - which
+#      merged distinct overloads and let a REVOKE naming one of them exempt an
+#      unguarded SECURITY DEFINER function declared with the other.
+QUOTED_CONDITION_MUST_REJECT = {
+    "handler_catches_quoted_raise_exception": definer_outer_handler(
+        '"raise_exception"'
+    ),
+    "handler_catches_quoted_others": definer_outer_handler('"others"'),
+    "handler_catches_quoted_category_name": definer_outer_handler(
+        '"plpgsql_error"'
+    ),
+    "handler_catches_quoted_name_as_later_or_term": definer_outer_handler(
+        'unique_violation OR "raise_exception"'
+    ),
+    # Fail-closed by design: PostgreSQL keeps a quoted identifier's case, so
+    # this resolves to no condition at all and cannot compile. The reader must
+    # not invent a third folding rule to "prove" it harmless.
+    "handler_catches_quoted_name_in_another_case": definer_outer_handler(
+        '"RAISE_EXCEPTION"'
+    ),
+}
+
+QUOTED_CONDITION_MUST_ACCEPT = {
+    # The other half of the rule: a quoted name that cannot catch a P0001 must
+    # not invalidate a real guard either.
+    "quoted_unique_violation_does_not_catch": definer_outer_handler(
+        '"unique_violation"'
+    ),
+    "quoted_fk_violation_does_not_catch": definer_outer_handler(
+        '"foreign_key_violation"'
+    ),
+}
+
+ARRAY_BOUND_TYPE_MUST_REJECT = {
+    # The REVOKE names a DIFFERENT quoted element type. Reading `"Type A" []`
+    # as a name plus the type `[]` normalizes both signatures to the same text,
+    # so the unguarded definer is reported as ACL-closed while PostgreSQL still
+    # lets clients execute it.
+    "quoted_array_revoke_does_not_close_another_element_type": (
+        routine("f_a", "SECURITY DEFINER", args='public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_a(public."Type B"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # The same defect on the unquoted branch, where a bare element type was
+    # dropped as if it were a parameter name.
+    "spaced_array_revoke_does_not_close_another_element_type": (
+        routine("f_b", "SECURITY DEFINER", args="uuid []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_b(text[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+ARRAY_BOUND_TYPE_MUST_ACCEPT = {
+    # Spacing around the bounds is not part of the identity: the same overload
+    # written either way must still be recognized as closed.
+    "matching_quoted_array_overload_closes_it": (
+        routine("f_a", "SECURITY DEFINER", args='p_x public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_a(public."Type A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "matching_spaced_array_overload_closes_it": (
+        routine("f_b", "SECURITY DEFINER", args="p_x uuid []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_b(uuid[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
 # O. An omitted schema is resolved by PostgreSQL through search_path; it is not
 #    a wildcard. Treating it as matching any schema let a REVOKE with no schema
 #    exempt a SECURITY DEFINER function in a DIFFERENT schema.
@@ -3566,6 +3646,44 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
             guards._normalize_arg_type('p_x public."Type  A"'),
             guards._normalize_arg_type('public."Type  A"'),
         )
+
+    def test_quoted_condition_names_are_resolved_to_their_condition(self) -> None:
+        """Q1: `WHEN "raise_exception"` catches exactly what `WHEN
+        raise_exception` catches; masking blanks the name, so it is read back
+        from the raw source and an unresolvable span fails closed."""
+        for name, sql in QUOTED_CONDITION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a quoted condition name swallowed the "
+                    f"assertion's authorization failure unnoticed",
+                )
+        for name, sql in QUOTED_CONDITION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_array_bounds_belong_to_the_type_not_to_a_name(self) -> None:
+        """Q2: `uuid []` and `"Type A" []` are one parameter with no name, so
+        the element type must survive normalization."""
+        self.assertEqual(guards._normalize_arg_type('"Type A" []'), '"Type A"[]')
+        self.assertEqual(guards._normalize_arg_type("uuid []"), "uuid[]")
+        self.assertEqual(guards._normalize_arg_type("p_x uuid []"), "uuid[]")
+        self.assertEqual(guards._normalize_arg_type("uuid [4]"), "uuid[4]")
+        self.assertEqual(guards._normalize_arg_type('OUT "Type A" []'), '"Type A"[]')
+        self.assertNotEqual(
+            guards._normalize_arg_type('public."Type A" []'),
+            guards._normalize_arg_type('public."Type B" []'),
+        )
+        for name, sql in ARRAY_BOUND_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a REVOKE on a different overload was read as "
+                    f"closing the unguarded definer",
+                )
+        for name, sql in ARRAY_BOUND_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
 
     def test_an_omitted_schema_is_not_a_wildcard(self) -> None:
         """O: an unqualified name resolves through search_path, to public."""

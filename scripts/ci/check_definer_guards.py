@@ -285,6 +285,16 @@ _P0001_CATCHING_NAMES = frozenset({"others", "raise_exception", "plpgsql_error"}
 _HANDLER_WHEN_RE = re.compile(r"\bWHEN\b", re.IGNORECASE)
 _HANDLER_THEN_RE = re.compile(r"\bTHEN\b", re.IGNORECASE)
 _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# A condition name may also be written as a QUOTED identifier - PostgreSQL's
+# lexer accepts `WHEN "raise_exception" THEN` and resolves it to the very same
+# condition as the bare name. The masker blanks quoted-identifier CONTENT while
+# keeping both delimiters, so such a term reads as `"              "` in the
+# masked body and matched no name at all: `WHEN "raise_exception"`,
+# `WHEN "others"` and `WHEN "plpgsql_error"` each swallowed an assertion's
+# authorization failure while the scanner reported the function as guarded.
+# The name is therefore recovered from the unmasked source at the same offsets,
+# exactly as the SQLSTATE value below is.
+_QUOTED_CONDITION_RE = re.compile(r'\A"[^"]*"\Z')
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
 # `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
 # globally - which would hand guard detection back every string it was hardened
@@ -458,6 +468,29 @@ def _split_top_level_or_spans(condition: str, base: int) -> list[tuple[int, int]
     return spans
 
 
+def _quoted_condition_name(term: str, raw_body: str | None, offset: int) -> str | None:
+    """The PostgreSQL identity of a quoted condition name, or None when it
+    cannot be resolved from the raw source (callers fail closed on None).
+
+    `term` is masked text already known to be one quoted identifier; `raw_body`
+    is the same body unmasked and offset-aligned, so the identifier's content is
+    read back at the same offsets. `""` is PostgreSQL's escape for an embedded
+    quote and is unescaped here; the content is otherwise verbatim, because a
+    quoted identifier is never folded.
+    """
+    if raw_body is None:
+        return None
+    raw = raw_body[offset:offset + len(term)]
+    if len(raw) != len(term):
+        return None
+    start, end = term.find('"'), term.rfind('"')
+    if start == -1 or end <= start:
+        return None
+    if raw[start] != '"' or raw[end] != '"':
+        return None
+    return _pg_identifier(raw[start + 1:end].replace('""', '"'), quoted=True)
+
+
 def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: int) -> bool:
     """True when one condition term in body[start:end] can catch a P0001."""
     for term_start, term_end in _split_top_level_or_spans(body[start:end], start):
@@ -466,6 +499,19 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
         stripped = term.strip()
         if _CONDITION_NAME_RE.match(stripped) and stripped.lower() in _P0001_CATCHING_NAMES:
             return True
+        if _QUOTED_CONDITION_RE.match(stripped):
+            # A quoted condition name. Comparison is case-insensitive on
+            # purpose: PostgreSQL keeps a quoted identifier's case, so
+            # `"RAISE_EXCEPTION"` resolves to no condition at all and is a hard
+            # compile error - it can never be a live handler - and treating it
+            # as catching keeps this reader fail-closed rather than inventing a
+            # third folding rule. An unresolvable span is caught too; an
+            # unrelated quoted name such as `"unique_violation"` still does not
+            # catch, so no false red is invented.
+            name = _quoted_condition_name(term, raw_body, offset)
+            if name is None or name.lower() in _P0001_CATCHING_NAMES:
+                return True
+            continue
         kw = _SQLSTATE_KEYWORD_RE.search(term)
         if kw is None:
             continue
@@ -1400,6 +1446,25 @@ _UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
 # The same alphabet, anchored: "is this whole token one bare identifier".
 _PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
 _DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
+# An array type may be written with its bounds SEPARATED from the element type
+# by whitespace - `uuid []`, `"Type A" [4]`, `numeric ARRAY [3]` are all legal -
+# so "more than one token" does NOT mean "the first token is a parameter name".
+# Reading `"Type A" []` as the name `"Type A"` plus the type `[]` normalized
+# every such parameter to the same empty element type, which merged distinct
+# overloads: a REVOKE naming `rpc_f("Type B"[])` then appeared to close
+# `rpc_f("Type A"[])`, leaving the unguarded definer executable by clients.
+# PostgreSQL's grammar (gram.y, arrayBounds) is what is modelled here: an
+# optional ARRAY keyword followed by any number of `[ <optional integer> ]`.
+_ARRAY_SUFFIX_ONLY_RE = re.compile(
+    r"\A(?:ARRAY\b)?\s*(?:\[\s*\d*\s*\]\s*)*\Z", re.IGNORECASE
+)
+
+
+def _is_array_suffix_only(tokens: list[str]) -> bool:
+    """True when every remaining token belongs to the PRECEDING type's array
+    bounds, which means no parameter name was written at all."""
+    text = " ".join(tokens).strip()
+    return bool(text) and _ARRAY_SUFFIX_ONLY_RE.match(text) is not None
 
 
 def _quote_aware_split(text: str) -> list[str]:
@@ -1509,16 +1574,14 @@ def _normalize_arg_type(param: str) -> str | None:
     tokens = _quote_aware_split(text)
     if tokens and tokens[0].lower() in _ARG_MODES and len(tokens) > 1:
         tokens = tokens[1:]
-    if (
-        len(tokens) > 1
-        and _PLAIN_IDENT_RE.match(tokens[0])
-        and tokens[0].lower() not in _TYPE_LEAD_WORDS
-    ):
-        tokens = tokens[1:]
-    elif len(tokens) > 1 and tokens[0].startswith('"'):
-        # A quoted parameter NAME is still a name; a quoted TYPE never leads a
-        # multi-token parameter on its own, so dropping it here is safe.
-        tokens = tokens[1:]
+    if len(tokens) > 1 and not _is_array_suffix_only(tokens[1:]):
+        if _PLAIN_IDENT_RE.match(tokens[0]) and tokens[0].lower() not in _TYPE_LEAD_WORDS:
+            tokens = tokens[1:]
+        elif tokens[0].startswith('"'):
+            # A quoted parameter NAME is still a name. A quoted TYPE can lead a
+            # multi-token parameter, but only when what follows is its own array
+            # bounds - which the guard above has already excluded.
+            tokens = tokens[1:]
     if not tokens:
         return None
     normalized = _fold_type_text(" ".join(tokens))
