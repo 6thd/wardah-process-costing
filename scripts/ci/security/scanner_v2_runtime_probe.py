@@ -27,7 +27,6 @@ import shutil
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from pathlib import Path
 
 CLIENT_ROLES = ("public", "anon", "authenticated")
 PSQL_TIMEOUT_SECONDS = 30
@@ -65,12 +64,15 @@ def _resolve_psql() -> str:
     if not discovered:
         raise RuntimeError("PostgreSQL oracle failed: psql executable not found")
 
-    resolved = Path(discovered).resolve(strict=True)
-    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+    # Preserve the discovered psql path itself instead of resolving symlinks.
+    # On Ubuntu, /usr/bin/psql is intentionally a pg_wrapper symlink and the
+    # wrapper depends on argv[0] remaining psql in order to select the client.
+    executable = os.path.abspath(discovered)
+    if not os.path.isfile(executable) or not os.access(executable, os.X_OK):
         raise RuntimeError(
-            f"PostgreSQL oracle failed: psql is not executable: {resolved}"
+            f"PostgreSQL oracle failed: psql is not executable: {executable}"
         )
-    return str(resolved)
+    return executable
 
 
 def _run_psql(sql: str, *, db_url: str | None = None) -> str:
