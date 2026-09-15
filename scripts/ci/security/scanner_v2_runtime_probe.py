@@ -103,16 +103,24 @@ def _server_version(db_url: str | None) -> tuple[str, int]:
     return fields[0], int(fields[1])
 
 
+def _identity_sql() -> str:
+    return (
+        "format('%I.%I(%s)', n.nspname, p.proname, "
+        "pg_get_function_identity_arguments(p.oid))"
+    )
+
+
 def _target_predicate(targets: Iterable[str]) -> str:
     values = list(targets)
     if not values:
         return "TRUE"
     quoted = ", ".join("'" + value.replace("'", "''") + "'" for value in values)
-    return f"p.oid::regprocedure::text IN ({quoted})"
+    return f"{_identity_sql()} IN ({quoted})"
 
 
 def _query_evidence(db_url: str | None, targets: list[str]) -> list[RoutineEvidence]:
     predicate = _target_predicate(targets)
+    identity_sql = _identity_sql()
     sql = f"""
 WITH role_flags AS (
   SELECT
@@ -124,7 +132,7 @@ SELECT
   n.nspname,
   p.proname,
   pg_get_function_identity_arguments(p.oid),
-  p.oid::regprocedure::text,
+  {identity_sql},
   pg_get_userbyid(p.proowner),
   p.prokind,
   p.prosecdef,
@@ -211,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         "--target",
         action="append",
         default=[],
-        help="Exact regprocedure identity to inspect, e.g. public.review_probe(). Repeatable.",
+        help="Exact schema-qualified identity to inspect, e.g. public.review_probe(). Repeatable.",
     )
     parser.add_argument(
         "--require-client-closed",
