@@ -1579,7 +1579,7 @@ class Identity:
             return base
         if self.args is UNRESOLVED_ARGS:
             return f"{base}(<unresolved argument list>)"
-        return f"{base}({','.join(self.args)})"
+        return f"{base}({','.join(str(a) for a in self.args)})"
 
     def same_function(self, other: "Identity") -> bool:
         """Name match, plus argument-list match when BOTH sides carry one.
@@ -1644,7 +1644,14 @@ class Identity:
             return True
         if self.args is None or other.args is None:
             return True
-        return self.args == other.args
+        # NOT `==`. Exact identity is what a REVOKE must earn; a GRANT only has
+        # to be POSSIBLE. Round 10 (Astra): the two were one equality operator,
+        # so `character varying` and `varchar` - one routine in PostgreSQL -
+        # read as unrelated and an applicable GRANT was dropped from the replay
+        # while the scanner still reported the surface closed.
+        if len(self.args) != len(other.args):
+            return False
+        return all(_may_be_same_type(a, b) for a, b in zip(self.args, other.args))
 
 
 # PostgreSQL's multi-word built-in type phrases, as lead word -> the words that
@@ -1777,6 +1784,304 @@ def _tokenize_parameter(masked: str, raw: str):
     return tokens
 
 
+
+# ---------------------------------------------------------------------------
+# Round 10 (Astra): PostgreSQL type identity for routine signatures.
+#
+# Every entry below was classified against a disposable PostgreSQL 17.11 using
+# `::regtype`/`::regprocedure` catalog identity, not intuition. Two spellings
+# appear in the same family ONLY where the oracle resolved them to one type OID
+# and, for the routine cases, to one pg_proc row.
+#
+# The two tables are NOT interchangeable, and that is the whole finding behind
+# `"char"` vs `char`. PostgreSQL reaches a type by two different routes:
+#
+#   * a BARE, unqualified spelling goes through the grammar's type keywords
+#     first, so `char` is rewritten to bpchar (OID 1042);
+#   * a QUOTED or SCHEMA-QUALIFIED spelling is a catalog lookup on
+#     pg_type.typname, so `"char"` and `pg_catalog.char` are both the internal
+#     one-byte type (OID 18).
+#
+# They are two different types and two coexisting overloads, so a REVOKE naming
+# one may not close the other. Quoting is therefore neither always cosmetic nor
+# always significant: the oracle also shows `"varchar"`, `"text"`, `"numeric"`,
+# `"bool"`, `"timestamp"`, `"time"` and `"uuid"` DO resolve to their bare
+# counterparts, while `"int"`, `"integer"`, `"boolean"`, `"decimal"`,
+# `"character"`, `"real"`, `"bigint"` and `"smallint"` do not exist at all.
+
+# pg_type.typname -> canonical format_type() spelling. Used for QUOTED and for
+# SCHEMA-QUALIFIED references, which both bypass the keyword grammar.
+_TYPNAME_CANONICAL = {
+    "varchar": "character varying",
+    "bpchar": "character",
+    "char": '"char"',
+    "text": "text",
+    "name": "name",
+    "numeric": "numeric",
+    "int4": "integer",
+    "int2": "smallint",
+    "int8": "bigint",
+    "float4": "real",
+    "float8": "double precision",
+    "bool": "boolean",
+    "timestamp": "timestamp without time zone",
+    "timestamptz": "timestamp with time zone",
+    "time": "time without time zone",
+    "timetz": "time with time zone",
+    "bit": "bit",
+    "varbit": "bit varying",
+    "date": "date",
+    "interval": "interval",
+    "uuid": "uuid",
+    "json": "json",
+    "jsonb": "jsonb",
+    "bytea": "bytea",
+    "oid": "oid",
+    "money": "money",
+    "inet": "inet",
+    "cidr": "cidr",
+    "macaddr": "macaddr",
+    "xml": "xml",
+}
+
+# The grammar's type KEYWORD phrases -> the same canonical spellings. Used only
+# for a BARE, unqualified reference. A bare spelling that is not a keyword falls
+# through to _TYPNAME_CANONICAL, which is how `bpchar`, `int4` and `jsonb`
+# resolve.
+_TYPE_KEYWORD_CANONICAL = {
+    "varchar": "character varying",
+    "character varying": "character varying",
+    "char varying": "character varying",
+    "nchar varying": "character varying",
+    "national character varying": "character varying",
+    "national char varying": "character varying",
+    "character": "character",
+    "char": "character",
+    "nchar": "character",
+    "national character": "character",
+    "national char": "character",
+    "text": "text",
+    "numeric": "numeric",
+    "decimal": "numeric",
+    "dec": "numeric",
+    "int": "integer",
+    "integer": "integer",
+    "smallint": "smallint",
+    "bigint": "bigint",
+    "real": "real",
+    "float": "double precision",
+    "double precision": "double precision",
+    "boolean": "boolean",
+    "timestamp": "timestamp without time zone",
+    "timestamp with time zone": "timestamp with time zone",
+    "timestamp without time zone": "timestamp without time zone",
+    "timetz": "time with time zone",
+    "timestamptz": "timestamp with time zone",
+    "time": "time without time zone",
+    "time with time zone": "time with time zone",
+    "time without time zone": "time without time zone",
+    "bit": "bit",
+    "bit varying": "bit varying",
+    "varbit": "bit varying",
+}
+
+
+class _TypeRef:
+    """One resolved argument TYPE, carrying the two DIFFERENT questions the ACL
+    replay asks about it - which is the Round 10 cross-cutting requirement.
+
+    `exact` is the canonical identity and answers "are these provably the SAME
+    routine argument type": it is what a REVOKE must match before it earns
+    closure credit.
+
+    `candidates` answers "could PostgreSQL resolve these to the same type": it
+    is what a GRANT is tested against, so a spelling this scanner cannot pin
+    down is never assumed harmless. For everything the oracle settled the two
+    agree and `candidates` is just `{exact}`; they diverge only where static
+    parsing genuinely cannot decide - a QUOTED custom type, where quoting may or
+    may not be cosmetic depending on a catalog this scanner does not have.
+
+    Comparing equal to a plain `str` keeps _normalize_arg_type() usable as the
+    textual canonicalizer it has always been.
+    """
+
+    __slots__ = ("exact", "candidates")
+
+    def __init__(self, exact: str, candidates=None):
+        self.exact = exact
+        self.candidates = frozenset(candidates) if candidates else frozenset((exact,))
+
+    def __eq__(self, other):
+        if isinstance(other, _TypeRef):
+            return self.exact == other.exact
+        if isinstance(other, str):
+            return self.exact == other
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.exact)
+
+    def __str__(self) -> str:
+        return self.exact
+
+    def __repr__(self) -> str:
+        return self.exact
+
+    def may_be(self, other: "_TypeRef") -> bool:
+        return bool(self.candidates & other.candidates)
+
+
+def _may_be_same_type(a, b) -> bool:
+    """Could these two argument types be the same one? Tolerates a plain string
+    on either side, so an Identity built with literal type texts - as the
+    relation tests and any direct caller do - still compares as it always did.
+    """
+    if isinstance(a, _TypeRef) and isinstance(b, _TypeRef):
+        return a.may_be(b)
+    return a == b
+
+
+def _split_array_suffix(tokens):
+    """(base_tokens, is_array).
+
+    PostgreSQL ignores array BOUNDS and DIMENSIONALITY when it resolves a
+    routine signature: the oracle confirms `int[]`, `int[][]` and
+    `int ARRAY[3]` all name one and the same argument type.
+    """
+    i, is_array = len(tokens), False
+    while i > 0 and tokens[i - 1][0] == "punct" and tokens[i - 1][1] == "]":
+        k = i - 1
+        while k > 0 and tokens[k - 1][0] == "num":
+            k -= 1
+        if k > 0 and tokens[k - 1][0] == "punct" and tokens[k - 1][1] == "[":
+            i, is_array = k - 1, True
+            continue
+        break
+    if i > 0 and tokens[i - 1][0] == "ident" and not tokens[i - 1][2] \
+            and tokens[i - 1][1] == "array":
+        i, is_array = i - 1, True
+    return tokens[:i], is_array
+
+
+def _split_type_modifier(tokens):
+    """(base_tokens, saw_modifier). A type modifier is not part of a routine's
+    argument type: the oracle confirms `varchar(10)` is `varchar`,
+    `numeric(10,2)` is `numeric` and `time(3) with time zone` is `timetz`, so
+    the group is dropped wherever it appears - including mid-phrase."""
+    out, saw, depth = [], False, 0
+    for token in tokens:
+        if token[0] == "punct" and token[1] == "(":
+            depth += 1
+            saw = True
+            continue
+        if token[0] == "punct" and token[1] == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            continue
+        out.append(token)
+    return out, saw
+
+
+def _canonical_typname(name: str) -> str | None:
+    """Canonical spelling for a pg_type.typname, or None when unknown here.
+
+    PostgreSQL names an array type by prefixing the element typname with `_`,
+    and the oracle confirms `_int4` resolves to `integer[]`, so that form is
+    folded through the element rather than left as an unrelated identity a
+    GRANT could not reach.
+    """
+    canonical = _TYPNAME_CANONICAL.get(name)
+    if canonical is not None:
+        return canonical
+    if name.startswith("_"):
+        element = _TYPNAME_CANONICAL.get(name[1:])
+        if element is not None:
+            return element + "[]"
+    return None
+
+
+def _canonical_type(tokens) -> "_TypeRef | None":
+    """The canonical identity of one resolved type expression.
+
+    Returns None when the spelling cannot be resolved SAFELY, which the caller
+    turns into UNRESOLVED_ARGS - a state that earns no REVOKE credit and never
+    silences a GRANT.
+    """
+    base, is_array = _split_array_suffix(tokens)
+    base, saw_modifier = _split_type_modifier(base)
+    if not base:
+        return None
+    suffix = "[]" if is_array else ""
+
+    dots = [i for i, t in enumerate(base) if t[0] == "punct" and t[1] == "."]
+    if dots:
+        # Exactly `<schema> . <name>`; anything else is a shape this scanner
+        # does not model.
+        if len(dots) != 1 or dots[0] != 1 or len(base) != 3:
+            return None
+        schema, name = base[0], base[2]
+        if schema[0] != "ident" or name[0] != "ident":
+            return None
+        if schema[1] == "pg_catalog":
+            # Qualification bypasses the keyword grammar exactly as quoting
+            # does, so `pg_catalog.char` is the internal type, not bpchar.
+            canonical = _canonical_typname(name[1])
+            if canonical is not None:
+                return _TypeRef(canonical + suffix)
+        return _custom_type_ref(base, suffix)
+
+    if any(t[0] != "ident" for t in base):
+        return None
+
+    if len(base) == 1 and base[0][2]:
+        # A single DELIMITED identifier: catalog lookup only, never a keyword.
+        canonical = _canonical_typname(base[0][1])
+        if canonical is not None:
+            return _TypeRef(canonical + suffix)
+        return _custom_type_ref(base, suffix)
+
+    if all(not t[2] for t in base):
+        phrase = " ".join(t[1] for t in base)
+        # INTERVAL field qualifiers are a typmod, not a distinct type: the
+        # oracle confirms `interval year to month` and `interval` are one.
+        if base[0][1] == "interval":
+            return _TypeRef("interval" + suffix)
+        canonical = _TYPE_KEYWORD_CANONICAL.get(phrase)
+        if canonical is not None:
+            # `float(p)` is the ONE modifier PostgreSQL does not ignore: it
+            # selects real for p <= 24 and double precision for p >= 25. Rather
+            # than guess a precision, fail closed.
+            if phrase == "float" and saw_modifier:
+                return None
+            return _TypeRef(canonical + suffix)
+        if len(base) == 1:
+            canonical = _canonical_typname(base[0][1])
+            if canonical is not None:
+                return _TypeRef(canonical + suffix)
+            return _custom_type_ref(base, suffix)
+        # A multi-word spelling that is not a known keyword phrase.
+        return None
+
+    # A mix of quoted and bare words cannot be a keyword phrase.
+    return None
+
+
+def _custom_type_ref(tokens, suffix: str) -> "_TypeRef":
+    """A type this scanner cannot resolve through the catalog - a user-defined
+    one, or a quoted spelling with no built-in meaning.
+
+    Its EXACT identity keeps quoting, so two distinct types never collapse and a
+    REVOKE earns credit only for the spelling it provably names. Its CANDIDATE
+    set also carries the quote-folded form, because whether quoting matters here
+    depends on a catalog this scanner does not have - so a GRANT is never
+    dismissed on an equivalence that was merely unproven.
+    """
+    exact = _render_type_tokens(tokens, preserve_quoting=True) + suffix
+    folded = _render_type_tokens(tokens, preserve_quoting=False) + suffix
+    return _TypeRef(exact, {exact, folded})
+
+
 def _is_array_suffix_only(tokens) -> bool:
     """True when every remaining token belongs to the PRECEDING type's array
     bounds - PostgreSQL's `arrayBounds`, an optional ARRAY keyword followed by
@@ -1796,7 +2101,7 @@ def _is_array_suffix_only(tokens) -> bool:
     return True
 
 
-def _render_type_tokens(tokens) -> str:
+def _render_type_tokens(tokens, preserve_quoting: bool = False) -> str:
     """Canonical text for a resolved type expression.
 
     An identifier is written bare when its resolved name is exactly what the
@@ -1806,12 +2111,13 @@ def _render_type_tokens(tokens) -> str:
     tokens, so spacing around `.`, `[` and `,` cannot change an identity.
     """
     out, separates = [], False
-    for kind, value, _quoted in tokens:
+    for kind, value, quoted in tokens:
         word = kind in ("ident", "num")
         if out and word and separates:
             out.append(" ")
-        if kind == "ident" and not (
-            _PLAIN_IDENT_RE.match(value) and _fold_unquoted(value) == value
+        if kind == "ident" and (
+            (preserve_quoting and quoted)
+            or not (_PLAIN_IDENT_RE.match(value) and _fold_unquoted(value) == value)
         ):
             out.append('"' + value.replace('"', '""') + '"')
         else:
@@ -1836,8 +2142,12 @@ def _opens_type_phrase(first, second) -> bool:
     return second[1] in _TYPE_LEAD_CONTINUATIONS.get(first[1], ())
 
 
-def _normalize_arg_type(param: str, raw_param: str | None = None) -> str | None:
-    """The declared TYPE of one parameter, normalized for comparison.
+def _normalize_arg_type(param: str, raw_param: str | None = None) -> "_TypeRef | None":
+    """The declared TYPE of one parameter, canonicalized for comparison.
+
+    Returns a _TypeRef, which compares equal to its canonical TEXT, so this is
+    still the textual canonicalizer it has always been - but the canonical form
+    is now PostgreSQL's, not the spelling the migration happened to use.
 
     `param` is the MASKED parameter text and `raw_param` the same span unmasked
     (defaulting to `param` for callers that hold only one form). Accepts both
@@ -1874,7 +2184,7 @@ def _normalize_arg_type(param: str, raw_param: str | None = None) -> str | None:
         and not _is_array_suffix_only(tokens[1:])
     ):
         tokens = tokens[1:]
-    return _render_type_tokens(tokens) or None
+    return _canonical_type(tokens)
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -2262,12 +2572,79 @@ class PrivilegeStatement:
         self.grant_option_only = grant_option_only
 
 
+def _dollar_spans(masked: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Every dollar-quoted CONTENT span between `start` and `end`.
+
+    Walks the same way _scan_statement() does - honouring single quotes and
+    quoted identifiers - but reports ALL of them rather than only the first, so
+    a CREATE FUNCTION carrying more than one dollar-quoted literal cannot leave
+    one of them outside the exclusion below.
+    """
+    spans, j = [], start
+    while j < end:
+        ch = masked[j]
+        if ch == "'":
+            k = masked.find("'", j + 1)
+            j = end if k == -1 else k + 1
+            continue
+        if ch == '"':
+            k = masked.find('"', j + 1)
+            j = end if k == -1 else k + 1
+            continue
+        if ch == "$":
+            tag = _dollar_tag_at(masked, j)
+            if tag is not None:
+                close = masked.find(tag, j + len(tag))
+                if close == -1:
+                    return spans
+                spans.append((j + len(tag), close))
+                j = close + len(tag)
+                continue
+        j += 1
+    return spans
+
+
+def routine_body_spans(masked: str) -> list[tuple[int, int]]:
+    """The dollar-quoted spans owned by a CREATE FUNCTION/PROCEDURE statement.
+
+    Round 10 (Codex). A routine BODY is deliberately left executable in the
+    masked text - that is where has_recognized_guard() looks - so privilege
+    text written inside one was indistinguishable from a real statement to a
+    regex sweeping the whole file. Creating a routine does NOT execute its
+    body, so a `REVOKE EXECUTE ON FUNCTION victim() FROM PUBLIC` sitting in
+    another routine's body closed nothing in PostgreSQL while closing the
+    scanner's replayed ACL completely, and an unguarded SECURITY DEFINER
+    function passed.
+
+    The exclusion is STRUCTURAL - statement ownership, not a blacklist of the
+    word REVOKE - so it holds for a body of any language, any dollar tag, any
+    nesting, either security mode, and a routine created before or after the
+    function under review. Offsets are untouched: spans are reported, never
+    stripped, so every other consumer still sees the same text at the same
+    place.
+
+    Only CREATE routine statements are excluded. A `DO $$ ... $$;` block DOES
+    execute at migration time and is left alone here.
+    """
+    spans = []
+    for m in _CREATE_ROUTINE_RE.finditer(masked):
+        end, _ = _scan_statement(masked, m.end())
+        spans.extend(_dollar_spans(masked, m.end(), end))
+    return spans
+
+
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
     """REVOKE/GRANT statements that carry EXECUTE (or ALL) on routines."""
     out = []
+    # ACL replay may consume only statements the migration actually EXECUTES at
+    # SQL top level. Text inside a routine body never moves migration-time ACL
+    # state, in either direction: it neither credits a closure nor reopens one.
+    bodies = routine_body_spans(masked)
     for head_re, is_revoke in ((_REVOKE_HEAD_RE, True), (_GRANT_HEAD_RE, False)):
         for m in head_re.finditer(masked):
             if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
+                continue
+            if any(start <= m.start() < stop for start, stop in bodies):
                 continue
             end, _ = _scan_statement(masked, m.end())
             rest = masked[m.end(): end]

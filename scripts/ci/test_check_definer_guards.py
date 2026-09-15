@@ -3805,7 +3805,12 @@ class DefinerScannerTests(unittest.TestCase):
             "timestamp with time zone": "timestamp with time zone",
             "p_name character varying": "character varying",
             "character varying": "character varying",
-            "p_rate numeric(10,2)": "numeric(10,2)",
+            # Round 10: a type MODIFIER is not part of a routine argument
+            # type. PostgreSQL 17.11 resolves `numeric(10,2)` in a signature
+            # to plain `numeric` (format_type of pg_proc.proargtypes), so the
+            # canonical form drops it. The parse it protects - the modifier
+            # is read as a modifier and not as a parameter name - is unchanged.
+            "p_rate numeric(10,2)": "numeric",
             "p_x double precision": "double precision",
         }
         for param, expected in cases.items():
@@ -4362,7 +4367,11 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         self.assertEqual(guards._normalize_arg_type('"Type A" []'), '"Type A"[]')
         self.assertEqual(guards._normalize_arg_type("uuid []"), "uuid[]")
         self.assertEqual(guards._normalize_arg_type("p_x uuid []"), "uuid[]")
-        self.assertEqual(guards._normalize_arg_type("uuid [4]"), "uuid[4]")
+        # Round 10: array BOUNDS are not part of the identity either.
+        # PostgreSQL 17.11 resolves an `uuid[4]` argument to `uuid[]`. What
+        # this line proves is unchanged: `[4]` belongs to the type, so the
+        # parameter is unnamed.
+        self.assertEqual(guards._normalize_arg_type("uuid [4]"), "uuid[]")
         self.assertEqual(guards._normalize_arg_type('OUT "Type A" []'), '"Type A"[]')
         self.assertNotEqual(
             guards._normalize_arg_type('public."Type A" []'),
@@ -4462,9 +4471,21 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
             guards._normalize_arg_type('p_x public."Type A" []'),
             guards._normalize_arg_type('public."Type A"[]'),
         )
-        self.assertNotEqual(
+        # Round 10: DIMENSIONALITY is not part of a routine argument type.
+        # PostgreSQL 17.11 resolves `public."Type A"[]` and
+        # `public."Type A"[][]` to the SAME pg_proc row (verified with a real
+        # custom type, not only a built-in), so the previous assertion pinned
+        # a distinction PostgreSQL does not make. The closure this test exists
+        # for - a DIFFERENT element type must not merge - is asserted above
+        # and by multi_dimensional_bounds_stay_with_their_element_type, both
+        # of which still hold.
+        self.assertEqual(
             guards._normalize_arg_type('public."Type A" [] []'),
             guards._normalize_arg_type('public."Type A" []'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('public."Type A" [] []'),
+            guards._normalize_arg_type('public."Type B" []'),
         )
         for name, sql in QUALIFIED_TYPE_MUST_REJECT.items():
             with self.subTest(reject=name):
@@ -4698,22 +4719,33 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         not a phrase - `double text` is a parameter NAMED `double` of type
         `text`, which PostgreSQL accepts (identity arguments `double text`) -
         and a delimited `"char"` is the ordinary type of that name."""
-        self.assertEqual(guards._normalize_arg_type("char varying"), "char varying")
+        # Round 10: `char varying` IS `character varying` (OID 1043) in
+        # PostgreSQL 17.11, so the canonical form is now the resolved type
+        # rather than the spelling. Round 9 left these distinct and recorded
+        # it as a conservative false RED; it was also a false GREEN, because a
+        # GRANT spelled the other way reopens the same routine.
+        self.assertEqual(
+            guards._normalize_arg_type("char varying"), "character varying"
+        )
         self.assertEqual(
             guards._normalize_arg_type("character varying"), "character varying"
         )
         self.assertEqual(guards._normalize_arg_type("p_x char varying"),
-                         "char varying")
+                         "character varying")
         self.assertEqual(guards._normalize_arg_type("double precision"),
                          "double precision")
         self.assertEqual(guards._normalize_arg_type("double text"), "text")
         self.assertEqual(guards._normalize_arg_type("varying text"), "text")
         self.assertEqual(guards._normalize_arg_type("bit varying"), "bit varying")
+        # `nchar varying` and `national character varying` are the SAME
+        # built-in (OID 1043) on PostgreSQL 17.11, so they canonicalize
+        # together. Each still keeps its leading word rather than collapsing
+        # into the bare `varying` identity, which is the Round 9 closure.
         self.assertEqual(guards._normalize_arg_type("nchar varying"),
-                         "nchar varying")
+                         "character varying")
         self.assertEqual(
             guards._normalize_arg_type("national character varying"),
-            "national character varying",
+            "character varying",
         )
         self.assertEqual(
             guards._normalize_arg_type("time with time zone"), "time with time zone"
@@ -4722,9 +4754,11 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
             guards._normalize_arg_type("timestamp without time zone"),
             "timestamp without time zone",
         )
+        # INTERVAL field qualifiers are a typmod, not a distinct type:
+        # PostgreSQL 17.11 resolves `interval day to second` to OID 1186,
+        # the same routine argument type as plain `interval`.
         self.assertEqual(
-            guards._normalize_arg_type("interval day to second"),
-            "interval day to second",
+            guards._normalize_arg_type("interval day to second"), "interval"
         )
         self.assertEqual(guards._normalize_arg_type("interval"), "interval")
         self.assertEqual(guards._normalize_arg_type("p_x text"), "text")
@@ -4907,6 +4941,496 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         self.assertTrue(stmts[0].grant_option_only)
         # ... and `GRANT OPTION FOR` still never begins a GRANT statement.
         self.assertTrue(all(s.is_revoke for s in stmts))
+
+    def test_privilege_text_in_a_routine_body_is_not_migration_time_acl(
+        self,
+    ) -> None:
+        """ROUND10-A. Creating a routine does not execute its body, so privilege
+        text inside one may neither close nor reopen the migration's ACL state.
+        PostgreSQL 17.11 confirms the victim stays publicly executable."""
+        for name, sql in ROUND10_BODY_PRIVILEGE_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: routine-body privilege text was replayed as a "
+                    f"migration-time closure",
+                )
+        for name, sql in ROUND10_BODY_PRIVILEGE_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a genuine top-level closure was lost",
+                )
+
+    def test_privilege_statements_are_read_only_at_migration_top_level(
+        self,
+    ) -> None:
+        """ROUND10-A, parser-internal. The statements the ACL replay consumes
+        are exactly the top-level ones; a body contributes none, and a real
+        top-level statement after a CREATE is still seen."""
+        sql = (
+            "CREATE FUNCTION public.decoy() RETURNS void\n"
+            "LANGUAGE plpgsql AS $$\n"
+            "BEGIN\n"
+            "  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC;\n"
+            "  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;\n"
+            "END;\n"
+            "$$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = guards.parse_privilege_statements(sql, masked)
+        self.assertEqual(len(stmts), 1, "only the top-level statement counts")
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertGreater(stmts[0].start, sql.index("$$;"))
+
+    def test_postgresql_equivalent_type_spellings_resolve_together(self) -> None:
+        """ROUND10-B. A GRANT spelled with an equivalent type name reaches the
+        same routine in PostgreSQL and must reopen it; a REVOKE spelled that way
+        is a real closure. Every pair was confirmed on PostgreSQL 17.11."""
+        for name, sql in ROUND10_ALIAS_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an applicable GRANT was ignored, or two distinct "
+                    f"types were merged",
+                )
+        for name, sql in ROUND10_ALIAS_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: an equivalent REVOKE spelling was not credited",
+                )
+
+    def test_quoted_type_identity_follows_postgresql_resolution(self) -> None:
+        """ROUND10-C. Quotedness is neither always cosmetic nor always
+        significant. `"char"` is OID 18 and `char` is OID 1042, so a REVOKE on
+        one may not close the other; `"uuid"` and `uuid` are one type, so it
+        must. Classified with PostgreSQL 17.11, not intuition."""
+        for name, sql in ROUND10_QUOTED_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a REVOKE closed a DIFFERENT type's overload",
+                )
+        for name, sql in ROUND10_QUOTED_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a REVOKE on the same type was not credited",
+                )
+
+    def test_exact_identity_and_grant_applicability_stay_separate(self) -> None:
+        """ROUND10 cross-cutting. Exact identity (REVOKE credit) and possible
+        identity (GRANT reopening) are different questions and must not be
+        forced through one equality operator. An unreadable custom spelling
+        proves nothing for a REVOKE, yet must not be assumed harmless for a
+        GRANT."""
+        def ident(text):
+            sql = f"REVOKE EXECUTE ON FUNCTION {text} FROM PUBLIC;"
+            masked, problems = guards.mask_sql_checked(sql)
+            self.assertEqual(problems, [])
+            stmts = guards.parse_privilege_statements(sql, masked)
+            self.assertEqual(len(stmts), 1, text)
+            return stmts[0].targets[0]
+
+        varchar = ident("public.f(character varying)")
+        alias = ident("public.f(varchar)")
+        # An alias is the SAME routine in both relations.
+        self.assertTrue(varchar.same_function(alias))
+        self.assertTrue(varchar.may_be_same_function(alias))
+
+        bare_char = ident("public.f(char)")
+        quoted_char = ident('public.f("char")')
+        # Different types: no closure credit, in either direction.
+        self.assertFalse(bare_char.same_function(quoted_char))
+        self.assertFalse(quoted_char.same_function(bare_char))
+
+        other = ident("public.f(uuid)")
+        self.assertFalse(varchar.same_function(other))
+        self.assertFalse(varchar.may_be_same_function(other))
+
+        # A quoted CUSTOM type cannot be proven equal to its bare spelling, so
+        # it earns no REVOKE credit but still counts as a possible GRANT target.
+        bare_custom = ident("public.f(wardah_kind)")
+        quoted_custom = ident('public.f("wardah_kind")')
+        self.assertFalse(bare_custom.same_function(quoted_custom))
+        self.assertTrue(bare_custom.may_be_same_function(quoted_custom))
+
+
+# ---------------------------------------------------------------------------
+# Round 10 remediation (PR #246). Three unique acceptance-layer false-greens,
+# each reproduced against the Round 9 head d9cf2af1ed9ec8b8167cb37bcffb4363165fba3b
+# and each confirmed executable on PostgreSQL 17.11.
+#
+# ROUND10-A (Codex). STATEMENT LOCATION. parse_privilege_statements() scanned
+# the WHOLE masked migration for GRANT/REVOKE heads. A routine body is masked
+# only for its comments and literals - the executable text is deliberately kept,
+# because that is where guards are found - so a `REVOKE EXECUTE ON FUNCTION
+# victim() FROM PUBLIC` written as a STATEMENT INSIDE another routine's body was
+# recorded as a migration-time revoke. Creating a routine does not execute its
+# body: PostgreSQL leaves victim() publicly executable, and the oracle confirms
+# `has_function_privilege('public', 'public.victim_x()', 'EXECUTE')` is still
+# true after both CREATEs. The ACL replay closed the function on paper and
+# check_file() returned [].
+#
+# ROUND10-B (Astra). TYPE ALIAS EQUIVALENCE. Resolved argument types stayed
+# textual, and may_be_same_function() compared them with plain equality, so
+# `character varying` and `varchar` read as unrelated. PostgreSQL resolves both
+# to OID 1043 and therefore to the SAME routine, so a GRANT spelled the other
+# way reopened client EXECUTE while the scanner still reported closure. The
+# oracle confirms the reopen. Round 9 documented surviving alias spellings as
+# conservative false REDS only; for GRANT applicability that was false, and the
+# same class covers ignored type MODIFIERS (`varchar(10)` == `varchar`) and
+# array element spellings (`int[]` == `integer[]`), both PostgreSQL-confirmed.
+#
+# ROUND10-C (Astra). QUOTED TYPE IDENTITY. _render_type_tokens() dropped the
+# quotes from any resolved identifier whose text was already bare-legal, so
+# `"char"` rendered as `char`. PostgreSQL does not agree: bare `char` reaches
+# the grammar keyword and means bpchar (OID 1042), while `"char"` is a typname
+# lookup and means the internal one-byte type (OID 18). They are two DIFFERENT
+# overloads that coexist, and the oracle confirms a REVOKE on `review_probe(
+# "char")` leaves `review_probe(char)` executable by PUBLIC. The scanner
+# credited that revoke to the definer overload.
+#
+# Quoting is NOT uniformly cosmetic and NOT uniformly significant, so neither
+# naive rule is adopted. PostgreSQL 17.11 was used as the oracle to classify
+# every spelling: `"varchar"`, `"text"`, `"numeric"`, `"bool"`, `"timestamp"`,
+# `"time"` and `"uuid"` DO resolve to their bare counterparts (they are real
+# pg_type typnames), `"int"`, `"integer"`, `"boolean"`, `"decimal"`,
+# `"character"`, `"real"`, `"bigint"`, `"smallint"` do not exist at all, and
+# `"char"` resolves to a different type than `char`. Schema qualification
+# behaves like quoting, not like the keyword: `pg_catalog.char` is OID 18.
+# ---------------------------------------------------------------------------
+
+
+def _definer(name: str = "public.victim", args: str = "") -> str:
+    """An unguarded SECURITY DEFINER routine: the only thing that can exempt it
+    is an ACL closure, so these fixtures isolate the privilege replay."""
+    return (
+        f"CREATE FUNCTION {name}({args}) RETURNS text\n"
+        f"LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+        f"BEGIN\n"
+        f"  RETURN 'secret';\n"
+        f"END;\n"
+        f"$$;\n"
+    )
+
+
+def _close(name: str = "public.victim", args: str = "") -> str:
+    return (
+        f"REVOKE EXECUTE ON FUNCTION {name}({args})\n"
+        f"  FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+
+def _overload(args: str, name: str = "public.review_probe") -> str:
+    """A second, INVOKER overload with a DIFFERENT argument type.
+
+    A control that only revokes a signature nobody declared is not executable
+    SQL - PostgreSQL rejects the REVOKE outright - so it proves nothing about a
+    running database. Declaring the other overload makes the fixture real: two
+    routines coexist, the REVOKE names one, and the oracle can confirm the
+    SECURITY DEFINER one is still reachable by a client.
+    """
+    return (
+        f"CREATE FUNCTION {name}({args}) RETURNS text\n"
+        f"LANGUAGE plpgsql AS $$\n"
+        f"BEGIN\n"
+        f"  RETURN 'other';\n"
+        f"END;\n"
+        f"$$;\n"
+    )
+
+
+# --- ROUND10-A: privilege text inside a routine body ------------------------
+ROUND10_BODY_PRIVILEGE_MUST_REJECT = {
+    # (A) The reproducer: an INVOKER decoy whose body is a REVOKE statement.
+    "round10_body_revoke_does_not_close": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # (E) The same text spread over several lines, as PostgreSQL accepts it.
+    "round10_body_revoke_multiline": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE ALL
+  PRIVILEGES ON FUNCTION public.victim()
+  FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # (F) Conflicting privilege text in two bodies: neither may move ACL state.
+    "round10_two_bodies_conflicting_privileges": _definer() + """
+CREATE FUNCTION public.decoy_a() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+
+CREATE FUNCTION public.decoy_b() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+END;
+$$;
+""",
+    # The decoy is created BEFORE the victim.
+    "round10_body_revoke_before_the_victim": """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""" + _definer(),
+    # A SECURITY DEFINER decoy body is no more executable at migration time.
+    "round10_definer_body_revoke_does_not_close": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM wardah_assert_org_member(p_org_id);
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # A custom dollar tag is still a routine body.
+    "round10_body_revoke_custom_dollar_tag": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $wardah$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$wardah$;
+""",
+    # Nested BEGIN/END inside the body changes nothing.
+    "round10_body_revoke_nested_block": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+  END;
+END;
+$$;
+""",
+    # A LANGUAGE sql body is a body too.
+    "round10_sql_language_body_revoke": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE sql AS $$
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+$$;
+""",
+    # (D) A top-level GRANT after a top-level REVOKE must still REOPEN.
+    "round10_top_level_grant_reopens_after_revoke": _definer() + _close() + """
+GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+""",
+}
+
+ROUND10_BODY_PRIVILEGE_MUST_ACCEPT = {
+    # (C) A valid TOP-LEVEL revoke after a decoy CREATE must still close.
+    "round10_top_level_revoke_after_decoy_closes": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN;
+END;
+$$;
+""" + _close(),
+    # (B) Body GRANT text must not REOPEN a genuine top-level closure either.
+    "round10_body_grant_does_not_reopen": _definer() + _close() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+END;
+$$;
+""",
+    # A DO block DOES execute at migration time, so its revoke is not a body.
+    # It is not credited as a closure either (conservative), so this fixture
+    # closes at top level and merely proves the DO block breaks nothing.
+    "round10_do_block_alongside_top_level_closure": _definer() + _close() + """
+DO $$
+BEGIN
+  PERFORM 1;
+END;
+$$;
+""",
+}
+
+MUST_REJECT.update(ROUND10_BODY_PRIVILEGE_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_BODY_PRIVILEGE_MUST_ACCEPT)
+
+
+# --- ROUND10-B: PostgreSQL-equivalent type spellings ------------------------
+# Each pair is (created_spelling, equivalent_spelling), PostgreSQL 17.11 having
+# confirmed that both name the SAME routine.
+ROUND10_ALIAS_PAIRS = (
+    ("character varying", "varchar"),
+    ("varchar", "character varying"),
+    ("varchar", "char varying"),
+    ("varchar", "national character varying"),
+    ("character", "char"),
+    ("char", "bpchar"),
+    ("character", "nchar"),
+    ("numeric", "decimal"),
+    ("decimal", "numeric"),
+    ("integer", "int"),
+    ("int", "int4"),
+    ("smallint", "int2"),
+    ("bigint", "int8"),
+    ("real", "float4"),
+    ("double precision", "float8"),
+    ("float8", "float"),
+    ("boolean", "bool"),
+    ("timestamptz", "timestamp with time zone"),
+    ("timestamp", "timestamp without time zone"),
+    ("timetz", "time with time zone"),
+    ("time", "time without time zone"),
+    ("varbit", "bit varying"),
+    # Type modifiers are IGNORED in a routine signature.
+    ("varchar", "varchar(10)"),
+    ("numeric", "numeric(10,2)"),
+    ("timetz", "time(3) with time zone"),
+    # Array element spellings alias, and dimensionality is not part of identity.
+    ("int[]", "integer[]"),
+    ("int[]", "int[][]"),
+    # Schema qualification through pg_catalog resolves to the same type.
+    ("varchar", "pg_catalog.varchar"),
+    ("int", "pg_catalog.int4"),
+)
+
+ROUND10_ALIAS_MUST_REJECT = {}
+ROUND10_ALIAS_MUST_ACCEPT = {}
+for _i, (_a, _b) in enumerate(ROUND10_ALIAS_PAIRS):
+    _slug = f"round10_alias_{_i}"
+    # A GRANT spelled the OTHER way reaches the same routine and reopens it.
+    ROUND10_ALIAS_MUST_REJECT[f"{_slug}_grant_reopens"] = (
+        _definer("public.review_probe", _a)
+        + _close("public.review_probe", _a)
+        + f"GRANT EXECUTE ON FUNCTION public.review_probe({_b}) TO authenticated;\n"
+    )
+    # ... and a REVOKE spelled the other way is a real closure of the same
+    # routine, so it must be credited rather than read as a different overload.
+    ROUND10_ALIAS_MUST_ACCEPT[f"{_slug}_revoke_closes"] = (
+        _definer("public.review_probe", _a)
+        + _close("public.review_probe", _b)
+    )
+
+# Controls: canonicalization must NOT merge two types PostgreSQL keeps apart.
+# Each declares the overload it revokes, so the fixture is executable SQL and
+# the oracle can watch the SECURITY DEFINER overload stay reachable.
+ROUND10_ALIAS_DISTINCT = (
+    ("public.wardah_kind_a", "public.wardah_kind_b"),
+    ("alpha.wardah_kind", "beta.wardah_kind"),
+    ("public.varchar_lookalike", "varchar"),
+    ("smallint", "integer"),
+    ("timestamp with time zone", "timestamp without time zone"),
+    ("real", "double precision"),
+    ("int[]", "int"),
+    ("bit", "bit varying"),
+)
+for _a, _b in ROUND10_ALIAS_DISTINCT:
+    ROUND10_ALIAS_MUST_REJECT[
+        f"round10_distinct_{_a}_vs_{_b}".replace(" ", "_").replace(".", "_")
+        .replace("[", "").replace("]", "")
+    ] = (
+        _definer("public.review_probe", _a)
+        + _overload(_b)
+        + _close("public.review_probe", _b)
+    )
+
+MUST_REJECT.update(ROUND10_ALIAS_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_ALIAS_MUST_ACCEPT)
+
+
+# --- ROUND10-C: quoted vs unquoted type identity ----------------------------
+# PostgreSQL 17.11 resolves the quoted form through pg_type.typname and the
+# bare form through the grammar's type keywords. Where those disagree, the two
+# spellings are DIFFERENT types.
+# (created, revoked) - two REAL, coexisting overloads that PostgreSQL 17.11
+# resolves to different type OIDs, so the revoke earns no credit for the other.
+ROUND10_QUOTED_DISTINCT = (
+    ("char", '"char"'),
+    ('"char"', "char"),
+    ("character", '"char"'),
+    ('"char"', "bpchar"),
+    # Qualification bypasses the keyword grammar: `pg_catalog.char` is OID 18.
+    ("char", "pg_catalog.char"),
+)
+# Quoted spellings that do NOT exist as types at all on PostgreSQL 17.11, so a
+# migration containing one fails outright. They stay here as scanner controls -
+# such a spelling must never be credited as a closure - and the oracle reports
+# them as not PostgreSQL-valid rather than pretending they executed.
+ROUND10_QUOTED_NONEXISTENT = (
+    ("int", '"int"'),
+    ("integer", '"integer"'),
+    ("boolean", '"boolean"'),
+    ("numeric", '"decimal"'),
+    ("character", '"character"'),
+)
+# Quoted spellings that ARE real typnames and DO resolve to the bare form.
+ROUND10_QUOTED_SAME = (
+    ("varchar", '"varchar"'),
+    ("text", '"text"'),
+    ("numeric", '"numeric"'),
+    ("bool", '"bool"'),
+    ("timestamp", '"timestamp"'),
+    ("time", '"time"'),
+    ("uuid", '"uuid"'),
+    ("date", '"date"'),
+    ("jsonb", '"jsonb"'),
+    ("character", '"bpchar"'),
+    ("int", '"int4"'),
+    ("timestamptz", '"timestamptz"'),
+    ('"char"', 'pg_catalog."char"'),
+)
+
+ROUND10_QUOTED_MUST_REJECT = {
+    # The reproducer: two REAL overloads, and the revoke names the other one.
+    "round10_quoted_char_overload_does_not_close_bare_char": (
+        _definer("public.review_probe", "char")
+        + """
+CREATE FUNCTION public.review_probe("char") RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN 'other';
+END;
+$$;
+"""
+        + _close("public.review_probe", '"char"')
+    ),
+}
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_DISTINCT):
+    ROUND10_QUOTED_MUST_REJECT[f"round10_quoted_distinct_{_i}"] = (
+        _definer("public.review_probe", _a)
+        + _overload(_b)
+        + _close("public.review_probe", _b)
+    )
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_NONEXISTENT):
+    ROUND10_QUOTED_MUST_REJECT[f"round10_quoted_nonexistent_{_i}"] = (
+        _definer("public.review_probe", _a) + _close("public.review_probe", _b)
+    )
+
+ROUND10_QUOTED_MUST_ACCEPT = {}
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_SAME):
+    ROUND10_QUOTED_MUST_ACCEPT[f"round10_quoted_same_{_i}"] = (
+        _definer("public.review_probe", _a) + _close("public.review_probe", _b)
+    )
+
+MUST_REJECT.update(ROUND10_QUOTED_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_QUOTED_MUST_ACCEPT)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
