@@ -23,12 +23,14 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
-from dataclasses import dataclass, asdict
-from typing import Iterable
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 CLIENT_ROLES = ("public", "anon", "authenticated")
+PSQL_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True)
@@ -58,10 +60,24 @@ class RoutineEvidence:
         )
 
 
+def _resolve_psql() -> str:
+    discovered = shutil.which("psql")
+    if not discovered:
+        raise RuntimeError("PostgreSQL oracle failed: psql executable not found")
+
+    resolved = Path(discovered).resolve(strict=True)
+    if not resolved.is_file() or not os.access(resolved, os.X_OK):
+        raise RuntimeError(
+            f"PostgreSQL oracle failed: psql is not executable: {resolved}"
+        )
+    return str(resolved)
+
+
 def _run_psql(sql: str, *, db_url: str | None = None) -> str:
     cmd = [
-        "psql",
+        _resolve_psql(),
         "-X",
+        "--no-password",
         "-v",
         "ON_ERROR_STOP=1",
         "-A",
@@ -70,18 +86,26 @@ def _run_psql(sql: str, *, db_url: str | None = None) -> str:
         "\t",
     ]
     if db_url:
-        cmd.append(db_url)
+        # Keep the caller-provided connection value inside one explicit option;
+        # it can never become the executable or a separate psql switch.
+        cmd.append(f"--dbname={db_url}")
     cmd.extend(["-c", sql])
 
-    env = os.environ.copy()
-    completed = subprocess.run(
-        cmd,
-        env=env,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            cmd,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=PSQL_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(
+            f"PostgreSQL oracle timed out after {PSQL_TIMEOUT_SECONDS}s"
+        ) from exc
+
     if completed.returncode != 0:
         raise RuntimeError(
             "PostgreSQL oracle failed: "
@@ -103,25 +127,11 @@ def _server_version(db_url: str | None) -> tuple[str, int]:
     return fields[0], int(fields[1])
 
 
-def _identity_sql() -> str:
-    return (
-        "format('%I.%I(%s)', n.nspname, p.proname, "
-        "pg_get_function_identity_arguments(p.oid))"
-    )
-
-
-def _target_predicate(targets: Iterable[str]) -> str:
-    values = list(targets)
-    if not values:
-        return "TRUE"
-    quoted = ", ".join("'" + value.replace("'", "''") + "'" for value in values)
-    return f"{_identity_sql()} IN ({quoted})"
-
-
-def _query_evidence(db_url: str | None, targets: list[str]) -> list[RoutineEvidence]:
-    predicate = _target_predicate(targets)
-    identity_sql = _identity_sql()
-    sql = f"""
+def _query_evidence(db_url: str | None) -> list[RoutineEvidence]:
+    # Deliberately fixed SQL. User-provided --target values are matched against
+    # PostgreSQL-rendered identities in Python after this catalog query; they are
+    # never interpolated into SQL.
+    sql = """
 WITH role_flags AS (
   SELECT
     EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') AS has_anon,
@@ -132,7 +142,7 @@ SELECT
   n.nspname,
   p.proname,
   pg_get_function_identity_arguments(p.oid),
-  {identity_sql},
+  format('%I.%I(%s)', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)),
   pg_get_userbyid(p.proowner),
   p.prokind,
   p.prosecdef,
@@ -148,7 +158,6 @@ JOIN pg_namespace n ON n.oid = p.pronamespace
 CROSS JOIN role_flags rf
 WHERE p.prosecdef
   AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-  AND {predicate}
 ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), p.oid;
 """
     raw = _run_psql(sql, db_url=db_url)
@@ -158,7 +167,9 @@ ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), p.oid;
             continue
         parts = line.split("\t")
         if len(parts) != 15:
-            raise RuntimeError(f"Unexpected catalog row with {len(parts)} fields: {line!r}")
+            raise RuntimeError(
+                f"Unexpected catalog row with {len(parts)} fields: {line!r}"
+            )
 
         def pg_bool(value: str) -> bool:
             if value == "t":
@@ -192,14 +203,20 @@ ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), p.oid;
     return rows
 
 
-def _validate_targets(rows: list[RoutineEvidence], targets: list[str]) -> None:
+def _select_targets(
+    rows: list[RoutineEvidence], targets: list[str]
+) -> list[RoutineEvidence]:
     if not targets:
-        return
-    by_identity: dict[str, int] = {}
+        return rows
+
+    by_identity: dict[str, list[RoutineEvidence]] = {}
     for row in rows:
-        by_identity[row.identity] = by_identity.get(row.identity, 0) + 1
-    missing = [target for target in targets if by_identity.get(target, 0) == 0]
-    duplicates = [target for target in targets if by_identity.get(target, 0) > 1]
+        by_identity.setdefault(row.identity, []).append(row)
+
+    missing = [target for target in targets if not by_identity.get(target)]
+    duplicates = [
+        target for target in targets if len(by_identity.get(target, [])) > 1
+    ]
     if missing or duplicates:
         details = []
         if missing:
@@ -207,6 +224,15 @@ def _validate_targets(rows: list[RoutineEvidence], targets: list[str]) -> None:
         if duplicates:
             details.append(f"non-unique targets={duplicates}")
         raise RuntimeError("; ".join(details))
+
+    selected: list[RoutineEvidence] = []
+    seen: set[str] = set()
+    for target in targets:
+        if target in seen:
+            continue
+        selected.append(by_identity[target][0])
+        seen.add(target)
+    return selected
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -230,9 +256,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         version, version_num = _server_version(args.db_url)
-        evidence = _query_evidence(args.db_url, args.target)
-        _validate_targets(evidence, args.target)
-    except (RuntimeError, ValueError) as exc:
+        evidence = _select_targets(_query_evidence(args.db_url), args.target)
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"SCANNER_V2_ORACLE_ERROR: {exc}", file=sys.stderr)
         return 3
 
