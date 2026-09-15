@@ -1,0 +1,89 @@
+M191 ROLLBACK REHEARSAL — EVIDENCE
+generated: 2026-09-10T07:09:51Z
+
+candidate_git_sha    : 6aa93b083a68bd47c90ea47aaeb3df6a147095d6
+candidate sha256     : 7654adf2d24eb10f0dd611dd6896e5a21b066bbbe1ac6c42aeab3b425e1932a4
+PostgreSQL           : PostgreSQL 17.11 (Ubuntu 17.11-1.pgdg24.04+2) on x86_64-pc-linux-gnu
+oracle database      : wardah_pre191 (cutoff-189 baseline + reference data + Migration 190)
+candidate database   : wardah_m191   (same prerequisites + M191_CANDIDATE_ASSEMBLED.sql)
+generated rollback   : sha256 b5adec66218478c7b65106ff465398288fa64f58bb7e75a1d3225a7850116985
+                       (1914 lines, regenerable from the oracle; not committed)
+
+== FINAL RESULT ==
+M191_ROLLBACK_REHEARSAL_PASS
+pre_db=wardah_pre191
+m191_db=wardah_m191
+rollback_sha256=b5adec66218478c7b65106ff465398288fa64f58bb7e75a1d3225a7850116985
+rollback_contract=12/12 exact definitions+owner+security+proconfig+normalized_acl
+helper_after_rollback=absent
+frozen_red_after_rollback=PASS
+forward_reapply=PASS
+forward_green_suite=PASS
+forward_catalog=13/13 exact match to pre-rollback M191 snapshot
+
+== SUPPORTING VERIFICATION (checked independently of the summary block) ==
+catalog contract rows : pre191=12  m191.before=13  after_rollback=12  after_forward=13
+rollback vs oracle    : byte-identical (cmp), no diff artifact emitted
+forward vs pre-rollback: byte-identical (cmp), no diff artifact emitted
+
+frozen F2 RED reproduced on the rolled-back database:
+  STOCK_F2_REDA_REPRODUCED_OK bin_qty=7.000000 bin_value=70.0000 product_qty=7.000000 product_cost=10.00 (correct sum would be qty=12/value=120; both SLE rows survived with correct qty/value; both calls reported success)
+  STOCK_F2_REDB_REPRODUCED_OK bin_1=6.000000/60.0000 bin_2=9.000000/180.0000 product_qty=9.000000 product_cost=20.00 (both bins individually correct; correct combined would be qty=15/value=240/rate=16; both SLE rows survived with correct qty/value; both calls reported success)
+  STOCK_F2_RED_PROOF_PASS reda_bin=7.000000/70.0000 reda_product=7.000000/10.00 ctl1_bin=27.000000 redb_bin1=6.000000/60.0000 redb_bin2=9.000000/180.0000 redb_product=9.000000/20.00 ctl2_bin=48.000000
+
+gates during forward recovery (before and after the runtime battery):
+  M191_GATE_SELFTEST_PASS: positive=7 mutants=15
+  M191_ACCEPTANCE_STATIC_PASS: objects=13/closed s1_regex=positive+pattern_regression fks=2 helper=ordered_no_key_update prefix_order=11 bodies fix_g=captured_exact m190_guard=present
+  M191_GATE_SELFTEST_PASS: positive=7 mutants=15
+  M191_ACCEPTANCE_STATIC_PASS: objects=13/closed s1_regex=positive+pattern_regression fks=2 helper=ordered_no_key_update prefix_order=11 bodies fix_g=captured_exact m190_guard=present
+
+forward GREEN battery markers:
+  SLICE12_C1_PASS
+  SLICE12_S10_1_PASS
+  SLICE12_S10_2_PASS
+  SLICE12_S10_DRIFT_PASS
+  SLICE12_S4_PASS
+  SLICE12_S5_PASS
+  SLICE12_S6_PASS
+  SLICE12_S7_PASS
+  SLICE12_S82_2_PASS
+  SLICE12_S8B_PASS
+  SLICE12_S9_PASS
+
+== HARNESS DEFECTS FOUND AND CORRECTED ==
+The rehearsal passed on the fourth attempt. Three harness defects were corrected;
+none is a candidate finding, and the candidate was never modified.
+
+1. rollback_rehearsal.sh — pg_get_functiondef() emits no trailing semicolon (it
+   ends at $function$), so every restored definition ran into the next CREATE:
+     ERROR:  syntax error at or near "CREATE"
+   The generated SQL ran inside BEGIN/COMMIT, so the abort left no trace: the
+   candidate database stayed byte-identical to the Slice 12 post-apply snapshot.
+   Fix: pg_get_functiondef(...) || ';'.
+
+2. rollback_rehearsal.sh — it invokes acceptance_f2_stock_bin_race_red.sh, a CI
+   script written for a FRESH database that inserts the fixed organization
+   STKF2-RACE, against a long-lived database:
+     ERROR:  duplicate key value violates unique constraint "organizations_code_key"
+   Fix: purge that fixture organization before invoking the proof. Verified first
+   that it carries zero gl_entries, so no ledger history is deleted.
+
+3. Slice 12 harness (committed in 4cb68d4) was not re-runnable. Several RPCs
+   derive a deterministic GL idempotency key from document identity — e.g.
+   rpc_submit_stock_adjustment uses 'stock-adjustment:'||adjustment_id — while the
+   fixtures used fixed UUIDs and fixed idempotency_key strings and never cleared
+   gl_entries. A second run therefore hit Migration 179's guard behaving exactly
+   as designed:
+     ERROR: IDEMPOTENCY_KEY_CONFLICT
+     CONTEXT: rpc_create_journal_entry(jsonb) ... rpc_submit_stock_adjustment(uuid)
+   Posted GL entries are immutable by contract (POSTED_ENTRY_IMMUTABLE), so a
+   fixture may not purge them to repeat itself. Fix, consistent with the golden
+   rule: fresh identities per run (generated adjustment UUIDs, RUN_NONCE appended
+   to every idempotency key) and purging only NON-ledger documents
+   (goods_receipts / delivery_notes and their lines), which also removed a latent
+   FK blocker on deleting fixture products in the 8.x fixtures.
+
+Zero candidate findings. Rollback restored all twelve predecessors exactly
+(definition, owner, security mode, proconfig, normalized ACL), the helper was
+absent afterwards, the frozen RED became observable again, and forward recovery
+returned the thirteen-object catalog byte-for-byte to its pre-rollback state.
