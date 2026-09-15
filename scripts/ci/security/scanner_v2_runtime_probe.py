@@ -76,31 +76,34 @@ def _resolve_psql() -> str:
 
 
 def _run_psql(sql: str, *, db_url: str | None = None) -> str:
-    cmd = [
-        _resolve_psql(),
-        "-X",
-        "--no-password",
-        "-v",
-        "ON_ERROR_STOP=1",
-        "-A",
-        "-t",
-        "-F",
-        "\t",
-    ]
+    executable = _resolve_psql()
+    env = os.environ.copy()
     if db_url:
-        # Keep the caller-provided connection value inside one explicit option;
-        # it can never become the executable or a separate psql switch.
-        cmd.append(f"--dbname={db_url}")
-    cmd.extend(["-c", sql])
+        # libpq accepts a connection URI in the dbname/PGDATABASE parameter.
+        # Keeping it in the environment prevents caller data from becoming a
+        # command-line switch or executable component.
+        env["PGDATABASE"] = db_url
 
     try:
-        # Security-reviewed subprocess boundary: shell is never used, argv[0]
-        # is a validated psql executable, SQL is scanner-owned fixed text, and
+        # Security-reviewed subprocess boundary: shell is never used; argv is
+        # static; the executable is validated; SQL is passed on stdin; and
         # caller targets are matched only after PostgreSQL returns identities.
         completed = subprocess.run(  # nosec B603  # noqa: S603
-            cmd,
+            [
+                "psql",
+                "-X",
+                "--no-password",
+                "-v",
+                "ON_ERROR_STOP=1",
+                "-A",
+                "-t",
+                "-F",
+                "\t",
+            ],
+            executable=executable,
+            env=env,
             text=True,
-            stdin=subprocess.DEVNULL,
+            input=sql,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
