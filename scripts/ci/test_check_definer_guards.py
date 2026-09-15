@@ -1688,6 +1688,629 @@ QUOTED_TYPE_MUST_ACCEPT = {
 }
 
 
+# P. A third independent-review round found three more shapes the fixes above
+#    did not cover, each reproduced against the real check_file() before this
+#    fix landed:
+#
+#   1. A labelled EXIT strictly INSIDE a boolean deny branch - between THEN
+#      and the aborting RAISE - was never checked. `_if_blocks_with_raising_
+#      deny_branch()` only rejected a terminating RETURN in that span, and
+#      the labelled-EXIT reachability test elsewhere runs at the IF's OWN
+#      position, which cannot see an EXIT written AFTER it. The privileged
+#      write already ran by the time the EXIT fires; it then jumps past the
+#      RAISE and the function returns having denied nothing.
+#   2. `_condition_catches_p0001()` located a SQLSTATE literal by searching
+#      for a bare `'`, so a dollar-quoted `SQLSTATE $tag$P0001$tag$` and an
+#      E'' escape string like `SQLSTATE E'P000\x31'` (PostgreSQL decodes
+#      `\x31` to `1`) both hid a real P0001 swallow.
+#   3. `_normalize_arg_type()` collapsed ALL whitespace before folding a type,
+#      so `"Type A"` and `"Type  A"` - two distinct PostgreSQL identifiers -
+#      normalized to the same text, letting a REVOKE naming only the
+#      double-space overload exempt the single-space one too.
+BOOLEAN_DENY_EXIT_MUST_REJECT = {
+    "exit_between_then_and_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n{WORK_LINE}\n"
+        "    EXIT auth_block;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+    "conditional_exit_between_then_and_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n{WORK_LINE}\n"
+        "    EXIT auth_block WHEN true;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+}
+
+BOOLEAN_DENY_EXIT_MUST_ACCEPT = {
+    "ordinary_boolean_deny_branch_reaches_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+        f"{WORK_LINE}"
+    ),
+    # An EXIT written AFTER the RAISE cannot skip it.
+    "exit_after_the_raise_is_unreachable_code": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n    RAISE EXCEPTION 'DENIED';\n"
+        "    EXIT auth_block;\n  END IF;\n"
+    ),
+    # An inner labelled block that exits only ITSELF leaves the outer RAISE
+    # reachable.
+    "inner_block_exits_itself_not_the_outer_raise": labelled_definer(
+        f"  IF NOT {QPRED}(p_org) THEN\n"
+        "    <<inner_block>>\n    BEGIN\n      EXIT inner_block;\n"
+        "    END inner_block;\n    RAISE EXCEPTION 'DENIED';\n  END IF;\n"
+    ),
+}
+
+
+SQLSTATE_LITERAL_FORM_MUST_REJECT = {
+    "dollar_quoted_p0001": definer_outer_handler("SQLSTATE $tag$P0001$tag$"),
+    "dollar_quoted_p0001_double_dollar_tag": definer_outer_handler(
+        "SQLSTATE $$P0001$$"
+    ),
+    "escape_string_hex_encoded_p0001": definer_outer_handler(
+        r"SQLSTATE E'P000\x31'"
+    ),
+}
+
+SQLSTATE_LITERAL_FORM_MUST_ACCEPT = {
+    "plain_literal_unrelated_code": definer_outer_handler("SQLSTATE '22012'"),
+    "dollar_quoted_unrelated_code": definer_outer_handler("SQLSTATE $tag$22012$tag$"),
+    "escape_string_unrelated_code": definer_outer_handler(r"SQLSTATE E'2\x3012'"),
+}
+
+
+# Astra round 2: two further gaps in the SQLSTATE-literal swallow model itself,
+# both reproduced against the real check_file() on the #246 head that closed
+# the three findings above.
+#
+#   1. `\ooo` in an E'' string is a PostgreSQL BYTE escape, not a Unicode code
+#      point. `chr(int(digits, 8))` on a 3-digit octal escape whose value
+#      exceeds 255 (`\461` = octal 305) produced an unrelated high-range
+#      character instead of the wrapped byte 0x31 = '1', so `E'P000\461'` -
+#      which PostgreSQL reads as P0001 - did not compare equal to it.
+#   2. PostgreSQL's lexer concatenates two adjacent string constants when the
+#      whitespace between them contains a newline: `SQLSTATE 'P00'\n'01'` is
+#      the single value P0001. The reader stopped at the first literal's
+#      closing quote, so a swallow spelled across a line break was invisible.
+SQLSTATE_OCTAL_ESCAPE_MUST_REJECT = {
+    "octal_escape_wraps_to_p0001": definer_outer_handler(
+        "SQLSTATE E'P000\\461'"
+    ),
+}
+
+SQLSTATE_CONTINUATION_MUST_REJECT = {
+    "newline_continuation_spells_p0001": definer_outer_handler(
+        "SQLSTATE 'P00'\n'01'"
+    ),
+}
+
+SQLSTATE_CONTINUATION_MUST_ACCEPT = {
+    "newline_continuation_unrelated_code": definer_outer_handler(
+        "SQLSTATE '235'\n'05'"
+    ),
+    # No newline in the separating whitespace: PostgreSQL does NOT concatenate
+    # these, so the scanner must not invent a continuation either. The first
+    # segment alone ('P00') does not catch P0001.
+    "same_line_adjacent_literals_are_not_concatenated": definer_outer_handler(
+        "SQLSTATE 'P00' '01'"
+    ),
+}
+
+
+# Astra round 3: the continuation fix above decoded each segment
+# independently through its OWN prefix, losing the chain's effective escape
+# mode. Reproduced against the real check_file() on the #246 head that closed
+# the newline-continuation gap: `_read_sqlstate_literal()` returned
+# ('P000\x31', False) for `E'P00'\n'0\x31'` - the bare continuation segment
+# was read as an ORDINARY string instead of inheriting the leading E'' mode,
+# so the effective P0001 (confirmed live: PostgreSQL 17/16 both evaluate this
+# to P0001) went undetected. A live server also confirms a continuation
+# segment can NEVER carry its own E/e prefix - `'P0'\nE'01'` and
+# `E'P0'\nE'01'` are both hard parse errors (`invalid SQLSTATE code` /
+# `syntax error`) regardless of the first segment's mode - so that shape
+# fails closed rather than being silently truncated to the first segment.
+SQLSTATE_CHAINED_ESCAPE_MODE_MUST_REJECT = {
+    # Astra's exact reproducer: E'' then a bare continuation, hex escape only
+    # resolves under the inherited escape mode.
+    "escape_then_ordinary_hex_resolves_to_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\n'0\\x31'"
+    ),
+    # Triple chain: the mode must survive through every hop, not just one.
+    "triple_chain_escape_then_ordinary_then_ordinary": definer_outer_handler(
+        "SQLSTATE E'P0'\n'00'\n'\\x31'"
+    ),
+    # Existing single-segment forms must not regress under the refactor.
+    "single_segment_hex_still_resolves": definer_outer_handler(
+        r"SQLSTATE E'P000\x31'"
+    ),
+    "single_segment_octal_still_wraps": definer_outer_handler(
+        "SQLSTATE E'P000\\461'"
+    ),
+    "plain_two_segment_continuation_still_works": definer_outer_handler(
+        "SQLSTATE 'P00'\n'01'"
+    ),
+}
+
+SQLSTATE_CHAINED_ESCAPE_MODE_MUST_ACCEPT = {
+    # The inherited mode must decode the RIGHT value, not just any value:
+    # E'235' + escaped '0\x35' is 23505, not P0001.
+    "escape_then_ordinary_unrelated_code": definer_outer_handler(
+        "SQLSTATE E'235'\n'0\\x35'"
+    ),
+    # With NO leading E'', a continuation's backslash is never an escape -
+    # PostgreSQL keeps it as two literal characters, confirmed live.
+    "ordinary_chain_keeps_backslash_literal": definer_outer_handler(
+        "SQLSTATE 'P00'\n'0\\x31'"
+    ),
+    # An E-prefixed continuation segment never compiles on a real server, in
+    # either direction - the scanner must still fail CLOSED on it (tested via
+    # the MUST_REJECT dict below, not here); these two confirm the escape
+    # MODE itself, not the illegal-continuation shape.
+}
+
+# A continuation segment can never carry its own E/e prefix; PostgreSQL
+# rejects both orderings outright. This scanner cannot confidently attribute
+# such text to a real, compilable statement, so it fails closed instead of
+# quietly keeping only the first segment.
+SQLSTATE_ILLEGAL_CONTINUATION_PREFIX_MUST_REJECT = {
+    "ordinary_then_escape_prefixed_continuation": definer_outer_handler(
+        "SQLSTATE 'P0'\nE'01'"
+    ),
+    "escape_then_escape_prefixed_continuation": definer_outer_handler(
+        "SQLSTATE E'P0'\nE'01'"
+    ),
+}
+
+
+QUOTED_TYPE_WHITESPACE_MUST_REJECT = {
+    # The REVOKE below names ONLY the double-space overload. If the scanner
+    # collapses `"Type  A"` to `"Type A"` before comparing, it wrongly treats
+    # the single-space DEFINER overload as ACL-closed too.
+    "double_space_revoke_does_not_close_single_space_overload": (
+        routine("f_w", "SECURITY DEFINER", args='p_x public."Type A"')
+        + routine("f_w", "SECURITY DEFINER", args='p_x public."Type  A"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_w(public."Type  A")\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+QUOTED_TYPE_WHITESPACE_MUST_ACCEPT = {
+    "matching_double_space_quoted_type_closes_it": (
+        routine("f_w", "SECURITY DEFINER", args='p_x public."Type  A"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_w(public."Type  A") '
+          "FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
+# Q. A fifth independent-review round found two more shapes, each reproduced
+#    against the real check_file() before this fix landed:
+#
+#   1. A condition name may be written as a QUOTED identifier, and PostgreSQL
+#      resolves `WHEN "raise_exception"` to exactly the condition the bare name
+#      names. The masker blanks quoted-identifier CONTENT, so the term reached
+#      `_condition_catches_p0001()` as `"              "` and matched nothing:
+#      a handler that really does swallow an assertion's authorization failure
+#      left the function reported as guarded.
+#   2. Array bounds may be separated from their element type by whitespace
+#      (`"Type A" []`, `uuid [4]`), so a multi-token parameter does not imply a
+#      leading argument NAME. `_normalize_arg_type()` dropped that first token
+#      anyway, normalizing every such parameter to the bounds alone - which
+#      merged distinct overloads and let a REVOKE naming one of them exempt an
+#      unguarded SECURITY DEFINER function declared with the other.
+QUOTED_CONDITION_MUST_REJECT = {
+    "handler_catches_quoted_raise_exception": definer_outer_handler(
+        '"raise_exception"'
+    ),
+    "handler_catches_quoted_others": definer_outer_handler('"others"'),
+    "handler_catches_quoted_category_name": definer_outer_handler(
+        '"plpgsql_error"'
+    ),
+    "handler_catches_quoted_name_as_later_or_term": definer_outer_handler(
+        'unique_violation OR "raise_exception"'
+    ),
+    # Fail-closed by design: PostgreSQL keeps a quoted identifier's case, so
+    # this resolves to no condition at all and cannot compile. The reader must
+    # not invent a third folding rule to "prove" it harmless.
+    "handler_catches_quoted_name_in_another_case": definer_outer_handler(
+        '"RAISE_EXCEPTION"'
+    ),
+}
+
+QUOTED_CONDITION_MUST_ACCEPT = {
+    # The other half of the rule: a quoted name that cannot catch a P0001 must
+    # not invalidate a real guard either.
+    "quoted_unique_violation_does_not_catch": definer_outer_handler(
+        '"unique_violation"'
+    ),
+    "quoted_fk_violation_does_not_catch": definer_outer_handler(
+        '"foreign_key_violation"'
+    ),
+}
+
+ARRAY_BOUND_TYPE_MUST_REJECT = {
+    # The REVOKE names a DIFFERENT quoted element type. Reading `"Type A" []`
+    # as a name plus the type `[]` normalizes both signatures to the same text,
+    # so the unguarded definer is reported as ACL-closed while PostgreSQL still
+    # lets clients execute it.
+    "quoted_array_revoke_does_not_close_another_element_type": (
+        routine("f_a", "SECURITY DEFINER", args='public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_a(public."Type B"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # The same defect on the unquoted branch, where a bare element type was
+    # dropped as if it were a parameter name.
+    "spaced_array_revoke_does_not_close_another_element_type": (
+        routine("f_b", "SECURITY DEFINER", args="uuid []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_b(text[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+# R. A seventh independent-review round found three more shapes. Each was
+#    reproduced against the real check_file() on `7f3f2a8` before this fix, and
+#    the two ACL-identity ones were confirmed on a live PostgreSQL 17.11 server:
+#    the REVOKE naming the other overload left the unguarded definer executable
+#    by `authenticated`, which then performed the protected write.
+#
+#   1. A condition name spelled as a Unicode delimited identifier
+#      (`WHEN U&"raise_exception"`) matched nothing, because the Round 6 reader
+#      recognized only the ordinary `"..."` spelling. PostgreSQL 17.11's plpgsql
+#      grammar in fact REFUSES a UIDENT in that position (`syntax error at or
+#      near "U&""raise_exception"""`), so this was not a live swallow - but a
+#      reader that cannot resolve an identity must fail CLOSED rather than wave
+#      it through, and the same U& spelling IS accepted in the SQL-level
+#      surfaces this scanner also parses (type names, routine names), which is
+#      why one shared reader now decodes it everywhere.
+#   2. `"Schema A" . "T" []` was read as the NAME `"Schema A"` plus the type
+#      `. "T" []`, so `"Schema A"` and `"Schema B"` normalized identically.
+#   3. `DEFAULT`/`=` were located by a regex over the UNPARSED parameter, so
+#      `"Type DEFAULT A" []` and `"Type=A" []` were truncated INSIDE a quoted
+#      identifier, leaving the fragment `"type` as the whole type identity.
+UNICODE_CONDITION_MUST_REJECT = {
+    "handler_catches_unicode_raise_exception": definer_outer_handler(
+        'U&"raise_exception"'
+    ),
+    "handler_catches_unicode_others": definer_outer_handler('U&"others"'),
+    "handler_catches_unicode_category_name": definer_outer_handler(
+        'U&"plpgsql_error"'
+    ),
+    # The same name written through the escape itself: \006E is `n`.
+    "handler_catches_unicode_escaped_name": definer_outer_handler(
+        'U&"raise_excepti\\006Fn"'
+    ),
+    "handler_catches_unicode_escaped_name_plus_form": definer_outer_handler(
+        'U&"raise_excepti\\+00006Fn"'
+    ),
+    "handler_catches_unicode_custom_uescape": definer_outer_handler(
+        'U&"raise_excepti!006Fn" UESCAPE \'!\''
+    ),
+    "handler_catches_unicode_as_later_or_term": definer_outer_handler(
+        'unique_violation OR U&"raise_exception"'
+    ),
+    "handler_catches_unicode_as_first_or_term": definer_outer_handler(
+        'U&"raise_exception" OR unique_violation'
+    ),
+    # Unresolvable spellings: a truncated escape, and a UESCAPE character
+    # PostgreSQL forbids (a hex digit). Identity cannot be proven, so the
+    # reader must fail closed instead of reporting the function as guarded.
+    "handler_condition_with_truncated_escape": definer_outer_handler(
+        'U&"raise_exceptio\\00"'
+    ),
+    "handler_condition_with_forbidden_uescape": definer_outer_handler(
+        'U&"raise_exception" UESCAPE \'a\''
+    ),
+}
+
+UNICODE_CONDITION_MUST_ACCEPT = {
+    # An unrelated condition, in every spelling, still cannot catch a P0001.
+    "unicode_unique_violation_does_not_catch": definer_outer_handler(
+        'U&"unique_violation"'
+    ),
+    "unicode_escaped_unique_violation_does_not_catch": definer_outer_handler(
+        'U&"uniqu\\0065_violation"'
+    ),
+    "unicode_fk_violation_does_not_catch": definer_outer_handler(
+        'U&"foreign_key_violation"'
+    ),
+}
+
+QUALIFIED_TYPE_MUST_REJECT = {
+    # Two distinct qualified types; only the B overload is revoked. Confirmed
+    # on PostgreSQL 17.11: the A overload stays executable by `authenticated`.
+    "spaced_qualification_keeps_quoted_schemas_distinct": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . "T" []')
+        + routine("f_q", "SECURITY DEFINER", args='"Schema B" . "T" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema B" . "T" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "spaced_qualification_keeps_bare_schemas_distinct": (
+        routine("f_q", "SECURITY DEFINER", args="sch_a . t []")
+        + routine("f_q", "SECURITY DEFINER", args="sch_b . t []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_q(sch_b . t [])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "spaced_qualification_mixed_quoting_stays_distinct": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . t []')
+        + routine("f_q", "SECURITY DEFINER", args='"Schema B" . t []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema B" . t [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "multi_dimensional_bounds_stay_with_their_element_type": (
+        routine("f_q", "SECURITY DEFINER", args='public."Type A" [] []')
+        + routine("f_q", "SECURITY DEFINER", args='public."Type B" [] []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q(public."Type B"[][])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+QUALIFIED_TYPE_MUST_ACCEPT = {
+    # Spacing around `.` and the bounds is NOT part of the identity: the same
+    # overload written either way must still be recognized as closed.
+    "spaced_qualification_matches_tight_revoke": (
+        routine("f_q", "SECURITY DEFINER", args='"Schema A" . "T" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q("Schema A"."T"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "bare_spaced_qualification_matches_tight_revoke": (
+        routine("f_q", "SECURITY DEFINER", args="sch_a . t []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_q(sch_a.t[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "named_argument_with_qualified_array_type_matches": (
+        routine("f_q", "SECURITY DEFINER", args='p_x public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_q(public."Type A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+DEFAULT_IN_QUOTED_TYPE_MUST_REJECT = {
+    # `DEFAULT` and `=` inside a quoted type name are part of the NAME.
+    # Confirmed on PostgreSQL 17.11 for both pairs.
+    "quoted_type_containing_default_keyword_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT A" []')
+        + routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT B" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT B" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "quoted_type_containing_equals_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type=A" []')
+        + routine("f_d", "SECURITY DEFINER", args='public."Type=B" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type=B" [])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "quoted_type_with_doubled_quote_stays_distinct": (
+        routine("f_d", "SECURITY DEFINER", args='public."Ty""pe DEFAULT A"')
+        + routine("f_d", "SECURITY DEFINER", args='public."Ty""pe DEFAULT B"')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Ty""pe DEFAULT B")\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT = {
+    "quoted_type_containing_default_keyword_matches_itself": (
+        routine("f_d", "SECURITY DEFINER", args='public."Type DEFAULT A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    # A REAL default expression is still stripped: the parameter's type is what
+    # is compared, and the REVOKE form never carries the default.
+    "real_default_expression_is_still_stripped": (
+        routine("f_d", "SECURITY DEFINER",
+                args='p_x public."Type DEFAULT A" [] DEFAULT NULL')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_d(public."Type DEFAULT A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "real_equals_default_expression_is_still_stripped": (
+        routine("f_d", "SECURITY DEFINER", args="p_meta jsonb = '{}'::jsonb")
+        + "REVOKE EXECUTE ON FUNCTION public.f_d(jsonb)\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+# S. An eighth independent-review round found two more shapes, both confirmed
+#    on a live PostgreSQL 17.11 server - the unguarded definer stayed reachable
+#    by a client role while the scanner reported no finding:
+#
+#   1. `Identity.args = None` carried TWO meanings: "no argument list was
+#      written" and "an argument list was written and could not be parsed".
+#      `same_function()` answers TRUE for the first, so every signature the
+#      scanner could not read became a WILDCARD matching any overload of the
+#      same name - and a comment inside the argument list was enough, because
+#      the parameter tokenizer ran on RAW bytes. A REVOKE on `f(text)` then
+#      exempted an unguarded `f(uuid /* why */)`. The third state is explicit
+#      now (UNRESOLVED_ARGS) and matches nothing, and parameter STRUCTURE is
+#      read from the masked span where a comment is already whitespace.
+#   2. `_grantee_names()` still had its own quote regex after Round 7 gave the
+#      scanner one shared delimited-identifier reader. `U&"authenticate\0064"`
+#      is the role `authenticated` to PostgreSQL, so a GRANT spelled that way
+#      reopens a closed function; the private reader saw a bare role `u` plus a
+#      role literally named `authenticate\0064`, and no reopen at all.
+
+
+def commented_definer(args: str, name: str = "rpc_p") -> str:
+    return (
+        f"CREATE OR REPLACE FUNCTION public.{name}({args})\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY DEFINER\n"
+        f"AS ${name}$\nBEGIN\n{WORK_LINE}\nEND;\n${name}$;\n"
+    )
+
+
+def revoke_clients(args: str, name: str = "rpc_p") -> str:
+    return (
+        f"REVOKE EXECUTE ON FUNCTION public.{name}({args})\n"
+        "  FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+def grant_to(grantee: str, args: str = "uuid", name: str = "rpc_p") -> str:
+    return (
+        f"GRANT EXECUTE ON FUNCTION public.{name}({args})\n  TO {grantee};\n"
+    )
+
+
+# A second overload exists in each rejecting fixture, so the REVOKE below names
+# a REAL function and the file is valid PostgreSQL - confirmed on 17.11, where
+# the commented overload stays client-executable.
+OTHER_OVERLOAD = commented_definer("p_y text", name="rpc_p")
+
+UNPARSEABLE_ARGS_MUST_REJECT = {
+    "create_side_block_comment_is_not_a_wildcard": (
+        commented_definer("p_x uuid /* why */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "revoke_side_block_comment_is_not_a_wildcard": (
+        commented_definer("p_x uuid") + OTHER_OVERLOAD
+        + revoke_clients("text /* why */")
+    ),
+    "comment_around_qualification_dot": (
+        commented_definer("p_x public /* c */ . t") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "comment_before_array_bounds": (
+        commented_definer("p_x public.t /* c */ []") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "comment_after_array_bounds": (
+        commented_definer("p_x uuid [] /* c */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "line_comment_inside_argument_list": (
+        commented_definer("p_x uuid -- why\n") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    "nested_block_comment_inside_argument_list": (
+        commented_definer("p_x uuid /* a /* nested */ b */") + OTHER_OVERLOAD
+        + revoke_clients("text")
+    ),
+    # PostgreSQL-valid type syntax this scanner does not model. Option B of the
+    # contract: mark the PRESENT list unresolved and fail closed - never turn
+    # unsupported syntax into omitted-argument (wildcard) semantics.
+    "percent_type_is_unresolved_not_omitted": (
+        commented_definer("p_x public.audit_probe.note%TYPE") + OTHER_OVERLOAD
+        + revoke_clients("uuid")
+    ),
+    # An unresolved list matches NOTHING - including the identical spelling on
+    # the other side. Two signatures nobody could read are not a match.
+    "percent_type_does_not_match_itself": (
+        commented_definer("p_x public.audit_probe.note%TYPE")
+        + revoke_clients("public.audit_probe.note%TYPE")
+    ),
+    # The same rule on the ALTER surface: an unresolved signature cannot carry
+    # a promotion onto a definition, and cannot be closed by a REVOKE either.
+    "unresolved_alter_signature_cannot_be_closed": (
+        "CREATE OR REPLACE FUNCTION public.rpc_p(p_x uuid)\n"
+        "RETURNS void\nLANGUAGE plpgsql\nSECURITY INVOKER\n"
+        f"AS $rpc_p$\nBEGIN\n{WORK_LINE}\nEND;\n$rpc_p$;\n"
+        "ALTER FUNCTION public.rpc_p(public.audit_probe.note%TYPE)\n"
+        "  SECURITY DEFINER;\n"
+        + revoke_clients("uuid")
+    ),
+    "control_no_comment_other_overload": (
+        commented_definer("p_x uuid") + OTHER_OVERLOAD + revoke_clients("text")
+    ),
+}
+
+UNPARSEABLE_ARGS_MUST_ACCEPT = {
+    # Comments do not alter PostgreSQL routine identity, so a REVOKE naming the
+    # same overload still closes it - in either direction.
+    "create_side_comment_matches_plain_revoke": (
+        commented_definer("p_x uuid /* why */") + revoke_clients("uuid")
+    ),
+    "revoke_side_comment_matches_plain_create": (
+        commented_definer("p_x uuid") + revoke_clients("uuid /* why */")
+    ),
+    "comment_at_dot_matches_tight_revoke": (
+        commented_definer("p_x public /* c */ . t") + revoke_clients("public.t")
+    ),
+    "line_comment_matches_plain_revoke": (
+        commented_definer("p_x uuid -- why\n") + revoke_clients("uuid")
+    ),
+    "control_no_comment_same_overload": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+    ),
+}
+
+UNICODE_GRANTEE_MUST_REJECT = {
+    # Each GRANT below reopens the function for a client role on PostgreSQL
+    # 17.11 - verified with has_function_privilege.
+    "reopened_by_escaped_unicode_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate\\0064"')
+    ),
+    "reopened_by_uescape_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate!0064" UESCAPE \'!\'')
+    ),
+    "reopened_by_escaped_unicode_anon": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"ano\\006E"')
+    ),
+    "reopened_by_escaped_unicode_public": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"publi\\0063"')
+    ),
+    # Controls that were already rejected, kept so they cannot regress.
+    "reopened_by_plain_unicode_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticated"')
+    ),
+    "reopened_by_ordinary_quoted_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('"authenticated"')
+    ),
+    "reopened_by_bare_authenticated": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to("authenticated")
+    ),
+    # An unresolvable delimited grantee may BE a client role, so a GRANT naming
+    # one is replayed as reaching all of them.
+    "unresolvable_unicode_grantee_fails_closed": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"authenticate\\00"')
+    ),
+}
+
+UNICODE_GRANTEE_MUST_ACCEPT = {
+    # PostgreSQL keeps a delimited identifier's case, so these are other roles.
+    "case_variant_grantee_is_another_role": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('"Authenticated"')
+    ),
+    "non_client_role_grant_does_not_reopen": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to("reporting_role")
+    ),
+    "unicode_non_client_role_grant_does_not_reopen": (
+        commented_definer("p_x uuid") + revoke_clients("uuid")
+        + grant_to('U&"reporting_rol\\0065"')
+    ),
+    # The closure itself may be written in the U& spelling, and comments may
+    # sit between grantees.
+    "revoke_from_unicode_spelled_clients_closes": (
+        commented_definer("p_x uuid")
+        + 'REVOKE EXECUTE ON FUNCTION public.rpc_p(uuid)\n'
+          '  FROM U&"publi\\0063", U&"ano\\006E", U&"authenticate\\0064";\n'
+    ),
+    "comments_between_grantees_do_not_hide_the_closure": (
+        commented_definer("p_x uuid")
+        + "REVOKE EXECUTE ON FUNCTION public.rpc_p(uuid)\n"
+          "  FROM PUBLIC /* c */, anon, /* c */ authenticated;\n"
+    ),
+}
+
+ARRAY_BOUND_TYPE_MUST_ACCEPT = {
+    # Spacing around the bounds is not part of the identity: the same overload
+    # written either way must still be recognized as closed.
+    "matching_quoted_array_overload_closes_it": (
+        routine("f_a", "SECURITY DEFINER", args='p_x public."Type A" []')
+        + 'REVOKE EXECUTE ON FUNCTION public.f_a(public."Type A"[])\n'
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+    "matching_spaced_array_overload_closes_it": (
+        routine("f_b", "SECURITY DEFINER", args="p_x uuid []")
+        + "REVOKE EXECUTE ON FUNCTION public.f_b(uuid[])\n"
+          "  FROM PUBLIC, anon, authenticated;\n"
+    ),
+}
+
+
 # O. An omitted schema is resolved by PostgreSQL through search_path; it is not
 #    a wildcard. Treating it as matching any schema let a REVOKE with no schema
 #    exempt a SECURITY DEFINER function in a DIFFERENT schema.
@@ -1798,6 +2421,511 @@ GRANT_OPTION_MUST_ACCEPT = {
         + "REVOKE EXECUTE ON FUNCTION public.f_ok3(uuid) "
           "FROM PUBLIC, anon, authenticated;\n"
     ),
+}
+
+
+# Round 4: the decoder and masker must agree on continued-string boundaries.
+# These payloads were also executed in an isolated PostgreSQL 17.5 engine:
+# the apparent assertion is string content and the unguarded write succeeds.
+CONTINUED_LITERAL_FAKE_GUARDS = {
+    "inherited_escaped_quote": "  PERFORM E''\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+    "third_segment_escaped_quote": "  PERFORM e''\n''\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+    "line_comment_separator": "  PERFORM E'' -- continuation\n"
+        "  '\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n  ;",
+}
+
+UNICODE_SQLSTATE_MUST_REJECT = (
+    "SQLSTATE U&'P0001'",  # Exact Codex report; fail closed, no decoder claim.
+    r"SQLSTATE U&'P000\0031'",
+    r"SQLSTATE u&'\00500001'",
+    r"SQLSTATE U&'P000!0031' UESCAPE '!'",
+    r"SQLSTATE U&'P000\0030'",
+    r"SQLSTATE '23505' OR SQLSTATE U&'P000\0031'",
+    r"SQLSTATE U&'23505'",  # Unsupported decoding fails closed even if unrelated.
+)
+
+# Scalar values checked against PostgreSQL 17.5. Parser-level equality below
+# is backed by check_file() controls using EVERY expression in a real body.
+CONTINUED_LITERAL_VALUES = (
+    ("E''\n'\\''", "'"),
+    ("E''\n'\\'x'", "'x"),
+    ("E''\n'\\\\'", "\\"),
+    ("E'one'''\n'''two'", "one''two"),
+    ("E'P0'\n'00'\n'\\x31'", "P0001"),
+    ("E'P00' \t\r\n '0\\461'", "P0001"),
+    ("E'P00'\n\n\n'01'", "P0001"),
+    ("E'P00' -- comment\n'01'", "P0001"),
+    ("E'P00' -- first\n -- second\n'01'", "P0001"),
+    ("E'a'\n'\\tb'", "a\tb"),
+    ("E'a\\\\'\n'b'", "a\\b"),
+    ("'a\\'\n'b'", "a\\b"),
+    ("E'235'\n'0\\x35'", "23505"),
+    ("'P00'\n'0\\x31'", "P000\\x31"),
+)
+
+
+
+# ---------------------------------------------------------------------------
+# Astra round 4 / Codex round 4: PostgreSQL 17 lexical boundaries
+# ---------------------------------------------------------------------------
+# Both findings are the same class of defect: this scanner transcribed a
+# PostgreSQL lexer rule by hand and got the CHARACTER SET wrong, so a literal
+# ended somewhere PostgreSQL does not end it and the literal's content was
+# scanned as executable code. Both were reproduced on a live PostgreSQL 17
+# server (17.11): the probe function was created, called, and the protected
+# write observed to happen with the assertion never executed.
+#
+# ASTRA: dollar-quote TAGS. scan.l spells them
+#     dolq_start [A-Za-z\200-\377_]   dolq_cont [A-Za-z\200-\377_0-9]
+# - a BYTE range, so in UTF-8 every non-ASCII codepoint qualifies. The scanner
+# used str.isalpha()/str.isalnum(), which are Unicode CATEGORY tests, so every
+# non-ASCII codepoint outside L*/N* was not recognized as a tag at all:
+# `$😀$`, `$Ⅸ$`, and tags containing a combining mark, ZWSP, NBSP, soft hyphen,
+# U+FEFF or a private-use character. A sweep of the whole ASCII range plus a
+# Unicode spread against the live server found the disagreement was ALWAYS in
+# that one direction - PostgreSQL opens the literal, the scanner does not.
+#
+# CODEX: the vertical tab. PostgreSQL 17 added \v to scan.l's `space` class
+# (v16 has no \v), and quote continuation is
+#     {non_newline_whitespace}*{newline}{special_whitespace}*{quote}
+# so under v17 - the version this project runs - a VT is ordinary whitespace on
+# BOTH sides of the required newline. Omitting it split one continued literal
+# in two, which showed up twice: the SQLSTATE reader decoded only the first
+# segment and missed a handler that really catches P0001, and the masker ended
+# the literal early and exposed the rest as code.
+DOLLAR_TAG_BYTE_RANGE_MUST_REJECT = {
+    # Astra's own reproducer, verbatim in shape.
+    "guard_inside_emoji_tagged_literal": definer(
+        f"  PERFORM $\U0001F600$ PERFORM public.{GUARD}(p_org); $\U0001F600$;"
+    ),
+    "guard_inside_roman_numeral_tagged_literal": definer(
+        f"  PERFORM $\u2168$ PERFORM public.{GUARD}(p_org); $\u2168$;"
+    ),
+    "guard_inside_combining_mark_tagged_literal": definer(
+        f"  PERFORM $a\u0301$ PERFORM public.{GUARD}(p_org); $a\u0301$;"
+    ),
+    "guard_inside_zero_width_space_tagged_literal": definer(
+        f"  PERFORM $a\u200b$ PERFORM public.{GUARD}(p_org); $a\u200b$;"
+    ),
+    "guard_inside_nbsp_tagged_literal": definer(
+        f"  PERFORM $\u00a0$ PERFORM public.{GUARD}(p_org); $\u00a0$;"
+    ),
+    "guard_inside_soft_hyphen_tagged_literal": definer(
+        f"  PERFORM $\u00ad$ PERFORM public.{GUARD}(p_org); $\u00ad$;"
+    ),
+    "guard_inside_bom_tagged_literal": definer(
+        f"  PERFORM $a\ufeff$ PERFORM public.{GUARD}(p_org); $a\ufeff$;"
+    ),
+    "guard_inside_private_use_tagged_literal": definer(
+        f"  PERFORM $\ue000$ PERFORM public.{GUARD}(p_org); $\ue000$;"
+    ),
+    # The same bytes as the OUTER body delimiter: the tag has to be recognized
+    # for the scanner to know where executable text even begins.
+    "guard_named_as_emoji_outer_delimiter": definer_delim(
+        "$\U0001F600$", f"  PERFORM public.{GUARD};"
+    ),
+}
+
+DOLLAR_TAG_BYTE_RANGE_MUST_ACCEPT = {
+    # A real call still passes when a non-ASCII tag is merely present nearby:
+    # the fix must widen tag RECOGNITION, not swallow real guards.
+    "real_guard_beside_emoji_tagged_literal": definer(
+        f"  PERFORM $\U0001F600$note$\U0001F600$;\n"
+        f"  PERFORM public.{GUARD}(p_org);"
+    ),
+    "real_guard_inside_emoji_delimited_body": definer_delim(
+        "$\U0001F600$", f"  PERFORM public.{GUARD}(p_org);"
+    ),
+}
+
+VERTICAL_TAB_CONTINUATION_MUST_REJECT = {
+    # Codex's reproducer: one continued escape-string spelling P0001, so the
+    # handler really does swallow the assertion.
+    "vt_before_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x31'"
+    ),
+    "vt_after_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P00'\n\x0b'0\\x31'"
+    ),
+    "vt_run_around_newline_spells_p0001": definer_outer_handler(
+        "SQLSTATE E'P0'\x0b\x0b\n\x0b'001'"
+    ),
+    "vt_continuation_spells_the_p0000_class": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x30'"
+    ),
+    # An OR-list where only the VT-continued term catches.
+    "vt_continuation_inside_an_or_list": definer_outer_handler(
+        "unique_violation OR SQLSTATE E'P00'\x0b\n'0\\x31'"
+    ),
+    # The masking half of the same boundary: with the continuation followed,
+    # the guard text sits INSIDE the literal after an escaped quote.
+    "guard_hidden_after_escaped_quote_in_vt_continued_estring": definer(
+        f"  PERFORM E'a'\x0b\n'b\\' PERFORM public.{GUARD}(p_org); \\'c';"
+    ),
+    "guard_hidden_after_escaped_quote_in_nl_vt_continued_estring": definer(
+        f"  PERFORM E'a'\n\x0b'b\\' PERFORM public.{GUARD}(p_org); \\'c';"
+    ),
+}
+
+VERTICAL_TAB_CONTINUATION_MUST_ACCEPT = {
+    # The continuation is followed, and what it spells is NOT a catching code:
+    # the fix must discriminate, not fail closed on every vertical tab.
+    "vt_continuation_unrelated_code": definer_outer_handler(
+        "SQLSTATE E'P00'\x0b\n'0\\x32'"
+    ),
+    "vt_continuation_unrelated_code_plain": definer_outer_handler(
+        "SQLSTATE '235'\x0b\n'05'"
+    ),
+    # A vertical tab is whitespace but never a NEWLINE, so it cannot supply the
+    # newline PostgreSQL requires: these stay TWO literals and 'P00' alone does
+    # not catch P0001.
+    "vt_alone_does_not_concatenate": definer_outer_handler(
+        "SQLSTATE 'P00'\x0b'01'"
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Round 9 (PR #246): four P2 acceptance-layer false-greens, each reproduced
+# against a live PostgreSQL 17.11 oracle before being frozen here.
+#
+# Every reproducer below is PostgreSQL-VALID and security-relevant: PostgreSQL
+# accepts the statement and the client role really can execute the unguarded
+# SECURITY DEFINER function afterwards, while the scanner reported the surface
+# closed. None of them is one of the three declared #243 limitations, and none
+# indicates a defect in any production migration body.
+# ---------------------------------------------------------------------------
+
+def _r9_definer(signature: str) -> str:
+    """An unguarded SECURITY DEFINER function with the given parameter list."""
+    return (
+        f"CREATE OR REPLACE FUNCTION public.review_probe({signature})\n"
+        "RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+        "BEGIN\n"
+        "  RETURN;\n"
+        "END;\n"
+        "$$;\n"
+    )
+
+
+_R9_CLOSE = (
+    "REVOKE EXECUTE ON FUNCTION public.review_probe(text) "
+    "FROM PUBLIC, anon, authenticated;\n"
+)
+
+# --- Round 9 finding 1 -----------------------------------------------------
+# `char varying` is the built-in varchar on PostgreSQL 17 (verified live:
+# `CREATE FUNCTION f(char varying)` yields identity arguments
+# `character varying`). The scanner had no `char` among its type lead words, so
+# it dropped `char` as an optional parameter NAME and the type identity became
+# `varying` - which is also what the quoted custom type `"varying"` normalizes
+# to (live identity arguments: `varying`, a DIFFERENT type). Two distinct
+# PostgreSQL overloads collapsed into one scanner identity, so a REVOKE naming
+# either one closed the other on paper while PostgreSQL still let clients
+# execute the unguarded definer.
+TYPE_PHRASE_MUST_REJECT = {
+    "char_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(char varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "quoted_varying_revoke_does_not_close_char_varying":
+        _r9_definer("p_x char varying")
+        + 'REVOKE EXECUTE ON FUNCTION public.review_probe("varying") '
+          "FROM PUBLIC, anon, authenticated;\n",
+    "nchar_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(nchar varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "bit_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bit varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "national_character_varying_revoke_does_not_close_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(national character varying) FROM PUBLIC, anon, authenticated;\n",
+    # The same boundary in the other direction. `DOUBLE` is an unreserved
+    # keyword, so `f(double text)` declares a parameter NAMED `double` of type
+    # `text` (verified live: identity arguments `double text`). Keeping `double`
+    # as part of the type read the identity as `double text`, which is not the
+    # overload a REVOKE on `f(text)` names.
+    "double_named_parameter_is_not_a_type_phrase":
+        _r9_definer("double text")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bigint) "
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+TYPE_PHRASE_MUST_ACCEPT = {
+    # A multi-word type phrase closed by the SAME multi-word spelling.
+    "char_varying_closes_char_varying":
+        _r9_definer("p_x char varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(char varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "character_varying_closes_character_varying":
+        _r9_definer("p_x character varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(character varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "double_precision_closes_double_precision":
+        _r9_definer("p_x double precision")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(double precision) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "time_with_time_zone_closes_itself":
+        _r9_definer("p_x time with time zone")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(time with time zone) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "timestamp_without_time_zone_closes_itself":
+        _r9_definer("p_x timestamp without time zone")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(timestamp without time zone) FROM PUBLIC, anon, authenticated;\n",
+    "interval_day_to_second_closes_itself":
+        _r9_definer("p_x interval day to second")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe"
+          "(interval day to second) FROM PUBLIC, anon, authenticated;\n",
+    "bit_varying_closes_bit_varying":
+        _r9_definer("p_x bit varying")
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(bit varying) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # `double` as a parameter NAME: the type is `text`, so a REVOKE on `text`
+    # closes it. This is the case the lead-word set got wrong before.
+    "double_named_parameter_closed_by_its_real_type":
+        _r9_definer("double text") + _R9_CLOSE,
+    "varying_named_parameter_closed_by_its_real_type":
+        _r9_definer("varying text") + _R9_CLOSE,
+    "quoted_varying_closes_quoted_varying":
+        _r9_definer('p_x "varying"')
+        + 'REVOKE EXECUTE ON FUNCTION public.review_probe("varying") '
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+# --- Round 9 finding 2 -----------------------------------------------------
+# `public.review_probe(public.review_marker.note%TYPE)` is a PostgreSQL-valid
+# way to name an existing routine; live, the GRANT resolves the `%TYPE` and
+# `has_function_privilege('authenticated', 'public.review_probe(text)',
+# 'EXECUTE')` becomes true. The scanner correctly refuses to treat an
+# unresolved argument list as an exact identity match, but ACL replay then read
+# "not an exact match" as "definitely unrelated" and dropped the GRANT, so the
+# reopened function still looked closed.
+UNRESOLVED_GRANT_MUST_REJECT = {
+    "unresolved_pct_type_grant_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    "unresolved_pct_type_grant_to_public_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) TO PUBLIC;\n",
+    "unresolved_grant_unqualified_name_reopens_execute":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "review_probe(public.review_marker.note%TYPE) TO authenticated;\n",
+    # An unresolved REVOKE credits NO closure: a signature nobody could read is
+    # not proof that this overload was closed.
+    "unresolved_pct_type_revoke_credits_no_closure":
+        _r9_definer("p_x text")
+        + "REVOKE EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # Unresolved on BOTH sides is still not a match, in either direction.
+    "unresolved_definition_and_unresolved_revoke_do_not_match":
+        _r9_definer("p_x public.review_marker.note%TYPE")
+        + "REVOKE EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    # An ALTER that promotes a routine it names with an unresolved argument
+    # list restates no body and closes nothing.
+    "unresolved_alter_security_definer_is_not_closed":
+        "CREATE OR REPLACE FUNCTION public.review_probe(p_x text)\n"
+        "RETURNS void LANGUAGE plpgsql AS $$\nBEGIN\n  RETURN;\nEND;\n$$;\n"
+        + _R9_CLOSE
+        + "ALTER FUNCTION public.other_probe(public.review_marker.note%TYPE) "
+          "SECURITY DEFINER;\n",
+    # An unresolved GRANT that PostgreSQL could resolve to ONE of several
+    # overloads reopens the one it might name.
+    "unresolved_grant_reopens_one_of_several_overloads":
+        _r9_definer("p_x text")
+        + _r9_definer("p_x uuid").replace("review_probe(p_x uuid)",
+                                          "review_probe(p_x uuid)")
+        + _R9_CLOSE
+        + "REVOKE EXECUTE ON FUNCTION public.review_probe(uuid) "
+          "FROM PUBLIC, anon, authenticated;\n"
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+}
+
+UNRESOLVED_GRANT_MUST_ACCEPT = {
+    # No global pollution: an unresolved GRANT naming a DIFFERENT routine says
+    # nothing about this one.
+    "unresolved_grant_for_other_name_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "public.other_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    # Nor does one in a provably different schema.
+    "unresolved_grant_in_other_schema_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION "
+          "other_schema.review_probe(public.review_marker.note%TYPE) "
+          "TO authenticated;\n",
+    # An exact GRANT to a NON-client role is not a client reopen.
+    "exact_grant_to_non_client_role_does_not_reopen":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO service_role;\n",
+    # A plain closure is still a closure.
+    "exact_revoke_still_closes":
+        _r9_definer("p_x text") + _R9_CLOSE,
+}
+
+# --- Round 9 finding 3 -----------------------------------------------------
+# `U&"authenticate!0064" /* c */ UESCAPE '!'` is the role `authenticated` to
+# PostgreSQL (verified live: the GRANT succeeds and authenticated gains
+# EXECUTE). The UESCAPE clause was looked for in RAW bytes, where a comment is
+# not whitespace, so the clause was missed, the content was decoded against the
+# DEFAULT backslash escape, and the reader returned a plausible but WRONG role
+# name. Because it returned a value rather than None, the UNRESOLVED_GRANTEE
+# fail-closed path never ran and the reopen was invisible.
+UESCAPE_GRANTEE_MUST_REJECT = {
+    "uescape_after_block_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* c */ UESCAPE '!';\n",
+    "uescape_after_nested_block_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* a /* b */ c */ UESCAPE '!';\n",
+    "uescape_after_line_comment_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" -- c\n UESCAPE '!';\n",
+    "uescape_after_tab_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\"\tUESCAPE '!';\n",
+    "uescape_after_newline_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\"\n\nUESCAPE '!';\n",
+    "uescape_plain_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" UESCAPE '!';\n",
+    "default_backslash_form_resolves_to_authenticated":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate\\0064\";\n",
+    # A malformed UESCAPE character is a PostgreSQL error, so the grantee is
+    # unresolvable and the GRANT must be replayed as reaching every client role.
+    "malformed_uescape_grantee_fails_closed":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"authenticate!0064\" /* c */ UESCAPE '1';\n",
+}
+
+UESCAPE_GRANTEE_MUST_ACCEPT = {
+    # A case-different delimited role is a DIFFERENT role (PostgreSQL: `role
+    # "Authenticated" does not exist`), so it is not a client reopen.
+    "uescape_case_different_role_is_not_a_client":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"Authenticate!0064\" /* c */ UESCAPE '!';\n",
+    # A resolvable, unrelated role name reopens nothing.
+    "uescape_unrelated_role_is_not_a_client":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE ON FUNCTION public.review_probe(text) "
+          "TO U&\"service!005frole\" /* c */ UESCAPE '!';\n",
+}
+
+# --- Round 9 finding 4 -----------------------------------------------------
+# `GRANT ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) TO authenticated`
+# is accepted by PostgreSQL and grants EXECUTE (verified live). The privilege
+# head admitted literal ASCII spaces only, so the statement matched no head at
+# all and simply disappeared from the ACL replay - the unsafe failure mode, not
+# a fail-closed one.
+PRIVILEGE_HEAD_MUST_REJECT = {
+    "grant_all_newline_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_tab_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\tPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_crlf_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\r\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_vertical_tab_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\x0bPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_form_feed_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\x0cPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_block_comment_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL /* c */ PRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_all_line_comment_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL -- c\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_comma_separated_privileges_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT EXECUTE,\nEXECUTE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "grant_newline_execute_reopens":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT\nEXECUTE\nON\nFUNCTION public.review_probe(text)\n"
+          "TO authenticated;\n",
+    # `REVOKE GRANT OPTION FOR EXECUTE` withdraws delegation only; the role
+    # keeps EXECUTE. Verified live across a newline inside that clause too.
+    "revoke_grant_option_for_across_newline_closes_nothing":
+        _r9_definer("p_x text")
+        + "REVOKE GRANT\nOPTION FOR EXECUTE ON FUNCTION "
+          "public.review_probe(text) FROM PUBLIC, anon, authenticated;\n",
+}
+
+PRIVILEGE_HEAD_MUST_ACCEPT = {
+    "revoke_all_newline_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL\nPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "FROM PUBLIC, anon, authenticated;\n",
+    "revoke_all_block_comment_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL /* c */ PRIVILEGES ON FUNCTION "
+          "public.review_probe(text) FROM PUBLIC, anon, authenticated;\n",
+    "revoke_execute_across_newlines_closes":
+        _r9_definer("p_x text")
+        + "REVOKE\nEXECUTE\nON\nFUNCTION public.review_probe(text)\n"
+          "FROM PUBLIC, anon, authenticated;\n",
+    "revoke_all_tab_privileges_closes":
+        _r9_definer("p_x text")
+        + "REVOKE ALL\tPRIVILEGES ON FUNCTION public.review_probe(text) "
+          "FROM PUBLIC, anon, authenticated;\n",
+}
+
+# A malformed privilege head is not a PostgreSQL statement at all
+# (`GRANT ALL PRIVILEGE` is a syntax error on PostgreSQL 17), and the scanner
+# reads its `ALL` and replays it as a reopen. That is the CONSERVATIVE
+# direction - a false red on SQL that could never run - and it is unchanged by
+# Round 9: the previous head grammar already admitted `ALL PRIVILEGE` across a
+# literal space. It is frozen here so the widened whitespace class is never
+# mistaken for having introduced it, and so a later change cannot silently flip
+# it to the unsafe direction.
+PRIVILEGE_HEAD_CONSERVATIVE_FALSE_RED = {
+    "malformed_privilege_head_is_replayed_conservatively":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL PRIVILEGE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
+    "malformed_privilege_head_across_newline_is_replayed_conservatively":
+        _r9_definer("p_x text") + _R9_CLOSE
+        + "GRANT ALL\nPRIVILEGE ON FUNCTION public.review_probe(text) "
+          "TO authenticated;\n",
 }
 
 
@@ -2677,7 +3805,12 @@ class DefinerScannerTests(unittest.TestCase):
             "timestamp with time zone": "timestamp with time zone",
             "p_name character varying": "character varying",
             "character varying": "character varying",
-            "p_rate numeric(10,2)": "numeric(10,2)",
+            # Round 10: a type MODIFIER is not part of a routine argument
+            # type. PostgreSQL 17.11 resolves `numeric(10,2)` in a signature
+            # to plain `numeric` (format_type of pg_proc.proargtypes), so the
+            # canonical form drops it. The parse it protects - the modifier
+            # is read as a modifier and not as a parameter name - is unchanged.
+            "p_rate numeric(10,2)": "numeric",
             "p_x double precision": "double precision",
         }
         for param, expected in cases.items():
@@ -2775,11 +3908,13 @@ class DefinerScannerTests(unittest.TestCase):
         self.assertEqual(problems, [])
         definitions = guards.parse_definitions(raw, masked)
         privileges = guards.parse_privilege_statements(raw, masked)
+        unknowns = guards.parse_procedural_acl_unknown(raw, masked)
         definers = [d for d in definitions if d.is_definer]
         self.assertTrue(definers, "191 defines no SECURITY DEFINER function")
         for definition in definers:
             closed = guards.revoke_closes_client_surface(
-                definition.identity, definition.end, privileges, strict=True
+                definition.identity, definition.end, privileges, strict=True,
+                procedural_unknowns=unknowns,
             )
             body = masked[definition.start: definition.body_span[1]]
             raw_body = raw[definition.start: definition.body_span[1]]
@@ -2930,6 +4065,560 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         )
         self.assertEqual(guards._normalize_arg_type("p_x PUBLIC.TypeA"), "public.typea")
 
+    def test_labelled_exit_inside_boolean_deny_branch_is_rejected(self) -> None:
+        """P: an EXIT between THEN and the RAISE skips the denial itself,
+        not just the IF that leads to it."""
+        for name, sql in BOOLEAN_DENY_EXIT_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: RAISE skipped by an EXIT inside its own deny "
+                    f"branch was accepted as a guard",
+                )
+        for name, sql in BOOLEAN_DENY_EXIT_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_labelled_exit_before_raise_pos_discriminates(self) -> None:
+        """The function itself: only an EXIT AFTER `after` and reaching a
+        frame around `pos` counts, exactly like `labelled_exit_before` at the
+        IF's own position already did for the whole IF."""
+        body = (
+            "<<auth_block>>\nBEGIN\n"
+            "  IF NOT p THEN\n"
+            "    EXIT auth_block;\n"
+            "    RAISE EXCEPTION 'denied';\n"
+            "  END IF;\n"
+            "END auth_block;\n"
+        )
+        frames = guards.parse_blocks(body)
+        then_pos = body.index("EXIT")
+        raise_pos = body.index("RAISE")
+        self.assertTrue(
+            guards.labelled_exit_before(body, frames, raise_pos, after=then_pos)
+        )
+        # An EXIT before `after` (outside the span under test) does not count.
+        self.assertFalse(
+            guards.labelled_exit_before(body, frames, raise_pos, after=raise_pos)
+        )
+
+    def test_sqlstate_literal_forms_are_all_decoded(self) -> None:
+        """P: PostgreSQL accepts '...', E'...' and $tag$...$tag$ here - a
+        scanner that only reads '...' hides a real P0001 swallow."""
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_unicode_sqlstate_fails_closed(self) -> None:
+        for i, handler in enumerate(UNICODE_SQLSTATE_MUST_REJECT):
+            with self.subTest(handler=handler):
+                self.assertTrue(self.verdict(f"unicode_{i}", definer_outer_handler(handler)))
+
+    def test_continued_literal_cannot_impersonate_a_guard(self) -> None:
+        for name, body in CONTINUED_LITERAL_FAKE_GUARDS.items():
+            with self.subTest(name=name):
+                self.assertTrue(self.verdict(name, definer(body)))
+                # The same string preceding a REAL assertion remains valid.
+                guarded = body + "\n  PERFORM public.wardah_assert_org_member(p_org);"
+                self.assertEqual(self.verdict(name + "_real_guard", definer(guarded)), [])
+
+    def test_ordinary_continuation_does_not_inherit_escape_mode(self) -> None:
+        # Without leading E the backslash is content and the quote really
+        # closes: the assertion after it executes (PostgreSQL 17.5 control).
+        body = "  PERFORM ''\n'\\' ; PERFORM public.wardah_assert_org_member(p_org); --'\n"
+        self.assertEqual(self.verdict("ordinary_real_guard", definer(body)), [])
+
+    def test_literal_boundaries_match_for_masking_and_decoding(self) -> None:
+        for i, (literal, expected) in enumerate(CONTINUED_LITERAL_VALUES):
+            with self.subTest(literal=literal):
+                raw = "SQLSTATE " + literal
+                masked, problems = guards.mask_sql_checked(raw)
+                self.assertEqual(problems, [])
+                self.assertEqual(len(masked), len(raw))
+                self.assertEqual(
+                    guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                    (expected, False),
+                )
+                body = "  PERFORM " + literal + ";"
+                self.assertTrue(self.verdict(f"literal_{i}_unguarded", definer(body)))
+                body += "\n  PERFORM public.wardah_assert_org_member(p_org);"
+                self.assertEqual(self.verdict(f"literal_{i}_guarded", definer(body)), [])
+                # Also prove the actual exception-handling verdict, including
+                # unrelated/invalid SQLSTATE values that do not catch P0001.
+                findings = self.verdict(f"literal_{i}_handler", definer_outer_handler(raw))
+                self.assertEqual(bool(findings), expected in ("P0001", "P0000"))
+
+    def test_continuation_uses_raw_separators_and_resets_mode(self) -> None:
+        for separator in (" ", " /* comment */\n", "\n/* nested /* c */ c */\n"):
+            raw = "SQLSTATE E'P00'" + separator + "'01'"
+            masked, problems = guards.mask_sql_checked(raw)
+            self.assertEqual(problems, [])
+            self.assertEqual(
+                guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                ("P00", False),
+            )
+        body = "  PERFORM E'';\n  PERFORM ''\n'\\';\n"
+        body += "  PERFORM public.wardah_assert_org_member(p_org);"
+        self.assertEqual(self.verdict("escape_mode_reset", definer(body)), [])
+
+    def test_unknown_sqlstate_operands_and_broken_chains_fail_closed(self) -> None:
+        for i, operand in enumerate((
+            "U&'P0001'", "U&'P000!0031' UESCAPE '!'", "U&'P00'\n'01'",
+            "E'P0'\nU&'001'", "E'P0'\n'\\x'", "E'P0'\n'\\q'",
+        )):
+            with self.subTest(operand=operand):
+                raw = "SQLSTATE " + operand
+                masked, _ = guards.mask_sql_checked(raw)
+                self.assertEqual(
+                    guards._read_sqlstate_literal(masked, raw, 0, len("SQLSTATE ")),
+                    (None, True),
+                )
+                self.assertTrue(self.verdict(f"unknown_{i}", definer_outer_handler(raw)))
+
+    def test_sqlstate_octal_escape_uses_postgresql_byte_semantics(self) -> None:
+        """Astra round 2, finding 1: `\\ooo` is a BYTE escape and wraps modulo
+        256, not an arbitrary Unicode code point."""
+        for name, sql in SQLSTATE_OCTAL_ESCAPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        # Existing hex/simple/plain forms and unrelated codes must not regress.
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_REJECT.items():
+            with self.subTest(no_regression_reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_LITERAL_FORM_MUST_ACCEPT.items():
+            with self.subTest(no_regression_accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_sqlstate_literals_continue_across_a_newline(self) -> None:
+        """Astra round 2, finding 2: PostgreSQL concatenates adjacent string
+        constants when the separating whitespace contains a newline."""
+        for name, sql in SQLSTATE_CONTINUATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_CONTINUATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_literal_continuation_reader_discriminates(self) -> None:
+        """The reader itself: newline-separated segments concatenate, a
+        same-line pair does not, and an unparseable continuation fails
+        closed rather than silently keeping only the first segment."""
+        raw = "SQLSTATE 'P00'\n'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE 'P00' '01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+
+        # A dollar-quoted literal is a standalone operand, never chained.
+        raw = "SQLSTATE $tag$P00$tag$\n'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("$")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+
+        # A continuation segment that cannot be decoded fails closed.
+        raw = "SQLSTATE 'P00'\nE'P0\\q01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+    def test_sqlstate_continuation_inherits_the_chains_escape_mode(self) -> None:
+        """Astra round 3: the escape mode is decided ONCE by the leading
+        segment and applies to every continuation segment - verified against
+        a live PostgreSQL server, which never lets a continuation segment
+        carry its own E/e prefix in the first place."""
+        for name, sql in SQLSTATE_CHAINED_ESCAPE_MODE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in SQLSTATE_CHAINED_ESCAPE_MODE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        for name, sql in SQLSTATE_ILLEGAL_CONTINUATION_PREFIX_MUST_REJECT.items():
+            with self.subTest(illegal_continuation=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_chained_escape_mode_reader_discriminates(self) -> None:
+        """The reader itself: the leading segment's prefix decides the mode
+        for the WHOLE chain, an E-prefixed continuation is never legal PG
+        syntax and fails closed, and a plain chain never decodes escapes."""
+        raw = "SQLSTATE E'P00'\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'P0'\n'00'\n'\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'235'\n'0\\x35'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "23505")
+        self.assertFalse(unparseable)
+
+        # No leading E'': a continuation's backslash is never an escape.
+        raw = "SQLSTATE 'P00'\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P000\\x31")
+        self.assertFalse(unparseable)
+
+        # An E-prefixed continuation segment never compiles, in either
+        # direction, and must fail closed rather than truncate to the first
+        # segment's value.
+        raw = "SQLSTATE 'P0'\nE'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+        raw = "SQLSTATE E'P0'\nE'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+    def test_sqlstate_literal_reader_fails_closed_on_unparseable_content(self) -> None:
+        """The reader itself: an opener it cannot confidently decode must
+        report unparseable=True, never a silent 'no match'."""
+        raw = "SQLSTATE E'P0\\q01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+        # An unterminated dollar tag is unparseable too, not "no literal here".
+        raw = "SQLSTATE $tag$P0001"
+        value, unparseable = guards._read_sqlstate_literal(
+            raw, raw, 0, raw.index("$")
+        )
+        self.assertIsNone(value)
+        self.assertTrue(unparseable)
+
+    def test_quoted_type_whitespace_keeps_overloads_distinct(self) -> None:
+        """P: whitespace INSIDE a quoted type identifier is part of its
+        identity - PostgreSQL never collapses it, and neither may this
+        scanner's tokenizer before the fold step runs."""
+        for name, sql in QUOTED_TYPE_WHITESPACE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in QUOTED_TYPE_WHITESPACE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        self.assertNotEqual(
+            guards._normalize_arg_type('p_x public."Type A"'),
+            guards._normalize_arg_type('p_x public."Type  A"'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x public."Type  A"'),
+            guards._normalize_arg_type('public."Type  A"'),
+        )
+
+    def test_quoted_condition_names_are_resolved_to_their_condition(self) -> None:
+        """Q1: `WHEN "raise_exception"` catches exactly what `WHEN
+        raise_exception` catches; masking blanks the name, so it is read back
+        from the raw source and an unresolvable span fails closed."""
+        for name, sql in QUOTED_CONDITION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a quoted condition name swallowed the "
+                    f"assertion's authorization failure unnoticed",
+                )
+        for name, sql in QUOTED_CONDITION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_array_bounds_belong_to_the_type_not_to_a_name(self) -> None:
+        """Q2: `uuid []` and `"Type A" []` are one parameter with no name, so
+        the element type must survive normalization."""
+        self.assertEqual(guards._normalize_arg_type('"Type A" []'), '"Type A"[]')
+        self.assertEqual(guards._normalize_arg_type("uuid []"), "uuid[]")
+        self.assertEqual(guards._normalize_arg_type("p_x uuid []"), "uuid[]")
+        # Round 10: array BOUNDS are not part of the identity either.
+        # PostgreSQL 17.11 resolves an `uuid[4]` argument to `uuid[]`. What
+        # this line proves is unchanged: `[4]` belongs to the type, so the
+        # parameter is unnamed.
+        self.assertEqual(guards._normalize_arg_type("uuid [4]"), "uuid[]")
+        self.assertEqual(guards._normalize_arg_type('OUT "Type A" []'), '"Type A"[]')
+        self.assertNotEqual(
+            guards._normalize_arg_type('public."Type A" []'),
+            guards._normalize_arg_type('public."Type B" []'),
+        )
+        for name, sql in ARRAY_BOUND_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a REVOKE on a different overload was read as "
+                    f"closing the unguarded definer",
+                )
+        for name, sql in ARRAY_BOUND_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_unicode_delimited_condition_names_resolve_or_fail_closed(self) -> None:
+        """R1: `U&"..."` is a delimited identifier too. PostgreSQL 17.11 refuses
+        one in a plpgsql handler condition, so these are not live swallows - but
+        an identity this reader cannot PROVE must never be reported as
+        non-catching, and an unrelated name must still not invent a red."""
+        for name, sql in UNICODE_CONDITION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UNICODE_CONDITION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_the_shared_identifier_reader_decodes_both_spellings(self) -> None:
+        """R1: one reader, both spellings, and None for anything unresolvable."""
+        self.assertEqual(
+            guards._read_delimited_identifier('"raise_exception"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(r'U&"raise_excepti\006Fn"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(r'U&"raise_excepti\+00006Fn"', 0)[0],
+            "raise_exception",
+        )
+        self.assertEqual(
+            guards._read_delimited_identifier(
+                'U&"raise_excepti!006Fn" UESCAPE \'!\'', 0
+            )[0],
+            "raise_exception",
+        )
+        # A doubled quote is an embedded quote, in both spellings.
+        self.assertEqual(
+            guards._read_delimited_identifier('"a""b"', 0)[0], 'a"b'
+        )
+        # Quoting prevents FOLDING; it does not change the identifier, so a
+        # quoted lower-case name is the same identifier as the bare one.
+        self.assertEqual(
+            guards._read_delimited_identifier('"uuid"', 0)[0], "uuid"
+        )
+        for unresolvable in (
+            r'U&"bad\00"',                     # truncated escape
+            r'U&"bad\+0000"',                  # truncated plus form
+            'U&"x" UESCAPE \'a\'',              # a hex digit cannot be the escape
+            'U&"x" UESCAPE \'+\'',              # nor can `+`
+            r'U&"lone\D800"',                  # a lone surrogate
+            r'U&"nul\0000"',                   # NUL is not an identifier char
+            '"unterminated',
+        ):
+            with self.subTest(unresolvable=unresolvable):
+                self.assertIsNone(
+                    guards._read_delimited_identifier(unresolvable, 0),
+                    unresolvable,
+                )
+
+    def test_qualified_type_identity_survives_spacing(self) -> None:
+        """R2: `"Schema A" . "T" []` is ONE qualified array type, not a name
+        followed by `. "T" []`."""
+        self.assertEqual(
+            guards._normalize_arg_type('"Schema A" . "T" []'),
+            guards._normalize_arg_type('"Schema A"."T"[]'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Schema A" . "T" []'),
+            guards._normalize_arg_type('"Schema B" . "T" []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("sch_a . t []"),
+            guards._normalize_arg_type("sch_a.t[]"),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type("sch_a . t []"),
+            guards._normalize_arg_type("sch_b . t []"),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Schema A" . t []'),
+            guards._normalize_arg_type('"Schema B" . t []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x public."Type A" []'),
+            guards._normalize_arg_type('public."Type A"[]'),
+        )
+        # Round 10: DIMENSIONALITY is not part of a routine argument type.
+        # PostgreSQL 17.11 resolves `public."Type A"[]` and
+        # `public."Type A"[][]` to the SAME pg_proc row (verified with a real
+        # custom type, not only a built-in), so the previous assertion pinned
+        # a distinction PostgreSQL does not make. The closure this test exists
+        # for - a DIFFERENT element type must not merge - is asserted above
+        # and by multi_dimensional_bounds_stay_with_their_element_type, both
+        # of which still hold.
+        self.assertEqual(
+            guards._normalize_arg_type('public."Type A" [] []'),
+            guards._normalize_arg_type('public."Type A" []'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('public."Type A" [] []'),
+            guards._normalize_arg_type('public."Type B" []'),
+        )
+        for name, sql in QUALIFIED_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in QUALIFIED_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_default_separators_are_found_outside_quoted_identifiers(self) -> None:
+        """R3: `DEFAULT` and `=` inside a quoted type name are part of the NAME;
+        only a separator at the parameter's top level ends the type."""
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Type DEFAULT A" []'),
+            guards._normalize_arg_type('"Type DEFAULT B" []'),
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Type=A" []'),
+            guards._normalize_arg_type('"Type=B" []'),
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('"Type DEFAULT A" []'),
+            '"Type DEFAULT A"[]',
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x "Type DEFAULT A" [] DEFAULT NULL'),
+            '"Type DEFAULT A"[]',
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("p_meta jsonb = '{}'::jsonb"), "jsonb"
+        )
+        self.assertEqual(
+            guards._normalize_arg_type('p_x "Ty""pe DEFAULT A"'),
+            '"Ty""pe DEFAULT A"',
+        )
+        self.assertNotEqual(
+            guards._normalize_arg_type('"Ty""pe DEFAULT A"'),
+            guards._normalize_arg_type('"Ty""pe DEFAULT B"'),
+        )
+        for name, sql in DEFAULT_IN_QUOTED_TYPE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in DEFAULT_IN_QUOTED_TYPE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_a_present_but_unresolved_argument_list_is_not_a_wildcard(self) -> None:
+        """S1: three distinct states - omitted, resolved, present-but-unresolved
+        - and only the first two may ever compare equal."""
+        omitted = guards.Identity("public", "f", False, None)
+        uuid_args = guards.Identity("public", "f", False, ("uuid",))
+        text_args = guards.Identity("public", "f", False, ("text",))
+        unresolved = guards.Identity("public", "f", False, guards.UNRESOLVED_ARGS)
+        # The three states are distinguishable, not one sentinel.
+        self.assertIsNot(guards.UNRESOLVED_ARGS, None)
+        self.assertNotEqual(uuid_args.args, text_args.args)
+        self.assertFalse(uuid_args.same_function(text_args))
+        # An omitted list keeps exactly the semantics it always had.
+        self.assertTrue(omitted.same_function(uuid_args))
+        self.assertTrue(uuid_args.same_function(omitted))
+        # An unresolved list matches nothing - not a resolved list, not an
+        # omitted one, not even another unresolved one.
+        for other in (omitted, uuid_args, text_args, unresolved):
+            with self.subTest(other=other.qualified):
+                self.assertFalse(unresolved.same_function(other))
+                self.assertFalse(other.same_function(unresolved))
+        self.assertIn("unresolved", unresolved.qualified)
+        # And the parser reaches that state instead of returning None.
+        self.assertIs(
+            guards._parse_arg_list("p_x public.audit_probe.note%TYPE"),
+            guards.UNRESOLVED_ARGS,
+        )
+        self.assertEqual(guards._parse_arg_list("uuid"), ("uuid",))
+
+    def test_comments_do_not_alter_routine_identity(self) -> None:
+        """S1: a comment is whitespace to PostgreSQL, so it must neither create
+        a wildcard nor break a real match."""
+        for name, sql in UNPARSEABLE_ARGS_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an unreadable or non-matching signature was "
+                    f"treated as closing the unguarded definer",
+                )
+        for name, sql in UNPARSEABLE_ARGS_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        # Structure from the masked span, identifier content from raw.
+        self.assertEqual(
+            guards._normalize_arg_type("p_x uuid          ", "p_x uuid /* why */"),
+            "uuid",
+        )
+
+    def test_grantee_identities_use_the_shared_reader(self) -> None:
+        """S2: if PostgreSQL resolves a grantee to PUBLIC, anon or
+        authenticated, ACL replay must resolve it to the same role."""
+        self.assertEqual(
+            guards._grantee_names('PUBLIC, anon, U&"authenticate\\0064"'),
+            {"public", "anon", "authenticated"},
+        )
+        self.assertEqual(
+            guards._grantee_names("U&\"authenticate!0064\" UESCAPE '!'"),
+            {"authenticated"},
+        )
+        self.assertEqual(
+            guards._grantee_names('PUBLIC, anon, "authenticated"'),
+            {"public", "anon", "authenticated"},
+        )
+        self.assertEqual(guards._grantee_names("GROUP service_role"), {"service_role"})
+        # A quoted name that differs in CASE is a different role.
+        self.assertEqual(guards._grantee_names('"Authenticated"'), {"Authenticated"})
+        # `U&` must never be re-read as a bare role named `u`.
+        self.assertNotIn("u", guards._grantee_names('U&"reporting_rol\\0065"'))
+        self.assertEqual(
+            guards._grantee_names('U&"reporting_rol\\0065"'), {"reporting_role"}
+        )
+        # An unresolvable delimited grantee is recorded as unresolved, not as
+        # some other role, and not silently dropped.
+        self.assertIn(
+            guards.UNRESOLVED_GRANTEE, guards._grantee_names('U&"authenticate\\00"')
+        )
+        for name, sql in UNICODE_GRANTEE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a GRANT that reopens the function for a client "
+                    f"role was not seen",
+                )
+        for name, sql in UNICODE_GRANTEE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
     def test_an_omitted_schema_is_not_a_wildcard(self) -> None:
         """O: an unqualified name resolves through search_path, to public."""
         for name, sql in OMITTED_SCHEMA_MUST_REJECT.items():
@@ -2938,6 +4627,1167 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         for name, sql in OMITTED_SCHEMA_MUST_ACCEPT.items():
             with self.subTest(accept=name):
                 self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_dollar_tag_recognition_uses_postgresqls_byte_range(self) -> None:
+        """Astra round 4: dolq_start/dolq_cont accept every non-ASCII byte, so
+        a tag this scanner failed to recognize left the literal's content
+        exposed as executable text. Reproduced live on PostgreSQL 17."""
+        for name, sql in DOLLAR_TAG_BYTE_RANGE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in DOLLAR_TAG_BYTE_RANGE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_dollar_tag_reader_matches_postgresql(self) -> None:
+        """The reader itself, against PostgreSQL's own character classes."""
+        for tag in ("$\U0001F600$", "$\u2168$", "$a\u0301$", "$a\u200b$",
+                    "$\u00a0$", "$\u00ad$", "$a\ufeff$", "$\ue000$",
+                    "$$", "$_$", "$a1$", "$tag$", "$\u00e9$", "$\u3042$"):
+            self.assertEqual(guards._dollar_tag_at(tag, 0), tag, tag)
+        # Not tags: a digit cannot start one, and neither whitespace nor `$`
+        # may appear inside one.
+        for text in ("$1$", "$1", "$", "$ $", "$a b$", "$a\t$", "$a\x0b$"):
+            self.assertIsNone(guards._dollar_tag_at(text, 0), text)
+        # The masker and the SQLSTATE reader must share ONE boundary rule.
+        for tag in ("$\U0001F600$", "$a\u0301$", "$$", "$q$"):
+            self.assertEqual(
+                guards._DOLLAR_TAG_RE.match(tag, 0).group(0),
+                guards._dollar_tag_at(tag, 0),
+                tag,
+            )
+
+    def test_vertical_tab_is_continuation_whitespace_on_postgresql_17(self) -> None:
+        """Codex round 4: v17 added \v to scan.l's `space` class, so a VT is
+        ordinary whitespace on either side of a quote continuation's newline.
+        Missing it truncated the SQLSTATE chain and ended masked literals
+        early. Reproduced live on PostgreSQL 17."""
+        for name, sql in VERTICAL_TAB_CONTINUATION_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in VERTICAL_TAB_CONTINUATION_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_vertical_tab_continuation_reader_discriminates(self) -> None:
+        """The reader itself: a VT joins a chain only alongside a newline, and
+        never supplies the newline PostgreSQL requires."""
+        raw = "SQLSTATE E'P00'\x0b\n'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        raw = "SQLSTATE E'P00'\n\x0b'0\\x31'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("E'")
+        )
+        self.assertEqual(value, "P0001")
+        self.assertFalse(unparseable)
+
+        # VT with no newline is NOT a continuation.
+        raw = "SQLSTATE 'P00'\x0b'01'"
+        masked, _ = guards.mask_sql_checked(raw)
+        value, unparseable = guards._read_sqlstate_literal(
+            masked, raw, 0, masked.index("'")
+        )
+        self.assertEqual(value, "P00")
+        self.assertFalse(unparseable)
+        self.assertIsNone(guards._continuation_quote("'a'\x0b'b'", 3))
+        self.assertIsNotNone(guards._continuation_quote("'a'\x0b\n'b'", 3))
+        self.assertIsNotNone(guards._continuation_quote("'a'\n\x0b'b'", 3))
+
+    # -- Round 9 (PR #246) --------------------------------------------------
+
+    def test_multi_word_type_phrase_keeps_its_leading_word(self) -> None:
+        """Round 9 finding 1: `char varying` is the built-in varchar on
+        PostgreSQL 17, but the scanner dropped `char` as an optional parameter
+        NAME and normalized the type to `varying` - the identity a quoted
+        custom type `"varying"` also produces. Two distinct PostgreSQL
+        overloads collapsed, so a REVOKE naming one closed the other."""
+        for name, sql in TYPE_PHRASE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in TYPE_PHRASE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_type_phrase_boundary_is_decided_on_two_tokens(self) -> None:
+        """Parser-internal: the decision is "do these two tokens open a type
+        phrase", not "is the first word ever a type word". A lead word alone is
+        not a phrase - `double text` is a parameter NAMED `double` of type
+        `text`, which PostgreSQL accepts (identity arguments `double text`) -
+        and a delimited `"char"` is the ordinary type of that name."""
+        # Round 10: `char varying` IS `character varying` (OID 1043) in
+        # PostgreSQL 17.11, so the canonical form is now the resolved type
+        # rather than the spelling. Round 9 left these distinct and recorded
+        # it as a conservative false RED; it was also a false GREEN, because a
+        # GRANT spelled the other way reopens the same routine.
+        self.assertEqual(
+            guards._normalize_arg_type("char varying"), "character varying"
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("character varying"), "character varying"
+        )
+        self.assertEqual(guards._normalize_arg_type("p_x char varying"),
+                         "character varying")
+        self.assertEqual(guards._normalize_arg_type("double precision"),
+                         "double precision")
+        self.assertEqual(guards._normalize_arg_type("double text"), "text")
+        self.assertEqual(guards._normalize_arg_type("varying text"), "text")
+        self.assertEqual(guards._normalize_arg_type("bit varying"), "bit varying")
+        # `nchar varying` and `national character varying` are the SAME
+        # built-in (OID 1043) on PostgreSQL 17.11, so they canonicalize
+        # together. Each still keeps its leading word rather than collapsing
+        # into the bare `varying` identity, which is the Round 9 closure.
+        self.assertEqual(guards._normalize_arg_type("nchar varying"),
+                         "character varying")
+        self.assertEqual(
+            guards._normalize_arg_type("national character varying"),
+            "character varying",
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("time with time zone"), "time with time zone"
+        )
+        self.assertEqual(
+            guards._normalize_arg_type("timestamp without time zone"),
+            "timestamp without time zone",
+        )
+        # INTERVAL field qualifiers are a typmod, not a distinct type:
+        # PostgreSQL 17.11 resolves `interval day to second` to OID 1186,
+        # the same routine argument type as plain `interval`.
+        self.assertEqual(
+            guards._normalize_arg_type("interval day to second"), "interval"
+        )
+        self.assertEqual(guards._normalize_arg_type("interval"), "interval")
+        self.assertEqual(guards._normalize_arg_type("p_x text"), "text")
+        # A DELIMITED lead word is an ordinary type name, never half a phrase.
+        self.assertEqual(guards._normalize_arg_type('"char" varying'), "varying")
+        # The collapse itself: these two must not share a scanner identity.
+        self.assertNotEqual(
+            guards._normalize_arg_type("char varying"),
+            guards._normalize_arg_type('p_x "varying"'),
+        )
+
+    def test_unresolved_grant_target_is_not_assumed_unrelated(self) -> None:
+        """Round 9 finding 2: `f(public.t.c%TYPE)` is a PostgreSQL-valid way to
+        name an existing routine, and the GRANT really does reopen client
+        EXECUTE. Exact identity correctly refuses to match an unresolved
+        argument list, but ACL replay read "not an exact match" as "definitely
+        unrelated" and dropped the statement."""
+        for name, sql in UNRESOLVED_GRANT_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UNRESOLVED_GRANT_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_exact_identity_and_possible_applicability_stay_distinct(self) -> None:
+        """Parser-internal: the two relations must not collapse back into one.
+        same_function() stays EXACT - an unresolved list matches nothing, which
+        is what stopped it acting as a wildcard REVOKE - while
+        may_be_same_function() concedes only the argument list and still uses
+        schema and routine name, so one unreadable GRANT cannot reopen every
+        routine in the file."""
+        def ident(schema, name, args):
+            return guards.Identity(schema, name, False, args)
+
+        exact = ident("public", "f", ("text",))
+        other = ident("public", "f", ("uuid",))
+        unresolved = ident("public", "f", guards.UNRESOLVED_ARGS)
+        omitted = ident("public", "f", None)
+        elsewhere = ident("other_schema", "f", guards.UNRESOLVED_ARGS)
+        different = ident("public", "g", guards.UNRESOLVED_ARGS)
+
+        # EXACT: unresolved proves nothing, in either direction.
+        self.assertFalse(exact.same_function(unresolved))
+        self.assertFalse(unresolved.same_function(exact))
+        self.assertFalse(unresolved.same_function(unresolved))
+        self.assertFalse(exact.same_function(other))
+        self.assertTrue(exact.same_function(omitted))
+        self.assertTrue(exact.same_function(ident("public", "f", ("text",))))
+
+        # POSSIBLE: unresolved might be this routine - but only this NAME, in
+        # this SCHEMA.
+        self.assertTrue(exact.may_be_same_function(unresolved))
+        self.assertTrue(unresolved.may_be_same_function(exact))
+        self.assertTrue(unresolved.may_be_same_function(unresolved))
+        self.assertFalse(exact.may_be_same_function(elsewhere))
+        self.assertFalse(exact.may_be_same_function(different))
+        # With both lists resolved, possibility is exactly identity again.
+        self.assertFalse(exact.may_be_same_function(other))
+        self.assertTrue(exact.may_be_same_function(ident("public", "f", ("text",))))
+
+        # An unqualified name resolves through search_path to `public`, and is
+        # not a wildcard over other schemas.
+        self.assertTrue(exact.may_be_same_function(ident(None, "f",
+                                                         guards.UNRESOLVED_ARGS)))
+        self.assertFalse(
+            ident("other_schema", "f", ("text",)).may_be_same_function(
+                ident(None, "f", guards.UNRESOLVED_ARGS)
+            )
+        )
+
+    def test_uescape_clause_is_found_across_comments(self) -> None:
+        """Round 9 finding 3: PostgreSQL resolves
+        `U&"authenticate!0064" /* c */ UESCAPE '!'` to the role
+        `authenticated`. The clause was looked for in RAW bytes, where a
+        comment is not whitespace, so it was missed, the content was decoded
+        against the default backslash escape, and the reader returned a WRONG
+        role instead of None - which never trips the fail-closed path."""
+        for name, sql in UESCAPE_GRANTEE_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in UESCAPE_GRANTEE_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+
+    def test_delimited_identifier_reader_uses_masked_structure(self) -> None:
+        """Parser-internal: STRUCTURE from masked, CONTENT from raw, offsets
+        aligned - the same split the parameter path already uses, not a second
+        private U& reader and not a regex strip of comments from raw SQL."""
+        for spacing in (" ", "  ", "\t", "\n", "\r\n", "\x0b", "\x0c",
+                        " /* c */ ", " /* a /* b */ c */ ", " -- c\n "):
+            raw = f'U&"authenticate!0064"{spacing}UESCAPE \'!\''
+            masked, problems = guards.mask_sql_checked(raw)
+            self.assertEqual(problems, [], repr(spacing))
+            read = guards._read_delimited_identifier(raw, 0, masked)
+            self.assertIsNotNone(read, repr(spacing))
+            self.assertEqual(read[0], "authenticated", repr(spacing))
+            self.assertEqual(read[1], len(raw), repr(spacing))
+        # Default backslash escape when no clause follows.
+        raw = 'U&"authenticate\\0064"'
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertEqual(
+            guards._read_delimited_identifier(raw, 0, masked)[0], "authenticated"
+        )
+        # A UESCAPE character PostgreSQL rejects is unresolvable here too, even
+        # when a comment precedes the clause.
+        raw = 'U&"authenticate!0064" /* c */ UESCAPE \'1\''
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertIsNone(guards._read_delimited_identifier(raw, 0, masked))
+        # Raw and masked stay offset-aligned; masking never shortens the span.
+        raw = 'U&"authenticate!0064" /* c */ UESCAPE \'!\''
+        masked, _ = guards.mask_sql_checked(raw)
+        self.assertEqual(len(masked), len(raw))
+
+    def test_privilege_head_consumes_postgresql_whitespace(self) -> None:
+        """Round 9 finding 4: `GRANT ALL\\nPRIVILEGES ON FUNCTION ... TO
+        authenticated` is accepted by PostgreSQL and grants EXECUTE, but the
+        privilege head admitted literal ASCII spaces only, so the statement
+        matched no head and vanished from the ACL replay entirely."""
+        for name, sql in PRIVILEGE_HEAD_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(self.verdict(name, sql), name)
+        for name, sql in PRIVILEGE_HEAD_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(self.verdict(name, sql), [], name)
+        # Documented conservative false reds, frozen so the direction cannot
+        # flip silently.
+        for name, sql in PRIVILEGE_HEAD_CONSERVATIVE_FALSE_RED.items():
+            with self.subTest(conservative=name):
+                self.assertTrue(self.verdict(name, sql), name)
+
+    def test_privilege_head_stays_bounded_to_one_statement(self) -> None:
+        """Parser-internal: the head grammar consumes PostgreSQL whitespace and
+        masked comments, and NOTHING else - it is not `.*`. A `;` is outside
+        its character class, so it can never reach from one statement's GRANT
+        into a later statement's ON clause. Python's `\\s` is also not
+        PostgreSQL's whitespace: `GRANT ALL\\u00a0PRIVILEGES` is a syntax error
+        on PostgreSQL 17, so it must not parse here either."""
+        def heads(sql):
+            masked, problems = guards.mask_sql_checked(sql)
+            self.assertEqual(problems, [])
+            return guards.parse_privilege_statements(sql, masked)
+
+        # A semicolon ends the reach of the head.
+        self.assertEqual(
+            heads("GRANT ALL;\nPRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        self.assertEqual(
+            heads("GRANT SELECT ON TABLE public.t TO authenticated;\n"
+                  "GRANT USAGE ON SCHEMA public TO authenticated;"),
+            [],
+        )
+        # Non-whitespace, non-letter text is outside the class too.
+        self.assertEqual(
+            heads("GRANT ALL()PRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        # Unicode whitespace PostgreSQL rejects must not parse here.
+        self.assertEqual(
+            heads("GRANT ALL PRIVILEGES ON FUNCTION public.f(text) "
+                  "TO authenticated;"),
+            [],
+        )
+        # The PostgreSQL-valid spellings DO parse, and carry their grantee.
+        for sep in (" ", "\t", "\n", "\r\n", "\x0b", "\x0c", " /* c */ ",
+                    " -- c\n"):
+            stmts = heads(f"GRANT ALL{sep}PRIVILEGES ON FUNCTION "
+                          f"public.f(text) TO authenticated;")
+            self.assertEqual(len(stmts), 1, repr(sep))
+            self.assertIn("authenticated", stmts[0].grantees, repr(sep))
+            self.assertFalse(stmts[0].is_revoke, repr(sep))
+            self.assertFalse(stmts[0].grant_option_only, repr(sep))
+        # `REVOKE GRANT OPTION FOR` keeps its own modelling across whitespace.
+        stmts = heads("REVOKE GRANT\nOPTION FOR EXECUTE ON FUNCTION "
+                      "public.f(text) FROM authenticated;")
+        self.assertEqual(len(stmts), 1)
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertTrue(stmts[0].grant_option_only)
+        # ... and `GRANT OPTION FOR` still never begins a GRANT statement.
+        self.assertTrue(all(s.is_revoke for s in stmts))
+
+    def test_privilege_text_in_a_routine_body_is_not_migration_time_acl(
+        self,
+    ) -> None:
+        """ROUND10-A. Creating a routine does not execute its body, so privilege
+        text inside one may neither close nor reopen the migration's ACL state.
+        PostgreSQL 17.11 confirms the victim stays publicly executable."""
+        for name, sql in ROUND10_BODY_PRIVILEGE_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: routine-body privilege text was replayed as a "
+                    f"migration-time closure",
+                )
+        for name, sql in ROUND10_BODY_PRIVILEGE_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a genuine top-level closure was lost",
+                )
+
+    def test_privilege_statements_are_read_only_at_migration_top_level(
+        self,
+    ) -> None:
+        """ROUND10-A, parser-internal. The statements the ACL replay consumes
+        are exactly the top-level ones; a body contributes none, and a real
+        top-level statement after a CREATE is still seen."""
+        sql = (
+            "CREATE FUNCTION public.decoy() RETURNS void\n"
+            "LANGUAGE plpgsql AS $$\n"
+            "BEGIN\n"
+            "  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC;\n"
+            "  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;\n"
+            "END;\n"
+            "$$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = guards.parse_privilege_statements(sql, masked)
+        self.assertEqual(len(stmts), 1, "only the top-level statement counts")
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertGreater(stmts[0].start, sql.index("$$;"))
+
+    def test_postgresql_equivalent_type_spellings_resolve_together(self) -> None:
+        """ROUND10-B. A GRANT spelled with an equivalent type name reaches the
+        same routine in PostgreSQL and must reopen it; a REVOKE spelled that way
+        is a real closure. Every pair was confirmed on PostgreSQL 17.11."""
+        for name, sql in ROUND10_ALIAS_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: an applicable GRANT was ignored, or two distinct "
+                    f"types were merged",
+                )
+        for name, sql in ROUND10_ALIAS_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: an equivalent REVOKE spelling was not credited",
+                )
+
+    def test_quoted_type_identity_follows_postgresql_resolution(self) -> None:
+        """ROUND10-C. Quotedness is neither always cosmetic nor always
+        significant. `"char"` is OID 18 and `char` is OID 1042, so a REVOKE on
+        one may not close the other; `"uuid"` and `uuid` are one type, so it
+        must. Classified with PostgreSQL 17.11, not intuition."""
+        for name, sql in ROUND10_QUOTED_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a REVOKE closed a DIFFERENT type's overload",
+                )
+        for name, sql in ROUND10_QUOTED_MUST_ACCEPT.items():
+            with self.subTest(case=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a REVOKE on the same type was not credited",
+                )
+
+    def test_exact_identity_and_grant_applicability_stay_separate(self) -> None:
+        """ROUND10 cross-cutting. Exact identity (REVOKE credit) and possible
+        identity (GRANT reopening) are different questions and must not be
+        forced through one equality operator. An unreadable custom spelling
+        proves nothing for a REVOKE, yet must not be assumed harmless for a
+        GRANT."""
+        def ident(text):
+            sql = f"REVOKE EXECUTE ON FUNCTION {text} FROM PUBLIC;"
+            masked, problems = guards.mask_sql_checked(sql)
+            self.assertEqual(problems, [])
+            stmts = guards.parse_privilege_statements(sql, masked)
+            self.assertEqual(len(stmts), 1, text)
+            return stmts[0].targets[0]
+
+        varchar = ident("public.f(character varying)")
+        alias = ident("public.f(varchar)")
+        # An alias is the SAME routine in both relations.
+        self.assertTrue(varchar.same_function(alias))
+        self.assertTrue(varchar.may_be_same_function(alias))
+
+        bare_char = ident("public.f(char)")
+        quoted_char = ident('public.f("char")')
+        # Different types: no closure credit, in either direction.
+        self.assertFalse(bare_char.same_function(quoted_char))
+        self.assertFalse(quoted_char.same_function(bare_char))
+
+        other = ident("public.f(uuid)")
+        self.assertFalse(varchar.same_function(other))
+        self.assertFalse(varchar.may_be_same_function(other))
+
+        # A quoted CUSTOM type cannot be proven equal to its bare spelling, so
+        # it earns no REVOKE credit but still counts as a possible GRANT target.
+        bare_custom = ident("public.f(wardah_kind)")
+        quoted_custom = ident('public.f("wardah_kind")')
+        self.assertFalse(bare_custom.same_function(quoted_custom))
+        self.assertTrue(bare_custom.may_be_same_function(quoted_custom))
+
+    def test_round11_confirmed_p2_do_corpus_is_rejected(self) -> None:
+        """ROUND11. The eight executable false-greens on e514eb4 must fail closed."""
+        for name, sql in ROUND11_P2_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: unguarded SECURITY DEFINER accepted after a DO "
+                    f"whose ACL effect is not statically provable",
+                )
+
+    def test_round11_do_closures_are_conservative_false_reds(self) -> None:
+        """ROUND11. Reachable DO REVOKEs that PostgreSQL actually runs are no
+        longer credited as closures. That is a documented false-red, not a
+        soundness regression."""
+        for name, sql in ROUND11_CONSERVATIVE_FALSE_RED.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a DO-based ACL mutation was still treated as a "
+                    f"proven top-level closure",
+                )
+
+    def test_round11_ordering_and_recovery(self) -> None:
+        """ROUND11. UNKNOWN does not poison the file forever; a later exact
+        top-level statement restores proof. Ordering matters."""
+        for name, sql in ROUND11_ORDERING_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: final ACL state was treated as CLOSED",
+                )
+        for name, sql in ROUND11_ORDERING_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a later exact top-level REVOKE did not restore "
+                    f"closure, or a harmless DO poisoned ACL",
+                )
+
+    def test_round11_privilege_statements_ignore_do_bodies(self) -> None:
+        """ROUND11, parser-internal. Lexical GRANT/REVOKE inside DO is not a
+        top-level privilege statement. A real top-level REVOKE after the DO
+        is still seen."""
+        sql = (
+            "CREATE FUNCTION public.review_probe() RETURNS text\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  RETURN 'unguarded';\n"
+            "END;\n"
+            "$$;\n"
+            "DO $$\n"
+            "BEGIN\n"
+            "  REVOKE EXECUTE ON FUNCTION public.review_probe() "
+            "FROM PUBLIC, anon, authenticated;\n"
+            "  EXECUTE 'GRANT EXECUTE ON FUNCTION public.review_probe() "
+            "TO authenticated';\n"
+            "END;\n"
+            "$$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.review_probe() FROM PUBLIC;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = guards.parse_privilege_statements(sql, masked)
+        self.assertEqual(len(stmts), 1)
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertGreater(stmts[0].start, sql.rindex("$$;"))
+        unknowns = guards.parse_procedural_acl_unknown(sql, masked)
+        self.assertEqual(len(unknowns), 1)
+        self.assertLess(unknowns[0], stmts[0].start)
+
+    def test_round11_do_discovery_skips_routine_bodies(self) -> None:
+        """ROUND11. CREATE FUNCTION body EXECUTE is not a migration-time DO."""
+        sql = (
+            "CREATE FUNCTION public.review_probe() RETURNS text\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  EXECUTE 'REVOKE EXECUTE ON FUNCTION public.review_probe() "
+            "FROM PUBLIC';\n"
+            "  RETURN 'unguarded';\n"
+            "END;\n"
+            "$$;\n"
+            "DO $$\n"
+            "BEGIN\n"
+            "  PERFORM 1;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        blocks = guards.parse_do_blocks(masked)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].start, sql.index("\nDO $$") + 1)
+        self.assertEqual(guards.parse_procedural_acl_unknown(sql, masked), [])
+        self.assertFalse(
+            guards.do_is_acl_uncertain(blocks[0], sql, masked),
+            "PERFORM 1 must not poison ACL",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Round 10 remediation (PR #246). Three unique acceptance-layer false-greens,
+# each reproduced against the Round 9 head d9cf2af1ed9ec8b8167cb37bcffb4363165fba3b
+# and each confirmed executable on PostgreSQL 17.11.
+#
+# ROUND10-A (Codex). STATEMENT LOCATION. parse_privilege_statements() scanned
+# the WHOLE masked migration for GRANT/REVOKE heads. A routine body is masked
+# only for its comments and literals - the executable text is deliberately kept,
+# because that is where guards are found - so a `REVOKE EXECUTE ON FUNCTION
+# victim() FROM PUBLIC` written as a STATEMENT INSIDE another routine's body was
+# recorded as a migration-time revoke. Creating a routine does not execute its
+# body: PostgreSQL leaves victim() publicly executable, and the oracle confirms
+# `has_function_privilege('public', 'public.victim_x()', 'EXECUTE')` is still
+# true after both CREATEs. The ACL replay closed the function on paper and
+# check_file() returned [].
+#
+# ROUND10-B (Astra). TYPE ALIAS EQUIVALENCE. Resolved argument types stayed
+# textual, and may_be_same_function() compared them with plain equality, so
+# `character varying` and `varchar` read as unrelated. PostgreSQL resolves both
+# to OID 1043 and therefore to the SAME routine, so a GRANT spelled the other
+# way reopened client EXECUTE while the scanner still reported closure. The
+# oracle confirms the reopen. Round 9 documented surviving alias spellings as
+# conservative false REDS only; for GRANT applicability that was false, and the
+# same class covers ignored type MODIFIERS (`varchar(10)` == `varchar`) and
+# array element spellings (`int[]` == `integer[]`), both PostgreSQL-confirmed.
+#
+# ROUND10-C (Astra). QUOTED TYPE IDENTITY. _render_type_tokens() dropped the
+# quotes from any resolved identifier whose text was already bare-legal, so
+# `"char"` rendered as `char`. PostgreSQL does not agree: bare `char` reaches
+# the grammar keyword and means bpchar (OID 1042), while `"char"` is a typname
+# lookup and means the internal one-byte type (OID 18). They are two DIFFERENT
+# overloads that coexist, and the oracle confirms a REVOKE on `review_probe(
+# "char")` leaves `review_probe(char)` executable by PUBLIC. The scanner
+# credited that revoke to the definer overload.
+#
+# Quoting is NOT uniformly cosmetic and NOT uniformly significant, so neither
+# naive rule is adopted. PostgreSQL 17.11 was used as the oracle to classify
+# every spelling: `"varchar"`, `"text"`, `"numeric"`, `"bool"`, `"timestamp"`,
+# `"time"` and `"uuid"` DO resolve to their bare counterparts (they are real
+# pg_type typnames), `"int"`, `"integer"`, `"boolean"`, `"decimal"`,
+# `"character"`, `"real"`, `"bigint"`, `"smallint"` do not exist at all, and
+# `"char"` resolves to a different type than `char`. Schema qualification
+# behaves like quoting, not like the keyword: `pg_catalog.char` is OID 18.
+# ---------------------------------------------------------------------------
+
+
+def _definer(name: str = "public.victim", args: str = "") -> str:
+    """An unguarded SECURITY DEFINER routine: the only thing that can exempt it
+    is an ACL closure, so these fixtures isolate the privilege replay."""
+    return (
+        f"CREATE FUNCTION {name}({args}) RETURNS text\n"
+        f"LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+        f"BEGIN\n"
+        f"  RETURN 'secret';\n"
+        f"END;\n"
+        f"$$;\n"
+    )
+
+
+def _close(name: str = "public.victim", args: str = "") -> str:
+    return (
+        f"REVOKE EXECUTE ON FUNCTION {name}({args})\n"
+        f"  FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+
+def _overload(args: str, name: str = "public.review_probe") -> str:
+    """A second, INVOKER overload with a DIFFERENT argument type.
+
+    A control that only revokes a signature nobody declared is not executable
+    SQL - PostgreSQL rejects the REVOKE outright - so it proves nothing about a
+    running database. Declaring the other overload makes the fixture real: two
+    routines coexist, the REVOKE names one, and the oracle can confirm the
+    SECURITY DEFINER one is still reachable by a client.
+    """
+    return (
+        f"CREATE FUNCTION {name}({args}) RETURNS text\n"
+        f"LANGUAGE plpgsql AS $$\n"
+        f"BEGIN\n"
+        f"  RETURN 'other';\n"
+        f"END;\n"
+        f"$$;\n"
+    )
+
+
+# --- ROUND10-A: privilege text inside a routine body ------------------------
+ROUND10_BODY_PRIVILEGE_MUST_REJECT = {
+    # (A) The reproducer: an INVOKER decoy whose body is a REVOKE statement.
+    "round10_body_revoke_does_not_close": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # (E) The same text spread over several lines, as PostgreSQL accepts it.
+    "round10_body_revoke_multiline": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE ALL
+  PRIVILEGES ON FUNCTION public.victim()
+  FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # (F) Conflicting privilege text in two bodies: neither may move ACL state.
+    "round10_two_bodies_conflicting_privileges": _definer() + """
+CREATE FUNCTION public.decoy_a() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+
+CREATE FUNCTION public.decoy_b() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+END;
+$$;
+""",
+    # The decoy is created BEFORE the victim.
+    "round10_body_revoke_before_the_victim": """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""" + _definer(),
+    # A SECURITY DEFINER decoy body is no more executable at migration time.
+    "round10_definer_body_revoke_does_not_close": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+  PERFORM wardah_assert_org_member(p_org_id);
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$$;
+""",
+    # A custom dollar tag is still a routine body.
+    "round10_body_revoke_custom_dollar_tag": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $wardah$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+END;
+$wardah$;
+""",
+    # Nested BEGIN/END inside the body changes nothing.
+    "round10_body_revoke_nested_block": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  BEGIN
+    REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+  END;
+END;
+$$;
+""",
+    # A LANGUAGE sql body is a body too.
+    "round10_sql_language_body_revoke": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE sql AS $$
+  REVOKE EXECUTE ON FUNCTION public.victim() FROM PUBLIC, anon, authenticated;
+$$;
+""",
+    # (D) A top-level GRANT after a top-level REVOKE must still REOPEN.
+    "round10_top_level_grant_reopens_after_revoke": _definer() + _close() + """
+GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+""",
+}
+
+ROUND10_BODY_PRIVILEGE_MUST_ACCEPT = {
+    # (C) A valid TOP-LEVEL revoke after a decoy CREATE must still close.
+    "round10_top_level_revoke_after_decoy_closes": _definer() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN;
+END;
+$$;
+""" + _close(),
+    # (B) Body GRANT text must not REOPEN a genuine top-level closure either.
+    "round10_body_grant_does_not_reopen": _definer() + _close() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  GRANT EXECUTE ON FUNCTION public.victim() TO authenticated;
+END;
+$$;
+""",
+    # A DO block DOES execute at migration time, so its revoke is not a body.
+    # It is not credited as a closure either (conservative), so this fixture
+    # closes at top level and merely proves the DO block breaks nothing.
+    "round10_do_block_alongside_top_level_closure": _definer() + _close() + """
+DO $$
+BEGIN
+  PERFORM 1;
+END;
+$$;
+""",
+}
+
+MUST_REJECT.update(ROUND10_BODY_PRIVILEGE_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_BODY_PRIVILEGE_MUST_ACCEPT)
+
+
+# --- ROUND10-B: PostgreSQL-equivalent type spellings ------------------------
+# Each pair is (created_spelling, equivalent_spelling), PostgreSQL 17.11 having
+# confirmed that both name the SAME routine.
+ROUND10_ALIAS_PAIRS = (
+    ("character varying", "varchar"),
+    ("varchar", "character varying"),
+    ("varchar", "char varying"),
+    ("varchar", "national character varying"),
+    ("character", "char"),
+    ("char", "bpchar"),
+    ("character", "nchar"),
+    ("numeric", "decimal"),
+    ("decimal", "numeric"),
+    ("integer", "int"),
+    ("int", "int4"),
+    ("smallint", "int2"),
+    ("bigint", "int8"),
+    ("real", "float4"),
+    ("double precision", "float8"),
+    ("float8", "float"),
+    ("boolean", "bool"),
+    ("timestamptz", "timestamp with time zone"),
+    ("timestamp", "timestamp without time zone"),
+    ("timetz", "time with time zone"),
+    ("time", "time without time zone"),
+    ("varbit", "bit varying"),
+    # Type modifiers are IGNORED in a routine signature.
+    ("varchar", "varchar(10)"),
+    ("numeric", "numeric(10,2)"),
+    ("timetz", "time(3) with time zone"),
+    # Array element spellings alias, and dimensionality is not part of identity.
+    ("int[]", "integer[]"),
+    ("int[]", "int[][]"),
+    # Schema qualification through pg_catalog resolves to the same type.
+    ("varchar", "pg_catalog.varchar"),
+    ("int", "pg_catalog.int4"),
+)
+
+ROUND10_ALIAS_MUST_REJECT = {}
+ROUND10_ALIAS_MUST_ACCEPT = {}
+for _i, (_a, _b) in enumerate(ROUND10_ALIAS_PAIRS):
+    _slug = f"round10_alias_{_i}"
+    # A GRANT spelled the OTHER way reaches the same routine and reopens it.
+    ROUND10_ALIAS_MUST_REJECT[f"{_slug}_grant_reopens"] = (
+        _definer("public.review_probe", _a)
+        + _close("public.review_probe", _a)
+        + f"GRANT EXECUTE ON FUNCTION public.review_probe({_b}) TO authenticated;\n"
+    )
+    # ... and a REVOKE spelled the other way is a real closure of the same
+    # routine, so it must be credited rather than read as a different overload.
+    ROUND10_ALIAS_MUST_ACCEPT[f"{_slug}_revoke_closes"] = (
+        _definer("public.review_probe", _a)
+        + _close("public.review_probe", _b)
+    )
+
+# Controls: canonicalization must NOT merge two types PostgreSQL keeps apart.
+# Each declares the overload it revokes, so the fixture is executable SQL and
+# the oracle can watch the SECURITY DEFINER overload stay reachable.
+ROUND10_ALIAS_DISTINCT = (
+    ("public.wardah_kind_a", "public.wardah_kind_b"),
+    ("alpha.wardah_kind", "beta.wardah_kind"),
+    ("public.varchar_lookalike", "varchar"),
+    ("smallint", "integer"),
+    ("timestamp with time zone", "timestamp without time zone"),
+    ("real", "double precision"),
+    ("int[]", "int"),
+    ("bit", "bit varying"),
+)
+for _a, _b in ROUND10_ALIAS_DISTINCT:
+    ROUND10_ALIAS_MUST_REJECT[
+        f"round10_distinct_{_a}_vs_{_b}".replace(" ", "_").replace(".", "_")
+        .replace("[", "").replace("]", "")
+    ] = (
+        _definer("public.review_probe", _a)
+        + _overload(_b)
+        + _close("public.review_probe", _b)
+    )
+
+MUST_REJECT.update(ROUND10_ALIAS_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_ALIAS_MUST_ACCEPT)
+
+
+# --- ROUND10-C: quoted vs unquoted type identity ----------------------------
+# PostgreSQL 17.11 resolves the quoted form through pg_type.typname and the
+# bare form through the grammar's type keywords. Where those disagree, the two
+# spellings are DIFFERENT types.
+# (created, revoked) - two REAL, coexisting overloads that PostgreSQL 17.11
+# resolves to different type OIDs, so the revoke earns no credit for the other.
+ROUND10_QUOTED_DISTINCT = (
+    ("char", '"char"'),
+    ('"char"', "char"),
+    ("character", '"char"'),
+    ('"char"', "bpchar"),
+    # Qualification bypasses the keyword grammar: `pg_catalog.char` is OID 18.
+    ("char", "pg_catalog.char"),
+)
+# Quoted spellings that do NOT exist as types at all on PostgreSQL 17.11, so a
+# migration containing one fails outright. They stay here as scanner controls -
+# such a spelling must never be credited as a closure - and the oracle reports
+# them as not PostgreSQL-valid rather than pretending they executed.
+ROUND10_QUOTED_NONEXISTENT = (
+    ("int", '"int"'),
+    ("integer", '"integer"'),
+    ("boolean", '"boolean"'),
+    ("numeric", '"decimal"'),
+    ("character", '"character"'),
+)
+# Quoted spellings that ARE real typnames and DO resolve to the bare form.
+ROUND10_QUOTED_SAME = (
+    ("varchar", '"varchar"'),
+    ("text", '"text"'),
+    ("numeric", '"numeric"'),
+    ("bool", '"bool"'),
+    ("timestamp", '"timestamp"'),
+    ("time", '"time"'),
+    ("uuid", '"uuid"'),
+    ("date", '"date"'),
+    ("jsonb", '"jsonb"'),
+    ("character", '"bpchar"'),
+    ("int", '"int4"'),
+    ("timestamptz", '"timestamptz"'),
+    ('"char"', 'pg_catalog."char"'),
+)
+
+ROUND10_QUOTED_MUST_REJECT = {
+    # The reproducer: two REAL overloads, and the revoke names the other one.
+    "round10_quoted_char_overload_does_not_close_bare_char": (
+        _definer("public.review_probe", "char")
+        + """
+CREATE FUNCTION public.review_probe("char") RETURNS text
+LANGUAGE plpgsql AS $$
+BEGIN
+  RETURN 'other';
+END;
+$$;
+"""
+        + _close("public.review_probe", '"char"')
+    ),
+}
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_DISTINCT):
+    ROUND10_QUOTED_MUST_REJECT[f"round10_quoted_distinct_{_i}"] = (
+        _definer("public.review_probe", _a)
+        + _overload(_b)
+        + _close("public.review_probe", _b)
+    )
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_NONEXISTENT):
+    ROUND10_QUOTED_MUST_REJECT[f"round10_quoted_nonexistent_{_i}"] = (
+        _definer("public.review_probe", _a) + _close("public.review_probe", _b)
+    )
+
+ROUND10_QUOTED_MUST_ACCEPT = {}
+for _i, (_a, _b) in enumerate(ROUND10_QUOTED_SAME):
+    ROUND10_QUOTED_MUST_ACCEPT[f"round10_quoted_same_{_i}"] = (
+        _definer("public.review_probe", _a) + _close("public.review_probe", _b)
+    )
+
+MUST_REJECT.update(ROUND10_QUOTED_MUST_REJECT)
+MUST_ACCEPT.update(ROUND10_QUOTED_MUST_ACCEPT)
+
+
+# ---------------------------------------------------------------------------
+# Round 11 remediation (PR #246). Round 10 at e514eb4 left an executable
+# false-green class around DO-block ACL semantics: static GRANT/REVOKE text
+# inside a DO was replayed as if it definitely ran, and dynamic SQL was
+# invisible because the payload is a string. PostgreSQL 17.11 confirmed eight
+# P2 false-greens. Round 11 does not interpret IF/LOOP/EXCEPTION. A DO that
+# might change routine EXECUTE is PROCEDURAL_ACL_UNKNOWN; UNKNOWN is not
+# closure. Previously safe DO-based closures become conservative false-reds.
+# ---------------------------------------------------------------------------
+
+def _r11_probe() -> str:
+    return (
+        "CREATE FUNCTION public.review_probe()\n"
+        "RETURNS text\n"
+        "LANGUAGE plpgsql\n"
+        "SECURITY DEFINER\n"
+        "AS $body$\n"
+        "BEGIN\n"
+        "  RETURN 'unguarded';\n"
+        "END;\n"
+        "$body$;\n"
+    )
+
+
+def _r11_close() -> str:
+    return (
+        "REVOKE EXECUTE ON FUNCTION public.review_probe()\n"
+        "FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+def _r11_grant_auth() -> str:
+    return (
+        "GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated;\n"
+    )
+
+
+ROUND11_P2_MUST_REJECT = {
+    "round11_a_unreachable_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  IF false THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_a4_nested_unreachable_static_revoke": _r11_probe() + """
+DO $$
+BEGIN
+  IF true THEN
+    IF false THEN
+      REVOKE EXECUTE ON FUNCTION public.review_probe()
+      FROM PUBLIC, anon, authenticated;
+    END IF;
+  END IF;
+END;
+$$;
+""",
+    "round11_a5_exception_only_static_revoke": _r11_probe() + """
+DO $$
+BEGIN
+  BEGIN
+    NULL;
+  EXCEPTION WHEN OTHERS THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END;
+END;
+$$;
+""",
+    "round11_b_reachable_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""",
+    "round11_b3_dynamic_grant_behind_if_true": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF true THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END IF;
+END;
+$do$;
+""",
+    "round11_b4_execute_format_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE format(
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated'
+  );
+END;
+$do$;
+""",
+    "round11_b5_concatenated_constant_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe()'
+    || ' TO authenticated';
+END;
+$do$;
+""",
+    "round11_b6_variable_assembled_grant": _r11_probe() + _r11_close() + """
+DO $do$
+DECLARE
+  sql1 text;
+  sql2 text;
+BEGIN
+  sql1 := 'GRANT EXECUTE ON FUNCTION public.review_probe()';
+  sql2 := ' TO authenticated';
+  EXECUTE sql1 || sql2;
+END;
+$do$;
+""",
+}
+
+ROUND11_CONSERVATIVE_FALSE_RED = {
+    "round11_a1_reachable_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  IF true THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_a2_unconditional_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.review_probe()
+  FROM PUBLIC, anon, authenticated;
+END;
+$do$;
+""",
+    "round11_a3_unreachable_static_grant_after_close": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF false THEN
+    GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_b1_reachable_dynamic_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'REVOKE EXECUTE ON FUNCTION public.review_probe() FROM PUBLIC, anon, authenticated';
+END;
+$do$;
+""",
+    "round11_b2_unreachable_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF false THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END IF;
+END;
+$do$;
+""",
+    "round11_b7_exception_only_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  BEGIN
+    NULL;
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END;
+END;
+$do$;
+""",
+    "round11_b8_zero_iteration_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  FOR i IN 1..0 LOOP
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END LOOP;
+END;
+$do$;
+""",
+}
+
+ROUND11_ORDERING_MUST_REJECT = {
+    "round11_revoke_then_unknown_stays_unknown": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""",
+    "round11_revoke_unknown_then_grant_is_open": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'SELECT 1';
+END;
+$do$;
+""" + _r11_grant_auth(),
+    "round11_unknown_revoke_then_grant_is_open": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'SELECT 1';
+END;
+$do$;
+""" + _r11_close() + _r11_grant_auth(),
+}
+
+ROUND11_ORDERING_MUST_ACCEPT = {
+    "round11_unknown_then_exact_revoke_closes": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""" + _r11_close(),
+    "round11_harmless_do_does_not_poison": _r11_probe() + _r11_close() + """
+DO $$
+BEGIN
+  PERFORM 1;
+END;
+$$;
+""",
+    "round11_routine_body_execute_is_not_migration_acl": _r11_probe() + _r11_close() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$$;
+""",
+    "round11_on_conflict_do_nothing_is_not_a_do_block": _r11_probe() + _r11_close() + """
+INSERT INTO public.permissions (permission_key)
+VALUES ('x')
+ON CONFLICT (permission_key) DO NOTHING;
+""",
+}
+
+MUST_REJECT.update(ROUND11_P2_MUST_REJECT)
+MUST_REJECT.update(ROUND11_CONSERVATIVE_FALSE_RED)
+MUST_REJECT.update(ROUND11_ORDERING_MUST_REJECT)
+MUST_ACCEPT.update(ROUND11_ORDERING_MUST_ACCEPT)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

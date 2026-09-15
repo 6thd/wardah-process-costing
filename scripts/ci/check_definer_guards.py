@@ -285,6 +285,18 @@ _P0001_CATCHING_NAMES = frozenset({"others", "raise_exception", "plpgsql_error"}
 _HANDLER_WHEN_RE = re.compile(r"\bWHEN\b", re.IGNORECASE)
 _HANDLER_THEN_RE = re.compile(r"\bTHEN\b", re.IGNORECASE)
 _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# A condition name may also be written as a QUOTED identifier - PostgreSQL's
+# lexer accepts `WHEN "raise_exception" THEN` and resolves it to the very same
+# condition as the bare name. The masker blanks quoted-identifier CONTENT while
+# keeping both delimiters, so such a term reads as `"              "` in the
+# masked body and matched no name at all: `WHEN "raise_exception"`,
+# `WHEN "others"` and `WHEN "plpgsql_error"` each swallowed an assertion's
+# authorization failure while the scanner reported the function as guarded.
+# The name is therefore recovered from the unmasked source at the same offsets,
+# exactly as the SQLSTATE value below is.
+_QUOTED_CONDITION_RE = re.compile(
+    r"""\A(?:U&)?"[^"]*"(?:\s*UESCAPE\s*'[^']*')?\Z""", re.IGNORECASE
+)
 # The masker blanks literal CONTENT, so `WHEN SQLSTATE 'P0001'` reads as
 # `WHEN SQLSTATE '     '` in the masked body. Rather than unmasking literals
 # globally - which would hand guard detection back every string it was hardened
@@ -294,6 +306,262 @@ _CONDITION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # resolve: the comment is whitespace by then, so no separator regex has to
 # anticipate it.
 _SQLSTATE_KEYWORD_RE = re.compile(r"\bSQLSTATE\b", re.IGNORECASE)
+
+# PostgreSQL's lexer is BYTE based (src/backend/parser/scan.l):
+#
+#     dolq_start  [A-Za-z\200-\377_]
+#     dolq_cont   [A-Za-z\200-\377_0-9]
+#
+# Every byte from \200 to \377 is accepted, and the lexer never asks what
+# character those bytes spell. In a UTF-8 source each non-ASCII codepoint
+# encodes to bytes that are ALL >= 0x80, so "any codepoint >= U+0080" is the
+# exact character-level equivalent of that byte range - which is the same rule
+# `_IDENT_START`/`_IDENT_CONT` already apply to ordinary identifiers further
+# down. Note dolq_cont, unlike ident_cont, excludes `$`: a `$` ends the tag.
+#
+# str.isalpha()/str.isalnum() are NOT that rule and were the previous test.
+# They are Unicode CATEGORY tests, so every non-ASCII codepoint outside
+# categories L*/N* was read as "not a tag": emoji, combining marks, ZWSP, NBSP,
+# soft hyphen, U+FEFF, private-use characters and `Ⅸ` among them. PostgreSQL
+# opens a dollar-quoted literal on all of those, so the masker left the
+# literal's CONTENT visible as executable text - and a guard name written
+# inside it counted as a real assertion. Verified against a live PostgreSQL 17
+# over the whole ASCII range plus a Unicode spread: every disagreement was a
+# non-ASCII codepoint PostgreSQL accepted and this scanner rejected.
+# PostgreSQL's own whitespace set, as a regex character class. Python's `\s` is
+# NOT it: `\s` also matches U+00A0 and other Unicode spaces that PostgreSQL's
+# scanner rejects (`GRANT ALL\u00a0PRIVILEGES` is a syntax error there), so a
+# grammar written against `\s` would parse text PostgreSQL never accepts.
+_PG_WS = r" \t\n\r\f\v"
+
+_DOLQ_START = "A-Za-z_\x80-\U0010FFFF"
+_DOLQ_CONT = "A-Za-z0-9_\x80-\U0010FFFF"
+_DOLLAR_TAG_RE = re.compile(f"\\$(?:[{_DOLQ_START}][{_DOLQ_CONT}]*)?\\$")
+_SIMPLE_ESCAPES = {
+    "b": "\b", "f": "\f", "n": "\n", "r": "\r", "t": "\t",
+    "\\": "\\", "'": "'", '"': '"',
+}
+
+
+def _decode_pg_escape_string(raw: str) -> str | None:
+    """Decode an E'' escape-string's raw content. None when a backslash escape
+    is not one this scanner confidently understands - the caller then fails
+    closed instead of comparing against a guessed value."""
+    out = []
+    i, n = 0, len(raw)
+    while i < n:
+        ch = raw[i]
+        if ch == "'" and raw[i:i + 2] == "''":
+            out.append("'")
+            i += 2
+            continue
+        if ch == "\\" and i + 1 < n:
+            nxt = raw[i + 1]
+            if nxt == "x":
+                j = i + 2
+                digits = ""
+                while j < n and len(digits) < 2 and raw[j] in "0123456789abcdefABCDEF":
+                    digits += raw[j]
+                    j += 1
+                if not digits:
+                    return None
+                out.append(chr(int(digits, 16)))
+                i = j
+                continue
+            if nxt in "01234567":
+                j = i + 1
+                digits = ""
+                while j < n and len(digits) < 3 and raw[j] in "01234567":
+                    digits += raw[j]
+                    j += 1
+                # PostgreSQL's \ooo is a BYTE value, not a Unicode code point:
+                # an octal escape whose value exceeds 255 wraps modulo 256
+                # (\461 = octal 305 = 0x131, low byte 0x31 = '1'). chr() of the
+                # unmasked int would instead have produced an unrelated
+                # high-range character and hidden a real 'P0001' spelling.
+                out.append(chr(int(digits, 8) & 0xFF))
+                i = j
+                continue
+            if nxt in _SIMPLE_ESCAPES:
+                out.append(_SIMPLE_ESCAPES[nxt])
+                i += 2
+                continue
+            return None
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def _read_sqlstate_literal(
+    term: str, raw_body: str, offset: int, pos: int
+) -> tuple[str | None, bool]:
+    """Decode a SQLSTATE using the masker's shared RAW literal spans.
+
+    Unknown operands (including U& strings and their optional UESCAPE clause)
+    fail closed. Unicode value decoding is deliberately outside this reader's
+    contract; it must never be mistaken for an unrelated exception condition.
+    Dollar quoting remains standalone, and ordinary chains assume PostgreSQL's
+    standard_conforming_strings=on. Returns (value, unparseable).
+    """
+    raw = raw_body[offset:offset + len(term)]
+    if raw[pos:pos + 1] == "$":
+        match = _DOLLAR_TAG_RE.match(raw, pos)
+        if match:
+            end = raw.find(match.group(), match.end())
+            if end != -1:
+                return raw[match.end():end], False
+        return None, True
+    if raw[pos:pos + 1] in ("E", "e") and raw[pos + 1:pos + 2] == "'":
+        pos += 1
+    if raw[pos:pos + 1] != "'":
+        return None, True
+    try:
+        spans, escape = _quoted_chain_spans(raw, pos)
+    except MaskError:
+        return None, True
+    values = []
+    for start, end in spans:
+        content = raw[start + 1:end - 1]
+        value = _decode_pg_escape_string(content) if escape else content.replace("''", "'")
+        if value is None:
+            return None, True
+        values.append(value)
+    return "".join(values), False
+
+
+# ONE PostgreSQL-aware reader for a DELIMITED identifier, shared by every place
+# that has to resolve an identifier's identity: routine and schema names,
+# parameter types, and exception-condition names. PostgreSQL spells a delimited
+# identifier two ways and resolves BOTH to the same identifier:
+#
+#     "raise_exception"           ordinary quoted identifier
+#     U&"raise_excepti\006Fn"     Unicode delimited identifier (scan.l, UIDENT)
+#
+# The second was invisible to the scanner: a handler written
+# `WHEN U&"raise_exception" THEN` swallowed an assertion's authorization
+# failure while the function was still reported as guarded. Recognizing only
+# the first spelling is exactly the incomplete-fix shape that reopened it, so
+# the U& form is decoded here rather than special-cased at any call site.
+#
+# `UESCAPE 'c'` replaces the default backslash; PostgreSQL rejects a hex digit,
+# `+`, `'`, `"` and whitespace as that character. Anything this reader cannot
+# resolve returns None and every caller FAILS CLOSED on that - an identity that
+# cannot be proven must never be compared as if it were known.
+_UAMP_PREFIX_RE = re.compile(r'U&(?=")', re.IGNORECASE)
+_UESCAPE_CLAUSE_RE = re.compile(
+    f"[{_PG_WS}]*UESCAPE[{_PG_WS}]*'(.)'", re.IGNORECASE
+)
+_UHEX4_RE = re.compile(r"[0-9A-Fa-f]{4}")
+_UHEX6_RE = re.compile(r"\+([0-9A-Fa-f]{6})")
+_BAD_UESCAPE_CHARS = frozenset('+\'"0123456789abcdefABCDEF')
+
+
+def _decode_unicode_identifier(content: str, esc: str) -> str | None:
+    """Decode a U&"..." identifier's content, or None when PostgreSQL would
+    reject it. Surrogate PAIRS are combined as PostgreSQL combines them; a lone
+    surrogate, a NUL, and a malformed escape are all errors there, so they are
+    unresolvable here too."""
+    out, i, n, high = [], 0, len(content), None
+    while i < n:
+        ch = content[i]
+        if ch != esc:
+            if high is not None:
+                return None
+            out.append(ch)
+            i += 1
+            continue
+        if content[i + 1:i + 2] == esc:
+            if high is not None:
+                return None
+            out.append(esc)
+            i += 2
+            continue
+        m4 = _UHEX4_RE.match(content, i + 1)
+        if m4:
+            code, i = int(m4.group(0), 16), m4.end()
+        else:
+            m6 = _UHEX6_RE.match(content, i + 1)
+            if m6 is None:
+                return None
+            code, i = int(m6.group(1), 16), m6.end()
+        if 0xD800 <= code <= 0xDBFF:
+            if high is not None:
+                return None
+            high = code
+            continue
+        if 0xDC00 <= code <= 0xDFFF:
+            if high is None:
+                return None
+            out.append(chr(0x10000 + ((high - 0xD800) << 10) + (code - 0xDC00)))
+            high = None
+            continue
+        if high is not None or code == 0:
+            return None
+        out.append(chr(code))
+    if high is not None:
+        return None
+    return "".join(out)
+
+
+def _read_delimited_identifier(raw: str, pos: int, masked: str | None = None):
+    """(resolved name, index just past it) for a `"..."` or `U&"..."`
+    identifier at `pos`, or None when there is none or it cannot be resolved.
+
+    `raw` must be UNMASKED text: masking blanks quoted-identifier content by
+    design, so the identity only exists in the raw source. `masked` is the SAME
+    span masked and offset-aligned, and it is what decides STRUCTURE - here,
+    whether a `UESCAPE` clause follows the closing quote.
+
+    That split matters because a comment is not whitespace in raw bytes. With
+    raw text alone, `U&"authenticate!0064" /* c */ UESCAPE '!'` - which
+    PostgreSQL resolves to the role `authenticated` - showed no UESCAPE clause,
+    so the content was decoded against the DEFAULT backslash escape and this
+    function returned a plausible but WRONG identity instead of None. A wrong
+    identity never trips the UNRESOLVED_GRANTEE fail-closed path, so a GRANT
+    spelled that way reopened a closed function invisibly. Callers that hold
+    only raw text keep the old behaviour, which is why every caller in this
+    module passes `masked`.
+    """
+    if masked is None:
+        masked = raw
+    elif len(masked) != len(raw):
+        # The two views must be offset-aligned or the clause below would be
+        # read at the wrong place. Fail closed rather than guess.
+        return None
+    uamp = _UAMP_PREFIX_RE.match(raw, pos)
+    start = uamp.end() if uamp else pos
+    if raw[start:start + 1] != '"':
+        return None
+    j, buf = start + 1, []
+    while j < len(raw):
+        if raw[j] == '"':
+            if raw.startswith('""', j):
+                buf.append('"')
+                j += 2
+                continue
+            j += 1
+            break
+        buf.append(raw[j])
+        j += 1
+    else:
+        return None
+    content = "".join(buf)
+    if not uamp:
+        return _pg_identifier(content, quoted=True), j
+    escape = "\\"
+    # STRUCTURE from masked (so an intervening comment is already whitespace),
+    # CONTENT from raw at the same offset (the masker blanks literal content,
+    # so the escape character itself only exists in the raw source).
+    clause = _UESCAPE_CLAUSE_RE.match(masked, j)
+    if clause:
+        escape = raw[clause.start(1):clause.end(1)]
+        if escape in _BAD_UESCAPE_CHARS or escape.isspace():
+            return None
+        j = clause.end()
+    decoded = _decode_unicode_identifier(content, escape)
+    if decoded is None:
+        return None
+    return _pg_identifier(decoded, quoted=True), j
 
 
 def _handler_condition_spans(body: str, start: int, end: int):
@@ -343,6 +611,33 @@ def _split_top_level_or_spans(condition: str, base: int) -> list[tuple[int, int]
     return spans
 
 
+def _quoted_condition_name(term: str, raw_body: str | None, offset: int) -> str | None:
+    """The PostgreSQL identity of a quoted condition name, or None when it
+    cannot be resolved from the raw source (callers fail closed on None).
+
+    `term` is masked text already known to be one delimited identifier;
+    `raw_body` is the same body unmasked and offset-aligned, so the identifier's
+    content is read back at the same offsets and resolved by the SHARED
+    identifier reader - which is what makes the ordinary `"..."` and the Unicode
+    `U&"..."` spellings resolve to the same condition here, as they do in
+    PostgreSQL.
+    """
+    if raw_body is None:
+        return None
+    raw = raw_body[offset:offset + len(term)]
+    if len(raw) != len(term):
+        return None
+    start = term.find('"')
+    if start == -1:
+        return None
+    if term[start - 2:start].upper() == "U&" and start >= 2:
+        start -= 2
+    read = _read_delimited_identifier(raw, start, term)
+    if read is None:
+        return None
+    return read[0]
+
+
 def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: int) -> bool:
     """True when one condition term in body[start:end] can catch a P0001."""
     for term_start, term_end in _split_top_level_or_spans(body[start:end], start):
@@ -351,19 +646,36 @@ def _condition_catches_p0001(body: str, raw_body: str | None, start: int, end: i
         stripped = term.strip()
         if _CONDITION_NAME_RE.match(stripped) and stripped.lower() in _P0001_CATCHING_NAMES:
             return True
+        if _QUOTED_CONDITION_RE.match(stripped):
+            # A quoted condition name. Comparison is case-insensitive on
+            # purpose: PostgreSQL keeps a quoted identifier's case, so
+            # `"RAISE_EXCEPTION"` resolves to no condition at all and is a hard
+            # compile error - it can never be a live handler - and treating it
+            # as catching keeps this reader fail-closed rather than inventing a
+            # third folding rule. An unresolvable span is caught too; an
+            # unrelated quoted name such as `"unique_violation"` still does not
+            # catch, so no false red is invented.
+            name = _quoted_condition_name(term, raw_body, offset)
+            if name is None or name.lower() in _P0001_CATCHING_NAMES:
+                return True
+            continue
         kw = _SQLSTATE_KEYWORD_RE.search(term)
         if kw is None:
             continue
+        if raw_body is None:
+            continue
         # `SQLSTATE <literal>`: the delimiters survive masking, the value does
         # not, so read the value from the unmasked source at the same offsets.
-        q1 = term.find("'", kw.end())
-        if q1 == -1:
-            continue
-        q2 = term.find("'", q1 + 1)
-        if q2 == -1 or raw_body is None:
-            continue
-        value = raw_body[offset + q1 + 1: offset + q2].strip()
-        if value.upper() in _P0001_CATCHING_CODES:
+        # PostgreSQL accepts a plain '...' literal, an E'...' escape string, or
+        # a $tag$...$tag$ dollar-quoted literal here; an operand that starts
+        # one of these forms but cannot be confidently decoded fails closed
+        # (treated as catching P0001) rather than being waved through as
+        # unrelated.
+        lit_pos = _skip_ws(term, kw.end())
+        value, unparseable = _read_sqlstate_literal(term, raw_body, offset, lit_pos)
+        if unparseable:
+            return True
+        if value is not None and value.strip().upper() in _P0001_CATCHING_CODES:
             return True
     return False
 
@@ -781,13 +1093,15 @@ def _exit_targets(body: str, raw_body: str, end: int):
 
 
 def labelled_exit_before(
-    body: str, frames, pos: int, raw_body: str | None = None
+    body: str, frames, pos: int, raw_body: str | None = None, after: int = 0
 ) -> bool:
-    """True when a labelled EXIT earlier in `body` can jump out of a block that
-    contains `pos`, skipping it."""
+    """True when a labelled EXIT in `body[after:pos]` can jump out of a block
+    that contains `pos`, skipping it."""
     if raw_body is None:
         raw_body = body
     for exit_pos, target in _exit_targets(body, raw_body, pos):
+        if exit_pos < after:
+            continue
         for frame in frames:
             if not (frame.start < pos < frame.end
                     and frame.start < exit_pos < frame.end):
@@ -840,13 +1154,21 @@ def _if_blocks_with_raising_deny_branch(body: str, raw_body: str | None = None):
 
     The RAISE must be REACHABLE: a terminating RETURN between THEN and the RAISE
     means the deny branch can exit before it ever denies, so the block is not an
-    authorization boundary.
+    authorization boundary. A labelled EXIT (with or without a WHEN clause)
+    between THEN and the RAISE, targeting a block that contains the RAISE, is
+    the same bypass - it lets the deny branch jump past the RAISE instead of
+    returning past it, so it disqualifies the branch exactly like RETURN does.
     """
+    frames = list(parse_blocks(body, raw_body))
     blocks = []
-    for f in parse_blocks(body, raw_body):
+    for f in frames:
         if f.kind != "IF" or f.then_pos is None or f.raise_pos is None:
             continue
         if _TERMINATING_RETURN_RE.search(body, f.then_pos, f.raise_pos):
+            continue
+        if labelled_exit_before(
+            body, frames, f.raise_pos, raw_body, after=f.then_pos
+        ):
             continue
         blocks.append((f.start, f.start + 2, f.then_pos, f.raise_pos))
     return blocks
@@ -914,20 +1236,19 @@ class MaskError(Exception):
 def _dollar_tag_at(sql: str, i: int) -> str | None:
     """Return the dollar-quote tag opening at i, or None.
 
-    PostgreSQL tags are `$$` or `$tag$` where tag starts with a letter or
-    underscore. `$1` (a positional parameter) is therefore not a tag.
+    PostgreSQL tags are `$$` or `$tag$` with the tag spelled from
+    dolq_start/dolq_cont (see `_DOLLAR_TAG_RE`), so `$1` - a positional
+    parameter - is not a tag.
+
+    This deliberately shares ONE compiled boundary rule with the SQLSTATE
+    literal reader. They were two separate transcriptions of the same grammar
+    before, and they disagreed: a tag this masker refused to recognize left the
+    literal's content exposed as executable text. A single reader cannot drift.
     """
-    n = len(sql)
-    if i >= n or sql[i] != "$":
+    if i >= len(sql) or sql[i] != "$":
         return None
-    j = i + 1
-    if j < n and (sql[j].isalpha() or sql[j] == "_"):
-        j += 1
-        while j < n and (sql[j].isalnum() or sql[j] == "_"):
-            j += 1
-    if j < n and sql[j] == "$":
-        return sql[i : j + 1]
-    return None
+    match = _DOLLAR_TAG_RE.match(sql, i)
+    return match.group(0) if match else None
 
 
 def _blank(out: list[str], start: int, end: int) -> None:
@@ -980,30 +1301,97 @@ def _is_escape_string(sql: str, i: int) -> bool:
     return k < 0 or not (sql[k].isalnum() or sql[k] == "_")
 
 
-def _mask_quoted(sql: str, out: list[str], i: int) -> int:
-    """Mask the CONTENT of a single-quoted literal, keeping both delimiters so
-    the statement shape around it stays readable. A doubled '' is content. In an
-    E'' literal a backslash escapes the next character, so \' does not close
-    the literal."""
+def _quoted_span_end(sql: str, i: int, escape: bool) -> int:
+    """Exclusive end of one raw quoted span, with the CHAIN's escape mode."""
     n = len(sql)
-    escape = _is_escape_string(sql, i)
     j = i + 1
     while j < n:
         ch = sql[j]
         if escape and ch == "\\" and j + 1 < n:
-            _blank(out, j, j + 2)
             j += 2
             continue
         if ch == "'":
             if sql.startswith("''", j):
-                _blank(out, j, j + 2)
                 j += 2
                 continue
             return j + 1
-        if ch != "\n":
-            out[j] = " "
         j += 1
     raise MaskError("unterminated single-quoted literal")
+
+
+def _continuation_quote(sql: str, end: int) -> int | None:
+    """PostgreSQL quote continuation: whitespace/newline and -- comments.
+
+    Inspect RAW text: masking a block comment into whitespace would invent a
+    continuation PostgreSQL does not accept. CR and LF both count as newlines.
+    A prefix on a later segment is unsupported syntax and fails closed.
+
+    The separator set is PostgreSQL 17's, which is NOT PostgreSQL 16's. v17
+    added the vertical tab to scan.l's `space` class:
+
+        space              [ \t\n\r\f\v]      -- v16 had no \v
+        non_newline_space  [ \t\f\v]
+        quotecontinue      {non_newline_whitespace}*{newline}{special_whitespace}*{quote}
+
+    so under v17 - the version this project runs - a VT is ordinary whitespace
+    on BOTH sides of the required newline. Omitting it split one continued
+    literal into two: the SQLSTATE reader then decoded only the first segment
+    (`E'P00'` out of `E'P00'\v\n'0\x31'`, missing that the handler really
+    catches P0001 and swallows the assertion), and the masker ended the literal
+    early, exposing its remaining content - a fake guard after an escaped quote
+    in a continued E-string - as executable text. Both were false greens,
+    reproduced on a live PostgreSQL 17.
+    A VT is whitespace but never a NEWLINE, so it still cannot supply the
+    newline PostgreSQL requires; `'a'\v'b'` stays two literals, not one.
+    """
+    i, n = end, len(sql)
+    newline = False
+    while i < n:
+        if sql[i] in " \t\v\f\r\n":
+            newline |= sql[i] in "\r\n"
+            i += 1
+        elif sql.startswith("--", i):
+            i += 2
+            while i < n and sql[i] not in "\r\n":
+                i += 1
+        else:
+            break
+    if not newline:
+        return None
+    if sql[i:i + 1] == "'":
+        return i
+    if sql[i:i + 2].lower() == "e'" or sql[i:i + 3].lower() == "u&'":
+        raise MaskError("unsupported prefixed string continuation")
+    return None
+
+
+def _quoted_chain_spans(sql: str, i: int) -> tuple[list[tuple[int, int]], bool]:
+    """Shared literal boundaries for masking and SQLSTATE decoding.
+
+    Input starts at the first quote; returned spans include both delimiters.
+    Only the leading E/e determines escape mode. Bare continuation segments
+    inherit it, including escaped quotes; the mode ends with this chain.
+    """
+    escape = _is_escape_string(sql, i)
+    spans = []
+    while True:
+        end = _quoted_span_end(sql, i, escape)
+        spans.append((i, end))
+        next_quote = _continuation_quote(sql, end)
+        if next_quote is None:
+            return spans, escape
+        i = next_quote
+
+
+def _mask_quoted(sql: str, out: list[str], i: int) -> int:
+    """Mask chain contents and separator comments, preserving delimiters."""
+    spans, _ = _quoted_chain_spans(sql, i)
+    previous_end = i
+    for start, end in spans:
+        _blank(out, previous_end, start)
+        _blank(out, start + 1, end - 1)
+        previous_end = end
+    return previous_end
 
 
 def _mask_quoted_identifier(sql: str, out: list[str], i: int) -> int:
@@ -1137,11 +1525,41 @@ def get_cutoff() -> int:
 # model instead of re-deriving position.
 
 
+class _UnresolvedArgs:
+    """The third argument-list state: PRESENT in the statement, but not
+    resolvable to a type list by this scanner.
+
+    It exists because `None` used to carry two incompatible meanings at once -
+    "no argument list was written" and "an argument list was written and could
+    not be parsed" - and `same_function()` answers TRUE for the first. Any
+    signature this scanner could not read therefore became a WILDCARD that
+    matched every overload of the same name, so a REVOKE on `f(text)` exempted
+    an unguarded `f(uuid)`. A comment inside the argument list was enough to
+    trigger it, and so was any PostgreSQL type syntax the tokenizer does not
+    model.
+
+    An unresolved list matches NOTHING, including another unresolved list: two
+    signatures nobody could read are not evidence that they are the same
+    function.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<unresolved argument list>"
+
+
+UNRESOLVED_ARGS = _UnresolvedArgs()
+
+
 class Identity:
     """A schema-qualified function identity, with its argument TYPE list.
 
-    `args` is None when the statement carried no argument list at all. Quoted
-    identifiers keep their case (PostgreSQL folds only unquoted ones), so
+    `args` is None when the statement carried NO argument list at all, a tuple
+    of normalized type texts when it carried one this scanner resolved, and
+    UNRESOLVED_ARGS when it carried one that could not be resolved. Those three
+    states are deliberately distinct; see _UnresolvedArgs. Quoted identifiers
+    keep their case (PostgreSQL folds only unquoted ones), so
     `"HAS_PERMISSION"` is a different function from `has_permission` and cannot
     inherit its exemption.
     """
@@ -1157,40 +1575,121 @@ class Identity:
     @property
     def qualified(self) -> str:
         base = f"{self.schema}.{self.name}" if self.schema else self.name
-        return base if self.args is None else f"{base}({','.join(self.args)})"
+        if self.args is None:
+            return base
+        if self.args is UNRESOLVED_ARGS:
+            return f"{base}(<unresolved argument list>)"
+        return f"{base}({','.join(str(a) for a in self.args)})"
 
     def same_function(self, other: "Identity") -> bool:
         """Name match, plus argument-list match when BOTH sides carry one.
 
         PostgreSQL identifies an overload by its argument types, so a REVOKE on
-        `f(text)` says nothing about `f(uuid)`. When either side omits the list
-        the name match is all that is available; an unparseable list is never
-        silently treated as equal.
+        `f(text)` says nothing about `f(uuid)`. When either side OMITS the list
+        the name match is all that is available. A list that is PRESENT but
+        unresolved is a different state entirely and matches nothing at all -
+        collapsing it into the omitted case turned every signature this scanner
+        could not read into a wildcard.
         """
-        if self.name != other.name:
+        if not self._names_can_match(other):
             return False
-        if self.schema and other.schema:
-            if self.schema != other.schema:
-                return False
-        elif self.schema or other.schema:
-            # One side omitted the schema. PostgreSQL resolves that through
-            # search_path - it is NOT a wildcard - and every migration here runs
-            # with `public` first. So an unqualified name resolves to `public`
-            # and says nothing about a function in another schema. Treating it as
-            # a match let a REVOKE with no schema exempt `other_schema.f`.
-            named = self.schema or other.schema
-            if named != "public":
-                return False
+        if self.args is UNRESOLVED_ARGS or other.args is UNRESOLVED_ARGS:
+            return False
         if self.args is None or other.args is None:
             return True
         return self.args == other.args
 
+    def _names_can_match(self, other: "Identity") -> bool:
+        """The name/schema half of identity, shared by BOTH relations so they
+        cannot drift apart.
 
-# The only built-in types whose FIRST word is part of the type rather than a
-# parameter name. Everything else that leads a two-token parameter is a name.
-_TYPE_LEAD_WORDS = frozenset(
-    {"character", "double", "bit", "national", "time", "timestamp", "interval"}
-)
+        When one side omits the schema, PostgreSQL resolves it through
+        search_path - that is NOT a wildcard - and every migration here runs
+        with `public` first. So an unqualified name resolves to `public` and
+        says nothing about a function in another schema. Treating it as a match
+        let a REVOKE with no schema exempt `other_schema.f`.
+        """
+        if self.name != other.name:
+            return False
+        if self.schema and other.schema:
+            return self.schema == other.schema
+        if self.schema or other.schema:
+            return (self.schema or other.schema) == "public"
+        return True
+
+    def may_be_same_function(self, other: "Identity") -> bool:
+        """Could PostgreSQL resolve these two to the SAME routine?
+
+        This is deliberately NOT same_function(). Exact identity answers "are
+        these provably the same overload" and an unresolved argument list can
+        never prove that, so it matches nothing there - that is what stopped a
+        signature this scanner cannot read from acting as a wildcard REVOKE.
+
+        But "not provably the same" was then replayed as "definitely unrelated",
+        and for a GRANT that is the wrong default. `public.review_probe(
+        public.review_marker.note%TYPE)` is a PostgreSQL-valid way to name an
+        existing routine; PostgreSQL resolves the `%TYPE` and reopens client
+        EXECUTE, while the scanner silently ignored the statement and still
+        reported the function closed.
+
+        So closure asks this question instead for GRANTs: it uses every scrap of
+        identity that IS known - schema and routine name - and only concedes the
+        argument list. An unresolved GRANT on a DIFFERENT name, or in a provably
+        different schema, still cannot touch this routine, so one unreadable
+        grant does not reopen every function in the file.
+        """
+        if not self._names_can_match(other):
+            return False
+        if self.args is UNRESOLVED_ARGS or other.args is UNRESOLVED_ARGS:
+            return True
+        if self.args is None or other.args is None:
+            return True
+        # NOT `==`. Exact identity is what a REVOKE must earn; a GRANT only has
+        # to be POSSIBLE. Round 10 (Astra): the two were one equality operator,
+        # so `character varying` and `varchar` - one routine in PostgreSQL -
+        # read as unrelated and an applicable GRANT was dropped from the replay
+        # while the scanner still reported the surface closed.
+        if len(self.args) != len(other.args):
+            return False
+        return all(_may_be_same_type(a, b) for a, b in zip(self.args, other.args))
+
+
+# PostgreSQL's multi-word built-in type phrases, as lead word -> the words that
+# may CONTINUE the type after it. A flat set of lead words was not enough in
+# either direction:
+#
+#   * it was INCOMPLETE. `char varying` is the built-in varchar in PostgreSQL 17,
+#     but `char` was not a lead word, so the scanner dropped it as an optional
+#     parameter NAME and the type identity became `varying` - the same identity a
+#     quoted custom type `"varying"` normalizes to. Two distinct PostgreSQL
+#     overloads collapsed into one, so a REVOKE naming either closed the other on
+#     paper while PostgreSQL still let clients execute the unguarded definer.
+#   * it was also too BROAD. `DOUBLE` is an unreserved keyword, so
+#     `CREATE FUNCTION f(double text)` is valid and declares a parameter NAMED
+#     `double` of type `text`; a flat lead-word set kept `double` and read the
+#     type as `double text`. Every other lead word here is a col_name_keyword and
+#     cannot be a bare parameter name at all (`char text`, `time text`,
+#     `interval text` are all syntax errors), but the continuation test settles
+#     all of them uniformly instead of relying on that.
+#
+# The decision is therefore "do the first TWO tokens open a type phrase", taken
+# BEFORE any optional-name removal. Equivalent PostgreSQL spellings that this
+# leaves distinct (`char varying` vs `character varying` vs `varchar`) only cost
+# a conservative non-match; the collapse of distinct identities is the unsafe
+# direction and is what this closes.
+_TYPE_LEAD_CONTINUATIONS = {
+    "character": frozenset({"varying"}),
+    "char": frozenset({"varying"}),
+    "nchar": frozenset({"varying"}),
+    "national": frozenset({"character", "char"}),
+    "bit": frozenset({"varying"}),
+    "double": frozenset({"precision"}),
+    "time": frozenset({"with", "without"}),
+    "timestamp": frozenset({"with", "without"}),
+    "interval": frozenset(
+        {"year", "month", "day", "hour", "minute", "second"}
+    ),
+}
 _ARG_MODES = frozenset({"in", "out", "inout", "variadic"})
 # ONE unquoted-identifier alphabet, matching PostgreSQL's ident_start /
 # ident_cont: an ASCII letter or underscore, or ANY non-ASCII character, then
@@ -1204,76 +1703,488 @@ _IDENT_CONT = "A-Za-z0-9_$\x80-\U0010FFFF"
 _UNQUOTED_IDENT_RE = re.compile(f"[{_IDENT_START}][{_IDENT_CONT}]*")
 # The same alphabet, anchored: "is this whole token one bare identifier".
 _PLAIN_IDENT_RE = re.compile(f"\\A[{_IDENT_START}][{_IDENT_CONT}]*\\Z")
-_DEFAULT_SPLIT_RE = re.compile(r"\bDEFAULT\b|=", re.IGNORECASE)
+# One parameter is tokenized ONCE, quote-aware and qualification-aware, and
+# every later decision is taken on those tokens. The three heuristics this
+# replaces each ran on their own slice of the text and each lost:
+#
+#   * `DEFAULT`/`=` were found by a regex over the UNPARSED parameter, so
+#     `"Type DEFAULT A" []` was truncated INSIDE a quoted identifier and two
+#     distinct types both normalized to the fragment `"type`;
+#   * whitespace splitting knew nothing about qualification, so
+#     `"Schema A" . "T" []` looked like the name `"Schema A"` followed by the
+#     type `. "T" []`, and `"Schema A"` and `"Schema B"` collapsed together;
+#   * neither knew about `U&"..."`.
+#
+# Each case merged two distinct PostgreSQL overloads into one scanner identity,
+# so a REVOKE naming one of them closed the other on paper while PostgreSQL
+# still let clients execute the unguarded definer.
+_PARAM_PUNCT = frozenset(".,()[]")
+_NUMBER_RE = re.compile(r"\d+")
 
 
-_QUOTED_SEGMENT_RE = re.compile(r'"(?:[^"]|"")*"')
+def _tokenize_parameter(masked: str, raw: str):
+    """[(kind, value, quoted)] for one parameter, or None when unresolvable.
 
+    STRUCTURE is read from `masked` and identifier CONTENT from `raw` at the
+    same offsets. That split is the whole point: the masker has already turned
+    comments into whitespace and blanked literal and delimited-identifier
+    content, so `uuid /* why */` is structurally `uuid` here without this
+    function knowing that comments exist, while `"Type A"` still yields its real
+    name. Scanning raw bytes instead made every commented parameter
+    unparseable - which, before UNRESOLVED_ARGS, silently became a wildcard.
 
-def _fold_type_text(text: str) -> str:
-    """Resolve a type expression's IDENTIFIER SEGMENTS to PostgreSQL identity.
+    kind is 'ident', 'num' or 'punct'. An identifier's value is already
+    RESOLVED to PostgreSQL identity - folded when bare, verbatim when
+    delimited - so no later step has to know how it was spelled. Reading stops
+    at a top-level `DEFAULT` or `=`, which is where the parameter's TYPE ends;
+    because that decision is made here, inside the tokenizer, text that merely
+    looks like a separator inside a delimited identifier cannot end it.
 
-    PostgreSQL folds an unquoted type name and preserves a quoted one, so
-    `public."TypeA"` and `public."TypeB"` are different types. They are also the
-    two things masking destroys - it blanks quoted-identifier content - which is
-    why argument lists are normalized from the RAW source and resolved here
-    rather than lower-cased wholesale.
-
-    Each identifier SEGMENT goes through _pg_identifier() on its own;
-    punctuation, parentheses, array brackets and whitespace are copied through
-    untouched. Lower-casing the unquoted spans wholesale was a second identity
-    model, and it merged `TypeÄ` with `Typeä` - two distinct types in a UTF-8
-    database - so a REVOKE naming one overload exempted a SECURITY DEFINER
-    function declared with the other.
+    Anything else - `%TYPE`, `%ROWTYPE`, or any other valid PostgreSQL type
+    syntax this tokenizer does not model - returns None. The caller turns that
+    into UNRESOLVED_ARGS, which matches no overload; it must never degrade into
+    "no argument list was written".
     """
-    out, last = [], 0
-    for m in _QUOTED_SEGMENT_RE.finditer(text):
-        out.append(_fold_type_segment(text[last:m.start()]))
-        content = _pg_identifier(m.group(0)[1:-1].replace('""', '"'), quoted=True)
-        out.append('"' + content.replace('"', '""') + '"')
-        last = m.end()
-    out.append(_fold_type_segment(text[last:]))
+    tokens, i, depth, n = [], 0, 0, len(masked)
+    while i < n:
+        ch = masked[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch == "=" and depth == 0:
+            break
+        if ch in _PARAM_PUNCT:
+            if ch in "([":
+                depth += 1
+            elif ch in ")]":
+                depth -= 1
+            tokens.append(("punct", ch, False))
+            i += 1
+            continue
+        number = _NUMBER_RE.match(masked, i)
+        if number:
+            tokens.append(("num", number.group(0), False))
+            i = number.end()
+            continue
+        if masked[i:i + 1] == '"' or _UAMP_PREFIX_RE.match(masked, i):
+            delimited = _read_delimited_identifier(raw, i, masked)
+            if delimited is None:
+                # A delimited identifier that could not be resolved. Fail closed.
+                return None
+            tokens.append(("ident", delimited[0], True))
+            i = delimited[1]
+            continue
+        bare = _UNQUOTED_IDENT_RE.match(masked, i)
+        if bare is None:
+            return None
+        if depth == 0 and bare.group(0).lower() == "default":
+            break
+        tokens.append(("ident", _pg_identifier(bare.group(0)), False))
+        i = bare.end()
+    return tokens
+
+
+
+# ---------------------------------------------------------------------------
+# Round 10 (Astra): PostgreSQL type identity for routine signatures.
+#
+# Every entry below was classified against a disposable PostgreSQL 17.11 using
+# `::regtype`/`::regprocedure` catalog identity, not intuition. Two spellings
+# appear in the same family ONLY where the oracle resolved them to one type OID
+# and, for the routine cases, to one pg_proc row.
+#
+# The two tables are NOT interchangeable, and that is the whole finding behind
+# `"char"` vs `char`. PostgreSQL reaches a type by two different routes:
+#
+#   * a BARE, unqualified spelling goes through the grammar's type keywords
+#     first, so `char` is rewritten to bpchar (OID 1042);
+#   * a QUOTED or SCHEMA-QUALIFIED spelling is a catalog lookup on
+#     pg_type.typname, so `"char"` and `pg_catalog.char` are both the internal
+#     one-byte type (OID 18).
+#
+# They are two different types and two coexisting overloads, so a REVOKE naming
+# one may not close the other. Quoting is therefore neither always cosmetic nor
+# always significant: the oracle also shows `"varchar"`, `"text"`, `"numeric"`,
+# `"bool"`, `"timestamp"`, `"time"` and `"uuid"` DO resolve to their bare
+# counterparts, while `"int"`, `"integer"`, `"boolean"`, `"decimal"`,
+# `"character"`, `"real"`, `"bigint"` and `"smallint"` do not exist at all.
+
+# pg_type.typname -> canonical format_type() spelling. Used for QUOTED and for
+# SCHEMA-QUALIFIED references, which both bypass the keyword grammar.
+_TYPNAME_CANONICAL = {
+    "varchar": "character varying",
+    "bpchar": "character",
+    "char": '"char"',
+    "text": "text",
+    "name": "name",
+    "numeric": "numeric",
+    "int4": "integer",
+    "int2": "smallint",
+    "int8": "bigint",
+    "float4": "real",
+    "float8": "double precision",
+    "bool": "boolean",
+    "timestamp": "timestamp without time zone",
+    "timestamptz": "timestamp with time zone",
+    "time": "time without time zone",
+    "timetz": "time with time zone",
+    "bit": "bit",
+    "varbit": "bit varying",
+    "date": "date",
+    "interval": "interval",
+    "uuid": "uuid",
+    "json": "json",
+    "jsonb": "jsonb",
+    "bytea": "bytea",
+    "oid": "oid",
+    "money": "money",
+    "inet": "inet",
+    "cidr": "cidr",
+    "macaddr": "macaddr",
+    "xml": "xml",
+}
+
+# The grammar's type KEYWORD phrases -> the same canonical spellings. Used only
+# for a BARE, unqualified reference. A bare spelling that is not a keyword falls
+# through to _TYPNAME_CANONICAL, which is how `bpchar`, `int4` and `jsonb`
+# resolve.
+_TYPE_KEYWORD_CANONICAL = {
+    "varchar": "character varying",
+    "character varying": "character varying",
+    "char varying": "character varying",
+    "nchar varying": "character varying",
+    "national character varying": "character varying",
+    "national char varying": "character varying",
+    "character": "character",
+    "char": "character",
+    "nchar": "character",
+    "national character": "character",
+    "national char": "character",
+    "text": "text",
+    "numeric": "numeric",
+    "decimal": "numeric",
+    "dec": "numeric",
+    "int": "integer",
+    "integer": "integer",
+    "smallint": "smallint",
+    "bigint": "bigint",
+    "real": "real",
+    "float": "double precision",
+    "double precision": "double precision",
+    "boolean": "boolean",
+    "timestamp": "timestamp without time zone",
+    "timestamp with time zone": "timestamp with time zone",
+    "timestamp without time zone": "timestamp without time zone",
+    "timetz": "time with time zone",
+    "timestamptz": "timestamp with time zone",
+    "time": "time without time zone",
+    "time with time zone": "time with time zone",
+    "time without time zone": "time without time zone",
+    "bit": "bit",
+    "bit varying": "bit varying",
+    "varbit": "bit varying",
+}
+
+
+class _TypeRef:
+    """One resolved argument TYPE, carrying the two DIFFERENT questions the ACL
+    replay asks about it - which is the Round 10 cross-cutting requirement.
+
+    `exact` is the canonical identity and answers "are these provably the SAME
+    routine argument type": it is what a REVOKE must match before it earns
+    closure credit.
+
+    `candidates` answers "could PostgreSQL resolve these to the same type": it
+    is what a GRANT is tested against, so a spelling this scanner cannot pin
+    down is never assumed harmless. For everything the oracle settled the two
+    agree and `candidates` is just `{exact}`; they diverge only where static
+    parsing genuinely cannot decide - a QUOTED custom type, where quoting may or
+    may not be cosmetic depending on a catalog this scanner does not have.
+
+    Comparing equal to a plain `str` keeps _normalize_arg_type() usable as the
+    textual canonicalizer it has always been.
+    """
+
+    __slots__ = ("exact", "candidates")
+
+    def __init__(self, exact: str, candidates=None):
+        self.exact = exact
+        self.candidates = frozenset(candidates) if candidates else frozenset((exact,))
+
+    def __eq__(self, other):
+        if isinstance(other, _TypeRef):
+            return self.exact == other.exact
+        if isinstance(other, str):
+            return self.exact == other
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(self.exact)
+
+    def __str__(self) -> str:
+        return self.exact
+
+    def __repr__(self) -> str:
+        return self.exact
+
+    def may_be(self, other: "_TypeRef") -> bool:
+        return bool(self.candidates & other.candidates)
+
+
+def _may_be_same_type(a, b) -> bool:
+    """Could these two argument types be the same one? Tolerates a plain string
+    on either side, so an Identity built with literal type texts - as the
+    relation tests and any direct caller do - still compares as it always did.
+    """
+    if isinstance(a, _TypeRef) and isinstance(b, _TypeRef):
+        return a.may_be(b)
+    return a == b
+
+
+def _split_array_suffix(tokens):
+    """(base_tokens, is_array).
+
+    PostgreSQL ignores array BOUNDS and DIMENSIONALITY when it resolves a
+    routine signature: the oracle confirms `int[]`, `int[][]` and
+    `int ARRAY[3]` all name one and the same argument type.
+    """
+    i, is_array = len(tokens), False
+    while i > 0 and tokens[i - 1][0] == "punct" and tokens[i - 1][1] == "]":
+        k = i - 1
+        while k > 0 and tokens[k - 1][0] == "num":
+            k -= 1
+        if k > 0 and tokens[k - 1][0] == "punct" and tokens[k - 1][1] == "[":
+            i, is_array = k - 1, True
+            continue
+        break
+    if i > 0 and tokens[i - 1][0] == "ident" and not tokens[i - 1][2] \
+            and tokens[i - 1][1] == "array":
+        i, is_array = i - 1, True
+    return tokens[:i], is_array
+
+
+def _split_type_modifier(tokens):
+    """(base_tokens, saw_modifier). A type modifier is not part of a routine's
+    argument type: the oracle confirms `varchar(10)` is `varchar`,
+    `numeric(10,2)` is `numeric` and `time(3) with time zone` is `timetz`, so
+    the group is dropped wherever it appears - including mid-phrase."""
+    out, saw, depth = [], False, 0
+    for token in tokens:
+        if token[0] == "punct" and token[1] == "(":
+            depth += 1
+            saw = True
+            continue
+        if token[0] == "punct" and token[1] == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            continue
+        out.append(token)
+    return out, saw
+
+
+def _canonical_typname(name: str) -> str | None:
+    """Canonical spelling for a pg_type.typname, or None when unknown here.
+
+    PostgreSQL names an array type by prefixing the element typname with `_`,
+    and the oracle confirms `_int4` resolves to `integer[]`, so that form is
+    folded through the element rather than left as an unrelated identity a
+    GRANT could not reach.
+    """
+    canonical = _TYPNAME_CANONICAL.get(name)
+    if canonical is not None:
+        return canonical
+    if name.startswith("_"):
+        element = _TYPNAME_CANONICAL.get(name[1:])
+        if element is not None:
+            return element + "[]"
+    return None
+
+
+def _canonical_type(tokens) -> "_TypeRef | None":
+    """The canonical identity of one resolved type expression.
+
+    Returns None when the spelling cannot be resolved SAFELY, which the caller
+    turns into UNRESOLVED_ARGS - a state that earns no REVOKE credit and never
+    silences a GRANT.
+    """
+    base, is_array = _split_array_suffix(tokens)
+    base, saw_modifier = _split_type_modifier(base)
+    if not base:
+        return None
+    suffix = "[]" if is_array else ""
+
+    dots = [i for i, t in enumerate(base) if t[0] == "punct" and t[1] == "."]
+    if dots:
+        # Exactly `<schema> . <name>`; anything else is a shape this scanner
+        # does not model.
+        if len(dots) != 1 or dots[0] != 1 or len(base) != 3:
+            return None
+        schema, name = base[0], base[2]
+        if schema[0] != "ident" or name[0] != "ident":
+            return None
+        if schema[1] == "pg_catalog":
+            # Qualification bypasses the keyword grammar exactly as quoting
+            # does, so `pg_catalog.char` is the internal type, not bpchar.
+            canonical = _canonical_typname(name[1])
+            if canonical is not None:
+                return _TypeRef(canonical + suffix)
+        return _custom_type_ref(base, suffix)
+
+    if any(t[0] != "ident" for t in base):
+        return None
+
+    if len(base) == 1 and base[0][2]:
+        # A single DELIMITED identifier: catalog lookup only, never a keyword.
+        canonical = _canonical_typname(base[0][1])
+        if canonical is not None:
+            return _TypeRef(canonical + suffix)
+        return _custom_type_ref(base, suffix)
+
+    if all(not t[2] for t in base):
+        phrase = " ".join(t[1] for t in base)
+        # INTERVAL field qualifiers are a typmod, not a distinct type: the
+        # oracle confirms `interval year to month` and `interval` are one.
+        if base[0][1] == "interval":
+            return _TypeRef("interval" + suffix)
+        canonical = _TYPE_KEYWORD_CANONICAL.get(phrase)
+        if canonical is not None:
+            # `float(p)` is the ONE modifier PostgreSQL does not ignore: it
+            # selects real for p <= 24 and double precision for p >= 25. Rather
+            # than guess a precision, fail closed.
+            if phrase == "float" and saw_modifier:
+                return None
+            return _TypeRef(canonical + suffix)
+        if len(base) == 1:
+            canonical = _canonical_typname(base[0][1])
+            if canonical is not None:
+                return _TypeRef(canonical + suffix)
+            return _custom_type_ref(base, suffix)
+        # A multi-word spelling that is not a known keyword phrase.
+        return None
+
+    # A mix of quoted and bare words cannot be a keyword phrase.
+    return None
+
+
+def _custom_type_ref(tokens, suffix: str) -> "_TypeRef":
+    """A type this scanner cannot resolve through the catalog - a user-defined
+    one, or a quoted spelling with no built-in meaning.
+
+    Its EXACT identity keeps quoting, so two distinct types never collapse and a
+    REVOKE earns credit only for the spelling it provably names. Its CANDIDATE
+    set also carries the quote-folded form, because whether quoting matters here
+    depends on a catalog this scanner does not have - so a GRANT is never
+    dismissed on an equivalence that was merely unproven.
+    """
+    exact = _render_type_tokens(tokens, preserve_quoting=True) + suffix
+    folded = _render_type_tokens(tokens, preserve_quoting=False) + suffix
+    return _TypeRef(exact, {exact, folded})
+
+
+def _is_array_suffix_only(tokens) -> bool:
+    """True when every remaining token belongs to the PRECEDING type's array
+    bounds - PostgreSQL's `arrayBounds`, an optional ARRAY keyword followed by
+    any number of `[ <optional integer> ]` - which means no parameter name was
+    written at all. `uuid []` is one unnamed parameter, not `uuid` named `[]`.
+    """
+    if not tokens:
+        return False
+    for index, (kind, value, quoted) in enumerate(tokens):
+        if kind == "punct" and value in "[]":
+            continue
+        if kind == "num":
+            continue
+        if index == 0 and kind == "ident" and not quoted and value == "array":
+            continue
+        return False
+    return True
+
+
+def _render_type_tokens(tokens, preserve_quoting: bool = False) -> str:
+    """Canonical text for a resolved type expression.
+
+    An identifier is written bare when its resolved name is exactly what the
+    bare spelling would produce, and delimited otherwise - so `"uuid"` and
+    `uuid` render alike (PostgreSQL resolves them to the same identifier) while
+    `"UUID"` stays distinct. Whitespace only ever separates two word-like
+    tokens, so spacing around `.`, `[` and `,` cannot change an identity.
+    """
+    out, separates = [], False
+    for kind, value, quoted in tokens:
+        word = kind in ("ident", "num")
+        if out and word and separates:
+            out.append(" ")
+        if kind == "ident" and (
+            (preserve_quoting and quoted)
+            or not (_PLAIN_IDENT_RE.match(value) and _fold_unquoted(value) == value)
+        ):
+            out.append('"' + value.replace('"', '""') + '"')
+        else:
+            out.append(value)
+        # A word after a word, and a word after a closing `)`, need a
+        # separator (`time(3) with time zone`); nothing else does, so spacing
+        # around `.`, `[` and `,` cannot change an identity.
+        separates = word or (kind == "punct" and value == ")")
     return "".join(out)
 
 
-def _fold_type_segment(span: str) -> str:
-    """Resolve every bare identifier inside an unquoted span of type text."""
-    out, last = [], 0
-    for m in _UNQUOTED_IDENT_RE.finditer(span):
-        out.append(span[last:m.start()])
-        out.append(_pg_identifier(m.group(0)))
-        last = m.end()
-    out.append(span[last:])
-    return "".join(out)
+def _opens_type_phrase(first, second) -> bool:
+    """True when these two identifier tokens begin a multi-word built-in TYPE,
+    so the first one is part of the type and not an optional parameter name.
+
+    Both must be written BARE: PostgreSQL reaches a built-in type phrase through
+    keywords, and a delimited `"char"` is the ordinary type of that name, never
+    the first half of `char varying`.
+    """
+    if first[2] or second[2]:
+        return False
+    return second[1] in _TYPE_LEAD_CONTINUATIONS.get(first[1], ())
 
 
-def _normalize_arg_type(param: str) -> str | None:
-    """The declared TYPE of one parameter, normalized for comparison.
+def _normalize_arg_type(param: str, raw_param: str | None = None) -> "_TypeRef | None":
+    """The declared TYPE of one parameter, canonicalized for comparison.
 
-    Accepts both the CREATE form (`p_org uuid`, `OUT v numeric`,
+    Returns a _TypeRef, which compares equal to its canonical TEXT, so this is
+    still the textual canonicalizer it has always been - but the canonical form
+    is now PostgreSQL's, not the spelling the migration happened to use.
+
+    `param` is the MASKED parameter text and `raw_param` the same span unmasked
+    (defaulting to `param` for callers that hold only one form). Accepts both
+    the CREATE form (`p_org uuid`, `OUT v numeric`,
     `p_x jsonb DEFAULT '{}'::jsonb`) and the privilege-statement form (`uuid`),
     because PostgreSQL allows argument names in GRANT/REVOKE too. Returns None
-    when the parameter cannot be parsed, which callers treat as "not equal".
+    when the parameter cannot be resolved; callers must render that as
+    UNRESOLVED_ARGS, never as an omitted list.
     """
-    text = _DEFAULT_SPLIT_RE.split(param, 1)[0]
-    tokens = text.split()
-    if tokens and tokens[0].lower() in _ARG_MODES and len(tokens) > 1:
-        tokens = tokens[1:]
-    if (
-        len(tokens) > 1
-        and _PLAIN_IDENT_RE.match(tokens[0])
-        and tokens[0].lower() not in _TYPE_LEAD_WORDS
-    ):
-        tokens = tokens[1:]
-    elif len(tokens) > 1 and tokens[0].startswith('"'):
-        # A quoted parameter NAME is still a name; a quoted TYPE never leads a
-        # multi-token parameter on its own, so dropping it here is safe.
-        tokens = tokens[1:]
+    tokens = _tokenize_parameter(param, param if raw_param is None else raw_param)
     if not tokens:
         return None
-    normalized = _fold_type_text(" ".join(tokens))
-    normalized = re.sub(r"\s*([(),\[\]])\s*", r"\1", normalized)
-    return re.sub(r"\s+", " ", normalized).strip() or None
+    if (
+        len(tokens) > 1
+        and tokens[0][0] == "ident"
+        and not tokens[0][2]
+        and tokens[0][1] in _ARG_MODES
+    ):
+        tokens = tokens[1:]
+    # An optional argument NAME is one identifier followed by the START of a
+    # type name - another identifier. Anything else after it (`.` continuing a
+    # qualified name, `(` opening a modifier, `[` opening array bounds) means
+    # the first token was the type itself, not a name.
+    #
+    # Whether the first two tokens open a multi-word TYPE PHRASE is decided
+    # FIRST, and on both of them: a lead word alone is not a type phrase
+    # (`double text` is a parameter named `double`), and dropping a real type's
+    # leading word is what collapsed `char varying` into `varying`.
+    if (
+        len(tokens) > 1
+        and tokens[0][0] == "ident"
+        and tokens[1][0] == "ident"
+        and not _opens_type_phrase(tokens[0], tokens[1])
+        and not _is_array_suffix_only(tokens[1:])
+    ):
+        tokens = tokens[1:]
+    return _canonical_type(tokens)
 
 
 def _split_top_level_commas(text: str) -> list[str]:
@@ -1304,9 +2215,13 @@ def _parse_arg_list(inner: str, raw_inner: str | None = None):
         offset += len(part) + 1
         if not part.strip():
             continue
-        normalized = _normalize_arg_type(raw_part)
+        # STRUCTURE from the masked span - where a comment is already
+        # non-semantic whitespace - and identifier CONTENT from raw at the same
+        # offsets. Feeding raw comment bytes to the tokenizer made every
+        # commented parameter unparseable.
+        normalized = _normalize_arg_type(part, raw_part)
         if normalized is None:
-            return None
+            return UNRESOLVED_ARGS
         args.append(normalized)
     return tuple(args)
 
@@ -1330,25 +2245,17 @@ def _parse_identity(raw: str, masked: str, i: int):
         i = _skip_ws(masked, i)
         if i >= n:
             return None, i
-        if raw[i] == '"':
-            j, buf = i + 1, []
-            closed = False
-            while j < n:
-                if raw[j] == '"':
-                    if raw.startswith('""', j):
-                        buf.append('"')
-                        j += 2
-                        continue
-                    j += 1
-                    closed = True
-                    break
-                buf.append(raw[j])
-                j += 1
-            if not closed:
+        if raw[i] == '"' or _UAMP_PREFIX_RE.match(raw, i):
+            # The SAME delimited-identifier reader the type and condition paths
+            # use, rather than a second transcription of PostgreSQL's rules
+            # that could drift from it - and it is what makes a `U&"..."`
+            # routine or schema name resolve here too.
+            delimited = _read_delimited_identifier(raw, i, masked)
+            if delimited is None:
                 return None, i
-            parts.append(_pg_identifier("".join(buf), quoted=True))
+            parts.append(delimited[0])
             quoted_any = True
-            i = j
+            i = delimited[1]
         else:
             m = _UNQUOTED_IDENT_RE.match(raw, i)
             if m is None:
@@ -1451,9 +2358,20 @@ _SECURITY_DEFINER_RE = re.compile(r"\bSECURITY\s+DEFINER\b", re.IGNORECASE)
 # revoke, and the ACL replay then closed the executable surface on the strength
 # of a statement that closes nothing. It is captured as its own group so
 # revoke_closes_client_surface() can leave EXECUTE state alone.
+#
+# The privilege list itself is read over MASKED text with PostgreSQL's own
+# whitespace set, not a literal ASCII space. `[A-Za-z, ]` accepted
+# `GRANT ALL PRIVILEGES` but not `GRANT ALL\nPRIVILEGES`, which PostgreSQL
+# accepts and which grants EXECUTE: the statement matched no head at all, so it
+# vanished from the ACL replay and a reopened function still looked closed. The
+# class stays tightly bounded - it admits letters, commas and whitespace and
+# nothing else, so it cannot reach past a `;` into another statement, and
+# comments are already whitespace in the masked text it runs on.
 _REVOKE_HEAD_RE = re.compile(
-    r"\bREVOKE\s+(?P<grant_option>GRANT\s+OPTION\s+FOR\s+)?"
-    r"(?P<privs>[A-Za-z, ]*?)\s*\bON\s+",
+    r"\bREVOKE[" + _PG_WS + r"]+"
+    r"(?P<grant_option>GRANT[" + _PG_WS + r"]+OPTION[" + _PG_WS + r"]+FOR["
+    + _PG_WS + r"]+)?"
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
     re.IGNORECASE,
 )
 # `GRANT OPTION FOR` never begins a GRANT statement - it is the clause above,
@@ -1463,7 +2381,9 @@ _REVOKE_HEAD_RE = re.compile(
 # phantom's grantee list came out empty, but it put a statement in the ledger
 # that the file never contained.
 _GRANT_HEAD_RE = re.compile(
-    r"\bGRANT\s+(?!OPTION\s+FOR\b)(?P<privs>[A-Za-z, ]*?)\s*\bON\s+", re.IGNORECASE
+    r"\bGRANT[" + _PG_WS + r"]+(?!OPTION[" + _PG_WS + r"]+FOR\b)"
+    r"(?P<privs>[A-Za-z," + _PG_WS + r"]*?)[" + _PG_WS + r"]*\bON[" + _PG_WS + r"]+",
+    re.IGNORECASE,
 )
 _EXECUTE_PRIV_RE = re.compile(r"\b(EXECUTE|ALL)\b", re.IGNORECASE)
 _ON_ROUTINE_RE = re.compile(r"\A(?:FUNCTION|PROCEDURE|ROUTINE)\s+", re.IGNORECASE)
@@ -1588,29 +2508,51 @@ CLIENT_ROLES = ("public", "anon", "authenticated")
 # role name is the SAME role when its content matches - PostgreSQL folds the
 # unquoted form to lower case - so both spellings resolve here, and a quoted
 # form that differs in case (`"Authenticated"`) is a different role and does not.
-_GRANTEE_TOKEN_RE = re.compile(
-    f'"(?:[^"]|"")*"|[{_IDENT_START}][{_IDENT_CONT}]*'
-)
 _GRANTEE_NOISE = frozenset({"group", "current_user", "session_user", "current_role"})
+# A grantee this scanner could not resolve. A REVOKE naming it credits no
+# closure (it is not a client role), and a GRANT naming it must be replayed as
+# reaching EVERY client role - PostgreSQL may well resolve it to one of them.
+UNRESOLVED_GRANTEE = "\x00unresolved-grantee"
 
 
 def _grantee_names(raw_region: str) -> set[str]:
-    """Role names named in a GRANT/REVOKE grantee list."""
-    # Locate tokens on masked structure so comments cannot invent grantees.
-    # Recover only those spans from raw SQL to preserve quoted role identities.
+    """Role names named in a GRANT/REVOKE grantee list.
+
+    Structure comes from the masked region, so a comment cannot invent a
+    grantee, and each identifier is resolved by the SHARED delimited-identifier
+    reader - the same one routine names, schema names and parameter types use.
+    A second, private quote regex lived here until it was found to miss exactly
+    what that reader exists to resolve: `U&"authenticate\0064"` is the role
+    `authenticated` to PostgreSQL, so a GRANT spelled that way reopens a closed
+    function, while the old reader recorded the bare token `u` plus a role
+    literally named `authenticate\0064` and saw no reopen at all.
+    """
     masked_region, problems = mask_sql_checked(raw_region)
     if problems:
         raise MaskError("; ".join(problems))
-    names = set()
-    for m in _GRANTEE_TOKEN_RE.finditer(masked_region):
-        token = raw_region[m.start():m.end()]
-        if token.startswith('"'):
-            names.add(_pg_identifier(token[1:-1].replace('""', '"'), quoted=True))
-        else:
-            resolved = _pg_identifier(token)
-            if resolved in _GRANTEE_NOISE:
+    names, i, n = set(), 0, len(masked_region)
+    while i < n:
+        if masked_region[i] == '"' or _UAMP_PREFIX_RE.match(masked_region, i):
+            read = _read_delimited_identifier(raw_region, i, masked_region)
+            if read is not None:
+                names.add(read[0])
+                i = read[1]
                 continue
+            # Unresolvable delimited grantee: fail closed and skip its span so
+            # the `U&` prefix cannot be re-read as a bare role named `u`.
+            names.add(UNRESOLVED_GRANTEE)
+            quote = masked_region.find('"', i)
+            close = masked_region.find('"', quote + 1) if quote != -1 else -1
+            i = (close + 1) if close != -1 else n
+            continue
+        bare = _UNQUOTED_IDENT_RE.match(masked_region, i)
+        if bare is None:
+            i += 1
+            continue
+        resolved = _pg_identifier(raw_region[bare.start():bare.end()])
+        if resolved not in _GRANTEE_NOISE:
             names.add(resolved)
+        i = bare.end()
     return names
 
 
@@ -1630,12 +2572,250 @@ class PrivilegeStatement:
         self.grant_option_only = grant_option_only
 
 
+def _dollar_spans(masked: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Every dollar-quoted CONTENT span between `start` and `end`.
+
+    Walks the same way _scan_statement() does - honouring single quotes and
+    quoted identifiers - but reports ALL of them rather than only the first, so
+    a CREATE FUNCTION carrying more than one dollar-quoted literal cannot leave
+    one of them outside the exclusion below.
+    """
+    spans, j = [], start
+    while j < end:
+        ch = masked[j]
+        if ch == "'":
+            k = masked.find("'", j + 1)
+            j = end if k == -1 else k + 1
+            continue
+        if ch == '"':
+            k = masked.find('"', j + 1)
+            j = end if k == -1 else k + 1
+            continue
+        if ch == "$":
+            tag = _dollar_tag_at(masked, j)
+            if tag is not None:
+                close = masked.find(tag, j + len(tag))
+                if close == -1:
+                    return spans
+                spans.append((j + len(tag), close))
+                j = close + len(tag)
+                continue
+        j += 1
+    return spans
+
+
+def routine_body_spans(masked: str) -> list[tuple[int, int]]:
+    """The dollar-quoted spans owned by a CREATE FUNCTION/PROCEDURE statement.
+
+    Round 10 (Codex). A routine BODY is deliberately left executable in the
+    masked text - that is where has_recognized_guard() looks - so privilege
+    text written inside one was indistinguishable from a real statement to a
+    regex sweeping the whole file. Creating a routine does NOT execute its
+    body, so a `REVOKE EXECUTE ON FUNCTION victim() FROM PUBLIC` sitting in
+    another routine's body closed nothing in PostgreSQL while closing the
+    scanner's replayed ACL completely, and an unguarded SECURITY DEFINER
+    function passed.
+
+    The exclusion is STRUCTURAL - statement ownership, not a blacklist of the
+    word REVOKE - so it holds for a body of any language, any dollar tag, any
+    nesting, either security mode, and a routine created before or after the
+    function under review. Offsets are untouched: spans are reported, never
+    stripped, so every other consumer still sees the same text at the same
+    place.
+
+    Only CREATE routine statements are excluded here. A `DO $$ ... $$;` block
+    DOES execute at migration time, but Round 11 does not replay privilege
+    text from inside one either: a DO is a procedural runtime whose final ACL
+    effect cannot be proven statically. Those blocks are owned separately by
+    parse_do_blocks() and may emit PROCEDURAL_ACL_UNKNOWN rather than forged
+    GRANT/REVOKE events.
+    """
+    spans = []
+    for m in _CREATE_ROUTINE_RE.finditer(masked):
+        end, _ = _scan_statement(masked, m.end())
+        spans.extend(_dollar_spans(masked, m.end(), end))
+    return spans
+
+
+# ---------------------------------------------------------------------------
+# Round 11: procedural ACL uncertainty
+# ---------------------------------------------------------------------------
+# Three concepts stay separate:
+#   1. a migration TOP-LEVEL privilege statement, which ACL replay may apply;
+#   2. a routine BODY, which is not executed at CREATE time;
+#   3. a DO block, which IS executed at migration time, but whose internal
+#      GRANT/REVOKE/EXECUTE effect cannot be proven without a PL/pgSQL
+#      interpreter (IF, LOOP, EXCEPTION, format(), concatenation, variables).
+#
+# The scanner does not become that interpreter. A DO that might change routine
+# EXECUTE is a PROCEDURAL_ACL_UNKNOWN event. UNKNOWN is not closure. A later
+# provably exact top-level privilege statement can restore proof.
+_DO_KW_RE = re.compile(r"\bDO\b", re.IGNORECASE)
+_LANGUAGE_KW_RE = re.compile(r"LANGUAGE\b", re.IGNORECASE)
+_ON_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
+_EXECUTE_WORD_RE = re.compile(r"\bEXECUTE\b", re.IGNORECASE)
+
+ACL_OPEN = "open"
+ACL_CLOSED = "closed"
+ACL_UNKNOWN = "unknown"
+
+
+class DoBlock:
+    __slots__ = ("start", "end", "body_span", "readable")
+
+    def __init__(self, start, end, body_span, readable):
+        self.start = start
+        self.end = end
+        # Dollar-quoted CONTENT span, or None when the body could not be owned.
+        self.body_span = body_span
+        # False when the body is not dollar-quoted: mask_sql_checked() blanks
+        # single-quoted content, so the scanner cannot prove the DO is harmless.
+        self.readable = readable
+
+
+def _read_string_literal_at(masked: str, i: int):
+    """(content_start, content_end, after, is_dollar) for a literal at `i`."""
+    n = len(masked)
+    if i >= n:
+        return None
+    if masked[i] == "$":
+        tag = _dollar_tag_at(masked, i)
+        if tag is None:
+            return None
+        close = masked.find(tag, i + len(tag))
+        if close == -1:
+            return None
+        return (i + len(tag), close, close + len(tag), True)
+    if masked[i] == "'":
+        close = masked.find("'", i + 1)
+        if close == -1:
+            return None
+        return (i + 1, close, close + 1, False)
+    return None
+
+
+def parse_do_blocks(masked: str) -> list[DoBlock]:
+    """Top-level DO statements, owned by structural dollar/string spans.
+
+    Offsets are not stripped. CREATE FUNCTION/PROCEDURE bodies are skipped so a
+    routine that happens to mention `DO` or `EXECUTE` is not a migration-time
+    DO. Nested matches inside an already-owned DO body are skipped the same way.
+    """
+    routine = routine_body_spans(masked)
+    out: list[DoBlock] = []
+    n = len(masked)
+    for m in _DO_KW_RE.finditer(masked):
+        if m.start() > 0 and masked[m.start() - 1] == "$":
+            continue
+        if any(start <= m.start() < stop for start, stop in routine):
+            continue
+        if any(
+            d.body_span is not None and d.body_span[0] <= m.start() < d.body_span[1]
+            for d in out
+        ):
+            continue
+        i = _skip_ws(masked, m.end())
+        lang = _LANGUAGE_KW_RE.match(masked, i)
+        if lang:
+            i = _skip_ws(masked, lang.end())
+            if i < n and masked[i] == '"':
+                close = masked.find('"', i + 1)
+                i = n if close == -1 else close + 1
+            elif i < n and masked[i] == "'":
+                lit = _read_string_literal_at(masked, i)
+                i = n if lit is None else lit[2]
+            else:
+                ident = _UNQUOTED_IDENT_RE.match(masked, i)
+                if ident:
+                    i = ident.end()
+            i = _skip_ws(masked, i)
+        lit = _read_string_literal_at(masked, i)
+        if lit is None:
+            # Not a DO statement. `ON CONFLICT ... DO NOTHING` / `DO UPDATE`
+            # use the same keyword and must not become ACL-unknown events.
+            continue
+        body_start, body_end, after, is_dollar = lit
+        end, _ = _scan_statement(masked, after)
+        out.append(DoBlock(m.start(), end, (body_start, body_end), is_dollar))
+    return out
+
+
+def do_body_spans(masked: str) -> list[tuple[int, int]]:
+    """Spans whose GRANT/REVOKE text must not be replayed as top-level ACL."""
+    spans = []
+    for block in parse_do_blocks(masked):
+        if block.body_span is not None:
+            spans.append(block.body_span)
+        else:
+            spans.append((block.start, block.end))
+    return spans
+
+
+def _has_procedural_execute(masked_body: str) -> bool:
+    """True when the body contains PL/pgSQL EXECUTE, not GRANT/REVOKE EXECUTE.
+
+    `GRANT EXECUTE ON FUNCTION` and `REVOKE EXECUTE ON FUNCTION` use EXECUTE as
+    a privilege name; the next token is ON. PL/pgSQL EXECUTE is followed by an
+    expression (`'...'`, format(), a variable, concatenation). Reachability is
+    deliberately not evaluated: any such statement can run arbitrary SQL.
+    """
+    for m in _EXECUTE_WORD_RE.finditer(masked_body):
+        nxt = _skip_ws(masked_body, m.end())
+        if nxt < len(masked_body) and _ON_WORD_RE.match(masked_body, nxt):
+            continue
+        return True
+    return False
+
+
+def _body_has_routine_privilege_text(
+    raw: str, masked: str, start: int, end: int
+) -> bool:
+    """Static GRANT/REVOKE of routine EXECUTE inside a span, not replayed."""
+    del raw
+    region = masked[start:end]
+    for head_re in (_REVOKE_HEAD_RE, _GRANT_HEAD_RE):
+        for m in head_re.finditer(region):
+            if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
+                continue
+            rest = masked[start + m.end(): end]
+            if _ON_ALL_ROUTINES_RE.match(rest) or _ON_ROUTINE_RE.match(rest):
+                return True
+    return False
+
+
+def do_is_acl_uncertain(block: DoBlock, raw: str, masked: str) -> bool:
+    """True when this DO's effect on routine EXECUTE cannot be proven."""
+    if not block.readable or block.body_span is None:
+        return True
+    start, end = block.body_span
+    if _has_procedural_execute(masked[start:end]):
+        return True
+    return _body_has_routine_privilege_text(raw, masked, start, end)
+
+
+def parse_procedural_acl_unknown(raw: str, masked: str) -> list[int]:
+    """File offsets of DO statements that make ACL proof UNKNOWN."""
+    return [
+        block.start
+        for block in parse_do_blocks(masked)
+        if do_is_acl_uncertain(block, raw, masked)
+    ]
+
+
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
     """REVOKE/GRANT statements that carry EXECUTE (or ALL) on routines."""
     out = []
+    # ACL replay may consume only statements the migration actually EXECUTES at
+    # SQL top level. Text inside a routine body never moves migration-time ACL
+    # state, in either direction: it neither credits a closure nor reopens one.
+    # Text inside a DO body is also not replayed: Round 11 treats that DO as
+    # PROCEDURAL_ACL_UNKNOWN instead of pretending each lexical GRANT/REVOKE ran.
+    bodies = routine_body_spans(masked) + do_body_spans(masked)
     for head_re, is_revoke in ((_REVOKE_HEAD_RE, True), (_GRANT_HEAD_RE, False)):
         for m in head_re.finditer(masked):
             if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
+                continue
+            if any(start <= m.start() < stop for start, stop in bodies):
                 continue
             end, _ = _scan_statement(masked, m.end())
             rest = masked[m.end(): end]
@@ -1677,6 +2857,7 @@ def revoke_closes_client_surface(
     after: int,
     privileges: list[PrivilegeStatement],
     strict: bool = False,
+    procedural_unknowns: list[int] | None = None,
 ) -> bool:
     """True when the migration leaves THIS function unreachable by every client.
 
@@ -1699,29 +2880,64 @@ def revoke_closes_client_surface(
     that while carrying their own reviewed authorization, so for them the
     historical PUBLIC-only test is preserved. The cutoff is a migration NUMBER;
     no function is exempted by name.
+
+    Round 11 adds a third state, PROCEDURAL_ACL_UNKNOWN. A DO block that might
+    change routine EXECUTE is not replayed as a definite GRANT or REVOKE; it
+    makes every client-role cell UNKNOWN. UNKNOWN is not closure. A later
+    provably applicable top-level privilege statement restores proof for the
+    roles it names; roles it does not name stay UNKNOWN. Ordering matters.
     """
-    public_open = True
-    explicit = {role: False for role in CLIENT_ROLES if role != "public"}
-    for stmt in sorted(privileges, key=lambda s: s.start):
-        if stmt.start < after or stmt.all_in_schema:
+    public_state = ACL_OPEN
+    explicit = {role: ACL_CLOSED for role in CLIENT_ROLES if role != "public"}
+    events: list[tuple[int, int, object]] = []
+    for stmt in privileges:
+        events.append((stmt.start, 0, stmt))
+    for pos in procedural_unknowns or ():
+        events.append((pos, 1, None))
+    events.sort(key=lambda item: (item[0], item[1]))
+
+    for start, _kind, stmt in events:
+        if start < after:
+            continue
+        if stmt is None:
+            public_state = ACL_UNKNOWN
+            explicit = {role: ACL_UNKNOWN for role in explicit}
+            continue
+        if stmt.all_in_schema:
             continue
         # `REVOKE GRANT OPTION FOR EXECUTE` takes away the right to pass EXECUTE
         # on. The grantee's own EXECUTE is untouched, so this statement moves no
         # part of the executable surface and must not be replayed as a closure.
         if stmt.grant_option_only:
             continue
-        if not any(identity.same_function(t) for t in stmt.targets):
+        # A REVOKE only credits closure for the overload it PROVABLY names; a
+        # GRANT is replayed whenever it MIGHT reach this one. The asymmetry is
+        # the point: an unreadable signature must never close a surface, and
+        # must never be assumed harmless either.
+        relation = (
+            Identity.same_function if stmt.is_revoke else Identity.may_be_same_function
+        )
+        if not any(relation(identity, t) for t in stmt.targets):
             continue
+        # A GRANT to a grantee nobody could resolve may well reach a client
+        # role, so it is replayed as reaching all of them. The same token in a
+        # REVOKE credits no closure: it is simply not one of these roles.
+        opens_everything = (
+            not stmt.is_revoke and UNRESOLVED_GRANTEE in stmt.grantees
+        )
+        next_state = ACL_CLOSED if stmt.is_revoke else ACL_OPEN
         for role in CLIENT_ROLES:
-            if role not in stmt.grantees:
+            if role not in stmt.grantees and not opens_everything:
                 continue
             if role == "public":
-                public_open = not stmt.is_revoke
+                public_state = next_state
             else:
-                explicit[role] = not stmt.is_revoke
-    if public_open:
+                explicit[role] = next_state
+    if public_state != ACL_CLOSED:
         return False
-    return not strict or not any(explicit.values())
+    if any(state == ACL_UNKNOWN for state in explicit.values()):
+        return False
+    return not strict or all(state == ACL_CLOSED for state in explicit.values())
 
 
 # ---------------------------------------------------------------------------
@@ -1800,6 +3016,7 @@ def check_file(path: pathlib.Path) -> list[str]:
 
     definitions = parse_definitions(raw_sql, sql)
     privileges = parse_privilege_statements(raw_sql, sql)
+    procedural_unknowns = parse_procedural_acl_unknown(raw_sql, sql)
     # Security mode is a STATE. Resolve every CREATE against the ALTERs that
     # follow it before judging anything, so a promotion cannot slip between the
     # two statements and a demotion cannot be reported.
@@ -1833,7 +3050,8 @@ def check_file(path: pathlib.Path) -> list[str]:
             continue
 
         if revoke_closes_client_surface(
-            identity, definition.end, privileges, strict=strict
+            identity, definition.end, privileges, strict=strict,
+            procedural_unknowns=procedural_unknowns,
         ):
             continue
 
@@ -1870,7 +3088,8 @@ def check_file(path: pathlib.Path) -> list[str]:
     # closes it to every client role.
     for alter in external_promotions:
         if revoke_closes_client_surface(
-            alter.identity, alter.end, privileges, strict=strict
+            alter.identity, alter.end, privileges, strict=strict,
+            procedural_unknowns=procedural_unknowns,
         ):
             continue
         errors.append(
