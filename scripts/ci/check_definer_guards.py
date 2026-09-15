@@ -2623,8 +2623,12 @@ def routine_body_spans(masked: str) -> list[tuple[int, int]]:
     stripped, so every other consumer still sees the same text at the same
     place.
 
-    Only CREATE routine statements are excluded. A `DO $$ ... $$;` block DOES
-    execute at migration time and is left alone here.
+    Only CREATE routine statements are excluded here. A `DO $$ ... $$;` block
+    DOES execute at migration time, but Round 11 does not replay privilege
+    text from inside one either: a DO is a procedural runtime whose final ACL
+    effect cannot be proven statically. Those blocks are owned separately by
+    parse_do_blocks() and may emit PROCEDURAL_ACL_UNKNOWN rather than forged
+    GRANT/REVOKE events.
     """
     spans = []
     for m in _CREATE_ROUTINE_RE.finditer(masked):
@@ -2633,13 +2637,180 @@ def routine_body_spans(masked: str) -> list[tuple[int, int]]:
     return spans
 
 
+# ---------------------------------------------------------------------------
+# Round 11: procedural ACL uncertainty
+# ---------------------------------------------------------------------------
+# Three concepts stay separate:
+#   1. a migration TOP-LEVEL privilege statement, which ACL replay may apply;
+#   2. a routine BODY, which is not executed at CREATE time;
+#   3. a DO block, which IS executed at migration time, but whose internal
+#      GRANT/REVOKE/EXECUTE effect cannot be proven without a PL/pgSQL
+#      interpreter (IF, LOOP, EXCEPTION, format(), concatenation, variables).
+#
+# The scanner does not become that interpreter. A DO that might change routine
+# EXECUTE is a PROCEDURAL_ACL_UNKNOWN event. UNKNOWN is not closure. A later
+# provably exact top-level privilege statement can restore proof.
+_DO_KW_RE = re.compile(r"\bDO\b", re.IGNORECASE)
+_LANGUAGE_KW_RE = re.compile(r"LANGUAGE\b", re.IGNORECASE)
+_ON_WORD_RE = re.compile(r"\bON\b", re.IGNORECASE)
+_EXECUTE_WORD_RE = re.compile(r"\bEXECUTE\b", re.IGNORECASE)
+
+ACL_OPEN = "open"
+ACL_CLOSED = "closed"
+ACL_UNKNOWN = "unknown"
+
+
+class DoBlock:
+    __slots__ = ("start", "end", "body_span", "readable")
+
+    def __init__(self, start, end, body_span, readable):
+        self.start = start
+        self.end = end
+        # Dollar-quoted CONTENT span, or None when the body could not be owned.
+        self.body_span = body_span
+        # False when the body is not dollar-quoted: mask_sql_checked() blanks
+        # single-quoted content, so the scanner cannot prove the DO is harmless.
+        self.readable = readable
+
+
+def _read_string_literal_at(masked: str, i: int):
+    """(content_start, content_end, after, is_dollar) for a literal at `i`."""
+    n = len(masked)
+    if i >= n:
+        return None
+    if masked[i] == "$":
+        tag = _dollar_tag_at(masked, i)
+        if tag is None:
+            return None
+        close = masked.find(tag, i + len(tag))
+        if close == -1:
+            return None
+        return (i + len(tag), close, close + len(tag), True)
+    if masked[i] == "'":
+        close = masked.find("'", i + 1)
+        if close == -1:
+            return None
+        return (i + 1, close, close + 1, False)
+    return None
+
+
+def parse_do_blocks(masked: str) -> list[DoBlock]:
+    """Top-level DO statements, owned by structural dollar/string spans.
+
+    Offsets are not stripped. CREATE FUNCTION/PROCEDURE bodies are skipped so a
+    routine that happens to mention `DO` or `EXECUTE` is not a migration-time
+    DO. Nested matches inside an already-owned DO body are skipped the same way.
+    """
+    routine = routine_body_spans(masked)
+    out: list[DoBlock] = []
+    n = len(masked)
+    for m in _DO_KW_RE.finditer(masked):
+        if m.start() > 0 and masked[m.start() - 1] == "$":
+            continue
+        if any(start <= m.start() < stop for start, stop in routine):
+            continue
+        if any(
+            d.body_span is not None and d.body_span[0] <= m.start() < d.body_span[1]
+            for d in out
+        ):
+            continue
+        i = _skip_ws(masked, m.end())
+        lang = _LANGUAGE_KW_RE.match(masked, i)
+        if lang:
+            i = _skip_ws(masked, lang.end())
+            if i < n and masked[i] == '"':
+                close = masked.find('"', i + 1)
+                i = n if close == -1 else close + 1
+            elif i < n and masked[i] == "'":
+                lit = _read_string_literal_at(masked, i)
+                i = n if lit is None else lit[2]
+            else:
+                ident = _UNQUOTED_IDENT_RE.match(masked, i)
+                if ident:
+                    i = ident.end()
+            i = _skip_ws(masked, i)
+        lit = _read_string_literal_at(masked, i)
+        if lit is None:
+            # Not a DO statement. `ON CONFLICT ... DO NOTHING` / `DO UPDATE`
+            # use the same keyword and must not become ACL-unknown events.
+            continue
+        body_start, body_end, after, is_dollar = lit
+        end, _ = _scan_statement(masked, after)
+        out.append(DoBlock(m.start(), end, (body_start, body_end), is_dollar))
+    return out
+
+
+def do_body_spans(masked: str) -> list[tuple[int, int]]:
+    """Spans whose GRANT/REVOKE text must not be replayed as top-level ACL."""
+    spans = []
+    for block in parse_do_blocks(masked):
+        if block.body_span is not None:
+            spans.append(block.body_span)
+        else:
+            spans.append((block.start, block.end))
+    return spans
+
+
+def _has_procedural_execute(masked_body: str) -> bool:
+    """True when the body contains PL/pgSQL EXECUTE, not GRANT/REVOKE EXECUTE.
+
+    `GRANT EXECUTE ON FUNCTION` and `REVOKE EXECUTE ON FUNCTION` use EXECUTE as
+    a privilege name; the next token is ON. PL/pgSQL EXECUTE is followed by an
+    expression (`'...'`, format(), a variable, concatenation). Reachability is
+    deliberately not evaluated: any such statement can run arbitrary SQL.
+    """
+    for m in _EXECUTE_WORD_RE.finditer(masked_body):
+        nxt = _skip_ws(masked_body, m.end())
+        if nxt < len(masked_body) and _ON_WORD_RE.match(masked_body, nxt):
+            continue
+        return True
+    return False
+
+
+def _body_has_routine_privilege_text(
+    raw: str, masked: str, start: int, end: int
+) -> bool:
+    """Static GRANT/REVOKE of routine EXECUTE inside a span, not replayed."""
+    del raw
+    region = masked[start:end]
+    for head_re in (_REVOKE_HEAD_RE, _GRANT_HEAD_RE):
+        for m in head_re.finditer(region):
+            if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
+                continue
+            rest = masked[start + m.end(): end]
+            if _ON_ALL_ROUTINES_RE.match(rest) or _ON_ROUTINE_RE.match(rest):
+                return True
+    return False
+
+
+def do_is_acl_uncertain(block: DoBlock, raw: str, masked: str) -> bool:
+    """True when this DO's effect on routine EXECUTE cannot be proven."""
+    if not block.readable or block.body_span is None:
+        return True
+    start, end = block.body_span
+    if _has_procedural_execute(masked[start:end]):
+        return True
+    return _body_has_routine_privilege_text(raw, masked, start, end)
+
+
+def parse_procedural_acl_unknown(raw: str, masked: str) -> list[int]:
+    """File offsets of DO statements that make ACL proof UNKNOWN."""
+    return [
+        block.start
+        for block in parse_do_blocks(masked)
+        if do_is_acl_uncertain(block, raw, masked)
+    ]
+
+
 def parse_privilege_statements(raw: str, masked: str) -> list[PrivilegeStatement]:
     """REVOKE/GRANT statements that carry EXECUTE (or ALL) on routines."""
     out = []
     # ACL replay may consume only statements the migration actually EXECUTES at
     # SQL top level. Text inside a routine body never moves migration-time ACL
     # state, in either direction: it neither credits a closure nor reopens one.
-    bodies = routine_body_spans(masked)
+    # Text inside a DO body is also not replayed: Round 11 treats that DO as
+    # PROCEDURAL_ACL_UNKNOWN instead of pretending each lexical GRANT/REVOKE ran.
+    bodies = routine_body_spans(masked) + do_body_spans(masked)
     for head_re, is_revoke in ((_REVOKE_HEAD_RE, True), (_GRANT_HEAD_RE, False)):
         for m in head_re.finditer(masked):
             if not _EXECUTE_PRIV_RE.search(m.group("privs") or ""):
@@ -2686,6 +2857,7 @@ def revoke_closes_client_surface(
     after: int,
     privileges: list[PrivilegeStatement],
     strict: bool = False,
+    procedural_unknowns: list[int] | None = None,
 ) -> bool:
     """True when the migration leaves THIS function unreachable by every client.
 
@@ -2708,11 +2880,30 @@ def revoke_closes_client_surface(
     that while carrying their own reviewed authorization, so for them the
     historical PUBLIC-only test is preserved. The cutoff is a migration NUMBER;
     no function is exempted by name.
+
+    Round 11 adds a third state, PROCEDURAL_ACL_UNKNOWN. A DO block that might
+    change routine EXECUTE is not replayed as a definite GRANT or REVOKE; it
+    makes every client-role cell UNKNOWN. UNKNOWN is not closure. A later
+    provably applicable top-level privilege statement restores proof for the
+    roles it names; roles it does not name stay UNKNOWN. Ordering matters.
     """
-    public_open = True
-    explicit = {role: False for role in CLIENT_ROLES if role != "public"}
-    for stmt in sorted(privileges, key=lambda s: s.start):
-        if stmt.start < after or stmt.all_in_schema:
+    public_state = ACL_OPEN
+    explicit = {role: ACL_CLOSED for role in CLIENT_ROLES if role != "public"}
+    events: list[tuple[int, int, object]] = []
+    for stmt in privileges:
+        events.append((stmt.start, 0, stmt))
+    for pos in procedural_unknowns or ():
+        events.append((pos, 1, None))
+    events.sort(key=lambda item: (item[0], item[1]))
+
+    for start, _kind, stmt in events:
+        if start < after:
+            continue
+        if stmt is None:
+            public_state = ACL_UNKNOWN
+            explicit = {role: ACL_UNKNOWN for role in explicit}
+            continue
+        if stmt.all_in_schema:
             continue
         # `REVOKE GRANT OPTION FOR EXECUTE` takes away the right to pass EXECUTE
         # on. The grantee's own EXECUTE is untouched, so this statement moves no
@@ -2734,16 +2925,19 @@ def revoke_closes_client_surface(
         opens_everything = (
             not stmt.is_revoke and UNRESOLVED_GRANTEE in stmt.grantees
         )
+        next_state = ACL_CLOSED if stmt.is_revoke else ACL_OPEN
         for role in CLIENT_ROLES:
             if role not in stmt.grantees and not opens_everything:
                 continue
             if role == "public":
-                public_open = not stmt.is_revoke
+                public_state = next_state
             else:
-                explicit[role] = not stmt.is_revoke
-    if public_open:
+                explicit[role] = next_state
+    if public_state != ACL_CLOSED:
         return False
-    return not strict or not any(explicit.values())
+    if any(state == ACL_UNKNOWN for state in explicit.values()):
+        return False
+    return not strict or all(state == ACL_CLOSED for state in explicit.values())
 
 
 # ---------------------------------------------------------------------------
@@ -2822,6 +3016,7 @@ def check_file(path: pathlib.Path) -> list[str]:
 
     definitions = parse_definitions(raw_sql, sql)
     privileges = parse_privilege_statements(raw_sql, sql)
+    procedural_unknowns = parse_procedural_acl_unknown(raw_sql, sql)
     # Security mode is a STATE. Resolve every CREATE against the ALTERs that
     # follow it before judging anything, so a promotion cannot slip between the
     # two statements and a demotion cannot be reported.
@@ -2855,7 +3050,8 @@ def check_file(path: pathlib.Path) -> list[str]:
             continue
 
         if revoke_closes_client_surface(
-            identity, definition.end, privileges, strict=strict
+            identity, definition.end, privileges, strict=strict,
+            procedural_unknowns=procedural_unknowns,
         ):
             continue
 
@@ -2892,7 +3088,8 @@ def check_file(path: pathlib.Path) -> list[str]:
     # closes it to every client role.
     for alter in external_promotions:
         if revoke_closes_client_surface(
-            alter.identity, alter.end, privileges, strict=strict
+            alter.identity, alter.end, privileges, strict=strict,
+            procedural_unknowns=procedural_unknowns,
         ):
             continue
         errors.append(

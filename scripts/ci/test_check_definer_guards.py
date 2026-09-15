@@ -3908,11 +3908,13 @@ class DefinerScannerTests(unittest.TestCase):
         self.assertEqual(problems, [])
         definitions = guards.parse_definitions(raw, masked)
         privileges = guards.parse_privilege_statements(raw, masked)
+        unknowns = guards.parse_procedural_acl_unknown(raw, masked)
         definers = [d for d in definitions if d.is_definer]
         self.assertTrue(definers, "191 defines no SECURITY DEFINER function")
         for definition in definers:
             closed = guards.revoke_closes_client_surface(
-                definition.identity, definition.end, privileges, strict=True
+                definition.identity, definition.end, privileges, strict=True,
+                procedural_unknowns=unknowns,
             )
             body = masked[definition.start: definition.body_span[1]]
             raw_body = raw[definition.start: definition.body_span[1]]
@@ -5061,6 +5063,105 @@ BEGIN DELETE FROM public.bins WHERE org_id = p_org; END $$;
         self.assertFalse(bare_custom.same_function(quoted_custom))
         self.assertTrue(bare_custom.may_be_same_function(quoted_custom))
 
+    def test_round11_confirmed_p2_do_corpus_is_rejected(self) -> None:
+        """ROUND11. The eight executable false-greens on e514eb4 must fail closed."""
+        for name, sql in ROUND11_P2_MUST_REJECT.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: unguarded SECURITY DEFINER accepted after a DO "
+                    f"whose ACL effect is not statically provable",
+                )
+
+    def test_round11_do_closures_are_conservative_false_reds(self) -> None:
+        """ROUND11. Reachable DO REVOKEs that PostgreSQL actually runs are no
+        longer credited as closures. That is a documented false-red, not a
+        soundness regression."""
+        for name, sql in ROUND11_CONSERVATIVE_FALSE_RED.items():
+            with self.subTest(case=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: a DO-based ACL mutation was still treated as a "
+                    f"proven top-level closure",
+                )
+
+    def test_round11_ordering_and_recovery(self) -> None:
+        """ROUND11. UNKNOWN does not poison the file forever; a later exact
+        top-level statement restores proof. Ordering matters."""
+        for name, sql in ROUND11_ORDERING_MUST_REJECT.items():
+            with self.subTest(reject=name):
+                self.assertTrue(
+                    self.verdict(name, sql),
+                    f"{name}: final ACL state was treated as CLOSED",
+                )
+        for name, sql in ROUND11_ORDERING_MUST_ACCEPT.items():
+            with self.subTest(accept=name):
+                self.assertEqual(
+                    self.verdict(name, sql),
+                    [],
+                    f"{name}: a later exact top-level REVOKE did not restore "
+                    f"closure, or a harmless DO poisoned ACL",
+                )
+
+    def test_round11_privilege_statements_ignore_do_bodies(self) -> None:
+        """ROUND11, parser-internal. Lexical GRANT/REVOKE inside DO is not a
+        top-level privilege statement. A real top-level REVOKE after the DO
+        is still seen."""
+        sql = (
+            "CREATE FUNCTION public.review_probe() RETURNS text\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  RETURN 'unguarded';\n"
+            "END;\n"
+            "$$;\n"
+            "DO $$\n"
+            "BEGIN\n"
+            "  REVOKE EXECUTE ON FUNCTION public.review_probe() "
+            "FROM PUBLIC, anon, authenticated;\n"
+            "  EXECUTE 'GRANT EXECUTE ON FUNCTION public.review_probe() "
+            "TO authenticated';\n"
+            "END;\n"
+            "$$;\n"
+            "REVOKE EXECUTE ON FUNCTION public.review_probe() FROM PUBLIC;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        stmts = guards.parse_privilege_statements(sql, masked)
+        self.assertEqual(len(stmts), 1)
+        self.assertTrue(stmts[0].is_revoke)
+        self.assertGreater(stmts[0].start, sql.rindex("$$;"))
+        unknowns = guards.parse_procedural_acl_unknown(sql, masked)
+        self.assertEqual(len(unknowns), 1)
+        self.assertLess(unknowns[0], stmts[0].start)
+
+    def test_round11_do_discovery_skips_routine_bodies(self) -> None:
+        """ROUND11. CREATE FUNCTION body EXECUTE is not a migration-time DO."""
+        sql = (
+            "CREATE FUNCTION public.review_probe() RETURNS text\n"
+            "LANGUAGE plpgsql SECURITY DEFINER AS $$\n"
+            "BEGIN\n"
+            "  EXECUTE 'REVOKE EXECUTE ON FUNCTION public.review_probe() "
+            "FROM PUBLIC';\n"
+            "  RETURN 'unguarded';\n"
+            "END;\n"
+            "$$;\n"
+            "DO $$\n"
+            "BEGIN\n"
+            "  PERFORM 1;\n"
+            "END;\n"
+            "$$;\n"
+        )
+        masked, problems = guards.mask_sql_checked(sql)
+        self.assertEqual(problems, [])
+        blocks = guards.parse_do_blocks(masked)
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0].start, sql.index("\nDO $$") + 1)
+        self.assertEqual(guards.parse_procedural_acl_unknown(sql, masked), [])
+        self.assertFalse(
+            guards.do_is_acl_uncertain(blocks[0], sql, masked),
+            "PERFORM 1 must not poison ACL",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Round 10 remediation (PR #246). Three unique acceptance-layer false-greens,
@@ -5431,6 +5532,262 @@ for _i, (_a, _b) in enumerate(ROUND10_QUOTED_SAME):
 
 MUST_REJECT.update(ROUND10_QUOTED_MUST_REJECT)
 MUST_ACCEPT.update(ROUND10_QUOTED_MUST_ACCEPT)
+
+
+# ---------------------------------------------------------------------------
+# Round 11 remediation (PR #246). Round 10 at e514eb4 left an executable
+# false-green class around DO-block ACL semantics: static GRANT/REVOKE text
+# inside a DO was replayed as if it definitely ran, and dynamic SQL was
+# invisible because the payload is a string. PostgreSQL 17.11 confirmed eight
+# P2 false-greens. Round 11 does not interpret IF/LOOP/EXCEPTION. A DO that
+# might change routine EXECUTE is PROCEDURAL_ACL_UNKNOWN; UNKNOWN is not
+# closure. Previously safe DO-based closures become conservative false-reds.
+# ---------------------------------------------------------------------------
+
+def _r11_probe() -> str:
+    return (
+        "CREATE FUNCTION public.review_probe()\n"
+        "RETURNS text\n"
+        "LANGUAGE plpgsql\n"
+        "SECURITY DEFINER\n"
+        "AS $body$\n"
+        "BEGIN\n"
+        "  RETURN 'unguarded';\n"
+        "END;\n"
+        "$body$;\n"
+    )
+
+
+def _r11_close() -> str:
+    return (
+        "REVOKE EXECUTE ON FUNCTION public.review_probe()\n"
+        "FROM PUBLIC, anon, authenticated;\n"
+    )
+
+
+def _r11_grant_auth() -> str:
+    return (
+        "GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated;\n"
+    )
+
+
+ROUND11_P2_MUST_REJECT = {
+    "round11_a_unreachable_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  IF false THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_a4_nested_unreachable_static_revoke": _r11_probe() + """
+DO $$
+BEGIN
+  IF true THEN
+    IF false THEN
+      REVOKE EXECUTE ON FUNCTION public.review_probe()
+      FROM PUBLIC, anon, authenticated;
+    END IF;
+  END IF;
+END;
+$$;
+""",
+    "round11_a5_exception_only_static_revoke": _r11_probe() + """
+DO $$
+BEGIN
+  BEGIN
+    NULL;
+  EXCEPTION WHEN OTHERS THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END;
+END;
+$$;
+""",
+    "round11_b_reachable_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""",
+    "round11_b3_dynamic_grant_behind_if_true": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF true THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END IF;
+END;
+$do$;
+""",
+    "round11_b4_execute_format_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE format(
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated'
+  );
+END;
+$do$;
+""",
+    "round11_b5_concatenated_constant_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe()'
+    || ' TO authenticated';
+END;
+$do$;
+""",
+    "round11_b6_variable_assembled_grant": _r11_probe() + _r11_close() + """
+DO $do$
+DECLARE
+  sql1 text;
+  sql2 text;
+BEGIN
+  sql1 := 'GRANT EXECUTE ON FUNCTION public.review_probe()';
+  sql2 := ' TO authenticated';
+  EXECUTE sql1 || sql2;
+END;
+$do$;
+""",
+}
+
+ROUND11_CONSERVATIVE_FALSE_RED = {
+    "round11_a1_reachable_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  IF true THEN
+    REVOKE EXECUTE ON FUNCTION public.review_probe()
+    FROM PUBLIC, anon, authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_a2_unconditional_static_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  REVOKE EXECUTE ON FUNCTION public.review_probe()
+  FROM PUBLIC, anon, authenticated;
+END;
+$do$;
+""",
+    "round11_a3_unreachable_static_grant_after_close": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF false THEN
+    GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated;
+  END IF;
+END;
+$do$;
+""",
+    "round11_b1_reachable_dynamic_revoke": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'REVOKE EXECUTE ON FUNCTION public.review_probe() FROM PUBLIC, anon, authenticated';
+END;
+$do$;
+""",
+    "round11_b2_unreachable_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  IF false THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END IF;
+END;
+$do$;
+""",
+    "round11_b7_exception_only_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  BEGIN
+    NULL;
+  EXCEPTION WHEN OTHERS THEN
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END;
+END;
+$do$;
+""",
+    "round11_b8_zero_iteration_dynamic_grant": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  FOR i IN 1..0 LOOP
+    EXECUTE
+      'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+  END LOOP;
+END;
+$do$;
+""",
+}
+
+ROUND11_ORDERING_MUST_REJECT = {
+    "round11_revoke_then_unknown_stays_unknown": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""",
+    "round11_revoke_unknown_then_grant_is_open": _r11_probe() + _r11_close() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'SELECT 1';
+END;
+$do$;
+""" + _r11_grant_auth(),
+    "round11_unknown_revoke_then_grant_is_open": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'SELECT 1';
+END;
+$do$;
+""" + _r11_close() + _r11_grant_auth(),
+}
+
+ROUND11_ORDERING_MUST_ACCEPT = {
+    "round11_unknown_then_exact_revoke_closes": _r11_probe() + """
+DO $do$
+BEGIN
+  EXECUTE
+    'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$do$;
+""" + _r11_close(),
+    "round11_harmless_do_does_not_poison": _r11_probe() + _r11_close() + """
+DO $$
+BEGIN
+  PERFORM 1;
+END;
+$$;
+""",
+    "round11_routine_body_execute_is_not_migration_acl": _r11_probe() + _r11_close() + """
+CREATE FUNCTION public.decoy() RETURNS void
+LANGUAGE plpgsql AS $$
+BEGIN
+  EXECUTE 'GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated';
+END;
+$$;
+""",
+    "round11_on_conflict_do_nothing_is_not_a_do_block": _r11_probe() + _r11_close() + """
+INSERT INTO public.permissions (permission_key)
+VALUES ('x')
+ON CONFLICT (permission_key) DO NOTHING;
+""",
+}
+
+MUST_REJECT.update(ROUND11_P2_MUST_REJECT)
+MUST_REJECT.update(ROUND11_CONSERVATIVE_FALSE_RED)
+MUST_REJECT.update(ROUND11_ORDERING_MUST_REJECT)
+MUST_ACCEPT.update(ROUND11_ORDERING_MUST_ACCEPT)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
