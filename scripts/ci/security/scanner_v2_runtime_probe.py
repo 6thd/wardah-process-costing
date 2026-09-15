@@ -24,7 +24,7 @@ import argparse
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404  # noqa: S404 -- intentional psql oracle boundary
 import sys
 from dataclasses import asdict, dataclass
 
@@ -94,7 +94,10 @@ def _run_psql(sql: str, *, db_url: str | None = None) -> str:
     cmd.extend(["-c", sql])
 
     try:
-        completed = subprocess.run(
+        # Security-reviewed subprocess boundary: shell is never used, argv[0]
+        # is a validated psql executable, SQL is scanner-owned fixed text, and
+        # caller targets are matched only after PostgreSQL returns identities.
+        completed = subprocess.run(  # nosec B603  # noqa: S603
             cmd,
             text=True,
             stdin=subprocess.DEVNULL,
