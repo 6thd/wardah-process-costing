@@ -27,6 +27,7 @@ import shutil
 import subprocess  # nosec B404  # noqa: S404 -- intentional psql oracle boundary
 import sys
 from dataclasses import asdict, dataclass
+from typing import Any
 
 CLIENT_ROLES = ("public", "anon", "authenticated")
 PSQL_TIMEOUT_SECONDS = 30
@@ -42,8 +43,8 @@ class RoutineEvidence:
     owner: str
     prokind: str
     security_definer: bool
-    proacl: str | None
-    proconfig: str | None
+    proacl: list[str] | None
+    proconfig: list[str] | None
     public_execute: bool
     anon_role_exists: bool
     anon_execute: bool | None
@@ -97,8 +98,6 @@ def _run_psql(sql: str, *, db_url: str | None = None) -> str:
                 "ON_ERROR_STOP=1",
                 "-A",
                 "-t",
-                "-F",
-                "\t",
             ],
             executable=executable,
             env=env,
@@ -122,93 +121,209 @@ def _run_psql(sql: str, *, db_url: str | None = None) -> str:
     return completed.stdout
 
 
-def _server_version(db_url: str | None) -> tuple[str, int]:
-    raw = _run_psql(
-        "SELECT version(), current_setting('server_version_num')::int;",
-        db_url=db_url,
-    ).strip()
-    if not raw:
-        raise RuntimeError("PostgreSQL oracle returned no version row")
-    fields = raw.split("\t")
-    if len(fields) != 2:
-        raise RuntimeError(f"Unexpected version row: {raw!r}")
-    return fields[0], int(fields[1])
+def _require_exact_keys(value: dict[str, Any], expected: set[str], context: str) -> None:
+    actual = set(value)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        extra = sorted(actual - expected)
+        raise RuntimeError(
+            f"Unexpected {context} keys: missing={missing}, extra={extra}"
+        )
 
 
-def _query_evidence(db_url: str | None) -> list[RoutineEvidence]:
-    # Deliberately fixed SQL. User-provided --target values are matched against
-    # PostgreSQL-rendered identities in Python after this catalog query; they are
-    # never interpolated into SQL.
+def _require_str(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise RuntimeError(f"Expected {field} to be string, got {type(value).__name__}")
+    return value
+
+
+def _require_int(value: Any, field: str) -> int:
+    if type(value) is not int:
+        raise RuntimeError(f"Expected {field} to be integer, got {type(value).__name__}")
+    return value
+
+
+def _require_bool(value: Any, field: str) -> bool:
+    if type(value) is not bool:
+        raise RuntimeError(f"Expected {field} to be boolean, got {type(value).__name__}")
+    return value
+
+
+def _require_nullable_bool(value: Any, field: str) -> bool | None:
+    if value is None:
+        return None
+    return _require_bool(value, field)
+
+
+def _require_nullable_string_list(value: Any, field: str) -> list[str] | None:
+    if value is None:
+        return None
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise RuntimeError(f"Expected {field} to be null or string array")
+    return value
+
+
+def _decode_oracle_payload(raw: str) -> tuple[str, int, list[RoutineEvidence]]:
+    stripped = raw.strip()
+    if not stripped:
+        raise RuntimeError("PostgreSQL oracle returned no JSON payload")
+
+    try:
+        payload = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"PostgreSQL oracle returned invalid JSON: {exc}") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError("PostgreSQL oracle payload must be a JSON object")
+
+    _require_exact_keys(
+        payload,
+        {"server_version", "server_version_num", "routines"},
+        "oracle payload",
+    )
+
+    version = _require_str(payload["server_version"], "server_version")
+    if not version:
+        raise RuntimeError("PostgreSQL oracle returned empty server_version")
+    version_num = _require_int(payload["server_version_num"], "server_version_num")
+    if version_num <= 0:
+        raise RuntimeError("PostgreSQL oracle returned invalid server_version_num")
+
+    raw_routines = payload["routines"]
+    if not isinstance(raw_routines, list):
+        raise RuntimeError("Expected routines to be an array")
+
+    routine_keys = {
+        "oid",
+        "schema",
+        "name",
+        "identity_arguments",
+        "identity",
+        "owner",
+        "prokind",
+        "security_definer",
+        "proacl",
+        "proconfig",
+        "public_execute",
+        "anon_role_exists",
+        "anon_execute",
+        "authenticated_role_exists",
+        "authenticated_execute",
+    }
+
+    rows: list[RoutineEvidence] = []
+    for index, item in enumerate(raw_routines):
+        context = f"routine[{index}]"
+        if not isinstance(item, dict):
+            raise RuntimeError(f"Expected {context} to be an object")
+        _require_exact_keys(item, routine_keys, context)
+
+        security_definer = _require_bool(
+            item["security_definer"], f"{context}.security_definer"
+        )
+        if not security_definer:
+            raise RuntimeError(f"{context} is not SECURITY DEFINER")
+
+        oid = _require_int(item["oid"], f"{context}.oid")
+        if oid <= 0:
+            raise RuntimeError(f"Expected {context}.oid to be positive")
+
+        rows.append(
+            RoutineEvidence(
+                oid=oid,
+                schema=_require_str(item["schema"], f"{context}.schema"),
+                name=_require_str(item["name"], f"{context}.name"),
+                identity_arguments=_require_str(
+                    item["identity_arguments"], f"{context}.identity_arguments"
+                ),
+                identity=_require_str(item["identity"], f"{context}.identity"),
+                owner=_require_str(item["owner"], f"{context}.owner"),
+                prokind=_require_str(item["prokind"], f"{context}.prokind"),
+                security_definer=security_definer,
+                proacl=_require_nullable_string_list(
+                    item["proacl"], f"{context}.proacl"
+                ),
+                proconfig=_require_nullable_string_list(
+                    item["proconfig"], f"{context}.proconfig"
+                ),
+                public_execute=_require_bool(
+                    item["public_execute"], f"{context}.public_execute"
+                ),
+                anon_role_exists=_require_bool(
+                    item["anon_role_exists"], f"{context}.anon_role_exists"
+                ),
+                anon_execute=_require_nullable_bool(
+                    item["anon_execute"], f"{context}.anon_execute"
+                ),
+                authenticated_role_exists=_require_bool(
+                    item["authenticated_role_exists"],
+                    f"{context}.authenticated_role_exists",
+                ),
+                authenticated_execute=_require_nullable_bool(
+                    item["authenticated_execute"],
+                    f"{context}.authenticated_execute",
+                ),
+            )
+        )
+
+    return version, version_num, rows
+
+
+def _query_oracle(db_url: str | None) -> tuple[str, int, list[RoutineEvidence]]:
+    # One PostgreSQL statement returns typed JSON for both server identity and
+    # routine evidence. PostgreSQL performs all escaping, so tabs/newlines or
+    # other delimiter characters inside identifiers, ACLs, or proconfig cannot
+    # create synthetic rows or fields in the Python transport.
     sql = """
 WITH role_flags AS (
   SELECT
     EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') AS has_anon,
     EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') AS has_authenticated
+), routine_rows AS (
+  SELECT
+    n.nspname AS schema_name,
+    p.proname AS routine_name,
+    pg_get_function_identity_arguments(p.oid) AS identity_arguments,
+    p.oid AS routine_oid,
+    jsonb_build_object(
+      'oid', p.oid::bigint,
+      'schema', n.nspname,
+      'name', p.proname,
+      'identity_arguments', pg_get_function_identity_arguments(p.oid),
+      'identity', format('%I.%I(%s)', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)),
+      'owner', pg_get_userbyid(p.proowner),
+      'prokind', p.prokind,
+      'security_definer', p.prosecdef,
+      'proacl', to_jsonb(p.proacl),
+      'proconfig', to_jsonb(p.proconfig),
+      'public_execute', has_function_privilege('public', p.oid, 'EXECUTE'),
+      'anon_role_exists', rf.has_anon,
+      'anon_execute', CASE WHEN rf.has_anon THEN has_function_privilege('anon', p.oid, 'EXECUTE') ELSE NULL END,
+      'authenticated_role_exists', rf.has_authenticated,
+      'authenticated_execute', CASE WHEN rf.has_authenticated THEN has_function_privilege('authenticated', p.oid, 'EXECUTE') ELSE NULL END
+    ) AS routine_json
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid = p.pronamespace
+  CROSS JOIN role_flags rf
+  WHERE p.prosecdef
+    AND n.nspname NOT IN ('pg_catalog', 'information_schema')
 )
-SELECT
-  p.oid::bigint,
-  n.nspname,
-  p.proname,
-  pg_get_function_identity_arguments(p.oid),
-  format('%I.%I(%s)', n.nspname, p.proname, pg_get_function_identity_arguments(p.oid)),
-  pg_get_userbyid(p.proowner),
-  p.prokind,
-  p.prosecdef,
-  CASE WHEN p.proacl IS NULL THEN NULL ELSE array_to_string(p.proacl, ',') END,
-  CASE WHEN p.proconfig IS NULL THEN NULL ELSE array_to_string(p.proconfig, ',') END,
-  has_function_privilege('public', p.oid, 'EXECUTE'),
-  rf.has_anon,
-  CASE WHEN rf.has_anon THEN has_function_privilege('anon', p.oid, 'EXECUTE') ELSE NULL END,
-  rf.has_authenticated,
-  CASE WHEN rf.has_authenticated THEN has_function_privilege('authenticated', p.oid, 'EXECUTE') ELSE NULL END
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-CROSS JOIN role_flags rf
-WHERE p.prosecdef
-  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-ORDER BY n.nspname, p.proname, pg_get_function_identity_arguments(p.oid), p.oid;
+SELECT jsonb_build_object(
+  'server_version', version(),
+  'server_version_num', current_setting('server_version_num')::int,
+  'routines', COALESCE(
+    (
+      SELECT jsonb_agg(
+        routine_json
+        ORDER BY schema_name, routine_name, identity_arguments, routine_oid
+      )
+      FROM routine_rows
+    ),
+    '[]'::jsonb
+  )
+);
 """
-    raw = _run_psql(sql, db_url=db_url)
-    rows: list[RoutineEvidence] = []
-    for line in raw.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split("\t")
-        if len(parts) != 15:
-            raise RuntimeError(
-                f"Unexpected catalog row with {len(parts)} fields: {line!r}"
-            )
-
-        def pg_bool(value: str) -> bool:
-            if value == "t":
-                return True
-            if value == "f":
-                return False
-            raise RuntimeError(f"Unexpected PostgreSQL boolean: {value!r}")
-
-        def pg_nullable_bool(value: str) -> bool | None:
-            return None if value == "" else pg_bool(value)
-
-        rows.append(
-            RoutineEvidence(
-                oid=int(parts[0]),
-                schema=parts[1],
-                name=parts[2],
-                identity_arguments=parts[3],
-                identity=parts[4],
-                owner=parts[5],
-                prokind=parts[6],
-                security_definer=pg_bool(parts[7]),
-                proacl=parts[8] or None,
-                proconfig=parts[9] or None,
-                public_execute=pg_bool(parts[10]),
-                anon_role_exists=pg_bool(parts[11]),
-                anon_execute=pg_nullable_bool(parts[12]),
-                authenticated_role_exists=pg_bool(parts[13]),
-                authenticated_execute=pg_nullable_bool(parts[14]),
-            )
-        )
-    return rows
+    return _decode_oracle_payload(_run_psql(sql, db_url=db_url))
 
 
 def _select_targets(
@@ -263,8 +378,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        version, version_num = _server_version(args.db_url)
-        evidence = _select_targets(_query_evidence(args.db_url), args.target)
+        version, version_num, rows = _query_oracle(args.db_url)
+        evidence = _select_targets(rows, args.target)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"SCANNER_V2_ORACLE_ERROR: {exc}", file=sys.stderr)
         return 3
