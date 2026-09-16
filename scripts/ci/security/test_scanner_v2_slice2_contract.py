@@ -187,12 +187,12 @@ AS $$ SELECT value $$;
         routines = [
             _catalog_row(
                 oid=2001,
-                identity='public."CaseProbe"(integer)',
+                identity='public."CaseProbe"(text)',
                 name="CaseProbe",
             ),
             _catalog_row(
                 oid=2002,
-                identity='public."CaseProbe"(text)',
+                identity='public."CaseProbe"(integer)',
                 name="CaseProbe",
             ),
         ]
