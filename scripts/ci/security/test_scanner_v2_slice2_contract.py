@@ -189,14 +189,14 @@ AS $$ SELECT value $$;
             [
                 _catalog_row(
                     oid=1901,
-                    identity='public."CaseProbe"(text)',
+                    identity='public."CaseProbe"(numeric)',
                     name="CaseProbe",
                 )
             ],
         )
         # A single catalog row with matching schema/name is not proof of
         # identity. The declared source argument type is integer, while the only
-        # catalog candidate is text, so binding must fail closed rather than
+        # catalog candidate is numeric, so binding must fail closed rather than
         # silently resolving the wrong overload.
         self.assertNotEqual(completed.returncode, 0)
         self.assertTrue(
@@ -204,7 +204,7 @@ AS $$ SELECT value $$;
             completed.stderr,
         )
         self.assertNotIn('"status": "RESOLVED"', completed.stdout)
-        self.assertNotIn('public.\\"CaseProbe\\"(text)', completed.stdout)
+        self.assertNotIn('public.\\"CaseProbe\\"(numeric)', completed.stdout)
 
     def test_ambiguous_overload_or_quoted_identity_fails_closed(self) -> None:
         source = r'''
