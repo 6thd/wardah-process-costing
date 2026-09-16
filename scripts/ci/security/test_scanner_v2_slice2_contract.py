@@ -132,6 +132,24 @@ AS $$ BEGIN NULL; END $$;
         self.assertIn("UNKNOWN", completed.stderr)
         self.assertNotIn('"status": "RESOLVED"', completed.stdout)
 
+    def test_unrelated_nonempty_catalog_does_not_bind_source_candidate(self) -> None:
+        source = r'''
+CREATE FUNCTION public.foo()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$ BEGIN NULL; END $$;
+'''
+        completed = _run_binding(
+            source,
+            [_catalog_row(oid=1501, identity="public.bar()", name="bar")],
+        )
+        # Non-empty oracle evidence is not sufficient. Slice 2 must correlate
+        # discovered source candidates to matching PostgreSQL catalog identities.
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("UNKNOWN", completed.stderr)
+        self.assertNotIn('"status": "RESOLVED"', completed.stdout)
+
     def test_ambiguous_overload_or_quoted_identity_fails_closed(self) -> None:
         source = r'''
 CREATE FUNCTION public."CaseProbe"(value integer)
