@@ -242,6 +242,8 @@ AS $$ SELECT value $$;
                 "AMBIGUOUS" in completed.stderr or "UNKNOWN" in completed.stderr,
                 completed.stderr,
             )
+            self.assertNotIn('"status": "RESOLVED"', completed.stdout)
+            self.assertNotIn('public.\\"CaseProbe\\"(text)', completed.stdout)
 
     def test_procedural_acl_side_effect_is_not_reinterpreted_statically(self) -> None:
         source = r'''
