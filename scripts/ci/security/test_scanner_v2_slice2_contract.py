@@ -150,6 +150,32 @@ AS $$ BEGIN NULL; END $$;
         self.assertIn("UNKNOWN", completed.stderr)
         self.assertNotIn('"status": "RESOLVED"', completed.stdout)
 
+    def test_matching_invoker_name_does_not_replace_missing_definer_candidate(self) -> None:
+        source = r'''
+CREATE FUNCTION public.review_probe()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY INVOKER
+AS $$ BEGIN NULL; END $$;
+
+CREATE FUNCTION public.actual_probe()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$ BEGIN NULL; END $$;
+'''
+        completed = _run_binding(
+            source,
+            [_catalog_row(oid=1751, identity="public.review_probe()", name="review_probe")],
+        )
+        # A routine name appearing in source is not enough. Only source-owned
+        # SECURITY DEFINER candidates are eligible for catalog binding. Here the
+        # matching catalog row belongs to an INVOKER routine, while the actual
+        # DEFINER candidate is absent and therefore must fail closed.
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("UNKNOWN", completed.stderr)
+        self.assertNotIn('"status": "RESOLVED"', completed.stdout)
+
     def test_ambiguous_overload_or_quoted_identity_fails_closed(self) -> None:
         source = r'''
 CREATE FUNCTION public."CaseProbe"(value integer)
