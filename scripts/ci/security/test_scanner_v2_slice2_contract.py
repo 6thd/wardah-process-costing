@@ -119,6 +119,30 @@ AS $$ BEGIN RETURN 'unguarded'; END $$;
         self.assertEqual(binding["discovery_status"], "RESOLVED")
         self.assertFalse(binding["client_callable"])
 
+    def test_contradictory_oracle_identity_fields_fail_closed(self) -> None:
+        source = r'''
+CREATE FUNCTION public.review_probe(value integer)
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+AS $$ SELECT value $$;
+'''
+        row = _catalog_row(
+            oid=118,
+            identity="public.review_probe(integer)",
+            name="review_probe",
+            client_callable=True,
+        )
+        # Preserve the independently matched catalog fields while corrupting the
+        # rendered identity that would otherwise be surfaced as ground truth.
+        row["identity"] = "public.totally_different_function(text)"
+
+        completed = _run_binding(source, [row])
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("UNKNOWN", completed.stderr)
+        self.assertNotIn('"status": "RESOLVED"', completed.stdout)
+        self.assertNotIn("totally_different_function", completed.stdout)
+
     def test_missing_catalog_object_fails_closed(self) -> None:
         source = r'''
 CREATE FUNCTION public.missing_probe()
