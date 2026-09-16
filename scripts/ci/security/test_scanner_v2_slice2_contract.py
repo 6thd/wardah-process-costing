@@ -245,6 +245,103 @@ AS $$ SELECT value $$;
             self.assertNotIn('"status": "RESOLVED"', completed.stdout)
             self.assertNotIn('public.\\"CaseProbe\\"(text)', completed.stdout)
 
+    def test_procedure_candidate_is_discovered_and_bound(self) -> None:
+        source = r'''
+CREATE PROCEDURE public.review_proc(value integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$ BEGIN NULL; END $$;
+'''
+        completed = _run_binding(
+            source,
+            [
+                _catalog_row(
+                    oid=3501,
+                    identity="public.review_proc(text)",
+                    name="review_proc",
+                    prokind="f",
+                ),
+                _catalog_row(
+                    oid=3502,
+                    identity="public.review_proc(integer)",
+                    name="review_proc",
+                    prokind="p",
+                ),
+            ],
+        )
+        payload = self._json(completed)
+        self.assertEqual(payload["status"], "RESOLVED")
+        self.assertEqual(len(payload["bindings"]), 1)
+        binding = payload["bindings"][0]
+        self.assertEqual(binding["catalog_identity"], "public.review_proc(integer)")
+        self.assertEqual(binding["catalog_oid"], 3502)
+        self.assertEqual(binding["discovery_status"], "RESOLVED")
+
+    def test_all_source_definer_candidates_are_preserved_in_handoff(self) -> None:
+        source = r'''
+CREATE FUNCTION public.closed_probe()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$ BEGIN NULL; END $$;
+
+CREATE FUNCTION public.open_probe()
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$ BEGIN NULL; END $$;
+'''
+        completed = _run_binding(
+            source,
+            [
+                _catalog_row(
+                    oid=3601,
+                    identity="public.closed_probe()",
+                    name="closed_probe",
+                    client_callable=False,
+                ),
+                _catalog_row(
+                    oid=3602,
+                    identity="public.open_probe()",
+                    name="open_probe",
+                    client_callable=True,
+                ),
+            ],
+        )
+        payload = self._json(completed)
+        self.assertEqual(payload["status"], "RESOLVED")
+        self.assertEqual(len(payload["bindings"]), 2)
+        by_identity = {binding["catalog_identity"]: binding for binding in payload["bindings"]}
+        self.assertEqual(
+            set(by_identity),
+            {"public.closed_probe()", "public.open_probe()"},
+        )
+        self.assertFalse(by_identity["public.closed_probe()"]["client_callable"])
+        self.assertTrue(by_identity["public.open_probe()"]["client_callable"])
+        self.assertEqual(by_identity["public.open_probe()"]["runtime_verdict"], "OPEN")
+
+    def test_alter_function_security_definer_is_discovered_as_modified_candidate(self) -> None:
+        source = r'''
+ALTER FUNCTION public.promoted_probe(integer) SECURITY DEFINER;
+'''
+        completed = _run_binding(
+            source,
+            [
+                _catalog_row(
+                    oid=3701,
+                    identity="public.promoted_probe(integer)",
+                    name="promoted_probe",
+                )
+            ],
+        )
+        payload = self._json(completed)
+        self.assertEqual(payload["status"], "RESOLVED")
+        self.assertEqual(len(payload["bindings"]), 1)
+        binding = payload["bindings"][0]
+        self.assertEqual(binding["catalog_identity"], "public.promoted_probe(integer)")
+        self.assertEqual(binding["catalog_oid"], 3701)
+        self.assertEqual(binding["discovery_status"], "RESOLVED")
+
     def test_procedural_acl_side_effect_is_not_reinterpreted_statically(self) -> None:
         source = r'''
 CREATE FUNCTION public.review_probe()
