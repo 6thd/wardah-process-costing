@@ -176,6 +176,36 @@ AS $$ BEGIN NULL; END $$;
         self.assertIn("UNKNOWN", completed.stderr)
         self.assertNotIn('"status": "RESOLVED"', completed.stdout)
 
+    def test_single_wrong_overload_does_not_resolve(self) -> None:
+        source = r'''
+CREATE FUNCTION public."CaseProbe"(value integer)
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+AS $$ SELECT value $$;
+'''
+        completed = _run_binding(
+            source,
+            [
+                _catalog_row(
+                    oid=1901,
+                    identity='public."CaseProbe"(text)',
+                    name="CaseProbe",
+                )
+            ],
+        )
+        # A single catalog row with matching schema/name is not proof of
+        # identity. The declared source argument type is integer, while the only
+        # catalog candidate is text, so binding must fail closed rather than
+        # silently resolving the wrong overload.
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertTrue(
+            "UNKNOWN" in completed.stderr or "AMBIGUOUS" in completed.stderr,
+            completed.stderr,
+        )
+        self.assertNotIn('"status": "RESOLVED"', completed.stdout)
+        self.assertNotIn('public.\\"CaseProbe\\"(text)', completed.stdout)
+
     def test_ambiguous_overload_or_quoted_identity_fails_closed(self) -> None:
         source = r'''
 CREATE FUNCTION public."CaseProbe"(value integer)
