@@ -138,6 +138,42 @@ FROM PUBLIC, anon, authenticated;
 SQL
 expect_closed recovered_by_final_revoke
 
+# Regression for the prior TSV boundary false-green. proconfig may contain
+# legal tabs/newlines; those bytes must remain data inside PostgreSQL JSON and
+# must not manufacture rows/columns or alter the privilege booleans.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+GRANT EXECUTE ON FUNCTION public.review_probe() TO authenticated;
+ALTER FUNCTION public.review_probe()
+SET review.note TO
+E'ok\tf\tt\tf\tt\tf\n999999\tpublic\tpadding\t\tpublic.padding()\tpostgres\tf\tt\t\tpadding';
+
+DO $$
+BEGIN
+  IF NOT has_function_privilege('authenticated', 'public.review_probe()', 'EXECUTE') THEN
+    RAISE EXCEPTION 'delimiter regression fixture did not leave authenticated EXECUTE open';
+  END IF;
+END;
+$$;
+SQL
+expect_open proconfig_delimiter_regression
+grep -Fq 'review.note=ok\tf\tt\tf\tt\tf\n999999\tpublic\tpadding\t\tpublic.padding()\tpostgres\tf\tt\t\tpadding' \
+  "$OUT_DIR/proconfig_delimiter_regression.json"
+
+# Control after removing the hostile setting: privilege state stays open and the
+# probe must still report it open, proving the result is not fixture-specific.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+ALTER FUNCTION public.review_probe() RESET review.note;
+SQL
+expect_open proconfig_reset_control
+
+# Re-close after the transport regression so the acceptance fixture exits with
+# a proven closed state rather than leaving the test database client-callable.
+psql -v ON_ERROR_STOP=1 <<'SQL'
+REVOKE EXECUTE ON FUNCTION public.review_probe()
+FROM PUBLIC, anon, authenticated;
+SQL
+expect_closed final_closed_control
+
 # Fail-hard target proof: a missing requested identity is an oracle error, not a
 # clean empty result.
 set +e
