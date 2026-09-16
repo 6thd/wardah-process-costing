@@ -174,7 +174,9 @@ def _matching_paren(text: str, open_pos: int) -> int | None:
     return None
 
 
-def _signature(statement: str, pos: int) -> tuple[str, str, str] | None:
+def _signature_with_end(
+    statement: str, pos: int
+) -> tuple[str, str, str, int] | None:
     first = _parse_identifier(statement, pos)
     if first is None:
         return None
@@ -199,7 +201,25 @@ def _signature(statement: str, pos: int) -> tuple[str, str, str] | None:
     close = _matching_paren(statement, pos)
     if close is None:
         return None
-    return schema, name, statement[pos + 1 : close].strip()
+    return schema, name, statement[pos + 1 : close].strip(), close + 1
+
+
+def _signature(statement: str, pos: int) -> tuple[str, str, str] | None:
+    parsed = _signature_with_end(statement, pos)
+    if parsed is None:
+        return None
+    schema, name, arguments, _ = parsed
+    return schema, name, arguments
+
+
+def _parse_complete_identity(identity: str) -> tuple[str, str, str] | None:
+    parsed = _signature_with_end(identity, 0)
+    if parsed is None:
+        return None
+    schema, name, arguments, end = parsed
+    if identity[end:].strip():
+        return None
+    return schema, name, arguments
 
 
 def _is_security_definer(statement: str) -> bool:
@@ -407,6 +427,21 @@ def _load_oracle(path: Path) -> list[dict[str, Any]]:
         if type(row["client_callable"]) is not bool:
             raise RuntimeError(
                 f"UNKNOWN oracle routine[{index}].client_callable must be boolean"
+            )
+
+        parsed_identity = _parse_complete_identity(row["identity"])
+        if parsed_identity is None:
+            raise RuntimeError(
+                f"UNKNOWN oracle routine[{index}].identity is malformed"
+            )
+        identity_schema, identity_name, identity_arguments = parsed_identity
+        if (
+            identity_schema != row["schema"]
+            or identity_name != row["name"]
+            or identity_arguments != row["identity_arguments"]
+        ):
+            raise RuntimeError(
+                f"UNKNOWN oracle routine[{index}] identity fields are inconsistent"
             )
     return routines
 
