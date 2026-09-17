@@ -428,19 +428,49 @@ class Slice3PolicyContract(unittest.TestCase):
                 "label": "anon_execute_only",
                 "oid": 1025,
                 "identity": "public.anon_runtime_probe()",
+                "runtime_verdict": "CLOSED",
+                "client_callable": False,
                 "anon_role_exists": True,
                 "anon_execute": True,
                 "authenticated_role_exists": True,
                 "authenticated_execute": False,
+                "with_proven_guard": False,
             },
             {
                 "label": "authenticated_execute_only",
                 "oid": 1026,
                 "identity": "public.authenticated_runtime_probe()",
+                "runtime_verdict": "CLOSED",
+                "client_callable": False,
                 "anon_role_exists": True,
                 "anon_execute": False,
                 "authenticated_role_exists": True,
                 "authenticated_execute": True,
+                "with_proven_guard": False,
+            },
+            {
+                "label": "anon_execute_without_role",
+                "oid": 1028,
+                "identity": "public.anon_missing_role_probe()",
+                "runtime_verdict": "OPEN",
+                "client_callable": True,
+                "anon_role_exists": False,
+                "anon_execute": True,
+                "authenticated_role_exists": False,
+                "authenticated_execute": False,
+                "with_proven_guard": True,
+            },
+            {
+                "label": "authenticated_execute_without_role",
+                "oid": 1029,
+                "identity": "public.authenticated_missing_role_probe()",
+                "runtime_verdict": "OPEN",
+                "client_callable": True,
+                "anon_role_exists": False,
+                "anon_execute": False,
+                "authenticated_role_exists": False,
+                "authenticated_execute": True,
+                "with_proven_guard": True,
             },
         )
         for case in cases:
@@ -448,16 +478,25 @@ class Slice3PolicyContract(unittest.TestCase):
                 binding = _binding(
                     oid=case["oid"],
                     identity=case["identity"],
-                    runtime_verdict="CLOSED",
-                    client_callable=False,
+                    runtime_verdict=case["runtime_verdict"],
+                    client_callable=case["client_callable"],
                     public_execute=False,
                     anon_role_exists=case["anon_role_exists"],
                     anon_execute=case["anon_execute"],
                     authenticated_role_exists=case["authenticated_role_exists"],
                     authenticated_execute=case["authenticated_execute"],
                 )
+                guards = _guards_doc([])
+                if case["with_proven_guard"]:
+                    guards = _guards_doc([
+                        _guard(
+                            oid=case["oid"],
+                            identity=case["identity"],
+                            status="PROVEN",
+                        )
+                    ])
                 self._assert_evidence_error(
-                    _run_policy(_bindings_doc([binding]), _guards_doc([]))
+                    _run_policy(_bindings_doc([binding]), guards)
                 )
 
     def test_proven_guard_requires_complete_nonempty_proof_metadata(self) -> None:
