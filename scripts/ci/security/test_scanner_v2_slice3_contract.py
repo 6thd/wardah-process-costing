@@ -422,6 +422,78 @@ class Slice3PolicyContract(unittest.TestCase):
             _run_policy(_bindings_doc([binding]), _guards_doc([malformed_guard]))
         )
 
+    def test_runtime_rederivation_covers_anon_and_authenticated_execute(self) -> None:
+        cases = (
+            {
+                "label": "anon_execute_only",
+                "oid": 1025,
+                "identity": "public.anon_runtime_probe()",
+                "anon_role_exists": True,
+                "anon_execute": True,
+                "authenticated_role_exists": True,
+                "authenticated_execute": False,
+            },
+            {
+                "label": "authenticated_execute_only",
+                "oid": 1026,
+                "identity": "public.authenticated_runtime_probe()",
+                "anon_role_exists": True,
+                "anon_execute": False,
+                "authenticated_role_exists": True,
+                "authenticated_execute": True,
+            },
+        )
+        for case in cases:
+            with self.subTest(label=case["label"]):
+                binding = _binding(
+                    oid=case["oid"],
+                    identity=case["identity"],
+                    runtime_verdict="CLOSED",
+                    client_callable=False,
+                    public_execute=False,
+                    anon_role_exists=case["anon_role_exists"],
+                    anon_execute=case["anon_execute"],
+                    authenticated_role_exists=case["authenticated_role_exists"],
+                    authenticated_execute=case["authenticated_execute"],
+                )
+                self._assert_evidence_error(
+                    _run_policy(_bindings_doc([binding]), _guards_doc([]))
+                )
+
+    def test_proven_guard_requires_complete_nonempty_proof_metadata(self) -> None:
+        binding = _binding(
+            oid=1027,
+            identity="public.incomplete_proven_guard_probe()",
+            runtime_verdict="OPEN",
+            client_callable=True,
+        )
+        baseline = _guard(
+            oid=1027,
+            identity="public.incomplete_proven_guard_probe()",
+            status="PROVEN",
+        )
+        mutations = {
+            "missing_guard_mechanism": ("guard_mechanism", "missing"),
+            "null_guard_mechanism": ("guard_mechanism", None),
+            "empty_guard_mechanism": ("guard_mechanism", ""),
+            "missing_evidence_location": ("evidence_location", "missing"),
+            "null_evidence_location": ("evidence_location", None),
+            "empty_evidence_location": ("evidence_location", ""),
+            "missing_proof_class": ("proof_class", "missing"),
+            "null_proof_class": ("proof_class", None),
+            "empty_proof_class": ("proof_class", ""),
+        }
+        for label, (field, value) in mutations.items():
+            with self.subTest(label=label):
+                guard = copy.deepcopy(baseline)
+                if value == "missing":
+                    del guard[field]
+                else:
+                    guard[field] = value
+                self._assert_evidence_error(
+                    _run_policy(_bindings_doc([binding]), _guards_doc([guard]))
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
