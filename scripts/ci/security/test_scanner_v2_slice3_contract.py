@@ -323,6 +323,105 @@ class Slice3PolicyContract(unittest.TestCase):
                 evidence.update(mutation)
                 self._assert_evidence_error(_run_policy(evidence, _guards_doc([])))
 
+    def test_guard_proof_is_oid_scoped_even_when_identity_is_identical(self) -> None:
+        old_target = _binding(
+            oid=1019,
+            identity="public.recreated_probe()",
+            runtime_verdict="OPEN",
+            client_callable=True,
+        )
+        new_target = _binding(
+            oid=1020,
+            identity="public.recreated_probe()",
+            runtime_verdict="OPEN",
+            client_callable=True,
+        )
+        stale_guard = _guard(
+            oid=1019,
+            identity="public.recreated_probe()",
+            status="PROVEN",
+        )
+        completed = _run_policy(
+            _bindings_doc([old_target, new_target]),
+            _guards_doc([stale_guard]),
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        payload = self._payload(completed)
+        by_oid = {target["catalog_oid"]: target for target in payload["targets"]}
+        self.assertEqual(payload["overall_status"], "FAIL")
+        self.assertEqual(by_oid[1019]["policy_status"], "PASS_GUARDED")
+        self.assertEqual(by_oid[1020]["policy_status"], "FAIL_UNKNOWN")
+
+    def test_duplicate_binding_oid_is_rejected(self) -> None:
+        closed = _binding(
+            oid=1021,
+            identity="public.duplicate_binding_closed_probe()",
+            runtime_verdict="CLOSED",
+            client_callable=False,
+            public_execute=False,
+            authenticated_execute=False,
+        )
+        opened = _binding(
+            oid=1021,
+            identity="public.duplicate_binding_open_probe()",
+            runtime_verdict="OPEN",
+            client_callable=True,
+        )
+        self._assert_evidence_error(
+            _run_policy(_bindings_doc([closed, opened]), _guards_doc([]))
+        )
+
+    def test_nonresolved_discovery_status_fails_even_with_populated_oid(self) -> None:
+        binding = _binding(
+            oid=1022,
+            identity="public.ambiguous_binding_probe()",
+            runtime_verdict="OPEN",
+            client_callable=True,
+            discovery_status="AMBIGUOUS",
+        )
+        self._assert_evidence_error(
+            _run_policy(_bindings_doc([binding]), _guards_doc([]))
+        )
+
+    def test_proven_guard_cannot_bypass_runtime_contradiction(self) -> None:
+        binding = _binding(
+            oid=1023,
+            identity="public.guarded_contradictory_runtime_probe()",
+            runtime_verdict="CLOSED",
+            client_callable=False,
+            public_execute=True,
+            authenticated_execute=False,
+        )
+        guard = _guard(
+            oid=1023,
+            identity="public.guarded_contradictory_runtime_probe()",
+            status="PROVEN",
+        )
+        self._assert_evidence_error(
+            _run_policy(_bindings_doc([binding]), _guards_doc([guard]))
+        )
+
+    def test_closed_target_still_validates_present_guard_evidence(self) -> None:
+        binding = _binding(
+            oid=1024,
+            identity="public.closed_with_bad_guard_probe()",
+            runtime_verdict="CLOSED",
+            client_callable=False,
+            public_execute=False,
+            authenticated_execute=False,
+        )
+        malformed_guard = _guard(
+            oid=1024,
+            identity="public.closed_with_bad_guard_probe()",
+            status="ABSENT",
+            mechanism="wardah.assert_permission",
+            location="migration.sql:144",
+            proof_class="authorization-boundary-v1",
+        )
+        self._assert_evidence_error(
+            _run_policy(_bindings_doc([binding]), _guards_doc([malformed_guard]))
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
