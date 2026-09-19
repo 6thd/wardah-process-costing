@@ -477,12 +477,138 @@ def has_call(tokens: list[Token]) -> bool:
 SAFE_OPERATORS = {";", ",", ".", "(", ")", ":=", "<<", ">>"}
 
 
-def is_effectless(tokens: list[Token]) -> bool:
+BOOLEAN_WORDS = {"IS", "AND", "OR", "NOT", "NULL", "TRUE", "FALSE"}
+CONDITIONAL_HEADS = {"IF", "ELSIF", "WHILE"}
+
+
+def _split_on_semicolons(tokens: list[Token]) -> list[list[Token]]:
+    groups: list[list[Token]] = []
+    current: list[Token] = []
+    for token in tokens:
+        if token.text == ";":
+            if current:
+                groups.append(current)
+            current = []
+            continue
+        current.append(token)
+    if current:
+        groups.append(current)
+    return groups
+
+
+def expression_type(
+    masked: Masked, tokens: list[Token], scope: dict[str, str]
+) -> str | None:
+    """The type of an expression, for the few shapes that have a knowable one.
+
+    ``unknown`` is PostgreSQL's own name for an untyped literal, which is
+    parsed as the target type rather than converted into it.
+    """
+    tokens = _strip_parens(tokens)
+    if not tokens:
+        # Everything was masked away, so the expression was a literal.
+        return "unknown"
+    if len(tokens) == 1:
+        token = tokens[0]
+        if token.kind == "num":
+            return "integer"
+        if token.kind != "word":
+            return None
+        upper = token.upper
+        if upper in ("TRUE", "FALSE"):
+            return "boolean"
+        if upper == "NULL":
+            return "unknown"
+        return scope.get(_ascii_lower(token.text))
+    if not any(
+        t.kind == "word" and t.upper in ("IS", "AND", "OR", "NOT")
+        for t in tokens
+    ):
+        return None
+    for token in tokens:
+        if token.kind != "word" or token.upper in BOOLEAN_WORDS:
+            continue
+        if _ascii_lower(token.text) not in scope:
+            return None
+    return "boolean"
+
+
+def _conversion_free(
+    masked: Masked,
+    target: str | None,
+    source: list[Token],
+    scope: dict[str, str],
+) -> bool:
+    """No cast to invoke means no function to run before the boundary."""
+    if target is None:
+        return False
+    produced = expression_type(masked, source, scope)
+    if produced is None:
+        return False
+    return produced == "unknown" or produced == target
+
+
+def declaration_parts(
+    masked: Masked, tokens: list[Token]
+) -> tuple[str | None, str | None, list[Token]]:
+    """``name type [:= initializer]`` for one declaration."""
+    if not tokens or tokens[0].kind != "word":
+        return None, None, []
+    name = _ascii_lower(tokens[0].text)
+    assign: int | None = None
+    for index, token in enumerate(tokens):
+        if token.text == ":=" or (
+            token.kind == "word" and token.upper == "DEFAULT"
+        ):
+            assign = index
+            break
+    type_tokens = tokens[1:assign] if assign is not None else tokens[1:]
+    if not type_tokens:
+        return name, None, []
+    raw = masked.text[type_tokens[0].start : type_tokens[-1].end]
+    return (
+        name,
+        _ascii_lower(" ".join(raw.split())),
+        tokens[assign + 1 :] if assign is not None else [],
+    )
+
+
+def _condition_of(tokens: list[Token]) -> list[Token] | None:
+    """The condition of a conditional statement, if this is one."""
+    index = 0
+    if tokens and tokens[0].text == "<<":
+        while index < len(tokens) and tokens[index].text != ">>":
+            index += 1
+        index += 1
+    if index >= len(tokens) or tokens[index].kind != "word":
+        return None
+    if tokens[index].upper not in CONDITIONAL_HEADS:
+        return None
+    condition: list[Token] = []
+    for token in tokens[index + 1 :]:
+        if token.kind == "word" and token.upper in ("THEN", "LOOP"):
+            return condition
+        condition.append(token)
+    return None
+
+
+def is_effectless(
+    masked: Masked,
+    tokens: list[Token],
+    scope: dict[str, str] | None = None,
+) -> bool:
     """Proven effectless, not merely free of ``name(...)``.
 
     An allowlist: an effect keyword, a call, or any operator beyond plain
     punctuation leaves the span unproven. A VOLATILE function reached through
     an operator or a cast runs just as surely as one reached through a call.
+
+    With a scope, conversions count too. PostgreSQL applies an assignment
+    cast when a value is assigned to a differently typed target and an
+    implicit cast when an expression is used where another type is expected;
+    either may be declared WITH FUNCTION, so a conversion is a call with no
+    operator in the text. A conversion that cannot be shown to be absent
+    leaves the span unproven.
     """
     for index, token in enumerate(tokens):
         if token.kind in ("num", "qident"):
@@ -501,6 +627,21 @@ def is_effectless(tokens: list[Token]) -> bool:
         if token.text in SAFE_OPERATORS:
             continue
         return False
+
+    if scope is None:
+        return True
+
+    condition = _condition_of(tokens)
+    if condition is not None:
+        if expression_type(masked, condition, scope) != "boolean":
+            return False
+
+    for index, token in enumerate(tokens):
+        if token.text != ":=":
+            continue
+        name, declared, _ = declaration_parts(masked, tokens[:index])
+        target = declared if declared else scope.get(name or "")
+        return _conversion_free(masked, target, tokens[index + 1 :], scope)
     return True
 
 
@@ -1048,21 +1189,11 @@ def parse_parameters(arguments: str) -> dict[str, str]:
 
 def parse_declarations(masked: Masked, tokens: list[Token]) -> dict[str, str]:
     scope: dict[str, str] = {}
-    current: list[Token] = []
-    for token in tokens:
-        if token.text == ";":
-            _record_declaration(current, scope)
-            current = []
-            continue
-        current.append(token)
-    _record_declaration(current, scope)
+    for declaration in _split_on_semicolons(tokens):
+        name, declared, _ = declaration_parts(masked, declaration)
+        if name and declared:
+            scope[name] = declared
     return scope
-
-
-def _record_declaration(tokens: list[Token], scope: dict[str, str]) -> None:
-    words = [t for t in tokens if t.kind == "word"]
-    if len(words) >= 2:
-        scope[_ascii_lower(words[0].text)] = _fold_identifier(words[1].text)
 
 
 # ---------------------------------------------------------------------------
@@ -1239,7 +1370,10 @@ def analyse_body(
         handler_can_catch(masked, condition)
         for condition in block.handler_conditions
     )
-    declarations_clean = is_effectless(block.declarations)
+    declarations_clean = all(
+        is_effectless(masked, declaration, scope)
+        for declaration in _split_on_semicolons(block.declarations)
+    )
 
     ambiguous = any(
         candidate.schema is None for candidate in all_candidates
@@ -1275,7 +1409,7 @@ def _prove_statement(
         return None
     if handlers_catch:
         return None
-    if not _reachable(masked, block, position):
+    if not _reachable(masked, block, position, scope):
         return None
 
     head = _head_word(statement)
@@ -1286,7 +1420,12 @@ def _prove_statement(
     return None
 
 
-def _reachable(masked: Masked, block: Block, position: int) -> bool:
+def _reachable(
+    masked: Masked,
+    block: Block,
+    position: int,
+    scope: dict[str, str],
+) -> bool:
     """Every earlier outer-level statement must leave the guard reachable."""
     for earlier in block.statements[:position]:
         if _contains_return(earlier):
@@ -1295,7 +1434,7 @@ def _reachable(masked: Masked, block: Block, position: int) -> bool:
             return False
         if _exits_label(masked, earlier, block.label):
             return False
-        if not is_effectless(earlier):
+        if not is_effectless(masked, earlier, scope):
             return False
     return True
 
@@ -1370,7 +1509,11 @@ def _prove_boolean(
             # Another term of the same condition is evaluated around the
             # membership boundary, and SQL does not guarantee which operand
             # of an OR runs first.
-            if not is_effectless(stripped):
+            if not is_effectless(masked, stripped, scope):
+                return None
+            if expression_type(masked, stripped, scope) != "boolean":
+                # Used where a boolean is expected, so PostgreSQL may reach
+                # an implicit cast function to evaluate it.
                 return None
             continue
         if len(inner) != 1:
