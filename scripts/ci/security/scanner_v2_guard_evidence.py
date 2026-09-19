@@ -520,17 +520,60 @@ def expression_type(
         if upper == "NULL":
             return "unknown"
         return scope.get(_ascii_lower(token.text))
-    if not any(
-        t.kind == "word" and t.upper in ("IS", "AND", "OR", "NOT")
-        for t in tokens
-    ):
-        return None
+    return "boolean" if _is_boolean(masked, tokens, scope) else None
+
+
+def _split_top_level(tokens: list[Token], word: str) -> list[list[Token]]:
+    parts: list[list[Token]] = []
+    current: list[Token] = []
+    depth = 0
     for token in tokens:
-        if token.kind != "word" or token.upper in BOOLEAN_WORDS:
+        if token.text == "(":
+            depth += 1
+        elif token.text == ")":
+            depth -= 1
+        if depth == 0 and token.kind == "word" and token.upper == word:
+            parts.append(current)
+            current = []
             continue
-        if _ascii_lower(token.text) not in scope:
-            return None
-    return "boolean"
+        current.append(token)
+    parts.append(current)
+    return parts
+
+
+def _is_boolean(
+    masked: Masked, tokens: list[Token], scope: dict[str, str]
+) -> bool:
+    """Whether this expression is boolean WITHOUT a conversion.
+
+    An operand that is not already boolean would have to be coerced into one,
+    and an AS IMPLICIT cast may be function-backed, so a compound is boolean
+    only when every operand is. ``IS [NOT] NULL`` is the exception: it applies
+    to any type and converts nothing.
+    """
+    tokens = _strip_parens(tokens)
+    if not tokens:
+        return False
+    for connective in ("OR", "AND"):
+        parts = _split_top_level(tokens, connective)
+        if len(parts) > 1:
+            return all(_is_boolean(masked, part, scope) for part in parts)
+    if tokens[0].kind == "word" and tokens[0].upper == "NOT":
+        return _is_boolean(masked, tokens[1:], scope)
+    depth = 0
+    for index, token in enumerate(tokens):
+        if token.text == "(":
+            depth += 1
+        elif token.text == ")":
+            depth -= 1
+        elif depth == 0 and token.kind == "word" and token.upper == "IS":
+            rest = [t.upper for t in tokens[index + 1 :] if t.kind == "word"]
+            return rest in (["NULL"], ["NOT", "NULL"])
+    if len(tokens) != 1 or tokens[0].kind != "word":
+        return False
+    if tokens[0].upper in ("TRUE", "FALSE"):
+        return True
+    return scope.get(_ascii_lower(tokens[0].text)) == "boolean"
 
 
 def _conversion_free(
@@ -539,13 +582,18 @@ def _conversion_free(
     source: list[Token],
     scope: dict[str, str],
 ) -> bool:
-    """No cast to invoke means no function to run before the boundary."""
+    """No cast to invoke means no function to run before the boundary.
+
+    An untyped literal is deliberately NOT treated as conversion-free. Its own
+    type being unnamed says nothing about what reaching the target costs: for
+    a custom type or a domain it still passes through that type's own input
+    and coercion machinery, which this slice has no evidence about. Requiring
+    the types to agree is conservative -- it withholds proof from a plain
+    ``v_t text := 'abc';`` too -- and it cannot produce a false PROVEN.
+    """
     if target is None:
         return False
-    produced = expression_type(masked, source, scope)
-    if produced is None:
-        return False
-    return produced == "unknown" or produced == target
+    return expression_type(masked, source, scope) == target
 
 
 def declaration_parts(
@@ -637,7 +685,9 @@ def is_effectless(
             return False
 
     for index, token in enumerate(tokens):
-        if token.text != ":=":
+        if token.text != ":=" and not (
+            token.kind == "word" and token.upper == "DEFAULT"
+        ):
             continue
         name, declared, _ = declaration_parts(masked, tokens[:index])
         target = declared if declared else scope.get(name or "")
